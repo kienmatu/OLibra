@@ -1,3 +1,10 @@
+# Temporary files. Everything except the README that documents the convention.
+/.artifacts/*
+!/.artifacts/README.md
+
+# Git worktrees live inside the project, never beside it.
+/.worktrees/
+
 /node_modules
 /public/build
 /public/hot
