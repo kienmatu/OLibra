@@ -12,11 +12,11 @@ Write to the subdirectory that matches what the file *is*, not which tool produc
 |---|---|
 | `scratch/` | Throwaway working files. Anything with no other home. Assume it is deleted the moment you stop looking at it. |
 | `logs/` | Captured command output, dev server logs, deploy transcripts. |
-| `coverage/` | Pest and Vitest coverage reports, HTML and Clover. |
+| `coverage/` | Test coverage reports, HTML and lcov. |
 | `exports/` | Generated CSV and Excel exports produced while testing the export feature. |
 | `screenshots/` | UI screenshots and visual comparisons. |
 | `db/` | Local database dumps and seed snapshots. **Never a production dump** — see below. |
-| `reports/` | PHPStan baselines under review, profiling output, dependency audits. |
+| `reports/` | Type-check and lint output under review, profiling results, dependency audits. |
 
 Deeper nesting is fine where it helps: `logs/deploy/2026-08-06.log` beats twenty files in one directory.
 

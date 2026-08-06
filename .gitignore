@@ -5,26 +5,40 @@
 # Git worktrees live inside the project, never beside it.
 /.worktrees/
 
+# Dependencies
 /node_modules
-/public/build
-/public/hot
-/public/storage
-/storage/*.key
-/storage/pail
-/vendor
+.pnp
+.pnp.*
+
+# Build output
+/.next/
+/out/
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# Vercel
+.vercel
+
+# Environment. .env.example is committed and documents every variable;
+# real values never are.
 .env
+.env.local
+.env.*.local
 .env.backup
 .env.production
-.phpactor.json
-.phpunit.result.cache
-Homestead.json
-Homestead.yaml
-npm-debug.log
-yarn-error.log
+
+# Test output
+/coverage
+/playwright-report
+/test-results
+
+# Editors and OS
 /.fleet
 /.idea
 /.nova
 /.vscode
 /.zed
 .DS_Store
-auth.json
+npm-debug.log*
+yarn-error.log*
