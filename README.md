@@ -10,33 +10,39 @@ OLibra is built for a church or community bookshelf holding on the order of a hu
 - **Managers** record lending and returning, assess book condition, approve new readers, and moderate comments.
 - **A super administrator** oversees several bookshelves in different places, delegates them to local managers, and can review everything each manager has done.
 
-One deployment hosts many bookshelves: `/portal/dongthap`, `/portal/cantho`, and so on.
+One deployment hosts many bookshelves, each reached by its own slug.
 
-## Stack
+## Status
 
-| Layer | Choice |
+**Pre-implementation, restarting.** The business requirements are settled and complete. The technical design is being rebuilt from scratch on a new stack; no application code exists yet.
+
+| Target | Choice |
 |---|---|
-| Backend | Laravel 12, PHP 8.4, MySQL |
-| Frontend | Inertia.js 2, React 19, TypeScript, Vite |
-| Styling | TailwindCSS, shadcn/ui |
-| Editor | Tiptap (lazy-loaded) |
-| Hosting | cPanel shared hosting — no Node runtime in production |
+| Application | Next.js |
+| Hosting | Vercel |
+| Database | Neon (Postgres) |
 | Language | Vietnamese first, internationalisation-ready |
+
+Nothing else is decided. UI design comes first; the technical design follows the screens, not the other way round.
 
 ## Documentation
 
 | Document | Purpose |
 |---|---|
-| [Master design specification](docs/superpowers/specs/2026-08-06-olibra-design.md) | The authority on what to build and why: domain model, database design, architecture, UX and UI, permissions, roadmap. |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the system is put together and how requests, borrowing, returning, approval, auditing and notifications flow through it. |
-| [AGENTS.md](AGENTS.md) | Conventions for AI agents and engineers: coding standards, naming, folder structure, testing, definition of done. |
-| [RULES.md](RULES.md) | Non-negotiable constraints. Read before writing code. |
+| [BUSINESS-REQUIREMENTS.md](docs/BUSINESS-REQUIREMENTS.md) | The authority on what the product does and why. Stack-independent: domain model, business rules, state machines, permissions, UX, roadmap. |
+| [DESIGN.md](docs/DESIGN.md) | The visual language — colour, type, shape, components, navigation. |
 
-## Status
+## History
 
-Pre-implementation. The design is complete and approved; no application code has been written yet.
+Earlier work targeted Laravel on shared hosting. That design is complete and preserved in git tags rather than in the working tree:
 
-Delivery is planned in three phases. Phase 1 — the core lending loop — is a useful product on its own, so the volunteers gain something better than paper even if the project goes no further.
+| Tag | Contents |
+|---|---|
+| `v0.1.0-laravel-blueprint` | Initial Laravel 12 + Inertia blueprint |
+| `v0.2.0-laravel-phase1-plan` | Laravel Phase 1 implementation plan |
+| `v0.3.0-laravel-master-spec` | Full Laravel master specification, architecture, agent conventions and rules |
+
+Everything of lasting value from that work — the domain model, the twelve business rules, the state machines, the UX — carried forward into `BUSINESS-REQUIREMENTS.md`. What was dropped was Laravel-specific: folder structures, Eloquent patterns, cPanel deployment, and the constraints of a host with no Node runtime.
 
 ## Licence
 
