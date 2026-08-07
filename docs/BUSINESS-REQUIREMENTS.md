@@ -56,7 +56,7 @@ Multi-tenancy is present from the first day of data, so later phases add feature
 
 **Phase 1 — the core loop.** Books and copies, readers and registration approval, lending and returning with condition assessment, the audit log, the manager dashboard, the public catalogue and search, plus two refinements that complete circulation rather than extend it: reporting a book lost as a second entry point out of receiving a return, and the lost-copies view that gives `lost → available` (§7.1) a screen to actually happen on. A single bookshelf, but stored as one tenant among many. Donor provenance on a copy — the member link alongside the existing free-text name (§5.4) — lands in this phase too, even though the reader-facing screen for offering a donation does not: the schema is written once, so provenance is recorded from the first row of data rather than reconstructed afterwards.
 
-**Phase 2 — community.** Borrow requests, holds, the waiting queue, comments and moderation, announcements, feedback, statistics, and the reader-facing **Tặng sách** screen with its manager-side donation queue (§7 BookDonation).
+**Phase 2 — community.** Borrow requests, holds, the waiting queue, comments and moderation, announcements, feedback, statistics, and the reader-facing **Tặng sách** screen with its manager-side donation queue (§7.7 BookDonation).
 
 **Phase 3 — the network.** The portal directory, multiple bookshelves, super-admin tooling, cross-shelf statistics, per-manager audit views.
 
@@ -414,13 +414,13 @@ Roles are hierarchical within a shelf: `admin` ⊃ `manager` ⊃ `reader`. A per
 
 ### 13.2 Permission set
 
-**Catalogue** — view any book, view a book, create, update, delete; create copy, update copy, retire copy, report copy lost, assess condition.
+**Catalogue** — view any book, view a book, create, update, delete; create copy, update copy, retire copy, report copy lost, mark copy found, assess condition.
 
 **Circulation** — view any loan, view own loans, create loan, receive return, renew own loan, void loan; create request, view any request, view own requests, approve, reject, hand over, cancel own.
 
 **Members** — view any, view one, approve, reject, suspend, create, register on behalf, set or change credentials, approve or reject a profile change.
 
-**Community** — create comment, moderate comments, manage announcements, view feedback, resolve feedback, offer donation, view donation queue, receive donation, decline donation.
+**Community** — create comment, moderate comments, manage announcements, view feedback, resolve feedback, offer donation, view own donations, view donation queue, receive donation, decline donation.
 
 **Oversight** — view statistics, view statistics across all shelves, view audit log, view audit log across all shelves, run export.
 

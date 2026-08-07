@@ -33,6 +33,8 @@ erDiagram
     USERS        ||--o{ AUDIT_LOG     : "acted in"
     USERS        ||--o{ PROFILE_CHANGE_REQUESTS : proposes
     BOOKSHELVES  ||--o{ PROFILE_CHANGE_REQUESTS : "manager decides"
+    MEMBERSHIPS  ||--o{ BOOK_DONATIONS : offers
+    BOOKSHELVES  ||--o{ BOOK_DONATIONS : scopes
 
     BOOKSHELVES {
         uuid id PK
@@ -64,6 +66,7 @@ erDiagram
         text code UK "DT-0142, unique per shelf"
         enum state "available, held, on_loan, lost, retired"
         enum condition "the six grades"
+        uuid acquired_from_membership_id FK "donor with an account; nullable"
     }
     LOANS {
         uuid id PK
@@ -98,6 +101,12 @@ erDiagram
         jsonb proposed_values "the change on offer"
         jsonb previous_values "what it was when proposed"
         enum status "pending, approved, rejected, cancelled"
+    }
+    BOOK_DONATIONS {
+        uuid id PK
+        uuid donor_membership_id FK
+        enum status "pending, received, declined"
+        text description
     }
 ```
 
@@ -507,7 +516,7 @@ create table book_copies (
 
 `on delete cascade` from `books` is the one cascade in the schema, and it is deliberate: §5.2 says a copy has no meaning without its title, and §11 says only a book's copies follow it when the book goes. A book with loan history cannot be deleted anyway — the loan's foreign key restricts it.
 
-**`acquired_from_membership_id` sits beside `acquired_from`, not in place of it.** A donor with no account — a family that hands a bag of books to a volunteer after mass and never registers — must still be recordable, so the free-text name stays exactly as it was. Where the donor *is* a member, chosen from a search rather than typed, the new column makes that a real foreign key instead of a name that happens to match: a manager reading a copy's history years later sees an actual person's record, not a string that could have drifted out of sync with a since-changed name. This is the same member-or-outsider shape `feedback` already uses for `member_id` alongside `guest_name`/`guest_contact` (§4.8) — nullable, and for the same reason: the alternative was either forcing every donor to register before a manager could log a gift, or losing the link the one time it happens to be available. No explicit `on delete` clause is needed, unlike `category_id`'s `set null` above: a membership is never hard-deleted (§11), so the column's restrict-like default never actually has to fire.
+**`acquired_from_membership_id` sits beside `acquired_from`, not in place of it.** A donor with no account — a family that hands a bag of books to a volunteer after mass and never registers — must still be recordable, so the free-text name stays exactly as it was. Where the donor *is* a member, chosen from a search rather than typed, the new column makes that a real foreign key instead of a name that happens to match: a manager reading a copy's history years later sees an actual person's record, not a string that could have drifted out of sync with a since-changed name. This is the same member-or-outsider *shape* `feedback` already uses for `member_id` alongside `guest_name`/`guest_contact` (§4.8) — nullable, and for the same reason: the alternative was either forcing every donor to register before a manager could log a gift, or losing the link the one time it happens to be available. The *target* differs, though: `feedback.member_id` points at `users(id)`, a global sender, while this column points at `memberships(id)` — this shelf's relationship to the donor. See the note in §4.8 for why the two new donor columns this refinement adds deliberately point at `memberships`, not `users`. No explicit `on delete` clause is needed, unlike `category_id`'s `set null` above: a membership is never hard-deleted (§11), so the column's restrict-like default never actually has to fire.
 
 **The copy has one `state` column, and that is what enforces INV-2.** A copy cannot be simultaneously held and on loan because it cannot hold two values. Modelling this as two booleans would make the impossible state representable, and something would eventually represent it.
 
@@ -693,9 +702,9 @@ create table feedback (
 create type donation_status as enum ('pending', 'received', 'declined');
 
 create table book_donations (
-  id              uuid primary key default gen_random_uuid(),
-  bookshelf_id    uuid not null references bookshelves(id) on delete restrict,
-  member_id       uuid not null references users(id)       on delete restrict,
+  id                   uuid primary key default gen_random_uuid(),
+  bookshelf_id         uuid not null references bookshelves(id) on delete restrict,
+  donor_membership_id  uuid not null references memberships(id) on delete restrict,
 
   description     text not null,             -- free text; a child does not know an ISBN
   photo_url       text,
@@ -718,7 +727,9 @@ create index book_donations_queue on book_donations (bookshelf_id, created_at)
   where status = 'pending';
 ```
 
-`member_id` is `not null`: offering a donation requires signing in, so there is no `guest_name`/`guest_contact` pair the way `feedback` carries for an anonymous sender. This is the same shape `borrow_requests.member_id` already uses now that guest borrow requests are gone (§4.6) — not the member-or-outsider shape of `book_copies.acquired_from_membership_id` (§4.4), because that column has to accommodate a donor with no account at all, and this one never does.
+`donor_membership_id` is `not null`: offering a donation requires signing in, so there is no `guest_name`/`guest_contact` pair the way `feedback` carries for an anonymous sender. It points at `memberships(id)`, not `users(id)` — the same target as `book_copies.acquired_from_membership_id` (§4.4), and named to match: both record a person's relationship to *this* shelf, not a global identity. See the note below for why that is a deliberate departure from the person-columns already in this schema.
+
+**Both of this refinement's new person-columns point at `memberships(id)`, and that is a deliberate difference from the columns already in this schema.** `feedback.member_id`, `comments.author_id`, `borrow_requests.member_id` and `audit_log.actor_id` all reference `users(id)`, because what each of them needs is a global identity — a comment's author, an audit event's actor, a feedback sender are the same fact regardless of which shelf is asking. `book_copies.acquired_from_membership_id` and `book_donations.donor_membership_id` record something narrower: a person's relationship to *this specific* shelf, which is exactly the fact `memberships` exists to hold (§5.3 of the requirements). So they point there instead. This does not touch any of the older columns — they keep referencing `users(id)`, unchanged.
 
 `book_donations_declined_has_reason` mirrors `memberships_rejected_has_reason` (§4.1) and `profile_change_requests_rejected_has_reason` (§4.11): a decline without a reason leaves the donor with no idea why.
 

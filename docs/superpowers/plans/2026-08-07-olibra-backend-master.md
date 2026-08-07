@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement the per-slice plans this document indexes. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the merged fixture-driven UI into a working system — 46 queries and 60 commands over PostgreSQL, enforcing fourteen named business rules — without changing a single screen's URL or visible behaviour.
+**Goal:** Turn the merged fixture-driven UI into a working system — 46 queries and 61 commands over PostgreSQL, enforcing fourteen named business rules — without changing a single screen's URL or visible behaviour.
 
 **Architecture:** Four layers with inward-only dependencies (SDD §3.1). `src/domain/` holds every rule and imports no framework; `src/db/` owns transactions, Row Level Security and migrations; `src/app/` is Next.js and may call the domain but never SQL. Every command is one transaction containing both its state change and its audit record.
 
@@ -139,7 +139,7 @@ donation queue (`OfferDonation`, `ReceiveDonation`, `DeclineDonation`,
 announcements, and are the only operations this revision actually adds to the
 count below.
 
-Roughly **29 of the 60 commands and 25 of the 46 queries** — just over half
+Roughly **29 of the 61 commands and 25 of the 46 queries** — just over half
 the catalogue, and all four foundation slices in full.
 
 ### What is deferred, and what that costs
@@ -204,7 +204,7 @@ it.
 
 ### 2.3 Not blocked by anything — start whenever
 
-- **X1 · Vietnamese string catalogue.** Pure data extraction from the 42 built screens. No database, no domain.
+- **X1 · Vietnamese string catalogue.** Pure data extraction from the 47 built screens. No database, no domain.
 - **X2 · CI pipeline.** `bun run check`, `docker build --target smoke`, and the invariant suite once S0 exists.
 - **B5 · Object storage adapter.** Depends on S2 only for the error taxonomy. Genuinely independent of every domain rule.
 
@@ -321,7 +321,7 @@ These are blocked on **you**, not on code. Each has a slice waiting on it. I hav
 | Q4 | **May a suspended reader renew?** INV-4 blocks *new* loans and protects existing ones. Renewal extends an existing loan — arguably not new. | C3 | Allowed. | Low. One predicate, one test. |
 | Q5 | **Is running a CSV export an audited event?** It changes nothing, so it is a query — but it reads every child's name, DOB and phone in bulk. BR §14 does not cover it. | D2 | **Audit it.** An entry is cheap; the question "who pulled the children's data" is not one to be unable to answer. | Low. |
 | Q6 | **Is `RegisterMembership` rate-limited?** `SubmitFeedback` is (3/phone/day). Public registration is an open unauthenticated form that writes a row, and nothing says. | B2 | Not domain-limited; handled at the edge. | Low. |
-| Q7 | **Where does `DeleteBook` live in the UI?** Required by BR §13.2/§11; no screen among the 42 exposes it. (`AddCopies` was in this row and is now resolved — "Thêm bản" on the manager's book detail page.) | B1 | Implement the command; leave it unexposed until a delete-confirmation flow is designed. | Low. |
+| Q7 | **Where does `DeleteBook` live in the UI?** Required by BR §13.2/§11; no screen among the 47 exposes it. (`AddCopies` was in this row and is now resolved — "Thêm bản" on the manager's book detail page.) | B1 | Implement the command; leave it unexposed until a delete-confirmation flow is designed. | Low. |
 
 | Q8 | **Who proposes a profile change for a reader who cannot sign in?** `ProposeProfileChange`'s caller is `reader` (self only), and BR §2 makes credentials optional precisely because most readers are children who will never sign in. No manager-edit command exists either, so a family that moves house has no path to a corrected phone number — the number BR §16.3 calls "the actual mechanism by which books come back". | B2 | A manager may propose on a member's behalf, producing a request another manager approves — keeping INV-13's audit trail intact rather than adding a silent edit. | **Medium, and it is Phase 1.** Unlike Q1–Q7 this is a hole in the flow rather than an ambiguity in it. |
 
@@ -485,7 +485,7 @@ INV-3's test needs the case that distinguishes `HandoverRequest` from `LendCopy`
 
 **Files:** `src/i18n/vi.ts`, `tests/i18n/no-hardcoded-strings.test.ts`.
 
-**Acceptance:** every user-facing string in the 42 built screens resolves from the catalogue (G7); every named error code in OPS §4 has its exact Vietnamese sentence (G8) — the test asserts the two sets are in bijection, so an error code with no message and a message with no code both fail.
+**Acceptance:** every user-facing string in the 47 built screens resolves from the catalogue (G7); every named error code in OPS §4 has its exact Vietnamese sentence (G8) — the test asserts the two sets are in bijection, so an error code with no message and a message with no code both fail.
 
 **Blocked by:** nothing. **Start immediately.**
 
