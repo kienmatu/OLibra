@@ -23,19 +23,19 @@ export function Field({
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={htmlFor} className="text-[17px] font-medium">
+        <label htmlFor={htmlFor} className="text-[16px] font-medium">
           {label}
         </label>
         {required ? (
-          <span className="rounded-control bg-paper px-1.5 py-0.5 text-[13px] font-medium text-leather">
+          <span className="rounded-control bg-paper px-1.5 py-0.5 text-[12px] font-medium text-leather">
             Bắt buộc
           </span>
         ) : null}
       </div>
-      {hint ? <p className="text-[15px] text-meta">{hint}</p> : null}
+      {hint ? <p className="text-[14px] text-meta">{hint}</p> : null}
       {children}
       {error ? (
-        <p className="flex items-center gap-1.5 text-[15px] text-brick">
+        <p className="flex items-center gap-1.5 text-[14px] text-brick">
           <AlertCircle aria-hidden className="size-[18px]" strokeWidth={1.75} />
           {error}
         </p>
@@ -45,7 +45,7 @@ export function Field({
 }
 
 const CONTROL =
-  "h-12 w-full rounded-control border border-hairline bg-surface px-3.5 text-[17px] " +
+  "h-12 w-full rounded-control border border-hairline bg-surface px-3.5 text-[16px] " +
   "placeholder:text-meta/70 focus:border-terracotta focus:outline-none " +
   "focus-visible:outline-2 focus-visible:outline-terracotta focus-visible:outline-offset-0";
 
@@ -85,7 +85,7 @@ export function Textarea({
   return (
     <textarea
       className={cn(
-        "w-full rounded-control border border-hairline bg-surface px-3.5 py-3 text-[17px]",
+        "w-full rounded-control border border-hairline bg-surface px-3.5 py-3 text-[16px]",
         "placeholder:text-meta/70 focus:border-terracotta focus:outline-none",
         className,
       )}
@@ -116,10 +116,10 @@ export function ReadOnlyValue({
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="flex h-12 items-center rounded-control border border-hairline bg-paper px-3.5 text-[17px] text-ink/80">
+      <div className="flex h-12 items-center rounded-control border border-hairline bg-paper px-3.5 text-[16px] text-ink/80">
         {children}
       </div>
-      {note ? <p className="text-[15px] text-meta">{note}</p> : null}
+      {note ? <p className="text-[14px] text-meta">{note}</p> : null}
     </div>
   );
 }

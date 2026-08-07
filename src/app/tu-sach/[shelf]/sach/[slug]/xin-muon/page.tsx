@@ -38,16 +38,16 @@ export default async function GuestRequestPage({
           <div className="flex items-center gap-3 rounded-control bg-paper p-3">
             <BookCover title={book.title} className="w-10 text-[0.9rem]" />
             <div className="min-w-0">
-              <p className="text-[15px] text-meta">Em muốn mượn</p>
-              <BookTitle className="block truncate text-lg leading-snug">
+              <p className="text-[14px] text-meta">Em muốn mượn</p>
+              <BookTitle className="block truncate text-base leading-snug">
                 {book.title}
               </BookTitle>
-              <p className="truncate text-[14px] text-meta">{book.author}</p>
+              <p className="truncate text-[13px] text-meta">{book.author}</p>
             </div>
           </div>
 
-          <h1 className="mt-6 text-2xl font-semibold">Xin mượn sách</h1>
-          <p className="mt-1.5 text-[16px] text-meta">
+          <h1 className="mt-6 text-xl font-semibold">Xin mượn sách</h1>
+          <p className="mt-1.5 text-[15px] text-meta">
             Em chưa có tài khoản cũng không sao. Điền giúp tủ sách hai thông tin,
             quản lý sẽ liên hệ lại.
           </p>
@@ -86,11 +86,11 @@ export default async function GuestRequestPage({
                 strokeWidth={1.75}
               />
               <div>
-                <p className="text-[16px]">
+                <p className="text-[15px]">
                   Đây chưa phải là mượn sách. Quản lý sẽ xem yêu cầu và gọi cho em,
                   thường trong vòng một tuần.
                 </p>
-                <p className="mt-1.5 text-[15px] text-meta">
+                <p className="mt-1.5 text-[14px] text-meta">
                   Nếu em muốn mượn thường xuyên, hãy{" "}
                   <Link
                     href="/dang-ky"
@@ -109,7 +109,7 @@ export default async function GuestRequestPage({
             <div className="text-center">
               <Link
                 href={`${base}/sach/${book.slug}`}
-                className="inline-flex min-h-11 items-center text-[16px] text-meta hover:text-ink"
+                className="inline-flex min-h-11 items-center text-[15px] text-meta hover:text-ink"
               >
                 Huỷ
               </Link>

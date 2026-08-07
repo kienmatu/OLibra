@@ -31,7 +31,7 @@ export function Segmented({
           href={href}
           aria-current={active ? "true" : undefined}
           className={cn(
-            "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-control px-5 text-[17px] font-semibold",
+            "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-control px-5 text-[16px] font-semibold",
             active
               ? "border border-terracotta bg-surface text-terracotta-ink"
               : "border border-transparent text-meta hover:text-ink",
@@ -59,7 +59,7 @@ export function Chip({
     <Link
       href={href}
       className={cn(
-        "inline-flex min-h-11 items-center rounded-control border px-4 text-[16px]",
+        "inline-flex min-h-11 items-center rounded-control border px-4 text-[15px]",
         active
           ? "border-terracotta bg-surface font-semibold text-terracotta-ink"
           : "border-hairline bg-paper text-meta hover:text-ink",

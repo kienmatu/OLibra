@@ -31,10 +31,10 @@ export default function LandingPage() {
       <main className="mx-auto max-w-5xl px-6">
         {/* Hero — calm and typographic. No image, no laptop, no marketing voice. */}
         <section className="py-16">
-          <h1 className="max-w-3xl text-[40px] leading-[1.2] font-semibold">
+          <h1 className="max-w-3xl text-[34px] leading-[1.2] font-semibold">
             Phần mềm quản lý cho những tủ sách nhỏ trong giáo xứ.
           </h1>
-          <p className="mt-4 max-w-2xl text-lg text-meta">
+          <p className="mt-4 max-w-2xl text-base text-meta">
             OLibra giúp các bạn tình nguyện viên cho mượn, nhận trả và giữ tủ sách
             ngăn nắp — chỉ với một chiếc điện thoại.
           </p>
@@ -45,7 +45,7 @@ export default function LandingPage() {
             </ButtonLink>
             <Link
               href="/gioi-thieu"
-              className="text-[16px] font-medium text-sage hover:underline"
+              className="text-[15px] font-medium text-sage hover:underline"
             >
               OLibra hoạt động thế nào?
             </Link>
@@ -59,8 +59,8 @@ export default function LandingPage() {
             { label: "Bạn đọc", value: "260" },
           ].map((item) => (
             <div key={item.label} className="flex-1 py-6 pr-6 pl-6 first:pl-0">
-              <dt className="text-[15px] text-meta">{item.label}</dt>
-              <dd className="mt-1 text-[28px] leading-none font-semibold">
+              <dt className="text-[14px] text-meta">{item.label}</dt>
+              <dd className="mt-1 text-[24px] leading-none font-semibold">
                 {item.value}
               </dd>
             </div>
@@ -68,7 +68,7 @@ export default function LandingPage() {
         </dl>
 
         <section className="py-16">
-          <h2 className="text-[22px] font-semibold">OLibra làm được gì</h2>
+          <h2 className="text-[20px] font-semibold">OLibra làm được gì</h2>
           <div className="mt-8 grid gap-10 sm:grid-cols-3">
             {FEATURES.map(({ icon: Icon, title, body }) => (
               <div key={title}>
@@ -77,28 +77,28 @@ export default function LandingPage() {
                   className="size-6 text-leather"
                   strokeWidth={1.75}
                 />
-                <h3 className="mt-3 text-lg font-semibold">{title}</h3>
-                <p className="mt-1.5 text-[16px] text-meta">{body}</p>
+                <h3 className="mt-3 text-base font-semibold">{title}</h3>
+                <p className="mt-1.5 text-[15px] text-meta">{body}</p>
               </div>
             ))}
           </div>
         </section>
 
         <section className="pb-8">
-          <h2 className="text-[22px] font-semibold">Bài viết gần đây</h2>
+          <h2 className="text-[20px] font-semibold">Bài viết gần đây</h2>
           <div className="mt-6 grid gap-6 sm:grid-cols-3">
             {posts.slice(0, 3).map((post) => (
               <Card key={post.slug} className="flex flex-col">
-                <p className="text-[15px] text-meta">{post.date}</p>
-                <h3 className="mt-2 text-lg leading-snug font-semibold">
+                <p className="text-[14px] text-meta">{post.date}</p>
+                <h3 className="mt-2 text-base leading-snug font-semibold">
                   {post.title}
                 </h3>
-                <p className="mt-2 line-clamp-2 flex-1 text-[16px] text-meta">
+                <p className="mt-2 line-clamp-2 flex-1 text-[15px] text-meta">
                   {post.excerpt}
                 </p>
                 <Link
                   href={`/bai-viet/${post.slug}`}
-                  className="mt-4 inline-flex min-h-11 items-center text-[16px] font-medium text-sage hover:underline"
+                  className="mt-4 inline-flex min-h-11 items-center text-[15px] font-medium text-sage hover:underline"
                 >
                   Đọc tiếp
                 </Link>

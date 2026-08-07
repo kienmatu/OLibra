@@ -15,7 +15,7 @@ export default function PortalPage() {
       <MarketingHeader />
 
       <main className="mx-auto max-w-5xl px-6 py-12">
-        <h1 className="text-[32px] leading-tight font-semibold">Các tủ sách</h1>
+        <h1 className="text-[28px] leading-tight font-semibold">Các tủ sách</h1>
         <p className="mt-1 text-meta">
           Chọn tủ sách gần bạn để xem sách đang có và xin mượn.
         </p>
@@ -31,9 +31,9 @@ export default function PortalPage() {
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           {shelves.map((s) => (
             <Card key={s.slug} className="flex flex-col">
-              <h2 className="text-[22px] leading-snug font-semibold">{s.name}</h2>
+              <h2 className="text-[20px] leading-snug font-semibold">{s.name}</h2>
 
-              <p className="mt-3 flex items-start gap-2 text-[16px] text-meta">
+              <p className="mt-3 flex items-start gap-2 text-[15px] text-meta">
                 <MapPin
                   aria-hidden
                   className="mt-1 size-5 shrink-0"
@@ -41,7 +41,7 @@ export default function PortalPage() {
                 />
                 {s.location}
               </p>
-              <p className="mt-1.5 flex items-start gap-2 text-[16px] text-meta">
+              <p className="mt-1.5 flex items-start gap-2 text-[15px] text-meta">
                 <Clock
                   aria-hidden
                   className="mt-1 size-5 shrink-0"
@@ -57,8 +57,8 @@ export default function PortalPage() {
                   { label: "Đang mượn", value: s.onLoan },
                 ].map((stat) => (
                   <div key={stat.label} className="flex-1 py-3 pl-4 first:pl-0">
-                    <dt className="text-[15px] text-meta">{stat.label}</dt>
-                    <dd className="text-xl leading-tight font-semibold">
+                    <dt className="text-[14px] text-meta">{stat.label}</dt>
+                    <dd className="text-lg leading-tight font-semibold">
                       {stat.value}
                     </dd>
                   </div>
@@ -66,7 +66,7 @@ export default function PortalPage() {
               </dl>
 
               <div className="mt-5 flex flex-wrap items-center gap-x-3">
-                <span className="flex items-center gap-2 text-[16px]">
+                <span className="flex items-center gap-2 text-[15px]">
                   <KeyRound aria-hidden className="size-5" strokeWidth={1.75} />
                   {s.keeper}
                 </span>
@@ -84,7 +84,7 @@ export default function PortalPage() {
           ))}
         </div>
 
-        <p className="mt-10 text-[15px] text-meta">
+        <p className="mt-10 text-[14px] text-meta">
           Muốn mở một tủ sách cho giáo xứ của bạn?{" "}
           <Link href="/lien-he" className="font-medium text-sage hover:underline">
             Liên hệ với ban quản trị

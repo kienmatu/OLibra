@@ -47,17 +47,17 @@ export default async function BookDetailPage({
           <BookCover title={book.title} className="w-full text-[3rem]" />
 
           <div>
-            <p className="text-[15px] text-meta">
+            <p className="text-[14px] text-meta">
               <Link href={`${base}/danh-muc`} className="hover:text-ink">
                 Danh mục
               </Link>{" "}
               › {book.category}
             </p>
 
-            <BookTitle as="h1" className="mt-2 block text-[36px] leading-tight">
+            <BookTitle as="h1" className="mt-2 block text-[30px] leading-tight">
               {book.title}
             </BookTitle>
-            <p className="mt-1 text-lg text-meta">{book.author}</p>
+            <p className="mt-1 text-base text-meta">{book.author}</p>
 
             {/* The availability panel changes with state, and so does the
                 button's label — "Xin mượn" only when the book is really here. */}
@@ -65,30 +65,30 @@ export default async function BookDetailPage({
               <StatusPanel status={book.status}>
                 {isAvailable ? (
                   <>
-                    <p className="text-[17px]">
+                    <p className="text-[16px]">
                       Có {book.copiesAvailable} trên {book.copiesTotal} bản đang ở
                       trên kệ.
                     </p>
-                    <p className="text-[15px] text-meta">
+                    <p className="text-[14px] text-meta">
                       Đến tủ sách sau lễ Chúa nhật để nhận sách.
                     </p>
                   </>
                 ) : book.loan ? (
                   <>
-                    <p className="text-[17px]">
+                    <p className="text-[16px]">
                       {book.loan.holder} đang giữ cuốn này · còn{" "}
                       {book.loan.daysLeft} ngày.
                     </p>
-                    <p className="text-[15px] text-meta">
+                    <p className="text-[14px] text-meta">
                       Hạn trả {book.loan.due}.
                     </p>
-                    <p className="flex items-center gap-2 pt-1 text-[16px]">
+                    <p className="flex items-center gap-2 pt-1 text-[15px]">
                       <Users aria-hidden className="size-5" strokeWidth={1.75} />
                       Đang có {book.loan.queue} người chờ mượn
                     </p>
                   </>
                 ) : (
-                  <p className="text-[17px]">Cuốn này hiện không có trên kệ.</p>
+                  <p className="text-[16px]">Cuốn này hiện không có trên kệ.</p>
                 )}
               </StatusPanel>
             </div>
@@ -112,7 +112,7 @@ export default async function BookDetailPage({
                   </>
                 )}
               </ButtonLink>
-              <p className="mt-2 text-[15px] text-meta">
+              <p className="mt-2 text-[14px] text-meta">
                 {isAvailable
                   ? "Quản lý sẽ xác nhận khi bạn đến nhận sách."
                   : `Bạn sẽ là người thứ ${(book.loan?.queue ?? 0) + 1} trong hàng chờ. Quản lý sẽ báo khi đến lượt.`}
@@ -126,15 +126,15 @@ export default async function BookDetailPage({
                   key={label}
                   className="flex items-baseline justify-between gap-6 py-3"
                 >
-                  <dt className="text-[15px] text-meta">{label}</dt>
-                  <dd className="text-right text-[17px]">{value}</dd>
+                  <dt className="text-[14px] text-meta">{label}</dt>
+                  <dd className="text-right text-[16px]">{value}</dd>
                 </div>
               ))}
             </dl>
 
             <section className="mt-10">
-              <h2 className="text-xl font-semibold">Giới thiệu</h2>
-              <div className="mt-3 space-y-4 text-[17px]">
+              <h2 className="text-lg font-semibold">Giới thiệu</h2>
+              <div className="mt-3 space-y-4 text-[16px]">
                 {book.description.map((para) => (
                   <p key={para.slice(0, 24)}>{para}</p>
                 ))}
@@ -143,22 +143,22 @@ export default async function BookDetailPage({
 
             {book.comments?.length ? (
               <section className="mt-10">
-                <h2 className="text-xl font-semibold">Bình luận</h2>
+                <h2 className="text-lg font-semibold">Bình luận</h2>
                 <ul className="mt-3 divide-y divide-hairline border-t border-hairline">
                   {book.comments.map((c) => (
                     <li key={c.name + c.date} className="flex gap-3 py-4">
                       <span
                         aria-hidden
-                        className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[16px] font-semibold text-leather"
+                        className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
                       >
                         {c.name.split(" ").at(-1)?.charAt(0)}
                       </span>
                       <div>
-                        <p className="text-[16px] font-semibold">
+                        <p className="text-[15px] font-semibold">
                           {c.name}{" "}
                           <span className="font-normal text-meta">· {c.date}</span>
                         </p>
-                        <p className="mt-0.5 text-[16px]">{c.text}</p>
+                        <p className="mt-0.5 text-[15px]">{c.text}</p>
                       </div>
                     </li>
                   ))}
@@ -172,7 +172,7 @@ export default async function BookDetailPage({
                   />
                   <div className="flex flex-wrap items-center gap-3">
                     <Button size="sm">Gửi bình luận</Button>
-                    <p className="text-[15px] text-meta">
+                    <p className="text-[14px] text-meta">
                       Bình luận sẽ hiển thị sau khi quản lý duyệt.
                     </p>
                   </div>

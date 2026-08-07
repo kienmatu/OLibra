@@ -19,9 +19,9 @@ export function PhoneLink({
       href={`tel:${phone.replace(/\s/g, "")}`}
       className={cn(
         "-mx-1 inline-flex min-h-11 items-center gap-2 rounded-control px-1 font-semibold text-sage hover:underline",
-        size === "lg" && "text-xl",
-        size === "md" && "text-[19px]",
-        size === "sm" && "text-[16px]",
+        size === "lg" && "text-lg",
+        size === "md" && "text-[17px]",
+        size === "sm" && "text-[15px]",
         className,
       )}
     >

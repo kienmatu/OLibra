@@ -32,7 +32,7 @@ export default async function ShelfHomePage({
       <main className="mx-auto max-w-5xl px-6 py-10">
         {/* Shelf identity first: where it is, when it opens, who holds the key. */}
         <Card className="p-8">
-          <h1 className="text-[36px] leading-tight font-semibold">{shelf.name}</h1>
+          <h1 className="text-[30px] leading-tight font-semibold">{shelf.name}</h1>
 
           <dl className="mt-6 space-y-4">
             <div className="flex gap-3">
@@ -42,8 +42,8 @@ export default async function ShelfHomePage({
                 strokeWidth={1.75}
               />
               <div>
-                <dt className="text-[15px] text-meta">Địa điểm</dt>
-                <dd className="text-[17px]">{shelf.location}</dd>
+                <dt className="text-[14px] text-meta">Địa điểm</dt>
+                <dd className="text-[16px]">{shelf.location}</dd>
               </div>
             </div>
             <div className="flex gap-3">
@@ -53,8 +53,8 @@ export default async function ShelfHomePage({
                 strokeWidth={1.75}
               />
               <div>
-                <dt className="text-[15px] text-meta">Giờ mở cửa</dt>
-                <dd className="text-[17px]">{shelf.hours}</dd>
+                <dt className="text-[14px] text-meta">Giờ mở cửa</dt>
+                <dd className="text-[16px]">{shelf.hours}</dd>
               </div>
             </div>
             <div className="flex gap-3">
@@ -64,8 +64,8 @@ export default async function ShelfHomePage({
                 strokeWidth={1.75}
               />
               <div>
-                <dt className="text-[15px] text-meta">Người giữ chìa khoá</dt>
-                <dd className="text-[17px]">{shelf.keeper}</dd>
+                <dt className="text-[14px] text-meta">Người giữ chìa khoá</dt>
+                <dd className="text-[16px]">{shelf.keeper}</dd>
                 <dd className="mt-0.5">
                   <PhoneLink phone={shelf.phone} size="md" />
                 </dd>
@@ -76,13 +76,13 @@ export default async function ShelfHomePage({
 
         {pinned ? (
           <Card tone="paper" className="mt-6">
-            <p className="flex items-center gap-2 text-[15px] text-meta">
+            <p className="flex items-center gap-2 text-[14px] text-meta">
               <Pin aria-hidden className="size-[18px]" strokeWidth={1.75} />
               Thông báo ghim
             </p>
-            <h2 className="mt-2 text-xl font-semibold">{pinned.title}</h2>
-            <p className="mt-2 text-[16px]">{pinned.excerpt}</p>
-            <p className="mt-3 text-[15px] text-meta">
+            <h2 className="mt-2 text-lg font-semibold">{pinned.title}</h2>
+            <p className="mt-2 text-[15px]">{pinned.excerpt}</p>
+            <p className="mt-3 text-[14px] text-meta">
               Đăng ngày {pinned.date} · {pinned.author}
             </p>
           </Card>
@@ -107,7 +107,7 @@ export default async function ShelfHomePage({
         </div>
 
         <section className="mt-12">
-          <h2 className="text-[22px] font-semibold">Sách được mượn nhiều nhất</h2>
+          <h2 className="text-[20px] font-semibold">Sách được mượn nhiều nhất</h2>
           <div className="mt-5 grid grid-cols-2 gap-5 sm:grid-cols-4 lg:grid-cols-6">
             {popular.map((book) => (
               <BookCard
@@ -121,7 +121,7 @@ export default async function ShelfHomePage({
           </div>
         </section>
 
-        <p className="mt-12 text-[15px]">
+        <p className="mt-12 text-[14px]">
           <Link href={`${base}/gop-y`} className="text-sage hover:underline">
             Gửi góp ý cho ban quản trị
           </Link>

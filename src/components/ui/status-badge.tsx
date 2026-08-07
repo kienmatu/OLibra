@@ -23,7 +23,7 @@ export function StatusBadge({
         "inline-flex shrink-0 items-center gap-1.5 rounded-control font-medium",
         fill,
         ink,
-        size === "sm" ? "px-2 py-0.5 text-[15px]" : "px-2.5 py-1 text-[15px]",
+        size === "sm" ? "px-2 py-0.5 text-[14px]" : "px-2.5 py-1 text-[14px]",
         className,
       )}
     >
@@ -50,7 +50,7 @@ export function StatusPanel({
 
   return (
     <div className={cn("rounded-card border p-6", fill, border, className)}>
-      <p className={cn("flex items-center gap-2.5 text-[22px] font-semibold", ink)}>
+      <p className={cn("flex items-center gap-2.5 text-[20px] font-semibold", ink)}>
         <Icon aria-hidden className="size-6" strokeWidth={1.75} />
         {label}
       </p>

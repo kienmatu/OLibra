@@ -34,7 +34,7 @@ export default async function CataloguePage({
       <PublicHeader shelf={shelf} active="danh-muc" />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
-        <h1 className="text-[32px] leading-tight font-semibold">Danh mục sách</h1>
+        <h1 className="text-[28px] leading-tight font-semibold">Danh mục sách</h1>
         <p className="mt-1 text-meta">
           {shelf.titles} đầu sách · 183 cuốn có thể mượn hôm nay
         </p>
@@ -94,7 +94,7 @@ export default async function CataloguePage({
         </div>
 
         <nav className="mt-10 flex items-center justify-between gap-4">
-          <p className="text-[16px] text-meta">Trang 1 / 18</p>
+          <p className="text-[15px] text-meta">Trang 1 / 18</p>
           <div className="flex gap-2">
             <Button size="sm" disabled>
               <ChevronLeft aria-hidden className="size-5" strokeWidth={1.75} />

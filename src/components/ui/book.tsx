@@ -89,10 +89,10 @@ export function BookCard({
           className="absolute bottom-2 left-2 bg-surface/90 backdrop-blur-none"
         />
       </div>
-      <BookTitle className="mt-2.5 line-clamp-2 block text-[17px] leading-snug group-hover:text-terracotta-ink">
+      <BookTitle className="mt-2.5 line-clamp-2 block text-[16px] leading-snug group-hover:text-terracotta-ink">
         {title}
       </BookTitle>
-      <span className="mt-0.5 line-clamp-1 block text-[14px] text-meta">
+      <span className="mt-0.5 line-clamp-1 block text-[13px] text-meta">
         {author}
       </span>
     </Link>

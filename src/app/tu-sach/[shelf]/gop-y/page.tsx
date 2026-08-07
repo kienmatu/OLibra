@@ -23,7 +23,7 @@ export default async function FeedbackPage({
       <PublicHeader shelf={shelf} />
 
       <main className="mx-auto max-w-xl px-6 py-16">
-        <h1 className="text-[32px] leading-tight font-semibold">Gửi góp ý</h1>
+        <h1 className="text-[28px] leading-tight font-semibold">Gửi góp ý</h1>
         <p className="mt-1 text-meta">
           Có điều gì chưa ổn, hoặc có ý tưởng cho tủ sách? Ban quản trị đọc hết mọi
           góp ý.
@@ -68,7 +68,7 @@ export default async function FeedbackPage({
               rows={6}
               placeholder="Bạn viết thoải mái, càng cụ thể càng dễ xử lý"
             />
-            <p className="text-[15px] text-meta">0 / 2000</p>
+            <p className="text-[14px] text-meta">0 / 2000</p>
           </Field>
 
           <div className="flex gap-3 rounded-card border border-hairline bg-paper p-4">
@@ -77,7 +77,7 @@ export default async function FeedbackPage({
               className="mt-0.5 size-5 shrink-0 text-leather"
               strokeWidth={1.75}
             />
-            <p className="text-[15px] text-meta">
+            <p className="text-[14px] text-meta">
               Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác.
             </p>
           </div>
@@ -90,17 +90,17 @@ export default async function FeedbackPage({
 
         {/* The state after submitting, shown here so the copy can be reviewed. */}
         <div className="mt-12 border-t border-hairline pt-8">
-          <p className="text-[15px] text-meta">Sau khi gửi</p>
+          <p className="text-[14px] text-meta">Sau khi gửi</p>
           <div className="mt-3 rounded-card border border-sage bg-sage/10 p-6">
             <CheckCircle2
               aria-hidden
               className="size-8 text-sage"
               strokeWidth={1.5}
             />
-            <h2 className="mt-3 text-xl font-semibold">
+            <h2 className="mt-3 text-lg font-semibold">
               Đã nhận được góp ý của bạn
             </h2>
-            <p className="mt-1.5 text-[16px]">
+            <p className="mt-1.5 text-[15px]">
               Cảm ơn bạn. Ban quản trị sẽ đọc trong vài ngày tới và gọi lại nếu cần
               hỏi thêm.
             </p>

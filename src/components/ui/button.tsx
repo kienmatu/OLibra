@@ -22,9 +22,9 @@ const VARIANTS: Record<Variant, string> = {
 };
 
 const SIZES: Record<Size, string> = {
-  lg: "h-14 px-6 text-[19px]",
-  md: "h-12 px-5 text-[17px]",
-  sm: "h-11 px-4 text-[16px]",
+  lg: "h-14 px-6 text-[17px]",
+  md: "h-12 px-5 text-[16px]",
+  sm: "h-11 px-4 text-[15px]",
 };
 
 type BaseProps = {
@@ -107,10 +107,10 @@ export function BigActionLink({
     >
       <Icon className="size-7 shrink-0" strokeWidth={1.75} />
       <span className="min-w-0">
-        <span className="block text-2xl leading-tight font-semibold">{label}</span>
+        <span className="block text-xl leading-tight font-semibold">{label}</span>
         <span
           className={cn(
-            "mt-1 block text-[15px] leading-snug",
+            "mt-1 block text-[14px] leading-snug",
             variant === "primary" ? "text-white/75" : "text-meta",
           )}
         >

@@ -40,17 +40,17 @@ export default async function SearchPage({
             name="q"
             icon={Search}
             defaultValue={query}
-            className="h-16 text-xl"
+            className="h-16 text-lg"
             aria-label="Tìm sách"
           />
-          <p className="text-[15px] text-meta">
+          <p className="text-[14px] text-meta">
             Không cần gõ dấu — kết quả hiện ngay khi bạn gõ.
           </p>
         </form>
 
         {results.length > 0 ? (
           <>
-            <p className="mt-8 text-[15px] text-meta">
+            <p className="mt-8 text-[14px] text-meta">
               {results.length} kết quả cho “{query}”
             </p>
             <ul className="mt-2 divide-y divide-hairline border-t border-hairline">
@@ -62,10 +62,10 @@ export default async function SearchPage({
                   >
                     <BookCover title={book.title} className="w-13 text-[1.2rem]" />
                     <div className="min-w-0 flex-1">
-                      <BookTitle className="block text-xl leading-snug group-hover:text-terracotta-ink">
+                      <BookTitle className="block text-lg leading-snug group-hover:text-terracotta-ink">
                         {book.title}
                       </BookTitle>
-                      <p className="mt-0.5 text-[16px] text-meta">{book.author}</p>
+                      <p className="mt-0.5 text-[15px] text-meta">{book.author}</p>
                     </div>
                     <StatusBadge status={book.status} />
                     <ChevronRight
@@ -86,12 +86,12 @@ export default async function SearchPage({
               className="size-8 text-leather"
               strokeWidth={1.5}
             />
-            <h2 className="mt-3 text-xl font-semibold">Không tìm thấy sách nào</h2>
-            <p className="mt-1.5 text-[16px] text-meta">
+            <h2 className="mt-3 text-lg font-semibold">Không tìm thấy sách nào</h2>
+            <p className="mt-1.5 text-[15px] text-meta">
               Thử gõ ít chữ hơn, hoặc xem vài cuốn các bạn hay mượn.
             </p>
 
-            <h3 className="mt-6 text-[17px] font-semibold">Các bạn hay mượn</h3>
+            <h3 className="mt-6 text-[16px] font-semibold">Các bạn hay mượn</h3>
             <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
               {books.slice(0, 4).map((book) => (
                 <Link
@@ -100,10 +100,10 @@ export default async function SearchPage({
                   className="group"
                 >
                   <BookCover title={book.title} className="w-full text-[1.4rem]" />
-                  <BookTitle className="mt-2 line-clamp-2 block text-[15px] leading-snug group-hover:text-terracotta-ink">
+                  <BookTitle className="mt-2 line-clamp-2 block text-[14px] leading-snug group-hover:text-terracotta-ink">
                     {book.title}
                   </BookTitle>
-                  <span className="text-[13px] text-meta">{book.author}</span>
+                  <span className="text-[12px] text-meta">{book.author}</span>
                 </Link>
               ))}
             </div>
