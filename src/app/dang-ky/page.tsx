@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Camera, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, Input, ReadOnlyValue, Select } from "@/components/ui/field";
+import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { ShelfHeader } from "@/components/shell/public-header";
+import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { shelf } from "@/lib/fixtures";
 
 function GroupHeading({ children }: { children: React.ReactNode }) {
@@ -151,27 +152,16 @@ export default function RegisterPage() {
           <section className="space-y-6">
             <GroupHeading>Giáo xứ</GroupHeading>
 
-            <Field label="Tổ" required htmlFor="to">
-              <Select id="to" defaultValue="">
-                <option value="" disabled>
-                  Chọn tổ
-                </option>
-                <option>Tổ 1</option>
-                <option>Tổ 2</option>
-                <option>Tổ 3</option>
-                <option>Tổ 4</option>
-              </Select>
-            </Field>
+            <p className="text-[14px] text-meta">
+              Không bắt buộc. Chưa biết cũng cứ gửi đăng ký — quản lý bổ sung giúp
+              sau khi gặp em.
+            </p>
 
-            <Field label="Giáo họ" required htmlFor="giao-ho">
-              <Select id="giao-ho" defaultValue="">
-                <option value="" disabled>
-                  Chọn giáo họ
-                </option>
-                <option>Giáo họ Thánh Tâm</option>
-                <option>Giáo họ Mân Côi</option>
-              </Select>
-            </Field>
+            <ParishUnitFields
+              idPrefix="dang-ky"
+              taxonomy={shelf.parishTaxonomy}
+              units={shelf.parishUnits}
+            />
           </section>
 
           <div className="flex gap-3 rounded-card border border-hairline bg-paper p-5">
