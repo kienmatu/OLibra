@@ -12,6 +12,7 @@ import { ButtonLink, Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusPanel } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/field";
+import { PhoneLink } from "@/components/ui/phone-link";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { bookBySlug, books, shelfBySlug, shelves } from "@/lib/fixtures";
 
@@ -97,10 +98,11 @@ export default async function BookDetailPage({
                   <>
                     <p className="text-[16px]">
                       Có {book.copiesAvailable} trên {book.copiesTotal} bản đang ở
-                      trên kệ.
+                      trong tủ.
                     </p>
-                    <p className="text-[14px] text-meta">
-                      Đến tủ sách sau lễ Chúa nhật để nhận sách.
+                    <p className="flex flex-wrap items-center gap-x-1.5 text-[14px] text-meta">
+                      Liên hệ {shelf.keeper} ·{" "}
+                      <PhoneLink phone={shelf.phone} size="sm" /> để nhận sách.
                     </p>
                   </>
                 ) : book.loan ? (
@@ -118,7 +120,7 @@ export default async function BookDetailPage({
                     </p>
                   </>
                 ) : (
-                  <p className="text-[16px]">Cuốn này hiện không có trên kệ.</p>
+                  <p className="text-[16px]">Cuốn này hiện không có trong tủ.</p>
                 )}
               </StatusPanel>
             </div>

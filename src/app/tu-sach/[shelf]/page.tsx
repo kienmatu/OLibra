@@ -93,7 +93,7 @@ export default async function ShelfHomePage({
           <BigActionLink
             href={`${base}/danh-muc`}
             icon={BookOpen}
-            label="Sách đang có"
+            label="Sách có sẵn"
             sublabel="183 cuốn có thể mượn hôm nay"
             variant="primary"
           />

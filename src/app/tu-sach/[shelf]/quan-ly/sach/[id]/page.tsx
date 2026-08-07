@@ -21,7 +21,7 @@ const COPIES: {
     code: "DT-0140",
     status: "available",
     condition: "Nguyên vẹn",
-    location: "Trên kệ",
+    location: "Trong tủ",
   },
   {
     code: "DT-0141",
@@ -33,7 +33,7 @@ const COPIES: {
     code: "DT-0142",
     status: "available",
     condition: "Nguyên vẹn",
-    location: "Trên kệ",
+    location: "Trong tủ",
   },
 ];
 

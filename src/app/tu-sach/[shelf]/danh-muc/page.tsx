@@ -45,7 +45,7 @@ export default async function CataloguePage({
             options={[
               {
                 href: `${base}/danh-muc`,
-                label: "Sách đang có",
+                label: "Sách có sẵn",
                 icon: BookOpen,
                 active: !showingAll,
               },
