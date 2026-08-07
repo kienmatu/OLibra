@@ -77,6 +77,93 @@ graph TD
 
 ---
 
+## Phase 1 — what actually ships first
+
+BR §1.4 defines Phase 1 in one sentence and never mentions a single operation
+name. This is that sentence turned into a list, because the dependency graph
+above and the phase boundary are **different cuts** and confusing them costs
+weeks.
+
+> **Phase 1 — the core loop.** Books and copies, readers and registration
+> approval, lending and returning with condition assessment, the audit log, the
+> manager dashboard, the public catalogue and search. A single bookshelf, but
+> stored as one tenant among many.
+
+Plus BR §2: **CSV export of books, readers and loans ships in Phase 1**, because
+volunteers plus modest infrastructure is a real data-loss risk.
+
+### The headline: Phase 1 does not need C2 or C3
+
+The critical path to a *shippable* product is shorter than the critical path
+through this plan:
+
+```
+S0 → S1 → S2 → S3 → B1 + B2 → C1 → ship
+```
+
+Borrow requests, holds and the waiting queue (**C2**) are Phase 2. Renewals
+(**C3**) follow them, because INV-6 blocks a renewal when a request is queued
+and there is no queue to check against yet. Comments, announcements, feedback
+and statistics (**B3**, **D2**'s statistics half) are Phase 2. The portal,
+multiple bookshelves and super-admin tooling (**B4**) are Phase 3.
+
+That removes four slices from the road to something a parish can use — and it
+retires **Q1**, the least well-specified command in the catalogue, from the
+critical path entirely. `SkipRequest` is a Phase 2 problem.
+
+### What is in
+
+| Area | Operations | Slice |
+|---|---|---|
+| Books and copies | `CreateBook`, `UpdateBook`, `DeleteBook`, `AddCopies`, `AssessCondition`, `ReportCopyLost`, `MarkCopyFound`, `RetireCopy` | B1 |
+| Catalogue and search | `GetCatalogue`, `SearchCatalogue`, `GetBookDetail`, `GetBooksList`, `GetBookDetail` (manager) | B1 |
+| Readers and registration | all 16 member commands — see the note below on why the profile-change flow cannot be deferred | B2 |
+| Reader queries | `GetReadersList`, `GetReaderDetail`, `GetPendingRegistrations`, `GetPendingProfileChanges`, `GetMyDashboard`, `GetMyLoanHistory`, `GetMyProfile`, `GetMyProfileChangeRequest` | B2, D3 |
+| Lending and returning | `LendCopy`, `ReceiveReturn`, `VoidLoan` | C1 |
+| Lending queries | `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans` | C1 |
+| Manager dashboard | `GetManagerDashboard`, `GetShelfHome` (without the announcements and comments rows) | C1, B1 |
+| Audit log | the kernel's writer, plus `GetAuditLog` scoped to the one shelf | S2, B4 |
+| Export | `ExportBooksCSV`, `ExportReadersCSV`, `ExportLoansCSV` | D2 |
+| Shelf configuration | `GetShelfSettings`, `UpdateBookshelfSettings`; `CreateBookshelf` runs as seed rather than a screen | B4 |
+| Public front door | `GetSiteContact`, `UpdateSiteContact` — the contact page is the only route into the project for a parish with no shelf | B4 |
+
+Roughly **29 of the 57 commands and 25 of the 44 queries** — a little over half
+the catalogue, and all four foundation slices in full.
+
+### What is deferred, and what that costs
+
+| Deferred | Phase | What a volunteer loses meanwhile |
+|---|---|---|
+| Borrow requests, holds, the queue | 2 | A reader cannot reserve a book that is out. They ask the manager, who remembers. This is exactly how the paper system already works. |
+| Renewals | 2 | A reader who wants longer brings the book in and it is lent again. Slightly more walking, no lost data. |
+| Comments, announcements | 2 | The shelf home is shorter. Nothing breaks. |
+| Feedback inbox | 2 | The contact page's form is the fallback, and it already exists. |
+| Statistics | 2 | Counting is manual. The audit log holds the data, so nothing is lost — only unaggregated. |
+| Portal, multiple shelves, super-admin screens | 3 | Nothing: there is one shelf. |
+
+**Multi-tenancy is not deferred.** BR §1.4 is explicit that it is present from
+the first day of data, so RLS, the `bookshelf_id` on every row and the two
+database roles are all Phase 1 infrastructure even though the second bookshelf
+is Phase 3. Retrofitting tenancy into a live database is the rewrite that
+phasing exists to avoid.
+
+### Two things Phase 1 forces that §1.4 does not say
+
+**The profile-change flow cannot be deferred**, even though §1.4 predates it.
+It is the *only* path by which a person's details can change — there is no
+manager-edit command anywhere in the catalogue. Without it, a family that moves
+house has no way to correct their phone number, and BR §16.3 calls that number
+"the actual mechanism by which books come back."
+
+**Notifications are optional in Phase 1.** Everything in §15 that Phase 1 could
+trigger — registration approved, registration rejected — happens between two
+people who are standing next to each other. The bell can wait for Phase 2, when
+borrow requests create things a reader genuinely learns about while away. If it
+is cut, `GetMyNotifications` and the two `MarkNotification*` commands go with
+it.
+
+---
+
 ## 2. What blocks what, precisely
 
 ### 2.1 Hard blockers — no way around them
@@ -223,7 +310,9 @@ These are blocked on **you**, not on code. Each has a slice waiting on it. I hav
 | Q6 | **Is `RegisterMembership` rate-limited?** `SubmitFeedback` is (3/phone/day). Public registration is an open unauthenticated form that writes a row, and nothing says. | B2 | Not domain-limited; handled at the edge. | Low. |
 | Q7 | **Where does `DeleteBook` live in the UI?** Required by BR §13.2/§11; no screen among the 42 exposes it. (`AddCopies` was in this row and is now resolved — "Thêm bản" on the manager's book detail page.) | B1 | Implement the command; leave it unexposed until a delete-confirmation flow is designed. | Low. |
 
-**Q1 is the only one I would want answered before its slice starts.** The rest can be implemented on the assumed reading and changed cheaply.
+| Q8 | **Who proposes a profile change for a reader who cannot sign in?** `ProposeProfileChange`'s caller is `reader` (self only), and BR §2 makes credentials optional precisely because most readers are children who will never sign in. No manager-edit command exists either, so a family that moves house has no path to a corrected phone number — the number BR §16.3 calls "the actual mechanism by which books come back". | B2 | A manager may propose on a member's behalf, producing a request another manager approves — keeping INV-13's audit trail intact rather than adding a silent edit. | **Medium, and it is Phase 1.** Unlike Q1–Q7 this is a hole in the flow rather than an ambiguity in it. |
+
+**Q1 is the only one of Q1–Q7 I would want answered before its slice starts — and it is Phase 2, so it is not urgent.** The rest can be implemented on the assumed reading and changed cheaply. **Q8 is the one that matters now:** it is Phase 1, and the assumed reading adds a command rather than changing one.
 
 ---
 

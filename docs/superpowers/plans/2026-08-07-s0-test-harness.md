@@ -121,7 +121,7 @@ git commit -m "test: add vitest, pinned to Asia/Ho_Chi_Minh"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `TEST_DATABASE_URL`; a `db-test` compose service on port 5434.
+- Produces: `TEST_DATABASE_URL`; a `db-test` compose service on port 5436.
 
 - [ ] **Step 1: Add the test database service**
 
@@ -148,7 +148,7 @@ In `compose.yaml`, after the `db` service:
     tmpfs:
       - /var/lib/postgresql/data
     ports:
-      - "${POSTGRES_TEST_PORT:-5434}:5432"
+      - "${POSTGRES_TEST_PORT:-5436}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U olibra -d olibra_test"]
       interval: 5s
@@ -168,8 +168,8 @@ Append:
 #
 #   docker compose --profile test up -d db-test
 #
-POSTGRES_TEST_PORT=5434
-TEST_DATABASE_URL=postgres://olibra:olibra@localhost:5434/olibra_test
+POSTGRES_TEST_PORT=5436
+TEST_DATABASE_URL=postgres://olibra:olibra@localhost:5436/olibra_test
 ```
 
 - [ ] **Step 3: Write the failing test**
@@ -706,12 +706,12 @@ jobs:
           POSTGRES_DB: olibra_test
           POSTGRES_USER: olibra
           POSTGRES_PASSWORD: olibra
-        ports: ["5434:5432"]
+        ports: ["5436:5432"]
         options: >-
           --health-cmd "pg_isready -U olibra -d olibra_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      TEST_DATABASE_URL: postgres://olibra:olibra@localhost:5434/olibra_test
+      TEST_DATABASE_URL: postgres://olibra:olibra@localhost:5436/olibra_test
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
