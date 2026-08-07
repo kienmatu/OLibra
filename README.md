@@ -14,16 +14,19 @@ One deployment hosts many bookshelves, each reached by its own slug.
 
 ## Status
 
-**Pre-implementation, restarting.** The business requirements are settled and complete. The technical design is being rebuilt from scratch on a new stack; no application code exists yet.
+**The interface is built; the backend is designed but not chosen.** The business requirements are settled. The full UI — 45 routes, every screen of all four surfaces — is merged and renders from typed fixtures, with no database or authentication behind it. The technical design is written to survive whichever backend stack is picked.
 
-| Target | Choice |
+| Target | Status |
 |---|---|
-| Application | Next.js |
-| Hosting | Vercel |
-| Database | Neon (Postgres) |
-| Language | Vietnamese first, internationalisation-ready |
+| Web interface | **Built** — Next.js 16, React 19, TypeScript, Tailwind v4 |
+| Language | **Settled** — Vietnamese first, internationalisation-ready |
+| Timezone | **Settled** — `Asia/Ho_Chi_Minh` everywhere |
+| Database engine | **Likely** — PostgreSQL |
+| Deployment | **Likely** — Docker |
+| Backend framework | **Open** |
+| Hosting | **Open** |
 
-Nothing else is decided. UI design comes first; the technical design follows the screens, not the other way round.
+UI design came first; the technical design follows the screens, not the other way round.
 
 ## Documentation
 
@@ -31,6 +34,10 @@ Nothing else is decided. UI design comes first; the technical design follows the
 |---|---|
 | [BUSINESS-REQUIREMENTS.md](docs/BUSINESS-REQUIREMENTS.md) | The authority on what the product does and why. Stack-independent: domain model, business rules, state machines, permissions, UX, roadmap. |
 | [DESIGN.md](docs/DESIGN.md) | The visual language — colour, type, shape, components, navigation. |
+| [SDD.md](docs/SDD.md) | Software design: layers, where each invariant is enforced, cross-cutting concerns, and what any candidate backend stack must be able to do. |
+| [DATABASE.md](docs/DATABASE.md) | The schema, and which guarantees live in the database rather than in application code. |
+| [OPERATIONS.md](docs/OPERATIONS.md) | Every command and query the system performs, transport-neutral. |
+| [AGENTS.md](AGENTS.md) | Conventions for working in this repository. |
 
 ## History
 
