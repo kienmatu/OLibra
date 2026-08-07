@@ -21,14 +21,20 @@ delete it and re-run `bun install`.
 
 Two things worth being precise about, because they are easy to get wrong:
 
-- **Bun is the package manager and script runner, not necessarily the runtime.**
-  `bun run dev` invokes the `next` binary, which carries a Node shebang, so
-  Next itself still executes under Node. Pass `bun --bun next dev` if you
-  genuinely want Next running on the Bun runtime — but expect rough edges.
-- **Production builds run on Node, not Bun.** Bun is a local-developer choice
-  only. Nothing in the app may depend on Bun-specific APIs (`Bun.file`,
-  `bun:sqlite` and friends), or it will build locally and fail wherever this
-  is deployed.
+- **Bun is the package manager and script runner locally, and the runtime in
+  production.** `bun run dev` invokes the `next` binary, which carries a Node
+  shebang, so Next still executes under Node during local development. Pass
+  `bun --bun next dev` if you want the Bun runtime locally too.
+- **The container runs `bun server.js`; the container *builds* under Node.**
+  That split is a workaround, not a preference: `bun run build` segfaults
+  partway through `next build` inside a linux/arm64 container — reproduced on
+  Bun 1.3.5 and 1.3.14, on both alpine and Debian, so it is neither a libc
+  issue nor a stale version. The same command works under Bun on macOS, which
+  is why local development never hits it. See the Dockerfile.
+- **Nothing in the app may depend on Bun-specific APIs** (`Bun.file`,
+  `bun:sqlite` and friends). The runtime is Bun today, but the build already
+  runs on Node and the domain layer must stay runnable under a plain test
+  runner — a `Bun.*` call in the domain closes both doors.
 
 ## Stack
 
