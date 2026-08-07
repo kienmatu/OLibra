@@ -167,7 +167,7 @@ Dates that mean a day — `due_on` above all — are `date`, never an instant. A
 
 Both write to `audit_log` in the same transaction as the change. The audit browser renders each entry as a readable Vietnamese sentence, with raw before/after values available on expansion; the UI for this is already built.
 
-**The action name is a stable machine-readable string** (`loan.lent`, `membership.approved`). The Vietnamese sentence is rendered from it at read time, so wording changes do not rewrite history — the same reasoning as notifications (DATABASE.md §4.8).
+**The action name is a stable machine-readable string** (`loan.lent`, `membership.approved`). The Vietnamese sentence is rendered from it at read time, so wording changes do not rewrite history — the same reasoning as notifications (DATABASE.md §4.9).
 
 ### 6.5 Errors
 

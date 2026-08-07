@@ -152,7 +152,7 @@ Adds more physical copies to an existing title, auto-generating the next sequent
 - **Inputs:** `bookshelfId`, `bookId`, count, acquired-from?, acquired-date?
 - **Caller:** `manager`
 - **Invariants enforced:** INV-8
-- **Audit action:** `copy.added` (one entry per generated copy, or one entry naming the batch — see the audit note in §4.4 of the requirements: "the record affected" is singular per entry, so a batch of five new copies is five audit rows referencing the same action and timestamp context)
+- **Audit action:** `copy.added` (one entry per generated copy, or one entry naming the batch — see the AuditLog fields in §5.4 of the requirements: "the record affected" is singular per entry, so a batch of five new copies is five audit rows referencing the same action and timestamp context)
 - **Failure modes:**
   - `not_found` — "Không tìm thấy sách này."
   - `validation_failed` — "Số bản phải lớn hơn 0."
@@ -225,7 +225,7 @@ Confirms handover of a copy already held for a specific reader via an approved `
 - **Inputs:** `bookshelfId`, `requestId`
 - **Caller:** `manager`
 - **Invariants enforced:** INV-1, INV-2, INV-3, INV-4, INV-5, INV-7, INV-8
-- **Audit action:** `loan.created` (with `request.fulfilled` written in the same transaction — see the note under §4.3's `ReceiveReturn`-adjacent discussion for why a fulfilled request is a second fact, not folded into the first)
+- **Audit action:** `loan.created` (with `request.fulfilled` written in the same transaction — see the note under §4.2's `ReceiveReturn` entry for why a fulfilled request is a second fact, not folded into the first)
 - **Failure modes:**
   - `hold_expired` — "Thời gian giữ chỗ đã hết. Bạn đọc cần đăng ký lại." (§8: hold expiry is computed on read; a stale hold can't be handed over)
   - `membership_not_active` — "Tài khoản đang tạm khoá, không thể mượn thêm."

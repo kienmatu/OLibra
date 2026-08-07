@@ -16,10 +16,9 @@ Before the column lists, the relationships. Read the crow's feet as "many".
 erDiagram
     BOOKSHELVES  ||--o{ MEMBERSHIPS   : scopes
     BOOKSHELVES  ||--o{ BOOKS         : scopes
-    BOOKSHELVES  ||--o{ CATEGORIES    : scopes
     BOOKSHELVES  ||--o{ ANNOUNCEMENTS : scopes
     USERS        ||--o{ MEMBERSHIPS   : "is, here"
-    CATEGORIES   ||--o{ BOOKS         : groups
+    CATEGORIES   ||--o{ BOOKS         : "groups, shared by every shelf"
     BOOKS        ||--o{ BOOK_COPIES   : "has physical"
     BOOK_COPIES  ||--o{ LOANS         : "lent as"
     USERS        ||--o{ LOANS         : borrows
@@ -96,11 +95,11 @@ Four things in that diagram are decisions rather than description, and each is
 explained where its table is defined:
 
 - **`LOANS` points at both a copy and a book.** Deliberate denormalisation
-  (§4.4): statistics must survive the copy being retired.
+  (§4.5): statistics must survive the copy being retired.
 - **`BORROW_REQUESTS` points at a book, and only optionally at a copy.** A
-  request is for a title; a copy is assigned on approval (§4.5).
+  request is for a title; a copy is assigned on approval (§4.6).
 - **`CONDITION_ASSESSMENTS` hangs off both a copy and a loan**, the loan being
-  optional, because a manager may assess a copy at any time (§4.6).
+  optional, because a manager may assess a copy at any time (§4.7).
 - **`MEMBERSHIPS` carries the parish fields, not `USERS`.** Identity is global;
   the parish relationship is local (§4.1).
 
@@ -152,7 +151,7 @@ So each of the twelve rules below is marked with where it is enforced. Six of th
 |---|---|
 | Primary keys | `uuid` generated with `gen_random_uuid()` (pgcrypto, built in since PG13) |
 | Timestamps | `timestamptz`, always. Never `timestamp` — a naive timestamp is a bug waiting for a deployment region change |
-| Dates | `date` where the domain means a day, not an instant. See §4.4 |
+| Dates | `date` where the domain means a day, not an instant. See §4.5 |
 | Money | None. There are no fines and no payments (§19, deliberately not planned) |
 | Text | `text` throughout. `varchar(n)` buys nothing in Postgres and invites arbitrary limits |
 | Enums | Postgres `enum` types, not check constraints or lookup tables. See §2.1 |
@@ -210,7 +209,7 @@ A single data-access module that refuses to build a query without a bookshelf. C
 
 ### Global tables
 
-`users`, `posts` and site-wide `feedback` are not shelf-scoped and carry no policy. `audit_log` is scoped but with a nullable `bookshelf_id` for system-wide actions.
+`users`, `categories`, `posts` and site-wide `feedback` are not shelf-scoped and carry no policy. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point. `audit_log` is scoped but with a nullable `bookshelf_id` for system-wide actions.
 
 ---
 
@@ -328,19 +327,81 @@ end $$ language plpgsql;
 
 **`settings` is `jsonb`, not thirteen columns.** §5.5 lists thirteen per-shelf settings and says "adding a setting must never be a disruptive change". Thirteen columns would mean a migration and a deploy for each new one. The trade-off is no type checking at the database level, so the application validates the shape and supplies defaults for missing keys — the defaults table in §5.5 is the source of truth, and a shelf row need only store what it overrides.
 
-### 4.3 Books and copies
+### 4.3 Categories
+
+**Categories are global reference data, not tenant data.** That is a decision
+rather than something the requirements settled — see the reasoning below.
 
 ```sql
 create table categories (
-  id           uuid primary key default gen_random_uuid(),
-  bookshelf_id uuid not null references bookshelves(id) on delete restrict,
-  name         text not null,
-  slug         text not null,
-  created_at   timestamptz not null default now(),
-  deleted_at   timestamptz,
-  unique (bookshelf_id, slug)
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  slug       text not null unique,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
 );
+```
 
+Seeded with one list every shelf draws from:
+
+```sql
+insert into categories (slug, name, sort_order) values
+  ('van-hoc-thieu-nhi',    'Văn học thiếu nhi',    10),
+  ('van-hoc-viet-nam',     'Văn học Việt Nam',     20),
+  ('van-hoc-nuoc-ngoai',   'Văn học nước ngoài',   30),
+  ('truyen-tranh',         'Truyện tranh',         40),
+  ('tho',                  'Thơ',                  50),
+  ('lich-su',              'Lịch sử',              60),
+  ('dia-ly',               'Địa lý',               70),
+  ('khoa-hoc-thuong-thuc', 'Khoa học thường thức', 80),
+  ('ky-nang-song',         'Kỹ năng sống',         90),
+  ('sach-dao',             'Sách đạo',            100),
+  ('tu-dien-tra-cuu',      'Từ điển, tra cứu',    110),
+  ('khac',                 'Khác',                999);
+```
+
+**Why global rather than one set per shelf.** The requirements do not say. §5.1
+does not list Category among the entities at all; it appears only as a field on
+Book (§5.4), as a catalogue filter (§16.1), and in the deletion policy (§11). So
+this is ours to decide, and the reasoning is:
+
+- **§11 lists "categories" among the soft-deletable things.** Something that can
+  be soft-deleted is a row, not an enum value compiled into the application.
+  That is textual evidence in the requirements, not an inference about what
+  would be tidy.
+- **A table rather than an enum means adding one needs no deploy.** Whoever
+  administers this is not necessarily a developer, and *Sách đạo* is a category
+  a parish shelf wants on its first day.
+- **Shared rather than per-shelf keeps cross-shelf statistics addable**
+  (Phase 3, §1.4). If every shelf carries its own *Văn học thiếu nhi* row,
+  aggregating across shelves degrades into matching strings.
+
+**What it costs, and the answer.** A shelf cannot invent a category of its own.
+In exchange the catalogue filter offers only the categories that actually have
+books on *that* shelf, so an unused one is invisible rather than clutter:
+
+```sql
+select distinct c.*
+from categories c
+join books b on b.category_id = c.id
+where b.bookshelf_id = $1
+  and b.is_published
+  and b.deleted_at is null
+  and c.deleted_at is null
+order by c.sort_order;
+```
+
+If a shelf ever genuinely needs a private category, the migration is additive: a
+nullable `bookshelf_id` where `null` means shared. Nothing above changes.
+
+`sort_order` exists so the list reads sensibly rather than alphabetically —
+*Khác* belongs at the bottom wherever the alphabet would put it.
+
+### 4.4 Books and copies
+
+```sql
 create table books (
   id             uuid primary key default gen_random_uuid(),
   bookshelf_id   uuid not null references bookshelves(id) on delete restrict,
@@ -402,7 +463,7 @@ create table book_copies (
 
 Note that `lost` is a **state**, not a condition (§2, §9). Losing a book removes it from circulation; a torn book keeps circulating. They belong on different axes and conflating them makes "is this borrowable" unanswerable.
 
-### 4.4 Loans
+### 4.5 Loans
 
 ```sql
 create type loan_status as enum ('active', 'returned', 'lost', 'voided');
@@ -455,7 +516,7 @@ create table loans (
 
 **There is no `is_overdue` column, and there must never be one.** §8 makes this a load-bearing rule: overdue status is computed on read from `due_on` and the current clock. Any status a background job must *write* is stale, and therefore wrong, for as long as the job takes to run again. See §6 below for the read-time view.
 
-### 4.5 Requests and holds
+### 4.6 Requests and holds
 
 ```sql
 create type request_status as enum
@@ -499,7 +560,7 @@ The request targets a **title**, not a copy (§5.4). A copy is assigned only on 
 
 Guest requests create a lead, not an account (§4 assumption 5). A manager reviews and converts them. `guest_hash` holds a hashed identifier for rate limiting, because §2 correctly identifies an anonymous form on the public internet as a spam vector.
 
-### 4.6 Condition assessments
+### 4.7 Condition assessments
 
 ```sql
 create table condition_assessments (
@@ -517,7 +578,7 @@ create table condition_assessments (
 
 A separate table rather than columns on the loan, because §5.4 notes a manager may assess a copy at any time, not only at return. No `deleted_at`: §11 lists condition assessments among the things never deleted, since each is a historical fact about an object.
 
-### 4.7 Community
+### 4.8 Community
 
 ```sql
 create type comment_status as enum ('pending', 'approved', 'rejected', 'hidden');
@@ -598,7 +659,7 @@ create table feedback (
 
 `feedback` has no `deleted_at` — §11 lists it among the never-deleted.
 
-### 4.8 Notifications
+### 4.9 Notifications
 
 §15 specifies in-app notifications to readers, surfaced as a bell with an unread count, and explicitly **nothing pushed to managers** — they work from dashboard badge counts, which avoids notification fatigue for volunteers and removes any dependency on timely background work.
 
@@ -619,7 +680,7 @@ create index notifications_unread on notifications (user_id, created_at desc)
 
 The message text is **not** stored. `kind` plus `payload` is rendered through the translation layer at read time, so §18's rule that no user-facing string is ever hard-coded still holds, and a wording fix does not require rewriting history.
 
-### 4.9 Audit log
+### 4.10 Audit log
 
 ```sql
 create table audit_log (
@@ -747,11 +808,11 @@ This is the table to read before writing any application code.
 | **INV-5** | At most `max_concurrent_loans` active loans per reader per shelf | Application, in a transaction | Requires an aggregate; see §7.2 |
 | **INV-6** | Renewal only if renewals remain **and** no request is queued for that title | Application | Cross-table condition |
 | **INV-7** | A lost or retired copy cannot be lent or held | Application + partial index | The index in §7.1 also excludes these states |
-| **INV-8** | Every state transition writes an audit record | Application, same transaction | See §4.9 |
-| **INV-9** | A comment is publicly visible only when approved | **Database** (access path) | Partial index, §4.7 |
+| **INV-8** | Every state transition writes an audit record | Application, same transaction | See §4.10 |
+| **INV-9** | A comment is publicly visible only when approved | **Database** (access path) | Partial index, §4.8 |
 | **INV-10** | Every query scoped to one bookshelf | **Database** | Row Level Security, §3 |
 | **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; `revoke delete` |
-| **INV-12** | Audit records never change or disappear | **Database** | `revoke update, delete`, §4.9 |
+| **INV-12** | Audit records never change or disappear | **Database** | `revoke update, delete`, §4.10 |
 
 Six of twelve are structural. The other six need application discipline **inside a transaction**, and each needs the named test §6 requires.
 
