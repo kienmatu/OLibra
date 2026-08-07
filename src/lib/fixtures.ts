@@ -791,6 +791,51 @@ export function readerById(id: string) {
 }
 
 /**
+ * A reader's offer to give books to the shelf (§3 of the refinements design;
+ * BR §7.7, §16.2, §16.3). This is not provenance — provenance lives on
+ * `book_copies` once a manager actually catalogues what was handed over.
+ * Only `pending` offers are needed here: the manager's queue is the only
+ * screen this feeds, and a pending queue has no decided-by/decided-at yet.
+ */
+export type Donation = {
+  id: string;
+  readerId: string;
+  description: string;
+  estimatedCount?: number;
+  hasPhoto?: boolean;
+  submittedOn: string;
+};
+
+export const donationQueue: Donation[] = [
+  {
+    id: "linh-01",
+    readerId: "linh",
+    description:
+      "Em có 5 cuốn truyện tranh và 2 cuốn Dế Mèn, sách còn mới vì em đọc ít.",
+    estimatedCount: 7,
+    hasPhoto: true,
+    submittedOn: "05/08",
+  },
+  {
+    id: "anh-01",
+    readerId: "anh",
+    description:
+      "Nhà em dọn tủ sách cũ, có mấy cuốn Kính Vạn Hoa và mấy cuốn truyện cổ tích, chắc khoảng chục cuốn.",
+    estimatedCount: 10,
+    hasPhoto: false,
+    submittedOn: "03/08",
+  },
+  {
+    id: "minh-01",
+    readerId: "minh",
+    description:
+      "Em muốn tặng lại vài cuốn sách khoa học thiếu nhi em đã đọc xong.",
+    hasPhoto: true,
+    submittedOn: "01/08",
+  },
+];
+
+/**
  * Cover artwork path for a title, or undefined if we have none and the kraft
  * placeholder should stand in.
  *

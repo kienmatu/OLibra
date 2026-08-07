@@ -121,7 +121,13 @@ export default async function ShelfHomePage({
           </div>
         </section>
 
-        <p className="mt-12 text-[14px]">
+        <p className="mt-12 flex flex-wrap gap-x-6 gap-y-1 text-[14px]">
+          <Link
+            href={`${base}/tang-sach`}
+            className="inline-flex min-h-11 items-center text-sage hover:underline"
+          >
+            Tặng sách cho tủ sách
+          </Link>
           <Link
             href={`${base}/gop-y`}
             className="inline-flex min-h-11 items-center text-sage hover:underline"

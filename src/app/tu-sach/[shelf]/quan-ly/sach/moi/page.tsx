@@ -4,7 +4,7 @@ import { ArrowLeft, ImagePlus } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { shelfBySlug, shelves } from "@/lib/fixtures";
+import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -12,15 +12,22 @@ export function generateStaticParams() {
 
 export default async function NewBookPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  searchParams: Promise<{ nguoi_tang?: string }>;
 }) {
   const { shelf: slug } = await params;
+  const { nguoi_tang: nguoiTang } = await searchParams;
   const shelf = shelfBySlug(slug);
   if (!shelf) notFound();
 
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
   const previewCodes = ["DT-0215", "DT-0216", "DT-0217"];
+  // A donation approved from the queue arrives here with the donor already
+  // known (§16.3) — the field below is just as editable as if a manager had
+  // typed it themselves.
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="sach">
@@ -143,6 +150,50 @@ export default async function NewBookPage({
               </span>
             ))}
           </div>
+        </div>
+
+        {/* Provenance on the physical object (§3 of the refinements design):
+            optional, because plenty of books are bought, not given. When it
+            is filled in, it is written onto every copy this form creates. */}
+        <div className="space-y-5 rounded-card border border-hairline bg-surface p-5">
+          <div>
+            <p className="text-[16px] font-semibold">Người tặng</p>
+            <p className="mt-1 text-[14px] text-meta">
+              Không bắt buộc — nhiều sách là mua, không phải tặng. Nếu có người
+              tặng, thông tin này được lưu vào từng bản sách vừa thêm.
+            </p>
+          </div>
+
+          <Field
+            label="Người tặng"
+            htmlFor="nguoi-tang"
+            hint="Gõ tên để tìm bạn đọc đã có tài khoản trong tủ sách, hoặc gõ tên khác nếu người tặng chưa có tài khoản."
+          >
+            <Input
+              id="nguoi-tang"
+              list="danh-sach-nguoi-tang"
+              defaultValue={nguoiTang}
+              placeholder="vd: Nguyễn Thị Lan, hoặc bác Hoà"
+            />
+            <datalist id="danh-sach-nguoi-tang">
+              {readers.map((r) => (
+                <option key={r.id} value={r.fullName} />
+              ))}
+            </datalist>
+          </Field>
+
+          <Field
+            label="Ngày nhận"
+            htmlFor="ngay-nhan"
+            hint="Mặc định là hôm nay. Có thể đổi vì sách tặng thường được vào sổ trễ vài tuần sau khi nhận."
+          >
+            <Input
+              id="ngay-nhan"
+              type="date"
+              defaultValue={today}
+              className="max-w-52"
+            />
+          </Field>
         </div>
 
         <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">

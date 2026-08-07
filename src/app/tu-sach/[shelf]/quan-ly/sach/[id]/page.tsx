@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import { Pencil, Plus } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { bookBySlug, books, shelfBySlug, shelves } from "@/lib/fixtures";
+import { bookBySlug, books, readers, shelfBySlug, shelves } from "@/lib/fixtures";
 import type { CopyStatus } from "@/lib/status";
 
 export function generateStaticParams() {
@@ -97,6 +98,7 @@ export default async function ManagerBookDetailPage({
   if (!shelf || !book) notFound();
 
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="sach">
@@ -123,12 +125,70 @@ export default async function ManagerBookDetailPage({
         {/* A title receives more donated copies over time, so the copy count
             has to be able to grow after cataloguing. This is the only entry
             point for that — "Sửa sách" edits the title, not the shelf. */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">Các bản sách ({COPIES.length})</h2>
-          <Button type="button" variant="quiet" size="sm">
-            <Plus aria-hidden className="size-4" strokeWidth={2} />
-            Thêm bản
-          </Button>
+        {/* items-start, not items-center: the disclosure's body grows tall
+            once opened, and centring against it left the heading floating
+            in the middle of that height instead of sitting at the top. */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 className="pt-2.5 text-xl font-semibold">
+            Các bản sách ({COPIES.length})
+          </h2>
+          {/* A <details> disclosure, not a separate page: adding more copies
+              to a title already catalogued is only two fields beyond the
+              count, so a whole route and a "quay lại" trip back here would be
+              more navigation than the task needs. It needs no client
+              JavaScript, matching every other static page in this shell. */}
+          <details className="group">
+            <summary className="inline-flex h-11 cursor-pointer list-none items-center gap-1.5 rounded-control border border-hairline bg-surface px-4 text-[15px] font-semibold text-ink hover:bg-paper [&::-webkit-details-marker]:hidden">
+              <Plus aria-hidden className="size-4" strokeWidth={2} />
+              Thêm bản
+            </summary>
+
+            <form className="mt-4 max-w-md space-y-5 rounded-card border border-hairline bg-paper p-5">
+              <Field
+                label="Số bản muốn thêm"
+                required
+                htmlFor="them-so-ban"
+                hint="Hệ thống sẽ tự sinh mã tiếp theo, ví dụ DT-0143."
+              >
+                <Input
+                  id="them-so-ban"
+                  type="number"
+                  min={1}
+                  defaultValue={1}
+                  className="max-w-32"
+                />
+              </Field>
+
+              <Field
+                label="Người tặng"
+                htmlFor="them-nguoi-tang"
+                hint="Không bắt buộc. Gõ tên để tìm bạn đọc đã có tài khoản, hoặc gõ tên khác nếu người tặng chưa có tài khoản."
+              >
+                <Input
+                  id="them-nguoi-tang"
+                  list="them-danh-sach-nguoi-tang"
+                  placeholder="vd: Nguyễn Thị Lan, hoặc bác Hoà"
+                />
+                <datalist id="them-danh-sach-nguoi-tang">
+                  {readers.map((r) => (
+                    <option key={r.id} value={r.fullName} />
+                  ))}
+                </datalist>
+              </Field>
+
+              <Field
+                label="Ngày nhận"
+                htmlFor="them-ngay-nhan"
+                hint="Mặc định là hôm nay. Có thể đổi vì sách tặng thường được vào sổ trễ vài tuần sau khi nhận."
+              >
+                <Input id="them-ngay-nhan" type="date" defaultValue={today} />
+              </Field>
+
+              <Button type="submit" variant="primary" size="md">
+                Lưu bản mới
+              </Button>
+            </form>
+          </details>
         </div>
 
         <div className="mt-4 hidden overflow-hidden rounded-card border border-hairline md:block">

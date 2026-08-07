@@ -7,6 +7,7 @@ import {
   Bookmark,
   Library,
   Cog,
+  Gift,
   KeyRound,
   LayoutDashboard,
   Menu,
@@ -31,6 +32,7 @@ export type ManagerNavKey =
   | "dang-ky-cho-duyet"
   | "doi-thong-tin"
   | "yeu-cau-muon"
+  | "tang-sach"
   | "qua-han"
   | "binh-luan"
   | "thong-bao"
@@ -56,6 +58,7 @@ const NAV: {
   },
   { key: "doi-thong-tin", label: "Đổi thông tin", icon: UserPen, count: 2 },
   { key: "yeu-cau-muon", label: "Yêu cầu mượn", icon: Bookmark, count: 2 },
+  { key: "tang-sach", label: "Tặng sách", icon: Gift, count: 3 },
   { key: "qua-han", label: "Quá hạn", icon: TriangleAlert, count: 3 },
   { key: "binh-luan", label: "Bình luận", icon: MessageSquare, count: 1 },
   { key: "thong-bao", label: "Thông báo", icon: Megaphone },
