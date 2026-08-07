@@ -2,7 +2,7 @@
 
 **Status:** Draft for backend implementation. Transport-neutral by design.
 **Date:** 2026-08-07
-**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 45 screens) and whatever backend gets chosen.
+**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 45 screens) and whatever backend gets chosen. This catalogue currently defines **43 queries** (§3) and **57 commands** (§4), enforcing the fourteen business rules of §6.
 
 This document does not restate [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md); it references it by section and adds what that document does not already say: names, inputs, callers, invariant enforcement, audit actions, and named failure modes for every command and query the UI needs. [DESIGN.md](DESIGN.md) is referenced only for the UI behaviour that shapes an operation's contract (e.g. why blocking conditions must be visible before a confirm step).
 
@@ -22,15 +22,17 @@ Every operation is either a **query** or a **command**. Nothing is a third thing
 
 ## 2. Conventions
 
-**Scoping.** Every operation takes a `bookshelfId` (or resolves one from the caller's session) and is scoped to that one bookshelf, per INV-10. The exceptions are named explicitly wherever they appear and are few: the portal directory, blog post management, promote-to-super-admin, and the cross-shelf views under Administration. INV-10 is described in the requirements as the highest-consequence property in the system and structural, not a matter of discipline — so scoping is not a parameter an implementer can choose to skip; every query and command below either takes a shelf identifier or is flagged **Global**.
+**Scoping.** Every operation takes a `bookshelfId` (or resolves one from the caller's session) and is scoped to that one bookshelf, per INV-10. The exceptions are named explicitly wherever they appear and are few: the portal directory, promote-to-super-admin, and the cross-shelf views under Administration. INV-10 is described in the requirements as the highest-consequence property in the system and structural, not a matter of discipline — so scoping is not a parameter an implementer can choose to skip; every query and command below either takes a shelf identifier or is flagged **Global**.
 
-**Identifiers.** `bookshelfId` — the tenant. `userId` — the global identity (§5.3): username, password, name, DOB, phone, etc. `membershipId` — a user's relationship to *one* shelf: role, status, tổ, giáo họ, approval history. Most day-to-day reader-facing operations act on a `membershipId`, not a bare `userId`, because role and status live on the membership, not the person. `bookId` (title), `copyId` (physical object), `loanId`, `requestId` (a `BorrowRequest`), `commentId`, `announcementId`, `postId` (global), `feedbackId`.
+**Membership, not just authentication.** Per §1.2 of the requirements, a bookshelf's catalogue, book detail, search, and announcements are no longer reachable by an unauthenticated caller at all — only the landing page, the portal directory, and the sign-in and registration forms are public. Every operation below whose Caller is `reader` or higher additionally requires that the caller hold a membership *of the specific `bookshelfId` in the request* — a valid `reader` session for shelf A grants nothing on shelf B. This is the same structural scoping INV-10 already demands; membership-of-this-shelf is simply now also a precondition for reading, not only for writing.
+
+**Identifiers.** `bookshelfId` — the tenant. `userId` — the global identity (§5.3): username, password, name, DOB, phone, etc. `membershipId` — a user's relationship to *one* shelf: role, status, tổ, giáo họ, approval history. Most day-to-day reader-facing operations act on a `membershipId`, not a bare `userId`, because role and status live on the membership, not the person. `bookId` (title), `copyId` (physical object), `loanId`, `requestId` (a `BorrowRequest`), `profileChangeRequestId` (a `ProfileChangeRequest`), `commentId`, `announcementId`, `feedbackId`.
 
 **Callers.** Roles are hierarchical within a shelf: `admin` ⊃ `manager` ⊃ `reader` (§13.1). Where a command lists `manager` as the minimum caller, `admin` can call it too, automatically — the table never repeats the inherited role. `guest` is listed only where unauthenticated calls are genuinely allowed. `super_admin` can call anything anywhere; it is listed explicitly only for the handful of operations that are exclusively its own.
 
 **Errors are named, not generic.** A command never fails with a bare 500 or an unstructured exception. Every failure mode below is a stable, machine-readable code (e.g. `copy_not_available`) paired with the plain Vietnamese sentence the UI shows, matching §17.7's requirement that business-rule violations "surface as a friendly message naming what to do instead." A candidate stack must be able to distinguish *not found*, *validation failure*, and *business-rule violation* as different error shapes, because the UI treats them differently (inline field error vs. a named blocking message vs. a 404 page).
 
-**Nothing is hard-deleted except where §11 permits it.** Users, memberships, books, copies, categories, comments, announcements, posts, borrow requests, and bookshelves may be soft-deleted to undo a mistake. Loans, audit records, condition assessments, and feedback are never deleted under any command in this catalogue — loans get `VoidLoan` instead (INV-11), and nothing below offers to delete an audit record, because none should exist.
+**Nothing is hard-deleted except where §11 permits it.** Users, memberships, books, copies, categories, comments, announcements, borrow requests, and bookshelves may be soft-deleted to undo a mistake. Loans, audit records, condition assessments, and feedback are never deleted under any command in this catalogue — loans get `VoidLoan` instead (INV-11), and nothing below offers to delete an audit record, because none should exist.
 
 ---
 
@@ -38,28 +40,34 @@ Every operation is either a **query** or a **command**. Nothing is a third thing
 
 ### 3.1 Public (unauthenticated)
 
+Per §1.2 of the requirements, only two things live here now: the portal directory (name and address, nothing else — §16.1) and finding a shelf within it. Everything about a shelf's books, readers, and announcements moved to §3.2, because it now requires a membership of that shelf.
+
 | Query | Purpose | Inputs | Returns | Caller | Derived on read |
 |---|---|---|---|---|---|
-| `GetPortalDirectory` | List every active bookshelf for the front door. **Global.** | — | Per shelf: name, location, book count, active reader count, keeper contact | `guest` | Active reader count, book count |
-| `GetShelfHome` | The shelf's public landing page (§16.1). | `bookshelfId` | Identity, opening hours, keeper contact, pinned + recent announcements, most-borrowed row, most-active readers, latest approved comments | `guest` | Most-borrowed ranking, availability badges |
-| `GetCatalogue` | Browse or filter the public catalogue. | `bookshelfId`, `scope` (`available` \| `all`), `category?`, `sort?`, `page` | Paginated book cards: cover, title, author, availability badge | `guest` | Availability badge per book (§8) |
-| `SearchCatalogue` | Live, diacritic-insensitive search over title and author (§12). | `bookshelfId`, `q` | Ranked book list; empty state suggests popular titles | `guest` | Availability badge |
-| `GetBookDetail` | One book's public page. | `bookshelfId`, `bookSlug` | Metadata, description, availability panel, approved comments | `guest` | Availability, current holder (if `public_show_current_borrower`), queue length, days remaining on current loan |
-| `GetAnnouncementsList` | Public announcements, pinned first. | `bookshelfId` | Published, non-expired announcements | `guest` | Expiry (an announcement whose `publication_time` or expiry has lapsed is excluded on read, not by a job) |
-| `GetAnnouncementDetail` | One announcement's full body. | `bookshelfId`, `announcementSlug` | Title, body, author, date | `guest` | — |
-| `GetPostsList` | The global blog. **Global.** | — | Published posts, newest first | `guest` | — |
-| `GetPostDetail` | One blog post. **Global.** | `postSlug` | Title, body, cover, author, date | `guest` | — |
+| `GetPortalDirectory` | List every active bookshelf for the front door. **Global.** | — | Per shelf: **name and address only** (§16.1) — no book count, no reader count, no keeper contact | `guest` | — |
+| `SearchBookshelves` | Live search over the portal directory by name, so a stranger can find their own parish's shelf (§16.1: "A search box, because finding your own parish is the only job this page has"). **Global.** | `q` | Matching shelves: name and address only, same shape as `GetPortalDirectory` | `guest` | — |
 
-Reader full names on public pages are governed by the shelf's `public_name_display` setting (§5.5, assumption 6 in §4) — `GetShelfHome`, `GetBookDetail`, and any leaderboard-bearing query must apply it, never returning the manager-only fields (§5.3: DOB, parents' names, phone, tổ, giáo họ) regardless of the setting.
+Book counts, reader counts, and keeper contact are withheld from both of the above on purpose (§16.1: "a person with no membership has no business knowing them"), not merely omitted for brevity — a candidate implementation must not join that data in and trim it client-side, since that would put it on the wire.
 
 ### 3.2 Reader (authenticated `reader`)
 
+Everything about a shelf's books, announcements, and search moved here from §3.1 — per §1.2, a bookshelf's catalogue, book detail, search, and announcements now require a signed-in membership *of that shelf*, not merely being signed in somewhere. Every row below therefore additionally requires the caller's `reader` membership to belong to the `bookshelfId` in the request (see §2's "Membership, not just authentication").
+
 | Query | Purpose | Inputs | Returns | Caller | Derived on read |
 |---|---|---|---|---|---|
+| `GetShelfHome` | The shelf's home page, the first thing a member sees after signing in (§16.1). Not public. | `bookshelfId` | Identity, opening hours, keeper contact, pinned + recent announcements, most-borrowed row, most-active readers, latest approved comments | `reader` | Most-borrowed ranking, availability badges |
+| `GetCatalogue` | Browse or filter the shelf's catalogue. | `bookshelfId`, `scope` (`available` \| `all`), `category?`, `sort?`, `page` | Paginated book cards: cover, title, author, availability badge | `reader` | Availability badge per book (§8) |
+| `SearchCatalogue` | Live, diacritic-insensitive search over title and author (§12). | `bookshelfId`, `q` | Ranked book list; empty state suggests popular titles | `reader` | Availability badge |
+| `GetBookDetail` | A book's detail page. §16.1 is explicit: "There is no guest path — only a member of this shelf can see this page at all." | `bookshelfId`, `bookSlug` | Metadata, description, availability panel, approved comments | `reader` | Availability, current holder (if `public_show_current_borrower`), queue length, days remaining on current loan |
+| `GetAnnouncementsList` | Shelf announcements, pinned first. | `bookshelfId` | Published, non-expired announcements | `reader` | Expiry (an announcement whose `publication_time` or expiry has lapsed is excluded on read, not by a job) |
+| `GetAnnouncementDetail` | One announcement's full body. | `bookshelfId`, `announcementSlug` | Title, body, author, date | `reader` | — |
 | `GetMyDashboard` | "My page" — held books, pending requests, recent reads (§16.2). | `membershipId` | Current loans with days-remaining, pending/held requests with queue position, recently returned | `reader` | Days remaining/overdue per loan (§8), queue position |
 | `GetMyLoanHistory` | Full borrowing history, reverse-chronological. | `membershipId`, `page` | Loan rows with return condition | `reader` | — |
-| `GetMyProfile` | View/edit own profile. | `membershipId` | Personal fields, tổ/giáo họ (read-only), leaderboard toggle | `reader` | — |
+| `GetMyProfile` | View own profile and propose changes to it (§16.2). | `membershipId` | Personal fields, tổ/giáo họ (read-only), leaderboard toggle, current pending change if any (see `GetMyProfileChangeRequest`) | `reader` | — |
+| `GetMyProfileChangeRequest` | The reader's own pending profile-change proposal, if one exists (§16.2: "the page shows the current value with the pending one beside it, and says plainly that it is waiting"). | `membershipId` | Current values and proposed values side by side, status, when proposed — `null`/empty if nothing is pending (INV-13: at most one) | `reader` | — |
 | `GetMyNotifications` | Bell dropdown / notifications page. | `membershipId` | Notification list, unread count | `reader` | Unread count |
+
+Reader full names on these pages are governed by the shelf's `public_name_display` setting (§5.5, assumption 6 in §4) — `GetShelfHome`, `GetBookDetail`, and any leaderboard-bearing query must apply it, never returning the manager-only fields (§5.3: DOB, parents' names, phone, tổ, giáo họ) regardless of the setting. That setting now governs *member-facing* display, not public display — there is no public display of a shelf's readers any more.
 
 ### 3.3 Manager
 
@@ -70,10 +78,11 @@ Reader full names on public pages are governed by the shelf's `public_name_displ
 | `SearchReadersForLending` | Step 2 of quick-lend: pick a reader, with blocking reasons inline. | `bookshelfId`, `q` | Member rows, each flagged blocked/not (suspended, at loan limit) | `manager` | Loan-limit and membership-status block reasons (INV-4, INV-5) |
 | `SearchLoansForReturn` | Find the loan to receive back, by book or reader. | `bookshelfId`, `q` | Active loan rows with borrower, due date, copy code | `manager` | Overdue flag |
 | `GetBooksList` | Manager's book list, filterable. | `bookshelfId`, `q?`, `category?`, `sort?`, `page` | Title rows with copy counts and status | `manager` | Aggregate status per title |
-| `GetBookDetail` (manager) | A book's management page. | `bookshelfId`, `bookId` | Metadata, per-copy state/condition/location, condition-assessment history, full loan history | `manager` | Per-copy state, "đang ở đâu" (on shelf / with whom) |
+| `GetBookDetail` (manager) | A book's management page. Per §16.1, this page also surfaces **Cho mượn** on an available copy and **Nhận trả** on one that's out, as direct entry points into `LendCopy`/`ReceiveReturn` with the book already chosen (§5). | `bookshelfId`, `bookId` | Metadata, per-copy state/condition/location, condition-assessment history, full loan history | `manager` | Per-copy state, "đang ở đâu" (on shelf / with whom) |
 | `GetReadersList` | Manager's reader list, filterable by status. | `bookshelfId`, `status?`, `q?`, `page` | Reader rows with parish, current holding count, status | `manager` | Holding count |
 | `GetReaderDetail` (manager) | A reader's full profile. | `bookshelfId`, `membershipId` | Full profile incl. manager-only fields, current loans, loan history | `manager` | Current loans, days remaining |
 | `GetPendingRegistrations` | The approval queue. | `bookshelfId` | Pending applications with a similar-name warning where one exists | `manager` | Similar-name match (fuzzy name comparison against existing active members) |
+| `GetPendingProfileChanges` | The profile-change approval queue (§16.3: "One card per proposed change, showing the current value and the proposed one side by side"). | `bookshelfId` | Pending `ProfileChangeRequest` rows for this shelf's members, each with current and proposed values side by side | `manager` | — |
 | `GetBorrowRequestQueue` | Requests grouped by book, in request-time order. | `bookshelfId` | Per book: queue position, requester, status, hold expiry where approved | `manager` | Queue position, hold-expired flag (§8) |
 | `GetOverdueLoans` | Loans past due, sorted by lateness. | `bookshelfId`, `sort` | Borrower, phone, days late, due date | `manager` | Days late — computed from `due_on` vs. today (§8), never stored |
 | `GetCommentsList` | Comments by moderation status. | `bookshelfId`, `status` | Comment rows with book and author | `manager` | — |
@@ -99,7 +108,6 @@ Reader full names on public pages are governed by the shelf's `public_name_displ
 | `GetAuditLog` (cross-shelf) | Filterable by shelf, actor, action, date range. | filters | Same entry shape as the shelf-scoped version, any shelf | `super_admin` | — |
 | `GetFeedbackInbox` | Messages from readers and guests. | `status?` (`new` \| `read` \| `resolved`), `shelfFilter?` | Sender, subject, shelf (or site-wide), time, unread flag | `super_admin` | Unread flag/count |
 | `GetFeedbackDetail` | One message. | `feedbackId` | Full body, sender contact, shelf | `super_admin` | — |
-| `GetPostsList` (admin) | Blog posts incl. drafts. | — | All posts with publication status | `super_admin` | — |
 | `GetSystemSettings` | Global defaults and read-only system facts. | — | Default lending-policy values for new shelves, locale, timezone (read-only: `Asia/Ho_Chi_Minh`), last backup time | `super_admin` | — |
 | `DownloadSystemBackup` | Retrieve the most recent backup artifact. | — | Backup file/link | `super_admin` | — |
 
@@ -123,7 +131,7 @@ Catalogues a new title together with its initial batch of copies, in one transac
   - `duplicate_isbn` — "Mã ISBN này đã tồn tại trong tủ sách." (if ISBN provided and already used on this shelf)
 
 #### `UpdateBook`
-Edits a book's metadata, including the `published` flag that hides drafts from the public catalogue.
+Edits a book's metadata, including the `published` flag that hides drafts from the shelf's catalogue (member-visible, not public — §1.2).
 
 - **Inputs:** `bookshelfId`, `bookId`, changed fields
 - **Caller:** `manager`
@@ -207,7 +215,7 @@ Permanently withdraws a copy from circulation (§7.1: `available → retired` or
 ### 4.2 Circulation
 
 #### `LendCopy`
-Direct, request-free lend — the quick-lend flow's terminal step (§16.3, walked in full in §5 below).
+Direct, request-free lend — the quick-lend flow's terminal step (§16.3, walked in full in §5 below). Reachable from two entry points: the manager dashboard's quick-lend flow (three steps), or, per §16.1, a **Cho mượn** button on a book's detail page when a copy is available — the same command, with the book already chosen, so that entry point is two steps instead of three (§5).
 
 - **Inputs:** `bookshelfId`, `copyId` (or `bookId` when the title has exactly one copy), `membershipId` (the reader)
 - **Caller:** `manager`
@@ -232,7 +240,7 @@ Confirms handover of a copy already held for a specific reader via an approved `
   - `loan_limit_reached` — "Bạn đọc đã mượn tối đa số sách cho phép."
 
 #### `ReceiveReturn`
-Closes a loan and records the copy's condition; walked in full in §5.
+Closes a loan and records the copy's condition; walked in full in §5. Reachable from the manager dashboard's "Nhận trả" flow, or, per §16.1, directly from a book's detail page via a **Nhận trả** button shown whenever a copy of that title is out — the same command, with the loan already found.
 
 - **Inputs:** `bookshelfId`, `loanId`, condition, note?, photo?, `holdForRequestId?` (present only when the manager chooses to hold the returned copy for the next queued reader)
 - **Caller:** `manager`
@@ -276,18 +284,6 @@ A logged-in reader expresses intent to borrow a title that has no copy free righ
 - **Failure modes:**
   - `membership_not_active` — "Tài khoản đang tạm khoá, không thể gửi yêu cầu mượn."
   - `duplicate_request` — "Bạn đã có một yêu cầu đang chờ cho cuốn này."
-
-#### `CreateGuestBorrowRequest`
-An unauthenticated visitor's request, per the "Xin mượn sách" guest form (§16.1, `src/app/.../xin-muon/page.tsx`) — explicitly "a lead, not an account" (§2, assumption 5 in §4).
-
-- **Inputs:** `bookshelfId`, `bookId`, guest name, guest phone, note?, honeypot field
-- **Caller:** `guest`, only when `allow_guest_requests` is on for the shelf
-- **Invariants enforced:** INV-8
-- **Audit action:** `request.created`
-- **Failure modes:**
-  - `guest_requests_disabled` — "Tủ sách hiện không nhận yêu cầu mượn từ khách."
-  - `rate_limited` — see §8
-  - `honeypot_triggered` — request silently dropped (no user-visible error, so as not to teach bots which field to leave blank), still recorded as a rejected attempt for the spam log
 
 #### `ApproveBorrowRequest`
 `pending → approved`, assigning a specific available copy and starting the hold clock (§16.3: "Approve (creating a hold with a visible expiry)").
@@ -336,18 +332,6 @@ A reader withdraws their own pending or held request (§16.2 dashboard: "Huỷ �
   - `not_own_request` — "Bạn không thể huỷ yêu cầu của người khác." (should be structurally unreachable via UI, but the command must still check)
   - `request_already_fulfilled` — "Yêu cầu này đã được trao sách, không thể huỷ."
 
-#### `ConvertGuestRequestToMembership`
-Turns a guest lead into a real, registered member — the explicit manager action §2 requires: "a manager action to convert a legitimate request into a real account."
-
-- **Inputs:** `bookshelfId`, `requestId`, the membership fields normally collected at registration (§16.1)
-- **Caller:** `manager`
-- **Invariants enforced:** INV-8
-- **Audit action:** `membership.registered` (with a note linking back to the originating guest request)
-- **Failure modes:**
-  - `request_not_guest` — "Yêu cầu này không phải của khách, không cần chuyển đổi."
-
-> **Open question.** Required by §2 but not exposed anywhere in the 45 built screens — there is no button on the borrow-request queue or anywhere else that performs this conversion. Listed because the requirement is explicit and unambiguous even though the UI hasn't caught up to it yet.
-
 ### 4.3 Members
 
 #### `RegisterMembership`
@@ -372,7 +356,16 @@ A manager registers a new reader in person, from the quick-lend flow's "Đăng k
 - **Audit action:** `membership.registered` (recorded with the approving manager as actor, distinguishing it from a self-registration awaiting approval)
 - **Failure modes:** same as `RegisterMembership`
 
-> **Open question.** The requirements' assumption 3 (§4) says "a manager approving a registration constitutes the consent needed to hold a minor's data" — worded around *approving*, which implies a two-step pending→active flow even here. This document infers immediate-active status from the UX intent (§1.3) rather than from an explicit rule, since nothing in §7.4's state machine or §16.3's description of the escape hatch says whether it skips `pending`. Flagging the inference rather than presenting it as settled.
+> **Open question.** The requirements' assumption 3 (§4) says "a manager approving a registration constitutes the consent needed to hold a minor's data" — worded around *approving*, which implies a two-step pending→active flow even here. This document infers immediate-active status from the UX intent (§1.3) rather than from an explicit rule, since nothing in §7.4's state machine or §16.3's description of the escape hatch says whether it skips `pending`. Flagging the inference rather than presenting it as settled. `RegisterMemberOnBehalf` below is the contrasting case where §16.1 is explicit that `pending` is *not* skipped, which is some evidence for the stricter reading here too — but the two commands serve different moments (mid-lend vs. filling in a form) and the requirements never say they must agree.
+
+#### `RegisterMemberOnBehalf`
+A manager fills in the registration form for a child standing in front of them (§16.1: "A manager can also complete this form on behalf of a child standing in front of them, which is the common case for the youngest readers"). Same form, same fields, as `RegisterMembership` — the only difference is who is typing. Unlike `ManagerRegisterReader`, this command creates a **pending** application, exactly like self-registration, because §16.1 is explicit that registering on behalf "still creates a pending application rather than an active member, so the approval step and its audit record are never skipped." A manager filling in the form is not the same act as a manager approving it, and collapsing the two would mean a minor's data is held without the separate consent step assumption 3 (§4) describes.
+
+- **Inputs:** `bookshelfId`, the same fields as `RegisterMembership`
+- **Caller:** `manager`
+- **Invariants enforced:** INV-8
+- **Audit action:** `membership.registered` (recorded with the completing manager as actor, so the audit trail shows this was manager-assisted, distinct from a self-registration — but the resulting status is `pending`, unlike `ManagerRegisterReader`)
+- **Failure modes:** same as `RegisterMembership`
 
 #### `ApproveMembership`
 `pending → active` (§16.3: "Approve... reviewing card lays out exactly the fields the manager must verify in person").
@@ -429,25 +422,91 @@ Any status `→ left` (§16.3: "Đánh dấu đã rời").
 
 > **Open question.** Nothing in §7.4 or §16.3 says whether a reader with active loans can be marked `left`. Blocking it (as listed above) protects the "Đang mượn" count from becoming orphaned, but the requirements never say this explicitly — a valid alternative reading is that leaving is allowed and the loans simply continue to display against a `left` membership.
 
-#### `ResetReaderPassword`
-The only account-recovery path in v1, since there's no outbound email (§4, assumption 2). Manager-issued only.
+#### `SetReaderCredentials`
+Sets or changes a reader's sign-in details. It covers both cases deliberately, because they are the same act from the volunteer's side: giving an account the ability to sign in for the first time, and giving it back to someone who forgot. There is no outbound email and so no self-service reset (§4, assumption 2) — a child who forgets asks the volunteer standing at the shelf.
 
-- **Inputs:** `bookshelfId`, `membershipId`, new password (or a manager-visible temporary one)
+Most readers never need this at all. §1.3 is explicit that a reader never has to sign in to borrow; credentials exist only for a reader who wants to check the shelf from home, so an account may live its whole life without them (INV-14).
+
+- **Inputs:** `bookshelfId`, `membershipId`, username, new password
 - **Caller:** `manager`
-- **Invariants enforced:** INV-8; the audit record must never capture the password itself (§14: "Passwords and session tokens are never captured")
-- **Audit action:** `membership.password_reset`
+- **Invariants enforced:** INV-8, INV-14 — username and password are set together or not at all, so this command cannot leave an account half-configured
+- **Audit action:** `credentials.set`
 - **Failure modes:**
   - `not_found` — "Không tìm thấy bạn đọc này."
+  - `username_taken` — "Tên đăng nhập này đã có người dùng."
+  - `password_too_short` — "Mật khẩu cần ít nhất 8 ký tự."
+
+**Two things this command must never do.** It must not write the password, its
+hash, or any session token into the audit record — §14 forbids it, and this is
+the one place where an automatic change-capture implementation would do exactly
+the wrong thing, since setting a password *is* an update to a column. The audit
+entry is an explicit event naming the manager, the reader and the time, with no
+before and no after.
+
+And it must not be quiet. Whoever can set a password can sign in as that reader;
+that power is inherent in a trust model which already assumes the manager knows
+the family personally (§4, assumption 3). The mitigation is not to withhold the
+power but to make every use of it visible to the super administrator across every
+bookshelf (§13.2, Oversight). `credentials.set` is therefore one of the audit
+actions the administration surface must be able to filter on by name.
 
 #### `UpdateOwnProfile`
-Reader edits personal fields, including the leaderboard-visibility toggle; tổ and giáo họ are read-only from this command (§16.2: "Muốn đổi tổ hoặc giáo họ thì nhờ quản lý tủ sách giúp").
+Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). tổ and giáo họ remain read-only from this command, as before (§16.2: "Muốn đổi tổ hoặc giáo họ thì nhờ quản lý tủ sách giúp"). Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
 
-- **Inputs:** `membershipId`, changed personal fields (saint name, full name, DOB, phone, email?), leaderboard-visible flag
+- **Inputs:** `membershipId`, leaderboard-visible flag
 - **Caller:** `reader` (self only)
 - **Invariants enforced:** INV-8
 - **Audit action:** `membership.updated`
+- **Failure modes:** none beyond `not_found`
+
+#### `ProposeProfileChange`
+A reader proposes new values for their own verified details (§2: "Changing your own details is a request, not an edit"; §7.4). **Every field requires approval** — the product owner's explicit decision, including the phone number — so this command never writes to the person record; it only ever creates or replaces a `ProfileChangeRequest`. The existing values remain in force, and are what every other query and screen keeps showing, until a manager approves the proposal (§5.4: "Storing the previous values alongside the proposed ones means a manager reviewing a week-old request sees what it would actually change").
+
+- **Inputs:** `bookshelfId` (the shelf whose manager will decide, per §5.4), `membershipId`, proposed values for any subset of: saint name, full name, DOB, father's name, mother's name, phone, email
+- **Caller:** `reader` (self only)
+- **Invariants enforced:** INV-13 — at most one pending request per person. Proposing again while one is already pending **replaces** it rather than creating a second: this is normal, specified behavior, not a failure — the new proposal simply supersedes the old one and takes a fresh snapshot of "values at the time of proposing" (§5.4). INV-8.
+- **Audit action:** `profile_change.proposed`
 - **Failure modes:**
   - `validation_failed` — "Vui lòng kiểm tra lại thông tin."
+  - `empty_proposal` — "Vui lòng thay đổi ít nhất một trường." (nothing differs from the current values)
+
+**The avatar requires approval too.** It was queried and the product owner confirmed *every* field, naming the photograph explicitly. That is consistent with why the photograph exists at all: §5.3 collects it so a manager can tell two children apart, which makes it a fact the manager verified rather than a decoration the reader owns.
+
+This has one consequence worth stating, because it is the only proposable field that is a file. The proposed image is stored when the change is proposed, so the manager can look at it while deciding, but it does not become the person's avatar until approval — and a rejected or cancelled proposal's image is deleted rather than left orphaned in storage.
+
+#### `ApproveProfileChange`
+A manager approves a pending change; the proposed values are written to the person record in the same transaction as the audit record (§7.4: "pending → approved (values written to the person)").
+
+- **Inputs:** `bookshelfId`, `profileChangeRequestId`
+- **Caller:** `manager`
+- **Invariants enforced:** INV-13 (this is the *only* path by which a person's verified details change), INV-8
+- **Audit action:** `profile_change.approved`
+- **Failure modes:**
+  - `not_pending` — "Yêu cầu này đã được xử lý."
+
+#### `RejectProfileChange`
+A manager rejects a pending change with a reason, which the reader then sees (§16.3: mirrors `RejectMembership` and `RejectComment`'s required-reason pattern). The existing values are untouched — there was never anything to undo.
+
+- **Inputs:** `bookshelfId`, `profileChangeRequestId`, reason (required)
+- **Caller:** `manager`
+- **Invariants enforced:** INV-8
+- **Audit action:** `profile_change.rejected`
+- **Failure modes:**
+  - `reason_required` — "Vui lòng ghi lý do từ chối."
+  - `not_pending` — "Yêu cầu này đã được xử lý."
+
+#### `CancelProfileChange`
+The reader withdraws their own proposal before a decision is made (§7.4: "pending → cancelled (reader withdrew before a decision)").
+
+- **Inputs:** `membershipId`, `profileChangeRequestId`
+- **Caller:** `reader` (own request only)
+- **Invariants enforced:** INV-8
+- **Audit action:** `profile_change.cancelled`
+- **Failure modes:**
+  - `not_own_request` — "Bạn không thể huỷ yêu cầu của người khác." (should be structurally unreachable via UI, but the command must still check)
+  - `not_pending` — "Yêu cầu này đã được xử lý."
+
+> **Open question — notification gap.** §15's list of reader-facing notifications does not mention a profile-change decision at all (it covers registration and borrowing outcomes only). This document does not invent one: `ApproveProfileChange` and `RejectProfileChange` write no row into the notification system described in §7 below, so a reader only learns the outcome by revisiting `GetMyProfileChangeRequest` (or, on rejection, by whatever surfaces the reason on the profile page). Whether that silence is intentional or a gap in §15 is for the product owner to say.
 
 #### `ChangeOwnPassword`
 
@@ -459,12 +518,13 @@ Reader edits personal fields, including the leaderboard-visibility toggle; tổ 
   - `current_password_incorrect` — "Mật khẩu hiện tại không đúng."
   - `password_too_short` — "Mật khẩu mới cần ít nhất 8 ký tự."
 
-#### `UpdateAvatar`
+#### `ProposeAvatarChange`
+A reader proposes a new photograph. Like every other personal field it takes effect only on approval — see `ProposeProfileChange` above, of which this is the file-carrying case rather than a separate lifecycle.
 
 - **Inputs:** `userId`, image file (≤2 MB, square, per the profile screen's own copy)
-- **Caller:** `reader` (self only)
-- **Invariants enforced:** INV-8
-- **Audit action:** `user.avatar_updated`
+- **Caller:** `reader` (self only); a `manager` may also set a photograph directly when registering on behalf, since that value is being entered under their eye in the first place
+- **Invariants enforced:** INV-8, INV-13
+- **Audit action:** `profile_change.proposed` (with the changed field named in the payload)
 - **Failure modes:**
   - `file_too_large` — "Ảnh vượt quá 2 MB."
   - `invalid_image` — "Tệp này không phải là ảnh hợp lệ."
@@ -655,19 +715,6 @@ Grants the global `super_admin` role — listed as its own command because §13.
 
 > **Open question.** No button in the 45 built screens performs this distinct from `AssignManager`'s "Giao quyền quản lý" action — the managers list shows one existing `super_admin` (role `admin` in that screen's local type, distinct from the shelf-level `shelf-admin`) but no visible affordance to create another. Listed because §13.2 names the permission explicitly.
 
-#### `CreatePost` / `UpdatePost` / `PublishPost`
-Global blog articles (§16.4: "Manage posts"; §5.1: "written by the super admin").
-
-- **Inputs (create):** title, excerpt, rich body, cover?
-- **Inputs (update):** `postId`, changed fields
-- **Inputs (publish):** `postId`, publication time (default now)
-- **Caller:** `super_admin`
-- **Invariants enforced:** INV-8
-- **Audit action:** `post.created` / `post.updated` / `post.published`
-- **Failure modes:**
-  - `validation_failed` — "Vui lòng điền tiêu đề và nội dung."
-  - `already_published` — "Bài viết này đã được đăng." (`PublishPost` only)
-
 #### `UpdateSystemDefaults`
 Default lending-policy values applied to newly created shelves (§16.4's system settings screen). Changing this never retroactively touches an existing shelf's own settings.
 
@@ -724,6 +771,24 @@ The three checks are ordered cheapest-first, but the order that matters is the
 last one: **INV-1 is not a check, it is a constraint**, and it is the only
 thing standing between this flow and two active loans on one physical book.
 The first three can be raced past; that one cannot.
+
+### A second, shorter entry point: book detail
+
+§16.1 adds a doorway into these same two commands that skips the first
+step entirely. A manager is often standing at the shelf with the book
+already in hand, having reached it through `GetBookDetail` (manager)
+rather than through the dashboard's search box. When a copy of that
+title is available, the page shows **Cho mượn**; when one is out, it
+shows **Nhận trả**. Both buttons open the identical flow described
+above and below — same command, same checks, same transaction — with
+step 1 ("Bước 1 · Tìm sách" for `LendCopy`, "Tìm sách đang mượn" for
+`ReceiveReturn`) already done, because the book is the page the
+manager is already looking at. Quick-lend's three taps become two from
+here; receive-return's two taps become one before the condition
+picker. This adds no new command — it is not a fourth flow, it is the
+same two flows with a shorter runway — and it is justified by the same
+reasoning as §1.3: every step removed from a volunteer holding a phone
+next to a book is worth more than a feature elsewhere.
 
 ### `ReceiveReturn`, and the decision that is never automatic
 
@@ -837,20 +902,19 @@ Every reader-facing notification below is written by the command named, in the s
 
 ## 8. Rate limiting
 
-Two operations are explicitly open to unauthenticated (`guest`) callers and are named spam vectors in the requirements (§2):
+Guest borrow requests are gone (§2 of the requirements: "Since a shelf is now visible only to its members, there is no anonymous caller to serve" for borrowing), so there is exactly one write operation left that's open to an unauthenticated (`guest`) caller and named as a spam vector in the requirements:
 
 | Operation | Limit stated | Source |
 |---|---|---|
-| `CreateGuestBorrowRequest` | Rate-limited by a hashed identifier; honeypot field required | §5.4: "Guest requests are rate-limited by a hashed identifier." No numeric threshold is given anywhere in either source document. |
 | `SubmitFeedback` | 3 per phone number per day | Stated verbatim in the built UI (`src/app/tu-sach/[shelf]/gop-y/page.tsx`): "Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác." |
 
-Both use a **hashed** identifier (§5.4), not the raw phone number, so the rate-limit store itself doesn't become another place personal data sits in plaintext.
+It uses a **hashed** identifier (§5.4), not the raw phone number, so the rate-limit store itself doesn't become another place personal data sits in plaintext.
 
-> **Open question.** `CreateGuestBorrowRequest`'s limit is described qualitatively ("rate-limited by a hashed identifier") but no concrete number appears anywhere, unlike feedback's explicit "3 per day." A sensible default would mirror feedback's figure, but that is this document's suggestion, not a requirement already stated.
+`RegisterMembership` (public self-registration) is not named as rate-limited anywhere, despite also being an open, unauthenticated form that writes a database row. Given it requires substantially more input than a spam submission (§16.1's full field set) and produces a `pending` record a manager must act on rather than anything immediately consequential, the absence of a stated limit may be intentional — but it is not confirmed as such by either source document, so it is listed here as unaddressed rather than assumed fine.
 
-`RegisterMembership` (public self-registration) is not named as rate-limited anywhere, despite also being an open, unauthenticated form that writes a database row. Given it requires substantially more input than a guest borrow request (§16.1's full field set) and produces a `pending` record a manager must act on rather than anything immediately consequential, the absence of a stated limit may be intentional — but it is not confirmed as such by either source document, so it is listed here as unaddressed rather than assumed fine.
+`SearchBookshelves` (§3.1) is a new public write-free query, not a write, so it carries no rate-limiting requirement of its own — but being unauthenticated and open to arbitrary query strings, it is exactly the kind of endpoint ordinary infrastructure-level abuse protection (rate limiting at the edge, not a domain-level rule) exists for. Neither source document says anything about it, so this document doesn't invent a domain-level limit for it either.
 
-No other operation in this catalogue is open to `guest` callers except the read-only public queries in §3.1, which carry no state-changing risk and are addressed only by ordinary infrastructure-level abuse protection (outside this document's scope — see §9).
+No other operation in this catalogue is open to `guest` callers except the read-only public queries in §3.1 (`GetPortalDirectory`, `SearchBookshelves`), which carry no state-changing risk and are addressed only by ordinary infrastructure-level abuse protection (outside this document's scope — see §9).
 
 ---
 
@@ -862,11 +926,11 @@ Deliberately out of scope, per this document's own charter:
 - **Auth mechanism** — how a caller proves they are a given `userId` with a given `membershipId`'s role at a given shelf. Session cookie, JWT, magic link (there is no email in v1, per §4) — unspecified.
 - **Session storage** — where "who is calling" lives between requests.
 - **Framework** — Next.js is the current UI's framework (visible from the route tree), but nothing here depends on it, and the backend need not share it.
-- **ORM / persistence layer** — this document specifies *what the datastore must guarantee* (§6's concurrency constraint, INV-1 through INV-12 generally) but not which database, which query builder, or which migration tool delivers those guarantees.
+- **ORM / persistence layer** — this document specifies *what the datastore must guarantee* (§6's concurrency constraint, INV-1 through INV-13 generally) but not which database, which query builder, or which migration tool delivers those guarantees.
 
 **Any candidate stack must be able to satisfy, without exception:**
 
-1. Every invariant in §6 of the requirements, each covered by a named test (§21's Definition of Done).
+1. Every one of the fourteen invariants in §6 of the requirements, each covered by a named test (§21's Definition of Done) — including INV-13, new in this revision, which requires the datastore to make "at most one pending `ProfileChangeRequest` per person" hold structurally (a partial unique index on `(person_id) WHERE status = 'pending'`, or equivalent), the same category of guarantee §6 already demands for INV-1.
 2. Tenant scoping (INV-10) as a structural property — not something a developer has to remember to add to a query.
 3. Derived state (§8) staying derived — overdue, hold expiry, and availability computed at read time, never cached into a field a background job updates.
 4. The transactional pairing this document repeats throughout: a command's state change and its audit record commit together or not at all (§14), and the specific datastore-level concurrency guarantee described in §6 — because no amount of careful application code substitutes for it.
