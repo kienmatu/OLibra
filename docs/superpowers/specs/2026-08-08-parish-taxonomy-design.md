@@ -67,13 +67,15 @@ create table parish_units (
   constraint parish_units_l1_has_no_parent
     check (level <> 1 or parent_id is null),
   constraint parish_units_name_unique_in_scope
-    unique (bookshelf_id, level, parent_id, name)
+    unique nulls not distinct (bookshelf_id, level, parent_id, name)
 );
 ```
 
 One table serves both shapes. **Nesting off** means every level-2 unit has a null `parent_id`. **Nesting on** means it has one. Switching a parish between them is data, not a migration.
 
 A level-1 unit never has a parent — that is what makes it level 1.
+
+`parish_units_name_unique_in_scope` has to be `unique nulls not distinct`, not plain `unique`. PostgreSQL's ordinary `unique` treats every `null` as distinct from every other `null`, and `parent_id is null` is not the rare case here — it is true of *every* level-1 unit, by definition, and of every level-2 unit on a shelf with nesting off. Under plain `unique`, an admin on a one-level shelf typing "Tổ 1" twice inserts two rows cleanly, because Postgres never considers `(shelf, 1, null, "Tổ 1")` a duplicate of itself. That is two units with the same name splitting readers between them — the exact "cannot be grouped" failure §1 opens with. `nulls not distinct` (available since PostgreSQL 16, the version this system targets) makes the constraint treat two `null` `parent_id`s as equal for uniqueness purposes, so it catches the collision in the common flat case the same way it already catches two nested level-2 units sharing a real parent.
 
 ### 3.2 Configuration lives in shelf settings
 
@@ -219,6 +221,7 @@ the reader-list filter. It holds no rules of its own.
 - **No merging or splitting units.** Renaming is free because members reference an id. Merging two tổ into one is a real administrative event, but it is rare, and doing it properly means deciding what happens to history. Out of scope until asked for.
 - **No cross-shelf taxonomy.** Units belong to one bookshelf. Two parishes with a *Giáo họ Thánh Tâm* have two unrelated rows, which is correct — they are different places.
 - **No deletion of a unit that members reference.** Soft-delete only: the unit stops being offered in pickers and keeps describing the people already in it. A membership pointing at a deleted unit is history, not an error.
+- **Deleting a level-1 unit cascades to its level-2 children.** Its live level-2 units are soft-deleted in the same transaction, not left behind. The alternative — leaving them live and orphaned — was considered and rejected: a tổ inside a deleted giáo họ is not a place anyone belongs, so offering it in a picker (or counting it toward "does this shelf have a level-2 field to show at all") would be offering membership in a group that, as far as this shelf is concerned, no longer exists. Cascading also keeps `unitOptions` and the level-2 field's "zero, one or two" promise (§6) true without every caller having to re-derive "but only if its parent is still live" by hand — exactly the kind of rule §6.1 says belongs in one place. As with every soft delete here, a membership already pointing at a cascaded unit keeps describing it; only the offering stops.
 - **No inference from a name.** The system never parses "Tổ 3" to derive a number or an ordering. `sort_order` is explicit, because "Tổ 10" sorting before "Tổ 2" is exactly the kind of detail that makes software feel careless.
 
 ---
