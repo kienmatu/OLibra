@@ -327,7 +327,7 @@ A manager passes over a reader in the queue — either one who hasn't reached th
 > **Open question.** The requirements name "skip" as its own domain event but never define how it differs from `RejectBorrowRequest` in terms of resulting state. The built queue screen (`src/app/.../yeu-cau-muon/page.tsx`) shows *both* "Bỏ qua" and "Từ chối" as separate buttons on the same still-pending request rows, which only makes sense if skip and reject leave the request in genuinely different end states — but neither the state machine (§7.2) nor the UI copy says what those states are. This document treats skip as *not* a terminal status (the request presumably stays `pending`, just deprioritised, or — for an approved/held request — reverts to `pending` with the hold released) rather than `rejected`, but this is the least well-specified command in the catalogue and deserves product clarification before implementation.
 
 #### `CancelOwnRequest`
-A reader withdraws their own pending or held request (§16.2 dashboard: "Huỷ đăng ký").
+A reader withdraws their own pending or held request, from the dashboard §16.2 describes — built as a "Huỷ đăng ký" button, wording that is the UI's, not the requirements'.
 
 - **Inputs:** `bookshelfId`, `requestId`
 - **Caller:** `reader` (own request only)
@@ -373,7 +373,7 @@ A manager fills in the registration form for a child standing in front of them (
 - **Failure modes:** same as `RegisterMembership`
 
 #### `ApproveMembership`
-`pending → active` (§16.3: "Approve... reviewing card lays out exactly the fields the manager must verify in person").
+`pending → active` (§16.3: "A review card per application, laying out exactly the fields the manager must verify in person, with prominent Approve and Reject buttons").
 
 - **Inputs:** `bookshelfId`, `membershipId`
 - **Caller:** `manager`
@@ -394,7 +394,7 @@ A manager fills in the registration form for a child standing in front of them (
   - `not_pending` — "Đơn đăng ký này đã được xử lý."
 
 #### `SuspendMembership`
-`active → suspended`. Blocks new loans only — existing loans are explicitly unaffected (INV-4, §16.3: "Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên.").
+`active → suspended`. Blocks new loans only — existing loans are explicitly unaffected (INV-4: "A reader whose membership is not active cannot start a new loan. Existing loans are unaffected."). The reader-detail screen states the same rule in its own words — "Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên." — but that sentence is the built UI's wording, not the requirements'.
 
 - **Inputs:** `bookshelfId`, `membershipId`, reason?
 - **Caller:** `manager`
@@ -416,7 +416,7 @@ A manager fills in the registration form for a child standing in front of them (
 > **Open question.** The reader-detail management screen (`src/app/.../nguoi-doc/[id]/page.tsx`) renders the same three action buttons ("Đặt lại mật khẩu", "Tạm khoá tài khoản", "Đánh dấu đã rời") unconditionally, regardless of the reader's actual membership status in the fixture data — there is no visible "Kích hoạt lại" button anywhere in the 47 screens. The command is required by §7.4's bidirectional arrow; the UI simply hasn't been built state-aware yet.
 
 #### `MarkMembershipLeft`
-Any status `→ left` (§16.3: "Đánh dấu đã rời").
+Any status `→ left`, one of the administrative actions §16.3's reader detail view names in passing ("current loans, complete history, and administrative actions") without spelling out. Built as an "Đánh dấu đã rời" button — that label is the UI's wording, not the requirements'.
 
 - **Inputs:** `bookshelfId`, `membershipId`
 - **Caller:** `manager`
@@ -456,7 +456,7 @@ bookshelf (§13.2, Oversight). `credentials.set` is therefore one of the audit
 actions the administration surface must be able to filter on by name.
 
 #### `UpdateOwnProfile`
-Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). tổ and giáo họ remain read-only from this command, as before (§16.2: "Muốn đổi tổ hoặc giáo họ thì nhờ quản lý tủ sách giúp"). Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
+Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). tổ and giáo họ remain read-only from this command, as before — the profile screen tells the reader why in its own words ("Muốn đổi tổ hoặc giáo họ thì nhờ quản lý tủ sách giúp"), a UI sentence, not requirements text. Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
 
 - **Inputs:** `membershipId`, leaderboard-visible flag
 - **Caller:** `reader` (self only)
@@ -480,7 +480,7 @@ A reader proposes new values for their own verified details (§2: "Changing your
 This has one consequence worth stating, because it is the only proposable field that is a file. The proposed image is stored when the change is proposed, so the manager can look at it while deciding, but it does not become the person's avatar until approval — and a rejected or cancelled proposal's image is deleted rather than left orphaned in storage.
 
 #### `ApproveProfileChange`
-A manager approves a pending change; the proposed values are written to the person record in the same transaction as the audit record (§7.4: "pending → approved (values written to the person)").
+A manager approves a pending change; the proposed values are written to the person record in the same transaction as the audit record (§7.4's diagram: `pending ──► approved (values written to the person)`).
 
 - **Inputs:** `bookshelfId`, `profileChangeRequestId`
 - **Caller:** `manager`
@@ -501,7 +501,7 @@ A manager rejects a pending change with a reason, which the reader then sees (§
   - `not_pending` — "Yêu cầu này đã được xử lý."
 
 #### `CancelProfileChange`
-The reader withdraws their own proposal before a decision is made (§7.4: "pending → cancelled (reader withdrew before a decision)").
+The reader withdraws their own proposal before a decision is made (§7.4's diagram: `pending ──► cancelled (reader withdrew before a decision)`).
 
 - **Inputs:** `membershipId`, `profileChangeRequestId`
 - **Caller:** `reader` (own request only)
@@ -558,7 +558,7 @@ A reader comments on a book (§16.1). No guest comments (§5.4).
   - `not_pending` — "Bình luận này đã được xử lý."
 
 #### `RejectComment`
-`pending → rejected`, reason shown to the author (§16.3: "Từ chối cần ghi lý do, bạn đọc sẽ thấy lý do này").
+`pending → rejected`, reason shown to the author — required per the general rule that every rejection flow in the requirements takes a reason (BR §5.4, BookDonation: "reason required on decline, matching every other rejection flow in this document"). The comment screen's own copy for it reads "Từ chối cần ghi lý do, bạn đọc sẽ thấy lý do này," which is the UI's wording, not the requirements'.
 
 - **Inputs:** `bookshelfId`, `commentId`, reason (required)
 - **Caller:** `manager`
@@ -590,7 +590,7 @@ Shelf news, written by managers (§16.3).
   - `validation_failed` — "Vui lòng điền tiêu đề và nội dung."
 
 #### `PublishAnnouncement`
-Draft → published, or a previously expired announcement republished with a fresh expiry (§16.3: "Đăng ngay" / "Đăng lại").
+Draft → published, or a previously expired announcement republished with a fresh expiry. §16.3 does not itself describe an announcement-management screen; this command follows the built UI (`src/app/.../quan-ly/thong-bao/page.tsx`), whose buttons read "Đăng ngay" and "Đăng lại".
 
 - **Inputs:** `bookshelfId`, `announcementId`, publication time (default now), new expiry?
 - **Caller:** `manager`
@@ -610,7 +610,7 @@ Draft → published, or a previously expired announcement republished with a fre
 > **Open question.** §16.1 says pinned announcements come first, "most recent next" — implying possibly more than one pinned item, ordered among themselves by recency. Nothing states a cap. Left as multiple-pins-allowed, ordered by pin time, unless the product owner wants a hard limit of one.
 
 #### `HideAnnouncement`
-Pulls a showing announcement from public view (§16.3: "Ẩn").
+Pulls a showing announcement from public view. As with `PublishAnnouncement` above, §16.3 does not itself describe this screen; the built UI's button for it reads "Ẩn".
 
 - **Inputs:** `bookshelfId`, `announcementId`
 - **Caller:** `manager`
@@ -710,7 +710,7 @@ Edits a shelf's profile and lending policy together, in one save (the built sett
 > **Open question.** The manager-facing settings page (`src/app/.../quan-ly/cai-dat/page.tsx`) is read-only and states "Chỉ quản trị viên mới đổi được các mục này" ("only the *quản trị viên* can change these"). Vietnamese "quản trị viên" is used in this codebase both for the shelf-level `admin` role (labelled "Quản trị tủ sách" in the managers list) and for the global `super_admin` role (labelled "Quản trị viên" there too). The only settings-*edit* screen actually built lives under the super-admin-only `/quan-tri` route tree, not under any shelf-scoped route a shelf `admin` could reach. Whether a shelf's own `admin` role is meant to have an equivalent in-shelf settings-edit screen — matching the role hierarchy's implication that `admin ⊃ manager` should include *more* than a manager, not the same read-only view — is unresolved by the built UI. This document restricts `UpdateBookshelfSettings` to `super_admin` to match what's actually built, but flags this as very likely a gap: a shelf `admin` role with no privilege beyond a `manager` (read-only settings) makes the role distinction in §13.1 pointless.
 
 #### `ArchiveBookshelf`
-`active → archived` — hides the shelf from the portal, retains everything (§16.3: "Lưu trữ sẽ ẩn tủ sách khỏi cổng, nhưng giữ lại toàn bộ dữ liệu và lịch sử").
+`active → archived` — hides the shelf from the portal, retains everything. §16.4's Bookshelves bullet does not itself describe archiving; the built settings screen (`src/app/quan-tri/tu-sach/page.tsx`) states the effect as "Lưu trữ sẽ ẩn tủ sách khỏi cổng, nhưng giữ lại toàn bộ dữ liệu và lịch sử," which is that screen's wording, not the requirements'.
 
 - **Inputs:** `bookshelfId`
 - **Caller:** `super_admin`

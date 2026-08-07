@@ -339,7 +339,7 @@ Foundation slices have their own fully-scripted plan documents. Wave 1–3 slice
 | S1 · Schema & RLS | [plan](2026-08-07-s1-schema-rls.md) | — | everything | S0 |
 | S2 · Domain kernel | [plan](2026-08-07-s2-domain-kernel.md) | — | all commands | S1 |
 | S3 · Identity & session | [plan](2026-08-07-s3-identity-session.md) | 3 | all but 2 queries | S2 |
-| C1 · Lending core | [plan](2026-08-07-c1-lending-core.md) | 3 cmd + 4 qry | C2 | B1, B2 |
+| C1 · Lending core | [plan](2026-08-07-c1-lending-core.md) | 3 cmd + 3 qry | C2 | B1, B2 |
 | B1 · Catalogue | §7.1 below | 8 cmd + 6 qry | C1, E | S3 |
 | B2 · Members | §7.2 below | 16 cmd + 8 qry | C1, D1, E | S3 |
 | B3 · Community | §7.3 below | 17 cmd + 6 qry | E | S3 |

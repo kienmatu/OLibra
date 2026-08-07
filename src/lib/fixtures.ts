@@ -211,6 +211,10 @@ export const books: Book[] = [
     category: "Văn học thiếu nhi",
     status: "overdue",
     codes: "DT-0201 – DT-0203",
+    // DT-0201 on loan to Maria Vũ Khánh Linh (see `loans`), DT-0202 lost (see
+    // `lostCopies`), DT-0203 on loan to Phêrô Nguyễn Văn Bình and overdue
+    // (see `loans`) — 1 + 1 + 1 = 3, none available. A copy holds exactly
+    // one state (INV-2), so this must never drift from those two lists.
     copiesTotal: 3,
     copiesAvailable: 0,
     description: [
@@ -745,6 +749,18 @@ export const loans: Loan[] = [
     dueOn: "16/07",
     status: "overdue",
     daysLeft: -21,
+  },
+  {
+    // The manager log for Maria Nguyễn Thị Lan (quan-tri/quan-ly-vien/lan)
+    // already narrates this handover — "Cho Maria Vũ Khánh Linh mượn Đất
+    // Rừng Phương Nam", 05/08 10:15. This is that loan, on the third copy.
+    bookSlug: "dat-rung-phuong-nam",
+    code: "DT-0201",
+    readerId: "linh",
+    borrowedOn: "05/08",
+    dueOn: "19/08",
+    status: "onloan",
+    daysLeft: 11,
   },
 ];
 
