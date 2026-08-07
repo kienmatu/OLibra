@@ -20,6 +20,19 @@ test("fixedClock returns the instant it was given", () => {
   expect(clock.now().toISOString()).toBe("2026-08-07T12:00:00.000Z");
 });
 
-test("systemClock produces a well-formed date", () => {
-  expect(systemClock.today()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+test("systemClock's today() is the Ho Chi Minh City date, not the naive UTC one", () => {
+  // A regex shape check (`/^\d{4}-\d{2}-\d{2}$/`) passes against the exact
+  // bug this clock exists to prevent: `new Date().toISOString().slice(0, 10)`
+  // also produces a well-formed YYYY-MM-DD string, just the wrong one for
+  // seven hours a day. Assert against an independently timezone-formatted
+  // `now()` instead, so a regression back to the naive UTC implementation
+  // fails this test near the UTC/Asia-Ho_Chi_Minh day boundary.
+  const hoChiMinhDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(systemClock.now());
+
+  expect(systemClock.today()).toBe(hoChiMinhDate);
 });
