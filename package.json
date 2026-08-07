@@ -11,8 +11,9 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "bun run typecheck && bun run lint && bun run format:check",
-    "check:diagrams": "bun run scripts/check-mermaid.mjs"
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun run check:links",
+    "check:diagrams": "bun run scripts/check-mermaid.mjs",
+    "check:links": "bun run scripts/check-links.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

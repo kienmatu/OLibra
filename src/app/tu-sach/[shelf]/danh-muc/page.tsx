@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { BookCard } from "@/components/ui/book";
 import { Input, Select } from "@/components/ui/field";
 import { Segmented } from "@/components/ui/segmented";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { books, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -31,7 +31,7 @@ export default async function CataloguePage({
 
   return (
     <>
-      <PublicHeader shelf={shelf} active="danh-muc" />
+      <ShelfHeader shelf={shelf} active="danh-muc" />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         <h1 className="text-[28px] leading-tight font-semibold">Danh mục sách</h1>

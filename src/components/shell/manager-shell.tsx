@@ -7,7 +7,6 @@ import {
   Bookmark,
   Library,
   Cog,
-  FileText,
   KeyRound,
   LayoutDashboard,
   Menu,
@@ -16,6 +15,7 @@ import {
   ScrollText,
   ShieldCheck,
   TriangleAlert,
+  UserPen,
   UserPlus,
   Users,
   type LucideIcon,
@@ -29,6 +29,7 @@ export type ManagerNavKey =
   | "nhan-tra"
   | "nguoi-doc"
   | "dang-ky-cho-duyet"
+  | "doi-thong-tin"
   | "yeu-cau-muon"
   | "qua-han"
   | "binh-luan"
@@ -53,6 +54,7 @@ const NAV: {
     icon: UserPlus,
     count: 5,
   },
+  { key: "doi-thong-tin", label: "Đổi thông tin", icon: UserPen, count: 2 },
   { key: "yeu-cau-muon", label: "Yêu cầu mượn", icon: Bookmark, count: 2 },
   { key: "qua-han", label: "Quá hạn", icon: TriangleAlert, count: 3 },
   { key: "binh-luan", label: "Bình luận", icon: MessageSquare, count: 1 },
@@ -216,20 +218,13 @@ export function ManagerShell({
 }
 
 export type AdminNavKey =
-  | "tong-quan"
-  | "tu-sach"
-  | "quan-ly-vien"
-  | "nhat-ky"
-  | "bai-viet"
-  | "gop-y"
-  | "cai-dat";
+  "tong-quan" | "tu-sach" | "quan-ly-vien" | "nhat-ky" | "gop-y" | "cai-dat";
 
 const ADMIN_NAV: { key: AdminNavKey; label: string; icon: LucideIcon }[] = [
   { key: "tong-quan", label: "Tổng quan", icon: LayoutDashboard },
   { key: "tu-sach", label: "Tủ sách", icon: Archive },
   { key: "quan-ly-vien", label: "Quản lý viên", icon: KeyRound },
   { key: "nhat-ky", label: "Nhật ký", icon: ScrollText },
-  { key: "bai-viet", label: "Bài viết", icon: FileText },
   { key: "gop-y", label: "Góp ý", icon: MessageSquare },
   { key: "cai-dat", label: "Cài đặt", icon: Cog },
 ];

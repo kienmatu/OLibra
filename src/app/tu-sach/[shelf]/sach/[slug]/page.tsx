@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Bookmark, Hand, Users } from "lucide-react";
+import { BookCheck, Bookmark, Hand, RotateCcw, Users } from "lucide-react";
 import { ButtonLink, Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusPanel } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/field";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { bookBySlug, books, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -43,12 +43,13 @@ export default async function BookDetailPage({
 
   return (
     <>
-      <PublicHeader shelf={shelf} />
+      <ShelfHeader shelf={shelf} />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         {/* Mobile reads top to bottom as one ordered flex column: cover,
-            title, status, primary action, description, comments, and the
-            reference metadata last. `md:grid` restores the two-column
+            title, status, primary action, manager shortcuts, description,
+            comments, and the reference metadata last. `md:grid` restores the
+            two-column
             arrangement, at which point each wrapper below turns back into a
             plain block (`md:block`) and normal source order takes over, so
             desktop is unaffected by the mobile `order-*` values. */}
@@ -56,7 +57,7 @@ export default async function BookDetailPage({
           <div className="contents md:block">
             <BookCover title={book.title} className="order-1 w-full text-[3rem]" />
 
-            <dl className="order-7 mt-6 divide-y divide-hairline border-y border-hairline">
+            <dl className="order-8 mt-6 divide-y divide-hairline border-y border-hairline">
               {detail.map(([label, value]) => (
                 <div key={label} className="py-2.5">
                   <dt className="text-[14px] text-meta">{label}</dt>
@@ -116,12 +117,7 @@ export default async function BookDetailPage({
             </div>
 
             <div className="order-4 mt-6">
-              <ButtonLink
-                href={`${base}/sach/${book.slug}/xin-muon`}
-                variant="primary"
-                size="lg"
-                className="min-w-80"
-              >
+              <Button variant="primary" size="lg" className="min-w-80">
                 {isAvailable ? (
                   <>
                     <Hand aria-hidden className="size-5" strokeWidth={1.75} />
@@ -133,7 +129,7 @@ export default async function BookDetailPage({
                     Đăng ký chờ mượn
                   </>
                 )}
-              </ButtonLink>
+              </Button>
               <p className="mt-2 text-[14px] text-meta">
                 {isAvailable
                   ? "Quản lý sẽ xác nhận khi bạn đến nhận sách."
@@ -141,7 +137,41 @@ export default async function BookDetailPage({
               </p>
             </div>
 
-            <section className="order-5 mt-10">
+            {/* §16.1: a manager viewing this page gets the two flows they'd
+                otherwise navigate away for, with the book already chosen —
+                shortening the three-step lend to two. Outline buttons only,
+                so the reader's "Xin mượn" stays the one solid action here. */}
+            <div className="order-5 mt-6 rounded-card border border-hairline bg-paper p-5">
+              <p className="text-[13px] font-semibold tracking-wide text-leather uppercase">
+                Dành cho quản lý
+              </p>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                <ButtonLink
+                  href={`${base}/quan-ly/cho-muon`}
+                  variant="outline"
+                  size="lg"
+                  className="flex-1"
+                >
+                  <BookCheck aria-hidden className="size-5" strokeWidth={1.75} />
+                  Cho mượn
+                </ButtonLink>
+                <ButtonLink
+                  href={`${base}/quan-ly/nhan-tra`}
+                  variant="outline"
+                  size="lg"
+                  className="flex-1"
+                >
+                  <RotateCcw aria-hidden className="size-5" strokeWidth={1.75} />
+                  Nhận trả
+                </ButtonLink>
+              </div>
+              <p className="mt-3 text-[14px] text-meta">
+                Mở sẵn với cuốn này đã chọn, rút quy trình cho mượn ba bước xuống
+                còn hai bước từ đây.
+              </p>
+            </div>
+
+            <section className="order-6 mt-10">
               <h2 className="text-lg font-semibold">Giới thiệu</h2>
               <div className="mt-3 space-y-4 text-[16px]">
                 {book.description.map((para) => (
@@ -151,7 +181,7 @@ export default async function BookDetailPage({
             </section>
 
             {book.comments?.length ? (
-              <section className="order-6 mt-10">
+              <section className="order-7 mt-10">
                 <h2 className="text-lg font-semibold">Bình luận</h2>
                 <ul className="mt-3 divide-y divide-hairline border-t border-hairline">
                   {book.comments.map((c) => (

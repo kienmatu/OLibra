@@ -60,10 +60,10 @@ export default async function ManagerReadersPage({
         title="Người đọc"
         subtitle="96 bạn đọc đang hoạt động · 5 đơn chờ duyệt"
         action={
-          <Button variant="primary" size="lg">
+          <ButtonLink href={`${listHref}/moi`} variant="primary" size="lg">
             <UserPlus aria-hidden className="size-5" strokeWidth={1.75} />
             Đăng ký người đọc mới
-          </Button>
+          </ButtonLink>
         }
       />
 

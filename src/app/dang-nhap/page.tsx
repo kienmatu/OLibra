@@ -3,13 +3,13 @@ import { Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { shelf } from "@/lib/fixtures";
 
 export default function LoginPage() {
   return (
     <>
-      <PublicHeader shelf={shelf} />
+      <ShelfHeader shelf={shelf} />
 
       <main className="mx-auto flex max-w-3xl flex-col items-center px-6 py-20">
         <div className="w-full max-w-[440px] rounded-card border border-hairline bg-surface p-8">

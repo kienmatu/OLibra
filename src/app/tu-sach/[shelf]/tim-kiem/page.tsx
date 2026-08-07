@@ -4,7 +4,7 @@ import { ChevronRight, Search, SearchX } from "lucide-react";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Input } from "@/components/ui/field";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { books, shelfBySlug, shelves } from "@/lib/fixtures";
 import { matches } from "@/lib/search";
 
@@ -32,7 +32,7 @@ export default async function SearchPage({
 
   return (
     <>
-      <PublicHeader shelf={shelf} active="tim-kiem" />
+      <ShelfHeader shelf={shelf} active="tim-kiem" />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
         {/* The search field is meant to be the dominant element, so the page

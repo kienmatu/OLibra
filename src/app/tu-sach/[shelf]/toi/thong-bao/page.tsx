@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { BookTitle } from "@/components/ui/book";
 import { PageHeading } from "@/components/ui/card";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { shelfBySlug, shelves } from "@/lib/fixtures";
 import { cn } from "@/lib/utils";
@@ -118,7 +118,7 @@ export default async function ReaderNotificationsPage({
 
   return (
     <>
-      <PublicHeader shelf={shelf} />
+      <ShelfHeader shelf={shelf} />
       <ReaderTabs shelfSlug={shelf.slug} active="thong-bao" />
 
       <main className="mx-auto max-w-3xl px-6 py-10">

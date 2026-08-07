@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
@@ -22,14 +22,18 @@ export default async function ReaderProfilePage({
   if (!shelf) notFound();
 
   const reader = readers.find((r) => r.id === "minh")!;
+  const pendingPhone = "0912 345 999";
 
   return (
     <>
-      <PublicHeader shelf={shelf} />
+      <ShelfHeader shelf={shelf} />
       <ReaderTabs shelfSlug={shelf.slug} active="ho-so" />
 
       <main className="mx-auto max-w-xl px-6 py-10">
-        <PageHeading title="Hồ sơ của em" />
+        <PageHeading
+          title="Hồ sơ của em"
+          subtitle="Những thay đổi em gửi chỉ có hiệu lực sau khi quản lý duyệt."
+        />
 
         <div className="mt-8 flex items-center gap-4">
           <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-paper text-[26px] font-semibold text-leather">
@@ -38,9 +42,11 @@ export default async function ReaderProfilePage({
           <div>
             <Button variant="quiet" size="sm">
               <Camera aria-hidden className="size-[18px]" strokeWidth={1.75} />
-              Đổi ảnh đại diện
+              Đề nghị đổi ảnh
             </Button>
-            <p className="mt-1.5 text-[13px] text-meta">Ảnh vuông, dưới 2 MB.</p>
+            <p className="mt-1.5 text-[13px] text-meta">
+              Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị.
+            </p>
           </div>
         </div>
 
@@ -68,6 +74,25 @@ export default async function ReaderProfilePage({
             >
               <Input id="dien-thoai" inputMode="tel" defaultValue={reader.phone} />
             </Field>
+
+            <div className="rounded-card border border-hairline bg-paper p-4">
+              <p className="text-[14px]">
+                Đang chờ quản lý duyệt:{" "}
+                <span className="font-semibold">{pendingPhone}</span>
+              </p>
+              <p className="mt-1 text-[13px] text-meta">
+                Số hiện tại ({reader.phone}) vẫn được dùng cho đến khi đề nghị này
+                được duyệt.
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2 -ml-4"
+              >
+                Huỷ đề nghị
+              </Button>
+            </div>
 
             <Field
               label="Email"
@@ -114,6 +139,10 @@ export default async function ReaderProfilePage({
 
           <section className="space-y-4 border-t border-hairline pt-8">
             <h2 className="text-xl font-semibold">Riêng tư</h2>
+            <p className="text-[14px] text-meta">
+              Có hiệu lực ngay, không cần quản lý duyệt — đây không phải một thông
+              tin quản lý cần xác minh.
+            </p>
 
             <div className="flex items-center justify-between gap-4 rounded-card border border-hairline bg-surface p-4">
               <div className="min-w-0">
@@ -136,6 +165,10 @@ export default async function ReaderProfilePage({
 
           <section className="space-y-4 border-t border-hairline pt-8">
             <h2 className="text-xl font-semibold">Mật khẩu</h2>
+            <p className="text-[14px] text-meta">
+              Cũng có hiệu lực ngay — mật khẩu không phải thông tin quản lý xác
+              minh, chỉ là chìa khoá để em tự đăng nhập.
+            </p>
 
             <Button type="button" variant="quiet" size="md">
               <KeyRound aria-hidden className="size-5" strokeWidth={1.75} />
@@ -152,13 +185,19 @@ export default async function ReaderProfilePage({
             </p>
           </section>
 
-          <div className="flex items-center gap-4 border-t border-hairline pt-8">
-            <Button type="submit" variant="primary" size="lg">
-              Lưu thay đổi
-            </Button>
-            <Button type="button" variant="ghost" size="md">
-              Huỷ
-            </Button>
+          <div className="border-t border-hairline pt-8">
+            <div className="flex items-center gap-4">
+              <Button type="submit" variant="primary" size="lg">
+                Gửi đề nghị thay đổi
+              </Button>
+              <Button type="button" variant="ghost" size="md">
+                Huỷ
+              </Button>
+            </div>
+            <p className="mt-3 text-[14px] text-meta">
+              Quản lý sẽ xem và duyệt trước khi các thông tin cá nhân ở trên đổi
+              thành giá trị mới.
+            </p>
           </div>
         </form>
       </main>
