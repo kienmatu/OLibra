@@ -123,8 +123,15 @@ export function validateSelection(
 
   // Not nested: §4 says no relationship is checked at all, even if both
   // happen to be set. Either null: valid, permanently (design §5) — there is
-  // nothing to relate.
-  if (taxonomy.nested && l1 !== null && l2 !== null) {
+  // nothing to relate. Also gated on `levels === 2` — design §3.2 says
+  // `nested` is meaningful only when `levels` is 2 and is otherwise ignored,
+  // not an error. A shelf that drops from two levels to one keeps its
+  // `nested` flag intact so a later return to two finds it as it was, so
+  // `nested` can be `true` while `levels` is `1`; without this gate a
+  // leftover l2 selection from before the drop (describeSelection §3.2
+  // deliberately leaves it alone) would be checked against a level-1 parent
+  // it may not even have, for a level that no longer renders at all.
+  if (taxonomy.levels === 2 && taxonomy.nested && l1 !== null && l2 !== null) {
     const l2Unit = units.find((u) => u.id === l2)!;
     if (l2Unit.parentId !== l1) return no("parish_unit_l2_not_in_l1");
   }
@@ -164,4 +171,45 @@ export function describeSelection(
   }
 
   return parts.join(" · ");
+}
+
+/**
+ * A single unit's display name, or "Chưa có" when unset or not found.
+ *
+ * Replaces `units.find((u) => u.id === id)?.name ?? "Chưa có"`, the same
+ * lookup that used to be written by hand in four places (the reader's own
+ * profile page and the manager's reader-detail page, once each for level 1
+ * and level 2) — exactly the drift design §6.1 warns a shared module exists
+ * to prevent.
+ */
+export function unitName(units: ParishUnit[], id: string | null): string {
+  return units.find((u) => u.id === id)?.name ?? "Chưa có";
+}
+
+/**
+ * Whether the level-2 field should render at all — design §6's "zero, one or
+ * two": an empty level renders no field, never an empty `<select>` offering
+ * only "— Không chọn —".
+ *
+ * When nested, a level-2 unit only counts if it has a *live* level-1 parent.
+ * Without this, a level-1 unit that has been soft-deleted still leaves its
+ * level-2 children in the units array (only the level-1 row itself is
+ * marked `deletedAt`), so a naive `unitOptions(units, 2).length > 0` sees
+ * those orphaned children and reports a level-2 field should show — but the
+ * grouped rendering (`ParishUnitFields`, grouped by live level-1 parent)
+ * then has no parent to hang them under and renders no options at all,
+ * breaking the "no field, or a usable one" promise. §7 documents deleting a
+ * level-1 unit as cascading to its live level-2 children specifically so
+ * this situation should not arise from a correctly-run `DeleteParishUnit`;
+ * this check stays defensive rather than trusting that invariant blindly.
+ */
+export function hasVisibleLevel2(
+  taxonomy: ParishTaxonomy,
+  units: ParishUnit[],
+): boolean {
+  if (taxonomy.levels !== 2) return false;
+  if (!taxonomy.nested) return unitOptions(units, 2).length > 0;
+  return unitOptions(units, 1).some(
+    (parent) => unitOptions(units, 2, parent.id).length > 0,
+  );
 }

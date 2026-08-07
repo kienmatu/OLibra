@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import {
   defaultTaxonomy,
   describeSelection,
+  hasVisibleLevel2,
+  unitName,
   unitOptions,
   validateSelection,
   type ParishTaxonomy,
@@ -203,6 +205,24 @@ describe("validateSelection", () => {
       validateSelection(nestedTaxonomy, units, { l1: "gh1", l2: "gone" }),
     ).toEqual({ blocked: false });
   });
+
+  test("nested is ignored when levels is 1 (design §3.2), even for a mismatched pair", () => {
+    // A shelf that dropped from two levels to one keeps its `nested` flag
+    // intact (design §3.2) rather than clearing it, so `levels: 1, nested:
+    // true` is a real combination this function must handle, not a state
+    // that cannot occur. Without gating on `levels === 2`, this mismatched
+    // pair would be rejected even though the level-2 field no longer renders
+    // at all while the shelf is at one level.
+    const droppedToOneLevel: ParishTaxonomy = {
+      levels: 1,
+      nested: true,
+      level1Label: "Giáo họ",
+      level2Label: "Tổ",
+    };
+    expect(
+      validateSelection(droppedToOneLevel, units, { l1: "gh1", l2: "t2" }),
+    ).toEqual({ blocked: false });
+  });
 });
 
 describe("describeSelection", () => {
@@ -252,5 +272,73 @@ describe("describeSelection", () => {
     expect(
       describeSelection(oneLevelTaxonomy, units, { l1: "gh1", l2: "t3" }),
     ).toBe("Giáo họ Thánh Tâm");
+  });
+});
+
+describe("unitName", () => {
+  const units = [unit({ id: "gh1", level: 1, name: "Giáo họ Thánh Tâm" })];
+
+  test("returns the unit's name", () => {
+    expect(unitName(units, "gh1")).toBe("Giáo họ Thánh Tâm");
+  });
+
+  test("returns Chưa có when the id is null", () => {
+    expect(unitName(units, null)).toBe("Chưa có");
+  });
+
+  test("returns Chưa có when the id does not resolve to any unit", () => {
+    expect(unitName(units, "no-such-id")).toBe("Chưa có");
+  });
+});
+
+describe("hasVisibleLevel2", () => {
+  test("false when the shelf has only one level", () => {
+    const units = [unit({ id: "t1", level: 2, name: "Tổ 1" })];
+    expect(hasVisibleLevel2(oneLevelTaxonomy, units)).toBe(false);
+  });
+
+  test("not nested: true when any live level-2 unit exists", () => {
+    const units = [unit({ id: "t1", level: 2, name: "Tổ 1" })];
+    expect(hasVisibleLevel2(flatTaxonomy, units)).toBe(true);
+  });
+
+  test("not nested: false when every level-2 unit is soft-deleted", () => {
+    const units = [
+      unit({
+        id: "t1",
+        level: 2,
+        name: "Tổ 1",
+        deletedAt: "2026-01-01T00:00:00Z",
+      }),
+    ];
+    expect(hasVisibleLevel2(flatTaxonomy, units)).toBe(false);
+  });
+
+  test("nested: true when a live level-1 parent has a live level-2 child", () => {
+    const units = [
+      unit({ id: "gh1", level: 1, name: "Giáo họ Thánh Tâm" }),
+      unit({ id: "t1", level: 2, parentId: "gh1", name: "Tổ 1" }),
+    ];
+    expect(hasVisibleLevel2(nestedTaxonomy, units)).toBe(true);
+  });
+
+  test("nested: false when a level-1 unit is deleted but its level-2 children are not (IMPORTANT 6's orphan case)", () => {
+    // Reproduces the bug directly: the parent is gone, but nothing has
+    // (yet) cascaded the deletion to its children, so a naive
+    // `unitOptions(units, 2).length > 0` would wrongly say yes.
+    const units = [
+      unit({
+        id: "gh1",
+        level: 1,
+        name: "Giáo họ Thánh Tâm",
+        deletedAt: "2026-01-01T00:00:00Z",
+      }),
+      unit({ id: "t1", level: 2, parentId: "gh1", name: "Tổ 1" }),
+    ];
+    expect(hasVisibleLevel2(nestedTaxonomy, units)).toBe(false);
+  });
+
+  test("nested: false when there are no level-1 units at all yet", () => {
+    expect(hasVisibleLevel2(nestedTaxonomy, [])).toBe(false);
   });
 });
