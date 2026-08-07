@@ -1,14 +1,16 @@
 import Link from "next/link";
-import { ArrowLeft, Lock } from "lucide-react";
+import { ArrowLeft, Lock, Plus } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
 import { Button } from "@/components/ui/button";
 import {
   Field,
   Input,
   ReadOnlyValue,
+  Select,
   Textarea,
   Toggle,
 } from "@/components/ui/field";
+import { unitOptions, type ParishUnit } from "@/domain/members/parish-taxonomy";
 import { shelf } from "@/lib/fixtures";
 
 export const metadata = { title: "Tủ sách Đồng Tháp — Quản trị OLibra" };
@@ -57,7 +59,39 @@ function NumberField({
   );
 }
 
+/** One unit in a management list — its name plus rename/remove actions. */
+function UnitRow({ unit }: { unit: ParishUnit }) {
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-control border border-hairline bg-surface px-3.5 py-2.5">
+      <span className="text-[15px]">{unit.name}</span>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button type="button" variant="quiet" size="sm">
+          Đổi tên
+        </Button>
+        <Button type="button" variant="danger" size="sm">
+          Xoá
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+/** The "add one more" row at the foot of every unit list. */
+function AddUnitRow({ placeholder }: { placeholder: string }) {
+  return (
+    <li className="flex flex-wrap items-center gap-2 pt-1">
+      <Input placeholder={placeholder} className="h-11 max-w-64" />
+      <Button type="button" variant="outline" size="sm">
+        <Plus aria-hidden className="size-4" strokeWidth={1.75} />
+        Thêm
+      </Button>
+    </li>
+  );
+}
+
 export default function AdminShelfSettingsPage() {
+  const { parishTaxonomy, parishUnits } = shelf;
+  const level1Units = unitOptions(parishUnits, 1);
   return (
     <AdminShell active="tu-sach">
       <Link
@@ -124,6 +158,108 @@ export default function AdminShelfSettingsPage() {
           >
             <Input id="dien-thoai-chia" defaultValue={shelf.phone} />
           </Field>
+        </section>
+
+        <section className="space-y-6">
+          <h2 className="text-xl font-semibold">Phân chia giáo xứ</h2>
+          <p className="text-[14px] text-meta">
+            Tủ sách nào cũng khác nhau ở chỗ này — có xứ chỉ chia tổ, có xứ chỉ có
+            giáo họ, có xứ chia cả hai. Chọn đúng cách giáo xứ mình vẫn gọi, đừng
+            theo tủ sách khác. Cả hai trường đều không bắt buộc khi đăng ký, kể cả
+            sau khi đã cài đặt xong ở đây — một bạn đọc chưa rõ tổ vẫn phải đăng ký
+            được.
+          </p>
+
+          <Field
+            label="Số bậc"
+            htmlFor="so-bac"
+            hint="Một bậc nếu giáo xứ chỉ chia theo một cách (chỉ tổ, hoặc chỉ giáo họ). Hai bậc nếu chia lồng nhau."
+          >
+            <Select id="so-bac" defaultValue={String(parishTaxonomy.levels)}>
+              <option value="1">1 bậc</option>
+              <option value="2">2 bậc</option>
+            </Select>
+          </Field>
+
+          <Field
+            label="Tên bậc 1"
+            htmlFor="ten-bac-1"
+            hint="Từ giáo xứ mình vẫn dùng — thường là Giáo họ hoặc Tổ."
+          >
+            <Input id="ten-bac-1" defaultValue={parishTaxonomy.level1Label} />
+          </Field>
+
+          {parishTaxonomy.levels === 2 ? (
+            <>
+              <Field
+                label="Tên bậc 2"
+                htmlFor="ten-bac-2"
+                hint="Đơn vị nhỏ hơn, nằm trong bậc 1 — thường là Tổ."
+              >
+                <Input id="ten-bac-2" defaultValue={parishTaxonomy.level2Label} />
+              </Field>
+
+              <SettingRow
+                label={`Đánh số ${parishTaxonomy.level2Label.toLowerCase()} theo từng ${parishTaxonomy.level1Label.toLowerCase()}`}
+                hint={`Bật nếu ${parishTaxonomy.level2Label} 1 của ${parishTaxonomy.level1Label.toLowerCase()} này khác ${parishTaxonomy.level2Label} 1 của ${parishTaxonomy.level1Label.toLowerCase()} kia. Tắt nếu ${parishTaxonomy.level2Label.toLowerCase()} đánh số chung cho cả giáo xứ.`}
+              >
+                <Toggle
+                  on={parishTaxonomy.nested}
+                  label={`Đánh số ${parishTaxonomy.level2Label.toLowerCase()} theo từng ${parishTaxonomy.level1Label.toLowerCase()}`}
+                />
+              </SettingRow>
+            </>
+          ) : null}
+
+          <div className="space-y-3 border-t border-hairline pt-6">
+            <p className="text-[16px] font-medium">
+              Danh sách {parishTaxonomy.level1Label.toLowerCase()}
+            </p>
+            <ul className="space-y-2">
+              {level1Units.map((unit) => (
+                <UnitRow key={unit.id} unit={unit} />
+              ))}
+              <AddUnitRow placeholder={`${parishTaxonomy.level1Label} mới`} />
+            </ul>
+          </div>
+
+          {parishTaxonomy.levels === 2 ? (
+            <div className="space-y-3 border-t border-hairline pt-6">
+              <p className="text-[16px] font-medium">
+                Danh sách {parishTaxonomy.level2Label.toLowerCase()}
+              </p>
+
+              {parishTaxonomy.nested ? (
+                // Nested: each level-2 list lives under its own parent, so
+                // renaming or adding one never risks picking the wrong
+                // giáo họ by accident.
+                <div className="space-y-5">
+                  {level1Units.map((parent) => (
+                    <div key={parent.id}>
+                      <p className="text-[14px] text-meta">
+                        Trong {parent.name.toLowerCase()}
+                      </p>
+                      <ul className="mt-2 space-y-2">
+                        {unitOptions(parishUnits, 2, parent.id).map((unit) => (
+                          <UnitRow key={unit.id} unit={unit} />
+                        ))}
+                        <AddUnitRow
+                          placeholder={`${parishTaxonomy.level2Label} mới trong ${parent.name}`}
+                        />
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {unitOptions(parishUnits, 2).map((unit) => (
+                    <UnitRow key={unit.id} unit={unit} />
+                  ))}
+                  <AddUnitRow placeholder={`${parishTaxonomy.level2Label} mới`} />
+                </ul>
+              )}
+            </div>
+          ) : null}
         </section>
 
         <section>
