@@ -138,6 +138,78 @@ Where BR §16.1 currently marks these fields **Bắt buộc**, that changes. The
 
 ---
 
+## 6.1 One module owns the shape
+
+Six screens read this taxonomy and two write it. Without a shared module each
+one re-derives "which pickers do I show", "which units belong under this
+parent" and "how do I write a person's parish line" — and they will drift, the
+way "Tổ 3 · Giáo họ Thánh Tâm" is currently written by hand into five
+different pages.
+
+**The pure logic lives in the domain**, framework-free and testable with no
+database and no browser, because the same rules must run on the server when a
+registration is submitted. A picker that filters correctly while the command
+accepts anything is not validation.
+
+`src/domain/members/parish-taxonomy.ts`:
+
+```ts
+type ParishTaxonomy = {
+  levels: 1 | 2;
+  nested: boolean;
+  level1Label: string;
+  level2Label: string;
+};
+
+type ParishUnit = {
+  id: string;
+  level: 1 | 2;
+  parentId: string | null;
+  name: string;
+  sortOrder: number;
+};
+
+/** One level, "Tổ", not nested. What a brand-new shelf gets. */
+function defaultTaxonomy(): ParishTaxonomy;
+
+/** The options a picker should offer, ordered by sortOrder then name. */
+function unitOptions(
+  units: ParishUnit[],
+  level: 1 | 2,
+  parentId?: string | null,
+): ParishUnit[];
+
+/** INV: when nested, l2 must belong to l1. Same Block shape circulation uses. */
+function validateSelection(
+  taxonomy: ParishTaxonomy,
+  units: ParishUnit[],
+  selection: { l1: string | null; l2: string | null },
+): Block;
+
+/** "Tổ 3 · Giáo họ Thánh Tâm", or "" when nothing is set. */
+function describeSelection(
+  taxonomy: ParishTaxonomy,
+  units: ParishUnit[],
+  selection: { l1: string | null; l2: string | null },
+): string;
+```
+
+`describeSelection` is the one that earns its place fastest: every screen that
+names a reader's parish calls it instead of writing the words itself, so a
+shelf that calls its divisions something else is correct everywhere at once.
+
+`validateSelection` returns the same `Block` shape the circulation policy uses
+(`{ blocked: true, reason: ErrorCode } | { blocked: false }`), so the picker
+and the command share one implementation of §4's rule rather than two that can
+disagree.
+
+**The UI component consumes it** — `src/components/parish-unit-fields.tsx`
+renders zero, one or two selects from a taxonomy and a unit list, handles the
+nested filtering, and is used by registration, manager-registers-reader, and
+the reader-list filter. It holds no rules of its own.
+
+---
+
 ## 7. What this deliberately does not do
 
 - **No third level.** Vietnamese parish structure can nest further, but a bookshelf serving a few hundred books needs enough to identify a family, not a full ecclesiastical hierarchy. Two levels with configurable names cover every shape reported. A third is additive if it is ever wanted.
