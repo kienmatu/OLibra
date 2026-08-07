@@ -13,8 +13,6 @@ export const sql: Sql = postgres(testDatabaseUrl(), {
   onnotice: () => {},
 });
 
-const extraConnections: Sql[] = [];
-
 /**
  * Runs `body` with two independent connections.
  *
@@ -29,17 +27,28 @@ export async function withTwoConnections<T>(
   const url = testDatabaseUrl();
   const a = postgres(url, { max: 1, onnotice: () => {} });
   const b = postgres(url, { max: 1, onnotice: () => {} });
-  extraConnections.push(a, b);
   try {
     return await body(a, b);
   } finally {
     await Promise.all([a.end(), b.end()]);
-    extraConnections.length = 0;
   }
 }
 
 /**
- * Truncates every table in the public schema.
+ * Tables `resetDatabase` must never truncate, and why.
+ *
+ * - `schema_migrations`: the migration ledger (see docs/superpowers/plans
+ *   .../s1-schema-rls.md). Truncating it while the objects it records still
+ *   exist would empty the ledger but leave the schema built, so the next
+ *   `migrate()` call re-applies an already-applied migration and fails
+ *   (e.g. Postgres 42710, "type ... already exists"). The ledger is additive
+ *   and small; it does not need to be reset between tests the way ordinary
+ *   data tables do.
+ */
+export const RESET_EXCLUDED_TABLES = ["schema_migrations"] as const;
+
+/**
+ * Truncates every table in the public schema except `RESET_EXCLUDED_TABLES`.
  *
  * Truncation rather than transaction-rollback, because rollback isolation is
  * incompatible with `withTwoConnections` — see the note above.
@@ -52,12 +61,14 @@ export async function resetDatabase(): Promise<void> {
   const tables = await sql<{ tablename: string }[]>`
     select tablename from pg_tables where schemaname = 'public'
   `;
-  if (tables.length === 0) return;
-  const list = tables.map((t) => `public."${t.tablename}"`).join(", ");
+  const toTruncate = tables
+    .map((t) => t.tablename)
+    .filter((name) => !(RESET_EXCLUDED_TABLES as readonly string[]).includes(name));
+  if (toTruncate.length === 0) return;
+  const list = toTruncate.map((name) => `public."${name}"`).join(", ");
   await sql.unsafe(`truncate table ${list} restart identity cascade`);
 }
 
 export async function closeAll(): Promise<void> {
-  await Promise.all(extraConnections.map((c) => c.end()));
   await sql.end();
 }
