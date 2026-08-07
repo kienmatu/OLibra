@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Menu, Search } from "lucide-react";
+import { LogOut, Menu, Search } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import type { Shelf } from "@/lib/fixtures";
 
@@ -10,12 +10,10 @@ import type { Shelf } from "@/lib/fixtures";
  */
 function MobileMenu({
   links,
-  loginHref = "/dang-nhap",
-  loginLabel = "Đăng nhập",
+  trailing,
 }: {
   links: readonly { href: string; label: string; key: string }[];
-  loginHref?: string;
-  loginLabel?: string;
+  trailing?: { href: string; label: string };
 }) {
   return (
     <details className="relative md:hidden [&_svg]:open:rotate-90">
@@ -32,29 +30,41 @@ function MobileMenu({
           <Link
             key={link.key}
             href={link.href}
-            className="flex min-h-11 items-center rounded-control px-3 text-[16px] hover:bg-paper"
+            className="flex min-h-11 items-center rounded-control px-3 text-[15px] hover:bg-paper"
           >
             {link.label}
           </Link>
         ))}
-        <Link
-          href={loginHref}
-          className="mt-1 flex min-h-11 items-center rounded-control border border-hairline px-3 text-[16px] font-semibold hover:bg-paper"
-        >
-          {loginLabel}
-        </Link>
+        {trailing ? (
+          <Link
+            href={trailing.href}
+            className="mt-1 flex min-h-11 items-center rounded-control border border-hairline px-3 text-[15px] font-semibold hover:bg-paper"
+          >
+            {trailing.label}
+          </Link>
+        ) : null}
       </div>
     </details>
   );
 }
 
-/** Public top bar: shelf name, catalogue, announcements, search, login. */
-export function PublicHeader({
+/**
+ * The header for a shelf.
+ *
+ * A bookshelf is no longer public (§1.2) — everything behind this header
+ * requires a membership of *this* shelf — so it carries the signed-in reader
+ * rather than a "Đăng nhập" button. There is no shelf switcher: a reader
+ * belongs to one shelf, and seeing another parish's name here would only
+ * raise a question the product does not answer.
+ */
+export function ShelfHeader({
   shelf,
   active,
+  reader = "Giuse Trần Minh",
 }: {
   shelf: Shelf;
-  active?: "danh-muc" | "thong-bao" | "tim-kiem";
+  active?: "danh-muc" | "thong-bao" | "tim-kiem" | "toi";
+  reader?: string;
 }) {
   const base = `/tu-sach/${shelf.slug}`;
   const links = [
@@ -66,12 +76,13 @@ export function PublicHeader({
       icon: false,
     },
     { href: `${base}/tim-kiem`, label: "Tìm kiếm", key: "tim-kiem", icon: true },
+    { href: `${base}/toi`, label: "Trang của tôi", key: "toi", icon: false },
   ] as const;
 
   return (
     <header className="border-b border-hairline bg-paper">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-6">
-        <Link href={base} className="text-lg font-semibold">
+        <Link href={base} className="min-w-0 truncate text-lg font-semibold">
           {shelf.name}
         </Link>
 
@@ -93,84 +104,71 @@ export function PublicHeader({
               {link.label}
             </Link>
           ))}
-          <ButtonLink href="/dang-nhap" size="sm" className="ml-2">
-            Đăng nhập
-          </ButtonLink>
+
+          <span aria-hidden className="mx-2 h-6 w-px bg-hairline" />
+
+          <span className="flex items-center gap-2 text-[15px]">
+            <span
+              aria-hidden
+              className="flex size-8 items-center justify-center rounded-full bg-surface text-[14px] font-semibold text-leather"
+            >
+              {reader.split(" ").at(-1)?.charAt(0)}
+            </span>
+            <span className="max-w-40 truncate">{reader}</span>
+          </span>
+          <Link
+            href="/"
+            aria-label="Đăng xuất"
+            className="ml-1 inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
+          >
+            <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
+          </Link>
         </nav>
 
-        <MobileMenu links={links} />
+        <MobileMenu links={links} trailing={{ href: "/", label: "Đăng xuất" }} />
       </div>
     </header>
   );
 }
 
-/** Marketing top bar — the OLibra project itself, not one shelf. */
-export function MarketingHeader({
-  active,
-}: {
-  active?: "gioi-thieu" | "bai-viet" | "lien-he";
-}) {
-  const links = [
-    { href: "/gioi-thieu", label: "Giới thiệu", key: "gioi-thieu" },
-    { href: "/bai-viet", label: "Bài viết", key: "bai-viet" },
-    { href: "/lien-he", label: "Liên hệ", key: "lien-he" },
-  ] as const;
-
+/**
+ * The front door. Landing, portal, contact and the two auth screens — the
+ * only pages a person with no account can reach (§1.2).
+ */
+export function FrontDoorHeader() {
   return (
     <header className="border-b border-hairline bg-paper">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-6 px-6">
-        <Link href="/" className="text-lg font-semibold">
+        <Link href="/" className="text-xl font-semibold">
           OLibra
         </Link>
-        <nav className="hidden items-center gap-1 md:flex">
-          {links.map((link) => (
-            <Link
-              key={link.key}
-              href={link.href}
-              className={
-                "inline-flex min-h-11 items-center rounded-control px-3 text-[15px] " +
-                (active === link.key
-                  ? "font-semibold text-terracotta-ink"
-                  : "text-ink hover:text-terracotta-ink")
-              }
-            >
-              {link.label}
-            </Link>
-          ))}
-          <ButtonLink href="/tu-sach" size="sm" className="ml-2">
-            Vào cổng tủ sách
+        <nav className="flex items-center gap-1">
+          <Link
+            href="/tu-sach"
+            className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] hover:text-terracotta-ink"
+          >
+            Tìm tủ sách
+          </Link>
+          <ButtonLink href="/dang-nhap" size="sm" className="ml-1">
+            Đăng nhập
           </ButtonLink>
         </nav>
-
-        {/* Without this the three labels and the CTA wrapped inside a fixed
-            64px bar and spilled outside the header at 375px. */}
-        <MobileMenu
-          links={links}
-          loginHref="/tu-sach"
-          loginLabel="Vào cổng tủ sách"
-        />
       </div>
     </header>
   );
 }
 
-export function MarketingFooter() {
+export function FrontDoorFooter() {
   return (
     <footer className="mt-24 border-t border-hairline bg-paper">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-8">
-        <span className="text-base font-semibold">OLibra</span>
+        <span className="text-lg font-semibold">OLibra</span>
         <nav className="flex flex-wrap gap-4 text-[14px] text-meta">
-          <Link href="/gioi-thieu" className="hover:text-ink">
-            Giới thiệu
-          </Link>
-          <Link href="/bai-viet" className="hover:text-ink">
-            Bài viết
+          <Link href="/tu-sach" className="hover:text-ink">
+            Tìm tủ sách
           </Link>
           <Link href="/lien-he" className="hover:text-ink">
             Liên hệ
-          </Link>
-          <Link href="/tu-sach" className="hover:text-ink">
-            Cổng tủ sách
           </Link>
         </nav>
         <span className="text-[14px] text-meta">© 2026 OLibra</span>

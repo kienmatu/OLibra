@@ -1,6 +1,6 @@
 import { AlertTriangle, Clock, Hand, Lock, type LucideIcon } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
-import { MarketingFooter, MarketingHeader } from "@/components/shell/public-header";
+import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
 
 export const metadata = { title: "Các trang lỗi khác — OLibra" };
 
@@ -56,7 +56,7 @@ const PANELS: Panel[] = [
 export default function ErrorStatesSheetPage() {
   return (
     <>
-      <MarketingHeader />
+      <FrontDoorHeader />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         {/* This is a reference sheet of error states, so the caption below is
@@ -91,7 +91,7 @@ export default function ErrorStatesSheetPage() {
         </div>
       </main>
 
-      <MarketingFooter />
+      <FrontDoorFooter />
     </>
   );
 }

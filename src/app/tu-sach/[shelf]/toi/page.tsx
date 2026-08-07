@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { PageHeading, SectionHeading } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { shelfBySlug, shelves } from "@/lib/fixtures";
 
@@ -70,7 +70,7 @@ export default async function ReaderDashboardPage({
 
   return (
     <>
-      <PublicHeader shelf={shelf} />
+      <ShelfHeader shelf={shelf} />
       <ReaderTabs shelfSlug={shelf.slug} active="trang-cua-toi" />
 
       <main className="mx-auto max-w-5xl px-6 py-10">

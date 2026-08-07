@@ -5,7 +5,7 @@ import { BigActionLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BookCard } from "@/components/ui/book";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { announcements, books, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -27,7 +27,7 @@ export default async function ShelfHomePage({
 
   return (
     <>
-      <PublicHeader shelf={shelf} />
+      <ShelfHeader shelf={shelf} />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         {/* Shelf identity first: where it is, when it opens, who holds the key. */}

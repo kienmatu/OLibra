@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import {
   Clock,
   HandCoins,
+  KeyRound,
   LogOut,
   Lock,
   UserCheck,
@@ -10,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Pill } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import {
@@ -48,6 +50,11 @@ export default async function ManagerReaderDetailPage({
 
   const { label, ink, fill } = READER_STATUS[reader.membership];
   const MembershipIcon = MEMBERSHIP_ICON[reader.membership];
+
+  // INV-14: an account has either both a username and a password, or
+  // neither — and having neither is a perfectly normal state, not a gap in
+  // the data. Shown quietly, without implying anything is wrong.
+  const hasCredentials = Boolean(reader.username);
 
   const info: { label: string; value: React.ReactNode; private?: boolean }[] = [
     { label: "Tên thánh", value: reader.saintName },
@@ -130,21 +137,32 @@ export default async function ManagerReaderDetailPage({
             <p className="mt-1 text-[15px] text-meta">
               Tên thánh {reader.saintName} · sinh {reader.born} ({reader.age} tuổi)
             </p>
-            <span
-              className={
-                "mt-2 inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium " +
-                fill +
-                " " +
-                ink
-              }
-            >
-              <MembershipIcon
-                aria-hidden
-                className="size-[18px]"
-                strokeWidth={1.75}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className={
+                  "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium " +
+                  fill +
+                  " " +
+                  ink
+                }
+              >
+                <MembershipIcon
+                  aria-hidden
+                  className="size-[18px]"
+                  strokeWidth={1.75}
+                />
+                {label}
+              </span>
+              <Pill
+                icon={hasCredentials ? KeyRound : Lock}
+                label={
+                  hasCredentials
+                    ? "Có tài khoản đăng nhập"
+                    : "Chưa có tài khoản đăng nhập"
+                }
+                tone="neutral"
               />
-              {label}
-            </span>
+            </div>
           </div>
         </div>
         <Button variant="primary" size="lg">
@@ -266,7 +284,7 @@ export default async function ManagerReaderDetailPage({
 
       <section className="mt-10 flex flex-wrap items-center gap-3 border-t border-hairline pt-6">
         <Button variant="outline" size="md">
-          Đặt lại mật khẩu
+          Đặt / đổi thông tin đăng nhập
         </Button>
         <Button variant="danger" size="md">
           Tạm khoá tài khoản
@@ -276,6 +294,11 @@ export default async function ManagerReaderDetailPage({
         </Button>
         <p className="w-full text-[14px] text-meta">
           Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên.
+        </p>
+        <p className="w-full text-[14px] text-meta">
+          Không có email, nên đây là cách duy nhất để khôi phục mật khẩu. Thao tác
+          này cũng dùng để tạo tài khoản đăng nhập cho bạn đọc chưa có. Mỗi lần dùng
+          đều được ghi vào nhật ký, quản trị viên hệ thống xem được.
         </p>
       </section>
     </ManagerShell>

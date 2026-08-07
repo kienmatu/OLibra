@@ -119,7 +119,7 @@ export default async function ChoMuonTimSachPage({
       </ul>
 
       <Link
-        href={`${base}/sach/them`}
+        href={`${base}/sach/moi`}
         className="mt-6 inline-flex min-h-11 items-center gap-1.5 text-[15px] font-medium text-sage hover:underline"
       >
         <Plus aria-hidden className="size-4" strokeWidth={2} />

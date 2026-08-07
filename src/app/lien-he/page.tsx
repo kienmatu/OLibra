@@ -1,4 +1,4 @@
-import { MarketingFooter, MarketingHeader } from "@/components/shell/public-header";
+import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
 import { Button } from "@/components/ui/button";
 import { Card, PageHeading } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/field";
@@ -9,7 +9,7 @@ export const metadata = { title: "Liên hệ — OLibra" };
 export default function ContactPage() {
   return (
     <>
-      <MarketingHeader active="lien-he" />
+      <FrontDoorHeader />
 
       <main className="mx-auto max-w-2xl px-6 py-12 md:py-16">
         <PageHeading
@@ -77,7 +77,7 @@ export default function ContactPage() {
         </form>
       </main>
 
-      <MarketingFooter />
+      <FrontDoorFooter />
     </>
   );
 }

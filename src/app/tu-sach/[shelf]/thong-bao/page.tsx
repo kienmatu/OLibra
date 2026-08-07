@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { PublicHeader } from "@/components/shell/public-header";
+import { ShelfHeader } from "@/components/shell/public-header";
 import { announcements, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -24,7 +24,7 @@ export default async function AnnouncementsPage({
 
   return (
     <>
-      <PublicHeader shelf={shelf} active="thong-bao" />
+      <ShelfHeader shelf={shelf} active="thong-bao" />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
         <h1 className="text-[28px] leading-tight font-semibold">Thông báo</h1>
