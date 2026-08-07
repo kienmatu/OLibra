@@ -768,10 +768,12 @@ Sets `sortOrder` for a set of units sharing one level and (when nested) one pare
 #### `DeleteParishUnit`
 Soft-deletes a unit — "Xoá" on its row. Never a hard delete (BR §5.6, §11): a unit already referenced by a membership keeps describing that membership and simply stops appearing in `unitOptions` (`src/domain/members/parish-taxonomy.ts`) — the record survives, only the offering stops, the same split `MarkCopyFound`'s lost-copies view already draws for a book copy (§4.1, above).
 
+**Deleting a level-1 unit cascades to its live level-2 children**, soft-deleting each of them in the same transaction. Chosen over leaving them live and orphaned: a tổ inside a deleted giáo họ is not a place anyone belongs, and an un-cascaded child is exactly what makes `ParishUnitFields` render a level-2 `<select>` with nothing in it but "— Không chọn —" — the empty-list-renders-no-field promise (BR §5.6) broken by an implementation detail rather than a real absence of units. Deleting a level-2 unit only ever deletes that one row; a level-2 unit has no children to cascade to.
+
 - **Inputs:** `bookshelfId`, `unitId`
 - **Caller:** `super_admin`
 - **Invariants enforced:** INV-8
-- **Audit action:** `parish_unit.deleted`
+- **Audit action:** `parish_unit.deleted` — one entry for the unit itself, plus one per cascaded level-2 child when `unitId` names a level-1 unit
 - **Failure modes:**
   - `parish_unit_l1_not_found` / `parish_unit_l2_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại." / "Đơn vị bậc 2 đã chọn không tồn tại."
 
