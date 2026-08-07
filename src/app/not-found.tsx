@@ -33,13 +33,13 @@ export default function NotFound() {
       <div className="mt-5 flex items-center gap-6">
         <Link
           href="/tu-sach/dong-thap/danh-muc"
-          className="text-[15px] font-medium text-sage hover:underline"
+          className="inline-flex min-h-11 items-center text-[15px] font-medium text-sage hover:underline"
         >
           Xem danh mục sách
         </Link>
         <Link
           href="/tu-sach/dong-thap/tim-kiem"
-          className="text-[15px] font-medium text-sage hover:underline"
+          className="inline-flex min-h-11 items-center text-[15px] font-medium text-sage hover:underline"
         >
           Tìm kiếm
         </Link>

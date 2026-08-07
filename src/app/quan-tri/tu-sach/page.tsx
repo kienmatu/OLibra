@@ -2,9 +2,14 @@ import Link from "next/link";
 import { ArrowLeft, Lock } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
 import { Button } from "@/components/ui/button";
-import { Field, Input, ReadOnlyValue, Textarea } from "@/components/ui/field";
+import {
+  Field,
+  Input,
+  ReadOnlyValue,
+  Textarea,
+  Toggle,
+} from "@/components/ui/field";
 import { shelf } from "@/lib/fixtures";
-import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Tủ sách Đồng Tháp — Quản trị OLibra" };
 
@@ -49,28 +54,6 @@ function NumberField({
       />
       <span className="text-[14px] text-meta">{suffix}</span>
     </div>
-  );
-}
-
-/** A sage toggle — decorative only, this build has no client interactivity. */
-function Toggle({ on }: { on: boolean }) {
-  return (
-    <span
-      role="switch"
-      aria-checked={on}
-      className={cn(
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors",
-        on ? "border-sage bg-sage" : "border-hairline bg-paper",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute size-5 rounded-full bg-surface transition-transform",
-          on ? "translate-x-6" : "translate-x-1",
-        )}
-      />
-    </span>
   );
 }
 
@@ -209,28 +192,28 @@ export default function AdminShelfSettingsPage() {
               label="Cho khách xin mượn"
               hint="Cho phép người chưa đăng nhập gửi yêu cầu mượn sách."
             >
-              <Toggle on />
+              <Toggle on label="Cho khách xin mượn" />
             </SettingRow>
 
             <SettingRow
               label="Cho bạn đọc bình luận"
               hint="Bạn đọc có thể để lại bình luận dưới mỗi cuốn sách."
             >
-              <Toggle on />
+              <Toggle on label="Cho bạn đọc bình luận" />
             </SettingRow>
 
             <SettingRow
               label="Bình luận cần duyệt"
               hint="Bình luận chỉ hiển thị công khai sau khi quản lý duyệt."
             >
-              <Toggle on />
+              <Toggle on label="Bình luận cần duyệt" />
             </SettingRow>
 
             <SettingRow
               label="Hiện tên người đang mượn"
               hint="Hiện tên bạn đọc đang giữ sách trên trang công khai của cuốn sách."
             >
-              <Toggle on />
+              <Toggle on label="Hiện tên người đang mượn" />
             </SettingRow>
 
             <SettingRow
@@ -242,7 +225,7 @@ export default function AdminShelfSettingsPage() {
                 defaultValue={10}
                 suffix="người"
               />
-              <Toggle on />
+              <Toggle on label="Hiện bảng bạn đọc chăm nhất" />
             </SettingRow>
           </div>
         </section>

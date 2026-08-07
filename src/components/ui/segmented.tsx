@@ -21,7 +21,9 @@ export function Segmented({
   return (
     <div
       className={cn(
-        "inline-flex gap-1 rounded-card border border-hairline bg-paper p-1",
+        // flex-wrap + full width at base: four fixed-height pills overflowed a
+        // 375px viewport and labels rendered outside their own pill.
+        "flex w-full flex-wrap gap-1 rounded-card border border-hairline bg-paper p-1 sm:inline-flex sm:w-auto",
         className,
       )}
     >
@@ -31,7 +33,7 @@ export function Segmented({
           href={href}
           aria-current={active ? "true" : undefined}
           className={cn(
-            "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-control px-5 text-[16px] font-semibold",
+            "inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-control px-4 py-2 text-center text-[16px] font-semibold",
             active
               ? "border border-terracotta bg-surface text-terracotta-ink"
               : "border border-transparent text-meta hover:text-ink",

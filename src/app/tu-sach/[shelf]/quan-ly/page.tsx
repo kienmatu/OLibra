@@ -149,7 +149,7 @@ export default async function ManagerHomePage({
         </ul>
         <Link
           href={`${base}/nhat-ky`}
-          className="mt-4 inline-block text-[15px] font-medium text-sage hover:underline"
+          className="mt-4 inline-flex min-h-11 items-center text-[15px] font-medium text-sage hover:underline"
         >
           Xem toàn bộ nhật ký
         </Link>

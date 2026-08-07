@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
-import { Archive, Eye, FileEdit, Pin, Plus } from "lucide-react";
+import { Archive, Eye, FileEdit, Pin, Plus, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, PageHeading } from "@/components/ui/card";
 import { Chip } from "@/components/ui/segmented";
+import { Pill, type PillTone } from "@/components/ui/pill";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { announcements, shelfBySlug, shelves } from "@/lib/fixtures";
 
@@ -14,39 +15,24 @@ type PubState = "showing" | "draft" | "expired";
 
 const STATE_STYLE: Record<
   PubState,
-  { label: string; icon: typeof Eye; ink: string; fill: string }
+  { label: string; icon: LucideIcon; tone: PillTone }
 > = {
   showing: {
     label: "Đang hiện",
     icon: Eye,
-    ink: "text-available",
-    fill: "bg-available/10",
+    tone: "available",
   },
   draft: {
     label: "Nháp",
     icon: FileEdit,
-    ink: "text-retired",
-    fill: "bg-retired/10",
+    tone: "retired",
   },
   expired: {
     label: "Hết hạn",
     icon: Archive,
-    ink: "text-retired",
-    fill: "bg-retired/10",
+    tone: "retired",
   },
 };
-
-function StatePill({ state }: { state: PubState }) {
-  const { label, icon: Icon, ink, fill } = STATE_STYLE[state];
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium ${fill} ${ink}`}
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
-}
 
 export default async function AnnouncementsManagePage({
   params,
@@ -106,7 +92,11 @@ export default async function AnnouncementsManagePage({
               Đăng {pinned.date} · {pinned.author} · hết hạn 14/08
             </p>
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline pt-4">
-              <StatePill state="showing" />
+              <Pill
+                icon={STATE_STYLE.showing.icon}
+                label={STATE_STYLE.showing.label}
+                tone={STATE_STYLE.showing.tone}
+              />
               <div className="flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm">
                   Sửa
@@ -131,7 +121,11 @@ export default async function AnnouncementsManagePage({
               Đăng {showing.date} · {showing.author} · hết hạn 30/08
             </p>
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline pt-4">
-              <StatePill state="showing" />
+              <Pill
+                icon={STATE_STYLE.showing.icon}
+                label={STATE_STYLE.showing.label}
+                tone={STATE_STYLE.showing.tone}
+              />
               <div className="flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm">
                   Sửa
@@ -151,7 +145,11 @@ export default async function AnnouncementsManagePage({
             <p className="line-clamp-2 text-[15px] text-meta">{draft.excerpt}</p>
             <p className="text-[14px] text-meta">Chưa đăng · {draft.author}</p>
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline pt-4">
-              <StatePill state="draft" />
+              <Pill
+                icon={STATE_STYLE.draft.icon}
+                label={STATE_STYLE.draft.label}
+                tone={STATE_STYLE.draft.tone}
+              />
               <div className="flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm">
                   Sửa
@@ -173,7 +171,11 @@ export default async function AnnouncementsManagePage({
               Đăng {expired.date} · {expired.author} · hết hạn 05/07
             </p>
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline pt-4">
-              <StatePill state="expired" />
+              <Pill
+                icon={STATE_STYLE.expired.icon}
+                label={STATE_STYLE.expired.label}
+                tone={STATE_STYLE.expired.tone}
+              />
               <div className="flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm">
                   Sửa

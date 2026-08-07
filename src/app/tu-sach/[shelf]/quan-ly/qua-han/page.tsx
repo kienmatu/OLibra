@@ -43,7 +43,7 @@ export default async function OverdueLoansPage({
         <div className="space-y-4">
           {overdueLoans.map((loan) => (
             <Card key={loan.code}>
-              <div className="flex gap-4">
+              <div className="flex items-start gap-4">
                 <BookCover title={loan.title} className="w-16 shrink-0 text-lg" />
                 <div className="min-w-0 flex-1">
                   <BookTitle as="p" className="text-[18px] leading-snug">
@@ -69,7 +69,7 @@ export default async function OverdueLoansPage({
                 <p className="text-[15px] font-semibold text-overdue">
                   Trễ {loan.lateDays} ngày
                 </p>
-                <p className="text-[14px] text-meta">· Hạn trả {loan.due}</p>
+                <p className="w-full text-[14px] text-meta">Hạn trả {loan.due}</p>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-3 border-t border-hairline pt-4">

@@ -69,7 +69,7 @@ export default async function SearchPage({
                       <BookTitle className="block text-lg leading-snug group-hover:text-terracotta-ink">
                         {book.title}
                       </BookTitle>
-                      <p className="mt-0.5 text-[15px] text-meta">{book.author}</p>
+                      <p className="mt-0.5 text-[14px] text-meta">{book.author}</p>
                     </div>
                     <StatusBadge status={book.status} />
                     <ChevronRight
@@ -107,7 +107,7 @@ export default async function SearchPage({
                   <BookTitle className="mt-2 line-clamp-2 block text-[14px] leading-snug group-hover:text-terracotta-ink">
                     {book.title}
                   </BookTitle>
-                  <span className="text-[12px] text-meta">{book.author}</span>
+                  <span className="text-[14px] text-meta">{book.author}</span>
                 </Link>
               ))}
             </div>

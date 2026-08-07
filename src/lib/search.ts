@@ -12,6 +12,11 @@ export function fold(value: string) {
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D")
     .toLowerCase()
+    // Punctuation becomes a space, then runs of space collapse. Without this,
+    // "totto chan" failed to match "Totto-chan" — the hyphen survived folding
+    // and broke the substring. Titles carry hyphens, colons and full stops
+    // that nobody types into a search box.
+    .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
 

@@ -58,19 +58,22 @@ export default async function CataloguePage({
             ]}
           />
 
-          <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
-            <Select aria-label="Thể loại" className="h-11 w-auto min-w-40">
+          <div className="flex flex-1 flex-wrap items-center gap-3 md:justify-end">
+            <Select
+              aria-label="Thể loại"
+              className="h-11 w-full min-w-40 sm:w-auto"
+            >
               <option>Thể loại</option>
               <option>Văn học thiếu nhi</option>
               <option>Văn học nước ngoài</option>
               <option>Văn học Việt Nam</option>
             </Select>
-            <Select aria-label="Sắp xếp" className="h-11 w-auto min-w-40">
+            <Select aria-label="Sắp xếp" className="h-11 w-full min-w-40 sm:w-auto">
               <option>Sắp xếp</option>
               <option>Mới thêm</option>
               <option>Mượn nhiều nhất</option>
             </Select>
-            <div className="w-64">
+            <div className="w-full sm:w-64">
               <Input
                 icon={Search}
                 className="h-11"
@@ -81,7 +84,7 @@ export default async function CataloguePage({
           </div>
         </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 lg:gap-6 xl:grid-cols-6">
           {visible.map((book) => (
             <BookCard
               key={book.slug}

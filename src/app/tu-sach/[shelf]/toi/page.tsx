@@ -1,53 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertTriangle, Bookmark, Clock, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Bookmark, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { PageHeading, SectionHeading } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { PublicHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { shelfBySlug, shelves } from "@/lib/fixtures";
-import { cn } from "@/lib/utils";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
-}
-
-type PillTone = "available" | "onloan" | "overdue" | "held";
-
-const PILL_TONE: Record<PillTone, string> = {
-  available: "text-available bg-available/10",
-  onloan: "text-onloan bg-onloan/10",
-  overdue: "text-overdue bg-overdue/10",
-  held: "text-held bg-held/10",
-};
-
-/**
- * A small icon + Vietnamese phrase + colour pill — status is never colour
- * alone. Local to this page because the phrases here ("Còn 14 ngày", "Em
- * đứng thứ 2"…) are specific to a reader's own loans, not the six catalogue
- * copy states that `StatusBadge` renders.
- */
-function Pill({
-  icon: Icon,
-  label,
-  tone,
-}: {
-  icon: LucideIcon;
-  label: string;
-  tone: PillTone;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium",
-        PILL_TONE[tone],
-      )}
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
 }
 
 const myLoans = [
@@ -120,32 +83,45 @@ export default async function ReaderDashboardPage({
           <SectionHeading>Sách em đang mượn</SectionHeading>
           <div className="mt-5 grid gap-5 sm:grid-cols-3">
             {myLoans.map((loan) => (
+              // Below sm the cover shrinks to a fixed-width thumbnail beside
+              // the text so due dates and the renew button aren't pushed
+              // below the fold; sm and up keeps the original full-bleed
+              // cover-on-top card.
               <div
                 key={loan.slug}
-                className="rounded-card border border-hairline bg-surface p-4"
+                className="flex items-start gap-4 rounded-card border border-hairline bg-surface p-4 sm:block"
               >
-                <BookCover title={loan.title} className="w-full text-[1.5rem]" />
-                <BookTitle className="mt-3 block text-base leading-snug">
-                  {loan.title}
-                </BookTitle>
-                <p className="mt-0.5 text-[13px] text-meta">{loan.author}</p>
+                <BookCover
+                  title={loan.title}
+                  className="w-20 shrink-0 text-lg sm:w-full sm:text-[1.5rem]"
+                />
+                <div className="min-w-0 flex-1 sm:mt-3">
+                  <BookTitle className="block text-base leading-snug">
+                    {loan.title}
+                  </BookTitle>
+                  <p className="mt-0.5 text-[13px] text-meta">{loan.author}</p>
 
-                <div className="mt-3">
-                  <Pill icon={loan.icon} label={loan.pill} tone={loan.tone} />
+                  <div className="mt-3">
+                    <Pill icon={loan.icon} label={loan.pill} tone={loan.tone} />
+                  </div>
+                  <p className="mt-2 text-[14px] text-meta">{loan.due}</p>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={loan.disabled}
+                    className={
+                      loan.disabled
+                        ? "mt-4 w-full border-hairline text-meta disabled:opacity-100"
+                        : "mt-4 w-full"
+                    }
+                  >
+                    {loan.action}
+                  </Button>
+                  {loan.reason ? (
+                    <p className="mt-2 text-[13px] text-meta">{loan.reason}</p>
+                  ) : null}
                 </div>
-                <p className="mt-2 text-[14px] text-meta">{loan.due}</p>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={loan.disabled}
-                  className="mt-4 w-full"
-                >
-                  {loan.action}
-                </Button>
-                {loan.reason ? (
-                  <p className="mt-2 text-[13px] text-meta">{loan.reason}</p>
-                ) : null}
               </div>
             ))}
           </div>
@@ -192,7 +168,7 @@ export default async function ReaderDashboardPage({
                   Đến nhận trước 09/08, quá hạn sẽ chuyển cho bạn khác
                 </p>
               </div>
-              <Button variant="primary" size="md" className="sm:self-center">
+              <Button variant="primary" size="lg" className="sm:self-center">
                 Xem hướng dẫn nhận sách
               </Button>
             </div>

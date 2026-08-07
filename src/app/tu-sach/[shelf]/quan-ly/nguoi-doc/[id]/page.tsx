@@ -14,7 +14,9 @@ import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import {
   READER_STATUS,
+  bookBySlug,
   books,
+  loansByReader,
   readers,
   shelfBySlug,
   shelves,
@@ -62,12 +64,23 @@ export default async function ManagerReaderDetailPage({
     },
   ];
 
-  const heldBooks = books.slice(0, reader.holding).map((book, i) => ({
-    book,
-    code: book.codes.split(" ")[0],
-    overdue: i === 0,
-    due: i === 0 ? "28/07" : i === 1 ? "20/08" : "14/08",
-  }));
+  /* Derived from the shared loans fixture, not invented here. Slicing the
+     catalogue used to hand this reader a copy of a book somebody else was
+     holding. */
+  const heldBooks = loansByReader(reader.id).flatMap((loan) => {
+    const book = bookBySlug(loan.bookSlug);
+    return book
+      ? [
+          {
+            book,
+            code: loan.code,
+            overdue: loan.status === "overdue",
+            due: loan.dueOn,
+            daysLeft: loan.daysLeft,
+          },
+        ]
+      : [];
+  });
 
   const loanHistory = [
     {

@@ -13,6 +13,7 @@ import {
 import { Button, ButtonLink } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Input } from "@/components/ui/field";
+import { Pill, type PillTone } from "@/components/ui/pill";
 import { Chip } from "@/components/ui/segmented";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import {
@@ -34,23 +35,12 @@ const MEMBERSHIP_ICON: Record<Reader["membership"], LucideIcon> = {
   left: LogOut,
 };
 
-function MembershipPill({ membership }: { membership: Reader["membership"] }) {
-  const { label, ink, fill } = READER_STATUS[membership];
-  const Icon = MEMBERSHIP_ICON[membership];
-  return (
-    <span
-      className={
-        "inline-flex shrink-0 items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium " +
-        fill +
-        " " +
-        ink
-      }
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
-}
+const MEMBERSHIP_TONE: Record<Reader["membership"], PillTone> = {
+  active: "available",
+  pending: "held",
+  suspended: "onloan",
+  left: "retired",
+};
 
 export default async function ManagerReadersPage({
   params,
@@ -145,7 +135,11 @@ export default async function ManagerReadersPage({
                   {reader.holding}
                 </td>
                 <td className="px-4 py-3">
-                  <MembershipPill membership={reader.membership} />
+                  <Pill
+                    icon={MEMBERSHIP_ICON[reader.membership]}
+                    label={READER_STATUS[reader.membership].label}
+                    tone={MEMBERSHIP_TONE[reader.membership]}
+                  />
                 </td>
                 <td className="px-4 py-3">
                   <ButtonLink
@@ -185,7 +179,11 @@ export default async function ManagerReadersPage({
               </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <MembershipPill membership={reader.membership} />
+              <Pill
+                icon={MEMBERSHIP_ICON[reader.membership]}
+                label={READER_STATUS[reader.membership].label}
+                tone={MEMBERSHIP_TONE[reader.membership]}
+              />
               <span className="text-[14px] text-meta">
                 Đang mượn {reader.holding}
               </span>

@@ -38,7 +38,7 @@ export default async function ManagerBooksPage({
 
       {/* Quiet filter bar — search plus two 44px selects. */}
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <div className="min-w-64 flex-1">
+        <div className="w-full flex-1 sm:min-w-64">
           <Input
             icon={Search}
             className="h-11"
@@ -46,14 +46,14 @@ export default async function ManagerBooksPage({
             aria-label="Tìm tên sách hoặc tác giả"
           />
         </div>
-        <Select aria-label="Thể loại" className="h-11 w-auto min-w-40">
+        <Select aria-label="Thể loại" className="h-11 w-full min-w-40 sm:w-auto">
           <option>Thể loại</option>
           <option>Văn học thiếu nhi</option>
           <option>Văn học nước ngoài</option>
           <option>Văn học Việt Nam</option>
           <option>Thơ thiếu nhi</option>
         </Select>
-        <Select aria-label="Sắp xếp" className="h-11 w-auto min-w-40">
+        <Select aria-label="Sắp xếp" className="h-11 w-full min-w-40 sm:w-auto">
           <option>Sắp xếp</option>
           <option>Mới thêm</option>
           <option>Tên A–Z</option>
@@ -137,13 +137,13 @@ export default async function ManagerBooksPage({
             key={book.slug}
             className="rounded-card border border-hairline bg-surface p-4"
           >
-            <div className="flex gap-3">
+            <div className="flex items-start gap-3">
               <BookCover title={book.title} className="w-14 text-[1.1rem]" />
               <div className="min-w-0 flex-1">
                 <BookTitle className="block truncate text-[16px] leading-snug">
                   {book.title}
                 </BookTitle>
-                <p className="mt-0.5 truncate text-[13px] text-meta">
+                <p className="mt-0.5 truncate text-[14px] text-meta">
                   {book.author}
                 </p>
                 <p className="mt-0.5 text-[13px] text-meta">{book.codes}</p>

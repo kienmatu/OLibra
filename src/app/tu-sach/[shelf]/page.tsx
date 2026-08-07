@@ -122,7 +122,10 @@ export default async function ShelfHomePage({
         </section>
 
         <p className="mt-12 text-[14px]">
-          <Link href={`${base}/gop-y`} className="text-sage hover:underline">
+          <Link
+            href={`${base}/gop-y`}
+            className="inline-flex min-h-11 items-center text-sage hover:underline"
+          >
             Gửi góp ý cho ban quản trị
           </Link>
         </p>

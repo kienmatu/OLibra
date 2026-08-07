@@ -10,6 +10,7 @@ import {
   FileText,
   KeyRound,
   LayoutDashboard,
+  Menu,
   MessageSquare,
   Megaphone,
   ScrollText,
@@ -61,6 +62,58 @@ const NAV: {
 ];
 
 /**
+ * Below 768px the sidebar is hidden, which previously left manager and admin
+ * screens with no navigation, no brand and no shelf name at all. This is the
+ * stand-in: a compact bar with a <details> menu, so it needs no client
+ * JavaScript and these pages stay static server components.
+ */
+function MobileBar({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: { href: string; label: string; icon: LucideIcon; count?: number }[];
+}) {
+  return (
+    <div className="border-b border-hairline bg-paper md:hidden">
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="min-w-0">
+          <Link href="/" className="block truncate text-lg font-semibold">
+            {title}
+          </Link>
+          <p className="truncate text-[14px] text-meta">{subtitle}</p>
+        </div>
+        <details className="relative shrink-0">
+          <summary className="flex size-11 cursor-pointer list-none items-center justify-center rounded-control hover:bg-surface [&::-webkit-details-marker]:hidden">
+            <span className="sr-only">Mở menu</span>
+            <Menu aria-hidden className="size-6" strokeWidth={1.75} />
+          </summary>
+          <div className="absolute right-0 z-20 mt-2 max-h-[70vh] w-60 overflow-y-auto rounded-card border border-hairline bg-surface p-2">
+            {items.map(({ href, label, icon: Icon, count }) => (
+              <Link
+                key={href}
+                href={href}
+                className="flex min-h-11 items-center gap-2.5 rounded-control px-3 text-[16px] hover:bg-paper"
+              >
+                <Icon aria-hidden className="size-5 shrink-0" strokeWidth={1.75} />
+                <span className="flex-1 truncate">{label}</span>
+                {count ? (
+                  <span className="rounded-control bg-paper px-1.5 text-[13px] font-semibold text-leather">
+                    {count}
+                  </span>
+                ) : null}
+              </Link>
+            ))}
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Manager chrome: a sidebar on desktop. Below 768px the sidebar becomes a
  * horizontal scroll strip; the five-item bottom tab bar belongs to the mobile
  * work, which is out of scope here (web only).
@@ -82,8 +135,18 @@ export function ManagerShell({
     // h-screen + overflow-hidden so the sidebar and the content each own their
     // scroll, instead of the whole document scrolling as one and carrying the
     // sidebar away with it.
-    <div className="flex h-screen overflow-hidden">
-      <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
+    <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
+      <MobileBar
+        title={shelfName}
+        subtitle="Quản lý tủ sách"
+        items={NAV.map(({ key, label, icon, count }) => ({
+          href: key === "trang-chinh" ? base : `${base}/${key}`,
+          label,
+          icon,
+          count,
+        }))}
+      />
+      <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
           <Link href="/" className="block text-xl font-semibold">
             OLibra
@@ -141,7 +204,10 @@ export function ManagerShell({
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
-        {children}
+        {/* Constrain the measure. Without a max-width, lines on a wide
+            monitor run past 130 characters and a row's action drifts half
+            a screen from the text it belongs to. */}
+        <div className="mx-auto w-full max-w-5xl">{children}</div>
       </main>
     </div>
   );
@@ -178,8 +244,17 @@ export function AdminShell({
     // h-screen + overflow-hidden so the sidebar and the content each own their
     // scroll, instead of the whole document scrolling as one and carrying the
     // sidebar away with it.
-    <div className="flex h-screen overflow-hidden">
-      <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
+    <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
+      <MobileBar
+        title="OLibra"
+        subtitle="Quản trị hệ thống"
+        items={ADMIN_NAV.map(({ key, label, icon }) => ({
+          href: key === "tong-quan" ? "/quan-tri" : `/quan-tri/${key}`,
+          label,
+          icon,
+        }))}
+      />
+      <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
           <Link href="/" className="flex items-center gap-2 text-xl font-semibold">
             <ShieldCheck aria-hidden className="size-5" strokeWidth={1.75} />
@@ -233,7 +308,10 @@ export function AdminShell({
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
-        {children}
+        {/* Constrain the measure. Without a max-width, lines on a wide
+            monitor run past 130 characters and a row's action drifts half
+            a screen from the text it belongs to. */}
+        <div className="mx-auto w-full max-w-5xl">{children}</div>
       </main>
     </div>
   );

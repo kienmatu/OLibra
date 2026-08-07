@@ -2,35 +2,9 @@ import { Download } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
-import { Field, Input, ReadOnlyValue, Select } from "@/components/ui/field";
-import { cn } from "@/lib/utils";
+import { Field, Input, ReadOnlyValue, Select, Toggle } from "@/components/ui/field";
 
 export const metadata = { title: "Cài đặt hệ thống — Quản trị OLibra" };
-
-/** A sage toggle — decorative only, this build has no client interactivity.
- * `disabled` greys it out for a feature that is not usable yet. */
-function Toggle({ on, disabled }: { on: boolean; disabled?: boolean }) {
-  return (
-    <span
-      role="switch"
-      aria-checked={on}
-      aria-disabled={disabled}
-      className={cn(
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors",
-        on ? "border-sage bg-sage" : "border-hairline bg-paper",
-        disabled && "opacity-45",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute size-5 rounded-full bg-surface transition-transform",
-          on ? "translate-x-6" : "translate-x-1",
-        )}
-      />
-    </span>
-  );
-}
 
 function DefaultField({
   id,
@@ -123,7 +97,7 @@ export default function AdminSystemSettingsPage() {
               <p className="text-[16px] font-medium">Gửi email</p>
               <p className="mt-0.5 text-[14px] text-meta">Chưa dùng được.</p>
             </div>
-            <Toggle on={false} disabled />
+            <Toggle on={false} disabled label="Gửi email" />
           </div>
         </section>
 

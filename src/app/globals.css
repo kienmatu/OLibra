@@ -11,25 +11,28 @@
   --color-page: #fbf9f6;
   --color-surface: #fffdfb;
   --color-paper: #f2ebe1;
-  --color-hairline: #ede5da;
+  /* Was #ede5da, which sat at 1.05:1 on warm paper — the dividers between
+     rows were effectively invisible. In a design with no shadows the borders
+     are the structure, so they have to be seen. */
+  --color-hairline: #d3cbc2;
   --color-ink: #3a352f;
-  --color-meta: #8a8077;
-  --color-leather: #9a8874;
+  --color-meta: #716962;
+  --color-leather: #776857;
 
   /* Accents — terracotta is reserved for the one primary action per screen */
-  --color-terracotta: #be7b4a;
-  --color-terracotta-ink: #a9683a;
-  --color-sage: #5a9184;
-  --color-brick: #c0645c;
+  --color-terracotta: #a4673b;
+  --color-terracotta-ink: #965c33;
+  --color-sage: #477369;
+  --color-brick: #af4c44;
 
   /* Status inks. Always paired with an icon and a Vietnamese word;
      fills are the same colour at 10% via the /10 opacity modifier. */
-  --color-available: #4a7c59;
-  --color-onloan: #a9743a;
-  --color-held: #5a7fa6;
-  --color-overdue: #be5f55;
+  --color-available: #457453;
+  --color-onloan: #8e6231;
+  --color-held: #4d6d8f;
+  --color-overdue: #ad4c42;
   --color-lost: #94514a;
-  --color-retired: #8a8077;
+  --color-retired: #716962;
 
   /* Type. Lexend is the interface font; Literata is only ever a book title. */
   --font-sans: var(--font-lexend), ui-sans-serif, system-ui, sans-serif;

@@ -11,52 +11,30 @@ import { AdminShell } from "@/components/shell/manager-shell";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/field";
+import { Pill, type PillTone } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Quản lý viên — Quản trị OLibra" };
 
 type Role = "admin" | "shelf-admin" | "manager";
 
-const ROLE: Record<
-  Role,
-  { label: string; icon: LucideIcon; ink: string; fill: string }
-> = {
+const ROLE: Record<Role, { label: string; icon: LucideIcon; tone: PillTone }> = {
   admin: {
     label: "Quản trị viên",
     icon: Shield,
-    ink: "text-terracotta-ink",
-    fill: "bg-terracotta/10",
+    tone: "onloan",
   },
   "shelf-admin": {
     label: "Quản trị tủ sách",
     icon: Key,
-    ink: "text-sage",
-    fill: "bg-sage/10",
+    tone: "sage",
   },
   manager: {
     label: "Quản lý",
     icon: UserCheck,
-    ink: "text-held",
-    fill: "bg-held/10",
+    tone: "held",
   },
 };
-
-function RolePill({ role }: { role: Role }) {
-  const { label, icon: Icon, ink, fill } = ROLE[role];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium",
-        ink,
-        fill,
-      )}
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
-}
 
 type ManagerRow = {
   id: string;
@@ -155,6 +133,59 @@ function Avatar({ initial }: { initial: string }) {
   );
 }
 
+function ManagerLastActive({ m }: { m: ManagerRow }) {
+  if (m.lastActiveWarn) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-brick">
+        <AlertTriangle aria-hidden className="size-[15px]" strokeWidth={1.75} />
+        {m.lastActive}
+      </span>
+    );
+  }
+  return <span className="text-ink/85">{m.lastActive}</span>;
+}
+
+/** Stacked card for a manager row below md — the same data as the table. */
+function ManagerCard({ m }: { m: ManagerRow }) {
+  return (
+    <div className="rounded-card border border-hairline bg-surface p-4">
+      <div className="flex items-center gap-3">
+        <Avatar initial={m.initial} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[16px] font-medium">{m.fullName}</p>
+          <PhoneLink phone={m.phone} size="sm" />
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Pill
+          icon={ROLE[m.role].icon}
+          label={ROLE[m.role].label}
+          tone={ROLE[m.role].tone}
+        />
+        <span className="text-[13px] text-meta">{m.shelfName}</span>
+      </div>
+      <p className="mt-2 text-[14px]">
+        <ManagerLastActive m={m} />
+      </p>
+      <div className="mt-3 flex gap-2">
+        <ButtonLink
+          href={`/quan-tri/quan-ly-vien/${m.id}`}
+          variant="quiet"
+          size="sm"
+          className="flex-1"
+        >
+          Xem hoạt động
+        </ButtonLink>
+        {m.revocable ? (
+          <Button variant="danger" size="sm" className="flex-1">
+            Thu hồi quyền
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminManagersPage() {
   return (
     <AdminShell active="quan-ly-vien">
@@ -191,7 +222,8 @@ export default function AdminManagersPage() {
         </Select>
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-card border border-hairline">
+      {/* Table on md and up — hairline rules, never a horizontal scroll. */}
+      <div className="mt-6 hidden overflow-hidden rounded-card border border-hairline md:block">
         <table className="w-full text-left">
           <thead className="bg-paper">
             <tr>
@@ -226,21 +258,14 @@ export default function AdminManagersPage() {
                 </td>
                 <td className="px-4 py-3 text-[15px] text-ink/85">{m.shelfName}</td>
                 <td className="px-4 py-3">
-                  <RolePill role={m.role} />
+                  <Pill
+                    icon={ROLE[m.role].icon}
+                    label={ROLE[m.role].label}
+                    tone={ROLE[m.role].tone}
+                  />
                 </td>
                 <td className="px-4 py-3 text-[15px]">
-                  {m.lastActiveWarn ? (
-                    <span className="inline-flex items-center gap-1.5 text-brick">
-                      <AlertTriangle
-                        aria-hidden
-                        className="size-[15px]"
-                        strokeWidth={1.75}
-                      />
-                      {m.lastActive}
-                    </span>
-                  ) : (
-                    <span className="text-ink/85">{m.lastActive}</span>
-                  )}
+                  <ManagerLastActive m={m} />
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-2">
@@ -262,6 +287,13 @@ export default function AdminManagersPage() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Stacked cards below md — the same data, never a scrolling table. */}
+      <div className="mt-6 space-y-3 md:hidden">
+        {MANAGERS.map((m) => (
+          <ManagerCard key={m.id} m={m} />
+        ))}
       </div>
 
       {/* Example of the revoke confirmation flow, shown inline for review. */}

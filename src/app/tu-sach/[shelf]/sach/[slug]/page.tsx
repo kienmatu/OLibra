@@ -27,8 +27,11 @@ export default async function BookDetailPage({
   const base = `/tu-sach/${shelf.slug}`;
   const isAvailable = book.status === "available";
 
-  const meta: [string, string][] = [
-    ["Tác giả", book.author],
+  /* Author sits under the title and the category is already in the
+     breadcrumb, so both are carried in the main column. Everything else is
+     reference detail: it moves beside the cover on a wide screen rather than
+     pushing the description further down the page. */
+  const detail: [string, string][] = [
     ...(book.translator
       ? ([["Người dịch", book.translator]] as [string, string][])
       : []),
@@ -43,25 +46,44 @@ export default async function BookDetailPage({
       <PublicHeader shelf={shelf} />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
-        <div className="grid gap-10 md:grid-cols-[300px_1fr]">
-          <BookCover title={book.title} className="w-full text-[3rem]" />
+        {/* Mobile reads top to bottom as one ordered flex column: cover,
+            title, status, primary action, description, comments, and the
+            reference metadata last. `md:grid` restores the two-column
+            arrangement, at which point each wrapper below turns back into a
+            plain block (`md:block`) and normal source order takes over, so
+            desktop is unaffected by the mobile `order-*` values. */}
+        <div className="flex flex-col md:grid md:grid-cols-[300px_1fr] md:gap-10">
+          <div className="contents md:block">
+            <BookCover title={book.title} className="order-1 w-full text-[3rem]" />
 
-          <div>
-            <p className="text-[14px] text-meta">
-              <Link href={`${base}/danh-muc`} className="hover:text-ink">
-                Danh mục
-              </Link>{" "}
-              › {book.category}
-            </p>
+            <dl className="order-7 mt-6 divide-y divide-hairline border-y border-hairline">
+              {detail.map(([label, value]) => (
+                <div key={label} className="py-2.5">
+                  <dt className="text-[14px] text-meta">{label}</dt>
+                  <dd className="mt-0.5 text-[15px]">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
 
-            <BookTitle as="h1" className="mt-2 block text-[30px] leading-tight">
-              {book.title}
-            </BookTitle>
-            <p className="mt-1 text-base text-meta">{book.author}</p>
+          <div className="contents md:block">
+            <div className="order-2 mt-6 md:mt-0">
+              <p className="text-[14px] text-meta">
+                <Link href={`${base}/danh-muc`} className="hover:text-ink">
+                  Danh mục
+                </Link>{" "}
+                › {book.category}
+              </p>
+
+              <BookTitle as="h1" className="mt-2 block text-[30px] leading-tight">
+                {book.title}
+              </BookTitle>
+              <p className="mt-1 text-base text-meta">{book.author}</p>
+            </div>
 
             {/* The availability panel changes with state, and so does the
                 button's label — "Xin mượn" only when the book is really here. */}
-            <div className="mt-6">
+            <div className="order-3 mt-6">
               <StatusPanel status={book.status}>
                 {isAvailable ? (
                   <>
@@ -93,7 +115,7 @@ export default async function BookDetailPage({
               </StatusPanel>
             </div>
 
-            <div className="mt-6">
+            <div className="order-4 mt-6">
               <ButtonLink
                 href={`${base}/sach/${book.slug}/xin-muon`}
                 variant="primary"
@@ -119,20 +141,7 @@ export default async function BookDetailPage({
               </p>
             </div>
 
-            {/* Single-column definition list: one label and value per row. */}
-            <dl className="mt-10 divide-y divide-hairline border-y border-hairline">
-              {meta.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex items-baseline justify-between gap-6 py-3"
-                >
-                  <dt className="text-[14px] text-meta">{label}</dt>
-                  <dd className="text-right text-[16px]">{value}</dd>
-                </div>
-              ))}
-            </dl>
-
-            <section className="mt-10">
+            <section className="order-5 mt-10">
               <h2 className="text-lg font-semibold">Giới thiệu</h2>
               <div className="mt-3 space-y-4 text-[16px]">
                 {book.description.map((para) => (
@@ -142,7 +151,7 @@ export default async function BookDetailPage({
             </section>
 
             {book.comments?.length ? (
-              <section className="mt-10">
+              <section className="order-6 mt-10">
                 <h2 className="text-lg font-semibold">Bình luận</h2>
                 <ul className="mt-3 divide-y divide-hairline border-t border-hairline">
                   {book.comments.map((c) => (
