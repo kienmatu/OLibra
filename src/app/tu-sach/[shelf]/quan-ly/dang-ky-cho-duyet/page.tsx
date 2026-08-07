@@ -107,9 +107,8 @@ export default async function PendingApplicationsPage({
               <div>
                 <p className="font-semibold text-onloan">Có thành viên trùng tên</p>
                 <p className="mt-1 text-[15px] text-ink/90">
-                  Tủ sách đã có Maria Nguyễn Thị Lan · sinh 12/05/2014 ·{" "}
-                  {shelf.parishTaxonomy.level2Label} 3. Kiểm tra xem có phải cùng
-                  một người không.
+                  Tủ sách đã có Maria Nguyễn Thị Lan · sinh {applicant.born} ·{" "}
+                  {applicantParish}. Kiểm tra xem có phải cùng một người không.
                 </p>
                 <button
                   type="button"
