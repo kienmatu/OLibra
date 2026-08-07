@@ -32,6 +32,7 @@ const SEEDS = [
   `${S}/sach/de-men-phieu-luu-ky`,
   `${S}/toi`,
   `${S}/toi/lich-su`,
+  `${S}/toi/tang-sach`,
   `${S}/toi/ho-so`,
   `${S}/toi/thong-bao`,
   `${S}/quan-ly`,

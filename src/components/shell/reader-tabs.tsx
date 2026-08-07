@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { key: "trang-cua-toi", label: "Trang của tôi", path: "toi" },
   { key: "lich-su", label: "Lịch sử mượn", path: "toi/lich-su" },
+  { key: "tang-sach", label: "Tặng sách", path: "toi/tang-sach" },
   { key: "ho-so", label: "Hồ sơ", path: "toi/ho-so" },
   { key: "thong-bao", label: "Thông báo", path: "toi/thong-bao" },
 ] as const;

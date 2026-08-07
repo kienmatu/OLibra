@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Camera, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,8 @@ export default async function TangSachPage({
   const shelf = shelfBySlug(slug);
   if (!shelf) notFound();
 
+  const base = `/tu-sach/${shelf.slug}`;
+
   return (
     <>
       <ShelfHeader shelf={shelf} />
@@ -35,6 +38,12 @@ export default async function TangSachPage({
           Nhà có sách không đọc nữa và muốn tặng lại cho tủ sách? Kể vài dòng cho
           quản lý biết, không cần chính xác tên hay tác giả.
         </p>
+        <Link
+          href={`${base}/toi/tang-sach`}
+          className="mt-2 inline-flex min-h-11 items-center text-[15px] font-medium text-sage hover:underline"
+        >
+          Xem các lời đề nghị em đã gửi
+        </Link>
 
         <form className="mt-8 space-y-6">
           <Field
