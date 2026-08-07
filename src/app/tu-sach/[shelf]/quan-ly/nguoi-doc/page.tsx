@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/field";
 import { Pill, type PillTone } from "@/components/ui/pill";
 import { Chip } from "@/components/ui/segmented";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { describeSelection } from "@/domain/members/parish-taxonomy";
 import {
   READER_STATUS,
   readers,
@@ -53,6 +54,16 @@ export default async function ManagerReadersPage({
 
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
   const listHref = `${base}/nguoi-doc`;
+  const { parishTaxonomy, parishUnits } = shelf;
+
+  function parishLine(reader: Reader): string {
+    return (
+      describeSelection(parishTaxonomy, parishUnits, {
+        l1: reader.parishUnitL1Id,
+        l2: reader.parishUnitL2Id,
+      }) || "Chưa có"
+    );
+  }
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="nguoi-doc">
@@ -129,7 +140,7 @@ export default async function ManagerReadersPage({
                   </div>
                 </td>
                 <td className="px-4 py-3 text-[15px] text-ink/85">
-                  {reader.parish}
+                  {parishLine(reader)}
                 </td>
                 <td className="px-4 py-3 text-[15px] text-ink/85">
                   {reader.holding}
@@ -174,7 +185,7 @@ export default async function ManagerReadersPage({
                   {reader.fullName}
                 </p>
                 <p className="mt-0.5 text-[13px] text-meta">
-                  {reader.born} · {reader.parish}
+                  {reader.born} · {parishLine(reader)}
                 </p>
               </div>
             </div>

@@ -4,6 +4,7 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, PageHeading } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { describeSelection } from "@/domain/members/parish-taxonomy";
 import { donationQueue, readerById, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -39,6 +40,12 @@ export default async function DonationQueuePage({
             const donor = readerById(donation.readerId);
             const donorName = donor?.fullName ?? "Bạn đọc";
             const initial = donorName.charAt(0).toUpperCase();
+            const donorParish = donor
+              ? describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
+                  l1: donor.parishUnitL1Id,
+                  l2: donor.parishUnitL2Id,
+                })
+              : "";
             // Only the first card carries the solid terracotta approve
             // action — two solid-terracotta buttons on one screen would both
             // be wrong (button.tsx: "if two things on a screen are
@@ -59,7 +66,7 @@ export default async function DonationQueuePage({
                     <div>
                       <p className="text-xl font-semibold">{donorName}</p>
                       <p className="mt-0.5 text-[14px] text-meta">
-                        {donor ? `${donor.group} · ${donor.parish} · ` : ""}Gửi ngày{" "}
+                        {donorParish ? `${donorParish} · ` : ""}Gửi ngày{" "}
                         {donation.submittedOn}
                       </p>
                     </div>
