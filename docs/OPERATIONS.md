@@ -2,7 +2,7 @@
 
 **Status:** Draft for backend implementation. Transport-neutral by design.
 **Date:** 2026-08-07
-**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 45 screens) and whatever backend gets chosen. This catalogue currently defines **43 queries** (§3) and **57 commands** (§4), enforcing the fourteen business rules of §6.
+**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 42 route files) and the settled stack. This catalogue defines **44 queries** (§3) and **57 commands** (§4), enforcing the fourteen business rules of §6.
 
 This document does not restate [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md); it references it by section and adds what that document does not already say: names, inputs, callers, invariant enforcement, audit actions, and named failure modes for every command and query the UI needs. [DESIGN.md](DESIGN.md) is referenced only for the UI behaviour that shapes an operation's contract (e.g. why blocking conditions must be visible before a confirm step).
 
@@ -142,7 +142,7 @@ Edits a book's metadata, including the `published` flag that hides drafts from t
   - `validation_failed` — "Vui lòng kiểm tra lại thông tin."
 
 #### `DeleteBook`
-Soft-deletes a book. Permitted per §13.2's permission set and §11's deletion policy; no dedicated confirmation screen exists in the current 45 built screens (`src/app/tu-sach/[shelf]/quan-ly/sach/page.tsx` offers only "Sửa" and "Xem bản").
+Soft-deletes a book. Permitted per §13.2's permission set and §11's deletion policy; no dedicated confirmation screen exists in the current 42 built screens (`src/app/tu-sach/[shelf]/quan-ly/sach/page.tsx` offers only "Sửa" and "Xem bản").
 
 - **Inputs:** `bookshelfId`, `bookId`
 - **Caller:** `manager`
@@ -408,7 +408,7 @@ A manager fills in the registration form for a child standing in front of them (
 - **Failure modes:**
   - `not_suspended` — "Chỉ có thể kích hoạt lại tài khoản đang tạm khoá."
 
-> **Open question.** The reader-detail management screen (`src/app/.../nguoi-doc/[id]/page.tsx`) renders the same three action buttons ("Đặt lại mật khẩu", "Tạm khoá tài khoản", "Đánh dấu đã rời") unconditionally, regardless of the reader's actual membership status in the fixture data — there is no visible "Kích hoạt lại" button anywhere in the 45 screens. The command is required by §7.4's bidirectional arrow; the UI simply hasn't been built state-aware yet.
+> **Open question.** The reader-detail management screen (`src/app/.../nguoi-doc/[id]/page.tsx`) renders the same three action buttons ("Đặt lại mật khẩu", "Tạm khoá tài khoản", "Đánh dấu đã rời") unconditionally, regardless of the reader's actual membership status in the fixture data — there is no visible "Kích hoạt lại" button anywhere in the 42 screens. The command is required by §7.4's bidirectional arrow; the UI simply hasn't been built state-aware yet.
 
 #### `MarkMembershipLeft`
 Any status `→ left` (§16.3: "Đánh dấu đã rời").
@@ -658,7 +658,7 @@ Provisions a new tenant (§16.4: "Create and edit shelves, including the slug th
   - `slug_taken` — "Đường dẫn này đã được dùng cho tủ sách khác."
   - `validation_failed` — "Vui lòng điền đầy đủ các trường bắt buộc."
 
-> **Open question.** No dedicated "new bookshelf" screen exists among the 45 built pages (only the edit form at `/quan-tri/tu-sach/[id]`); this command is included because §16.4 explicitly describes creation as part of this page's job.
+> **Open question.** No dedicated "new bookshelf" screen exists among the 42 built pages (only the edit form at `/quan-tri/tu-sach/[id]`); this command is included because §16.4 explicitly describes creation as part of this page's job.
 
 #### `UpdateBookshelfSettings`
 Edits a shelf's profile and lending policy together, in one save (the built settings form submits both under a single "Lưu cài đặt" button).
@@ -713,7 +713,7 @@ Grants the global `super_admin` role — listed as its own command because §13.
 - **Failure modes:**
   - `already_super_admin` — "Người này đã là quản trị viên hệ thống."
 
-> **Open question.** No button in the 45 built screens performs this distinct from `AssignManager`'s "Giao quyền quản lý" action — the managers list shows one existing `super_admin` (role `admin` in that screen's local type, distinct from the shelf-level `shelf-admin`) but no visible affordance to create another. Listed because §13.2 names the permission explicitly.
+> **Open question.** No button in the 42 built screens performs this distinct from `AssignManager`'s "Giao quyền quản lý" action — the managers list shows one existing `super_admin` (role `admin` in that screen's local type, distinct from the shelf-level `shelf-admin`) but no visible affordance to create another. Listed because §13.2 names the permission explicitly.
 
 #### `UpdateSystemDefaults`
 Default lending-policy values applied to newly created shelves (§16.4's system settings screen). Changing this never retroactively touches an existing shelf's own settings.
