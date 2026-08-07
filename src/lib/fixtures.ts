@@ -743,6 +743,41 @@ export const loans: Loan[] = [
   },
 ];
 
+/**
+ * Copies currently in the `lost` state (§7.1) — the data behind the
+ * lost-copies view on the manager's Sách list. "Báo mất" appears three times
+ * in the built interface; this is what feeds the screen that finally gives
+ * `lost → available` and `lost → retired` somewhere to happen.
+ */
+export type LostCopy = {
+  bookSlug: string;
+  code: string;
+  /** Who was holding the copy when it was reported lost. */
+  borrower: string;
+  reportedOn: string;
+};
+
+export const lostCopies: LostCopy[] = [
+  {
+    bookSlug: "de-men-phieu-luu-ky",
+    code: "DT-0142",
+    borrower: "Maria Vũ Khánh Linh",
+    reportedOn: "22/07",
+  },
+  {
+    bookSlug: "dat-rung-phuong-nam",
+    code: "DT-0202",
+    borrower: "Anna Phạm Thu Hà",
+    reportedOn: "30/06",
+  },
+  {
+    bookSlug: "nhung-tam-long-cao-ca",
+    code: "DT-0112",
+    borrower: "Gioan Bùi Đức Thắng",
+    reportedOn: "12/06",
+  },
+];
+
 export function loansByReader(readerId: string) {
   return loans.filter((l) => l.readerId === readerId);
 }
