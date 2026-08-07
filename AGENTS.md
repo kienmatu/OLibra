@@ -25,9 +25,10 @@ Two things worth being precise about, because they are easy to get wrong:
   `bun run dev` invokes the `next` binary, which carries a Node shebang, so
   Next itself still executes under Node. Pass `bun --bun next dev` if you
   genuinely want Next running on the Bun runtime — but expect rough edges.
-- **Vercel builds with Node, not Bun.** Bun is a local-developer choice only.
-  Nothing in the app may depend on Bun-specific APIs (`Bun.file`, `bun:sqlite`
-  and friends), or it will build locally and fail in production.
+- **Production builds run on Node, not Bun.** Bun is a local-developer choice
+  only. Nothing in the app may depend on Bun-specific APIs (`Bun.file`,
+  `bun:sqlite` and friends), or it will build locally and fail wherever this
+  is deployed.
 
 ## Stack
 
@@ -37,8 +38,9 @@ Two things worth being precise about, because they are easy to get wrong:
 | Styling | Tailwind CSS v4 — CSS-first `@theme`, no `tailwind.config.js` |
 | Icons | `lucide-react`, outline style |
 | Fonts | `next/font/google`, self-hosted at build time |
-| Hosting | Vercel |
-| Database | Neon (Postgres) — not yet wired up |
+| Deployment | Docker (likely, not final) |
+| Database | PostgreSQL (likely, not final) — not yet wired up |
+| Backend framework | Not chosen. See `docs/SDD.md` §3.4 |
 
 Design tokens live in `src/app/globals.css` under `@theme`. There is no
 JavaScript Tailwind config; add colours and radii as CSS variables there.
