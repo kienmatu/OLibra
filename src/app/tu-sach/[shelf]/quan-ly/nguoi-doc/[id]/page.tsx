@@ -14,7 +14,11 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Pill } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { unitOptions } from "@/domain/members/parish-taxonomy";
+import {
+  hasVisibleLevel2,
+  unitName,
+  unitOptions,
+} from "@/domain/members/parish-taxonomy";
 import {
   READER_STATUS,
   bookBySlug,
@@ -63,20 +67,15 @@ export default async function ManagerReaderDetailPage({
   // come from the shelf's taxonomy, not a fixed "Tổ"/"Giáo họ" pair).
   const parishRows: { label: string; value: React.ReactNode }[] = [];
   if (unitOptions(shelf.parishUnits, 1).length > 0) {
-    const unit = shelf.parishUnits.find((u) => u.id === reader.parishUnitL1Id);
     parishRows.push({
       label: shelf.parishTaxonomy.level1Label,
-      value: unit?.name ?? "Chưa có",
+      value: unitName(shelf.parishUnits, reader.parishUnitL1Id),
     });
   }
-  if (
-    shelf.parishTaxonomy.levels === 2 &&
-    unitOptions(shelf.parishUnits, 2).length > 0
-  ) {
-    const unit = shelf.parishUnits.find((u) => u.id === reader.parishUnitL2Id);
+  if (hasVisibleLevel2(shelf.parishTaxonomy, shelf.parishUnits)) {
     parishRows.push({
       label: shelf.parishTaxonomy.level2Label,
-      value: unit?.name ?? "Chưa có",
+      value: unitName(shelf.parishUnits, reader.parishUnitL2Id),
     });
   }
 

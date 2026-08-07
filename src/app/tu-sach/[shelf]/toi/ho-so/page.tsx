@@ -6,7 +6,11 @@ import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
-import { unitOptions } from "@/domain/members/parish-taxonomy";
+import {
+  hasVisibleLevel2,
+  unitName,
+  unitOptions,
+} from "@/domain/members/parish-taxonomy";
 import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -26,15 +30,9 @@ export default async function ReaderProfilePage({
   const pendingPhone = "0912 345 999";
 
   const showL1 = unitOptions(shelf.parishUnits, 1).length > 0;
-  const showL2 =
-    shelf.parishTaxonomy.levels === 2 &&
-    unitOptions(shelf.parishUnits, 2).length > 0;
-  const l1UnitName =
-    shelf.parishUnits.find((u) => u.id === reader.parishUnitL1Id)?.name ??
-    "Chưa có";
-  const l2UnitName =
-    shelf.parishUnits.find((u) => u.id === reader.parishUnitL2Id)?.name ??
-    "Chưa có";
+  const showL2 = hasVisibleLevel2(shelf.parishTaxonomy, shelf.parishUnits);
+  const l1UnitName = unitName(shelf.parishUnits, reader.parishUnitL1Id);
+  const l2UnitName = unitName(shelf.parishUnits, reader.parishUnitL2Id);
 
   return (
     <>

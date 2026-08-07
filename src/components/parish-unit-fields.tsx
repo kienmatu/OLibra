@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Field, Select } from "@/components/ui/field";
 import {
+  hasVisibleLevel2,
   unitOptions,
   type ParishTaxonomy,
   type ParishUnit,
@@ -37,11 +38,20 @@ import {
  * every level-2 option, grouped under an `<optgroup>` per level-1 unit. A
  * volunteer on a bad connection or with JS disabled still gets a complete,
  * usable (if unfiltered) list, never an empty one — "progressive
- * degradation matters more than elegance." Once this component hydrates, it
- * narrows the visible groups to the chosen parent by toggling the
- * `hidden` attribute on each `<optgroup>` — a plain DOM attribute, not a
- * re-render of the option list, so a browser's native "hidden options can't
- * be selected" behaviour does the actual filtering.
+ * degradation matters more than elegance." That baseline holds because the
+ * server and the client's first render both start from the same `l1` state
+ * (`defaultL1`), so nothing has to run for it to be true — it is simply what
+ * the initial render already produces.
+ *
+ * Once a person picks a level-1 unit, this component narrows the *rendered*
+ * `<optgroup>` list to that parent — omitting the other groups from the
+ * option array entirely, not toggling a `hidden` attribute on them. An
+ * earlier version used `hidden`, which WebKit has a long history of
+ * ignoring on `<option>`/`<optgroup>` inside its native picker — exactly the
+ * device this form is mostly filled out on (§17.5: the manager's mobile
+ * layout is the primary experience). Filtering the array a browser never
+ * sees the excluded elements in the first place, so there is nothing left
+ * for any browser's picker quirks to get wrong.
  */
 export function ParishUnitFields({
   idPrefix,
@@ -59,12 +69,17 @@ export function ParishUnitFields({
   defaultL2?: string;
 }) {
   const [l1, setL1] = useState(defaultL1);
+  const [l2, setL2] = useState(defaultL2);
 
   const l1Options = unitOptions(units, 1);
   const showL1 = l1Options.length > 0;
 
   const allL2Options = taxonomy.levels === 2 ? unitOptions(units, 2) : [];
-  const showL2 = allL2Options.length > 0;
+  // Uses `hasVisibleLevel2` rather than `allL2Options.length > 0`: when
+  // nested, a level-2 unit whose parent has been soft-deleted must not count
+  // — otherwise a nested shelf can render a level-2 select whose only real
+  // content is "— Không chọn —" (IMPORTANT 6).
+  const showL2 = hasVisibleLevel2(taxonomy, units);
 
   if (!showL1 && !showL2) return null;
 
@@ -81,6 +96,24 @@ export function ParishUnitFields({
         .filter((g) => g.children.length > 0)
     : null;
 
+  // Only the groups belonging to the chosen level 1 — or every group when
+  // nothing is chosen yet, matching the no-JS baseline described above.
+  const visibleL2Groups = l2Groups?.filter((g) => l1 === "" || l1 === g.parent.id);
+
+  function handleL1Change(value: string) {
+    setL1(value);
+    // IMPORTANT 3: a previously chosen level-2 unit that belonged to the old
+    // level-1 unit does not survive a change of parent — its optgroup would
+    // no longer render, but an uncontrolled select had let the stale value
+    // keep posting anyway. Clearing it here, in state, is what makes the
+    // select's displayed value and its submitted value agree.
+    if (!taxonomy.nested) return;
+    const currentL2 = units.find((u) => u.id === l2);
+    if (currentL2 && currentL2.parentId !== (value || null)) {
+      setL2("");
+    }
+  }
+
   return (
     <>
       {showL1 ? (
@@ -92,8 +125,8 @@ export function ParishUnitFields({
           <Select
             id={l1FieldId}
             name="parishUnitL1Id"
-            defaultValue={defaultL1}
-            onChange={(e) => setL1(e.target.value)}
+            value={l1}
+            onChange={(e) => handleL1Change(e.target.value)}
           >
             <option value="">— Không chọn —</option>
             {l1Options.map((unit) => (
@@ -115,15 +148,16 @@ export function ParishUnitFields({
               : "Không bắt buộc. Để trống nếu chưa biết — quản lý bổ sung sau cũng được."
           }
         >
-          <Select id={l2FieldId} name="parishUnitL2Id" defaultValue={defaultL2}>
+          <Select
+            id={l2FieldId}
+            name="parishUnitL2Id"
+            value={l2}
+            onChange={(e) => setL2(e.target.value)}
+          >
             <option value="">— Không chọn —</option>
-            {l2Groups
-              ? l2Groups.map(({ parent, children }) => (
-                  <optgroup
-                    key={parent.id}
-                    label={parent.name}
-                    hidden={l1 !== "" && l1 !== parent.id}
-                  >
+            {visibleL2Groups
+              ? visibleL2Groups.map(({ parent, children }) => (
+                  <optgroup key={parent.id} label={parent.name}>
                     {children.map((unit) => (
                       <option key={unit.id} value={unit.id}>
                         {unit.name}
