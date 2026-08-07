@@ -133,9 +133,11 @@ export default async function ChoMuonTimSachPage({
 
           if (blocked) {
             return (
+              // No aria-disabled: the listitem role does not support it. The
+              // row carries no control, and the inline reason states plainly
+              // why it cannot be chosen, which is what a screen reader needs.
               <li
                 key={book.slug}
-                aria-disabled="true"
                 className="flex items-center gap-4 py-4 opacity-50"
               >
                 {content}

@@ -160,9 +160,11 @@ export default async function ChoMuonNguoiDocPage({
 
           if (reason) {
             return (
+              // No aria-disabled: the listitem role does not support it. The
+              // row carries no control, and the inline reason states plainly
+              // why this reader cannot be chosen.
               <li
                 key={reader.id}
-                aria-disabled="true"
                 className="flex items-center gap-3 py-3.5 opacity-50"
               >
                 {rowInner}

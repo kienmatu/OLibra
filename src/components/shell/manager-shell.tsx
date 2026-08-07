@@ -35,21 +35,30 @@ export type ManagerNavKey =
   | "thong-ke"
   | "cai-dat";
 
-const NAV: { key: ManagerNavKey; label: string; icon: LucideIcon; count?: number }[] =
-  [
-    { key: "trang-chinh", label: "Trang chính", icon: LayoutDashboard },
-    { key: "sach", label: "Sách", icon: Library },
-    { key: "cho-muon", label: "Cho mượn", icon: BookUp },
-    { key: "nhan-tra", label: "Nhận trả", icon: BookDown },
-    { key: "nguoi-doc", label: "Người đọc", icon: Users },
-    { key: "dang-ky-cho-duyet", label: "Đăng ký chờ duyệt", icon: UserPlus, count: 5 },
-    { key: "yeu-cau-muon", label: "Yêu cầu mượn", icon: Bookmark, count: 2 },
-    { key: "qua-han", label: "Quá hạn", icon: TriangleAlert, count: 3 },
-    { key: "binh-luan", label: "Bình luận", icon: MessageSquare, count: 1 },
-    { key: "thong-bao", label: "Thông báo", icon: Megaphone },
-    { key: "thong-ke", label: "Thống kê", icon: BarChart3 },
-    { key: "cai-dat", label: "Cài đặt", icon: Cog },
-  ];
+const NAV: {
+  key: ManagerNavKey;
+  label: string;
+  icon: LucideIcon;
+  count?: number;
+}[] = [
+  { key: "trang-chinh", label: "Trang chính", icon: LayoutDashboard },
+  { key: "sach", label: "Sách", icon: Library },
+  { key: "cho-muon", label: "Cho mượn", icon: BookUp },
+  { key: "nhan-tra", label: "Nhận trả", icon: BookDown },
+  { key: "nguoi-doc", label: "Người đọc", icon: Users },
+  {
+    key: "dang-ky-cho-duyet",
+    label: "Đăng ký chờ duyệt",
+    icon: UserPlus,
+    count: 5,
+  },
+  { key: "yeu-cau-muon", label: "Yêu cầu mượn", icon: Bookmark, count: 2 },
+  { key: "qua-han", label: "Quá hạn", icon: TriangleAlert, count: 3 },
+  { key: "binh-luan", label: "Bình luận", icon: MessageSquare, count: 1 },
+  { key: "thong-bao", label: "Thông báo", icon: Megaphone },
+  { key: "thong-ke", label: "Thống kê", icon: BarChart3 },
+  { key: "cai-dat", label: "Cài đặt", icon: Cog },
+];
 
 /**
  * Manager chrome: a sidebar on desktop. Below 768px the sidebar becomes a
@@ -70,8 +79,11 @@ export function ManagerShell({
   const base = `/tu-sach/${shelfSlug}/quan-ly`;
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
+    // h-screen + overflow-hidden so the sidebar and the content each own their
+    // scroll, instead of the whole document scrolling as one and carrying the
+    // sidebar away with it.
+    <div className="flex h-screen overflow-hidden">
+      <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
           <Link href="/" className="block text-xl font-semibold">
             OLibra
@@ -79,7 +91,7 @@ export function ManagerShell({
           <p className="mt-0.5 text-[14px] text-meta">{shelfName}</p>
         </div>
 
-        <nav className="flex-1 px-2">
+        <nav className="flex-1 overflow-y-auto px-2">
           {NAV.map(({ key, label, icon: Icon, count }) => {
             const isActive = key === active;
             return (
@@ -112,7 +124,7 @@ export function ManagerShell({
           })}
         </nav>
 
-        <div className="flex items-center gap-2.5 border-t border-hairline px-5 py-4">
+        <div className="mt-auto flex shrink-0 items-center gap-2.5 border-t border-hairline px-5 py-4">
           <span
             aria-hidden
             className="flex size-9 items-center justify-center rounded-full bg-surface text-[15px] font-semibold text-leather"
@@ -128,7 +140,9 @@ export function ManagerShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-6 py-8 md:px-10 md:py-10">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
+        {children}
+      </main>
     </div>
   );
 }
@@ -161,8 +175,11 @@ export function AdminShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen">
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
+    // h-screen + overflow-hidden so the sidebar and the content each own their
+    // scroll, instead of the whole document scrolling as one and carrying the
+    // sidebar away with it.
+    <div className="flex h-screen overflow-hidden">
+      <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
           <Link href="/" className="flex items-center gap-2 text-xl font-semibold">
             <ShieldCheck aria-hidden className="size-5" strokeWidth={1.75} />
@@ -171,7 +188,7 @@ export function AdminShell({
           <p className="mt-0.5 text-[14px] text-meta">Quản trị hệ thống</p>
         </div>
 
-        <nav className="flex-1 px-2">
+        <nav className="flex-1 overflow-y-auto px-2">
           {ADMIN_NAV.map(({ key, label, icon: Icon }) => {
             const isActive = key === active;
             return (
@@ -199,7 +216,7 @@ export function AdminShell({
           })}
         </nav>
 
-        <div className="flex items-center gap-2.5 border-t border-hairline px-5 py-4">
+        <div className="mt-auto flex shrink-0 items-center gap-2.5 border-t border-hairline px-5 py-4">
           <span
             aria-hidden
             className="flex size-9 items-center justify-center rounded-full bg-surface text-[15px] font-semibold text-leather"
@@ -215,7 +232,9 @@ export function AdminShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-6 py-8 md:px-10 md:py-10">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
+        {children}
+      </main>
     </div>
   );
 }
