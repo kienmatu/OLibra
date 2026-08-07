@@ -42,6 +42,41 @@ services:
       retries: 10
       start_period: 10s
 
+  # ── PostgreSQL, for tests ──────────────────────────────────────────────────
+  # A separate service, not a separate database on `db`. The suite truncates
+  # every table between tests; pointing it at the development database would
+  # make `bun run test` a destructive command, and that is a footgun that only
+  # has to fire once.
+  #
+  # Behind a profile, so `docker compose up -d` does not start it. Run:
+  #
+  #   docker compose --profile test up -d db-test
+  #
+  # tmpfs rather than a bind mount: test data is worthless by definition and
+  # memory is substantially faster. Nothing here survives a restart, on purpose.
+  db-test:
+    image: postgres:16.10-alpine
+    restart: unless-stopped
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: olibra_test
+      POSTGRES_USER: olibra
+      POSTGRES_PASSWORD: olibra
+      # Same locale as the real database. A suite that sorts Vietnamese text
+      # differently from production is a suite that agrees with itself and not
+      # with the thing it is testing.
+      POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_TEST_PORT:-5436}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U olibra -d olibra_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   # ── Object storage ─────────────────────────────────────────────────────────
   # MinIO is an *implementation* of the S3 API, not the interface. The
   # application only ever speaks S3 (see .env.example), so swapping this for

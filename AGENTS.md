@@ -13,6 +13,8 @@ bun remove <pkg>
 bun run dev          # http://localhost:3000
 bun run build
 bun run typecheck
+bun run test         # needs the test database — see "Testing" below
+bun run check        # typecheck + lint + format:check + test, in that order
 ```
 
 `bun.lock` is the committed lockfile. There is no `package-lock.json`,
@@ -92,6 +94,31 @@ production may be AWS S3, Cloudflare R2 or Backblaze B2, and switching is a
 change of environment variables. Never import a MinIO SDK, and never assume
 path-style addressing — `S3_FORCE_PATH_STYLE` is configuration because MinIO
 needs it and AWS does not.
+
+## Testing
+
+```bash
+docker compose --profile test up -d db-test   # once, or after a long break
+bun run test                                  # vitest run
+bun run check                                 # typecheck + lint + format:check + test
+```
+
+The test database is a **separate** compose service, on its own port
+(`POSTGRES_TEST_PORT`, `5436` by default — see `.env.example`), behind the
+`test` profile so an ordinary `docker compose up` never starts it. That
+separation is deliberate, not incidental: the suite truncates every table
+between tests (`tests/support/db.ts`), and `tests/support/env.ts` refuses to
+run against any `TEST_DATABASE_URL` that doesn't name `olibra_test` — pointing
+the suite at the development database by mistake would destroy whatever you
+were working on, so the guard makes that mistake loud instead of silent.
+
+Test files run against one shared `public` schema and do not run in parallel
+with each other (`fileParallelism: false` in `vitest.config.ts`) — the suite
+is small enough that serialising it is free, and the alternative is tests
+racing each other's `beforeEach` resets on shared state. `bun run check` was
+always typecheck + lint + format:check + test; test is the part that is new
+as of this harness, and it is why `check` now needs `db-test` running to pass
+locally, the same as CI's `check` job needs its `postgres` service.
 
 ## Non-negotiable design rules
 

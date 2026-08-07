@@ -7,11 +7,13 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "bun run typecheck && bun run lint && bun run format:check && bun run check:links",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun run test",
     "check:diagrams": "bun run scripts/check-mermaid.mjs",
     "check:links": "bun run scripts/check-links.mjs"
   },
@@ -19,6 +21,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.29.0",
     "next": "^16.3.0",
+    "postgres": "^3.4.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0"
@@ -28,6 +31,7 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "^16.3.0",
     "mermaid": "^11.16.1",
@@ -36,6 +40,7 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "puppeteer": "^25.5.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9"
+    "typescript": "^5.9",
+    "vitest": "^3"
   }
 }
