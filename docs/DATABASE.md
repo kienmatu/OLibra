@@ -31,6 +31,8 @@ erDiagram
     USERS        ||--o{ COMMENTS      : writes
     USERS        ||--o{ NOTIFICATIONS : receives
     USERS        ||--o{ AUDIT_LOG     : "acted in"
+    USERS        ||--o{ PROFILE_CHANGE_REQUESTS : proposes
+    BOOKSHELVES  ||--o{ PROFILE_CHANGE_REQUESTS : "manager decides"
 
     BOOKSHELVES {
         uuid id PK
@@ -89,9 +91,17 @@ erDiagram
         jsonb before
         jsonb after
     }
+    PROFILE_CHANGE_REQUESTS {
+        uuid id PK
+        uuid user_id FK "whose profile"
+        uuid bookshelf_id FK "whose manager decides"
+        jsonb proposed_values "the change on offer"
+        jsonb previous_values "what it was when proposed"
+        enum status "pending, approved, rejected, cancelled"
+    }
 ```
 
-Four things in that diagram are decisions rather than description, and each is
+Five things in that diagram are decisions rather than description, and each is
 explained where its table is defined:
 
 - **`LOANS` points at both a copy and a book.** Deliberate denormalisation
@@ -102,6 +112,10 @@ explained where its table is defined:
   optional, because a manager may assess a copy at any time (§4.7).
 - **`MEMBERSHIPS` carries the parish fields, not `USERS`.** Identity is global;
   the parish relationship is local (§4.1).
+- **`PROFILE_CHANGE_REQUESTS` carries the proposed values *and* the values as
+  they stood when proposed.** A manager reviewing a week-old request needs to
+  see what it would actually change, not what it was expected to change
+  (§4.11).
 
 ### Where each guarantee lives
 
@@ -117,6 +131,8 @@ flowchart TB
         I10["INV-10 · every query scoped to a shelf<br/>row level security"]
         I11["INV-11 · loans never deleted<br/>no column, revoked grant"]
         I12["INV-12 · audit never altered<br/>revoked grant"]
+        I13a["INV-13a · at most one pending<br/>profile request per person<br/>partial unique index"]
+        I14["INV-14 · credentials paired,<br/>or absent entirely<br/>check constraint"]
     end
     subgraph APP["Application, inside a transaction — needs a named test"]
         I3["INV-3 · only an available copy is lent"]
@@ -125,13 +141,18 @@ flowchart TB
         I6["INV-6 · renewal blocked if anyone is queued"]
         I7["INV-7 · lost or retired cannot circulate"]
         I8["INV-8 · every transition writes an audit row"]
+        I13b["INV-13b · details change only via<br/>an approved profile request"]
     end
     DB -.->|"holds regardless of<br/>which stack is chosen"| APP
 ```
 
-Six and six. The six on the right are the ones that will break first, which is
-why §6 of the requirements asks for a named test per rule and why the
-concurrency test described in SDD.md §9 matters more than it looks.
+Eight boxes on the left, seven on the right — fourteen rules, with INV-13 appearing on both sides. It is split deliberately: a database
+constraint can guarantee there is *at most one pending request*, but nothing
+short of application code can guarantee that a value on `users` was only ever
+written by the approval path — that is a property of the code that writes it,
+not of any one row. The seven on the right are the ones that will break
+first, which is why §6 of the requirements asks for a named test per rule and
+why the concurrency test described in SDD.md §9 matters more than it looks.
 
 ---
 
@@ -139,9 +160,9 @@ concurrency test described in SDD.md §9 matters more than it looks.
 
 It defines the tables, the constraints, and — more importantly — **which guarantees live in the database rather than in application code**.
 
-That distinction is the whole point. §6 of the requirements lists twelve business rules and says of the first one that it "must be guaranteed by the datastore, not by application checks, because two managers can lend the same copy in the same second". A rule enforced only in application code is a rule that holds until someone writes a second code path, or until two requests interleave. A rule enforced by a constraint holds always, including from a psql prompt at two in the morning.
+That distinction is the whole point. §6 of the requirements lists fourteen business rules and says of the first one that it "must be guaranteed by the datastore, not by application checks, because two managers can lend the same copy in the same second". A rule enforced only in application code is a rule that holds until someone writes a second code path, or until two requests interleave. A rule enforced by a constraint holds always, including from a psql prompt at two in the morning.
 
-So each of the twelve rules below is marked with where it is enforced. Six of them can be made structural. The rest cannot, and this document says plainly which and why, rather than implying the database will catch everything.
+So each of the fourteen rules below is marked with where it is enforced. Seven of them are wholly structural and one more is half structural. The rest cannot be, and this document says plainly which and why, rather than implying the database will catch everything.
 
 ---
 
@@ -209,7 +230,7 @@ A single data-access module that refuses to build a query without a bookshelf. C
 
 ### Global tables
 
-`users`, `categories`, `posts` and site-wide `feedback` are not shelf-scoped and carry no policy. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point. `audit_log` is scoped but with a nullable `bookshelf_id` for system-wide actions.
+`users`, `categories` and site-wide `feedback` are not shelf-scoped and carry no policy. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point. `audit_log` is scoped but with a nullable `bookshelf_id` for system-wide actions.
 
 ---
 
@@ -222,13 +243,13 @@ A single data-access module that refuses to build a query without a bookshelf. C
 ```sql
 create table users (
   id              uuid primary key default gen_random_uuid(),
-  username        text not null,
-  password_hash   text not null,
+  username        text,                    -- optional; see the note below
+  password_hash   text,
   saint_name      text,                    -- tên thánh
   full_name       text not null,
   date_of_birth   date,
-  father_name     text,
-  mother_name     text,
+  father_name     text not null,
+  mother_name     text not null,
   phone           text,
   email           text,                    -- optional; §4 assumption 2, no outbound email in v1
   display_name    text,
@@ -240,12 +261,40 @@ create table users (
   deleted_at      timestamptz
 );
 
-create unique index users_username_key on users (lower(username)) where deleted_at is null;
+create unique index users_username_key on users (lower(username))
+  where deleted_at is null and username is not null;
+
+alter table users add constraint users_credentials_paired
+  check ((username is null) = (password_hash is null));
 ```
 
-Username is unique case-insensitively among live rows. A deleted user does not hold their name hostage.
+Username is unique case-insensitively among live rows, ignoring the ones that have none. A deleted user does not hold their name hostage.
+
+**Credentials are optional, and `users_credentials_paired` is INV-14.** Most
+readers are children who will never use the site themselves: a manager registers
+them, lends to them and receives their returns, and §1.3 is explicit that a
+reader never has to sign in to borrow. Requiring a username and password for
+every one of them would mean a volunteer inventing credentials at the shelf that
+nobody will ever type. So a person may exist purely as a record, and the check
+constraint makes the half-configured state — a username with no password, or the
+reverse — impossible to store rather than merely discouraged.
+
+Postgres treats `null` as distinct in a unique index, so any number of people
+may have no username at all without colliding. The `username is not null` clause
+is belt and braces, and it keeps the index small.
+
+**A manager sets and changes these credentials** (§2, §13.2). There is no email
+and so no self-service reset; a child who forgets asks the volunteer. That hands
+a manager the power to sign in as any reader, which is inherent in a trust model
+that already assumes the manager knows the family — and the mitigation is
+visibility, not restriction. See §4.10 on what the audit log may and may not
+record about it.
 
 `email` is nullable on purpose. §4 assumption 2 states there is no outbound email in v1 and manager-issued password reset is the only recovery path; collecting the address anyway means email reset can be switched on later without touching existing accounts.
+
+`father_name` and `mother_name` are `not null`. §5.3 is explicit that both are required, and the reason is practical rather than bureaucratic: they are how a manager tells apart two children who share a name.
+
+`avatar_url` is populated at registration, not left for later. §16.1 lists the photograph among the fields collected on the registration form itself, under *Bản thân*, because a volunteer meeting forty children on a Sunday recognises a face faster than a name.
 
 ```sql
 create type membership_role   as enum ('reader', 'manager', 'admin');
@@ -528,11 +577,7 @@ create table borrow_requests (
   book_id          uuid not null references books(id)       on delete cascade,
   copy_id          uuid references book_copies(id),          -- assigned on approval
 
-  member_id        uuid references users(id),                -- a member…
-  guest_name       text,                                     -- …or a guest
-  guest_phone      text,
-  guest_note       text,
-  guest_hash       text,                                     -- rate limiting, §2
+  member_id        uuid not null references users(id),
 
   status           request_status not null default 'pending',
   requested_at     timestamptz not null default now(),       -- the queue ordering key
@@ -547,18 +592,13 @@ create table borrow_requests (
 
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
-  deleted_at       timestamptz,
-
-  constraint borrow_requests_has_requester
-    check (member_id is not null or guest_name is not null)
+  deleted_at       timestamptz
 );
 ```
 
-`borrow_requests_has_requester` enforces §5.4's "a request must have either a member or a guest name" at the database, because a request belonging to nobody is unactionable.
-
 The request targets a **title**, not a copy (§5.4). A copy is assigned only on approval. **The queue is simply the set of pending requests for a title ordered by `requested_at`** — there is no separate reservation table, and §7.2 says so explicitly.
 
-Guest requests create a lead, not an account (§4 assumption 5). A manager reviews and converts them. `guest_hash` holds a hashed identifier for rate limiting, because §2 correctly identifies an anonymous form on the public internet as a spam vector.
+`member_id` is `not null`. §2 records that guest borrow requests were removed: a bookshelf is now visible only to its members, so there is no anonymous caller to serve — someone who wants to borrow registers first. Earlier drafts of this table carried `guest_name`, `guest_phone`, `guest_note` and `guest_hash` alongside a check constraint requiring one or the other; all of that machinery — the rate limiting, the honeypot, the manager step that converted a lead into an account — is gone with the requester it existed to serve. `feedback` keeps its guest fields (§4.8): unlike borrowing, writing in through the contact page is still open to someone with no account.
 
 ### 4.7 Condition assessments
 
@@ -624,21 +664,6 @@ create table announcements (
   unique (bookshelf_id, slug)
 );
 
-create table posts (                          -- global blog, not shelf-scoped
-  id           uuid primary key default gen_random_uuid(),
-  title        text not null,
-  slug         text not null unique,
-  excerpt      text,
-  body         text not null,
-  body_text    text not null,
-  cover_url    text,
-  published_at timestamptz,
-  author_id    uuid references users(id),
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now(),
-  deleted_at   timestamptz
-);
-
 create type feedback_status as enum ('new', 'read', 'resolved');
 
 create table feedback (
@@ -701,7 +726,19 @@ create index audit_log_shelf  on audit_log (bookshelf_id, occurred_at desc);
 create index audit_log_entity on audit_log (entity_type, entity_id, occurred_at desc);
 ```
 
-`audit_log_actor` exists because §14 names "what has manager A been doing" a headline requirement that must be fast.
+`audit_log_actor` exists because §14 names "what has manager A been doing" a headline requirement that must be fast. It is also how a super administrator answers the question §2 raises about credentials — who has been setting whose password — across every bookshelf.
+
+**Never write a password, a hash or a session token into `before` or `after`.**
+§14 states this for automatic change capture, and it matters most precisely here,
+where the automatic capture would otherwise do exactly the wrong thing: a
+manager setting a reader's password is an `update` to `users.password_hash`, and
+a generic change-capture trigger would faithfully record the old and new hash.
+
+Credential changes are therefore recorded as an **explicit domain event**, not a
+field diff — `credentials.set` naming the manager, the reader and the time, with
+`before` and `after` left null. If change capture is implemented as a trigger,
+`users.password_hash` and `users.username` must be on its exclusion list, and
+that exclusion needs a test, because the failure is silent and permanent.
 
 `bigint identity` rather than uuid: this is the highest-volume table, it is only ever appended and read in time order, and a monotonic key keeps the index dense.
 
@@ -714,6 +751,55 @@ revoke update, delete, truncate on audit_log from application_role;
 The application role can `insert` and `select`, nothing else. A rule enforced by a `GRANT` cannot be bypassed by a careless migration or an ORM's `save()`.
 
 §14 also requires that audit records are written **in the same transaction** as the change they describe, so an audit record and its subject can never diverge, and that auditing is never deferred to a background job — an audit trail that can be lost to a failed job is not an audit trail.
+
+### 4.11 Profile change requests
+
+§2 and §7.4 of the requirements: **changing your own details is a request, not an edit.** A reader proposes a change to their own profile; it takes effect only when a manager approves it, and until then the existing values stand — including the phone number, so a manager never loses the means of contacting a family mid-change.
+
+```sql
+create type profile_change_status as enum ('pending', 'approved', 'rejected', 'cancelled');
+
+create table profile_change_requests (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid not null references users(id)       on delete restrict,
+  bookshelf_id      uuid not null references bookshelves(id) on delete restrict,  -- whose manager decides
+
+  proposed_values   jsonb not null,          -- the fields being changed, and their proposed values
+  previous_values   jsonb not null,          -- the same fields, as they stood when this was proposed
+
+  status            profile_change_status not null default 'pending',
+  requested_at      timestamptz not null default now(),
+
+  decided_by        uuid references users(id),
+  decided_at        timestamptz,
+  rejection_reason  text,
+
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+
+  constraint profile_change_requests_rejected_has_reason
+    check (status <> 'rejected' or rejection_reason is not null)
+);
+
+create unique index profile_change_requests_one_pending
+  on profile_change_requests (user_id)
+  where status = 'pending';
+```
+
+**Every field requires approval — there is no split between "verified" and "self-service" columns.** That was the product owner's explicit decision, not a technical default: the whole reason this table exists is that a manager personally knows each family, and letting a reader silently rewrite even one field would undo the trust that makes the record reliable (§2). Password and leaderboard visibility are the only things a reader changes directly, and §16.2 explains why: neither is a fact about the person that a manager ever verified, so they write straight to `users` and `memberships` and never pass through this table.
+
+**`proposed_values` and `previous_values` are `jsonb`, not a pair of nullable columns per field on `users`.** The alternative — `proposed_full_name`, `previous_full_name`, `proposed_phone`, `previous_phone`, and so on for every column a reader may propose changing — was considered and rejected, for the same reason §4.2 gives for `bookshelves.settings`: a new field on `users` would otherwise mean two new columns here plus a migration, for a table whose only job is to shadow another table's shape. The trade-off is real and worth naming rather than hiding:
+
+- **What is lost.** No type checking at the database level — a proposed `date_of_birth` could be stored as a string and nothing would object until the application read it back. And "what did this request actually change" becomes a query over JSON keys rather than `where proposed_full_name is not null`, which is harder to index and harder to write ad hoc.
+- **What is gained.** Adding a proposable field is additive on the application side only — no migration here, and no risk of this table's column list drifting out of step with `users` the way two parallel sets of typed columns inevitably would. Because **every** field on the person can be proposed, the columned alternative is not a handful of extra columns but a near-duplicate of the whole of `users`, kept in step by hand, twice.
+
+A column-per-field design would have suited a small, fixed set of proposable fields. It does not suit "every field", which is what was decided here, so `jsonb` is the closer fit to the actual rule rather than merely the cheaper option.
+
+`profile_change_requests_one_pending` is INV-13's database half: a partial unique index makes "at most one pending request per person" structural, in the same spirit as `loans_one_active_per_copy` (§7.1). It cannot enforce the other half of INV-13 — that a value on `users` is only ever written by an approved request — because that is a property of which code path is allowed to write to `users`, not of any single row here. §7 marks that half as application discipline for exactly this reason.
+
+`profile_change_requests_rejected_has_reason` mirrors `memberships_rejected_has_reason` (§4.1): a rejection without a reason leaves the reader with no idea what to fix.
+
+There is no `deleted_at`. A decided or cancelled request is a historical record of what was asked and what a manager did about it, closer in kind to `condition_assessments` (§4.7) than to a row a mistake needs undoing. §11 predates this table and does not mention it either way; until that is settled explicitly, treating it as retained rather than soft-deletable is the safer default given how much of §11 is built around never losing the trail behind a decision.
 
 ---
 
@@ -813,8 +899,10 @@ This is the table to read before writing any application code.
 | **INV-10** | Every query scoped to one bookshelf | **Database** | Row Level Security, §3 |
 | **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; `revoke delete` |
 | **INV-12** | Audit records never change or disappear | **Database** | `revoke update, delete`, §4.10 |
+| **INV-14** | Either both username and password, or neither | **Database** | `users_credentials_paired` check, §4.1 |
+| **INV-13** | At most one pending profile change request per person; a person's details change only through an approved one | **Database** (the first half) + **Application** (the second) | Partial unique index for "at most one pending", §4.11; "only through an approved request" is which code path is allowed to write `users`, which no constraint can express |
 
-Six of twelve are structural. The other six need application discipline **inside a transaction**, and each needs the named test §6 requires.
+Seven of the fourteen are wholly structural, INV-13 is split across the line, and six need application discipline **inside a transaction**. Each of the fourteen needs the named test §6 requires — including the structural ones, because a constraint that was never exercised is a constraint nobody has checked is there.
 
 ### 7.1 INV-1, the one that must be a constraint
 

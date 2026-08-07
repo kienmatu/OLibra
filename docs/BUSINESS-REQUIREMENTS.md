@@ -28,10 +28,15 @@ One product, four distinct surfaces:
 
 | Surface | Purpose |
 |---|---|
-| Marketing site | Landing page, about, blog, contact. Public and SEO-relevant. |
-| Portal | Directory of all bookshelves. The front door for anyone without a direct link. |
-| A bookshelf | Everything functional: catalogue, borrowing, management. Reached by the shelf's own slug. |
+| Front door | Landing page and contact. What OLibra is, and a way in. Public. |
+| Portal | Searchable directory of bookshelves — name and address only. Public, because someone who has no account yet must be able to find their parish's shelf in order to register for it. |
+| A bookshelf | Everything functional: catalogue, borrowing, announcements, management. **Requires a signed-in membership of that shelf.** |
 | Administration | Super-admin oversight across all bookshelves. |
+
+**Only the first two surfaces are public**, and the portal is public for exactly
+one reason: to let a stranger find the shelf they want to join. Everything about
+a shelf's books, readers and announcements sits behind a membership of that
+shelf.
 
 The example deployment carries shelves such as `dongthap` and `cantho`. The production domain is not yet decided and nothing here depends on it.
 
@@ -43,6 +48,8 @@ Therefore the manager's primary screen is a **quick-lend flow that takes three t
 
 If that flow is slow, volunteers stop using the system and revert to paper, and every other requirement in this document becomes worthless. **Any change that adds a step to quick-lend or quick-return needs an explicit justification.**
 
+**A reader never has to sign in to borrow or return a book.** The manager does all of it: finds the book, picks the reader from a list, confirms. The child touches nothing. Signing in exists for one purpose only — a reader who wants to check from home what they are holding, when it is due, or what is on the shelf. Treat every requirement about accounts and sessions as serving that secondary case, never the moment at the shelf.
+
 ### 1.4 Delivery phases
 
 Multi-tenancy is present from the first day of data, so later phases add features rather than rewriting foundations.
@@ -51,7 +58,7 @@ Multi-tenancy is present from the first day of data, so later phases add feature
 
 **Phase 2 — community.** Borrow requests, holds, the waiting queue, comments and moderation, announcements, feedback, statistics.
 
-**Phase 3 — the network.** The portal directory, multiple bookshelves, super-admin tooling, cross-shelf statistics, the marketing landing page and blog, per-manager audit views.
+**Phase 3 — the network.** The portal directory, multiple bookshelves, super-admin tooling, cross-shelf statistics, per-manager audit views.
 
 Phase 1 is a genuinely useful product on its own. If the project stalls after Phase 1, the volunteers still have something better than paper.
 
@@ -65,11 +72,21 @@ These were identified during design and are all in scope.
 
 **Lost is a state, not a condition grade.** Losing a book removes it from circulation, whereas a torn book keeps circulating. Loss belongs on the availability axis, and needs a path back for when a book turns up again.
 
+**An account does not have to be able to sign in.** Most readers are children who will never use the site themselves; a manager registers them, lends to them and receives their returns. Forcing a username and password for every one of them would mean a volunteer inventing credentials at the shelf that nobody will ever type — work that serves the database and not the parish. So credentials are optional: a person may exist purely as a record, and a username and password are set only if and when someone actually wants to sign in. Either both are present or neither is.
+
+**A manager sets and changes those credentials.** There is no email, so there is no self-service reset (§4); a child who forgets their password asks the volunteer, who sets a new one. The same action creates credentials for an account that had none.
+
+This hands a manager real power — whoever can set a password can sign in as that reader. That is inherent in the trust model, which already assumes the manager personally knows the family (§4). The mitigation is not to restrict the power but to make every use of it **visible**: setting or changing someone's credentials writes an audit record naming the manager, the reader and the time, and the super administrator can see every one of them across every bookshelf (§13.2, §14). A power that is always watched is different from a power that is quiet.
+
+**The audit records the act, never the secret.** No password, no hash, and no session token is ever written to the audit log — only that a named manager set credentials for a named reader at a given time. §14 states this as a rule for automatic change capture; it applies with equal force here, where the temptation to log "what it was changed to" is strongest.
+
+**Changing your own details is a request, not an edit.** A reader may propose a change to their profile; it takes effect only when a manager approves it. Until then the existing values stand — including the phone number, so a manager never loses the means of contacting a family mid-change. This exists because the manager personally knows each family and their approval is what makes the record trustworthy; letting a child silently rewrite their own name or date of birth would undo that.
+
 **Readers have a lifecycle.** Children move away, grow up, or simply stop coming. Membership needs *suspended* and *left* states. A reader who has ever borrowed a book must never be erased, because that would destroy the audit history the brief explicitly requires.
 
 **Managers can be offboarded.** Revocation changes a role; it never deletes a person, because their audit trail must survive them.
 
-**Guest borrow requests are a spam vector.** An anonymous form collecting a name and phone number is an open door on the public internet. It needs rate limiting, a honeypot field, and a manager action to convert a legitimate request into a real account.
+**Guest borrow requests were removed.** An earlier draft let anyone ask to borrow from a public form, which needed rate limiting, a honeypot and a manager action to convert a lead into an account. Since a shelf is now visible only to its members, there is no anonymous caller to serve and none of that machinery is needed. Someone who wants to borrow registers first.
 
 **Rejected registrations need a resolution.** They are retained with a reason for audit purposes, and the person may re-apply.
 
@@ -104,10 +121,9 @@ These were ambiguous in the brief and are resolved as follows. Changing any of t
 2. **There is no outbound email in v1.** Manager-issued password reset is the only account recovery path. An email address is collected but optional, so email-based reset can be switched on later without disturbing existing accounts.
 3. **A manager approving a registration constitutes the consent needed to hold a minor's data.** The manager personally knows the family; that is the trust model the brief describes.
 4. **"Most borrowed" counts completed handovers at the title level**, not requests and not copies. A title with three copies is not thereby three times more popular.
-5. **Guest borrow requests create a lead, not an account.** A manager reviews and converts them.
-6. **Public pages display readers' full names**, as the product owner decided. Date of birth, parents' names, phone number, tổ, and giáo họ remain visible only to managers and administrators. Name display is governed by a per-bookshelf setting so it can be tightened later without a code change.
-7. **Vietnamese is the only shipped locale.** No user-facing string is ever hard-coded; adding a locale is a translation task, not a rewrite.
-8. **A person has at most one role per bookshelf.** Roles are hierarchical: admin implies manager implies reader.
+5. **Pages within a shelf display readers' full names**, as the product owner decided. Date of birth, parents' names, phone number, tổ, and giáo họ remain visible only to managers and administrators. Name display is governed by a per-bookshelf setting so it can be tightened later without a code change.
+6. **Vietnamese is the only shipped locale.** No user-facing string is ever hard-coded; adding a locale is a translation task, not a rewrite.
+7. **A person has at most one role per bookshelf.** Roles are hierarchical: admin implies manager implies reader.
 
 ---
 
@@ -122,12 +138,12 @@ These were ambiguous in the brief and are resolved as follows. Changing any of t
 | **Membership** | A user's relationship to one bookshelf: role, status, parish details. **This is also the registration record.** |
 | **Book** | Title-level information: title, author, description, cover, page count. |
 | **BookCopy** | A physical object on a shelf. This is what gets lent. |
-| **BorrowRequest** | A reader's or guest's expression of intent, and its lifecycle through hold to handover. |
+| **BorrowRequest** | A member's expression of intent to borrow, and its lifecycle through hold to handover. |
 | **Loan** | A copy in someone's hands, with a due date. |
 | **ConditionAssessment** | A manager's judgement of a copy's physical state at a point in time. |
+| **ProfileChangeRequest** | A reader's proposed change to their own details, and its approval. |
 | **Comment** | A reader's comment on a book, subject to moderation. |
 | **Announcement** | Shelf-scoped news, written by managers. |
-| **Post** | Global blog article, written by the super admin. |
 | **Feedback** | A message to the administrator, from anyone. |
 | **AuditLog** | An append-only record of every state change. |
 
@@ -143,7 +159,9 @@ These were ambiguous in the brief and are resolved as follows. Changing any of t
 
 This distinction matters and is easy to get wrong.
 
-**On the person** — facts true everywhere: username, password, saint name (tên thánh), full name, date of birth, father's name, mother's name, phone, optional email, display name, locale, avatar.
+**On the person** — facts true everywhere: **username and password (both optional, and either both set or neither)**, saint name (tên thánh), full name, date of birth, **father's name and mother's name (both required)**, phone, optional email, display name, locale, avatar.
+
+Parents' names are required rather than optional because they are how a manager tells apart two children with the same name, which §3 lists as a real edge case. A photograph is collected at registration for the same reason — a volunteer who meets forty children on a Sunday recognises a face faster than a name.
 
 **On the membership** — facts about that person's relationship to *that specific parish*: tổ (parish group), giáo họ (parish sub-community), role, status, who approved them and when, rejection or suspension reason, manager's private notes, leaderboard visibility.
 
@@ -159,19 +177,19 @@ Field lists, not storage layouts. Every record carries when it was created and l
 
 **BookCopy** — bookshelf, book, human-readable code unique within the shelf (e.g. `DT-0142`, intended to become a QR label), state, condition, condition note, when and from whom it was acquired, retirement time and reason, time reported lost.
 
-**BorrowRequest** — bookshelf, book (a *title*, not a copy), assigned copy once approved, requester (a member or a guest name, phone and note), status, request time (the queue ordering key), decision maker, decision time and note, hold expiry, the loan that fulfilled it, cancellation time. Guest requests are rate-limited by a hashed identifier. A request must have either a member or a guest name.
+**BorrowRequest** — bookshelf, book (a *title*, not a copy), assigned copy once approved, requester (always a member), status, request time (the queue ordering key), decision maker, decision time and note, hold expiry, the loan that fulfilled it, cancellation time.
 
 **Loan** — bookshelf, copy, title (recorded independently so statistics survive the copy being retired), borrower, originating request if any, the manager who handed it over, lending time, **due date** (a date, not a time), status, return time, the manager who received it, return condition, note and photo, renewals used, lost-report time and reporter, void time, voider and reason, notes.
 
 `due_on` is a **date**, not a timestamp. A book is due at the end of a day, not at 14:23 on that day. A timestamp would make a book overdue mid-afternoon, which is confusing for children and wrong for a shelf only accessible after Sunday mass.
+
+**ProfileChangeRequest** — the person, the bookshelf whose manager will decide, the proposed values, the values at the time of proposing, status, when proposed, decision maker, decision time, rejection reason. Storing the previous values alongside the proposed ones means a manager reviewing a week-old request sees what it would actually change, not what it was expected to change.
 
 **ConditionAssessment** — bookshelf, copy, loan if part of a return, assessor, condition, note, photo, time. Separate from the loan because a manager may assess a copy at any time, not only at return.
 
 **Comment** — bookshelf, book, member author (no guest comments), plain-text body, status, moderator, moderation time and note. Comments are plain text and rendered escaped: no rich text, no HTML.
 
 **Announcement** — bookshelf, title, slug, rich body, plain-text derivation for excerpts and search, pinned flag, publication time (absent means draft), expiry, author.
-
-**Post** — title, slug, excerpt, rich body, plain-text derivation, cover, publication time, author. Global, not shelf-scoped.
 
 **Feedback** — bookshelf (absent for site-wide), member or guest name and contact, subject, body, status (new, read, resolved), handler and handling time. Rate-limited by hashed identifier.
 
@@ -189,7 +207,6 @@ Each shelf configures its own lending policy. Defaults:
 | `renewal_days` | 7 | Days a renewal adds |
 | `hold_days` | 3 | How long an approved request is held for collection |
 | `due_soon_days` | 3 | When a loan starts showing as due soon |
-| `allow_guest_requests` | true | Whether non-members may ask to borrow |
 | `allow_comments` | true | Whether readers may comment |
 | `comments_require_approval` | true | Whether comments are moderated before publication |
 | `public_name_display` | `full_name` | `full_name`, `display_name`, or `hidden` |
@@ -219,6 +236,8 @@ Each of these gets a named, dedicated test. They are the specification of correc
 | **INV-10** | Every query is scoped to a single bookshelf, except explicit super-admin cross-shelf views. |
 | **INV-11** | A loan is never deleted. Mistakes are recorded as *voided* with a reason. |
 | **INV-12** | Audit records are never changed or removed. |
+| **INV-13** | A person's verified details change only through an approved ProfileChangeRequest. At most one request per person is pending at a time. |
+| **INV-14** | A person has either both a username and a password, or neither. An account with no credentials cannot sign in, and that is a valid state. |
 
 Tenant isolation (INV-10) is the highest-consequence property in the system. It must be structural — impossible to forget — not a matter of anyone remembering to filter.
 
@@ -279,7 +298,19 @@ active ──► returned
    └────► voided
 ```
 
-### 7.4 Membership
+### 7.4 Profile change request
+
+```
+pending ──► approved      (values written to the person)
+   ├──► rejected          (manager declined, with a reason)
+   └──► cancelled         (reader withdrew before a decision)
+```
+
+Only one request may be pending per person at a time. Proposing a new change
+while one is outstanding replaces it, so a manager never faces two competing
+versions of the same fact.
+
+### 7.5 Membership
 
 ```
 pending ──► active ⇄ suspended
@@ -288,7 +319,7 @@ pending ──► active ⇄ suspended
    └──► rejected
 ```
 
-### 7.5 Comment
+### 7.6 Comment
 
 `pending` → `approved` | `rejected`; `approved` → `hidden`.
 
@@ -339,7 +370,7 @@ A book whose copies are all retired stays in the catalogue for historical statis
 
 | May be soft-deleted (undoing a mistake) | Never deleted |
 |---|---|
-| Users, memberships, books, copies, categories, comments, announcements, posts, borrow requests, bookshelves | **Loans** (use *voided*), **audit records** (append-only), **condition assessments** (historical fact), **feedback** |
+| Users, memberships, books, copies, categories, comments, announcements, borrow requests, bookshelves | **Loans** (use *voided*), **audit records** (append-only), **condition assessments** (historical fact), **feedback** |
 
 Soft deletion exists to undo mistakes. It is not a substitute for domain states like *retired*, *left*, or *voided*, which represent things that actually happened.
 
@@ -361,7 +392,7 @@ Whatever normalisation is applied when storing a title must be the identical nor
 
 | Role | Scope | Description |
 |---|---|---|
-| `guest` | — | Not authenticated. Read-only public access. |
+| `guest` | — | Not authenticated. Sees only the landing page, the portal directory, and the sign-in and registration forms. |
 | `reader` | Per bookshelf | An approved member. |
 | `manager` | Per bookshelf | Runs day-to-day operations for that shelf. |
 | `admin` | Per bookshelf | A manager who can also administer that shelf. |
@@ -375,13 +406,13 @@ Roles are hierarchical within a shelf: `admin` ⊃ `manager` ⊃ `reader`. A per
 
 **Circulation** — view any loan, view own loans, create loan, receive return, renew own loan, void loan; create request, view any request, view own requests, approve, reject, hand over, cancel own.
 
-**Members** — view any, view one, approve, reject, suspend, create, reset password.
+**Members** — view any, view one, approve, reject, suspend, create, register on behalf, set or change credentials, approve or reject a profile change.
 
 **Community** — create comment, moderate comments, manage announcements, view feedback, resolve feedback.
 
 **Oversight** — view statistics, view statistics across all shelves, view audit log, view audit log across all shelves, run export.
 
-**Administration** — create bookshelf, update bookshelf, archive bookshelf, assign manager, revoke manager, promote super admin, manage posts.
+**Administration** — create bookshelf, update bookshelf, archive bookshelf, assign manager, revoke manager, promote super admin.
 
 ### 13.3 Enforcement
 
@@ -397,7 +428,9 @@ Two complementary sources feed the audit record:
 
 **Automatic change capture** on create, update, and delete gives the previous-value / new-value record the brief requires, for every tracked record. Passwords and session tokens are never captured.
 
-**Explicit domain events** record things that are not simple field changes — "manager approved this registration", "manager skipped this reader in the queue" — with a meaningful action name the audit browser can filter and label.
+**Explicit domain events** record things that are not simple field changes — "manager approved this registration", "manager skipped this reader in the queue", "manager set credentials for this reader" — with a meaningful action name the audit browser can filter and label.
+
+Credential changes deserve a specific note. They are not a field change to be captured automatically, because the field that changed must never be recorded. They are an event: *this manager set or changed the sign-in details of this reader, at this time*. That is what the log holds, and it is enough for a super administrator to answer the only question worth asking of it — who has been touching whose account.
 
 Both are written in the same transaction as the change they describe, so an audit record and its subject can never diverge. **Auditing is never deferred to a background job**, because an audit trail that can be lost to a failed job is not an audit trail.
 
@@ -411,7 +444,9 @@ Answering "what has manager A been doing" is a headline requirement and must be 
 
 In-app only in v1, surfaced as a bell with an unread count. There is no email.
 
-**To readers:** registration approved, registration rejected, borrow request approved (with collection deadline), borrow request rejected, book ready for collection, loan due soon, loan overdue, comment approved.
+**To readers:** registration approved, registration rejected, borrow request approved (with collection deadline), borrow request rejected, book ready for collection, loan due soon, loan overdue, comment approved, **profile change approved**, **profile change rejected (carrying the manager's reason)**.
+
+The last two exist because a proposed change is invisible until decided: without them a reader would have to keep revisiting the page to find out whether their new phone number took effect.
 
 **To managers:** nothing is pushed. Managers work from dashboard badge counts. This avoids notification fatigue for volunteers and removes any dependency on timely background work.
 
@@ -421,11 +456,11 @@ In-app only in v1, surfaced as a bell with an unread count. There is no email.
 
 ### 16.1 Public pages
 
-**Landing.** What OLibra is, in one sentence, above the fold. A prominent path into the portal. Three or four recent blog posts. Deliberately light — this page explains the project to someone who has heard about it, it does not convert anyone.
+**Landing.** Logo, what OLibra is in a sentence or two, and the two ways in: **đăng nhập** and **đăng ký**. Nothing else. There is no blog and no separate about page — this page is the whole of the front door.
 
-**Portal.** A card per bookshelf: name, location, book count, active reader count, keeper contact. Search or filter by place if the number ever grows.
+**Portal.** One row per bookshelf: **name and address, nothing else.** A search box, because finding your own parish is the only job this page has. Selecting a shelf leads to signing in, or to registering for that shelf. Book counts, reader counts and keeper contact are not shown, because a person with no membership has no business knowing them.
 
-**Shelf home.** The most important public page. In order down the page:
+**Shelf home.** The most important page for a member, and the first thing seen after signing in. Not public. In order down the page:
 1. Shelf identity — name, where it is, when it is open, who holds the key with a tappable phone number.
 2. Announcements — pinned first, most recent next.
 3. Two large buttons: **"Sách đang có"** and **"Toàn bộ tủ sách"**. These are the primary actions and must be impossible to miss.
@@ -442,11 +477,15 @@ In-app only in v1, surfaced as a bell with an unread count. There is no email.
 
 Then metadata (author, page count, category, publisher), the description, and approved comments with a comment box for logged-in readers. Managers additionally see per-copy state, condition history, and the full loan history for the title.
 
-Pressing "Xin mượn" branches: a logged-in reader submits immediately with a confirmation dialog; a guest gets a short form asking for name and phone, explaining that a manager will contact them.
+Pressing "Xin mượn" submits immediately with a confirmation dialog. There is no guest path — only a member of this shelf can see this page at all.
+
+**A manager sees more on this page than a reader does.** Because the manager is often standing at the shelf with the book in hand, book detail carries the two actions they would otherwise navigate away for: **Cho mượn** when a copy is available, and **Nhận trả** when one is out. Both open the existing flows with the book already chosen, so the three-step lend becomes two steps from here. This is the same reasoning as §1.3 — the dominant real-world interaction is a volunteer holding a phone next to a book, and every step removed from that path is worth more than a feature elsewhere.
 
 **Search.** Live results as the reader types, matching title and author, diacritic-insensitive. The empty state suggests popular books rather than showing nothing.
 
-**Registration.** A single page, not a wizard — the field count is manageable and volunteers guide children through it in person. Fields grouped as *Đăng nhập* (username, password), *Bản thân* (saint name, full name, date of birth), *Gia đình* (father, mother, phone), *Giáo xứ* (tổ, giáo họ). Every field states why it is needed. On submit, a clear confirmation that a manager must approve the account and roughly what happens next.
+**Registration.** A single page, not a wizard — the field count is manageable and volunteers guide children through it in person. The reader chooses which bookshelf they are joining, arriving from the portal with it already selected. Fields grouped as *Đăng nhập* (username, password — **optional**, with a note saying to leave them blank if the reader does not need to check the shelf from home, and that a manager can add them later), *Bản thân* (photograph, saint name, full name, date of birth), *Gia đình* (father, mother, phone), *Giáo xứ* (tổ, giáo họ). Every field states why it is needed. Father's and mother's names are required. On submit, a clear confirmation that a manager must approve the account and roughly what happens next.
+
+A manager can also complete this form **on behalf of** a child standing in front of them, which is the common case for the youngest readers. Registering on behalf still creates a pending application rather than an active member, so the approval step and its audit record are never skipped.
 
 ### 16.2 Reader pages
 
@@ -454,7 +493,7 @@ Pressing "Xin mượn" branches: a logged-in reader submits immediately with a c
 
 **Borrowing history.** Reverse-chronological, with the return condition shown, so a reader can see their own record.
 
-**Profile.** View and edit personal details, change password, toggle leaderboard visibility.
+**Profile.** View personal details and propose changes to them. **A proposed change does not take effect until a manager approves it** (§2); until then the page shows the current value with the pending one beside it, and says plainly that it is waiting. Changing the password and toggling leaderboard visibility take effect immediately — neither is a fact about the person that a manager verified.
 
 ### 16.3 Manager pages
 
@@ -481,6 +520,8 @@ The common case — an undamaged book — is two taps. If anyone is queued for t
 **Copies.** Managed within a book's detail page. Each copy shows its code, state, condition, and actions: assess, report lost, mark found, retire.
 
 **Readers.** Searchable list with status filters. Detail view shows the full profile — including the manager-only fields — current loans, complete history, and administrative actions.
+
+**Pending profile changes.** One card per proposed change, showing the current value and the proposed one side by side so the manager can see exactly what would change. Approve and Reject, with a required reason on rejection. Until a decision is made the existing values remain in force, so a phone number waiting for approval is still the number the manager can ring.
 
 **Pending registrations.** A review card per application, laying out exactly the fields the manager must verify in person, with prominent Approve and Reject buttons and a required reason on rejection. A similar-name warning appears when an existing member closely matches, to catch duplicate registrations.
 
@@ -636,7 +677,7 @@ None blocking. Two worth revisiting after the first bookshelf has run for a mont
 
 This document is the authority on *what* to build and *why*. Implementation may deviate where reality demands, provided:
 
-- The twelve rules in §6 hold, each covered by a named test.
+- The fourteen rules in §6 hold, each covered by a named test.
 - Tenant scoping (INV-10) stays structural, not a matter of developer discipline.
 - Derived state (§8) stays derived.
 - Business logic stays separable from the delivery mechanism, so a public API can be added later without duplicating a single rule.

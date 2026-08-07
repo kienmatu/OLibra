@@ -57,7 +57,7 @@ Four layers. Dependencies point **inwards only**; nothing in an inner layer may 
 │  Application     One class or function per operation.    │
 │                  Transactions. Authorisation. Audit.     │
 ├──────────────────────────────────────────────────────────┤
-│  Domain          Entities, state machines, the twelve    │
+│  Domain          Entities, state machines, the fourteen  │
 │                  invariants, derived-state calculations  │
 ├──────────────────────────────────────────────────────────┤
 │  Infrastructure  Repositories, database, storage, clock  │
@@ -68,7 +68,7 @@ Infrastructure sits at the bottom of the drawing but is depended on through **in
 
 ### 3.2 What each layer may contain
 
-**Domain.** The entities of §5.1, the state machines of §7, the condition list of §9, the derived-state calculations of §8, and the twelve rules of §6 expressed as code that can be exercised without I/O. No SQL, no HTTP, no framework imports, no `now()` — time arrives through a `Clock` (§6.3).
+**Domain.** The entities of §5.1, the state machines of §7, the condition list of §9, the derived-state calculations of §8, and the fourteen rules of §6 expressed as code that can be exercised without I/O. No SQL, no HTTP, no framework imports, no `now()` — time arrives through a `Clock` (§6.3).
 
 **Application.** One unit per operation in [OPERATIONS.md](OPERATIONS.md). Each opens a transaction, checks authorisation, loads what it needs, calls the domain, persists, writes the audit record, and returns. It is the only layer allowed to know about transactions.
 
@@ -241,7 +241,7 @@ Docker is the expected target. What follows is the shape, not a finished ops pla
 
 ## 9. Testing
 
-§6 requires each of the twelve rules to have a named, dedicated test. §21 makes those tests part of the definition of done.
+§6 requires each of the fourteen rules to have a named, dedicated test. §21 makes those tests part of the definition of done.
 
 There is currently **no test suite at all** — the UI shipped without one, which was defensible for static pages rendering from fixtures and stops being defensible the moment logic exists.
 
@@ -249,7 +249,7 @@ Four levels, in the order they earn their keep:
 
 | Level | Covers | Needs a database |
 |---|---|---|
-| **Domain** | The twelve rules, state machine transitions, derived-state calculations, folding | No |
+| **Domain** | The fourteen rules, state machine transitions, derived-state calculations, folding | No |
 | **Operation** | Each command end to end: authorisation, transaction, audit row written | Yes |
 | **Constraint** | That the database actually rejects what it should — INV-1 under concurrent inserts above all | Yes |
 | **Interface** | The critical journeys: lend in three steps, receive a return | Yes, plus a browser |
