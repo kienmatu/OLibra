@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronRight } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
 import { ButtonLink } from "@/components/ui/button";
 import { PageHeading, StatStrip } from "@/components/ui/card";
@@ -219,16 +219,23 @@ export default function AdminOverviewPage() {
         </h2>
         <ul className="mt-4 divide-y divide-hairline border-t border-hairline">
           {ATTENTION.map((item) => (
-            <li
-              key={item.key}
-              className="flex items-center justify-between gap-6 py-3.5"
-            >
-              <p className="text-[16px]">{item.text}</p>
+            // The whole row is the link. Right-aligning a lone "Xem" across a
+            // wide card stranded the action ~500px from the sentence it
+            // belonged to, and shrank the target to a single word.
+            <li key={item.key}>
               <Link
                 href="/quan-tri/tu-sach"
-                className="shrink-0 text-[15px] font-medium text-sage hover:underline"
+                className="group flex min-h-11 items-center gap-2 py-3.5"
               >
-                Xem
+                <span className="text-[16px] group-hover:text-terracotta-ink">
+                  {item.text}
+                </span>
+                <ChevronRight
+                  aria-hidden
+                  className="size-[18px] shrink-0 text-sage"
+                  strokeWidth={1.75}
+                />
+                <span className="sr-only">Xem chi tiết</span>
               </Link>
             </li>
           ))}

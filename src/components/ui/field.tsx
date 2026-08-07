@@ -130,3 +130,43 @@ export function ReadOnlyValue({
     </div>
   );
 }
+
+/**
+ * A settings toggle, drawn in sage rather than a bright accent — terracotta is
+ * reserved for the one primary action on a screen.
+ *
+ * Purely presentational: these pages are static, so it renders a state rather
+ * than owning one. Two pages had grown their own copy before this existed.
+ */
+export function Toggle({
+  on,
+  label,
+  disabled,
+}: {
+  on: boolean;
+  /** Describes what the toggle controls, for screen readers. */
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <span
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      aria-disabled={disabled || undefined}
+      className={cn(
+        "inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors",
+        on ? "bg-sage" : "bg-leather/35",
+        disabled && "opacity-45",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "size-5 rounded-full bg-surface transition-transform",
+          on && "translate-x-5",
+        )}
+      />
+    </span>
+  );
+}

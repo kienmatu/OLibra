@@ -1,53 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertTriangle, Bookmark, Clock, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Bookmark, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { PageHeading, SectionHeading } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { PublicHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { shelfBySlug, shelves } from "@/lib/fixtures";
-import { cn } from "@/lib/utils";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
-}
-
-type PillTone = "available" | "onloan" | "overdue" | "held";
-
-const PILL_TONE: Record<PillTone, string> = {
-  available: "text-available bg-available/10",
-  onloan: "text-onloan bg-onloan/10",
-  overdue: "text-overdue bg-overdue/10",
-  held: "text-held bg-held/10",
-};
-
-/**
- * A small icon + Vietnamese phrase + colour pill — status is never colour
- * alone. Local to this page because the phrases here ("Còn 14 ngày", "Em
- * đứng thứ 2"…) are specific to a reader's own loans, not the six catalogue
- * copy states that `StatusBadge` renders.
- */
-function Pill({
-  icon: Icon,
-  label,
-  tone,
-}: {
-  icon: LucideIcon;
-  label: string;
-  tone: PillTone;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium",
-        PILL_TONE[tone],
-      )}
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
 }
 
 const myLoans = [

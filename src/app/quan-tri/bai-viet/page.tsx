@@ -3,6 +3,7 @@ import { AdminShell } from "@/components/shell/manager-shell";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Chip } from "@/components/ui/segmented";
+import { Pill, type PillTone } from "@/components/ui/pill";
 import { cn } from "@/lib/utils";
 import { posts } from "@/lib/fixtures";
 
@@ -12,37 +13,19 @@ type PostStatus = "published" | "draft";
 
 const POST_STATUS: Record<
   PostStatus,
-  { label: string; icon: LucideIcon; ink: string; fill: string }
+  { label: string; icon: LucideIcon; tone: PillTone }
 > = {
   published: {
     label: "Đã đăng",
     icon: CheckCircle2,
-    ink: "text-available",
-    fill: "bg-available/10",
+    tone: "available",
   },
   draft: {
     label: "Bản nháp",
     icon: PenLine,
-    ink: "text-retired",
-    fill: "bg-retired/10",
+    tone: "retired",
   },
 };
-
-function StatusPill({ status }: { status: PostStatus }) {
-  const { label, icon: Icon, ink, fill } = POST_STATUS[status];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium",
-        ink,
-        fill,
-      )}
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
-}
 
 type Row = {
   slug: string;
@@ -105,7 +88,11 @@ function PostCard({ row }: { row: Row }) {
       <p className="text-[16px] font-medium">{row.title}</p>
       <p className="mt-0.5 line-clamp-1 text-[14px] text-meta">{row.excerpt}</p>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        <StatusPill status={row.status} />
+        <Pill
+          icon={POST_STATUS[row.status].icon}
+          label={POST_STATUS[row.status].label}
+          tone={POST_STATUS[row.status].tone}
+        />
         <span className="text-[13px] text-meta">
           {row.author} · {row.date}
         </span>
@@ -171,7 +158,11 @@ export default function AdminPostsPage() {
                 <td className="px-4 py-3 text-[15px] text-ink/85">{row.author}</td>
                 <td className="px-4 py-3 text-[15px] text-ink/85">{row.date}</td>
                 <td className="px-4 py-3">
-                  <StatusPill status={row.status} />
+                  <Pill
+                    icon={POST_STATUS[row.status].icon}
+                    label={POST_STATUS[row.status].label}
+                    tone={POST_STATUS[row.status].tone}
+                  />
                 </td>
                 <td className="px-4 py-3">
                   <RowActions row={row} />

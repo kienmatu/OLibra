@@ -1,46 +1,16 @@
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AlertTriangle, BookMarked, BookOpen, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { PageHeading, StatStrip } from "@/components/ui/card";
+import { Pill as ConditionPill } from "@/components/ui/pill";
 import { PublicHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { shelfBySlug, shelves } from "@/lib/fixtures";
-import { cn } from "@/lib/utils";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
-}
-
-type ConditionTone = "onloan" | "overdue" | "available";
-
-const CONDITION_TONE: Record<ConditionTone, string> = {
-  available: "text-available bg-available/10",
-  onloan: "text-onloan bg-onloan/10",
-  overdue: "text-overdue bg-overdue/10",
-};
-
-function ConditionPill({
-  icon: Icon,
-  label,
-  tone,
-}: {
-  icon: LucideIcon;
-  label: string;
-  tone: ConditionTone;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium",
-        CONDITION_TONE[tone],
-      )}
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
 }
 
 const history = [

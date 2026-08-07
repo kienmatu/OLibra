@@ -27,8 +27,11 @@ export default async function BookDetailPage({
   const base = `/tu-sach/${shelf.slug}`;
   const isAvailable = book.status === "available";
 
-  const meta: [string, string][] = [
-    ["Tác giả", book.author],
+  /* Author sits under the title and the category is already in the
+     breadcrumb, so both are carried in the main column. Everything else is
+     reference detail: it moves beside the cover on a wide screen rather than
+     pushing the description further down the page. */
+  const detail: [string, string][] = [
     ...(book.translator
       ? ([["Người dịch", book.translator]] as [string, string][])
       : []),
@@ -44,7 +47,18 @@ export default async function BookDetailPage({
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         <div className="grid gap-10 md:grid-cols-[300px_1fr]">
-          <BookCover title={book.title} className="w-full text-[3rem]" />
+          <div className="space-y-6">
+            <BookCover title={book.title} className="w-full text-[3rem]" />
+
+            <dl className="divide-y divide-hairline border-y border-hairline">
+              {detail.map(([label, value]) => (
+                <div key={label} className="py-2.5">
+                  <dt className="text-[14px] text-meta">{label}</dt>
+                  <dd className="mt-0.5 text-[15px]">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
 
           <div>
             <p className="text-[14px] text-meta">
@@ -118,19 +132,6 @@ export default async function BookDetailPage({
                   : `Bạn sẽ là người thứ ${(book.loan?.queue ?? 0) + 1} trong hàng chờ. Quản lý sẽ báo khi đến lượt.`}
               </p>
             </div>
-
-            {/* Single-column definition list: one label and value per row. */}
-            <dl className="mt-10 divide-y divide-hairline border-y border-hairline">
-              {meta.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex items-baseline justify-between gap-6 py-3"
-                >
-                  <dt className="text-[14px] text-meta">{label}</dt>
-                  <dd className="text-right text-[16px]">{value}</dd>
-                </div>
-              ))}
-            </dl>
 
             <section className="mt-10">
               <h2 className="text-lg font-semibold">Giới thiệu</h2>

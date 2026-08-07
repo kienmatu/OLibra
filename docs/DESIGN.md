@@ -34,12 +34,12 @@ A softened warm palette — nothing saturated, nothing heavy. Every token below 
 | Warm paper (secondary surface) | `#F2EBE1` | `--color-paper` | `bg-paper` |
 | Hairline border | `#EDE5DA` | `--color-hairline` | `border-hairline` (or the bundled `hairline` utility — 1px width + this colour in one class) |
 | Body text (ink) | `#3A352F` | `--color-ink` | `text-ink` |
-| Meta text | `#8A8077` | `--color-meta` | `text-meta` |
-| Aged leather | `#9A8874` | `--color-leather` | `text-leather` |
-| Primary terracotta | `#BE7B4A` | `--color-terracotta` | `bg-terracotta` / `text-terracotta` / `border-terracotta` |
-| Terracotta pressed / ink | `#A9683A` | `--color-terracotta-ink` | `bg-terracotta-ink` / `text-terracotta-ink` |
-| Sage accent | `#5A9184` | `--color-sage` | `text-sage` / `bg-sage` / `border-sage` |
-| Destructive (soft brick) | `#C0645C` | `--color-brick` | `bg-brick` / `text-brick` / `border-brick` |
+| Meta text | `#716962` | `--color-meta` | `text-meta` |
+| Aged leather | `#776857` | `--color-leather` | `text-leather` |
+| Primary terracotta | `#A4673B` | `--color-terracotta` | `bg-terracotta` / `text-terracotta` / `border-terracotta` |
+| Terracotta pressed / ink | `#965C33` | `--color-terracotta-ink` | `bg-terracotta-ink` / `text-terracotta-ink` |
+| Sage accent | `#477369` | `--color-sage` | `text-sage` / `bg-sage` / `border-sage` |
+| Destructive (soft brick) | `#AF4C44` | `--color-brick` | `bg-brick` / `text-brick` / `border-brick` |
 
 Notes on use:
 
@@ -57,26 +57,30 @@ Always icon + word + colour together, rendered as a 10% tint fill with the statu
 
 | State | Icon | Vietnamese | Ink | Ink utility | Fill utility |
 |---|---|---|---|---|---|
-| Available | `book-open` | Còn sách | `#4A7C59` | `text-available` | `bg-available/10` |
-| On loan | `book-marked` | Đang mượn | `#A9743A` | `text-onloan` | `bg-onloan/10` |
-| Held | `bookmark` | Đang giữ chỗ | `#5A7FA6` | `text-held` | `bg-held/10` |
-| Overdue | `alert-triangle` | Quá hạn | `#BE5F55` | `text-overdue` | `bg-overdue/10` |
+| Available | `book-open` | Còn sách | `#457453` | `text-available` | `bg-available/10` |
+| On loan | `book-marked` | Đang mượn | `#8E6231` | `text-onloan` | `bg-onloan/10` |
+| Held | `bookmark` | Đang giữ chỗ | `#4D6D8F` | `text-held` | `bg-held/10` |
+| Overdue | `alert-triangle` | Quá hạn | `#AD4C42` | `text-overdue` | `bg-overdue/10` |
 | Lost | `help-circle` | Đã mất | `#94514A` | `text-lost` | `bg-lost/10` |
-| Retired | `archive` | Ngừng dùng | `#8A8077` | `text-retired` | `bg-retired/10` |
+| Retired | `archive` | Ngừng dùng | `#716962` | `text-retired` | `bg-retired/10` |
 
 **Icon and word are mandatory** — a coloured dot is not a status. The six states are defined once, in `src/lib/status.ts`, as a typed record that bundles icon, label and colour together so a component cannot render one without the others.
 
 ### 1.3 Contrast
 
-Ink on the page and on the surface both clear AAA (roughly 11.5:1 and 12:1). Meta text, sage, terracotta-ink and brick sit lower — around 3.2–4.2:1 against the page — and that is by design: none of them is ever the sole carrier of meaning (non-negotiable #2). The 10% status tints exist to separate a badge from its surroundings, not to deliver text-level contrast on their own; the icon and the Vietnamese word are what actually communicate the state.
+**Every foreground colour clears WCAG AA (4.5:1) against all three backgrounds — page, surface and warm paper.** Ink reaches AAA at roughly 10.3:1. The rest sit between 4.5:1 and 5.0:1, measured against warm paper, which is the darkest surface text ever sits on.
 
-White text on solid terracotta sits close to 3.4:1; white on the pressed state, terracotta-ink, reaches about 4.4:1. Treat button text as a decorative-strength pairing, not a body-text one — never set long-form copy in terracotta-on-white or white-on-terracotta.
+This was not true in the first cut. When the palette was softened, meta text fell to 3.27:1 and sage links to 3.05:1 — comfortably below AA — and the failure was rationalised on the grounds that colour is never the sole carrier of meaning. That reasoning is wrong. Non-negotiable #2 protects a reader who cannot distinguish two hues; it says nothing about whether text is legible in the first place. For children and volunteers reading on cheap screens in a church hall, legibility is the whole point. Every value was darkened along its own hue until it cleared 4.5:1, which keeps the palette desaturated and soft while making it readable.
+
+The 10% status tints separate a badge from its surroundings; the ink, icon and Vietnamese word carry the meaning.
+
+White text on solid terracotta reaches 4.58:1, so primary button labels clear AA at their normal weight. Even so, never set long-form copy in terracotta-on-white or white-on-terracotta — that pairing is for actions, not for reading.
 
 ### 1.4 Chart palette
 
 Bar and line only. Ordered series, most distinct first:
 
-`#BE7B4A` (terracotta) · `#5A9184` (sage) · `#A9683A` (terracotta-ink) · `#9A8874` (leather) · `#8A8077` (meta)
+`#A4673B` (terracotta) · `#477369` (sage) · `#965C33` (terracotta-ink) · `#776857` (leather) · `#716962` (meta)
 
 Never encode a category by colour alone — label the series directly on the chart.
 

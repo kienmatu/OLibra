@@ -11,52 +11,30 @@ import { AdminShell } from "@/components/shell/manager-shell";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/field";
+import { Pill, type PillTone } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Quản lý viên — Quản trị OLibra" };
 
 type Role = "admin" | "shelf-admin" | "manager";
 
-const ROLE: Record<
-  Role,
-  { label: string; icon: LucideIcon; ink: string; fill: string }
-> = {
+const ROLE: Record<Role, { label: string; icon: LucideIcon; tone: PillTone }> = {
   admin: {
     label: "Quản trị viên",
     icon: Shield,
-    ink: "text-terracotta-ink",
-    fill: "bg-terracotta/10",
+    tone: "onloan",
   },
   "shelf-admin": {
     label: "Quản trị tủ sách",
     icon: Key,
-    ink: "text-sage",
-    fill: "bg-sage/10",
+    tone: "sage",
   },
   manager: {
     label: "Quản lý",
     icon: UserCheck,
-    ink: "text-held",
-    fill: "bg-held/10",
+    tone: "held",
   },
 };
-
-function RolePill({ role }: { role: Role }) {
-  const { label, icon: Icon, ink, fill } = ROLE[role];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium",
-        ink,
-        fill,
-      )}
-    >
-      <Icon aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {label}
-    </span>
-  );
-}
 
 type ManagerRow = {
   id: string;
@@ -226,7 +204,11 @@ export default function AdminManagersPage() {
                 </td>
                 <td className="px-4 py-3 text-[15px] text-ink/85">{m.shelfName}</td>
                 <td className="px-4 py-3">
-                  <RolePill role={m.role} />
+                  <Pill
+                    icon={ROLE[m.role].icon}
+                    label={ROLE[m.role].label}
+                    tone={ROLE[m.role].tone}
+                  />
                 </td>
                 <td className="px-4 py-3 text-[15px]">
                   {m.lastActiveWarn ? (

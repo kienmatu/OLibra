@@ -653,3 +653,84 @@ export const overdueLoans = [
     due: "04/08",
   },
 ];
+
+/**
+ * Who is holding what — the single source of truth for active loans.
+ *
+ * Three pages previously each decided this for themselves, and they
+ * disagreed: the reader profile derived held books with
+ * `books.slice(0, reader.holding)`, which handed Giuse Trần Minh a copy of
+ * Hoàng Tử Bé that the catalogue said Têrêsa Lê Ngọc Ánh had. Derive from
+ * here instead of inventing per page.
+ */
+export type Loan = {
+  bookSlug: string;
+  code: string;
+  readerId: string;
+  borrowedOn: string;
+  /** A date, never a timestamp — a book is due at the end of a day (§5.4). */
+  dueOn: string;
+  status: Extract<CopyStatus, "onloan" | "overdue">;
+  /** Negative means overdue by that many days. */
+  daysLeft: number;
+};
+
+export const loans: Loan[] = [
+  {
+    bookSlug: "de-men-phieu-luu-ky",
+    code: "DT-0141",
+    readerId: "minh",
+    borrowedOn: "06/08",
+    dueOn: "Chúa nhật 20/08",
+    status: "onloan",
+    daysLeft: 14,
+  },
+  {
+    bookSlug: "totto-chan-ben-cua-so",
+    code: "DT-0155",
+    readerId: "minh",
+    borrowedOn: "04/08",
+    dueOn: "18/08",
+    status: "onloan",
+    daysLeft: 2,
+  },
+  {
+    bookSlug: "kinh-van-hoa-tap-4",
+    code: "DT-0061",
+    readerId: "minh",
+    borrowedOn: "23/07",
+    dueOn: "04/08",
+    status: "overdue",
+    daysLeft: -2,
+  },
+  {
+    bookSlug: "hoang-tu-be",
+    code: "DT-0087",
+    readerId: "anh",
+    borrowedOn: "23/07",
+    dueOn: "Chúa nhật 20/08",
+    status: "onloan",
+    daysLeft: 4,
+  },
+  {
+    bookSlug: "dat-rung-phuong-nam",
+    code: "DT-0203",
+    readerId: "binh",
+    borrowedOn: "02/07",
+    dueOn: "16/07",
+    status: "overdue",
+    daysLeft: -21,
+  },
+];
+
+export function loansByReader(readerId: string) {
+  return loans.filter((l) => l.readerId === readerId);
+}
+
+export function loanForBook(bookSlug: string) {
+  return loans.find((l) => l.bookSlug === bookSlug);
+}
+
+export function readerById(id: string) {
+  return readers.find((r) => r.id === id);
+}

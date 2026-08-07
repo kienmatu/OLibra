@@ -82,6 +82,26 @@ are not stylistic preferences — breaking one is a defect.
 8. Charts are bar and line only — no pie charts — and every chart carries a
    plain-text summary above it.
 
+## Shared components — check here before writing your own
+
+Pages were once built in parallel by separate agents told not to touch shared
+files, and every one of them grew its own status pill. Six near-identical
+copies later, the lesson is written down: **look in `src/components/ui` first,
+and if something is missing, add it there rather than inline.**
+
+| Need | Use |
+|---|---|
+| One of the six copy states (Còn sách, Đang mượn, Đang giữ chỗ, Quá hạn, Đã mất, Ngừng dùng) | `StatusBadge` / `StatusPanel` |
+| Any other state pill — membership, role, post status, days remaining, condition | `Pill` (icon and label are both required) |
+| The quick-lend step marker | `StepIndicator` |
+| A settings switch | `Toggle` from `field.tsx` |
+| A labelled form control | `Field` + `Input` / `Textarea` / `Select` |
+| A read-only value | `ReadOnlyValue` |
+| A book's title | `BookTitle` — the only thing allowed to be serif |
+| A cover | `BookCover` |
+| A phone number | `PhoneLink` — never plain text |
+| Buttons | `Button` / `ButtonLink` / `BigActionLink` |
+
 ## Language
 
 Vietnamese is the shipped language and the only one written into the UI.

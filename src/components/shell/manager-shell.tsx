@@ -141,7 +141,10 @@ export function ManagerShell({
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
-        {children}
+        {/* Constrain the measure. Without a max-width, lines on a wide
+            monitor run past 130 characters and a row's action drifts half
+            a screen from the text it belongs to. */}
+        <div className="mx-auto w-full max-w-5xl">{children}</div>
       </main>
     </div>
   );
@@ -233,7 +236,10 @@ export function AdminShell({
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
-        {children}
+        {/* Constrain the measure. Without a max-width, lines on a wide
+            monitor run past 130 characters and a row's action drifts half
+            a screen from the text it belongs to. */}
+        <div className="mx-auto w-full max-w-5xl">{children}</div>
       </main>
     </div>
   );
