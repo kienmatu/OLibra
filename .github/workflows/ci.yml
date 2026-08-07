@@ -37,3 +37,27 @@ jobs:
       # what stops a Next upgrade quietly shipping a runtime that starts and
       # then serves nothing.
       - run: docker build --target smoke .
+
+  links:
+    runs-on: ubuntu-latest
+    # The crawler renders pages from fixtures, not the database — no postgres
+    # service needed here.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3.14 }
+      - run: bun install --frozen-lockfile
+        env: { PUPPETEER_SKIP_DOWNLOAD: 1 }
+      - run: bun run dev &
+      - name: Wait for the dev server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/ -o /dev/null; then
+              echo "dev server is up after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "dev server never came up after 30 attempts" >&2
+          exit 1
+      - run: bun run check:links
