@@ -17,6 +17,23 @@ const config = [
       "react/no-unescaped-entities": "off",
     },
   },
+  {
+    files: ["src/domain/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["next", "next/*", "react", "react-dom", "@/app/*"],
+              message:
+                "The domain layer imports no framework (SDD §3.1). Move this to src/app/ and call the domain from there.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
 
 export default config;
