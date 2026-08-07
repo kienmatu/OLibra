@@ -127,7 +127,10 @@ export const books: Book[] = [
     status: "available",
     codes: "DT-0140 – DT-0142",
     copiesTotal: 3,
-    copiesAvailable: 2,
+    // DT-0140 available, DT-0141 on loan to Giuse Trần Minh (see `loans`),
+    // DT-0142 lost (see `lostCopies`) — 1 + 1 + 1 = 3. A copy holds exactly
+    // one state (INV-2), so this must never drift from those two lists.
+    copiesAvailable: 1,
     description: [
       "Dế Mèn là một chú dế thanh niên khoẻ mạnh, bướng bỉnh và hơi kiêu ngạo. Sau một trò nghịch dại khiến người hàng xóm phải trả giá, chú ân hận và quyết định rời khỏi cái hang quen thuộc của mình.",
       "Trên đường phiêu lưu, Dế Mèn kết bạn với Dế Trũi, đi qua nhiều vùng đất lạ và gặp không ít hiểm nguy. Mỗi lần vấp ngã lại dạy chú một điều: về lòng khiêm nhường, về tình bạn, và về việc sống tử tế với những người quanh mình.",
@@ -208,6 +211,10 @@ export const books: Book[] = [
     category: "Văn học thiếu nhi",
     status: "overdue",
     codes: "DT-0201 – DT-0203",
+    // DT-0201 on loan to Maria Vũ Khánh Linh (see `loans`), DT-0202 lost (see
+    // `lostCopies`), DT-0203 on loan to Phêrô Nguyễn Văn Bình and overdue
+    // (see `loans`) — 1 + 1 + 1 = 3, none available. A copy holds exactly
+    // one state (INV-2), so this must never drift from those two lists.
     copiesTotal: 3,
     copiesAvailable: 0,
     description: [
@@ -223,10 +230,12 @@ export const books: Book[] = [
     year: 2017,
     pages: 160,
     category: "Văn học nước ngoài",
-    status: "available",
+    // Its one copy is reported lost (see `lostCopies`) — an available count
+    // above zero would contradict that directly (INV-2).
+    status: "lost",
     codes: "DT-0118",
     copiesTotal: 1,
-    copiesAvailable: 1,
+    copiesAvailable: 0,
     description: [
       "Con mèo mun Zorba hứa với một cô hải âu đang hấp hối ba điều: không ăn quả trứng, chăm cho trứng nở, và dạy con hải âu con biết bay.",
       "Giữ được hai lời hứa đầu đã khó, lời hứa thứ ba gần như bất khả. Nhưng cả xóm mèo đã cùng nhau làm điều đó, và câu chuyện trở thành một bài học rất dịu dàng về việc yêu thương một kẻ khác mình.",
@@ -741,6 +750,58 @@ export const loans: Loan[] = [
     status: "overdue",
     daysLeft: -21,
   },
+  {
+    // The manager log for Maria Nguyễn Thị Lan (quan-tri/quan-ly-vien/lan)
+    // already narrates this handover — "Cho Maria Vũ Khánh Linh mượn Đất
+    // Rừng Phương Nam", 05/08 10:15. This is that loan, on the third copy.
+    bookSlug: "dat-rung-phuong-nam",
+    code: "DT-0201",
+    readerId: "linh",
+    borrowedOn: "05/08",
+    dueOn: "19/08",
+    status: "onloan",
+    daysLeft: 11,
+  },
+];
+
+/**
+ * Copies currently in the `lost` state (§7.1) — the data behind the
+ * lost-copies view on the manager's Sách list. "Báo mất" appears three times
+ * in the built interface; this is what feeds the screen that finally gives
+ * `lost → available` and `lost → retired` somewhere to happen.
+ */
+export type LostCopy = {
+  bookSlug: string;
+  code: string;
+  /** Who was holding the copy when it was reported lost. */
+  borrower: string;
+  reportedOn: string;
+};
+
+export const lostCopies: LostCopy[] = [
+  {
+    bookSlug: "de-men-phieu-luu-ky",
+    code: "DT-0142",
+    borrower: "Maria Vũ Khánh Linh",
+    reportedOn: "22/07",
+  },
+  {
+    bookSlug: "dat-rung-phuong-nam",
+    code: "DT-0202",
+    borrower: "Anna Phạm Thu Hà",
+    reportedOn: "30/06",
+  },
+  // Not DT-0112 (Những Tấm Lòng Cao Cả) — that copy is already `held`,
+  // reserved for Anna Phạm Thu Hà to collect (see the borrow-request queue
+  // and /toi/thong-bao). A copy cannot be simultaneously held and lost
+  // (INV-2), so the third lost example lives on a title with no other claim
+  // on its one copy instead.
+  {
+    bookSlug: "chuyen-con-meo-day-hai-au-bay",
+    code: "DT-0118",
+    borrower: "Gioan Bùi Đức Thắng",
+    reportedOn: "12/06",
+  },
 ];
 
 export function loansByReader(readerId: string) {
@@ -753,6 +814,90 @@ export function loanForBook(bookSlug: string) {
 
 export function readerById(id: string) {
   return readers.find((r) => r.id === id);
+}
+
+/**
+ * A reader's offer to give books to the shelf (§3 of the refinements design;
+ * BR §7.7, §16.2, §16.3). This is not provenance — provenance lives on
+ * `book_copies` once a manager actually catalogues what was handed over.
+ *
+ * Carries every status, not only `pending`: the manager's queue
+ * (`donationQueue`, below) is pending-only, but BR §16.2 also requires the
+ * reader's own donation list to show where each offer stands — pending,
+ * received, or declined — so the fixture needs decided examples too.
+ */
+export type Donation = {
+  id: string;
+  readerId: string;
+  description: string;
+  estimatedCount?: number;
+  hasPhoto?: boolean;
+  submittedOn: string;
+  status: "pending" | "received" | "declined";
+  decidedOn?: string;
+  /** Required by the fixture data whenever `status` is `declined` (BR §5.4). */
+  decisionNote?: string;
+};
+
+export const donations: Donation[] = [
+  {
+    id: "linh-01",
+    readerId: "linh",
+    description:
+      "Em có 5 cuốn truyện tranh và 2 cuốn Dế Mèn, sách còn mới vì em đọc ít.",
+    estimatedCount: 7,
+    hasPhoto: true,
+    submittedOn: "05/08",
+    status: "pending",
+  },
+  {
+    id: "anh-01",
+    readerId: "anh",
+    description:
+      "Nhà em dọn tủ sách cũ, có mấy cuốn Kính Vạn Hoa và mấy cuốn truyện cổ tích, chắc khoảng chục cuốn.",
+    estimatedCount: 10,
+    hasPhoto: false,
+    submittedOn: "03/08",
+    status: "pending",
+  },
+  {
+    id: "minh-01",
+    readerId: "minh",
+    description:
+      "Em muốn tặng lại vài cuốn sách khoa học thiếu nhi em đã đọc xong.",
+    hasPhoto: true,
+    submittedOn: "01/08",
+    status: "pending",
+  },
+  {
+    id: "minh-00",
+    readerId: "minh",
+    description: "Em có 3 cuốn truyện thiếu nhi cũ, còn đọc được.",
+    estimatedCount: 3,
+    hasPhoto: false,
+    submittedOn: "10/07",
+    status: "received",
+    decidedOn: "12/07",
+  },
+  {
+    id: "minh-decl-01",
+    readerId: "minh",
+    description: "Em có mấy cuốn sách giáo khoa cũ không dùng nữa.",
+    hasPhoto: false,
+    submittedOn: "18/06",
+    status: "declined",
+    decidedOn: "20/06",
+    decisionNote: "Tủ sách chỉ nhận truyện, không nhận sách giáo khoa.",
+  },
+];
+
+/** The manager's donation queue — pending offers only. */
+export const donationQueue: Donation[] = donations.filter(
+  (d) => d.status === "pending",
+);
+
+export function donationsByReader(readerId: string) {
+  return donations.filter((d) => d.readerId === readerId);
 }
 
 /**

@@ -54,9 +54,9 @@ If that flow is slow, volunteers stop using the system and revert to paper, and 
 
 Multi-tenancy is present from the first day of data, so later phases add features rather than rewriting foundations.
 
-**Phase 1 — the core loop.** Books and copies, readers and registration approval, lending and returning with condition assessment, the audit log, the manager dashboard, the public catalogue and search. A single bookshelf, but stored as one tenant among many.
+**Phase 1 — the core loop.** Books and copies, readers and registration approval, lending and returning with condition assessment, the audit log, the manager dashboard, the public catalogue and search, plus two refinements that complete circulation rather than extend it: reporting a book lost as a second entry point out of receiving a return, and the lost-copies view that gives `lost → available` (§7.1) a screen to actually happen on. A single bookshelf, but stored as one tenant among many. Donor provenance on a copy — the member link alongside the existing free-text name (§5.4) — lands in this phase too, even though the reader-facing screen for offering a donation does not: the schema is written once, so provenance is recorded from the first row of data rather than reconstructed afterwards.
 
-**Phase 2 — community.** Borrow requests, holds, the waiting queue, comments and moderation, announcements, feedback, statistics.
+**Phase 2 — community.** Borrow requests, holds, the waiting queue, comments and moderation, announcements, feedback, statistics, and the reader-facing **Tặng sách** screen with its manager-side donation queue (§7.7 BookDonation).
 
 **Phase 3 — the network.** The portal directory, multiple bookshelves, super-admin tooling, cross-shelf statistics, per-manager audit views.
 
@@ -145,6 +145,7 @@ These were ambiguous in the brief and are resolved as follows. Changing any of t
 | **Comment** | A reader's comment on a book, subject to moderation. |
 | **Announcement** | Shelf-scoped news, written by managers. |
 | **Feedback** | A message to the administrator, from anyone. |
+| **BookDonation** | A reader's offer to give books to the shelf, and the manager's decision on it. |
 | **AuditLog** | An append-only record of every state change. |
 
 ### 5.2 Ownership
@@ -175,7 +176,7 @@ Field lists, not storage layouts. Every record carries when it was created and l
 
 **Book** — bookshelf, category, title, slug, author, publisher, published year, ISBN, page count, description, cover image, language, published flag (hides drafts from the public), who added it.
 
-**BookCopy** — bookshelf, book, human-readable code unique within the shelf (e.g. `DT-0142`, intended to become a QR label), state, condition, condition note, when and from whom it was acquired, retirement time and reason, time reported lost.
+**BookCopy** — bookshelf, book, human-readable code unique within the shelf (e.g. `DT-0142`, intended to become a QR label), state, condition, condition note, when it was acquired and from whom — a member chosen from a search, or a typed name for someone with no account, so a donor who never registers is still recordable — retirement time and reason, time reported lost.
 
 **BorrowRequest** — bookshelf, book (a *title*, not a copy), assigned copy once approved, requester (always a member), status, request time (the queue ordering key), decision maker, decision time and note, hold expiry, the loan that fulfilled it, cancellation time.
 
@@ -192,6 +193,8 @@ Field lists, not storage layouts. Every record carries when it was created and l
 **Announcement** — bookshelf, title, slug, rich body, plain-text derivation for excerpts and search, pinned flag, publication time (absent means draft), expiry, author.
 
 **Feedback** — bookshelf (absent for site-wide), member or guest name and contact, subject, body, status (new, read, resolved), handler and handling time. Rate-limited by hashed identifier.
+
+**BookDonation** — bookshelf, donor membership (always a member — submitting requires signing in, so there is no guest path here the way Feedback has one), description (free text, required), photo (optional), estimated count (optional), status (`pending` · `received` · `declined`), decided by, decided at, decision note (reason required on decline, matching every other rejection flow in this document). The donation record is *not* the provenance record: it is an offer with a lifecycle, while provenance lives on BookCopy, above, survives the donation being tidied away, and is the thing a manager reads years later.
 
 **AuditLog** — bookshelf (absent for global actions), actor (absent for system actions), action name, the record affected, the values before and after, context (address, device, screen), time.
 
@@ -323,6 +326,15 @@ pending ──► active ⇄ suspended
 
 `pending` → `approved` | `rejected`; `approved` → `hidden`.
 
+### 7.7 BookDonation
+
+```
+pending ──► received      (manager approves; a BookCopy is later catalogued with this donor as provenance)
+   └──► declined          (manager declines, with a reason)
+```
+
+The donation's own lifecycle ends at *received* or *declined*. Provenance itself lives on BookCopy (§5.4), which is why approving a donation does not write a book or a copy by itself — it only records that the offer was accepted, leaving the manager to catalogue what was actually handed over.
+
 ---
 
 ## 8. Derived State — a load-bearing rule
@@ -402,13 +414,13 @@ Roles are hierarchical within a shelf: `admin` ⊃ `manager` ⊃ `reader`. A per
 
 ### 13.2 Permission set
 
-**Catalogue** — view any book, view a book, create, update, delete; create copy, update copy, retire copy, report copy lost, assess condition.
+**Catalogue** — view any book, view a book, create, update, delete; create copy, update copy, retire copy, report copy lost, mark copy found, assess condition.
 
 **Circulation** — view any loan, view own loans, create loan, receive return, renew own loan, void loan; create request, view any request, view own requests, approve, reject, hand over, cancel own.
 
 **Members** — view any, view one, approve, reject, suspend, create, register on behalf, set or change credentials, approve or reject a profile change.
 
-**Community** — create comment, moderate comments, manage announcements, view feedback, resolve feedback.
+**Community** — create comment, moderate comments, manage announcements, view feedback, resolve feedback, offer donation, view own donations, view donation queue, receive donation, decline donation.
 
 **Oversight** — view statistics, view statistics across all shelves, view audit log, view audit log across all shelves, run export.
 
@@ -465,7 +477,7 @@ The last two exist because a proposed change is invisible until decided: without
 **Shelf home.** The most important page for a member, and the first thing seen after signing in. Not public. In order down the page:
 1. Shelf identity — name, where it is, when it is open, who holds the key with a tappable phone number.
 2. Announcements — pinned first, most recent next.
-3. Two large buttons: **"Sách đang có"** and **"Toàn bộ tủ sách"**. These are the primary actions and must be impossible to miss.
+3. Two large buttons: **"Sách có sẵn"** and **"Toàn bộ tủ sách"**. These are the primary actions and must be impossible to miss.
 4. Most-borrowed books, as a horizontally scrollable cover row.
 5. Most-active readers.
 6. Latest approved comments.
@@ -476,6 +488,8 @@ The last two exist because a proposed change is invisible until decided: without
 **Book detail.** Cover and title at the top. Below it, an availability panel that changes with state:
 - *Available*: green badge, copy count if more than one, and a large **"Xin mượn"** button.
 - *On loan*: amber badge showing who has it and for how many days, how many people are already queued, and a button with an honest label — **"Đăng ký chờ mượn"**.
+
+The panel closes with a contact line built from the shelf record: **"Liên hệ {keeper} · {phone} để nhận sách."** The phone number is tappable, as every reader-facing phone number in this document is (§16.3, Overdue). This is not a wording choice. An earlier version of this line hard-coded one shelf's Sunday-after-mass opening hours directly into the page — but every shelf renders the same book detail page, and the second fixture shelf opens at a different time on a different day, so a sentence written for one shelf was already wrong for the other. Opening hours stay on the shelf home instead (item 1, above), where they are shelf-specific and already correct.
 
 Then metadata (author, page count, category, publisher), the description, and approved comments with a comment box for logged-in readers. Managers additionally see per-copy state, condition history, and the full loan history for the title.
 
@@ -497,6 +511,8 @@ A manager can also complete this form **on behalf of** a child standing in front
 
 **Profile.** View personal details and propose changes to them. **A proposed change does not take effect until a manager approves it** (§2); until then the page shows the current value with the pending one beside it, and says plainly that it is waiting. Changing the password and toggling leaderboard visibility take effect immediately — neither is a fact about the person that a manager verified.
 
+**Tặng sách.** A single form for a signed-in member offering books they no longer want: a free-text description ("Em có 5 cuốn truyện tranh và 2 cuốn Dế Mèn"), an optional photograph, and a rough number of books. **Nothing else.** A child does not know the publisher, the page count, or the ISBN, and may not remember a title correctly — book data is only worth recording once a volunteer has the book in hand, which is exactly when the manager fills the catalogue form (§16.3, Books). Submitting creates a BookDonation (§5.1, §5.4) with status `pending`, and the reader can see where it stands — pending, received, or declined — the same way they already track any other request on this page. This screen exists because today the only place this need is served is the feedback inbox, where a message titled "Muốn tặng sách cũ" sits waiting for a human to notice it; the donation queue (§16.3) replaces that workaround with a real lifecycle.
+
 ### 16.3 Manager pages
 
 **Dashboard.** Four large tappable stat cards across the top: *Quá hạn*, *Chờ duyệt tài khoản*, *Yêu cầu mượn*, *Bình luận chờ duyệt*. Each navigates to its filtered list. Below them, two very large primary buttons — **"Cho mượn"** and **"Nhận trả"** — sized for a thumb. Then shelf totals and recent activity.
@@ -512,7 +528,7 @@ Blocking conditions (reader at loan limit, copy already lent, membership not act
 
 **Receive return.**
 1. Find the loan — search the currently-borrowed list by book or reader.
-2. Assess condition — a row of large buttons with icons, *Nguyên vẹn* preselected. An optional note and photo appear only if a worse condition is chosen.
+2. Assess condition — a row of large buttons with icons, *Nguyên vẹn* preselected. An optional note and photo appear only if a worse condition is chosen. Beneath the condition buttons, a distinct secondary route — **"Bạn đọc báo làm mất"** — switches to the report-lost path instead of the return path: the loan closes as *lost*, not *returned*, and the copy moves `on_loan → lost` (§7.1). The condition list itself stays at six (§9), and stays a single row of buttons rather than growing a seventh: condition is how damaged a book is, loss is a state that removes it from circulation entirely, and putting "Làm mất" beside "Rách" would mix two different kinds of thing into one row. A separate route is the shape that distinction demands, not a bigger row.
 3. Confirm.
 
 The common case — an undamaged book — is two taps. If anyone is queued for that title, the confirmation says so immediately and offers to approve the first person in the queue. Nothing happens automatically: the manager decides, because the next reader may not be standing there.
@@ -521,6 +537,8 @@ The common case — an undamaged book — is two taps. If anyone is queued for t
 
 **Copies.** Managed within a book's detail page. Each copy shows its code, state, condition, and actions: assess, report lost, mark found, retire. **Adding copies to an already-catalogued title is a distinct action on this page**, because a title's copy count grows over time — a second donated copy of a popular book arrives months after the first, and editing the title is not where a volunteer would look for that.
 
+**Lost copies.** The same set filtered to state *lost*, reachable from the Sách list as a status filter, with **Đánh dấu tìm thấy** and **Ngừng dùng** per copy — the same two exits §7.1 draws out of `lost`. This view is worth stating plainly why it exists: **"Báo mất" appears in three places in the built interface, and marking a copy found appears in none of them** — a copy reported lost has been a one-way door in practice, even though §7.1 draws `lost → available` and §3 lists "a book reported lost is found months later" as a case the system must handle. Finding the one lost copy inside a shelf of a few hundred books, from within each book's own copy list, is not realistic; a shelf-wide filtered view is what makes the way back actually usable.
+
 **Readers.** Searchable list with status filters. Detail view shows the full profile — including the manager-only fields — current loans, complete history, and administrative actions.
 
 **Pending profile changes.** One card per proposed change, showing the current value and the proposed one side by side so the manager can see exactly what would change. Approve and Reject, with a required reason on rejection. Until a decision is made the existing values remain in force, so a phone number waiting for approval is still the number the manager can ring.
@@ -528,6 +546,8 @@ The common case — an undamaged book — is two taps. If anyone is queued for t
 **Pending registrations.** A review card per application, laying out exactly the fields the manager must verify in person, with prominent Approve and Reject buttons and a required reason on rejection. A similar-name warning appears when an existing member closely matches, to catch duplicate registrations.
 
 **Request queue.** Grouped by book, ordered by request time. Each entry offers Approve (creating a hold with a visible expiry), Reject, and — once approved — Handover, plus Skip for when a reader does not come.
+
+**Donation queue (Tặng sách).** Reachable from the sidebar nav with a count badge, beside *Đổi thông tin* (pending profile changes) and *Yêu cầu mượn* (request queue) — deliberately **not** a fifth dashboard stat card. The dashboard above specifies four large tappable cards, and the fourth was already chosen for a reason; a fifth card would be a change to that decision, not an addition to it. Each pending donation shows the donor, their free-text description, estimated count and photo if supplied. **Duyệt** opens the add-book form with **Người tặng** pre-filled with that member and moves the donation to `received` (§7.7); **Từ chối** closes it with a required reason, matching every other rejection flow in this document.
 
 **Overdue.** Sorted by how overdue, showing borrower and contact phone. That phone number is the actual mechanism by which books come back, so it must be tappable.
 

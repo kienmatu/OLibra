@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   Archive,
@@ -5,6 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   FileX,
+  HelpCircle,
   PenLine,
   Scissors,
   Search,
@@ -42,6 +44,7 @@ export default async function NhanTraPage({
   const shelf = shelfBySlug(slug);
   if (!shelf) notFound();
 
+  const base = `/tu-sach/${shelf.slug}/quan-ly`;
   const book = bookBySlug("hoang-tu-be")!;
   const selected: (typeof CONDITIONS)[number] = "Nguyên vẹn";
 
@@ -120,6 +123,23 @@ export default async function NhanTraPage({
 
         <div className="mt-2 rounded-control border border-dashed border-hairline px-4 py-3 text-[14px] text-meta opacity-60">
           Ghi chú và ảnh · hiện khi chọn tình trạng xấu hơn
+        </div>
+
+        {/* Not a seventh condition — condition is how damaged a book is,
+            loss is a state that removes it from circulation entirely. This
+            is a branch to a different command (ReportCopyLost), so it reads
+            as a link out rather than another tile in the row above. */}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-5">
+          <p className="text-[14px] text-meta">
+            Không đánh giá được tình trạng vì bạn đọc báo đã làm mất sách?
+          </p>
+          <Link
+            href={`${base}/nhan-tra/bao-mat`}
+            className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-control px-1 text-[14px] font-semibold text-lost hover:underline"
+          >
+            <HelpCircle aria-hidden className="size-4" strokeWidth={1.75} />
+            Bạn đọc báo làm mất
+          </Link>
         </div>
       </section>
 

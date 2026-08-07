@@ -187,8 +187,8 @@ export default async function StatsPage({
             { label: "Sách thêm mới", value: "9", note: "3 đầu sách mới" },
             {
               label: "Sách báo mất",
-              value: "1",
-              note: "Không đổi so với tháng trước",
+              value: "0",
+              note: "-1 so với tháng trước",
             },
           ]}
         />

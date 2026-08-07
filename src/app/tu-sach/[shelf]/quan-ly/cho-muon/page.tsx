@@ -29,7 +29,7 @@ export default async function ChoMuonTimSachPage({
 
   const results = [
     { book: deMen, blocked: false },
-    { book: datRung, blocked: true, reason: "Cả 3 bản đang được mượn" },
+    { book: datRung, blocked: true, reason: "Không còn bản nào sẵn sàng cho mượn" },
     { book: veTuoiTho, blocked: false },
   ];
 

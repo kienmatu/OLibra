@@ -5,8 +5,9 @@ import { PageHeading } from "@/components/ui/card";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { Input, Select } from "@/components/ui/field";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Chip } from "@/components/ui/segmented";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { books, shelfBySlug, shelves } from "@/lib/fixtures";
+import { books, lostCopies, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -59,6 +60,16 @@ export default async function ManagerBooksPage({
           <option>Tên A–Z</option>
           <option>Mượn nhiều nhất</option>
         </Select>
+      </div>
+
+      {/* Đã mất is a copy state, not a genre or a sort order, so it sits apart
+          as a status filter rather than a third Select — and it is real,
+          not decorative: the count is the reason the row exists at all. */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Chip href={`${base}/sach`} active>
+          Tất cả trạng thái
+        </Chip>
+        <Chip href={`${base}/sach/mat`}>Đã mất ({lostCopies.length})</Chip>
       </div>
 
       {/* Table on md and up — hairline rules, never a horizontal scroll. */}

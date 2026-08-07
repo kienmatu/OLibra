@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement the per-slice plans this document indexes. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the merged fixture-driven UI into a working system — 44 queries and 57 commands over PostgreSQL, enforcing fourteen named business rules — without changing a single screen's URL or visible behaviour.
+**Goal:** Turn the merged fixture-driven UI into a working system — 46 queries and 61 commands over PostgreSQL, enforcing fourteen named business rules — without changing a single screen's URL or visible behaviour.
 
 **Architecture:** Four layers with inward-only dependencies (SDD §3.1). `src/domain/` holds every rule and imports no framework; `src/db/` owns transactions, Row Level Security and migrations; `src/app/` is Next.js and may call the domain but never SQL. Every command is one transaction containing both its state change and its audit record.
 
@@ -127,7 +127,19 @@ critical path entirely. `SkipRequest` is a Phase 2 problem.
 | Shelf configuration | `GetShelfSettings`, `UpdateBookshelfSettings`; `CreateBookshelf` runs as seed rather than a screen | B4 |
 | Public front door | `GetSiteContact`, `UpdateSiteContact` — the contact page is the only route into the project for a parish with no shelf | B4 |
 
-Roughly **29 of the 57 commands and 25 of the 44 queries** — a little over half
+**This revision's refinements split the same way the table above already
+draws Phase 1 vs. Phase 2** (see `docs/superpowers/specs/2026-08-07-refinements-design.md`
+§4): the wording changes, the book-detail contact line, the report-lost route
+out of `ReceiveReturn`, the lost-copies view, and `Người tặng` on the catalogue
+forms — together with the `acquired_from_membership_id` column itself — are
+all Phase 1, landing on operations already in the table above with no new
+command added. The reader-facing Tặng sách screen and its manager-side
+donation queue (`OfferDonation`, `ReceiveDonation`, `DeclineDonation`,
+`GetDonationQueue`, `GetMyDonations`) are Phase 2, alongside comments and
+announcements, and are the only operations this revision actually adds to the
+count below.
+
+Roughly **29 of the 61 commands and 25 of the 46 queries** — just over half
 the catalogue, and all four foundation slices in full.
 
 ### What is deferred, and what that costs
@@ -138,6 +150,7 @@ the catalogue, and all four foundation slices in full.
 | Renewals | 2 | A reader who wants longer brings the book in and it is lent again. Slightly more walking, no lost data. |
 | Comments, announcements | 2 | The shelf home is shorter. Nothing breaks. |
 | Feedback inbox | 2 | The contact page's form is the fallback, and it already exists. |
+| Tặng sách reader screen and donation queue | 2 | A donor still hands books to a volunteer in person, exactly as today. The feedback inbox's "Muốn tặng sách cũ" workaround keeps working until the dedicated flow ships — donor provenance on the copy itself (§5.4 of the requirements) is already recorded from Phase 1, so nothing catalogued in the meantime needs to be reconstructed later. |
 | Statistics | 2 | Counting is manual. The audit log holds the data, so nothing is lost — only unaggregated. |
 | Portal, multiple shelves, super-admin screens | 3 | Nothing: there is one shelf. |
 
@@ -191,7 +204,7 @@ it.
 
 ### 2.3 Not blocked by anything — start whenever
 
-- **X1 · Vietnamese string catalogue.** Pure data extraction from the 42 built screens. No database, no domain.
+- **X1 · Vietnamese string catalogue.** Pure data extraction from the 47 built screens. No database, no domain.
 - **X2 · CI pipeline.** `bun run check`, `docker build --target smoke`, and the invariant suite once S0 exists.
 - **B5 · Object storage adapter.** Depends on S2 only for the error taxonomy. Genuinely independent of every domain rule.
 
@@ -216,7 +229,7 @@ Once S3 merges, these four touch disjoint directories and disjoint tables:
 |---|---|---|---|
 | A | **B1 · Catalogue** | `src/domain/catalogue/` | `books`, `book_copies`, `condition_assessments` |
 | B | **B2 · Members** | `src/domain/members/` | `users`, `memberships`, `profile_change_requests` |
-| C | **B3 · Community** | `src/domain/community/` | `comments`, `announcements`, `feedback` |
+| C | **B3 · Community** | `src/domain/community/` | `comments`, `announcements`, `feedback`, `book_donations` |
 | D | **B4 · Administration** | `src/domain/admin/` | `bookshelves`, `audit_log` (read) |
 
 **The one shared file is `src/db/migrations/`.** Four people adding migrations concurrently will collide on ordering. Mitigation: migrations are timestamped, and S1 lands the full schema, so Wave 1 should need *no* new migrations. If a slice needs one, it is a signal that S1 missed something — raise it rather than adding a migration quietly.
@@ -308,7 +321,7 @@ These are blocked on **you**, not on code. Each has a slice waiting on it. I hav
 | Q4 | **May a suspended reader renew?** INV-4 blocks *new* loans and protects existing ones. Renewal extends an existing loan — arguably not new. | C3 | Allowed. | Low. One predicate, one test. |
 | Q5 | **Is running a CSV export an audited event?** It changes nothing, so it is a query — but it reads every child's name, DOB and phone in bulk. BR §14 does not cover it. | D2 | **Audit it.** An entry is cheap; the question "who pulled the children's data" is not one to be unable to answer. | Low. |
 | Q6 | **Is `RegisterMembership` rate-limited?** `SubmitFeedback` is (3/phone/day). Public registration is an open unauthenticated form that writes a row, and nothing says. | B2 | Not domain-limited; handled at the edge. | Low. |
-| Q7 | **Where does `DeleteBook` live in the UI?** Required by BR §13.2/§11; no screen among the 42 exposes it. (`AddCopies` was in this row and is now resolved — "Thêm bản" on the manager's book detail page.) | B1 | Implement the command; leave it unexposed until a delete-confirmation flow is designed. | Low. |
+| Q7 | **Where does `DeleteBook` live in the UI?** Required by BR §13.2/§11; no screen among the 47 exposes it. (`AddCopies` was in this row and is now resolved — "Thêm bản" on the manager's book detail page.) | B1 | Implement the command; leave it unexposed until a delete-confirmation flow is designed. | Low. |
 
 | Q8 | **Who proposes a profile change for a reader who cannot sign in?** `ProposeProfileChange`'s caller is `reader` (self only), and BR §2 makes credentials optional precisely because most readers are children who will never sign in. No manager-edit command exists either, so a family that moves house has no path to a corrected phone number — the number BR §16.3 calls "the actual mechanism by which books come back". | B2 | A manager may propose on a member's behalf, producing a request another manager approves — keeping INV-13's audit trail intact rather than adding a silent edit. | **Medium, and it is Phase 1.** Unlike Q1–Q7 this is a hole in the flow rather than an ambiguity in it. |
 
@@ -326,10 +339,10 @@ Foundation slices have their own fully-scripted plan documents. Wave 1–3 slice
 | S1 · Schema & RLS | [plan](2026-08-07-s1-schema-rls.md) | — | everything | S0 |
 | S2 · Domain kernel | [plan](2026-08-07-s2-domain-kernel.md) | — | all commands | S1 |
 | S3 · Identity & session | [plan](2026-08-07-s3-identity-session.md) | 3 | all but 2 queries | S2 |
-| C1 · Lending core | [plan](2026-08-07-c1-lending-core.md) | 3 cmd + 4 qry | C2 | B1, B2 |
+| C1 · Lending core | [plan](2026-08-07-c1-lending-core.md) | 3 cmd + 3 qry | C2 | B1, B2 |
 | B1 · Catalogue | §7.1 below | 8 cmd + 6 qry | C1, E | S3 |
 | B2 · Members | §7.2 below | 16 cmd + 8 qry | C1, D1, E | S3 |
-| B3 · Community | §7.3 below | 14 cmd + 4 qry | E | S3 |
+| B3 · Community | §7.3 below | 17 cmd + 6 qry | E | S3 |
 | B4 · Administration | §7.4 below | 8 cmd + 12 qry | E | S3 |
 | B5 · Object storage | §7.5 below | — | avatars, covers | S2 |
 | C2 · Requests & holds | §7.6 below | 6 cmd + 2 qry | C3, D1 | C1, **Q1** |
@@ -359,7 +372,7 @@ searchBooksForLending(ctx: TenantContext, q: string): Promise<LendableBookRow[]>
 
 **Named tests required:** INV-7 (`tests/invariants/inv-07-lost-or-retired-not-lendable.test.ts`); the folding-parity test from DB §5 with all four suggested inputs — `Dế Mèn Phiêu Lưu Ký`, `Đất Rừng Phương Nam`, `Totto-chan Bên Cửa Sổ`, `Kính Vạn Hoa tập 4` — asserting `olibra_fold()` in SQL and `fold()` in `src/lib/search.ts` return byte-identical output.
 
-**Acceptance:** `CreateBook` writes a book and its initial copies in one transaction with sequential codes (`DT-0215`–`DT-0217`); a copy on loan cannot be retired (`copy_on_loan`); the catalogue query returns availability derived from `copies_borrowable`, never a stored count.
+**Acceptance:** `CreateBook` writes a book and its initial copies in one transaction with sequential codes (`DT-0215`–`DT-0217`); a copy on loan cannot be retired (`copy_on_loan`); the catalogue query returns availability derived from `copies_borrowable`, never a stored count. `CreateBook` and `AddCopies` both accept optional `donorMembershipId`, `donorName` and `acquiredOn` (OPS §4.1) and write them onto every copy the call creates — `donorMembershipId` populates `book_copies.acquired_from_membership_id`, `donorName` populates the existing `acquired_from` text column (DB §4.4) — and both may be absent, since most copies still arrive with no donor recorded at all.
 
 **Blocked by:** S3. **Blocks:** C1, and the reader/manager catalogue surfaces. **Open:** Q3, Q7.
 
@@ -387,11 +400,11 @@ INV-13 has two halves and needs both: a partial unique index makes a second pend
 
 ### 7.3 B3 · Community
 
-**Files:** `src/domain/community/commands/{create-comment,approve-comment,reject-comment,hide-comment,create-announcement,update-announcement,publish-announcement,pin-announcement,unpin-announcement,hide-announcement,submit-feedback,mark-feedback-read,resolve-feedback,archive-feedback}.ts`, plus queries.
+**Files:** `src/domain/community/commands/{create-comment,approve-comment,reject-comment,hide-comment,create-announcement,update-announcement,publish-announcement,pin-announcement,unpin-announcement,hide-announcement,submit-feedback,mark-feedback-read,resolve-feedback,archive-feedback,offer-donation,receive-donation,decline-donation}.ts`, `src/domain/community/queries/{...,get-donation-queue,get-my-donations}.ts`, plus the rest of the community queries.
 
-**Named tests required:** INV-9 (`tests/invariants/inv-09-comment-visibility.test.ts`) — a pending comment is absent from the member-facing query and present in the moderation query, asserted through the partial index's access path rather than by filtering in the test.
+**Named tests required:** INV-9 (`tests/invariants/inv-09-comment-visibility.test.ts`) — a pending comment is absent from the member-facing query and present in the moderation query, asserted through the partial index's access path rather than by filtering in the test. No invariant number attaches to `BookDonation` (DB §7) — its `pending → received | declined` lifecycle (BR §7.7) is exercised by ordinary behaviour tests, the same way comment and announcement moderation already are.
 
-**Acceptance:** comments are stored as plain text and rendered escaped (BR §5.4) — the test asserts a body containing `<script>` round-trips as literal text; `SubmitFeedback` rate-limits to 3 per hashed phone per day (OPS §8), and the store holds the hash, never the number; an announcement past its expiry is excluded on read, not by a job (G5).
+**Acceptance:** comments are stored as plain text and rendered escaped (BR §5.4) — the test asserts a body containing `<script>` round-trips as literal text; `SubmitFeedback` rate-limits to 3 per hashed phone per day (OPS §8), and the store holds the hash, never the number; an announcement past its expiry is excluded on read, not by a job (G5); `DeclineDonation` fails `reason_required` with no `decision_note` supplied, matching `RejectComment` and `RejectMembership`'s required-reason pattern; `ReceiveDonation` changes only the donation's own status — it writes no book or copy row itself, since cataloguing what was received is a separate, manager-typed `CreateBook`/`AddCopies` call with `donorMembershipId` pre-filled from the donor (§7.1 above).
 
 **Blocked by:** S3.
 
@@ -472,7 +485,7 @@ INV-3's test needs the case that distinguishes `HandoverRequest` from `LendCopy`
 
 **Files:** `src/i18n/vi.ts`, `tests/i18n/no-hardcoded-strings.test.ts`.
 
-**Acceptance:** every user-facing string in the 42 built screens resolves from the catalogue (G7); every named error code in OPS §4 has its exact Vietnamese sentence (G8) — the test asserts the two sets are in bijection, so an error code with no message and a message with no code both fail.
+**Acceptance:** every user-facing string in the 47 built screens resolves from the catalogue (G7); every named error code in OPS §4 has its exact Vietnamese sentence (G8) — the test asserts the two sets are in bijection, so an error code with no message and a message with no code both fail.
 
 **Blocked by:** nothing. **Start immediately.**
 

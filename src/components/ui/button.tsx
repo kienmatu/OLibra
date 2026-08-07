@@ -45,6 +45,16 @@ function classes(variant: Variant, size: Size, className?: string) {
   );
 }
 
+/**
+ * Exported so a non-`<button>` element that must still look like one — a
+ * `<summary>` disclosure trigger is the one case in this codebase — can
+ * reuse the exact same class list instead of hand-rolling a copy that
+ * quietly drifts from it.
+ */
+export function buttonClasses(variant: Variant, size: Size, className?: string) {
+  return classes(variant, size, className);
+}
+
 export function Button({
   variant = "quiet",
   size = "md",

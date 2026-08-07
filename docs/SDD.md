@@ -8,7 +8,7 @@
 
 ## 1. Purpose and the state of play
 
-The user interface is built and merged: 42 route files, 249 prerendered pages, rendering from typed fixtures with no backend behind them. The business requirements are settled. **The stack is now settled too** — Next.js, PostgreSQL and S3-compatible object storage, all through Docker Compose.
+The user interface is built and merged: 47 route files, rendering from typed fixtures with no backend behind them. The business requirements are settled. **The stack is now settled too** — Next.js, PostgreSQL and S3-compatible object storage, all through Docker Compose.
 
 This document was written before that decision and deliberately without depending on it, and that framing is kept rather than rewritten away, because the discipline it produced is what keeps the decision reversible. Writing a design against a chosen framework tends to smuggle the framework's assumptions into the domain — rules that live in controllers, validation that lives in form objects, business logic that cannot be tested without booting the web server. §21 of the requirements forbids that outcome: *business logic stays separable from the delivery mechanism, so a public API can be added later without duplicating a single rule.*
 

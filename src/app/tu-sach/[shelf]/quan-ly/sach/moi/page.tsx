@@ -4,6 +4,7 @@ import { ArrowLeft, ImagePlus } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { DonorFields } from "@/components/donor-fields";
 import { shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -12,10 +13,13 @@ export function generateStaticParams() {
 
 export default async function NewBookPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  searchParams: Promise<{ nguoi_tang_id?: string }>;
 }) {
   const { shelf: slug } = await params;
+  const { nguoi_tang_id: nguoiTangId } = await searchParams;
   const shelf = shelfBySlug(slug);
   if (!shelf) notFound();
 
@@ -144,6 +148,11 @@ export default async function NewBookPage({
             ))}
           </div>
         </div>
+
+        {/* A donation approved from the queue (§16.3) arrives here with the
+            donor's member id already known — pre-selected below, and just as
+            editable as if a manager had chosen it themselves. */}
+        <DonorFields idPrefix="nguoi-tang" selectedMemberId={nguoiTangId} />
 
         <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">
           <input
