@@ -77,7 +77,7 @@ function MobileBar({
   items: { href: string; label: string; icon: LucideIcon; count?: number }[];
 }) {
   return (
-    <div className="border-b border-hairline bg-paper md:hidden">
+    <div className="sticky top-0 z-20 border-b border-hairline bg-paper md:hidden">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <Link href="/" className="block truncate text-lg font-semibold">
@@ -132,10 +132,12 @@ export function ManagerShell({
   const base = `/tu-sach/${shelfSlug}/quan-ly`;
 
   return (
-    // h-screen + overflow-hidden so the sidebar and the content each own their
-    // scroll, instead of the whole document scrolling as one and carrying the
-    // sidebar away with it.
-    <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
+    // The sidebar is sticky and the document scrolls normally. The previous
+    // shell locked the wrapper to the viewport and let main scroll inside it,
+    // which broke as soon as anything added a stray pixel: html measured 914px
+    // against a 900px body, so the page scrolled 14px, dragging the fixed-height
+    // sidebar up and leaving a band of empty paper beneath it.
+    <div className="flex min-h-dvh flex-col md:flex-row">
       <MobileBar
         title={shelfName}
         subtitle="Quản lý tủ sách"
@@ -146,7 +148,7 @@ export function ManagerShell({
           count,
         }))}
       />
-      <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col self-start border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
           <Link href="/" className="block text-xl font-semibold">
             OLibra
@@ -203,7 +205,7 @@ export function ManagerShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
+      <main className="min-w-0 flex-1 px-6 py-8 md:px-10 md:py-10">
         {/* Constrain the measure. Without a max-width, lines on a wide
             monitor run past 130 characters and a row's action drifts half
             a screen from the text it belongs to. */}
@@ -241,10 +243,12 @@ export function AdminShell({
   children: React.ReactNode;
 }) {
   return (
-    // h-screen + overflow-hidden so the sidebar and the content each own their
-    // scroll, instead of the whole document scrolling as one and carrying the
-    // sidebar away with it.
-    <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
+    // The sidebar is sticky and the document scrolls normally. The previous
+    // shell locked the wrapper to the viewport and let main scroll inside it,
+    // which broke as soon as anything added a stray pixel: html measured 914px
+    // against a 900px body, so the page scrolled 14px, dragging the fixed-height
+    // sidebar up and leaving a band of empty paper beneath it.
+    <div className="flex min-h-dvh flex-col md:flex-row">
       <MobileBar
         title="OLibra"
         subtitle="Quản trị hệ thống"
@@ -254,7 +258,7 @@ export function AdminShell({
           icon,
         }))}
       />
-      <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-hairline bg-paper md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col self-start border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
           <Link href="/" className="flex items-center gap-2 text-xl font-semibold">
             <ShieldCheck aria-hidden className="size-5" strokeWidth={1.75} />
@@ -307,7 +311,7 @@ export function AdminShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
+      <main className="min-w-0 flex-1 px-6 py-8 md:px-10 md:py-10">
         {/* Constrain the measure. Without a max-width, lines on a wide
             monitor run past 130 characters and a row's action drifts half
             a screen from the text it belongs to. */}
