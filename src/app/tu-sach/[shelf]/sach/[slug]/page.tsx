@@ -95,16 +95,10 @@ export default async function BookDetailPage({
             <div className="order-3 mt-6">
               <StatusPanel status={book.status}>
                 {isAvailable ? (
-                  <>
-                    <p className="text-[16px]">
-                      Có {book.copiesAvailable} trên {book.copiesTotal} bản đang ở
-                      trong tủ.
-                    </p>
-                    <p className="flex flex-wrap items-center gap-x-1.5 text-[14px] text-meta">
-                      Liên hệ {shelf.keeper} ·{" "}
-                      <PhoneLink phone={shelf.phone} size="sm" /> để nhận sách.
-                    </p>
-                  </>
+                  <p className="text-[16px]">
+                    Có {book.copiesAvailable} trên {book.copiesTotal} bản đang ở
+                    trong tủ.
+                  </p>
                 ) : book.loan ? (
                   <>
                     <p className="text-[16px]">
@@ -122,6 +116,14 @@ export default async function BookDetailPage({
                 ) : (
                   <p className="text-[16px]">Cuốn này hiện không có trong tủ.</p>
                 )}
+                {/* Shown in every state, not only when available (M4 of the
+                    refinements review): the state where a reader most wants
+                    to ring someone — the book is nowhere to be found on this
+                    page — is exactly the state that used to say nothing. */}
+                <p className="flex flex-wrap items-center gap-x-1.5 text-[14px] text-meta">
+                  Liên hệ {shelf.keeper} ·{" "}
+                  <PhoneLink phone={shelf.phone} size="sm" /> để nhận sách.
+                </p>
               </StatusPanel>
             </div>
 
