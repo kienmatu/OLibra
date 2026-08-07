@@ -8,6 +8,134 @@ Everything below is standard PostgreSQL and assumes no managed-provider feature.
 
 ---
 
+## At a glance
+
+Before the column lists, the relationships. Read the crow's feet as "many".
+
+```mermaid
+erDiagram
+    BOOKSHELVES  ||--o{ MEMBERSHIPS   : scopes
+    BOOKSHELVES  ||--o{ BOOKS         : scopes
+    BOOKSHELVES  ||--o{ CATEGORIES    : scopes
+    BOOKSHELVES  ||--o{ ANNOUNCEMENTS : scopes
+    USERS        ||--o{ MEMBERSHIPS   : "is, here"
+    CATEGORIES   ||--o{ BOOKS         : groups
+    BOOKS        ||--o{ BOOK_COPIES   : "has physical"
+    BOOK_COPIES  ||--o{ LOANS         : "lent as"
+    USERS        ||--o{ LOANS         : borrows
+    BOOKS        ||--o{ LOANS         : "recorded on"
+    BOOKS        ||--o{ BORROW_REQUESTS : "queued for"
+    BOOK_COPIES  ||--o| BORROW_REQUESTS : "held for"
+    LOANS        ||--o{ CONDITION_ASSESSMENTS : "assessed at return"
+    BOOK_COPIES  ||--o{ CONDITION_ASSESSMENTS : "assessed any time"
+    BOOKS        ||--o{ COMMENTS      : "commented on"
+    USERS        ||--o{ COMMENTS      : writes
+    USERS        ||--o{ NOTIFICATIONS : receives
+    USERS        ||--o{ AUDIT_LOG     : "acted in"
+
+    BOOKSHELVES {
+        uuid id PK
+        text slug UK "immutable after creation"
+        jsonb settings "the thirteen per-shelf rules"
+    }
+    USERS {
+        uuid id PK
+        text username UK "unique, case-insensitive"
+        text full_name
+        bool is_super_admin "the only global role"
+    }
+    MEMBERSHIPS {
+        uuid id PK
+        uuid bookshelf_id FK
+        uuid user_id FK
+        enum role "reader, manager, admin"
+        enum status "pending, active, suspended, left, rejected"
+        text parish_group "tổ — true here, not everywhere"
+    }
+    BOOKS {
+        uuid id PK
+        text title
+        text title_folded "diacritics stripped, for search"
+        bool is_published "hides drafts"
+    }
+    BOOK_COPIES {
+        uuid id PK
+        text code UK "DT-0142, unique per shelf"
+        enum state "available, held, on_loan, lost, retired"
+        enum condition "the six grades"
+    }
+    LOANS {
+        uuid id PK
+        uuid copy_id FK
+        uuid book_id FK "denormalised, survives retirement"
+        date due_on "a date, never an instant"
+        enum status "active, returned, lost, voided"
+        int renewals_used
+    }
+    BORROW_REQUESTS {
+        uuid id PK
+        uuid book_id FK "a title, not a copy"
+        timestamptz requested_at "the queue ordering key"
+        enum status "pending, approved, rejected, fulfilled, expired, cancelled"
+        timestamptz hold_expires_at
+    }
+    CONDITION_ASSESSMENTS {
+        uuid id PK
+        enum condition
+        text photo_url "never deleted, §11"
+    }
+    AUDIT_LOG {
+        bigint id PK
+        text action "loan.lent, membership.approved…"
+        jsonb before
+        jsonb after
+    }
+```
+
+Four things in that diagram are decisions rather than description, and each is
+explained where its table is defined:
+
+- **`LOANS` points at both a copy and a book.** Deliberate denormalisation
+  (§4.4): statistics must survive the copy being retired.
+- **`BORROW_REQUESTS` points at a book, and only optionally at a copy.** A
+  request is for a title; a copy is assigned on approval (§4.5).
+- **`CONDITION_ASSESSMENTS` hangs off both a copy and a loan**, the loan being
+  optional, because a manager may assess a copy at any time (§4.6).
+- **`MEMBERSHIPS` carries the parish fields, not `USERS`.** Identity is global;
+  the parish relationship is local (§4.1).
+
+### Where each guarantee lives
+
+The same picture, drawn by who enforces what. This is the distinction §1 says
+is the whole point of the document.
+
+```mermaid
+flowchart TB
+    subgraph DB["Database — cannot be violated"]
+        I1["INV-1 · one active loan per copy<br/>partial unique index"]
+        I2["INV-2 · never held and on loan<br/>single state column"]
+        I9["INV-9 · comments public only when approved<br/>partial index"]
+        I10["INV-10 · every query scoped to a shelf<br/>row level security"]
+        I11["INV-11 · loans never deleted<br/>no column, revoked grant"]
+        I12["INV-12 · audit never altered<br/>revoked grant"]
+    end
+    subgraph APP["Application, inside a transaction — needs a named test"]
+        I3["INV-3 · only an available copy is lent"]
+        I4["INV-4 · membership must be active"]
+        I5["INV-5 · at most N concurrent loans"]
+        I6["INV-6 · renewal blocked if anyone is queued"]
+        I7["INV-7 · lost or retired cannot circulate"]
+        I8["INV-8 · every transition writes an audit row"]
+    end
+    DB -.->|"holds regardless of<br/>which stack is chosen"| APP
+```
+
+Six and six. The six on the right are the ones that will break first, which is
+why §6 of the requirements asks for a named test per rule and why the
+concurrency test described in SDD.md §9 matters more than it looks.
+
+---
+
 ## 1. What this document is for
 
 It defines the tables, the constraints, and — more importantly — **which guarantees live in the database rather than in application code**.

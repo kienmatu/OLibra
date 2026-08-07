@@ -692,6 +692,66 @@ Default lending-policy values applied to newly created shelves (§16.4's system 
 
 ## 5. The lending flow in detail
 
+The three screens, and where each check actually happens. The UI filters ahead
+of time so a manager never reaches the confirm step with an invalid pair; the
+command re-checks anyway, because the data can go stale in the seconds between
+and because a command is a contract with every future caller.
+
+```mermaid
+flowchart TD
+    S1["Bước 1 · Tìm sách"] --> S2["Bước 2 · Chọn người đọc"]
+    S2 --> S3["Bước 3 · Xác nhận"]
+    S3 --> CMD{{"LendCopy<br/>one transaction"}}
+
+    CMD --> C1{"Copy is available?<br/>INV-3, INV-7"}
+    C1 -->|no| E1["copy_not_available<br/>Bản sách này vừa được mượn"]
+    C1 -->|yes| C2{"Membership active?<br/>INV-4"}
+    C2 -->|no| E2["reader_not_active<br/>Tài khoản đang tạm khoá"]
+    C2 -->|yes| C3{"Under the loan limit?<br/>INV-5"}
+    C3 -->|no| E3["loan_limit_reached<br/>Đã mượn tối đa 3 cuốn"]
+    C3 -->|yes| W["Insert loan · set copy on_loan<br/>write audit loan.lent · INV-8"]
+    W --> U{"Unique index holds?<br/>INV-1"}
+    U -->|"violation — someone<br/>else committed first"| E1
+    U -->|yes| OK["Committed · hạn trả in 14 days"]
+
+    style E1 fill:#f7e4e2,stroke:#ad4c42
+    style E2 fill:#f7e4e2,stroke:#ad4c42
+    style E3 fill:#f7e4e2,stroke:#ad4c42
+    style OK fill:#e3ede6,stroke:#457453
+```
+
+The three checks are ordered cheapest-first, but the order that matters is the
+last one: **INV-1 is not a check, it is a constraint**, and it is the only
+thing standing between this flow and two active loans on one physical book.
+The first three can be raced past; that one cannot.
+
+### `ReceiveReturn`, and the decision that is never automatic
+
+```mermaid
+flowchart TD
+    F["Tìm sách đang mượn"] --> C["Chọn tình trạng<br/>Nguyên vẹn preselected"]
+    C --> N{"Worse than<br/>Nguyên vẹn?"}
+    N -->|yes| P["Note and photo appear"]
+    N -->|no| X["Xác nhận nhận trả"]
+    P --> X
+    X --> T{{"ReceiveReturn<br/>one transaction"}}
+    T --> W["Loan returned · copy available<br/>condition assessment written<br/>audit loan.returned"]
+    W --> Q{"Anyone queued<br/>for this title?"}
+    Q -->|no| DONE["Done"]
+    Q -->|yes| ASK["Panel offers to hold<br/>for the first in the queue"]
+    ASK --> D1["Giữ chỗ cho…<br/>separate command, separate audit row"]
+    ASK --> D2["Không giữ chỗ, trả về kệ"]
+
+    style ASK fill:#f2ebe1,stroke:#9a8874
+    style DONE fill:#e3ede6,stroke:#457453
+```
+
+**The hold is a second command, not part of the return.** §16.3 is explicit
+that nothing happens automatically: the manager decides, because the next
+reader may not be standing there. Modelling it as one command would make that
+choice invisible and would put two business facts in one audit row.
+
+
 ### `LendCopy` end to end
 
 The UI already filters out anything that would fail (§16.3: "Blocking conditions... surface as a clear message before the confirm step, never as an error afterwards") — `SearchBooksForLending` and `SearchReadersForLending` annotate every row with its block reason so a manager never reaches the confirm screen with an invalid pair. But the command itself cannot trust that filtering, for two reasons: the data can go stale between the search screen and the tap on "Xác nhận cho mượn" (seconds, but on a shared shelf that's enough — see §6), and a command is a contract with any future caller, not just this UI.
@@ -724,6 +784,22 @@ This is the one place in this catalogue where a single user action deliberately 
 ## 6. Concurrency
 
 §2 of the requirements states the risk plainly: two managers can lend the same copy in the same second, from two phones, standing at the same physical shelf. This is not a hypothetical — it's the normal failure mode of a system whose primary UI is "several volunteers with phones near one shelf."
+
+```mermaid
+sequenceDiagram
+    participant A as Quản lý A
+    participant B as Quản lý B
+    participant DB as Datastore
+
+    A->>DB: begin · read copy DT-0142
+    B->>DB: begin · read copy DT-0142
+    Note over A,B: both see "available" — the race window
+    A->>DB: insert loan (active)
+    B->>DB: insert loan (active)
+    DB-->>A: commit ✓
+    DB-->>B: unique violation ✗
+    Note over B: mapped to copy_not_available<br/>"Bản sách này vừa được mượn"
+```
 
 **What must happen:** whichever `LendCopy` (or `HandoverRequest`, or `ApproveBorrowRequest` assigning a copy) transaction *commits first* wins. The other must fail cleanly, with the named error `copy_not_available`, and — critically — must not have written a `Loan` row at all. There is no "undo" here because there is nothing to undo; the losing transaction simply never succeeded.
 
