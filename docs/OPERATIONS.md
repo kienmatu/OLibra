@@ -2,7 +2,7 @@
 
 **Status:** Draft for backend implementation. Transport-neutral by design.
 **Date:** 2026-08-07
-**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 42 route files) and the settled stack. This catalogue defines **44 queries** (§3) and **57 commands** (§4), enforcing the fourteen business rules of §6.
+**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 42 route files) and the settled stack. This catalogue defines **46 queries** (§3) and **60 commands** (§4), enforcing the fourteen business rules of §6.
 
 This document does not restate [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md); it references it by section and adds what that document does not already say: names, inputs, callers, invariant enforcement, audit actions, and named failure modes for every command and query the UI needs. [DESIGN.md](DESIGN.md) is referenced only for the UI behaviour that shapes an operation's contract (e.g. why blocking conditions must be visible before a confirm step).
 
@@ -67,6 +67,7 @@ Everything about a shelf's books, announcements, and search moved here from §3.
 | `GetMyProfile` | View own profile and propose changes to it (§16.2). | `membershipId` | Personal fields, tổ/giáo họ (read-only), leaderboard toggle, current pending change if any (see `GetMyProfileChangeRequest`) | `reader` | — |
 | `GetMyProfileChangeRequest` | The reader's own pending profile-change proposal, if one exists (§16.2: "the page shows the current value with the pending one beside it, and says plainly that it is waiting"). | `membershipId` | Current values and proposed values side by side, status, when proposed — `null`/empty if nothing is pending (INV-13: at most one) | `reader` | — |
 | `GetMyNotifications` | Bell dropdown / notifications page. | `membershipId` | Notification list, unread count | `reader` | Unread count |
+| `GetMyDonations` | The reader's own book-donation offers and their status (§16.2's Tặng sách screen). | `membershipId` | Donation rows: description, estimated count, status, decision note if declined | `reader` | — |
 
 Reader full names on these pages are governed by the shelf's `public_name_display` setting (§5.5, assumption 6 in §4) — `GetShelfHome`, `GetBookDetail`, and any leaderboard-bearing query must apply it, never returning the manager-only fields (§5.3: DOB, parents' names, phone, tổ, giáo họ) regardless of the setting. That setting now governs *member-facing* display, not public display — there is no public display of a shelf's readers any more.
 
@@ -85,6 +86,7 @@ Reader full names on these pages are governed by the shelf's `public_name_displa
 | `GetPendingRegistrations` | The approval queue. | `bookshelfId` | Pending applications with a similar-name warning where one exists | `manager` | Similar-name match (fuzzy name comparison against existing active members) |
 | `GetPendingProfileChanges` | The profile-change approval queue (§16.3: "One card per proposed change, showing the current value and the proposed one side by side"). | `bookshelfId` | Pending `ProfileChangeRequest` rows for this shelf's members, each with current and proposed values side by side | `manager` | — |
 | `GetBorrowRequestQueue` | Requests grouped by book, in request-time order. | `bookshelfId` | Per book: queue position, requester, status, hold expiry where approved | `manager` | Queue position, hold-expired flag (§8) |
+| `GetDonationQueue` | Pending donation offers, oldest first — backs the sidebar's count badge (§16.3). | `bookshelfId` | Pending donation rows: donor, description, photo, estimated count, submitted time | `manager` | Queue count for the badge |
 | `GetOverdueLoans` | Loans past due, sorted by lateness. | `bookshelfId`, `sort` | Borrower, phone, days late, due date | `manager` | Days late — computed from `due_on` vs. today (§8), never stored |
 | `GetCommentsList` | Comments by moderation status. | `bookshelfId`, `status` | Comment rows with book and author | `manager` | — |
 | `GetAnnouncementsList` (manager) | All announcements regardless of publication state. | `bookshelfId`, `status?` | Draft/showing/expired announcements | `manager` | Publication state (draft = no `publication_time`; expired = expiry passed) |
@@ -121,9 +123,9 @@ Each command's **Caller** is the minimum role; §2's hierarchy note applies thro
 ### 4.1 Catalogue
 
 #### `CreateBook`
-Catalogues a new title together with its initial batch of copies, in one transaction — the "Số bản sách" field on the new-book form auto-generates sequential copy codes (e.g. `DT-0215`–`DT-0217`) as part of the same save.
+Catalogues a new title together with its initial batch of copies, in one transaction — the "Số bản sách" field on the new-book form auto-generates sequential copy codes (e.g. `DT-0215`–`DT-0217`) as part of the same save. Optionally records who gave the copies: **Người tặng** accepts either an existing member found by search (`donorMembershipId`) or a typed name for someone with no account (`donorName`), written onto every copy this call creates alongside `acquiredOn` — defaults to today, editable, because a donation is often catalogued weeks after it actually arrives. See DATABASE.md §4.4 for why the member link sits beside the free-text name rather than replacing it.
 
-- **Inputs:** `bookshelfId`, title, author, category, publisher?, year?, pages?, ISBN?, description?, language, cover image?, `published` flag, initial copy count
+- **Inputs:** `bookshelfId`, title, author, category, publisher?, year?, pages?, ISBN?, description?, language, cover image?, `published` flag, initial copy count, `donorMembershipId?`, `donorName?`, `acquiredOn?`
 - **Caller:** `manager`
 - **Invariants enforced:** INV-8 (audit written); each generated copy starts `available`
 - **Audit action:** `book.created`
@@ -156,9 +158,9 @@ Soft-deletes a book. Permitted per §13.2's permission set and §11's deletion p
 > **Open question.** The built UI has no visible entry point for `DeleteBook`, only for creating and editing. The permission exists in §13.2; the screen doesn't. Flagging rather than inventing a delete-confirmation flow.
 
 #### `AddCopies`
-Adds more physical copies to an existing title, auto-generating the next sequential codes — the same mechanism `CreateBook` uses for its initial batch, exposed separately for a title that later receives more donated copies.
+Adds more physical copies to an existing title, auto-generating the next sequential codes — the same mechanism `CreateBook` uses for its initial batch, exposed separately for a title that later receives more donated copies. Carries the same optional donor fields as `CreateBook` — `donorMembershipId`, `donorName`, `acquiredOn` — for exactly the case this command's own description names: a second donated copy of a popular book, arriving months after the first, whose donor may not be whoever gave the original.
 
-- **Inputs:** `bookshelfId`, `bookId`, count, acquired-from?, acquired-date?
+- **Inputs:** `bookshelfId`, `bookId`, count, `donorMembershipId?`, `donorName?`, `acquiredOn?`
 - **Caller:** `manager`
 - **Invariants enforced:** INV-8
 - **Audit action:** `copy.added` (one entry per generated copy, or one entry naming the batch — see the AuditLog fields in §5.4 of the requirements: "the record affected" is singular per entry, so a batch of five new copies is five audit rows referencing the same action and timestamp context)
@@ -201,7 +203,7 @@ A lost copy turns up again (§7.1: `lost → available`).
 - **Failure modes:**
   - `not_lost` — "Bản sách này hiện không ở trạng thái đã mất."
 
-> **Open question.** No screen among the 45 exposes this action directly (there is no "lost copies" filtered list built yet); included because §7.1 requires a path back from `lost`, per §3's edge case "A book reported lost is found months later."
+**UI trigger:** the lost-copies view on the manager's Sách list (§16.3 of the requirements) — a status filter to `lost`, added specifically to close this gap — shows **Đánh dấu tìm thấy** beside **Ngừng dùng** on every row. This resolves what was previously listed here as an open question: no screen exposed this action, despite §7.1 requiring a path back from `lost` and §3's edge case naming exactly this scenario, "a book reported lost is found months later." The command itself is unchanged; only the entry point is new.
 
 #### `RetireCopy`
 Permanently withdraws a copy from circulation (§7.1: `available → retired` or `lost → retired`).
@@ -250,6 +252,8 @@ Closes a loan and records the copy's condition; walked in full in §5. Reachable
 - **Failure modes:**
   - `loan_not_active` — "Lượt mượn này đã được xử lý." (double-submit guard, also INV-1/2 safety net)
   - `request_not_queued` — "Yêu cầu này không còn trong hàng chờ của sách này." (if `holdForRequestId` no longer points at a pending request for this title — e.g. the reader cancelled between page load and confirm)
+
+**A second entry point out of this same screen, not a variant of this command.** Step 2 of the return flow (§16.3 of the requirements) adds "Bạn đọc báo làm mất" beneath the condition buttons; choosing it does not call `ReceiveReturn` at all — it switches to `ReportCopyLost` (§4.1, above) with the loan's copy already identified, and the loan closes as `lost` rather than `returned`. `ReportCopyLost`'s contract is unchanged by this: same inputs, same invariants, same failure modes. It simply gains a second entry point into the UI, exactly as `LendCopy` already has one via book detail (above).
 
 #### `RenewLoan`
 Extends a loan's due date, reader-initiated (§16.2's dashboard "Xin gia hạn").
@@ -645,6 +649,37 @@ A message to the administrator, from anyone, shelf-scoped or site-wide (the `gop
 > **Open question.** §5.4 defines Feedback's `status` as exactly three values: `new`, `read`, `resolved`. The built admin inbox (`src/app/quan-tri/gop-y/page.tsx`) has a fourth button, "Lưu trữ" (archive), with no corresponding status in the domain model. Either the domain model needs a fourth status, or "archive" is meant to be a filter/soft-delete over `resolved` items rather than a true status transition — the requirements don't say which, so this command is listed provisionally.
 
 > **Open question — feedback visibility scope.** §13.2 groups "view feedback, resolve feedback" under the general *Community* permission category, without restricting it to `super_admin`. The only built screen for it, however, is the admin-only inbox at `/quan-tri/gop-y`, which lists messages across every shelf in one view. Whether a shelf's own `manager`/`admin` should see (and resolve) feedback addressed to *their* shelf specifically is not resolved by either document — this catalogue follows the built UI and restricts these two commands to `super_admin`.
+
+#### `OfferDonation`
+A signed-in reader offers books they no longer want, from the Tặng sách screen (§16.2 of the requirements). Deliberately thin — a free-text description, an optional photograph, a rough count — because a child does not know a publisher or an ISBN, and book data is only worth recording once a volunteer has the book in hand, which is the manager's job at approval time, not the reader's here.
+
+- **Inputs:** `bookshelfId`, `membershipId`, description, photo?, estimated count?
+- **Caller:** `reader`
+- **Invariants enforced:** INV-8
+- **Audit action:** `donation.offered`
+- **Failure modes:**
+  - `empty_description` — "Vui lòng mô tả sách bạn muốn tặng."
+
+#### `ReceiveDonation`
+`pending → received` (§7.7 of the requirements). Marks the offer accepted; it does not itself catalogue anything — the manager separately runs `CreateBook` or `AddCopies` (§4.1, above) with `donorMembershipId` set to this donor, which the queue screen pre-fills ("Duyệt mở form thêm sách với Người tặng đã điền sẵn," §16.3).
+
+- **Inputs:** `bookshelfId`, `donationId`
+- **Caller:** `manager`
+- **Invariants enforced:** INV-8
+- **Audit action:** `donation.received`
+- **Failure modes:**
+  - `not_pending` — "Đề nghị tặng sách này đã được xử lý."
+
+#### `DeclineDonation`
+`pending → declined`, reason required — matching every other rejection flow in this catalogue (`RejectMembership`, `RejectComment`, `RejectProfileChange`).
+
+- **Inputs:** `bookshelfId`, `donationId`, reason (required)
+- **Caller:** `manager`
+- **Invariants enforced:** INV-8
+- **Audit action:** `donation.declined`
+- **Failure modes:**
+  - `reason_required` — "Vui lòng ghi lý do từ chối."
+  - `not_pending` — "Đề nghị tặng sách này đã được xử lý."
 
 ### 4.5 Administration (`super_admin`, **Global** unless noted)
 

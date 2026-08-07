@@ -491,6 +491,7 @@ create table book_copies (
   condition_note  text,
   acquired_on     date,
   acquired_from   text,
+  acquired_from_membership_id uuid references memberships(id),  -- donor with an account; nullable, see below
   retired_at      timestamptz,
   retired_reason  text,
   lost_reported_at timestamptz,
@@ -505,6 +506,8 @@ create table book_copies (
 ```
 
 `on delete cascade` from `books` is the one cascade in the schema, and it is deliberate: §5.2 says a copy has no meaning without its title, and §11 says only a book's copies follow it when the book goes. A book with loan history cannot be deleted anyway — the loan's foreign key restricts it.
+
+**`acquired_from_membership_id` sits beside `acquired_from`, not in place of it.** A donor with no account — a family that hands a bag of books to a volunteer after mass and never registers — must still be recordable, so the free-text name stays exactly as it was. Where the donor *is* a member, chosen from a search rather than typed, the new column makes that a real foreign key instead of a name that happens to match: a manager reading a copy's history years later sees an actual person's record, not a string that could have drifted out of sync with a since-changed name. This is the same member-or-outsider shape `feedback` already uses for `member_id` alongside `guest_name`/`guest_contact` (§4.8) — nullable, and for the same reason: the alternative was either forcing every donor to register before a manager could log a gift, or losing the link the one time it happens to be available. No explicit `on delete` clause is needed, unlike `category_id`'s `set null` above: a membership is never hard-deleted (§11), so the column's restrict-like default never actually has to fire.
 
 **The copy has one `state` column, and that is what enforces INV-2.** A copy cannot be simultaneously held and on loan because it cannot hold two values. Modelling this as two booleans would make the impossible state representable, and something would eventually represent it.
 
@@ -683,6 +686,47 @@ create table feedback (
 ```
 
 `feedback` has no `deleted_at` — §11 lists it among the never-deleted.
+
+**BookDonation records a reader's offer to give books to the shelf, and a manager's decision on it — it is not the provenance of any physical object.** Two very different moments meet here: a family handing a bag of books to a volunteer after mass has its provenance recorded, once catalogued, directly on the copies via `book_copies.acquired_from` / `acquired_from_membership_id` (§4.4); a reader deciding at home to give books away has nothing catalogued yet, and this table is where that offer lives until a manager turns it into copies on the shelf.
+
+```sql
+create type donation_status as enum ('pending', 'received', 'declined');
+
+create table book_donations (
+  id              uuid primary key default gen_random_uuid(),
+  bookshelf_id    uuid not null references bookshelves(id) on delete restrict,
+  member_id       uuid not null references users(id)       on delete restrict,
+
+  description     text not null,             -- free text; a child does not know an ISBN
+  photo_url       text,
+  estimated_count integer,
+
+  status          donation_status not null default 'pending',
+
+  decided_by      uuid references users(id),
+  decided_at      timestamptz,
+  decision_note   text,
+
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+
+  constraint book_donations_declined_has_reason
+    check (status <> 'declined' or decision_note is not null)
+);
+
+create index book_donations_queue on book_donations (bookshelf_id, created_at)
+  where status = 'pending';
+```
+
+`member_id` is `not null`: offering a donation requires signing in, so there is no `guest_name`/`guest_contact` pair the way `feedback` carries for an anonymous sender. This is the same shape `borrow_requests.member_id` already uses now that guest borrow requests are gone (§4.6) — not the member-or-outsider shape of `book_copies.acquired_from_membership_id` (§4.4), because that column has to accommodate a donor with no account at all, and this one never does.
+
+`book_donations_declined_has_reason` mirrors `memberships_rejected_has_reason` (§4.1) and `profile_change_requests_rejected_has_reason` (§4.11): a decline without a reason leaves the donor with no idea why.
+
+`book_donations_queue` is the manager's donation queue, ordered oldest-first, like every other pending list in this schema (`requests_queue`, §8).
+
+There is no `deleted_at`. Like `profile_change_requests` (§4.11), a decided donation is a historical record of what was offered and what a manager did about it rather than a row a mistake needs undoing. §11 predates this table and does not mention it either way, so — consistent with how §11 leans throughout — it is treated as retained rather than soft-deletable until that is settled explicitly.
+
+Row Level Security applies exactly as it does to every other table in this section (§3): a donation is tenant data from the moment it is offered.
 
 ### 4.9 Notifications
 
@@ -903,6 +947,8 @@ This is the table to read before writing any application code.
 | **INV-13** | At most one pending profile change request per person; a person's details change only through an approved one | **Database** (the first half) + **Application** (the second) | Partial unique index for "at most one pending", §4.11; "only through an approved request" is which code path is allowed to write `users`, which no constraint can express |
 
 Seven of the fourteen are wholly structural, INV-13 is split across the line, and six need application discipline **inside a transaction**. Each of the fourteen needs the named test §6 requires — including the structural ones, because a constraint that was never exercised is a constraint nobody has checked is there.
+
+**BookDonation earns no fifteenth row here.** Nothing in BR §6 names a business rule for it, and this document does not invent one to match the new table: its `pending → received | declined` lifecycle (BR §7.7) is application-level bookkeeping in the same way `comments`' and `announcements`' moderation states already are, with `book_donations_declined_has_reason` (§4.8) doing the one piece of structural work it actually needs — the same way `memberships_rejected_has_reason` backs a rule that never made it into the numbered list either. If a future refinement adds a genuine invariant — at-most-one-pending-donation-per-member, say, echoing INV-13's shape — it earns its row then, not now.
 
 ### 7.1 INV-1, the one that must be a constraint
 
