@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BookCheck, Bookmark, Hand, RotateCcw, Users } from "lucide-react";
+import {
+  BookCheck,
+  Bookmark,
+  Hand,
+  RotateCcw,
+  Settings2,
+  Users,
+} from "lucide-react";
 import { ButtonLink, Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusPanel } from "@/components/ui/status-badge";
@@ -140,7 +147,12 @@ export default async function BookDetailPage({
             {/* §16.1: a manager viewing this page gets the two flows they'd
                 otherwise navigate away for, with the book already chosen —
                 shortening the three-step lend to two. Outline buttons only,
-                so the reader's "Xin mượn" stays the one solid action here. */}
+                so the reader's "Xin mượn" stays the one solid action here.
+
+                This whole panel is role-gated once sessions exist: a reader
+                must never see it. Until then it renders for everyone and is
+                labelled "Dành cho quản lý", which is honest about being a
+                fixture rather than pretending to be a permission check. */}
             <div className="order-5 mt-6 rounded-card border border-hairline bg-paper p-5">
               <p className="text-[13px] font-semibold tracking-wide text-leather uppercase">
                 Dành cho quản lý
@@ -169,6 +181,19 @@ export default async function BookDetailPage({
                 Mở sẵn với cuốn này đã chọn, rút quy trình cho mượn ba bước xuống
                 còn hai bước từ đây.
               </p>
+
+              {/* Everything else a manager might want on this title — sửa
+                  thông tin, thêm bản, tình trạng từng bản, lịch sử mượn —
+                  lives on one page. A link rather than four more buttons:
+                  those are occasional actions, and repeating them here would
+                  leave two pages to keep in step. */}
+              <Link
+                href={`${base}/quan-ly/sach/${book.slug}`}
+                className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-[15px] font-medium text-sage hover:underline"
+              >
+                <Settings2 aria-hidden className="size-4" strokeWidth={1.75} />
+                Quản lý sách này — sửa thông tin, thêm bản, xem lịch sử
+              </Link>
             </div>
 
             <section className="order-6 mt-10">

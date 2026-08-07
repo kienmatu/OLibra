@@ -206,7 +206,7 @@ import { testDatabaseUrl } from "./env";
 
 test("refuses a URL that is not the test database", () => {
   const saved = process.env.TEST_DATABASE_URL;
-  process.env.TEST_DATABASE_URL = "postgres://olibra:x@localhost:5433/olibra";
+  process.env.TEST_DATABASE_URL = "postgres://olibra:x@localhost:5435/olibra";
   expect(() => testDatabaseUrl()).toThrow(/must name the olibra_test database/);
   process.env.TEST_DATABASE_URL = saved;
 });

@@ -75,6 +75,14 @@ docker compose up -d      # postgres, minio, app
 docker compose logs -f app
 ```
 
+**Host ports are deliberately off the defaults.** The app is on **3001** and
+PostgreSQL on **5435**, so `bun run dev` keeps 3000 and a Postgres already
+running on the machine keeps 5432. Running the container and the dev server at
+the same time is the normal case — one is what you changed, the other is what
+you are comparing against — and a port clash at that moment is pure friction.
+Inside the compose network nothing moved: the app still listens on 3000 and the
+database on 5432.
+
 Data lives in `./data` on the host, not inside the containers, so
 `docker compose down -v` cannot take the parish's records with it. Back up that
 one directory and you have backed up everything. `./data` is gitignored.

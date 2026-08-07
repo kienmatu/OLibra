@@ -186,6 +186,15 @@ Gap 12px mobile, 16px tablet, 24px desktop.
 
 Every interactive component specifies six states: **default · hover · pressed · focus-visible · disabled · loading**.
 
+**Anything clickable shows a pointer cursor on hover.** Tailwind v4 removed the
+preflight rule that used to do this for `<button>`, so a plain button now
+renders with an arrow — visually indistinguishable from dead text. This is set
+once in `globals.css` at the base layer, covering `button`, `[role="button"]`,
+`summary`, `label[for]` and `select`, rather than as a class per component: a
+rule that must be remembered on every new button is a rule that will be
+forgotten on the twentieth. Disabled controls are excluded, because a pointer
+over something that will not respond is a small lie.
+
 ### 5.1 Button
 
 Five variants, three sizes, all `rounded-control`.

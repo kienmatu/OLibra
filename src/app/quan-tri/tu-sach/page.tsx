@@ -189,13 +189,6 @@ export default function AdminShelfSettingsPage() {
             </SettingRow>
 
             <SettingRow
-              label="Cho khách xin mượn"
-              hint="Cho phép người chưa đăng nhập gửi yêu cầu mượn sách."
-            >
-              <Toggle on label="Cho khách xin mượn" />
-            </SettingRow>
-
-            <SettingRow
               label="Cho bạn đọc bình luận"
               hint="Bạn đọc có thể để lại bình luận dưới mỗi cuốn sách."
             >

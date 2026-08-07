@@ -221,7 +221,7 @@ These are blocked on **you**, not on code. Each has a slice waiting on it. I hav
 | Q4 | **May a suspended reader renew?** INV-4 blocks *new* loans and protects existing ones. Renewal extends an existing loan — arguably not new. | C3 | Allowed. | Low. One predicate, one test. |
 | Q5 | **Is running a CSV export an audited event?** It changes nothing, so it is a query — but it reads every child's name, DOB and phone in bulk. BR §14 does not cover it. | D2 | **Audit it.** An entry is cheap; the question "who pulled the children's data" is not one to be unable to answer. | Low. |
 | Q6 | **Is `RegisterMembership` rate-limited?** `SubmitFeedback` is (3/phone/day). Public registration is an open unauthenticated form that writes a row, and nothing says. | B2 | Not domain-limited; handled at the edge. | Low. |
-| Q7 | **Where do `DeleteBook` and `AddCopies` live in the UI?** Both are required by BR §13.2/§5.4; no screen among the 42 exposes either. | B1 | Implement the commands; leave them unexposed until a screen is designed. | Low. |
+| Q7 | **Where does `DeleteBook` live in the UI?** Required by BR §13.2/§11; no screen among the 42 exposes it. (`AddCopies` was in this row and is now resolved — "Thêm bản" on the manager's book detail page.) | B1 | Implement the command; leave it unexposed until a delete-confirmation flow is designed. | Low. |
 
 **Q1 is the only one I would want answered before its slice starts.** The rest can be implemented on the assumed reading and changed cheaply.
 
@@ -241,7 +241,7 @@ Foundation slices have their own fully-scripted plan documents. Wave 1–3 slice
 | B1 · Catalogue | §7.1 below | 8 cmd + 6 qry | C1, E | S3 |
 | B2 · Members | §7.2 below | 16 cmd + 8 qry | C1, D1, E | S3 |
 | B3 · Community | §7.3 below | 14 cmd + 4 qry | E | S3 |
-| B4 · Administration | §7.4 below | 7 cmd + 11 qry | E | S3 |
+| B4 · Administration | §7.4 below | 8 cmd + 12 qry | E | S3 |
 | B5 · Object storage | §7.5 below | — | avatars, covers | S2 |
 | C2 · Requests & holds | §7.6 below | 6 cmd + 2 qry | C3, D1 | C1, **Q1** |
 | C3 · Renewals | §7.7 below | 1 cmd | — | C2 |
@@ -309,6 +309,8 @@ INV-13 has two halves and needs both: a partial unique index makes a second pend
 ### 7.4 B4 · Administration
 
 **Files:** `src/domain/admin/commands/{create-bookshelf,update-bookshelf-settings,archive-bookshelf,assign-manager,revoke-manager,promote-super-admin,update-system-defaults}.ts`, queries including the audit browser and per-manager activity.
+
+**Site contact.** `GetSiteContact` (public, global) and `UpdateSiteContact` (`super_admin`) back the public contact page — the only route a parish with no bookshelf yet has to reach anybody (BR §16.1). The three fields are name, phone and contact hours. They are configuration rather than page content specifically so that a change of administrator does not need a deploy; the test to write is that the public page renders whatever the command last wrote.
 
 **Acceptance:** the slug is fixed after creation (BR §16.4) — an update attempting to change it fails rather than silently ignoring the field; `RevokeManager` changes a role and never deletes a person (BR §2); cross-shelf queries run as the `bypassrls` role explicitly and every other query does not (G4); the audit browser renders each entry as a Vietnamese sentence with raw before/after on expansion (BR §14).
 

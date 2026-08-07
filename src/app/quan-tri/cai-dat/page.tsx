@@ -3,6 +3,7 @@ import { AdminShell } from "@/components/shell/manager-shell";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue, Select, Toggle } from "@/components/ui/field";
+import { siteContact } from "@/lib/fixtures";
 
 export const metadata = { title: "Cài đặt hệ thống — Quản trị OLibra" };
 
@@ -40,6 +41,37 @@ export default function AdminSystemSettingsPage() {
       <PageHeading title="Cài đặt hệ thống" />
 
       <form className="mt-8 max-w-2xl space-y-12">
+        {/* First, because it is the only one of these settings a visitor can
+            see. The public contact page renders these three fields, and a
+            change of administrator should not need a deploy. */}
+        <section className="space-y-6">
+          <h2 className="text-xl font-semibold">Liên hệ ban quản trị</h2>
+          <p className="text-[15px] text-meta">
+            Hiển thị công khai trên trang Liên hệ — đây là cách duy nhất để một giáo
+            xứ chưa có tủ sách liên lạc được với ban quản trị.
+          </p>
+
+          <Field label="Tên người phụ trách" required htmlFor="lien-he-ten">
+            <Input id="lien-he-ten" defaultValue={siteContact.name} />
+          </Field>
+          <Field
+            label="Số điện thoại"
+            required
+            htmlFor="lien-he-dien-thoai"
+            hint="Bấm được trên điện thoại. OLibra không gửi email, nên đây là cách liên hệ nhanh nhất."
+          >
+            <Input
+              id="lien-he-dien-thoai"
+              type="tel"
+              inputMode="tel"
+              defaultValue={siteContact.phone}
+            />
+          </Field>
+          <Field label="Giờ liên hệ" required htmlFor="lien-he-gio">
+            <Input id="lien-he-gio" defaultValue={siteContact.hours} />
+          </Field>
+        </section>
+
         <section className="space-y-6">
           <h2 className="text-xl font-semibold">Mặc định cho tủ sách mới</h2>
 

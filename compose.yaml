@@ -26,7 +26,11 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # 5435, not 5432: a developer machine usually already has a Postgres
+      # on the default port, and the failure is a confusing "port already
+      # allocated" at the worst moment. The container still listens on 5432
+      # internally — only the host mapping moves.
+      - "${POSTGRES_PORT:-5435}:5432"
     healthcheck:
       test:
         [
@@ -102,4 +106,8 @@ services:
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-http://localhost:9000}
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "${APP_PORT:-3000}:3000"
+      # 3001, not 3000, so `bun run dev` keeps 3000 to itself. Running the
+      # container and the dev server at once is the normal case, not the
+      # exception — one is what you are changing, the other is what you are
+      # comparing against.
+      - "${APP_PORT:-3001}:3000"
