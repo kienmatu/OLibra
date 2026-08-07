@@ -86,7 +86,10 @@ export default function PortalPage() {
 
         <p className="mt-10 text-[14px] text-meta">
           Muốn mở một tủ sách cho giáo xứ của bạn?{" "}
-          <Link href="/lien-he" className="font-medium text-sage hover:underline">
+          <Link
+            href="/lien-he"
+            className="inline-flex min-h-11 items-center font-medium text-sage hover:underline"
+          >
             Liên hệ với ban quản trị
           </Link>
         </p>

@@ -60,17 +60,22 @@ export default async function ChoMuonTimSachPage({
         {results.map(({ book, blocked, reason }) => {
           const content = (
             <>
-              <BookCover title={book.title} className="w-12 text-[1rem]" />
-              <div className="min-w-0 flex-1">
-                <BookTitle className="block truncate text-base leading-snug">
-                  {book.title}
-                </BookTitle>
-                <p className="truncate text-[14px] text-meta">{book.author}</p>
-                {blocked && reason ? (
-                  <p className="mt-1 text-[13px] text-meta">{reason}</p>
-                ) : null}
+              {/* Cover and text stay in one row even when the row stacks
+                  below sm — `sm:contents` folds this wrapper away at sm and
+                  up so its children rejoin the row as plain flex items. */}
+              <div className="flex items-center gap-4 sm:contents">
+                <BookCover title={book.title} className="w-12 text-[1rem]" />
+                <div className="min-w-0 flex-1">
+                  <BookTitle className="line-clamp-2 text-base leading-snug">
+                    {book.title}
+                  </BookTitle>
+                  <p className="truncate text-[14px] text-meta">{book.author}</p>
+                  {blocked && reason ? (
+                    <p className="mt-1 text-[13px] text-meta">{reason}</p>
+                  ) : null}
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex shrink-0 items-center gap-3 pl-16 sm:pl-0">
                 <StatusBadge status={book.status} size="sm" />
                 <span className="text-[14px] text-meta">
                   {book.copiesAvailable}/{book.copiesTotal} bản
@@ -93,7 +98,7 @@ export default async function ChoMuonTimSachPage({
               // why it cannot be chosen, which is what a screen reader needs.
               <li
                 key={book.slug}
-                className="flex items-center gap-4 py-4 opacity-50"
+                className="flex flex-col gap-2 bg-paper py-4 sm:flex-row sm:items-center sm:gap-4"
               >
                 {content}
               </li>
@@ -104,7 +109,7 @@ export default async function ChoMuonTimSachPage({
             <li key={book.slug}>
               <Link
                 href={`${base}/cho-muon/nguoi-doc`}
-                className="flex items-center gap-4 py-4 hover:bg-paper"
+                className="flex flex-col gap-2 py-4 hover:bg-paper sm:flex-row sm:items-center sm:gap-4"
               >
                 {content}
               </Link>
@@ -115,7 +120,7 @@ export default async function ChoMuonTimSachPage({
 
       <Link
         href={`${base}/sach/them`}
-        className="mt-6 inline-flex items-center gap-1.5 text-[15px] font-medium text-sage hover:underline"
+        className="mt-6 inline-flex min-h-11 items-center gap-1.5 text-[15px] font-medium text-sage hover:underline"
       >
         <Plus aria-hidden className="size-4" strokeWidth={2} />
         Không thấy sách? Thêm sách mới

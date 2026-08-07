@@ -17,21 +17,29 @@ const DAILY = [
   0, 2, 1, 1,
 ];
 
+/** Days shown along the x-axis — the first and last of the month plus every
+ * Sunday peak, so the date named in the summary above the chart can be found. */
+const DAILY_AXIS_DAYS = [1, 7, 13, 19, 25, 30];
+
 function LineChart({ data }: { data: number[] }) {
   const width = 700;
   const height = 200;
   const padding = 16;
+  const paddingLeft = 32;
+  const paddingBottom = 28;
   const max = Math.max(...data);
-  const stepX = (width - padding * 2) / (data.length - 1);
+  const plotWidth = width - padding - paddingLeft;
+  const plotHeight = height - paddingBottom - padding;
+  const stepX = plotWidth / (data.length - 1);
   const points = data.map((v, i) => {
-    const x = padding + i * stepX;
-    const y = height - padding - (v / max) * (height - padding * 2);
+    const x = paddingLeft + i * stepX;
+    const y = padding + plotHeight - (v / max) * plotHeight;
     return [x, y] as const;
   });
   const path = points
     .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`)
     .join(" ");
-  const gridLines = [0, 0.25, 0.5, 0.75, 1];
+  const gridLines = [0, 0.5, 1];
 
   return (
     <svg
@@ -40,17 +48,31 @@ function LineChart({ data }: { data: number[] }) {
       role="img"
       aria-label="Biểu đồ lượt mượn theo ngày trong tháng, cao nhất vào các ngày Chúa nhật"
     >
-      {gridLines.map((g) => (
-        <line
-          key={g}
-          x1={padding}
-          x2={width - padding}
-          y1={padding + g * (height - padding * 2)}
-          y2={padding + g * (height - padding * 2)}
-          stroke="var(--color-hairline)"
-          strokeWidth={1}
-        />
-      ))}
+      {gridLines.map((g) => {
+        const y = padding + g * plotHeight;
+        const value = Math.round(max * (1 - g));
+        return (
+          <g key={g}>
+            <line
+              x1={paddingLeft}
+              x2={width - padding}
+              y1={y}
+              y2={y}
+              stroke="var(--color-hairline)"
+              strokeWidth={1}
+            />
+            <text
+              x={paddingLeft - 8}
+              y={y}
+              textAnchor="end"
+              dominantBaseline="middle"
+              className="fill-meta text-[13px]"
+            >
+              {value}
+            </text>
+          </g>
+        );
+      })}
       <path
         d={path}
         fill="none"
@@ -62,6 +84,22 @@ function LineChart({ data }: { data: number[] }) {
           <circle key={i} cx={x} cy={y} r={4} fill="var(--color-terracotta)" />
         ) : null,
       )}
+      {DAILY_AXIS_DAYS.map((day, i) => {
+        const x = paddingLeft + (day - 1) * stepX;
+        const anchor =
+          i === 0 ? "start" : i === DAILY_AXIS_DAYS.length - 1 ? "end" : "middle";
+        return (
+          <text
+            key={day}
+            x={x}
+            y={height - paddingBottom + 18}
+            textAnchor={anchor}
+            className="fill-meta text-[13px]"
+          >
+            {day.toString().padStart(2, "0")}/08
+          </text>
+        );
+      })}
     </svg>
   );
 }

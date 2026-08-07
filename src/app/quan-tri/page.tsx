@@ -1,8 +1,15 @@
 import Link from "next/link";
-import { AlertTriangle, ChevronRight } from "lucide-react";
+import {
+  AlertTriangle,
+  Bookmark,
+  ChevronRight,
+  MessageSquare,
+  UserPlus,
+} from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
 import { ButtonLink } from "@/components/ui/button";
 import { PageHeading, StatStrip } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { shelves, type Shelf } from "@/lib/fixtures";
 import { cn } from "@/lib/utils";
 
@@ -39,10 +46,25 @@ function OverdueCell({ count }: { count: number }) {
 }
 
 function PendingCell({ pending }: { pending: (typeof PENDING)[string] }) {
-  const chips: string[] = [];
-  if (pending.signups) chips.push(`${pending.signups} đăng ký`);
-  if (pending.requests) chips.push(`${pending.requests} yêu cầu`);
-  if (pending.comments) chips.push(`${pending.comments} bình luận`);
+  const chips: { key: string; icon: typeof UserPlus; label: string }[] = [];
+  if (pending.signups)
+    chips.push({
+      key: "signups",
+      icon: UserPlus,
+      label: `${pending.signups} đăng ký`,
+    });
+  if (pending.requests)
+    chips.push({
+      key: "requests",
+      icon: Bookmark,
+      label: `${pending.requests} yêu cầu`,
+    });
+  if (pending.comments)
+    chips.push({
+      key: "comments",
+      icon: MessageSquare,
+      label: `${pending.comments} bình luận`,
+    });
 
   if (chips.length === 0) {
     return <span className="text-[15px] text-meta">—</span>;
@@ -51,12 +73,7 @@ function PendingCell({ pending }: { pending: (typeof PENDING)[string] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {chips.map((chip) => (
-        <span
-          key={chip}
-          className="rounded-control bg-held/10 px-2 py-0.5 text-[13px] font-medium text-held"
-        >
-          {chip}
-        </span>
+        <Pill key={chip.key} icon={chip.icon} label={chip.label} tone="neutral" />
       ))}
     </div>
   );

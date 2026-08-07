@@ -64,10 +64,12 @@ export function StatStrip({
 }: {
   items: { label: string; value: string; note?: string }[];
 }) {
+  // Grid, not flex-wrap: with no min-width each item collapsed to about 60px
+  // and the labels shredded onto four lines at 375px.
   return (
-    <dl className="flex flex-wrap divide-x divide-hairline rounded-card border border-hairline bg-surface">
+    <dl className="grid grid-cols-2 rounded-card border border-hairline bg-surface md:flex md:divide-x md:divide-hairline">
       {items.map((item) => (
-        <div key={item.label} className="flex-1 px-6 py-4">
+        <div key={item.label} className="min-w-0 flex-1 px-5 py-4">
           <dt className="text-[14px] text-meta">{item.label}</dt>
           <dd className="mt-0.5 text-[24px] leading-none font-semibold">
             {item.value}

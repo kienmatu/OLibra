@@ -122,7 +122,7 @@ export function MarketingHeader({
         <Link href="/" className="text-lg font-semibold">
           OLibra
         </Link>
-        <nav className="flex items-center gap-1">
+        <nav className="hidden items-center gap-1 md:flex">
           {links.map((link) => (
             <Link
               key={link.key}
@@ -141,6 +141,14 @@ export function MarketingHeader({
             Vào cổng tủ sách
           </ButtonLink>
         </nav>
+
+        {/* Without this the three labels and the CTA wrapped inside a fixed
+            64px bar and spilled outside the header at 375px. */}
+        <MobileMenu
+          links={links}
+          loginHref="/tu-sach"
+          loginLabel="Vào cổng tủ sách"
+        />
       </div>
     </header>
   );

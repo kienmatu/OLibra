@@ -195,7 +195,7 @@ export default async function BorrowRequestsPage({
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-2 pl-14">
-                <Button variant="primary" size="md">
+                <Button variant="primary" size="lg">
                   Xác nhận trao sách
                 </Button>
                 <Button variant="outline" size="sm">

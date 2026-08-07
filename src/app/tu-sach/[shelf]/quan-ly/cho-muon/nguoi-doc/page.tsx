@@ -120,7 +120,7 @@ export default async function ChoMuonNguoiDocPage({
               // why this reader cannot be chosen.
               <li
                 key={reader.id}
-                className="flex items-center gap-3 py-3.5 opacity-50"
+                className="flex items-center gap-3 bg-paper py-3.5"
               >
                 {rowInner}
               </li>

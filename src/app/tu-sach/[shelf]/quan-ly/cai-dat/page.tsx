@@ -22,9 +22,9 @@ function InfoRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline py-4 first:border-t-0">
+    <div className="border-t border-hairline py-4 first:border-t-0">
       <dt className="text-[15px] text-meta">{label}</dt>
-      <dd className="text-[16px] font-medium text-ink">{children}</dd>
+      <dd className="mt-1 text-[16px] font-medium text-ink">{children}</dd>
     </div>
   );
 }
