@@ -90,7 +90,9 @@ Expected: FAIL — the module resolves (it already exists), but the import fails
 
 - [ ] **Step 3: Extend the implementation**
 
-`src/domain/kernel/errors.ts` already exists, but only with `ErrorCode` (a three-member union) and `ERROR_MESSAGES` (those same three entries). `messageFor`, `DomainError`, `NotFound`, `ValidationFailed`, `RuleViolated` and `isUniqueViolation` are not there yet — this task still adds all of those, exactly as below. Only `ERROR_MESSAGES` and `ErrorCode` are being *extended* rather than created; everything else in this file is new. Add all of it to the existing file rather than starting a new one; the result should be the union of what is already there and what follows:
+`src/domain/kernel/errors.ts` already exists, but only with `ErrorCode` (a three-member union) and `ERROR_MESSAGES` (those same three entries, typed as `Record<ErrorCode, string>`). `messageFor`, `DomainError`, `NotFound`, `ValidationFailed`, `RuleViolated` and `isUniqueViolation` are not there yet — this task still adds all of those, exactly as below.
+
+**Replace, do not merge, the existing `ErrorCode` and `ERROR_MESSAGES` declarations.** The shipped shape (`export type ErrorCode = "a" | "b" | "c"` alongside `export const ERROR_MESSAGES: Record<ErrorCode, string>`) and the shape below (`export const ERROR_MESSAGES = {…} as const` with `export type ErrorCode = keyof typeof ERROR_MESSAGES`) are two different encodings of the same idea, not additive pieces — keeping both would declare `ErrorCode` and `ERROR_MESSAGES` twice in the same module and fail to compile (TS2300/TS2451). Nothing is lost by replacing: the block below already contains the three shipped parish-taxonomy entries (`parish_unit_l1_not_found`, `parish_unit_l2_not_found`, `parish_unit_l2_not_in_l1`), word for word, so deleting the old declarations and writing the new ones in their place carries those three forward intact. Add everything else in this file — `messageFor` onward — new, alongside the replaced pair:
 
 ```ts
 /**
