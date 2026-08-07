@@ -35,6 +35,10 @@ export default async function SearchPage({
       <PublicHeader shelf={shelf} active="tim-kiem" />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
+        {/* The search field is meant to be the dominant element, so the page
+            heading is present for screen readers without competing visually. */}
+        <h1 className="sr-only">Tìm sách</h1>
+
         <form action={`${base}/tim-kiem`} className="space-y-2">
           <Input
             name="q"

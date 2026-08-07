@@ -23,9 +23,16 @@ export function Field({
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={htmlFor} className="text-[16px] font-medium">
-          {label}
-        </label>
+        {/* Only emit a <label> when there is a control to associate it with.
+            Some fields wrap a read-only value, and a label pointing at nothing
+            is worse for a screen reader than a plain span. */}
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-[16px] font-medium">
+            {label}
+          </label>
+        ) : (
+          <span className="text-[16px] font-medium">{label}</span>
+        )}
         {required ? (
           <span className="rounded-control bg-paper px-1.5 py-0.5 text-[12px] font-medium text-leather">
             Bắt buộc

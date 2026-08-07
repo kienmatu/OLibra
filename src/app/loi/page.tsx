@@ -55,6 +55,9 @@ const PANELS: Panel[] = [
 export default function ErrorStatesSheetPage() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
+      {/* This is a reference sheet of error states, so the caption below is the
+          visible label. The heading exists for structure and screen readers. */}
+      <h1 className="sr-only">Các trang lỗi</h1>
       <p className="text-[14px] text-meta">Các trang lỗi khác</p>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
