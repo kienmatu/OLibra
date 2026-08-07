@@ -38,9 +38,10 @@ Two things worth being precise about, because they are easy to get wrong:
 | Styling | Tailwind CSS v4 — CSS-first `@theme`, no `tailwind.config.js` |
 | Icons | `lucide-react`, outline style |
 | Fonts | `next/font/google`, self-hosted at build time |
-| Deployment | Docker (likely, not final) |
-| Database | PostgreSQL (likely, not final) — not yet wired up |
-| Backend framework | Not chosen. See `docs/SDD.md` §3.4 |
+| Backend | Inside Next.js. The domain layer stays framework-free — see `docs/SDD.md` §3.1 |
+| Database | PostgreSQL — schema designed in `docs/DATABASE.md`, not yet wired up |
+| Object storage | S3-compatible. **MinIO is an implementation, not the interface** |
+| Deployment | Docker Compose (`compose.yaml`); data bind-mounted to `./data` |
 
 Design tokens live in `src/app/globals.css` under `@theme`. There is no
 JavaScript Tailwind config; add colours and radii as CSS variables there.
@@ -59,6 +60,24 @@ Two dependencies are deliberately held back. Both were found the hard way.
 Also: `eslint-config-next` v16 exports a **native flat-config array**. Spread
 it directly in `eslint.config.mjs`. Do not wrap it in `@eslint/eslintrc`'s
 `FlatCompat` — that throws "Converting circular structure to JSON".
+
+## Running the stack
+
+```bash
+cp .env.example .env      # fill in the three required secrets
+docker compose up -d      # postgres, minio, app
+docker compose logs -f app
+```
+
+Data lives in `./data` on the host, not inside the containers, so
+`docker compose down -v` cannot take the parish's records with it. Back up that
+one directory and you have backed up everything. `./data` is gitignored.
+
+**The application speaks S3, never MinIO.** MinIO is what runs in compose;
+production may be AWS S3, Cloudflare R2 or Backblaze B2, and switching is a
+change of environment variables. Never import a MinIO SDK, and never assume
+path-style addressing — `S3_FORCE_PATH_STYLE` is configuration because MinIO
+needs it and AWS does not.
 
 ## Non-negotiable design rules
 

@@ -42,3 +42,8 @@ next-env.d.ts
 .DS_Store
 npm-debug.log*
 yarn-error.log*
+
+# Container data. Bind-mounted from compose.yaml so the parish's records
+# survive `docker compose down -v` — which also means they must never be
+# committed.
+/data/

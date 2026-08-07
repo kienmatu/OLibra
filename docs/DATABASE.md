@@ -1009,17 +1009,20 @@ Worth stating explicitly what backups do not cover either way: an application bu
 
 ## 11. Running it in Docker
 
+`compose.yaml` at the repository root is the running version of this section; what follows is why it is written the way it is.
+
 Three extensions are used: `pgcrypto` (for `gen_random_uuid`), `unaccent` and `pg_trgm` (both for search, §5). All three ship in `postgresql-contrib`, which the official `postgres` image already includes — so `create extension` works out of the box and no custom image is needed.
 
-Two things that are easy to get wrong and painful later:
+Three things that are easy to get wrong and painful later:
 
-- **Locale.** Initialise the cluster with a UTF-8 locale. `POSTGRES_INITDB_ARGS="--locale=C.UTF-8 --encoding=UTF8"` is a safe default. Text sorting for Vietnamese is not something to leave to whatever the base image happened to pick, and changing it afterwards means a dump and reload.
-- **Version pinning.** Pin the minor tag (`postgres:16.4`, not `postgres:16`). A silent major upgrade on `docker compose pull` will refuse to start against an existing data directory, which is the good outcome; the bad one is discovering that at deploy time.
+- **Locale.** Initialise the cluster with a UTF-8 locale — `POSTGRES_INITDB_ARGS="--locale=C.UTF-8 --encoding=UTF8"`. Text sorting for Vietnamese is not something to leave to whatever the base image happened to pick, and changing it afterwards means a dump and reload.
+- **Version pinning.** Pin the minor tag (`postgres:16.10`, not `postgres:16`). A silent major upgrade on `docker compose pull` will refuse to start against an existing data directory, which is the good outcome; the bad one is discovering that at deploy time.
+- **Where the data directory lives.** It is bind-mounted to `./data/postgres` on the host rather than kept in a named volume, because `docker compose down -v` removes named volumes and a parish's entire history is not something to leave one flag away from deletion. Backing up that directory backs up the database.
 
 ## 12. What this document does not decide
 
-- **The application stack.** Nothing here depends on it. Any candidate must be able to run multiple statements in one transaction, set a session variable per transaction (for RLS), and surface a unique-violation error distinguishably so INV-1 can be translated into a friendly message.
-- **Whether Postgres is final.** If it is not: the schema is ordinary SQL and would port, but four things would need replacing — the partial unique index that enforces INV-1 (§7.1), Row Level Security (§3), `jsonb` settings (§4.2), and the folding function (§5). Those four are where the design leans on Postgres specifically, and INV-1 is the one with no comfortable substitute.
+- **The application stack.** It is settled — Next.js, in Docker (SDD.md §3.4, §8) — but nothing in this document depends on that, and the properties it relies on are stack-agnostic: multiple statements in one transaction, a session variable set per transaction (for RLS), and a unique-violation error surfaced distinguishably so INV-1 can be translated into a friendly message. Those are requirements on whatever data layer is chosen, not on the framework.
+- **Whether Postgres is final.** Settled as far as this project is concerned. Recorded here anyway because the answer matters if it is ever revisited: the schema is ordinary SQL and would port, but four things would need replacing — the partial unique index that enforces INV-1 (§7.1), Row Level Security (§3), `jsonb` settings (§4.2), and the folding function (§5). Those four are where the design leans on Postgres specifically, and INV-1 is the one with no comfortable substitute.
 - **The ORM, or whether to use one.** If one is used it must not fight RLS, and it must not silently issue `update` on `audit_log`.
 - **Connection pooling.** Relevant to RLS: a pooler in *transaction* mode is compatible with `set local`, a pooler in *session* mode is not. Choose before writing the data layer, not after.
 - **Whether `settings` should later become columns.** If the shape stabilises, promoting hot keys to columns is a straightforward migration.

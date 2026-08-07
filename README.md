@@ -14,16 +14,17 @@ One deployment hosts many bookshelves, each reached by its own slug.
 
 ## Status
 
-**The interface is built; the backend is designed but not chosen.** The business requirements are settled. The full UI — 45 routes, every screen of all four surfaces — is merged and renders from typed fixtures, with no database or authentication behind it. The technical design is written to survive whichever backend stack is picked.
+**The interface is built and the stack is settled; the backend is not written yet.** The business requirements are settled. The full UI — 42 routes, every screen of all four surfaces — is merged and renders from typed fixtures, with no database or authentication behind it.
 
 | Target | Status |
 |---|---|
 | Web interface | **Built** — Next.js 16, React 19, TypeScript, Tailwind v4 |
 | Language | **Settled** — Vietnamese first, internationalisation-ready |
 | Timezone | **Settled** — `Asia/Ho_Chi_Minh` everywhere |
-| Database engine | **Likely** — PostgreSQL |
-| Deployment | **Likely** — Docker |
-| Backend framework | **Open** |
+| Backend | **Settled** — inside Next.js; the domain stays framework-free so it can move out later |
+| Database | **Settled** — PostgreSQL |
+| Object storage | **Settled** — any S3-compatible service. MinIO runs it locally |
+| Deployment | **Settled** — Docker Compose; data bind-mounted to `./data` on the host |
 | Hosting | **Open** |
 
 UI design came first; the technical design follows the screens, not the other way round.
