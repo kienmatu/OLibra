@@ -158,7 +158,13 @@ const sectionPage = (n, title, blurb, w) =>
 
 async function renderHtml(page, html, width) {
   await page.setViewport({ width, height: 800, deviceScaleFactor: 2 });
-  await page.setContent(html, { waitUntil: "networkidle0" });
+  // Not networkidle0: the webfont import may never settle (or be unreachable),
+  // and the system stack renders Vietnamese correctly regardless.
+  await page.setContent(html, { waitUntil: "domcontentloaded" });
+  await Promise.race([
+    page.evaluate(() => document.fonts.ready),
+    new Promise((r) => setTimeout(r, 3000)),
+  ]);
   return page.pdf({
     width: `${width}px`,
     height: `${HEIGHT}px`,
@@ -168,7 +174,11 @@ async function renderHtml(page, html, width) {
 
 async function renderRoute(page, url, width) {
   await page.setViewport({ width, height: 900, deviceScaleFactor: 2 });
-  await page.goto(url, { waitUntil: "networkidle0", timeout: 60000 });
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await Promise.race([
+    page.evaluate(() => document.fonts.ready),
+    new Promise((r) => setTimeout(r, 5000)),
+  ]);
   await page.evaluate(() => document.fonts.ready);
   // The manager shell clips its own scroll; unclip it so the whole screen prints.
   await page.evaluate(() => {
@@ -184,7 +194,7 @@ async function renderRoute(page, url, width) {
   });
   // Discourage a page break through the middle of a card or a table row.
   await page.addStyleTag({
-    content: `[class*="rounded-card"], tr, li, dl > div { break-inside: avoid; }`,
+    content: `[class*="rounded-card"] { break-inside: avoid; } tr { break-inside: avoid; }`,
   });
   await new Promise((r) => setTimeout(r, 350));
   return page.pdf({
