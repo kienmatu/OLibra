@@ -18,8 +18,10 @@ Inherited from [the master plan](2026-08-07-olibra-backend-master.md#global-cons
 
 OPS §2 requires three distinguishable shapes, because the UI treats them differently: an inline field error, a named blocking message, and a 404 page. A single `Error` class cannot express that difference, and a string message cannot be matched on.
 
+**This file already exists — extend it, do not recreate it.** Building the parish-taxonomy module (`docs/superpowers/specs/2026-08-08-parish-taxonomy-design.md`) needed exactly this file before this slice was picked up, so `src/domain/kernel/errors.ts` was created early, seeded with only the three codes `validateSelection` (in `src/domain/members/parish-taxonomy.ts`) throws: `parish_unit_l1_not_found`, `parish_unit_l2_not_found`, `parish_unit_l2_not_in_l1`. The steps below add the rest of the catalogue to that existing file. Whoever picks up this task should open the file and read what's there before touching it — running Step 3 as a blind file creation would delete three working error codes and break the module and its passing tests (`tests/domain/members/parish-taxonomy.test.ts`) that depend on them.
+
 **Files:**
-- Create: `src/domain/kernel/errors.ts`
+- Extend: `src/domain/kernel/errors.ts` (already exists; keep `parish_unit_l1_not_found`, `parish_unit_l2_not_found`, `parish_unit_l2_not_in_l1` exactly as they are — do not remove or reword them)
 - Test: `tests/domain/kernel/errors.test.ts`
 
 **Interfaces:**
@@ -84,11 +86,11 @@ test("a PostgreSQL unique violation is recognisable", () => {
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bun run test tests/domain/kernel/errors.test.ts`
-Expected: FAIL — `Cannot find module '../../../src/domain/kernel/errors'`.
+Expected: FAIL — the module resolves (it already exists), but the import fails: `DomainError`, `NotFound`, `RuleViolated`, `ValidationFailed`, `messageFor` and `isUniqueViolation` are not exported yet, only `ErrorCode` and `ERROR_MESSAGES` are. If this instead fails with "Cannot find module", something has deleted the file this task is meant to extend — stop and find out why before continuing.
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 3: Extend the implementation**
 
-Create `src/domain/kernel/errors.ts`:
+`src/domain/kernel/errors.ts` already exists, but only with `ErrorCode` (a three-member union) and `ERROR_MESSAGES` (those same three entries). `messageFor`, `DomainError`, `NotFound`, `ValidationFailed`, `RuleViolated` and `isUniqueViolation` are not there yet — this task still adds all of those, exactly as below. Only `ERROR_MESSAGES` and `ErrorCode` are being *extended* rather than created; everything else in this file is new. Add all of it to the existing file rather than starting a new one; the result should be the union of what is already there and what follows:
 
 ```ts
 /**
@@ -141,6 +143,12 @@ export const ERROR_MESSAGES = {
   membership_not_found: "Không tìm thấy bạn đọc này.",
   change_already_pending: "Bạn đang có một yêu cầu thay đổi chờ duyệt.",
   reason_required_on_reject: "Từ chối cần ghi lý do.",
+
+  // — members: parish taxonomy (already present — do not remove or reword) —
+  parish_unit_l1_not_found: "Đơn vị bậc 1 đã chọn không tồn tại.",
+  parish_unit_l2_not_found: "Đơn vị bậc 2 đã chọn không tồn tại.",
+  parish_unit_l2_not_in_l1:
+    "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.",
 
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
@@ -195,7 +203,11 @@ Expected: PASS — 4 tests.
 
 ```bash
 git add src/domain/kernel/errors.ts tests/domain/kernel/errors.test.ts
-git commit -m "feat(domain): named error taxonomy with Vietnamese messages"
+git commit -m "feat(domain): extend the error taxonomy with the full Vietnamese catalogue
+
+The file already existed, seeded with the parish-taxonomy module's three
+codes (parish_unit_l1_not_found, parish_unit_l2_not_found,
+parish_unit_l2_not_in_l1). This adds the rest without touching those three."
 ```
 
 ---

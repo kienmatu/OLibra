@@ -121,7 +121,7 @@ These were ambiguous in the brief and are resolved as follows. Changing any of t
 2. **There is no outbound email in v1.** Manager-issued password reset is the only account recovery path. An email address is collected but optional, so email-based reset can be switched on later without disturbing existing accounts.
 3. **A manager approving a registration constitutes the consent needed to hold a minor's data.** The manager personally knows the family; that is the trust model the brief describes.
 4. **"Most borrowed" counts completed handovers at the title level**, not requests and not copies. A title with three copies is not thereby three times more popular.
-5. **Pages within a shelf display readers' full names**, as the product owner decided. Date of birth, parents' names, phone number, tổ, and giáo họ remain visible only to managers and administrators. Name display is governed by a per-bookshelf setting so it can be tightened later without a code change.
+5. **Pages within a shelf display readers' full names**, as the product owner decided. Date of birth, parents' names, phone number, and parish-unit placement (§5.6) remain visible only to managers and administrators. Name display is governed by a per-bookshelf setting so it can be tightened later without a code change.
 6. **Vietnamese is the only shipped locale.** No user-facing string is ever hard-coded; adding a locale is a translation task, not a rewrite.
 7. **A person has at most one role per bookshelf.** Roles are hierarchical: admin implies manager implies reader.
 
@@ -164,7 +164,9 @@ This distinction matters and is easy to get wrong.
 
 Parents' names are required rather than optional because they are how a manager tells apart two children with the same name, which §3 lists as a real edge case. A photograph is collected at registration for the same reason — a volunteer who meets forty children on a Sunday recognises a face faster than a name.
 
-**On the membership** — facts about that person's relationship to *that specific parish*: tổ (parish group), giáo họ (parish sub-community), role, status, who approved them and when, rejection or suspension reason, manager's private notes, leaderboard visibility.
+**On the membership** — facts about that person's relationship to *that specific parish*: up to two levels of parish-unit reference (§5.6), role, status, who approved them and when, rejection or suspension reason, manager's private notes, leaderboard visibility.
+
+**The parish-unit fields are references to units the shelf itself defines, not free text typed at registration.** An earlier draft stored them as two plain text columns, and free text fails in three ways that matter here. It cannot be grouped: one volunteer writes "Tổ 1", the next "tổ 1", a third "T1", and the reader list's unit filter (§16.3) can never make sense of three spellings of the same group — a filter is the whole reason to record the value at all. Renaming is expensive: a parish reorganising *Giáo họ Mân Côi* into *Giáo họ Đức Mẹ* would mean editing every membership row by hand rather than one row. And a fixed two-level shape, always called tổ and giáo họ, was never something this document actually specified — it was assumed from how one parish happens to be organised, and real parishes vary in how many levels they use, what they call them, and whether the smaller nests inside the bigger (§5.6).
 
 If a family moves and registers at a different bookshelf, their identity is reused and only the parish details are re-entered.
 
@@ -173,6 +175,8 @@ If a family moves and registers at a different bookshelf, their identity is reus
 Field lists, not storage layouts. Every record carries when it was created and last changed.
 
 **Bookshelf** — slug (URL segment, fixed after creation), name, description, physical location, address, keeper's name and phone (both shown publicly), opening hours as free text, cover image, timezone, locale, status (active or archived), settings (§5.5), establishment date, who created it.
+
+**Membership** — bookshelf, person, role, status, a reference to that shelf's level-1 parish unit and a reference to its level-2 unit (§5.6) — both nullable, permanently, per §16.1's registration change, not merely until someone gets around to filling them in — who approved the membership and when, rejection reason, suspension reason, manager's private notes, leaderboard opt-in.
 
 **Book** — bookshelf, category, title, slug, author, publisher, published year, ISBN, page count, description, cover image, language, published flag (hides drafts from the public), who added it.
 
@@ -216,8 +220,19 @@ Each shelf configures its own lending policy. Defaults:
 | `public_show_current_borrower` | true | Whether the public sees who holds a book |
 | `leaderboard_enabled` | true | Whether rankings are shown |
 | `leaderboard_size` | 10 | How many entries a ranking shows |
+| `parish_taxonomy` | one level, labelled `Tổ`, not nested | How this shelf subdivides its people — level count, labels, nesting (§5.6) |
 
-Adding a setting must never be a disruptive change.
+Adding a setting must never be a disruptive change. `parish_taxonomy` is the one setting above that is not a single scalar — it is an object, because level count, nesting and two labels are one configuration decision, not four independent ones.
+
+### 5.6 Parish taxonomy
+
+How a parish subdivides its people is configurable per bookshelf, not assumed. A shelf may use one level or two; each level's name is chosen by whoever administers that shelf, not fixed by the product; and where there are two levels, the smaller may nest inside the bigger or stand alongside it. All three of those vary by parish in practice, and none of them was something this document had grounds to fix in advance.
+
+What does not vary: at least one level, and at most two. A third level is a real thing some parishes have, but a bookshelf serving a few hundred books needs enough structure to identify a family, not a full ecclesiastical hierarchy — a third level is additive later if one is ever genuinely wanted.
+
+**The system's own name for a level is `bậc 1` and `bậc 2`, and it ships no parish vocabulary beyond that.** There is no built-in list of tổ or giáo họ to choose from, because those words belong to the parishes that use them: a list built into the product would be exactly right for whichever parish it happened to be copied from and wrong for every other one. A super administrator names each level when configuring a shelf's taxonomy (§5.5, §16.4), and units within each level (§16.4), and it is that name — never the words "Tổ" or "Giáo họ" written into a screen — that every page uses when it shows a reader's parish unit (§16.3).
+
+Both levels stay optional on a membership, permanently, not merely until a shelf finishes configuring its units (§16.1). A shelf with no units yet must still accept registrations, and a family may genuinely not belong to a group — newcomers, a family between parishes, a child registered by a volunteer who does not know. A guessed value there is worse than a blank one, because a wrong tổ looks like knowledge a blank one honestly admits to not having, and the reason this field existed at all — telling two similarly named children apart — is already served by parents' names, required for exactly that purpose (§5.3).
 
 ---
 
@@ -499,7 +514,7 @@ Pressing "Xin mượn" submits immediately with a confirmation dialog. There is 
 
 **Search.** Live results as the reader types, matching title and author, diacritic-insensitive. The empty state suggests popular books rather than showing nothing.
 
-**Registration.** A single page, not a wizard — the field count is manageable and volunteers guide children through it in person. The reader chooses which bookshelf they are joining, arriving from the portal with it already selected. Fields grouped as *Đăng nhập* (username, password — **optional**, with a note saying to leave them blank if the reader does not need to check the shelf from home, and that a manager can add them later), *Bản thân* (photograph, saint name, full name, date of birth), *Gia đình* (father, mother, phone), *Giáo xứ* (tổ, giáo họ). Every field states why it is needed. Father's and mother's names are required. On submit, a clear confirmation that a manager must approve the account and roughly what happens next.
+**Registration.** A single page, not a wizard — the field count is manageable and volunteers guide children through it in person. The reader chooses which bookshelf they are joining, arriving from the portal with it already selected. Fields grouped as *Đăng nhập* (username, password — **optional**, with a note saying to leave them blank if the reader does not need to check the shelf from home, and that a manager can add them later), *Bản thân* (photograph, saint name, full name, date of birth), *Gia đình* (father, mother, phone), *Giáo xứ* (zero, one or two pickers depending on what the shelf has configured, each labelled with that shelf's own name for the level — §5.6 — **both optional, permanently**, not just at first: a guessed value looks like knowledge and is worse than a blank one, and telling two similarly named children apart is already parents' names' job, required in this same form for that exact reason). Every field states why it is needed. Father's and mother's names are required. On submit, a clear confirmation that a manager must approve the account and roughly what happens next.
 
 A manager can also complete this form **on behalf of** a child standing in front of them, which is the common case for the youngest readers. Registering on behalf still creates a pending application rather than an active member, so the approval step and its audit record are never skipped.
 
@@ -539,7 +554,9 @@ The common case — an undamaged book — is two taps. If anyone is queued for t
 
 **Lost copies.** The same set filtered to state *lost*, reachable from the Sách list as a status filter, with **Đánh dấu tìm thấy** and **Ngừng dùng** per copy — the same two exits §7.1 draws out of `lost`. This view is worth stating plainly why it exists: **"Báo mất" appears in three places in the built interface, and marking a copy found appears in none of them** — a copy reported lost has been a one-way door in practice, even though §7.1 draws `lost → available` and §3 lists "a book reported lost is found months later" as a case the system must handle. Finding the one lost copy inside a shelf of a few hundred books, from within each book's own copy list, is not realistic; a shelf-wide filtered view is what makes the way back actually usable.
 
-**Readers.** Searchable list with status filters. Detail view shows the full profile — including the manager-only fields — current loans, complete history, and administrative actions.
+**Readers.** Searchable list with status and parish-unit filters (§5.6) — the filter free text could never support (§5.3), and the reason the unit reference exists at all. Detail view shows the full profile — including the manager-only fields — current loans, complete history, and administrative actions.
+
+**Every screen that names a reader's parish** — this list, the pending-registrations review card below, the lend confirmation (§16.3, Quick lend), comment moderation, the request queue — shows it the same way: the shelf's own label for the level and the unit's own name, never the words "Tổ" or "Giáo họ" written into the screen itself. A shelf that calls its divisions something else is correct everywhere at once, not screen by screen.
 
 **Pending profile changes.** One card per proposed change, showing the current value and the proposed one side by side so the manager can see exactly what would change. Approve and Reject, with a required reason on rejection. Until a decision is made the existing values remain in force, so a phone number waiting for approval is still the number the manager can ring.
 
@@ -561,7 +578,7 @@ The common case — an undamaged book — is two taps. If anyone is queued for t
 
 **System settings.** Defaults applied to newly created bookshelves, locale and timezone, backup, and — first on the page, because it is the only setting a member of the public can see — **the administration's own contact details: name, phone and contact hours.** These render on the public contact page (§16.1), which is the only route a parish with no bookshelf yet has to reach anybody. A change of administrator must therefore not require a deploy.
 
-**Bookshelves.** Create and edit shelves, including the slug that becomes the URL, the lending policy settings, and keeper contact details. The slug is fixed after creation, since it appears in shared links.
+**Bookshelves.** Create and edit shelves, including the slug that becomes the URL, the lending policy settings, keeper contact details, and the parish-taxonomy editor (§5.6): level count, each level's label, nesting, and the unit lists themselves — with a level-2 unit edited under its parent when nesting is on. The slug is fixed after creation, since it appears in shared links.
 
 **Managers.** Every manager across every shelf, with the ability to assign, revoke, and promote to super admin. Revocation requires confirmation and states plainly that history is retained.
 

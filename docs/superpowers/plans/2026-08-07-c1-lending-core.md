@@ -28,14 +28,16 @@ The design decision that carries the most weight is in Task 3: **the command doe
 
 BR §16.3: "Blocking conditions surface as a clear message *before* the confirm step, never as an error afterwards." The same predicates must answer both the "can I?" question on the screen and the "may I?" question in the command, or the two will disagree and a volunteer will be told yes and then no.
 
+**`Block` already exists — import it, do not redefine it.** The parish-taxonomy module needed this same "can I?" shape before this slice was written (`src/domain/members/parish-taxonomy.ts`'s `validateSelection` already returns it), so it was pulled out to `src/domain/kernel/block.ts` rather than being defined inside a lending-specific file — the members domain has no business depending on circulation, so the shape had to live somewhere neither owns. `policy.ts` below imports it from there; it does not declare its own copy.
+
 **Files:**
 - Create: `src/domain/circulation/policy.ts`
 - Test: `tests/domain/circulation/policy.test.ts`
 
 **Interfaces:**
+- Consumes: `Block` from `../kernel/block` (already exists — see note above).
 - Produces:
   ```ts
-  type Block = { blocked: true; reason: ErrorCode } | { blocked: false }
   function copyLendable(copy: { state: CopyState; heldForMembershipId: string | null }, forMembershipId: string): Block
   function memberMayBorrow(m: { status: MembershipStatus; activeLoans: number }, maxConcurrentLoans: number): Block
   function dueDateFor(clock: Clock, loanDays: number): string        // YYYY-MM-DD
@@ -141,11 +143,10 @@ Create `src/domain/circulation/policy.ts`:
 ```ts
 import type { Clock } from "../kernel/clock";
 import type { ErrorCode } from "../kernel/errors";
+import type { Block } from "../kernel/block";
 
 export type CopyState = "available" | "held" | "on_loan" | "lost" | "retired";
 export type MembershipStatus = "pending" | "active" | "suspended" | "left" | "rejected";
-
-export type Block = { blocked: true; reason: ErrorCode } | { blocked: false };
 
 const OK: Block = { blocked: false };
 const no = (reason: ErrorCode): Block => ({ blocked: true, reason });

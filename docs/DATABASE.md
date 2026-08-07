@@ -17,6 +17,10 @@ erDiagram
     BOOKSHELVES  ||--o{ MEMBERSHIPS   : scopes
     BOOKSHELVES  ||--o{ BOOKS         : scopes
     BOOKSHELVES  ||--o{ ANNOUNCEMENTS : scopes
+    BOOKSHELVES  ||--o{ PARISH_UNITS  : scopes
+    PARISH_UNITS ||--o{ PARISH_UNITS  : "nests under"
+    PARISH_UNITS ||--o{ MEMBERSHIPS   : "level-1 unit of"
+    PARISH_UNITS ||--o{ MEMBERSHIPS   : "level-2 unit of"
     USERS        ||--o{ MEMBERSHIPS   : "is, here"
     CATEGORIES   ||--o{ BOOKS         : "groups, shared by every shelf"
     BOOKS        ||--o{ BOOK_COPIES   : "has physical"
@@ -53,7 +57,16 @@ erDiagram
         uuid user_id FK
         enum role "reader, manager, admin"
         enum status "pending, active, suspended, left, rejected"
-        text parish_group "tổ — true here, not everywhere"
+        uuid parish_unit_l1_id FK "nullable, always"
+        uuid parish_unit_l2_id FK "nullable, always"
+    }
+    PARISH_UNITS {
+        uuid id PK
+        uuid bookshelf_id FK
+        smallint level "1 or 2"
+        uuid parent_id FK "self-ref; null unless nested level 2"
+        text name "admin-named, no shipped vocabulary"
+        int sort_order "explicit, never parsed from name"
     }
     BOOKS {
         uuid id PK
@@ -110,7 +123,7 @@ erDiagram
     }
 ```
 
-Five things in that diagram are decisions rather than description, and each is
+Six things in that diagram are decisions rather than description, and each is
 explained where its table is defined:
 
 - **`LOANS` points at both a copy and a book.** Deliberate denormalisation
@@ -121,6 +134,10 @@ explained where its table is defined:
   optional, because a manager may assess a copy at any time (§4.7).
 - **`MEMBERSHIPS` carries the parish fields, not `USERS`.** Identity is global;
   the parish relationship is local (§4.1).
+- **`PARISH_UNITS` references itself, rather than there being a separate
+  table per level.** One self-referencing row shape serves a flat shelf, a
+  two-level nested one, and a two-level flat one alike — nesting is data
+  (whether `parent_id` is set), not a schema difference (§4.1).
 - **`PROFILE_CHANGE_REQUESTS` carries the proposed values *and* the values as
   they stood when proposed.** A manager reviewing a week-old request needs to
   see what it would actually change, not what it was expected to change
@@ -305,6 +322,33 @@ record about it.
 
 `avatar_url` is populated at registration, not left for later. §16.1 lists the photograph among the fields collected on the registration form itself, under *Bản thân*, because a volunteer meeting forty children on a Sunday recognises a face faster than a name.
 
+**How a parish subdivides its people is per-shelf configuration, not a fixed shape.** BR §5.6 covers the reasoning: a shelf may use one level or two, name each level whatever its own parish calls it, and — with two levels — either nest the smaller inside the bigger or not. One self-referencing table serves all of that; nesting is a fact about the data (whether `parent_id` is set), not a different schema for a different shelf.
+
+```sql
+create table parish_units (
+  id            uuid primary key default gen_random_uuid(),
+  bookshelf_id  uuid not null references bookshelves(id) on delete restrict,
+  level         smallint not null check (level in (1, 2)),
+  parent_id     uuid references parish_units(id),
+  name          text not null,
+  sort_order    int  not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  deleted_at    timestamptz,
+
+  constraint parish_units_l1_has_no_parent
+    check (level = 2 or parent_id is null),
+  constraint parish_units_name_unique_in_scope
+    unique (bookshelf_id, level, parent_id, name)
+);
+```
+
+A level-1 unit never has a parent — that is what makes it level 1 — and `parish_units_l1_has_no_parent` is what makes that structural rather than a convention a command has to remember. **Nesting off** means every level-2 unit carries a null `parent_id`, same as a level-1 unit; **nesting on** means it carries the id of its level-1 parent. A shelf switching between the two is switching data, not running a migration.
+
+`parish_units_name_unique_in_scope` scopes uniqueness to `(bookshelf_id, level, parent_id, name)` rather than just `(bookshelf_id, name)`, deliberately: BR §5.6's own worked example has "Tổ 1" appearing once under *Giáo họ Thánh Tâm* and again, a different unit, under *Giáo họ Mân Côi* — two different `parent_id` values, so two different rows are correct, not a collision.
+
+**No hard delete of a unit a member references** (BR §5.6, and the general policy in §11): `deleted_at` takes a unit out of the pickers built from it while leaving every membership that already points at it exactly as it was. `sort_order` is explicit and never inferred by parsing a unit's name — "Tổ 10" sorting before "Tổ 2" because of the digits is exactly the carelessness an explicit column exists to prevent.
+
 ```sql
 create type membership_role   as enum ('reader', 'manager', 'admin');
 create type membership_status as enum ('pending', 'active', 'suspended', 'left', 'rejected');
@@ -316,9 +360,11 @@ create table memberships (
   role              membership_role   not null default 'reader',
   status            membership_status not null default 'pending',
 
-  -- parish facts: true of this person *here*, not everywhere
-  parish_group      text,                  -- tổ
-  parish_community  text,                  -- giáo họ
+  -- parish facts: true of this person *here*, not everywhere. References, not
+  -- free text (BR §5.3, §5.6) — both nullable, always, not merely until the
+  -- shelf finishes configuring its units.
+  parish_unit_l1_id uuid references parish_units(id),
+  parish_unit_l2_id uuid references parish_units(id),
 
   approved_by       uuid references users(id),
   approved_at       timestamptz,
@@ -341,7 +387,11 @@ create table memberships (
 
 The membership row *is* the registration record (§5.1). There is no separate application table; a pending membership is a pending application, and rejecting it sets `status = 'rejected'` with a reason retained for audit (§2).
 
-`on delete restrict` rather than `cascade` everywhere a person is referenced: §11 says a person with any audit trail can never be removed, and the database should refuse rather than quietly comply.
+`on delete restrict` rather than `cascade` everywhere a person is referenced: §11 says a person with any audit trail can never be removed, and the database should refuse rather than quietly comply. No explicit `on delete` is given for `parish_unit_l1_id` / `parish_unit_l2_id` either, for the same reason `book_copies.acquired_from_membership_id` needs none (§4.4): a `parish_units` row is never hard-deleted (above), so the restrict-like default never actually has to fire.
+
+**`parish_unit_l1_id` and `parish_unit_l2_id` replace the earlier free-text `parish_group` (tổ) and `parish_community` (giáo họ) columns.** There is nothing to migrate: no shelf has run yet, and the columns they replace held only fixture strings (BR §5.3). Both stay nullable permanently, not just until a manager gets around to filling them in — a shelf with no units configured yet must still accept registrations, and a family that genuinely does not belong to a group should show as unassigned rather than carry a guess (BR §5.6).
+
+**When a shelf's taxonomy is nested, `parish_unit_l2_id` must belong to `parish_unit_l1_id`.** This is not expressed as a constraint here — see §7's note on why, and where it is actually enforced.
 
 ### 4.2 The shelf
 
@@ -384,6 +434,19 @@ end $$ language plpgsql;
 ```
 
 **`settings` is `jsonb`, not thirteen columns.** §5.5 lists thirteen per-shelf settings and says "adding a setting must never be a disruptive change". Thirteen columns would mean a migration and a deploy for each new one. The trade-off is no type checking at the database level, so the application validates the shape and supplies defaults for missing keys — the defaults table in §5.5 is the source of truth, and a shelf row need only store what it overrides.
+
+**`parish_taxonomy` is the one setting shaped as an object rather than a scalar**, because level count, each level's label, and nesting are one configuration decision, not three independent ones (BR §5.6):
+
+```json
+"parish_taxonomy": {
+  "levels": 2,
+  "nested": true,
+  "level1_label": "Giáo họ",
+  "level2_label": "Tổ"
+}
+```
+
+Defaults for a shelf that has never touched this setting: one level, labelled `Tổ`, not nested. `nested` is meaningful only when `levels` is `2` and is simply ignored otherwise, rather than rejected or cleared — a shelf that drops to one level and later returns to two finds its previous label and nesting choice untouched, because nothing wrote over it while it did not apply.
 
 ### 4.3 Categories
 
@@ -960,6 +1023,8 @@ This is the table to read before writing any application code.
 Seven of the fourteen are wholly structural, INV-13 is split across the line, and six need application discipline **inside a transaction**. Each of the fourteen needs the named test §6 requires — including the structural ones, because a constraint that was never exercised is a constraint nobody has checked is there.
 
 **BookDonation earns no fifteenth row here.** Nothing in BR §6 names a business rule for it, and this document does not invent one to match the new table: its `pending → received | declined` lifecycle (BR §7.7) is application-level bookkeeping in the same way `comments`' and `announcements`' moderation states already are, with `book_donations_declined_has_reason` (§4.8) doing the one piece of structural work it actually needs — the same way `memberships_rejected_has_reason` backs a rule that never made it into the numbered list either. If a future refinement adds a genuine invariant — at-most-one-pending-donation-per-member, say, echoing INV-13's shape — it earns its row then, not now.
+
+**The nested parish-unit rule earns no row here either, and for a reason worth stating plainly rather than leaving implicit.** §4.1 above already says it: when a shelf's taxonomy is nested, a membership's `parish_unit_l2_id` must reference a unit whose `parent_id` equals its `parish_unit_l1_id`. This cannot be a plain check constraint, for the same structural reason INV-13's second half cannot be one: it needs a lookup into another row of `parish_units`, and whether it applies at all depends on `bookshelves.settings.parish_taxonomy.nested` (§4.2), which lives on a third table entirely. It is the same category as INV-5's loan limit (§7.2) — enforced by application code inside the transaction that writes the membership, with its own named test, not by a constraint the database can be asked to hold regardless of who is writing. It is not given an INV number here: BR §6 owns that numbered list, and adding a fifteenth entry to a set BR §6 itself calls "the specification of correctness" is a product decision for that document to make, not one this document should make on its behalf. Recording the enforcement honestly is what matters — a rule described as structural but implemented in application code is worse than one correctly labelled, because the label is what a future reader trusts.
 
 ### 7.1 INV-1, the one that must be a constraint
 
