@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -28,6 +30,7 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "^16.3.0",
     "mermaid": "^11.16.1",
@@ -36,6 +39,7 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "puppeteer": "^25.5.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9"
+    "typescript": "^5.9",
+    "vitest": "^3"
   }
 }
