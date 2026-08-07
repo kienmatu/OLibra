@@ -8,9 +8,11 @@
 
 ## 1. Purpose and the state of play
 
-The user interface is built and merged: 45 route files, 298 prerendered pages, rendering from typed fixtures with no backend behind them. The business requirements are settled. **The backend stack is not chosen, and this document is written so it does not have to be yet.**
+The user interface is built and merged: 42 route files, 249 prerendered pages, rendering from typed fixtures with no backend behind them. The business requirements are settled. **The stack is now settled too** — Next.js, PostgreSQL and S3-compatible object storage, all through Docker Compose.
 
-That constraint is doing real work here rather than being an excuse. Writing the design against a chosen framework tends to smuggle the framework's assumptions into the domain — you end up with rules that live in controllers, validation that lives in form objects, and a system whose business logic cannot be tested without booting the web server. §21 of the requirements already forbids that outcome: *business logic stays separable from the delivery mechanism, so a public API can be added later without duplicating a single rule.*
+This document was written before that decision and deliberately without depending on it, and that framing is kept rather than rewritten away, because the discipline it produced is what keeps the decision reversible. Writing a design against a chosen framework tends to smuggle the framework's assumptions into the domain — rules that live in controllers, validation that lives in form objects, business logic that cannot be tested without booting the web server. §21 of the requirements forbids that outcome: *business logic stays separable from the delivery mechanism, so a public API can be added later without duplicating a single rule.*
+
+So the checklist in §10 is no longer a tool for choosing. It is the list of properties the chosen stack has to keep having.
 
 So this document describes:
 
@@ -30,9 +32,10 @@ So this document describes:
 | No outbound email in v1 | **Settled** | §4 assumption 2 |
 | Multi-tenant from the first row of data | **Settled** | §1.4 |
 | Next.js for the web UI | **Built** | README, and the merged code |
-| PostgreSQL | **Likely, not formal** | DATABASE.md |
-| Docker deployment | **Likely** | — |
-| Application/backend framework | **Open** | — |
+| PostgreSQL | **Settled** | DATABASE.md |
+| Backend inside Next.js | **Settled** | §3.4 |
+| S3-compatible object storage | **Settled** | §6.8 |
+| Docker Compose deployment | **Settled** | §8 |
 | Hosting | **Open** | — |
 
 Two of these deserve a note.
@@ -80,7 +83,7 @@ Infrastructure sits at the bottom of the drawing but is depended on through **in
 
 **Any operation must be callable from a test with no web server running.** If lending a book requires constructing a request object, that is a design failure, not a testing inconvenience. §6 requires a named test per business rule; those tests should read like the rules do.
 
-### 3.4 Where the backend lives — the open question
+### 3.4 Where the backend lives — settled
 
 Three shapes, with the trade-offs that actually matter for *this* product rather than in general.
 
@@ -93,11 +96,11 @@ Three shapes, with the trade-offs that actually matter for *this* product rather
 | Risk | Domain logic drifts into route handlers unless §3.1 is held deliberately | Two codebases, shared types to keep in sync, more infrastructure for a volunteer-run project | Same drift risk as A |
 | Suits | A small team that wants one thing to operate | A team that wants the domain in a different language, or a real API from day one | A likely middle path |
 
-**The honest recommendation is A or C**, on the grounds of operational weight rather than elegance. This system serves a few hundred books and a few dozen volunteers; §1 says explicitly that where volunteer convenience and architectural purity conflict, the volunteer wins. Two services to deploy, monitor and keep in sync is a real ongoing cost for a project whose maintainers are unpaid.
+**Decision: A — the backend lives inside Next.js.** The grounds are operational weight rather than elegance. This system serves a few hundred books and a few dozen volunteers; §1 says explicitly that where volunteer convenience and architectural purity conflict, the volunteer wins. Two services to deploy, monitor and keep in sync is a real ongoing cost for a project whose maintainers are unpaid.
 
-**What makes A safe rather than sloppy** is §3.1. If the domain lives in its own directory with no framework imports, moving to B later is a packaging change, not a rewrite. If it does not, A becomes a one-way door.
+**What makes this safe rather than sloppy** is §3.1, and it is now a condition of the decision rather than an observation about it. If the domain lives in its own directory with no framework imports, moving to a separate service later is a packaging change, not a rewrite. If it does not, this becomes a one-way door — and the door closes quietly, one route handler at a time, which is why §3.3's rule about being callable from a test with no web server running is the thing to enforce in review.
 
-**The one thing that would justify B** is choosing a language other than TypeScript for the domain. That is a legitimate reason and this document takes no position on it.
+**What would have justified B** is wanting the domain in a language other than TypeScript. That is a legitimate reason, and it was not chosen.
 
 ---
 
@@ -200,7 +203,13 @@ The trap is that this identity is easy to assert and easy to break — there are
 
 Cover images, avatars, condition photographs.
 
-Undecided, and it does not need deciding yet. What the design needs is an interface with `put`, `url` and `delete`, so the choice between a local volume and object storage is a configuration change. With Docker deployment a mounted volume is the obvious starting point; the interface is what makes moving off it cheap.
+**Settled: any S3-compatible object storage.** MinIO runs it in Docker Compose; production may equally be AWS S3, Cloudflare R2 or Backblaze B2.
+
+The distinction that matters is that **MinIO is an implementation, not the interface**. The application speaks S3 and never imports a MinIO SDK, so changing provider is a change of environment variables — endpoint, region, bucket, credentials — and nothing else.
+
+One flag carries most of that portability: `S3_FORCE_PATH_STYLE`. MinIO addresses buckets by path, AWS S3 by host name. Hard-coding either is precisely what would tie the application to one provider, so it is configuration.
+
+A second URL is needed beyond the endpoint. The application reaches storage over the internal container network while a browser reaches it from outside, so `S3_PUBLIC_URL` is what goes into an `<img>` and `S3_ENDPOINT` is what the server talks to. Conflating them works locally and breaks the moment anything sits behind a proxy.
 
 Condition photographs are the one case with a retention question: they are attached to condition assessments, which §11 lists among the never-deleted. The image should follow the same rule.
 
@@ -224,7 +233,11 @@ Condition photographs are the one case with a retention question: they are attac
 
 Docker is the expected target. What follows is the shape, not a finished ops plan.
 
-**Composition.** Three concerns: the application process, PostgreSQL, and a reverse proxy terminating TLS. Whether the database runs in the same compose file or is managed elsewhere is open; the application should not care, which means the connection string is configuration and nothing else is.
+**Composition.** `compose.yaml` at the repository root runs three services — the application, PostgreSQL and MinIO — plus a one-shot container that creates the bucket and exits. A reverse proxy terminating TLS sits in front in production and is deliberately not in the compose file, because it belongs to the host rather than to the application.
+
+**Data is bind-mounted to `./data` on the host rather than held in named volumes.** `docker compose down -v` removes named volumes, and a parish's entire history disappearing because somebody typed `-v` is not a risk worth carrying for the convenience. Backing up one directory backs up everything. This was verified rather than assumed: a row and an object were written, the stack was destroyed with `down -v`, and both were still there afterwards.
+
+**The application image runs Node, not Bun** — Bun is the local package manager and script runner only. The build uses `output: "standalone"`, which traces the server down to the files it actually uses, so no `node_modules` reaches the runtime image.
 
 **What Docker buys here that serverless would not:**
 
@@ -260,9 +273,9 @@ The tooling choice is open and deliberately not made here.
 
 ---
 
-## 10. What any candidate stack must be able to do
+## 10. What the stack must keep being able to do
 
-This is the checklist to hold a candidate against. Each line traces to a requirement rather than a preference.
+Written as a checklist for choosing a stack; kept as a checklist for holding on to one. Each line traces to a requirement rather than a preference, so none of them stop mattering now that the choice is made — they are what a future change of framework, driver or data layer would have to preserve.
 
 1. **Run several statements in one transaction, under application control.** Needed by all six application-enforced invariants, and by INV-8's same-transaction audit write.
 2. **Set a session variable per transaction** (`set local`). Needed for Row Level Security. Rules out data layers that hide the connection entirely.
@@ -273,7 +286,7 @@ This is the checklist to hold a candidate against. Each line traces to a require
 7. **Stream a CSV export** without buffering a whole table. §2, Phase 1.
 8. **Run in a container** without a proprietary runtime.
 
-A stack that cannot do 1, 2 or 3 is not a candidate. Everything else is negotiable.
+Points 1, 2 and 3 are the disqualifying ones — they are why a data layer that hides the connection cannot be adopted here later, however pleasant its API. Everything else is negotiable.
 
 ---
 
@@ -281,9 +294,8 @@ A stack that cannot do 1, 2 or 3 is not a candidate. Everything else is negotiab
 
 Listed rather than silently resolved.
 
-1. **Where the backend lives** — §3.4. The largest open decision, and the one this document is deliberately not making for you.
-2. **Testing tooling** — §9. Needs deciding before logic is written, not after.
-3. **File storage** — §6.8. Can wait until covers are uploaded rather than seeded.
-4. **Session storage** — in-process, database, or cache. Depends on §3.4 and on whether more than one application container will run.
-5. **Audit retention** — DATABASE.md §13. No requirement exists; the volume makes it non-urgent but the question should be answered before it is.
+1. **Testing tooling** — §9. Needs deciding before logic is written, not after. With the stack settled, this is now the largest open question.
+2. **Session storage** — in-process, database, or cache. In-process is simplest and correct while exactly one application container runs; the moment a second one does, sessions have to move to the database or a cache. Worth choosing deliberately rather than discovering under load.
+3. **TLS and the reverse proxy** — outside the compose file by design (§8), but somebody has to own it before anything is public.
+4. **Audit retention** — DATABASE.md §13. No requirement exists; the volume makes it non-urgent but the question should be answered before it is.
 6. **Whether the UI keeps its fixtures as a demo mode.** They currently render every screen with no database. Keeping that path working is cheap and makes the design reviewable by non-technical people indefinitely — but it is a second code path, and second code paths rot.
