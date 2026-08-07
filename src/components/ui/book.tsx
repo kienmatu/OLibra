@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { coverForTitle } from "@/lib/fixtures";
 import { StatusBadge } from "./status-badge";
 import type { CopyStatus } from "@/lib/status";
 
@@ -50,19 +51,29 @@ export function BookCover({
   className?: string;
 }) {
   const letter = title.trim().charAt(0).toUpperCase();
+  const art = coverForTitle(title);
 
   return (
     <div
       aria-hidden
-      style={{ backgroundColor: kraftFor(title) }}
+      style={{
+        backgroundColor: kraftFor(title),
+        backgroundImage: art ? `url("${art}")` : undefined,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }}
       className={cn(
-        "flex aspect-2/3 shrink-0 items-center justify-center rounded-control border border-hairline",
+        "flex aspect-2/3 shrink-0 items-center justify-center overflow-hidden rounded-control border border-hairline",
         className,
       )}
     >
-      <span className="font-serif text-[2.5em] font-semibold text-ink/25">
-        {letter}
-      </span>
+      {/* The generated letter shows only when there is no artwork, so the grid
+          never looks broken for a book nobody has photographed yet. */}
+      {art ? null : (
+        <span className="font-serif text-[2.5em] font-semibold text-ink/25">
+          {letter}
+        </span>
+      )}
     </div>
   );
 }

@@ -734,3 +734,16 @@ export function loanForBook(bookSlug: string) {
 export function readerById(id: string) {
   return readers.find((r) => r.id === id);
 }
+
+/**
+ * Cover artwork path for a title, or undefined if we have none and the kraft
+ * placeholder should stand in.
+ *
+ * Looked up by title so existing `BookCover title={...}` call sites pick the
+ * artwork up without every page having to thread a slug through. Once a real
+ * data layer exists the cover should simply be a field on the book.
+ */
+export function coverForTitle(title: string) {
+  const book = books.find((b) => b.title === title);
+  return book ? `/covers/${book.slug}.svg` : undefined;
+}
