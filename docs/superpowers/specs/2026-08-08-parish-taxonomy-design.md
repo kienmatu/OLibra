@@ -61,8 +61,11 @@ create table parish_units (
   updated_at    timestamptz not null default now(),
   deleted_at    timestamptz,
 
+  -- A level-1 unit is defined by having no parent. (The version first drafted
+  -- here ended `or true`, which made the whole check a no-op — corrected in
+  -- DATABASE.md and here.)
   constraint parish_units_l1_has_no_parent
-    check (level = 1 or parent_id is not null or true),
+    check (level <> 1 or parent_id is null),
   constraint parish_units_name_unique_in_scope
     unique (bookshelf_id, level, parent_id, name)
 );
