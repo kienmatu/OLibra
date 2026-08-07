@@ -135,7 +135,11 @@ export const shelf: Shelf = {
       parentId: "dt-gh-man-coi",
       name: "Tổ 3",
       sortOrder: 3,
-      deletedAt: null,
+      // The one soft-deleted unit in these fixtures (design §7: no hard
+      // delete of a unit a member references). Referenced by no reader
+      // below, so this exercises the split cleanly — gone from every
+      // picker, but never claimed to have never existed.
+      deletedAt: "2026-06-01T00:00:00Z",
     },
     {
       id: "dt-to-mc-4",
@@ -600,12 +604,19 @@ export type Reader = {
   born: string;
   age: number;
   /**
-   * References into `shelf.parishUnits`, not free text (design §3.3). Both
-   * stay nullable permanently (design §5) — a reader with neither is not
-   * missing data, just not assigned to a group yet.
+   * References into a shelf's `parishUnits`, not free text (design §3.3).
+   * Both stay nullable permanently (design §5) — a reader with neither is
+   * not missing data, just not assigned to a group yet ("lộc" below).
    *
-   * All the readers below belong to `shelf` (Tủ sách Đồng Tháp), so these
-   * ids are drawn from `shelf.parishUnits`.
+   * This array is not itself split by shelf — every screen that renders it
+   * reuses the same list regardless of the shelf route it was reached
+   * through, a pre-existing simplification this fix does not attempt to
+   * undo. Most readers below carry ids from `shelf` (Tủ sách Đồng Tháp,
+   * `levels: 2, nested: true`), because that is the shelf every screen
+   * mostly demonstrates. Three are seeded with ids from the other three
+   * shelves instead ("đức", "hoà", "tuấn"), specifically so the other three
+   * rows of design §2's table — flat tổ, flat giáo họ, two flat levels — each
+   * describe at least one real reader too, not just the nested case.
    */
   parishUnitL1Id: string | null;
   parishUnitL2Id: string | null;
@@ -743,6 +754,76 @@ export const readers: Reader[] = [
     mother: "Anna Trịnh Thị Nhàn",
     holding: 0,
     membership: "left",
+  },
+  {
+    id: "loc",
+    saintName: "Phanxicô",
+    name: "Nguyễn Văn Lộc",
+    fullName: "Phanxicô Nguyễn Văn Lộc",
+    born: "10/10/2015",
+    age: 10,
+    // Neither level set — a family between parishes, or a volunteer who
+    // simply doesn't know yet (design §5). Renders as "Chưa có", not blank.
+    parishUnitL1Id: null,
+    parishUnitL2Id: null,
+    phone: "0909 111 000",
+    username: "loc.nguyen",
+    father: "Giuse Nguyễn Văn Đức",
+    mother: "Maria Lê Thị Hạnh",
+    holding: 0,
+    membership: "active",
+  },
+  {
+    // Cần Thơ (design §2, row 1: one flat level, called tổ).
+    id: "duc",
+    saintName: "Đaminh",
+    name: "Vũ Quang Đức",
+    fullName: "Đaminh Vũ Quang Đức",
+    born: "14/02/2015",
+    age: 11,
+    parishUnitL1Id: "ct-to-2",
+    parishUnitL2Id: null,
+    phone: "0908 333 222",
+    username: "duc.vu",
+    father: "Phêrô Vũ Văn Cường",
+    mother: "Anna Ngô Thị Loan",
+    holding: 1,
+    membership: "active",
+  },
+  {
+    // Bến Tre (design §2, row 2: one flat level, called giáo họ).
+    id: "hoa",
+    saintName: "Anna",
+    name: "Đỗ Thị Hoà",
+    fullName: "Anna Đỗ Thị Hoà",
+    born: "22/09/2014",
+    age: 11,
+    parishUnitL1Id: "bt-gh-phero",
+    parishUnitL2Id: null,
+    phone: "0977 555 444",
+    username: "hoa.do",
+    father: "Giuse Đỗ Văn Toàn",
+    mother: "Maria Phan Thị Kim",
+    holding: 0,
+    membership: "active",
+  },
+  {
+    // Vĩnh Long (design §2, row 4: both levels, tổ numbered across the
+    // whole parish rather than within each giáo họ).
+    id: "tuan",
+    saintName: "Phêrô",
+    name: "Lý Anh Tuấn",
+    fullName: "Phêrô Lý Anh Tuấn",
+    born: "30/11/2013",
+    age: 12,
+    parishUnitL1Id: "vl-gh-anna",
+    parishUnitL2Id: "vl-to-3",
+    phone: "0933 777 888",
+    username: "tuan.ly",
+    father: "Giuse Lý Văn Phong",
+    mother: "Anna Trần Thị Xuân",
+    holding: 2,
+    membership: "active",
   },
 ];
 
