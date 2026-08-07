@@ -21,14 +21,20 @@ delete it and re-run `bun install`.
 
 Two things worth being precise about, because they are easy to get wrong:
 
-- **Bun is the package manager and script runner, not necessarily the runtime.**
-  `bun run dev` invokes the `next` binary, which carries a Node shebang, so
-  Next itself still executes under Node. Pass `bun --bun next dev` if you
-  genuinely want Next running on the Bun runtime — but expect rough edges.
-- **Production builds run on Node, not Bun.** Bun is a local-developer choice
-  only. Nothing in the app may depend on Bun-specific APIs (`Bun.file`,
-  `bun:sqlite` and friends), or it will build locally and fail wherever this
-  is deployed.
+- **Bun is the package manager and script runner locally, and the runtime in
+  production.** `bun run dev` invokes the `next` binary, which carries a Node
+  shebang, so Next still executes under Node during local development. Pass
+  `bun --bun next dev` if you want the Bun runtime locally too.
+- **The container runs `bun server.js`; the container *builds* under Node.**
+  That split is a workaround, not a preference: `bun run build` segfaults
+  partway through `next build` inside a linux/arm64 container — reproduced on
+  Bun 1.3.5 and 1.3.14, on both alpine and Debian, so it is neither a libc
+  issue nor a stale version. The same command works under Bun on macOS, which
+  is why local development never hits it. See the Dockerfile.
+- **Nothing in the app may depend on Bun-specific APIs** (`Bun.file`,
+  `bun:sqlite` and friends). The runtime is Bun today, but the build already
+  runs on Node and the domain layer must stay runnable under a plain test
+  runner — a `Bun.*` call in the domain closes both doors.
 
 ## Stack
 
@@ -68,6 +74,14 @@ cp .env.example .env      # fill in the three required secrets
 docker compose up -d      # postgres, minio, app
 docker compose logs -f app
 ```
+
+**Host ports are deliberately off the defaults.** The app is on **3001** and
+PostgreSQL on **5435**, so `bun run dev` keeps 3000 and a Postgres already
+running on the machine keeps 5432. Running the container and the dev server at
+the same time is the normal case — one is what you changed, the other is what
+you are comparing against — and a port clash at that moment is pure friction.
+Inside the compose network nothing moved: the app still listens on 3000 and the
+database on 5432.
 
 Data lives in `./data` on the host, not inside the containers, so
 `docker compose down -v` cannot take the parish's records with it. Back up that

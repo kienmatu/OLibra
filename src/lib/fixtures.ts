@@ -6,6 +6,26 @@ import type { CopyStatus } from "./status";
  * Names and titles match the design work exactly.
  */
 
+/**
+ * Whoever runs OLibra itself, as opposed to any one bookshelf.
+ *
+ * Shown on the public contact page, which is the only route a parish with no
+ * shelf yet has to reach anybody. It lives here rather than inline in that
+ * page because a change of administrator must not require a deploy — the
+ * super administrator edits these three fields in /quan-tri/cai-dat.
+ */
+export type SiteContact = {
+  name: string;
+  phone: string;
+  hours: string;
+};
+
+export const siteContact: SiteContact = {
+  name: "Giuse Trần Quốc Anh",
+  phone: "0901 111 222",
+  hours: "Trong tuần, 8:00 đến 17:00",
+};
+
 export type Shelf = {
   slug: string;
   name: string;

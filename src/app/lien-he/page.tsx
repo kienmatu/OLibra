@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, PageHeading } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { PhoneLink } from "@/components/ui/phone-link";
+import { siteContact } from "@/lib/fixtures";
 
 export const metadata = { title: "Liên hệ — OLibra" };
 
@@ -21,19 +22,17 @@ export default function ContactPage() {
           <dl>
             <div className="flex flex-wrap items-center justify-between gap-4 py-3.5 first:pt-0">
               <dt className="text-[15px] text-meta">Ban quản trị</dt>
-              <dd className="text-[16px] font-medium">Giuse Trần Quốc Anh</dd>
+              <dd className="text-[16px] font-medium">{siteContact.name}</dd>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline py-3.5">
               <dt className="text-[15px] text-meta">Điện thoại</dt>
               <dd>
-                <PhoneLink phone="0901 111 222" />
+                <PhoneLink phone={siteContact.phone} />
               </dd>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline py-3.5 last:pb-0">
               <dt className="text-[15px] text-meta">Giờ liên hệ</dt>
-              <dd className="text-[16px] font-medium">
-                Trong tuần, 8:00 đến 17:00
-              </dd>
+              <dd className="text-[16px] font-medium">{siteContact.hours}</dd>
             </div>
           </dl>
         </Card>

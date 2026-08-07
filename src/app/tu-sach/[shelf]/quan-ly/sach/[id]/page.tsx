@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -120,7 +120,16 @@ export default async function ManagerBookDetailPage({
       </div>
 
       <section className="mt-10">
-        <h2 className="text-xl font-semibold">Các bản sách ({COPIES.length})</h2>
+        {/* A title receives more donated copies over time, so the copy count
+            has to be able to grow after cataloguing. This is the only entry
+            point for that — "Sửa sách" edits the title, not the shelf. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Các bản sách ({COPIES.length})</h2>
+          <Button type="button" variant="quiet" size="sm">
+            <Plus aria-hidden className="size-4" strokeWidth={2} />
+            Thêm bản
+          </Button>
+        </div>
 
         <div className="mt-4 hidden overflow-hidden rounded-card border border-hairline md:block">
           <table className="w-full text-left">

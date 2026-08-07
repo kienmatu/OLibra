@@ -66,6 +66,24 @@
     text-wrap: balance;
   }
 
+  /* Tailwind v4 dropped the preflight rule that used to give buttons a
+     pointer cursor, so a plain <button> now shows an arrow — indistinguishable
+     from dead text. That matters more here than in most apps: volunteers who
+     use phones and laptops hesitantly rely on the cursor to tell them what is
+     tappable at all.
+
+     Set once, at the base layer, rather than as a class on every component —
+     a rule that has to be remembered on each new button is a rule that will be
+     forgotten on the twentieth. :disabled is excluded, because a pointer over
+     a control that will not respond is a small lie. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
   ::selection {
     background-color: color-mix(in srgb, var(--color-terracotta) 22%, transparent);
   }

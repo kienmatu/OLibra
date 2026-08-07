@@ -458,6 +458,8 @@ The last two exist because a proposed change is invisible until decided: without
 
 **Landing.** Logo, what OLibra is in a sentence or two, and the two ways in: **đăng nhập** and **đăng ký**. Nothing else. There is no blog and no separate about page — this page is the whole of the front door.
 
+**Contact.** The administration's name, phone and contact hours, plus a short form. Public, and deliberately so: a parish with no bookshelf yet has no membership anywhere, so this is its only route to a human. The three details are configuration, edited by the super administrator (§16.4) — never written into the page, or changing who runs OLibra means a deploy.
+
 **Portal.** One row per bookshelf: **name and address, nothing else.** A search box, because finding your own parish is the only job this page has. Selecting a shelf leads to signing in, or to registering for that shelf. Book counts, reader counts and keeper contact are not shown, because a person with no membership has no business knowing them.
 
 **Shelf home.** The most important page for a member, and the first thing seen after signing in. Not public. In order down the page:
@@ -517,7 +519,7 @@ The common case — an undamaged book — is two taps. If anyone is queued for t
 
 **Books.** A responsive list with search and filters; a table on desktop, stacked cards on mobile. The create and edit form is single-column with the cover uploader first, since a photograph is the strongest recognition cue.
 
-**Copies.** Managed within a book's detail page. Each copy shows its code, state, condition, and actions: assess, report lost, mark found, retire.
+**Copies.** Managed within a book's detail page. Each copy shows its code, state, condition, and actions: assess, report lost, mark found, retire. **Adding copies to an already-catalogued title is a distinct action on this page**, because a title's copy count grows over time — a second donated copy of a popular book arrives months after the first, and editing the title is not where a volunteer would look for that.
 
 **Readers.** Searchable list with status filters. Detail view shows the full profile — including the manager-only fields — current loans, complete history, and administrative actions.
 
@@ -536,6 +538,8 @@ The common case — an undamaged book — is two taps. If anyone is queued for t
 ### 16.4 Administration pages
 
 **Admin dashboard.** One row per bookshelf: name, books, active readers, current loans, overdue count, pending items. Anything needing attention is flagged.
+
+**System settings.** Defaults applied to newly created bookshelves, locale and timezone, backup, and — first on the page, because it is the only setting a member of the public can see — **the administration's own contact details: name, phone and contact hours.** These render on the public contact page (§16.1), which is the only route a parish with no bookshelf yet has to reach anybody. A change of administrator must therefore not require a deploy.
 
 **Bookshelves.** Create and edit shelves, including the slug that becomes the URL, the lending policy settings, and keeper contact details. The slug is fixed after creation, since it appears in shared links.
 
@@ -592,7 +596,7 @@ Base 16px on public pages, 17px in the manager interface where volunteers work f
 
 Spacing follows a restricted 4px scale so the rhythm stays consistent. Cards use 16px padding on mobile and 24px on desktop.
 
-Touch targets are minimum 44×44px, with primary action buttons at 56px tall. Interactive elements never sit closer than 8px apart.
+Touch targets are minimum 44×44px, with primary action buttons at 56px tall. Interactive elements never sit closer than 8px apart. On a pointer device, everything clickable shows a pointer cursor — volunteers who use a laptop hesitantly rely on the cursor to tell them what is actionable at all.
 
 ### 17.4 Components
 

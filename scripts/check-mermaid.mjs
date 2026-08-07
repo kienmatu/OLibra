@@ -12,9 +12,17 @@ import { join, resolve } from "node:path";
 import puppeteer from "puppeteer";
 
 const DOCS = "docs";
-const files = readdirSync(DOCS)
-  .filter((f) => f.endsWith(".md"))
-  .map((f) => join(DOCS, f));
+
+/** Recursive, so diagrams in docs/superpowers/plans/ are checked too. */
+function markdownUnder(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return markdownUnder(path);
+    return entry.name.endsWith(".md") ? [path] : [];
+  });
+}
+
+const files = markdownUnder(DOCS);
 
 const blocks = [];
 for (const file of files) {

@@ -237,7 +237,11 @@ Docker is the expected target. What follows is the shape, not a finished ops pla
 
 **Data is bind-mounted to `./data` on the host rather than held in named volumes.** `docker compose down -v` removes named volumes, and a parish's entire history disappearing because somebody typed `-v` is not a risk worth carrying for the convenience. Backing up one directory backs up everything. This was verified rather than assumed: a row and an object were written, the stack was destroyed with `down -v`, and both were still there afterwards.
 
-**The application image runs Node, not Bun** — Bun is the local package manager and script runner only. The build uses `output: "standalone"`, which traces the server down to the files it actually uses, so no `node_modules` reaches the runtime image.
+**The application runs under Bun** (`bun server.js` is PID 1), so the lockfile, the local scripts and the production process all agree. The image *builds* under Node, which is a workaround rather than a preference: `bun run build` segfaults partway through `next build` inside a linux/arm64 container, reproduced across two Bun versions and both libc flavours, while succeeding under Bun on macOS. Node is what Next.js is tested against, so compiling there costs nothing.
+
+Because that arrangement rests on a compatibility Next.js does not promise, the Dockerfile carries a `smoke` stage that boots the built server under Bun and fails the build unless it serves the landing page. A Next upgrade that breaks the Bun runtime therefore breaks the build, which is where a failure of this kind should surface rather than in production.
+
+The build uses `output: "standalone"`, which traces the server down to the files it actually uses, so no `node_modules` reaches the runtime image.
 
 **What Docker buys here that serverless would not:**
 
