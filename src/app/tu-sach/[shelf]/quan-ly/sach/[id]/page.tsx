@@ -1,16 +1,25 @@
 import { notFound } from "next/navigation";
-import { Pencil, Plus } from "lucide-react";
-import { Button, ButtonLink } from "@/components/ui/button";
+import { CircleCheckBig, Pencil, Plus } from "lucide-react";
+import { Button, ButtonLink, buttonClasses } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { bookBySlug, books, readers, shelfBySlug, shelves } from "@/lib/fixtures";
+import { DonorFields } from "@/components/donor-fields";
+import { bookBySlug, books, shelfBySlug, shelves } from "@/lib/fixtures";
 import type { CopyStatus } from "@/lib/status";
 
 export function generateStaticParams() {
   return shelves.flatMap((s) => books.map((b) => ({ shelf: s.slug, id: b.slug })));
 }
+
+// Ngày nhận (below, on the "Thêm bản" form) needs today's date in
+// Asia/Ho_Chi_Minh, computed per request — a statically-prerendered page
+// cannot do that, since `new Date()` at build time freezes forever. Forced
+// dynamic rendering is what keeps this page's default in step with the
+// "Thêm sách" form, which reads `searchParams` and is already dynamic for
+// that reason (IMPORTANT 1 of the refinements review).
+export const dynamic = "force-dynamic";
 
 const COPIES: {
   code: string;
@@ -32,9 +41,9 @@ const COPIES: {
   },
   {
     code: "DT-0142",
-    status: "available",
+    status: "lost",
     condition: "Nguyên vẹn",
-    location: "Trong tủ",
+    location: "Maria Vũ Khánh Linh · báo mất 22/07",
   },
 ];
 
@@ -79,6 +88,13 @@ const LOAN_HISTORY = [
     condition: "Nguyên vẹn",
   },
   {
+    code: "DT-0142",
+    borrower: "Maria Vũ Khánh Linh",
+    from: "08/07",
+    to: "—",
+    condition: "Báo mất 22/07",
+  },
+  {
     code: "DT-0140",
     borrower: "Anna Phạm Thu Hà",
     from: "04/06",
@@ -98,7 +114,6 @@ export default async function ManagerBookDetailPage({
   if (!shelf || !book) notFound();
 
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
-  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="sach">
@@ -138,7 +153,16 @@ export default async function ManagerBookDetailPage({
               more navigation than the task needs. It needs no client
               JavaScript, matching every other static page in this shell. */}
           <details className="group">
-            <summary className="inline-flex h-11 cursor-pointer list-none items-center gap-1.5 rounded-control border border-hairline bg-surface px-4 text-[15px] font-semibold text-ink hover:bg-paper [&::-webkit-details-marker]:hidden">
+            {/* A `<summary>` cannot render as `<Button>` — it isn't a button
+                or a link — so it reuses the exact same class builder instead
+                of a hand-rolled copy that would drift from it (M1/M2). */}
+            <summary
+              className={buttonClasses(
+                "quiet",
+                "sm",
+                "cursor-pointer list-none [&::-webkit-details-marker]:hidden",
+              )}
+            >
               <Plus aria-hidden className="size-4" strokeWidth={2} />
               Thêm bản
             </summary>
@@ -159,32 +183,14 @@ export default async function ManagerBookDetailPage({
                 />
               </Field>
 
-              <Field
-                label="Người tặng"
-                htmlFor="them-nguoi-tang"
-                hint="Không bắt buộc. Gõ tên để tìm bạn đọc đã có tài khoản, hoặc gõ tên khác nếu người tặng chưa có tài khoản."
-              >
-                <Input
-                  id="them-nguoi-tang"
-                  list="them-danh-sach-nguoi-tang"
-                  placeholder="vd: Nguyễn Thị Lan, hoặc bác Hoà"
-                />
-                <datalist id="them-danh-sach-nguoi-tang">
-                  {readers.map((r) => (
-                    <option key={r.id} value={r.fullName} />
-                  ))}
-                </datalist>
-              </Field>
+              <DonorFields idPrefix="them-nguoi-tang" />
 
-              <Field
-                label="Ngày nhận"
-                htmlFor="them-ngay-nhan"
-                hint="Mặc định là hôm nay. Có thể đổi vì sách tặng thường được vào sổ trễ vài tuần sau khi nhận."
-              >
-                <Input id="them-ngay-nhan" type="date" defaultValue={today} />
-              </Field>
-
-              <Button type="submit" variant="primary" size="md">
+              {/* Outline, not solid: "Sửa sách" above is already this
+                  screen's one primary action (AGENTS.md/button.tsx — "if two
+                  things on a screen are terracotta, one of them is wrong").
+                  This form only exists once the disclosure is open, at which
+                  point both buttons are on screen at once. */}
+              <Button type="submit" variant="outline" size="md">
                 Lưu bản mới
               </Button>
             </form>
@@ -227,12 +233,25 @@ export default async function ManagerBookDetailPage({
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="quiet" size="sm">
-                        Đánh giá
-                      </Button>
-                      <Button variant="quiet" size="sm">
-                        Báo mất
-                      </Button>
+                      {copy.status === "lost" ? (
+                        <Button variant="quiet" size="sm">
+                          <CircleCheckBig
+                            aria-hidden
+                            className="size-4"
+                            strokeWidth={1.75}
+                          />
+                          Đánh dấu tìm thấy
+                        </Button>
+                      ) : (
+                        <>
+                          <Button variant="quiet" size="sm">
+                            Đánh giá
+                          </Button>
+                          <Button variant="quiet" size="sm">
+                            Báo mất
+                          </Button>
+                        </>
+                      )}
                       <Button variant="quiet" size="sm">
                         Ngừng dùng
                       </Button>
@@ -258,12 +277,25 @@ export default async function ManagerBookDetailPage({
                 {copy.condition} · {copy.location}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="quiet" size="sm" className="flex-1">
-                  Đánh giá
-                </Button>
-                <Button variant="quiet" size="sm" className="flex-1">
-                  Báo mất
-                </Button>
+                {copy.status === "lost" ? (
+                  <Button variant="quiet" size="sm" className="flex-1">
+                    <CircleCheckBig
+                      aria-hidden
+                      className="size-4"
+                      strokeWidth={1.75}
+                    />
+                    Đánh dấu tìm thấy
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="quiet" size="sm" className="flex-1">
+                      Đánh giá
+                    </Button>
+                    <Button variant="quiet" size="sm" className="flex-1">
+                      Báo mất
+                    </Button>
+                  </>
+                )}
                 <Button variant="quiet" size="sm" className="flex-1">
                   Ngừng dùng
                 </Button>

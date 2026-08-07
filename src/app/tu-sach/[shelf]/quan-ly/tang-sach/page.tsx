@@ -35,10 +35,16 @@ export default async function DonationQueuePage({
         />
 
         <div className="space-y-6">
-          {donationQueue.map((donation) => {
+          {donationQueue.map((donation, i) => {
             const donor = readerById(donation.readerId);
             const donorName = donor?.fullName ?? "Bạn đọc";
             const initial = donorName.charAt(0).toUpperCase();
+            // Only the first card carries the solid terracotta approve
+            // action — two solid-terracotta buttons on one screen would both
+            // be wrong (button.tsx: "if two things on a screen are
+            // terracotta, one of them is wrong"). Same pattern as the
+            // pending-profile-changes queue.
+            const approveVariant = i === 0 ? "primary" : "outline";
 
             return (
               <Card key={donation.id} className="space-y-6">
@@ -97,8 +103,8 @@ export default async function DonationQueuePage({
 
                 <div className="flex flex-wrap items-center gap-4 border-t border-hairline pt-6">
                   <ButtonLink
-                    href={`${base}/sach/moi?nguoi_tang=${encodeURIComponent(donorName)}`}
-                    variant="primary"
+                    href={`${base}/sach/moi?nguoi_tang_id=${donation.readerId}`}
+                    variant={approveVariant}
                     size="lg"
                   >
                     <Check aria-hidden className="size-5" strokeWidth={1.75} />
