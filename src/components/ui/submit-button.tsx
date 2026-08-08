@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, type LucideIcon } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 
@@ -32,21 +32,28 @@ import { Button } from "@/components/ui/button";
  * `disabled` composes rather than replaces: `xac-nhan` disables its button for
  * BR §16.3's blocking reasons, and a pending submit must not re-enable a button
  * that a rule already closed.
+ *
+ * **`icon` is an element, not a component.** A `LucideIcon` is a function, and
+ * a function cannot cross the server/client boundary — `icon={Check}` from a
+ * Server Component is an unconditional 500 on every render, which is how this
+ * first shipped and what `bun run check:links` caught. Passing `<Check … />`
+ * sends a serialised element instead, which is exactly what the boundary is
+ * for.
  */
 export function SubmitButton({
   variant = "primary",
   size = "lg",
   className,
   disabled,
-  icon: Icon,
+  icon,
   children,
 }: {
   variant?: React.ComponentProps<typeof Button>["variant"];
   size?: React.ComponentProps<typeof Button>["size"];
   className?: string;
   disabled?: boolean;
-  /** The button's own icon; swapped for the spinner while in flight. */
-  icon?: LucideIcon;
+  /** The button's own icon element; swapped for the spinner while in flight. */
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const { pending } = useFormStatus();
@@ -65,9 +72,9 @@ export function SubmitButton({
     >
       {pending ? (
         <LoaderCircle aria-hidden className="size-5 animate-spin" strokeWidth={2} />
-      ) : Icon ? (
-        <Icon aria-hidden className="size-5" strokeWidth={1.75} />
-      ) : null}
+      ) : (
+        icon
+      )}
       {children}
     </Button>
   );

@@ -157,7 +157,13 @@ export default async function NhanTraBaoMatPage({
           </p>
 
           <div className="mt-8 max-w-xl">
-            <SubmitButton variant="danger" icon={HelpCircle} className="w-full">
+            <SubmitButton
+              variant="danger"
+              icon={
+                <HelpCircle aria-hidden className="size-5" strokeWidth={1.75} />
+              }
+              className="w-full"
+            >
               Xác nhận báo mất
             </SubmitButton>
           </div>

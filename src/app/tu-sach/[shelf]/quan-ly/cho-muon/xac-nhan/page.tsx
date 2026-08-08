@@ -268,7 +268,11 @@ export default async function ChoMuonXacNhanPage({
         {/* `disabled` composes with the pending state rather than being
             replaced by it: a rule that already closed this button must not
             reopen when a submit settles. */}
-        <SubmitButton icon={Check} className="w-full" disabled={blocking !== null}>
+        <SubmitButton
+          icon={<Check aria-hidden className="size-5" strokeWidth={1.75} />}
+          className="w-full"
+          disabled={blocking !== null}
+        >
           Xác nhận cho mượn
         </SubmitButton>
       </form>
