@@ -383,6 +383,49 @@ test("a match and a miss are indistinguishable from outside", async () => {
     select distinct action from audit_log
   `;
   expect(actions.map((a) => a.action)).toEqual(["membership.registered"]);
+
+  // IMPORTANT 5: a shape assertion alone would still pass against an
+  // implementation that quietly resurrects a non-reapplicable membership —
+  // the "miss" branch above is a write, not a read, and so is a probe. The
+  // state has to be checked too: exactly one row per identity, on the shelf
+  // that already knew them.
+  const [{ count: userCount }] = await sql<
+    { count: string }[]
+  >`select count(*) from users`;
+  expect(Number(userCount)).toBe(2); // the known family, and the stranger — never a third.
+  const [{ count: bMemberships }] = await sql<
+    { count: string }[]
+  >`select count(*) from memberships where user_id = ${known.userId}`;
+  expect(Number(bMemberships)).toBe(2); // one row per shelf (a and b), not per attempt.
+});
+
+test("IMPORTANT 5: a probe against a suspended or left membership leaves that row exactly as it was", async () => {
+  // The state half of the anti-probe property: whatever the response says,
+  // a probe must never be a write against a row it was not entitled to touch.
+  const { ctx } = await guestAt("dong-thap");
+
+  const suspended = await runCommand(sql, ctx, registerMembership, FAMILY);
+  await sql`
+    update memberships
+    set status = 'suspended', suspension_reason = 'Tạm khoá'
+    where id = ${suspended.membershipId}
+  `;
+  const before = await membership(suspended.membershipId);
+  await expect(runCommand(sql, ctx, registerMembership, FAMILY)).rejects.toThrow();
+  expect(await membership(suspended.membershipId)).toEqual(before);
+
+  const other = await guestAt("can-tho");
+  const OTHER_FAMILY = { ...FAMILY, fullName: "Lê Văn Long", phone: "0912345680" };
+  const left = await runCommand(sql, other.ctx, registerMembership, OTHER_FAMILY);
+  await sql`
+    update memberships set status = 'left', role = 'manager'
+    where id = ${left.membershipId}
+  `;
+  const beforeLeft = await membership(left.membershipId);
+  await expect(
+    runCommand(sql, other.ctx, registerMembership, OTHER_FAMILY),
+  ).rejects.toThrow();
+  expect(await membership(left.membershipId)).toEqual(beforeLeft);
 });
 
 // — re-application (BR §2) —
@@ -424,4 +467,48 @@ test("registering twice while already pending or active is named, not silent", a
   await expect(
     runCommand(sql, ctx, registerMembership, FAMILY),
   ).rejects.toMatchObject({ code: "already_registered_here" });
+});
+
+// — CRITICAL 1: a suspended reader must not be able to clear their own
+// suspension by re-submitting the public form —
+
+test("CRITICAL 1: a suspended membership does not walk back to pending through re-registration", async () => {
+  // membershipTransition has no suspended -> pending edge in policy.ts's
+  // graph; the walk-back must consult that graph rather than its own
+  // hand-maintained list of blocked statuses, or this bypasses the state
+  // machine entirely.
+  const { ctx } = await guestAt("dong-thap");
+  const first = await runCommand(sql, ctx, registerMembership, FAMILY);
+  await sql`
+    update memberships
+    set status = 'suspended', suspension_reason = 'Tạm khoá'
+    where id = ${first.membershipId}
+  `;
+
+  await expect(runCommand(sql, ctx, registerMembership, FAMILY)).rejects.toThrow();
+
+  const m = await membership(first.membershipId);
+  expect(m.status).toBe("suspended");
+  const [{ suspension_reason }] = await sql<
+    { suspension_reason: string | null }[]
+  >`select suspension_reason from memberships where id = ${first.membershipId}`;
+  expect(suspension_reason).toBe("Tạm khoá");
+});
+
+// — IMPORTANT 2: the walk-back must never carry a non-reader membership back
+// into the pending queue —
+
+test("IMPORTANT 2: a manager's left membership cannot be revived as a pending reader application", async () => {
+  const { ctx } = await guestAt("dong-thap");
+  const first = await runCommand(sql, ctx, registerMembership, FAMILY);
+  await sql`
+    update memberships set status = 'left', role = 'manager'
+    where id = ${first.membershipId}
+  `;
+
+  await expect(runCommand(sql, ctx, registerMembership, FAMILY)).rejects.toThrow();
+
+  const m = await membership(first.membershipId);
+  expect(m.status).toBe("left");
+  expect(m.role).toBe("manager");
 });

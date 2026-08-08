@@ -156,3 +156,37 @@ export class RuleViolated extends DomainError {}
 export function isUniqueViolation(e: unknown): boolean {
   return typeof e === "object" && e !== null && "code" in e && e.code === "23505";
 }
+
+/**
+ * A dependency the boot sequence forgot to wire, not a rule the caller broke.
+ *
+ * M7 (fix-report, 2026-08-08-b2-members): `registration.ts`'s default
+ * `PasswordHasher` used to throw `RuleViolated("not_permitted")` when nothing
+ * had called `setPasswordHasher` — a plausible-looking "Bạn không có quyền
+ * thực hiện việc này." that a real reader could read as an ordinary refusal,
+ * hiding a wiring bug behind a sentence that describes a different problem.
+ * The default `PasswordVerifier` was worse: it silently returned `false`,
+ * which reads from the outside as a correct "wrong password" — every
+ * username-reuse attempt (BR §5.3) failing closed to `username_taken` with no
+ * signal anything was ever missing.
+ *
+ * Deliberately **not** a `DomainError` / `ErrorCode`: those are a promise of
+ * a Vietnamese sentence a real user might plausibly read as a legitimate
+ * outcome, and adding a code here would mean this joins `ERROR_MESSAGES` and
+ * every exhaustive `switch` over `ErrorCode` has to account for a failure
+ * mode that should never reach a screen at all. This is meant to be loud in
+ * the operational sense instead: an uncaught exception whose message names
+ * exactly which setter was never called, surfacing as a server fault (see
+ * `src/app/dang-nhap/actions.ts`, which only ever catches specific
+ * `RuleViolated` codes by name and lets everything else — this included —
+ * propagate) rather than as a business-shaped refusal a support ticket gets
+ * filed against for the wrong reason.
+ */
+export class NotWired extends Error {
+  constructor(what: string) {
+    super(
+      `${what} was never wired — call its setter during boot before this code path runs.`,
+    );
+    this.name = "NotWired";
+  }
+}

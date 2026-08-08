@@ -1,10 +1,15 @@
 import type { AuditEntry } from "../kernel/audit";
-import { RuleViolated, ValidationFailed } from "../kernel/errors";
+import { NotWired, RuleViolated, ValidationFailed } from "../kernel/errors";
 import type { TenantContext } from "../kernel/tenant";
 import type { Tx } from "../kernel/unit-of-work";
 import { loadParishContext } from "./parish-context";
 import { validateSelection } from "./parish-taxonomy";
-import { assertPasswordLength, blank } from "./policy";
+import {
+  assertPasswordLength,
+  blank,
+  type MembershipStatus,
+  membershipTransition,
+} from "./policy";
 
 /**
  * Everything OPS §4.3's registration form posts.
@@ -60,9 +65,19 @@ export type PasswordHasher = (plain: string) => Promise<string>;
  * The default throws. An unwired hasher must fail loudly rather than write a
  * plausible-looking string into `password_hash`, where nobody would notice
  * until someone tried to sign in.
+ *
+ * `NotWired`, not `RuleViolated("not_permitted")` (M7, fix-report,
+ * 2026-08-08-b2-members): the latter reads to a real caller as an ordinary
+ * permission refusal — "Bạn không có quyền thực hiện việc này." — which is
+ * exactly the wrong sentence for a boot-time wiring bug, and registration
+ * *without* credentials keeps working regardless (most children never supply
+ * a username), so the bug would otherwise surface far downstream, at the
+ * first password anyone typed, dressed up as a business rule. See
+ * `NotWired`'s own docstring for the rest of the reasoning, shared with
+ * `verifier` below.
  */
 let hasher: PasswordHasher = () => {
-  throw new RuleViolated("not_permitted");
+  throw new NotWired("PasswordHasher");
 };
 
 export function setPasswordHasher(next: PasswordHasher): void {
@@ -101,12 +116,24 @@ async function credentialsFrom(
 }
 
 /**
- * A password verifier, injected for the same reason the hasher is. Defaults to
- * refusing every match, so an unwired verifier cannot turn rule 2 into a
- * back door — it fails closed, into `username_taken`.
+ * A password verifier, injected for the same reason the hasher is.
+ *
+ * M7 (fix-report, 2026-08-08-b2-members): an unwired verifier must still
+ * never turn rule 2 into a back door, so it does not start *approving*
+ * matches just because nobody wired it — but silently returning `false` was
+ * the wrong way to stay safe. From outside, "no match" is indistinguishable
+ * from a correctly wired verifier rejecting a genuinely wrong password: every
+ * username-reuse attempt (BR §5.3) would fail closed to `username_taken`
+ * forever, with nothing telling anyone the feature never worked. `NotWired`
+ * keeps the same safe outcome — a caller still never gets treated as a match
+ * — while making the cause impossible to miss: this only throws on the path
+ * that would otherwise have compared a supplied password against a real
+ * stored hash, i.e. exactly when the verifier would actually have had
+ * something to do.
  */
-let verifier: (plain: string, stored: string) => Promise<boolean> = async () =>
-  false;
+let verifier: (plain: string, stored: string) => Promise<boolean> = async () => {
+  throw new NotWired("PasswordVerifier");
+};
 
 export function setPasswordVerifier(
   next: (plain: string, stored: string) => Promise<boolean>,
@@ -245,13 +272,40 @@ export async function register(
   // insert over a rejected row raises 23505 — so a re-application walks the
   // existing row back rather than adding one. Keeping the id keeps every audit
   // entry already pointing at this relationship pointing at the same one.
-  const [existing] = await tx<{ id: string; status: string }[]>`
-    select id, status from memberships
+  const [existing] = await tx<{ id: string; status: string; role: string }[]>`
+    select id, status, role from memberships
     where user_id = ${userId} and deleted_at is null
   `;
 
   if (existing) {
-    if (existing.status === "pending" || existing.status === "active") {
+    // CRITICAL 1 (fix-report, 2026-08-08-b2-members): eligibility is decided
+    // by `policy.ts`'s graph, never by a second, hand-maintained list of
+    // statuses this file used to keep in sync with it by hand. Every walk-back
+    // is, at bottom, a `-> pending` re-application (BR §2's "rejected -> pending
+    // and left -> pending" edges); a manager immediately activating that same
+    // reader afterwards (`status === "active"`, only ever `managerRegisterReader`,
+    // which already `requireManager`s) is a further, explicit promotion on top
+    // of a re-application the graph already approved — not a transition the
+    // graph is asked to model in its own right, the same way a brand-new
+    // insert two branches down sets `active` directly with no edge at all.
+    // `suspended` has no `-> pending` edge — a suspended reader must be
+    // reactivated by a manager (ReactivateMembership), never walked back to
+    // pending by resubmitting the public form — so this refuses it exactly
+    // the way it already refused `pending`/`active`, with the same sentence.
+    //
+    // IMPORTANT 2: role is checked here too, not written by the update below.
+    // A non-`reader` membership (a manager or admin who left, or was rejected)
+    // must never re-enter the pending queue through this door — the insert
+    // path two branches down never creates anything but a `reader`, and an
+    // unauthenticated caller who happens to know a manager's name, date of
+    // birth and phone must not be able to either. Silently pinning
+    // `role = 'reader'` in the update would be the same bug in a different
+    // shape — a manager's own row demoted by a stranger's form submission —
+    // so this refuses the whole walk-back instead of rewriting the role.
+    const canReapply =
+      existing.role === "reader" &&
+      membershipTransition(existing.status as MembershipStatus, "pending").allowed;
+    if (!canReapply) {
       throw new RuleViolated("already_registered_here");
     }
     await tx`
