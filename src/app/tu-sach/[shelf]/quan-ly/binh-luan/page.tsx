@@ -4,7 +4,8 @@ import { BookCover, BookTitle } from "@/components/ui/book";
 import { Card, PageHeading } from "@/components/ui/card";
 import { Chip } from "@/components/ui/segmented";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { bookBySlug, shelfBySlug, shelves } from "@/lib/fixtures";
+import { describeSelection } from "@/domain/members/parish-taxonomy";
+import { bookBySlug, readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -41,6 +42,12 @@ export default async function CommentsPage({
   if (!shelf) notFound();
 
   const book = bookBySlug("de-men-phieu-luu-ky")!;
+  const commenter = readers.find((r) => r.id === "anh")!;
+  const commenterParish =
+    describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
+      l1: commenter.parishUnitL1Id,
+      l2: commenter.parishUnitL2Id,
+    }) || "Chưa có";
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="binh-luan">
@@ -76,9 +83,9 @@ export default async function CommentsPage({
               T
             </span>
             <div>
-              <p className="text-[16px] font-medium">Têrêsa Lê Ngọc Ánh</p>
+              <p className="text-[16px] font-medium">{commenter.fullName}</p>
               <p className="text-[14px] text-meta">
-                Tổ 1 · Giáo họ Mân Côi · gửi lúc 19:42 ngày 05/08
+                {commenterParish} · gửi lúc 19:42 ngày 05/08
               </p>
             </div>
           </div>

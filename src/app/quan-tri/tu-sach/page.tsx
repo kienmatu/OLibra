@@ -6,9 +6,11 @@ import {
   Field,
   Input,
   ReadOnlyValue,
+  Select,
   Textarea,
   Toggle,
 } from "@/components/ui/field";
+import { ParishUnitsEditor } from "@/components/parish-units-editor";
 import { shelf } from "@/lib/fixtures";
 
 export const metadata = { title: "Tủ sách Đồng Tháp — Quản trị OLibra" };
@@ -58,6 +60,7 @@ function NumberField({
 }
 
 export default function AdminShelfSettingsPage() {
+  const { parishTaxonomy, parishUnits } = shelf;
   return (
     <AdminShell active="tu-sach">
       <Link
@@ -124,6 +127,64 @@ export default function AdminShelfSettingsPage() {
           >
             <Input id="dien-thoai-chia" defaultValue={shelf.phone} />
           </Field>
+        </section>
+
+        <section className="space-y-6">
+          <h2 className="text-xl font-semibold">Phân chia giáo xứ</h2>
+          <p className="text-[14px] text-meta">
+            Tủ sách nào cũng khác nhau ở chỗ này — có xứ chỉ chia tổ, có xứ chỉ có
+            giáo họ, có xứ chia cả hai. Chọn đúng cách giáo xứ mình vẫn gọi, đừng
+            theo tủ sách khác. Cả hai trường đều không bắt buộc khi đăng ký, kể cả
+            sau khi đã cài đặt xong ở đây — một bạn đọc chưa rõ tổ vẫn phải đăng ký
+            được.
+          </p>
+
+          <Field
+            label="Số bậc"
+            htmlFor="so-bac"
+            hint="Một bậc nếu giáo xứ chỉ chia theo một cách (chỉ tổ, hoặc chỉ giáo họ). Hai bậc nếu chia lồng nhau."
+          >
+            <Select id="so-bac" defaultValue={String(parishTaxonomy.levels)}>
+              <option value="1">1 bậc</option>
+              <option value="2">2 bậc</option>
+            </Select>
+          </Field>
+
+          <Field
+            label="Tên bậc 1"
+            htmlFor="ten-bac-1"
+            hint="Từ giáo xứ mình vẫn dùng — thường là Giáo họ hoặc Tổ."
+          >
+            <Input id="ten-bac-1" defaultValue={parishTaxonomy.level1Label} />
+          </Field>
+
+          {parishTaxonomy.levels === 2 ? (
+            <>
+              <Field
+                label="Tên bậc 2"
+                htmlFor="ten-bac-2"
+                hint={
+                  parishTaxonomy.nested
+                    ? "Đơn vị nhỏ hơn, nằm trong bậc 1 — thường là Tổ."
+                    : "Đơn vị nhỏ hơn, đánh số chung cho cả giáo xứ — thường là Tổ."
+                }
+              >
+                <Input id="ten-bac-2" defaultValue={parishTaxonomy.level2Label} />
+              </Field>
+
+              <SettingRow
+                label={`Đánh số ${parishTaxonomy.level2Label.toLowerCase()} theo từng ${parishTaxonomy.level1Label.toLowerCase()}`}
+                hint={`Bật nếu ${parishTaxonomy.level2Label} 1 của ${parishTaxonomy.level1Label.toLowerCase()} này khác ${parishTaxonomy.level2Label} 1 của ${parishTaxonomy.level1Label.toLowerCase()} kia. Tắt nếu ${parishTaxonomy.level2Label.toLowerCase()} đánh số chung cho cả giáo xứ.`}
+              >
+                <Toggle
+                  on={parishTaxonomy.nested}
+                  label={`Đánh số ${parishTaxonomy.level2Label.toLowerCase()} theo từng ${parishTaxonomy.level1Label.toLowerCase()}`}
+                />
+              </SettingRow>
+            </>
+          ) : null}
+
+          <ParishUnitsEditor taxonomy={parishTaxonomy} initialUnits={parishUnits} />
         </section>
 
         <section>

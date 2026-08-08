@@ -5,7 +5,15 @@ import { BookCover, BookTitle } from "@/components/ui/book";
 import { Card, PageHeading } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { bookBySlug, shelfBySlug, shelves } from "@/lib/fixtures";
+import { describeSelection } from "@/domain/members/parish-taxonomy";
+import {
+  bookBySlug,
+  readers,
+  shelfBySlug,
+  shelves,
+  type Reader,
+  type Shelf,
+} from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -13,22 +21,29 @@ export function generateStaticParams() {
 
 type QueueEntry = {
   initial: string;
-  name: string;
+  reader: Reader;
   date: string;
-  group: string;
 };
 
 function QueueRow({
   position,
   entry,
+  shelf,
   children,
   note,
 }: {
   position: number;
   entry: QueueEntry;
+  shelf: Shelf;
   children: React.ReactNode;
   note: string;
 }) {
+  const parish =
+    describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
+      l1: entry.reader.parishUnitL1Id,
+      l2: entry.reader.parishUnitL2Id,
+    }) || "Chưa có";
+
   return (
     <li className="py-4">
       <div className="flex flex-wrap items-center gap-4">
@@ -45,9 +60,9 @@ function QueueRow({
           {entry.initial}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[16px] font-medium">{entry.name}</p>
+          <p className="text-[16px] font-medium">{entry.reader.fullName}</p>
           <p className="text-[14px] text-meta">
-            Đăng ký {entry.date} · {entry.group}
+            Đăng ký {entry.date} · {parish}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -68,6 +83,12 @@ export default async function BorrowRequestsPage({
 
   const hoangTuBe = bookBySlug("hoang-tu-be")!;
   const nhungTamLong = bookBySlug("nhung-tam-long-cao-ca")!;
+  const haReader = readers.find((r) => r.id === "ha")!;
+  const haParish =
+    describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
+      l1: haReader.parishUnitL1Id,
+      l2: haReader.parishUnitL2Id,
+    }) || "Chưa có";
 
   return (
     <ManagerShell
@@ -97,11 +118,11 @@ export default async function BorrowRequestsPage({
           <ul className="mt-2 divide-y divide-hairline border-t border-hairline">
             <QueueRow
               position={1}
+              shelf={shelf}
               entry={{
                 initial: "G",
-                name: "Giuse Trần Minh",
+                reader: readers.find((r) => r.id === "minh")!,
                 date: "02/08",
-                group: "Tổ 3",
               }}
               note="Giữ chỗ 3 ngày kể từ khi duyệt."
             >
@@ -116,11 +137,11 @@ export default async function BorrowRequestsPage({
             </QueueRow>
             <QueueRow
               position={2}
+              shelf={shelf}
               entry={{
                 initial: "T",
-                name: "Têrêsa Lê Ngọc Ánh",
+                reader: readers.find((r) => r.id === "anh")!,
                 date: "03/08",
-                group: "Tổ 1",
               }}
               note="Chỉ duyệt được khi tới lượt."
             >
@@ -133,11 +154,11 @@ export default async function BorrowRequestsPage({
             </QueueRow>
             <QueueRow
               position={3}
+              shelf={shelf}
               entry={{
                 initial: "M",
-                name: "Maria Vũ Khánh Linh",
+                reader: readers.find((r) => r.id === "linh")!,
                 date: "04/08",
-                group: "Tổ 1",
               }}
               note="Chỉ duyệt được khi tới lượt."
             >
@@ -180,8 +201,10 @@ export default async function BorrowRequestsPage({
                   A
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[16px] font-medium">Anna Phạm Thu Hà</p>
-                  <p className="text-[14px] text-meta">Đăng ký 30/07 · Tổ 2</p>
+                  <p className="text-[16px] font-medium">{haReader.fullName}</p>
+                  <p className="text-[14px] text-meta">
+                    Đăng ký 30/07 · {haParish}
+                  </p>
                 </div>
               </div>
 

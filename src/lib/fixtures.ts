@@ -1,4 +1,5 @@
 import type { CopyStatus } from "./status";
+import type { ParishTaxonomy, ParishUnit } from "@/domain/members/parish-taxonomy";
 
 /**
  * Static sample content. No database, no auth — every screen renders from
@@ -37,6 +38,18 @@ export type Shelf = {
   copies: number;
   readers: number;
   onLoan: number;
+  /**
+   * How this shelf's parish subdivides its people (design
+   * 2026-08-08-parish-taxonomy-design.md, §3.2). Configured in
+   * `/quan-tri/tu-sach`, read everywhere a reader's parish line is shown.
+   *
+   * The four shelves below are deliberately not shaped alike — one level,
+   * two nested, two flat — because fixtures that all look the same would
+   * hide exactly the bugs this module exists to catch (design §2's table).
+   */
+  parishTaxonomy: ParishTaxonomy;
+  /** This shelf's own units — design §7: units belong to one bookshelf. */
+  parishUnits: ParishUnit[];
 };
 
 export const shelf: Shelf = {
@@ -50,6 +63,93 @@ export const shelf: Shelf = {
   copies: 268,
   readers: 96,
   onLoan: 31,
+  // Design §2, row 3: both levels, tổ numbered within each giáo họ — so
+  // "Tổ 1" exists once under Thánh Tâm and again, a different unit, under
+  // Mân Côi.
+  parishTaxonomy: {
+    levels: 2,
+    nested: true,
+    level1Label: "Giáo họ",
+    level2Label: "Tổ",
+  },
+  parishUnits: [
+    {
+      id: "dt-gh-thanh-tam",
+      level: 1,
+      parentId: null,
+      name: "Giáo họ Thánh Tâm",
+      sortOrder: 1,
+      deletedAt: null,
+    },
+    {
+      id: "dt-gh-man-coi",
+      level: 1,
+      parentId: null,
+      name: "Giáo họ Mân Côi",
+      sortOrder: 2,
+      deletedAt: null,
+    },
+    {
+      id: "dt-to-tt-1",
+      level: 2,
+      parentId: "dt-gh-thanh-tam",
+      name: "Tổ 1",
+      sortOrder: 1,
+      deletedAt: null,
+    },
+    {
+      id: "dt-to-tt-2",
+      level: 2,
+      parentId: "dt-gh-thanh-tam",
+      name: "Tổ 2",
+      sortOrder: 2,
+      deletedAt: null,
+    },
+    {
+      id: "dt-to-tt-3",
+      level: 2,
+      parentId: "dt-gh-thanh-tam",
+      name: "Tổ 3",
+      sortOrder: 3,
+      deletedAt: null,
+    },
+    {
+      id: "dt-to-mc-1",
+      level: 2,
+      parentId: "dt-gh-man-coi",
+      name: "Tổ 1",
+      sortOrder: 1,
+      deletedAt: null,
+    },
+    {
+      id: "dt-to-mc-2",
+      level: 2,
+      parentId: "dt-gh-man-coi",
+      name: "Tổ 2",
+      sortOrder: 2,
+      deletedAt: null,
+    },
+    {
+      id: "dt-to-mc-3",
+      level: 2,
+      parentId: "dt-gh-man-coi",
+      name: "Tổ 3",
+      sortOrder: 3,
+      // The one soft-deleted unit in these fixtures (design §7: no hard
+      // delete of a unit a member references). Referenced by no reader
+      // below, so this exercises the split cleanly — gone from every
+      // picker, but never claimed to have never existed.
+      deletedAt: "2026-06-01T00:00:00Z",
+    },
+    {
+      id: "dt-to-mc-4",
+      level: 2,
+      parentId: "dt-gh-man-coi",
+      name: "Tổ 4",
+      sortOrder: 4,
+      deletedAt: null,
+    },
+  ],
 };
 
 export const shelves: Shelf[] = [
@@ -65,6 +165,55 @@ export const shelves: Shelf[] = [
     copies: 402,
     readers: 124,
     onLoan: 47,
+    // Design §2, row 1: one flat level, called tổ.
+    parishTaxonomy: {
+      levels: 1,
+      nested: false,
+      level1Label: "Tổ",
+      level2Label: "Tổ",
+    },
+    parishUnits: [
+      {
+        id: "ct-to-1",
+        level: 1,
+        parentId: null,
+        name: "Tổ 1",
+        sortOrder: 1,
+        deletedAt: null,
+      },
+      {
+        id: "ct-to-2",
+        level: 1,
+        parentId: null,
+        name: "Tổ 2",
+        sortOrder: 2,
+        deletedAt: null,
+      },
+      {
+        id: "ct-to-3",
+        level: 1,
+        parentId: null,
+        name: "Tổ 3",
+        sortOrder: 3,
+        deletedAt: null,
+      },
+      {
+        id: "ct-to-4",
+        level: 1,
+        parentId: null,
+        name: "Tổ 4",
+        sortOrder: 4,
+        deletedAt: null,
+      },
+      {
+        id: "ct-to-5",
+        level: 1,
+        parentId: null,
+        name: "Tổ 5",
+        sortOrder: 5,
+        deletedAt: null,
+      },
+    ],
   },
   {
     slug: "ben-tre",
@@ -77,6 +226,32 @@ export const shelves: Shelf[] = [
     copies: 190,
     readers: 61,
     onLoan: 18,
+    // Design §2, row 2: one flat level, called giáo họ instead of tổ — this
+    // shelf has no concept of tổ at all.
+    parishTaxonomy: {
+      levels: 1,
+      nested: false,
+      level1Label: "Giáo họ",
+      level2Label: "Giáo họ",
+    },
+    parishUnits: [
+      {
+        id: "bt-gh-giuse",
+        level: 1,
+        parentId: null,
+        name: "Giáo họ Thánh Giuse",
+        sortOrder: 1,
+        deletedAt: null,
+      },
+      {
+        id: "bt-gh-phero",
+        level: 1,
+        parentId: null,
+        name: "Giáo họ Thánh Phêrô",
+        sortOrder: 2,
+        deletedAt: null,
+      },
+    ],
   },
   {
     slug: "vinh-long",
@@ -89,6 +264,73 @@ export const shelves: Shelf[] = [
     copies: 148,
     readers: 43,
     onLoan: 12,
+    // Design §2, row 4: both levels, but tổ numbered across the whole
+    // parish rather than within each giáo họ — every level-2 unit's
+    // parentId is null, same as a shelf with nesting off.
+    parishTaxonomy: {
+      levels: 2,
+      nested: false,
+      level1Label: "Giáo họ",
+      level2Label: "Tổ",
+    },
+    parishUnits: [
+      {
+        id: "vl-gh-anna",
+        level: 1,
+        parentId: null,
+        name: "Giáo họ Thánh Anna",
+        sortOrder: 1,
+        deletedAt: null,
+      },
+      {
+        id: "vl-gh-vo-nhiem",
+        level: 1,
+        parentId: null,
+        name: "Giáo họ Đức Mẹ Vô Nhiễm",
+        sortOrder: 2,
+        deletedAt: null,
+      },
+      {
+        id: "vl-to-1",
+        level: 2,
+        parentId: null,
+        name: "Tổ 1",
+        sortOrder: 1,
+        deletedAt: null,
+      },
+      {
+        id: "vl-to-2",
+        level: 2,
+        parentId: null,
+        name: "Tổ 2",
+        sortOrder: 2,
+        deletedAt: null,
+      },
+      {
+        id: "vl-to-3",
+        level: 2,
+        parentId: null,
+        name: "Tổ 3",
+        sortOrder: 3,
+        deletedAt: null,
+      },
+      {
+        id: "vl-to-4",
+        level: 2,
+        parentId: null,
+        name: "Tổ 4",
+        sortOrder: 4,
+        deletedAt: null,
+      },
+      {
+        id: "vl-to-5",
+        level: 2,
+        parentId: null,
+        name: "Tổ 5",
+        sortOrder: 5,
+        deletedAt: null,
+      },
+    ],
   },
 ];
 
@@ -361,8 +603,23 @@ export type Reader = {
   fullName: string;
   born: string;
   age: number;
-  group: string;
-  parish: string;
+  /**
+   * References into a shelf's `parishUnits`, not free text (design §3.3).
+   * Both stay nullable permanently (design §5) — a reader with neither is
+   * not missing data, just not assigned to a group yet ("lộc" below).
+   *
+   * This array is not itself split by shelf — every screen that renders it
+   * reuses the same list regardless of the shelf route it was reached
+   * through, a pre-existing simplification this fix does not attempt to
+   * undo. Most readers below carry ids from `shelf` (Tủ sách Đồng Tháp,
+   * `levels: 2, nested: true`), because that is the shelf every screen
+   * mostly demonstrates. Three are seeded with ids from the other three
+   * shelves instead ("đức", "hoà", "tuấn"), specifically so the other three
+   * rows of design §2's table — flat tổ, flat giáo họ, two flat levels — each
+   * describe at least one real reader too, not just the nested case.
+   */
+  parishUnitL1Id: string | null;
+  parishUnitL2Id: string | null;
   phone: string;
   username: string;
   father: string;
@@ -393,8 +650,8 @@ export const readers: Reader[] = [
     fullName: "Maria Nguyễn Thị Lan",
     born: "12/05/2015",
     age: 11,
-    group: "Tổ 3",
-    parish: "Giáo họ Thánh Tâm",
+    parishUnitL1Id: "dt-gh-thanh-tam",
+    parishUnitL2Id: "dt-to-tt-3",
     phone: "0912 345 678",
     username: "lan.nguyen",
     father: "Giuse Nguyễn Văn Hoà",
@@ -409,8 +666,8 @@ export const readers: Reader[] = [
     fullName: "Giuse Trần Minh",
     born: "03/09/2014",
     age: 11,
-    group: "Tổ 3",
-    parish: "Giáo họ Thánh Tâm",
+    parishUnitL1Id: "dt-gh-thanh-tam",
+    parishUnitL2Id: "dt-to-tt-3",
     phone: "0912 345 678",
     username: "minh.tran",
     father: "Giuse Trần Văn Hùng",
@@ -425,8 +682,8 @@ export const readers: Reader[] = [
     fullName: "Têrêsa Lê Ngọc Ánh",
     born: "21/01/2016",
     age: 10,
-    group: "Tổ 1",
-    parish: "Giáo họ Mân Côi",
+    parishUnitL1Id: "dt-gh-man-coi",
+    parishUnitL2Id: "dt-to-mc-1",
     phone: "0925 888 111",
     username: "anh.le",
     father: "Phêrô Lê Văn Tâm",
@@ -441,8 +698,8 @@ export const readers: Reader[] = [
     fullName: "Anna Phạm Thu Hà",
     born: "07/07/2015",
     age: 11,
-    group: "Tổ 2",
-    parish: "Giáo họ Thánh Tâm",
+    parishUnitL1Id: "dt-gh-thanh-tam",
+    parishUnitL2Id: "dt-to-tt-2",
     phone: "0934 111 222",
     username: "ha.pham",
     father: "Giuse Phạm Văn Long",
@@ -457,8 +714,8 @@ export const readers: Reader[] = [
     fullName: "Phêrô Nguyễn Văn Bình",
     born: "15/11/2013",
     age: 12,
-    group: "Tổ 4",
-    parish: "Giáo họ Mân Côi",
+    parishUnitL1Id: "dt-gh-man-coi",
+    parishUnitL2Id: "dt-to-mc-4",
     phone: "0987 654 321",
     username: "binh.nguyen",
     father: "Giuse Nguyễn Văn Tư",
@@ -473,8 +730,8 @@ export const readers: Reader[] = [
     fullName: "Maria Vũ Khánh Linh",
     born: "02/03/2016",
     age: 10,
-    group: "Tổ 1",
-    parish: "Giáo họ Mân Côi",
+    parishUnitL1Id: "dt-gh-man-coi",
+    parishUnitL2Id: "dt-to-mc-1",
     phone: "0966 333 777",
     username: "linh.vu",
     father: "Giuse Vũ Văn Nam",
@@ -489,14 +746,84 @@ export const readers: Reader[] = [
     fullName: "Gioan Bùi Đức Thắng",
     born: "19/08/2012",
     age: 13,
-    group: "Tổ 2",
-    parish: "Giáo họ Thánh Tâm",
+    parishUnitL1Id: "dt-gh-thanh-tam",
+    parishUnitL2Id: "dt-to-tt-2",
     phone: "0911 222 333",
     username: "thang.bui",
     father: "Phêrô Bùi Văn Chính",
     mother: "Anna Trịnh Thị Nhàn",
     holding: 0,
     membership: "left",
+  },
+  {
+    id: "loc",
+    saintName: "Phanxicô",
+    name: "Nguyễn Văn Lộc",
+    fullName: "Phanxicô Nguyễn Văn Lộc",
+    born: "10/10/2015",
+    age: 10,
+    // Neither level set — a family between parishes, or a volunteer who
+    // simply doesn't know yet (design §5). Renders as "Chưa có", not blank.
+    parishUnitL1Id: null,
+    parishUnitL2Id: null,
+    phone: "0909 111 000",
+    username: "loc.nguyen",
+    father: "Giuse Nguyễn Văn Đức",
+    mother: "Maria Lê Thị Hạnh",
+    holding: 0,
+    membership: "active",
+  },
+  {
+    // Cần Thơ (design §2, row 1: one flat level, called tổ).
+    id: "duc",
+    saintName: "Đaminh",
+    name: "Vũ Quang Đức",
+    fullName: "Đaminh Vũ Quang Đức",
+    born: "14/02/2015",
+    age: 11,
+    parishUnitL1Id: "ct-to-2",
+    parishUnitL2Id: null,
+    phone: "0908 333 222",
+    username: "duc.vu",
+    father: "Phêrô Vũ Văn Cường",
+    mother: "Anna Ngô Thị Loan",
+    holding: 1,
+    membership: "active",
+  },
+  {
+    // Bến Tre (design §2, row 2: one flat level, called giáo họ).
+    id: "hoa",
+    saintName: "Anna",
+    name: "Đỗ Thị Hoà",
+    fullName: "Anna Đỗ Thị Hoà",
+    born: "22/09/2014",
+    age: 11,
+    parishUnitL1Id: "bt-gh-phero",
+    parishUnitL2Id: null,
+    phone: "0977 555 444",
+    username: "hoa.do",
+    father: "Giuse Đỗ Văn Toàn",
+    mother: "Maria Phan Thị Kim",
+    holding: 0,
+    membership: "active",
+  },
+  {
+    // Vĩnh Long (design §2, row 4: both levels, tổ numbered across the
+    // whole parish rather than within each giáo họ).
+    id: "tuan",
+    saintName: "Phêrô",
+    name: "Lý Anh Tuấn",
+    fullName: "Phêrô Lý Anh Tuấn",
+    born: "30/11/2013",
+    age: 12,
+    parishUnitL1Id: "vl-gh-anna",
+    parishUnitL2Id: "vl-to-3",
+    phone: "0933 777 888",
+    username: "tuan.ly",
+    father: "Giuse Lý Văn Phong",
+    mother: "Anna Trần Thị Xuân",
+    holding: 2,
+    membership: "active",
   },
 ];
 

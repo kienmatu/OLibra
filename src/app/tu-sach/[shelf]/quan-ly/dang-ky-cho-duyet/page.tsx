@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, PageHeading } from "@/components/ui/card";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { shelfBySlug, shelves } from "@/lib/fixtures";
+import { describeSelection } from "@/domain/members/parish-taxonomy";
+import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -44,6 +45,17 @@ export default async function PendingApplicationsPage({
   const { shelf: slug } = await params;
   const shelf = shelfBySlug(slug);
   if (!shelf) notFound();
+
+  // Stands in for the pending application: same name, birth date and login
+  // as the existing member "lan" — this queue has no submission of its own
+  // yet, so it borrows a reader who already carries a real parish selection
+  // to render from.
+  const applicant = readers.find((r) => r.id === "lan")!;
+  const applicantParish =
+    describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
+      l1: applicant.parishUnitL1Id,
+      l2: applicant.parishUnitL2Id,
+    }) || "Chưa có";
 
   return (
     <ManagerShell
@@ -95,8 +107,8 @@ export default async function PendingApplicationsPage({
               <div>
                 <p className="font-semibold text-onloan">Có thành viên trùng tên</p>
                 <p className="mt-1 text-[15px] text-ink/90">
-                  Tủ sách đã có Maria Nguyễn Thị Lan · sinh 12/05/2014 · Tổ 3. Kiểm
-                  tra xem có phải cùng một người không.
+                  Tủ sách đã có Maria Nguyễn Thị Lan · sinh {applicant.born} ·{" "}
+                  {applicantParish}. Kiểm tra xem có phải cùng một người không.
                 </p>
                 <button
                   type="button"
@@ -124,8 +136,7 @@ export default async function PendingApplicationsPage({
               </FieldGroup>
 
               <FieldGroup heading="Giáo xứ">
-                <FieldValue label="Tổ" value="Tổ 3" />
-                <FieldValue label="Giáo họ" value="Thánh Tâm" />
+                <FieldValue label="Giáo xứ" value={applicantParish} />
                 <FieldValue label="Tên đăng nhập" value="lan.nguyen" />
               </FieldGroup>
             </div>

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/field";
 import { Pill, type PillTone } from "@/components/ui/pill";
 import { Chip } from "@/components/ui/segmented";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { describeSelection, unitOptions } from "@/domain/members/parish-taxonomy";
 import {
   READER_STATUS,
   readers,
@@ -44,15 +45,69 @@ const MEMBERSHIP_TONE: Record<Reader["membership"], PillTone> = {
 
 export default async function ManagerReadersPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  searchParams: Promise<{ parishUnitId?: string }>;
 }) {
   const { shelf: slug } = await params;
+  const { parishUnitId } = await searchParams;
   const shelf = shelfBySlug(slug);
   if (!shelf) notFound();
 
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
   const listHref = `${base}/nguoi-doc`;
+  const { parishTaxonomy, parishUnits } = shelf;
+
+  function parishLine(reader: Reader): string {
+    return (
+      describeSelection(parishTaxonomy, parishUnits, {
+        l1: reader.parishUnitL1Id,
+        l2: reader.parishUnitL2Id,
+      }) || "Chưa có"
+    );
+  }
+
+  // The payoff design §6 calls out by name: filtering by unit, something a
+  // free-text field could never support (§16.3). One chip per live unit,
+  // level 2 grouped under level 1's own name when nested so two units
+  // sharing a name (e.g. "Tổ 1" under two different giáo họ) still read as
+  // distinct choices — reusing `describeSelection`, the same function every
+  // other screen uses to name a reader's parish, rather than composing the
+  // label by hand again (design §6.1).
+  const level1Units = unitOptions(parishUnits, 1);
+  const filterUnits: { id: string; label: string }[] = level1Units.map((u) => ({
+    id: u.id,
+    label: u.name,
+  }));
+  if (parishTaxonomy.levels === 2) {
+    if (parishTaxonomy.nested) {
+      for (const parent of level1Units) {
+        for (const child of unitOptions(parishUnits, 2, parent.id)) {
+          filterUnits.push({
+            id: child.id,
+            label: describeSelection(parishTaxonomy, parishUnits, {
+              l1: parent.id,
+              l2: child.id,
+            }),
+          });
+        }
+      }
+    } else {
+      for (const child of unitOptions(parishUnits, 2)) {
+        filterUnits.push({ id: child.id, label: child.name });
+      }
+    }
+  }
+
+  const filteredReaders = parishUnitId
+    ? readers.filter(
+        (r) =>
+          r.parishUnitL1Id === parishUnitId || r.parishUnitL2Id === parishUnitId,
+      )
+    : readers;
+
+  const filterUnitLabel = filterUnits.find((u) => u.id === parishUnitId)?.label;
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="nguoi-doc">
@@ -88,135 +143,164 @@ export default async function ManagerReadersPage({
         <Chip href={listHref}>Đã rời (3)</Chip>
       </div>
 
-      <div className="mt-6 hidden overflow-hidden rounded-card border border-hairline md:block">
-        <table className="w-full text-left">
-          <thead className="bg-paper">
-            <tr>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Bạn đọc
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Giáo xứ
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Đang mượn
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Trạng thái
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Thao tác
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-hairline">
-            {readers.map((reader) => (
-              <tr key={reader.id}>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span
-                      aria-hidden
-                      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
-                    >
-                      {reader.name.charAt(0)}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[16px] font-medium">
-                        {reader.fullName}
-                      </p>
-                      <p className="mt-0.5 text-[13px] text-meta">{reader.born}</p>
-                    </div>
+      {filterUnits.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip href={listHref} active={!parishUnitId}>
+            Tất cả đơn vị
+          </Chip>
+          {filterUnits.map((unit) => (
+            <Chip
+              key={unit.id}
+              href={`${listHref}?parishUnitId=${unit.id}`}
+              active={parishUnitId === unit.id}
+            >
+              {unit.label}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
+
+      {filteredReaders.length === 0 ? (
+        <p className="mt-6 rounded-card border border-hairline bg-paper px-4 py-6 text-center text-[15px] text-meta">
+          {filterUnitLabel
+            ? `Chưa có bạn đọc nào thuộc ${filterUnitLabel.toLowerCase()}.`
+            : "Chưa có bạn đọc nào thuộc đơn vị này."}
+        </p>
+      ) : (
+        <>
+          <div className="mt-6 hidden overflow-hidden rounded-card border border-hairline md:block">
+            <table className="w-full text-left">
+              <thead className="bg-paper">
+                <tr>
+                  <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                    Bạn đọc
+                  </th>
+                  <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                    Giáo xứ
+                  </th>
+                  <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                    Đang mượn
+                  </th>
+                  <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                    Trạng thái
+                  </th>
+                  <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                    Thao tác
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {filteredReaders.map((reader) => (
+                  <tr key={reader.id}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span
+                          aria-hidden
+                          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
+                        >
+                          {reader.name.charAt(0)}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-[16px] font-medium">
+                            {reader.fullName}
+                          </p>
+                          <p className="mt-0.5 text-[13px] text-meta">
+                            {reader.born}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-[15px] text-ink/85">
+                      {parishLine(reader)}
+                    </td>
+                    <td className="px-4 py-3 text-[15px] text-ink/85">
+                      {reader.holding}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Pill
+                        icon={MEMBERSHIP_ICON[reader.membership]}
+                        label={READER_STATUS[reader.membership].label}
+                        tone={MEMBERSHIP_TONE[reader.membership]}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <ButtonLink
+                        href={`${listHref}/${reader.id}`}
+                        variant="quiet"
+                        size="sm"
+                      >
+                        Xem hồ sơ
+                      </ButtonLink>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-6 space-y-3 md:hidden">
+            {filteredReaders.map((reader) => (
+              <div
+                key={reader.id}
+                className="rounded-card border border-hairline bg-surface p-4"
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    aria-hidden
+                    className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
+                  >
+                    {reader.name.charAt(0)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[16px] font-medium">
+                      {reader.fullName}
+                    </p>
+                    <p className="mt-0.5 text-[13px] text-meta">
+                      {reader.born} · {parishLine(reader)}
+                    </p>
                   </div>
-                </td>
-                <td className="px-4 py-3 text-[15px] text-ink/85">
-                  {reader.parish}
-                </td>
-                <td className="px-4 py-3 text-[15px] text-ink/85">
-                  {reader.holding}
-                </td>
-                <td className="px-4 py-3">
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <Pill
                     icon={MEMBERSHIP_ICON[reader.membership]}
                     label={READER_STATUS[reader.membership].label}
                     tone={MEMBERSHIP_TONE[reader.membership]}
                   />
-                </td>
-                <td className="px-4 py-3">
-                  <ButtonLink
-                    href={`${listHref}/${reader.id}`}
-                    variant="quiet"
-                    size="sm"
-                  >
-                    Xem hồ sơ
-                  </ButtonLink>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-6 space-y-3 md:hidden">
-        {readers.map((reader) => (
-          <div
-            key={reader.id}
-            className="rounded-card border border-hairline bg-surface p-4"
-          >
-            <div className="flex items-center gap-3">
-              <span
-                aria-hidden
-                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
-              >
-                {reader.name.charAt(0)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[16px] font-medium">
-                  {reader.fullName}
-                </p>
-                <p className="mt-0.5 text-[13px] text-meta">
-                  {reader.born} · {reader.parish}
-                </p>
+                  <span className="text-[14px] text-meta">
+                    Đang mượn {reader.holding}
+                  </span>
+                </div>
+                <ButtonLink
+                  href={`${listHref}/${reader.id}`}
+                  variant="quiet"
+                  size="sm"
+                  className="mt-3 w-full"
+                >
+                  Xem hồ sơ
+                </ButtonLink>
               </div>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <Pill
-                icon={MEMBERSHIP_ICON[reader.membership]}
-                label={READER_STATUS[reader.membership].label}
-                tone={MEMBERSHIP_TONE[reader.membership]}
-              />
-              <span className="text-[14px] text-meta">
-                Đang mượn {reader.holding}
-              </span>
-            </div>
-            <ButtonLink
-              href={`${listHref}/${reader.id}`}
-              variant="quiet"
-              size="sm"
-              className="mt-3 w-full"
-            >
-              Xem hồ sơ
-            </ButtonLink>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <nav className="mt-8 flex items-center justify-between gap-4">
-        <p className="text-[15px] text-meta">Trang 1 / 11</p>
-        <div className="flex gap-2">
-          <Button size="sm" disabled>
-            <ChevronLeft aria-hidden className="size-5" strokeWidth={1.75} />
-            Trước
-          </Button>
-          <Button size="sm">
-            Sau
-            <ChevronRight aria-hidden className="size-5" strokeWidth={1.75} />
-          </Button>
-        </div>
-      </nav>
+          <nav className="mt-8 flex items-center justify-between gap-4">
+            <p className="text-[15px] text-meta">Trang 1 / 11</p>
+            <div className="flex gap-2">
+              <Button size="sm" disabled>
+                <ChevronLeft aria-hidden className="size-5" strokeWidth={1.75} />
+                Trước
+              </Button>
+              <Button size="sm">
+                Sau
+                <ChevronRight aria-hidden className="size-5" strokeWidth={1.75} />
+              </Button>
+            </div>
+          </nav>
 
-      <p className="mt-3 text-[14px] text-meta">
-        Trên điện thoại, bảng này hiển thị thành từng thẻ xếp dọc.
-      </p>
+          <p className="mt-3 text-[14px] text-meta">
+            Trên điện thoại, bảng này hiển thị thành từng thẻ xếp dọc.
+          </p>
+        </>
+      )}
     </ManagerShell>
   );
 }

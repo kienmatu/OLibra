@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement the per-slice plans this document indexes. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the merged fixture-driven UI into a working system — 46 queries and 61 commands over PostgreSQL, enforcing fourteen named business rules — without changing a single screen's URL or visible behaviour.
+**Goal:** Turn the merged fixture-driven UI into a working system — 47 queries and 66 commands over PostgreSQL, enforcing fourteen named business rules — without changing a single screen's URL or visible behaviour.
 
 **Architecture:** Four layers with inward-only dependencies (SDD §3.1). `src/domain/` holds every rule and imports no framework; `src/db/` owns transactions, Row Level Security and migrations; `src/app/` is Next.js and may call the domain but never SQL. Every command is one transaction containing both its state change and its audit record.
 
@@ -118,6 +118,7 @@ critical path entirely. `SkipRequest` is a Phase 2 problem.
 | Books and copies | `CreateBook`, `UpdateBook`, `DeleteBook`, `AddCopies`, `AssessCondition`, `ReportCopyLost`, `MarkCopyFound`, `RetireCopy` | B1 |
 | Catalogue and search | `GetCatalogue`, `SearchCatalogue`, `GetBookDetail`, `GetBooksList`, `GetBookDetail` (manager) | B1 |
 | Readers and registration | all 16 member commands — see the note below on why the profile-change flow cannot be deferred | B2 |
+| Parish taxonomy | `GetParishUnits`, `CreateParishUnit`, `RenameParishUnit`, `ReorderParishUnits`, `DeleteParishUnit`, `UpdateParishTaxonomy` — see the note below on why this cannot wait either | B2 |
 | Reader queries | `GetReadersList`, `GetReaderDetail`, `GetPendingRegistrations`, `GetPendingProfileChanges`, `GetMyDashboard`, `GetMyLoanHistory`, `GetMyProfile`, `GetMyProfileChangeRequest` | B2, D3 |
 | Lending and returning | `LendCopy`, `ReceiveReturn`, `VoidLoan` | C1 |
 | Lending queries | `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans` | C1 |
@@ -136,10 +137,22 @@ all Phase 1, landing on operations already in the table above with no new
 command added. The reader-facing Tặng sách screen and its manager-side
 donation queue (`OfferDonation`, `ReceiveDonation`, `DeclineDonation`,
 `GetDonationQueue`, `GetMyDonations`) are Phase 2, alongside comments and
-announcements, and are the only operations this revision actually adds to the
-count below.
+announcements, and were the only operations that revision added to the count
+below.
 
-Roughly **29 of the 61 commands and 25 of the 46 queries** — just over half
+**The parish-taxonomy design** (`docs/superpowers/specs/2026-08-08-parish-taxonomy-design.md`)
+adds six more, and all six are Phase 1: `GetParishUnits` and the five
+`*ParishUnit`/`UpdateParishTaxonomy` commands in the table above. §9 of that
+design explains why it cannot land later — doing it after S1 means a
+migration on `memberships`, a backfill out of free text that cannot be done
+reliably, and every query that reads a reader's parish details rewritten;
+doing it before S1 ships is two columns that never existed. Registration
+(`RegisterMembership`, `ManagerRegisterReader`, `RegisterMemberOnBehalf`) and
+`ApproveProfileChange` are Phase 1 already, and all four now take
+`parishUnitL1Id`/`parishUnitL2Id` in place of the two free-text fields — so
+the taxonomy that validates those ids has to exist wherever they land.
+
+Roughly **34 of the 66 commands and 26 of the 47 queries** — just over half
 the catalogue, and all four foundation slices in full.
 
 ### What is deferred, and what that costs
@@ -228,7 +241,7 @@ Once S3 merges, these four touch disjoint directories and disjoint tables:
 | Track | Slice | Directory | Tables touched |
 |---|---|---|---|
 | A | **B1 · Catalogue** | `src/domain/catalogue/` | `books`, `book_copies`, `condition_assessments` |
-| B | **B2 · Members** | `src/domain/members/` | `users`, `memberships`, `profile_change_requests` |
+| B | **B2 · Members** | `src/domain/members/` | `users`, `memberships`, `profile_change_requests`, `parish_units` |
 | C | **B3 · Community** | `src/domain/community/` | `comments`, `announcements`, `feedback`, `book_donations` |
 | D | **B4 · Administration** | `src/domain/admin/` | `bookshelves`, `audit_log` (read) |
 
@@ -265,7 +278,11 @@ Decided here so no slice has to invent it. Each file has one responsibility; fil
 src/
   domain/                          ← G1: no framework imports, ever
     kernel/
-      errors.ts                    DomainError + the three shapes (G8)
+      errors.ts                    DomainError + the three shapes (G8) — already
+                                    exists, seeded with only the parish-taxonomy
+                                    module's three codes; extend, don't recreate
+      block.ts                     Block — the shared { blocked, reason? } shape
+                                    (already exists; circulation imports it, C1)
       audit.ts                     AuditWriter — the only writer of audit_log
       tenant.ts                    TenantContext — carries bookshelfId + actor
       clock.ts                     Clock interface; timezone-aware today() (G6)
@@ -282,6 +299,8 @@ src/
       commands/                    register-membership.ts, set-credentials.ts, …
       queries/
       policy.ts                    membership state machine (BR §7.5)
+      parish-taxonomy.ts           already exists: unitOptions, validateSelection,
+                                    describeSelection (design §6.1) — pure, tested
     community/
     admin/
     notifications/
@@ -341,7 +360,7 @@ Foundation slices have their own fully-scripted plan documents. Wave 1–3 slice
 | S3 · Identity & session | [plan](2026-08-07-s3-identity-session.md) | 3 | all but 2 queries | S2 |
 | C1 · Lending core | [plan](2026-08-07-c1-lending-core.md) | 3 cmd + 3 qry | C2 | B1, B2 |
 | B1 · Catalogue | §7.1 below | 8 cmd + 6 qry | C1, E | S3 |
-| B2 · Members | §7.2 below | 16 cmd + 8 qry | C1, D1, E | S3 |
+| B2 · Members | §7.2 below | 21 cmd + 9 qry | C1, D1, E | S3 |
 | B3 · Community | §7.3 below | 17 cmd + 6 qry | E | S3 |
 | B4 · Administration | §7.4 below | 8 cmd + 12 qry | E | S3 |
 | B5 · Object storage | §7.5 below | — | avatars, covers | S2 |
@@ -378,23 +397,33 @@ searchBooksForLending(ctx: TenantContext, q: string): Promise<LendableBookRow[]>
 
 ### 7.2 B2 · Members
 
-**Files:** `src/domain/members/commands/{register-membership,manager-register-reader,register-member-on-behalf,approve-membership,reject-membership,suspend-membership,reactivate-membership,mark-membership-left,set-reader-credentials,update-own-profile,propose-profile-change,approve-profile-change,reject-profile-change,cancel-profile-change,change-own-password,propose-avatar-change}.ts`, `src/domain/members/queries/*`, `src/domain/members/policy.ts`.
+**Files:** `src/domain/members/commands/{register-membership,manager-register-reader,register-member-on-behalf,approve-membership,reject-membership,suspend-membership,reactivate-membership,mark-membership-left,set-reader-credentials,update-own-profile,propose-profile-change,approve-profile-change,reject-profile-change,cancel-profile-change,change-own-password,propose-avatar-change,create-parish-unit,rename-parish-unit,reorder-parish-units,delete-parish-unit,update-parish-taxonomy}.ts`, `src/domain/members/queries/{...,get-parish-units}.ts`, `src/domain/members/policy.ts`.
+
+**One file in that list already exists and is already tested.** `src/domain/members/parish-taxonomy.ts` — the pure shape behind `GetParishUnits` and every command above whose name starts `*ParishUnit*` or `UpdateParishTaxonomy` — was built ahead of this slice, because the picker on the registration form needed it before this slice existed (design `2026-08-08-parish-taxonomy-design.md` §6.1). `tests/domain/members/parish-taxonomy.test.ts` already covers it. What is *not* built yet is everything around it: the five CRUD commands, `GetParishUnits` itself, and the `runCommand`/`runQuery` wiring that would make any of `register-membership.ts` etc. real — those are this slice's actual work, same as before this design landed. Read the file before assuming it needs writing from scratch.
 
 **Produces:**
 ```ts
 registerMembership(input: RegistrationInput): Promise<{ userId: string; membershipId: string }>
 setReaderCredentials(ctx: TenantContext, input: { membershipId: string; username: string; password: string }): Promise<void>
-approveProfileChange(ctx: TenantContext, input: { requestId: string }): Promise<void>
+approveProfileChange(ctx: TenantContext, input: { requestId: string; parishUnitL1Id?: string; parishUnitL2Id?: string }): Promise<void>
 membershipAllowsNewLoan(m: Membership): { allowed: boolean; reason?: ErrorCode }
 ```
 
-**Named tests required:** INV-4, INV-13, INV-14 — `tests/invariants/inv-04-*.test.ts`, `inv-13-*.test.ts`, `inv-14-*.test.ts`.
+`parish-taxonomy.ts` already produces (built, not to be redone):
+```ts
+defaultTaxonomy(): ParishTaxonomy
+unitOptions(units: ParishUnit[], level: 1 | 2, parentId?: string | null): ParishUnit[]
+validateSelection(taxonomy: ParishTaxonomy, units: ParishUnit[], selection: { l1: string | null; l2: string | null }): Block
+describeSelection(taxonomy: ParishTaxonomy, units: ParishUnit[], selection: { l1: string | null; l2: string | null }): string
+```
+
+**Named tests required:** INV-4, INV-13, INV-14 — `tests/invariants/inv-04-*.test.ts`, `inv-13-*.test.ts`, `inv-14-*.test.ts`. The parish-taxonomy selection rule (OPS §4.3) is not one of the fourteen numbered invariants (DATABASE.md §7 explains why) but still needs its own named test once `register-membership.ts` exists — `validateSelection` is already covered in isolation; what is missing is a test that the command actually calls it inside the transaction rather than trusting the picker.
 
 INV-14's test is worth stating precisely because it is easy to write a weak version: assert that inserting a user with a username and no password fails, that password-without-username fails, that both-null succeeds, and that both-set succeeds. A test that only checks the happy path proves nothing about a check constraint.
 
 INV-13 has two halves and needs both: a partial unique index makes a second pending request for the same person fail; and a test that writing `users` outside `approveProfileChange` is not something any other command does.
 
-**Acceptance:** identity is reused across shelves when the same person registers at a second parish (BR §5.3) — only tổ and giáo họ are re-entered; `SetReaderCredentials` writes audit action `credentials.set` with before/after both null, never the password or its hash (BR §2); a pending profile change leaves the existing phone number in force.
+**Acceptance:** identity is reused across shelves when the same person registers at a second parish (BR §5.3) — only the parish-unit references are re-entered; `SetReaderCredentials` writes audit action `credentials.set` with before/after both null, never the password or its hash (BR §2); a pending profile change leaves the existing phone number in force; a soft-deleted parish unit stops appearing in `GetParishUnits`/`unitOptions` while a membership that already references it keeps resolving its name through `describeSelection` (BR §5.6, design §7).
 
 **Blocked by:** S3, and B5 for avatars. **Blocks:** C1, D1. **Open:** Q6.
 

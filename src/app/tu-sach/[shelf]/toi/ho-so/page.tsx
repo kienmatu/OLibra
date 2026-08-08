@@ -6,6 +6,11 @@ import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
+import {
+  hasVisibleLevel2,
+  unitName,
+  unitOptions,
+} from "@/domain/members/parish-taxonomy";
 import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -23,6 +28,11 @@ export default async function ReaderProfilePage({
 
   const reader = readers.find((r) => r.id === "minh")!;
   const pendingPhone = "0912 345 999";
+
+  const showL1 = unitOptions(shelf.parishUnits, 1).length > 0;
+  const showL2 = hasVisibleLevel2(shelf.parishTaxonomy, shelf.parishUnits);
+  const l1UnitName = unitName(shelf.parishUnits, reader.parishUnitL1Id);
+  const l2UnitName = unitName(shelf.parishUnits, reader.parishUnitL2Id);
 
   return (
     <>
@@ -107,35 +117,45 @@ export default async function ReaderProfilePage({
             </Field>
           </section>
 
-          <section className="space-y-4 border-t border-hairline pt-8">
-            <h2 className="text-xl font-semibold">Giáo xứ</h2>
+          {showL1 || showL2 ? (
+            <section className="space-y-4 border-t border-hairline pt-8">
+              <h2 className="text-xl font-semibold">Giáo xứ</h2>
 
-            <Field label="Tổ">
-              <ReadOnlyValue>
-                <Lock
-                  aria-hidden
-                  className="mr-2 size-4 text-meta"
-                  strokeWidth={1.75}
-                />
-                {reader.group}
-              </ReadOnlyValue>
-            </Field>
+              {showL1 ? (
+                <Field label={shelf.parishTaxonomy.level1Label}>
+                  <ReadOnlyValue>
+                    <Lock
+                      aria-hidden
+                      className="mr-2 size-4 text-meta"
+                      strokeWidth={1.75}
+                    />
+                    {l1UnitName}
+                  </ReadOnlyValue>
+                </Field>
+              ) : null}
 
-            <Field label="Giáo họ">
-              <ReadOnlyValue>
-                <Lock
-                  aria-hidden
-                  className="mr-2 size-4 text-meta"
-                  strokeWidth={1.75}
-                />
-                {reader.parish}
-              </ReadOnlyValue>
-            </Field>
+              {showL2 ? (
+                <Field label={shelf.parishTaxonomy.level2Label}>
+                  <ReadOnlyValue>
+                    <Lock
+                      aria-hidden
+                      className="mr-2 size-4 text-meta"
+                      strokeWidth={1.75}
+                    />
+                    {l2UnitName}
+                  </ReadOnlyValue>
+                </Field>
+              ) : null}
 
-            <p className="text-[14px] text-meta">
-              Muốn đổi tổ hoặc giáo họ thì nhờ quản lý tủ sách giúp.
-            </p>
-          </section>
+              <p className="text-[14px] text-meta">
+                Muốn đổi {shelf.parishTaxonomy.level1Label.toLowerCase()}
+                {showL2
+                  ? ` hoặc ${shelf.parishTaxonomy.level2Label.toLowerCase()}`
+                  : ""}{" "}
+                thì nhờ quản lý tủ sách giúp.
+              </p>
+            </section>
+          ) : null}
 
           <section className="space-y-4 border-t border-hairline pt-8">
             <h2 className="text-xl font-semibold">Riêng tư</h2>

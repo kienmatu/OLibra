@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Camera, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input } from "@/components/ui/field";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
@@ -112,27 +113,15 @@ export default async function RegisterReaderOnBehalfPage({
         <div className="space-y-6">
           <GroupHeading>Giáo xứ</GroupHeading>
 
-          <Field label="Tổ" required htmlFor="to">
-            <Select id="to" defaultValue="">
-              <option value="" disabled>
-                Chọn tổ
-              </option>
-              <option>Tổ 1</option>
-              <option>Tổ 2</option>
-              <option>Tổ 3</option>
-              <option>Tổ 4</option>
-            </Select>
-          </Field>
+          <p className="text-[14px] text-meta">
+            Không bắt buộc. Chưa biết cũng cứ tạo hồ sơ — bổ sung sau cũng được.
+          </p>
 
-          <Field label="Giáo họ" required htmlFor="giao-ho">
-            <Select id="giao-ho" defaultValue="">
-              <option value="" disabled>
-                Chọn giáo họ
-              </option>
-              <option>Giáo họ Thánh Tâm</option>
-              <option>Giáo họ Mân Côi</option>
-            </Select>
-          </Field>
+          <ParishUnitFields
+            idPrefix="nguoi-doc-moi"
+            taxonomy={shelf.parishTaxonomy}
+            units={shelf.parishUnits}
+          />
         </div>
 
         <div className="space-y-6">

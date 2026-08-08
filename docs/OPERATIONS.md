@@ -2,7 +2,7 @@
 
 **Status:** Draft for backend implementation. Transport-neutral by design.
 **Date:** 2026-08-07
-**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 47 route files) and the settled stack. This catalogue defines **46 queries** (§3) and **61 commands** (§4), enforcing the fourteen business rules of §6.
+**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 47 route files) and the settled stack. This catalogue defines **47 queries** (§3) and **66 commands** (§4), enforcing the fourteen business rules of §6.
 
 This document does not restate [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md); it references it by section and adds what that document does not already say: names, inputs, callers, invariant enforcement, audit actions, and named failure modes for every command and query the UI needs. [DESIGN.md](DESIGN.md) is referenced only for the UI behaviour that shapes an operation's contract (e.g. why blocking conditions must be visible before a confirm step).
 
@@ -26,7 +26,7 @@ Every operation is either a **query** or a **command**. Nothing is a third thing
 
 **Membership, not just authentication.** Per §1.2 of the requirements, a bookshelf's catalogue, book detail, search, and announcements are no longer reachable by an unauthenticated caller at all — only the landing page, the portal directory, and the sign-in and registration forms are public. Every operation below whose Caller is `reader` or higher additionally requires that the caller hold a membership *of the specific `bookshelfId` in the request* — a valid `reader` session for shelf A grants nothing on shelf B. This is the same structural scoping INV-10 already demands; membership-of-this-shelf is simply now also a precondition for reading, not only for writing.
 
-**Identifiers.** `bookshelfId` — the tenant. `userId` — the global identity (§5.3): username, password, name, DOB, phone, etc. `membershipId` — a user's relationship to *one* shelf: role, status, tổ, giáo họ, approval history. Most day-to-day reader-facing operations act on a `membershipId`, not a bare `userId`, because role and status live on the membership, not the person. `bookId` (title), `copyId` (physical object), `loanId`, `requestId` (a `BorrowRequest`), `profileChangeRequestId` (a `ProfileChangeRequest`), `commentId`, `announcementId`, `feedbackId`.
+**Identifiers.** `bookshelfId` — the tenant. `userId` — the global identity (§5.3): username, password, name, DOB, phone, etc. `membershipId` — a user's relationship to *one* shelf: role, status, its parish-unit references (`parishUnitL1Id`, `parishUnitL2Id` — BR §5.6), approval history. Most day-to-day reader-facing operations act on a `membershipId`, not a bare `userId`, because role and status live on the membership, not the person. `bookId` (title), `copyId` (physical object), `loanId`, `requestId` (a `BorrowRequest`), `profileChangeRequestId` (a `ProfileChangeRequest`), `commentId`, `announcementId`, `feedbackId`, `parishUnitId`.
 
 **Callers.** Roles are hierarchical within a shelf: `admin` ⊃ `manager` ⊃ `reader` (§13.1). Where a command lists `manager` as the minimum caller, `admin` can call it too, automatically — the table never repeats the inherited role. `guest` is listed only where unauthenticated calls are genuinely allowed. `super_admin` can call anything anywhere; it is listed explicitly only for the handful of operations that are exclusively its own.
 
@@ -64,12 +64,15 @@ Everything about a shelf's books, announcements, and search moved here from §3.
 | `GetAnnouncementDetail` | One announcement's full body. | `bookshelfId`, `announcementSlug` | Title, body, author, date | `reader` | — |
 | `GetMyDashboard` | "My page" — held books, pending requests, recent reads (§16.2). | `membershipId` | Current loans with days-remaining, pending/held requests with queue position, recently returned | `reader` | Days remaining/overdue per loan (§8), queue position |
 | `GetMyLoanHistory` | Full borrowing history, reverse-chronological. | `membershipId`, `page` | Loan rows with return condition | `reader` | — |
-| `GetMyProfile` | View own profile and propose changes to it (§16.2). | `membershipId` | Personal fields, tổ/giáo họ (read-only), leaderboard toggle, current pending change if any (see `GetMyProfileChangeRequest`) | `reader` | — |
+| `GetMyProfile` | View own profile and propose changes to it (§16.2). | `membershipId` | Personal fields, parish-unit selections (read-only — `describeSelection`'s rendering of them, per shelf label), leaderboard toggle, current pending change if any (see `GetMyProfileChangeRequest`) | `reader` | — |
 | `GetMyProfileChangeRequest` | The reader's own pending profile-change proposal, if one exists (§16.2: "the page shows the current value with the pending one beside it, and says plainly that it is waiting"). | `membershipId` | Current values and proposed values side by side, status, when proposed — `null`/empty if nothing is pending (INV-13: at most one) | `reader` | — |
 | `GetMyNotifications` | Bell dropdown / notifications page. | `membershipId` | Notification list, unread count | `reader` | Unread count |
 | `GetMyDonations` | The reader's own book-donation offers and their status (§16.2's Tặng sách screen). | `membershipId` | Donation rows: description, estimated count, status, decision note if declined | `reader` | — |
+| `GetParishUnits` | The shelf's parish taxonomy and unit list, for rendering zero, one or two pickers (BR §5.6; `src/domain/members/parish-taxonomy.ts`'s `unitOptions`). | `bookshelfId` | The taxonomy (`levels`, `nested`, `level1Label`, `level2Label`) and every live unit: id, level, `parentId`, name, `sortOrder` | `reader` | Soft-deleted units excluded — a unit stops appearing in the picker once deleted, but keeps describing whoever already references it |
 
-Reader full names on these pages are governed by the shelf's `public_name_display` setting (§5.5, assumption 6 in §4) — `GetShelfHome`, `GetBookDetail`, and any leaderboard-bearing query must apply it, never returning the manager-only fields (§5.3: DOB, parents' names, phone, tổ, giáo họ) regardless of the setting. That setting now governs *member-facing* display, not public display — there is no public display of a shelf's readers any more.
+Reader full names on these pages are governed by the shelf's `public_name_display` setting (§5.5, assumption 6 in §4) — `GetShelfHome`, `GetBookDetail`, and any leaderboard-bearing query must apply it, never returning the manager-only fields (§5.3: DOB, parents' names, phone, parish-unit placement) regardless of the setting. That setting now governs *member-facing* display, not public display — there is no public display of a shelf's readers any more.
+
+> **Open question.** `GetParishUnits`'s caller is `reader`, not `guest` — the taxonomy design's own reasoning is that "a stranger has no business enumerating a parish's internal divisions" once registration already knows which shelf it is joining. But `RegisterMembership` (§4.3) is a `guest`-callable command, and its form renders the same picker before that guest holds any membership at all. Neither source document says how the registration screen is meant to reach a `reader`-gated query while unauthenticated — whichever surface actually renders that form must resolve the taxonomy some other way (a server-rendered page already scoped to its own `bookshelfId`, most plausibly), and this document does not invent what that way is.
 
 ### 3.3 Manager
 
@@ -81,7 +84,7 @@ Reader full names on these pages are governed by the shelf's `public_name_displa
 | `SearchLoansForReturn` | Find the loan to receive back, by book or reader. | `bookshelfId`, `q` | Active loan rows with borrower, due date, copy code | `manager` | Overdue flag |
 | `GetBooksList` | Manager's book list, filterable. | `bookshelfId`, `q?`, `category?`, `sort?`, `page` | Title rows with copy counts and status | `manager` | Aggregate status per title |
 | `GetBookDetail` (manager) | A book's management page. Per §16.1, this page also surfaces **Cho mượn** on an available copy and **Nhận trả** on one that's out, as direct entry points into `LendCopy`/`ReceiveReturn` with the book already chosen (§5). | `bookshelfId`, `bookId` | Metadata, per-copy state/condition/location, condition-assessment history, full loan history | `manager` | Per-copy state, "đang ở đâu" (on shelf / with whom) |
-| `GetReadersList` | Manager's reader list, filterable by status. | `bookshelfId`, `status?`, `q?`, `page` | Reader rows with parish, current holding count, status | `manager` | Holding count |
+| `GetReadersList` | Manager's reader list, filterable by status and parish unit — the payoff a text field could never give (BR §5.3, §16.3). | `bookshelfId`, `status?`, `parishUnitId?`, `q?`, `page` | Reader rows with parish-unit names (shelf's own labels), current holding count, status | `manager` | Holding count |
 | `GetReaderDetail` (manager) | A reader's full profile. | `bookshelfId`, `membershipId` | Full profile incl. manager-only fields, current loans, loan history | `manager` | Current loans, days remaining |
 | `GetPendingRegistrations` | The approval queue. | `bookshelfId` | Pending applications with a similar-name warning where one exists | `manager` | Similar-name match (fuzzy name comparison against existing active members) |
 | `GetPendingProfileChanges` | The profile-change approval queue (§16.3: "One card per proposed change, showing the current value and the proposed one side by side"). | `bookshelfId` | Pending `ProfileChangeRequest` rows for this shelf's members, each with current and proposed values side by side | `manager` | — |
@@ -342,22 +345,27 @@ A reader withdraws their own pending or held request, from the dashboard §16.2 
 #### `RegisterMembership`
 Public self-registration (§16.1, `src/app/dang-ky/page.tsx`) — creates a `pending` membership. Reuses an existing global `User` identity if the phone/username already exists at another shelf (§5.3: "identity is reused" across shelves).
 
-- **Inputs:** `bookshelfId`, username, password, saint name?, full name, DOB, father's name?, mother's name?, phone, tổ, giáo họ
+- **Inputs:** `bookshelfId`, username, password, saint name?, full name, DOB, father's name?, mother's name?, phone, `parishUnitL1Id?`, `parishUnitL2Id?`
 - **Caller:** `guest`
-- **Invariants enforced:** INV-8
+- **Invariants enforced:** INV-8; the parish-taxonomy selection rule (BR §5.6) — when the shelf's taxonomy is nested, a supplied `parishUnitL2Id` must belong to the supplied `parishUnitL1Id`, checked by `validateSelection` in `src/domain/members/parish-taxonomy.ts` in the same transaction as the write, not by a constraint (DATABASE.md §7)
 - **Audit action:** `membership.registered`
 - **Failure modes:**
   - `username_taken` — "Tên đăng nhập đã được dùng, hãy chọn tên khác."
   - `password_too_short` — "Mật khẩu cần ít nhất 8 ký tự."
   - `passwords_dont_match` — "Mật khẩu nhập lại không khớp."
   - `validation_failed` — "Vui lòng điền đầy đủ các trường bắt buộc."
+  - `parish_unit_l1_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại."
+  - `parish_unit_l2_not_found` — "Đơn vị bậc 2 đã chọn không tồn tại."
+  - `parish_unit_l2_not_in_l1` — "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn."
+
+Both parish-unit inputs stay optional in every sense the command can enforce — nothing above requires either one to be present, matching BR §5.6's rule that both stay optional permanently, not just until the shelf finishes configuring its units.
 
 #### `ManagerRegisterReader`
 A manager registers a new reader in person, from the quick-lend flow's "Đăng ký người đọc mới" escape hatch (§16.3) or the readers list. Because this exists specifically so a manager standing at the shelf can lend to a brand-new reader in the same visit — the entire point of the three-tap quick-lend flow (§1.3) — the resulting membership must be created `active`, not `pending`, or the escape hatch would defeat its own purpose.
 
 - **Inputs:** `bookshelfId`, the same fields as `RegisterMembership`
 - **Caller:** `manager`
-- **Invariants enforced:** INV-8
+- **Invariants enforced:** INV-8; the same parish-taxonomy selection rule as `RegisterMembership`
 - **Audit action:** `membership.registered` (recorded with the approving manager as actor, distinguishing it from a self-registration awaiting approval)
 - **Failure modes:** same as `RegisterMembership`
 
@@ -368,7 +376,7 @@ A manager fills in the registration form for a child standing in front of them (
 
 - **Inputs:** `bookshelfId`, the same fields as `RegisterMembership`
 - **Caller:** `manager`
-- **Invariants enforced:** INV-8
+- **Invariants enforced:** INV-8; the same parish-taxonomy selection rule as `RegisterMembership`
 - **Audit action:** `membership.registered` (recorded with the completing manager as actor, so the audit trail shows this was manager-assisted, distinct from a self-registration — but the resulting status is `pending`, unlike `ManagerRegisterReader`)
 - **Failure modes:** same as `RegisterMembership`
 
@@ -456,7 +464,7 @@ bookshelf (§13.2, Oversight). `credentials.set` is therefore one of the audit
 actions the administration surface must be able to filter on by name.
 
 #### `UpdateOwnProfile`
-Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). tổ and giáo họ remain read-only from this command, as before — the profile screen tells the reader why in its own words ("Muốn đổi tổ hoặc giáo họ thì nhờ quản lý tủ sách giúp"), a UI sentence, not requirements text. Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
+Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). A membership's parish-unit fields (BR §5.6) remain read-only from this command, as before — the profile screen tells the reader why with a sentence built from the shelf's own labels, not a fixed one: for Tủ sách Đồng Tháp's taxonomy (*giáo họ*, *tổ*) it renders as "Muốn đổi giáo họ hoặc tổ thì nhờ quản lý tủ sách giúp." (`src/app/tu-sach/[shelf]/toi/ho-so/page.tsx`), a UI sentence, not requirements text — a shelf with different labels, or only one level, gets a different sentence from the same component, never this one hard-coded. Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
 
 - **Inputs:** `membershipId`, leaderboard-visible flag
 - **Caller:** `reader` (self only)
@@ -482,12 +490,17 @@ This has one consequence worth stating, because it is the only proposable field 
 #### `ApproveProfileChange`
 A manager approves a pending change; the proposed values are written to the person record in the same transaction as the audit record (§7.4's diagram: `pending ──► approved (values written to the person)`).
 
-- **Inputs:** `bookshelfId`, `profileChangeRequestId`
+**Also carries `parishUnitL1Id?` and `parishUnitL2Id?`, in place of the two text fields an earlier draft of this catalogue had here.** These are not part of what was proposed — parish units are a membership fact, not one of the person-level fields `ProposeProfileChange` lets a reader put forward (§4.3, above) — they let the approving manager set or correct the reader's parish-unit placement in the same action, which is the mechanism the profile screen's own note points a reader towards when it says a unit change needs the shelf manager's help (`UpdateOwnProfile`, above). Both stay optional here exactly as they are everywhere else (BR §5.6): supplying neither leaves the membership's existing placement untouched.
+
+- **Inputs:** `bookshelfId`, `profileChangeRequestId`, `parishUnitL1Id?`, `parishUnitL2Id?`
 - **Caller:** `manager`
-- **Invariants enforced:** INV-13 (this is the *only* path by which a person's verified details change), INV-8
+- **Invariants enforced:** INV-13 (this is the *only* path by which a person's verified details change), INV-8; the parish-taxonomy selection rule (BR §5.6) when either unit id is supplied — `validateSelection` in `src/domain/members/parish-taxonomy.ts`, same as `RegisterMembership`
 - **Audit action:** `profile_change.approved`
 - **Failure modes:**
   - `not_pending` — "Yêu cầu này đã được xử lý."
+  - `parish_unit_l1_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại."
+  - `parish_unit_l2_not_found` — "Đơn vị bậc 2 đã chọn không tồn tại."
+  - `parish_unit_l2_not_in_l1` — "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn."
 
 #### `RejectProfileChange`
 A manager rejects a pending change with a reason, which the reader then sees (§16.3: mirrors `RejectMembership` and `RejectComment`'s required-reason pattern). The existing values are untouched — there was never anything to undo.
@@ -708,6 +721,61 @@ Edits a shelf's profile and lending policy together, in one save (the built sett
   - `validation_failed` — "Vui lòng kiểm tra lại thông tin."
 
 > **Open question.** The manager-facing settings page (`src/app/.../quan-ly/cai-dat/page.tsx`) is read-only and states "Chỉ quản trị viên mới đổi được các mục này" ("only the *quản trị viên* can change these"). Vietnamese "quản trị viên" is used in this codebase both for the shelf-level `admin` role (labelled "Quản trị tủ sách" in the managers list) and for the global `super_admin` role (labelled "Quản trị viên" there too). The only settings-*edit* screen actually built lives under the super-admin-only `/quan-tri` route tree, not under any shelf-scoped route a shelf `admin` could reach. Whether a shelf's own `admin` role is meant to have an equivalent in-shelf settings-edit screen — matching the role hierarchy's implication that `admin ⊃ manager` should include *more* than a manager, not the same read-only view — is unresolved by the built UI. This document restricts `UpdateBookshelfSettings` to `super_admin` to match what's actually built, but flags this as very likely a gap: a shelf `admin` role with no privilege beyond a `manager` (read-only settings) makes the role distinction in §13.1 pointless.
+
+#### `UpdateParishTaxonomy`
+Sets a shelf's level count, each level's label, and whether the smaller level nests inside the bigger (BR §5.6) — the *Phân chia giáo xứ* section on the same settings screen `UpdateBookshelfSettings` edits (`src/app/quan-tri/tu-sach/page.tsx`).
+
+- **Inputs:** `bookshelfId`, `levels` (1 or 2), `nested` (bool), `level1Label`, `level2Label`
+- **Caller:** `super_admin`
+- **Invariants enforced:** INV-8; `nested` is stored even when `levels` is 1 rather than cleared, so a shelf that drops to one level and later returns to two finds its previous choice intact (BR §5.6) — this command never resets a field it isn't currently asked to change
+- **Audit action:** `parish_taxonomy.updated`
+- **Failure modes:**
+  - `validation_failed` — "Vui lòng kiểm tra lại thông tin." (`levels` outside `{1, 2}`, or an empty label)
+
+#### `CreateParishUnit`
+Adds one unit at a level (BR §5.6) — the "Thêm" row at the foot of each unit list on the settings screen. With nesting on, a level-2 unit is added under a specific level-1 parent; the settings screen lists each level-1 unit's own level-2 list beneath it for exactly this reason.
+
+- **Inputs:** `bookshelfId`, `level` (1 or 2), `parentId?` (an existing level-1 unit of this shelf — required only when the shelf's taxonomy is nested and `level` is 2), `name`, `sortOrder?`
+- **Caller:** `super_admin`
+- **Invariants enforced:** INV-8; when `parentId` is supplied it must reference a live level-1 unit of this shelf — the same nested-parent rule DATABASE.md §7 documents as application-enforced, not structural
+- **Audit action:** `parish_unit.created`
+- **Failure modes:**
+  - `parish_unit_l1_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại." (`parentId` does not resolve to a live level-1 unit of this shelf)
+  - `validation_failed` — "Vui lòng kiểm tra lại thông tin." (empty `name`, `parentId` supplied for a level-1 unit, or `level` outside `{1, 2}`)
+
+#### `RenameParishUnit`
+Changes a unit's name — "Đổi tên" on its row. Never touches `sortOrder` or `parentId`: a rename is a label change only, and BR §5.6's whole point is that renaming stays cheap because every membership references the unit by id, not by its name.
+
+- **Inputs:** `bookshelfId`, `unitId`, `name`
+- **Caller:** `super_admin`
+- **Invariants enforced:** INV-8
+- **Audit action:** `parish_unit.renamed`
+- **Failure modes:**
+  - `parish_unit_l1_not_found` / `parish_unit_l2_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại." / "Đơn vị bậc 2 đã chọn không tồn tại." (`unitId` does not resolve to a live unit at its recorded level)
+  - `validation_failed` — "Vui lòng kiểm tra lại thông tin." (empty `name`)
+
+#### `ReorderParishUnits`
+Sets `sortOrder` for a set of units sharing one level and (when nested) one parent — the mechanism the taxonomy design deliberately keeps explicit rather than inferring an order from digits in a unit's name, so "Tổ 10" cannot sort ahead of "Tổ 2".
+
+- **Inputs:** `bookshelfId`, an ordered list of `unitId`s, all at the same level and (when nested, at level 2) the same `parentId`
+- **Caller:** `super_admin`
+- **Invariants enforced:** INV-8
+- **Audit action:** `parish_unit.reordered`
+- **Failure modes:**
+  - `parish_unit_l1_not_found` / `parish_unit_l2_not_found` — as above, for any id in the list that does not resolve
+  - `validation_failed` — "Vui lòng kiểm tra lại thông tin." (the ids do not all share one level and one parent)
+
+#### `DeleteParishUnit`
+Soft-deletes a unit — "Xoá" on its row. Never a hard delete (BR §5.6, §11): a unit already referenced by a membership keeps describing that membership and simply stops appearing in `unitOptions` (`src/domain/members/parish-taxonomy.ts`) — the record survives, only the offering stops, the same split `MarkCopyFound`'s lost-copies view already draws for a book copy (§4.1, above).
+
+**Deleting a level-1 unit cascades to its live level-2 children**, soft-deleting each of them in the same transaction. Chosen over leaving them live and orphaned: a tổ inside a deleted giáo họ is not a place anyone belongs, and an un-cascaded child is exactly what makes `ParishUnitFields` render a level-2 `<select>` with nothing in it but "— Không chọn —" — the empty-list-renders-no-field promise (BR §5.6) broken by an implementation detail rather than a real absence of units. Deleting a level-2 unit only ever deletes that one row; a level-2 unit has no children to cascade to.
+
+- **Inputs:** `bookshelfId`, `unitId`
+- **Caller:** `super_admin`
+- **Invariants enforced:** INV-8
+- **Audit action:** `parish_unit.deleted` — one entry for the unit itself, plus one per cascaded level-2 child when `unitId` names a level-1 unit
+- **Failure modes:**
+  - `parish_unit_l1_not_found` / `parish_unit_l2_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại." / "Đơn vị bậc 2 đã chọn không tồn tại."
 
 #### `ArchiveBookshelf`
 `active → archived` — hides the shelf from the portal, retains everything. §16.4's Bookshelves bullet does not itself describe archiving; the built settings screen (`src/app/quan-tri/tu-sach/page.tsx`) states the effect as "Lưu trữ sẽ ẩn tủ sách khỏi cổng, nhưng giữ lại toàn bộ dữ liệu và lịch sử," which is that screen's wording, not the requirements'.

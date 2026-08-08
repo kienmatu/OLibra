@@ -6,7 +6,8 @@ import { ButtonLink } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StepIndicator } from "@/components/ui/step-indicator";
-import { bookBySlug, shelfBySlug, shelves } from "@/lib/fixtures";
+import { describeSelection } from "@/domain/members/parish-taxonomy";
+import { bookBySlug, readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -32,6 +33,12 @@ export default async function ChoMuonXacNhanPage({
 
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
   const book = bookBySlug("de-men-phieu-luu-ky")!;
+  const reader = readers.find((r) => r.id === "minh")!;
+  const readerParish =
+    describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
+      l1: reader.parishUnitL1Id,
+      l2: reader.parishUnitL2Id,
+    }) || "Chưa có";
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="cho-muon">
@@ -62,8 +69,8 @@ export default async function ChoMuonXacNhanPage({
           </span>
         </Row>
         <Row label="Người đọc">
-          <p className="text-[16px] font-medium">Giuse Trần Minh</p>
-          <p className="mt-0.5 text-[14px] text-meta">Tổ 3 · Giáo họ Thánh Tâm</p>
+          <p className="text-[16px] font-medium">{reader.fullName}</p>
+          <p className="mt-0.5 text-[14px] text-meta">{readerParish}</p>
         </Row>
         <Row label="Ngày mượn">
           <p className="text-[16px]">Chúa nhật 06/08</p>

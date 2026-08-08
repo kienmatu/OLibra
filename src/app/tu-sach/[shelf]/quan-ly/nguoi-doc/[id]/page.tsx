@@ -15,6 +15,11 @@ import { Pill } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import {
+  hasVisibleLevel2,
+  unitName,
+  unitOptions,
+} from "@/domain/members/parish-taxonomy";
+import {
   READER_STATUS,
   bookBySlug,
   books,
@@ -56,11 +61,28 @@ export default async function ManagerReaderDetailPage({
   // the data. Shown quietly, without implying anything is wrong.
   const hasCredentials = Boolean(reader.username);
 
+  // Rows for the shelf's own parish levels — only for a level that actually
+  // has units, so a shelf with one level (or none yet) doesn't show a row
+  // that could never have a value (design §6.1: the field, and its label,
+  // come from the shelf's taxonomy, not a fixed "Tổ"/"Giáo họ" pair).
+  const parishRows: { label: string; value: React.ReactNode }[] = [];
+  if (unitOptions(shelf.parishUnits, 1).length > 0) {
+    parishRows.push({
+      label: shelf.parishTaxonomy.level1Label,
+      value: unitName(shelf.parishUnits, reader.parishUnitL1Id),
+    });
+  }
+  if (hasVisibleLevel2(shelf.parishTaxonomy, shelf.parishUnits)) {
+    parishRows.push({
+      label: shelf.parishTaxonomy.level2Label,
+      value: unitName(shelf.parishUnits, reader.parishUnitL2Id),
+    });
+  }
+
   const info: { label: string; value: React.ReactNode; private?: boolean }[] = [
     { label: "Tên thánh", value: reader.saintName },
     { label: "Ngày sinh", value: `${reader.born} (${reader.age} tuổi)` },
-    { label: "Tổ", value: reader.group },
-    { label: "Giáo họ", value: reader.parish },
+    ...parishRows,
     { label: "Tên đăng nhập", value: reader.username },
     { label: "Tên cha", value: reader.father, private: true },
     { label: "Tên mẹ", value: reader.mother, private: true },

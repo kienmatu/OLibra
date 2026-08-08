@@ -6,6 +6,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StepIndicator } from "@/components/ui/step-indicator";
+import { describeSelection } from "@/domain/members/parish-taxonomy";
 import {
   bookBySlug,
   readers,
@@ -94,7 +95,10 @@ export default async function ChoMuonNguoiDocPage({
                   {reader.fullName}
                 </p>
                 <p className="truncate text-[14px] text-meta">
-                  {reader.group} · {reader.parish}
+                  {describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
+                    l1: reader.parishUnitL1Id,
+                    l2: reader.parishUnitL2Id,
+                  }) || "Chưa có"}
                 </p>
                 {reason ? (
                   <p className="mt-1 flex items-center gap-1.5 text-[13px] text-meta">
