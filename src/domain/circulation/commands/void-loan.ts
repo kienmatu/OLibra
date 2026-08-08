@@ -1,4 +1,5 @@
 import { RuleViolated, ValidationFailed } from "../../kernel/errors";
+import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
 // Imported, not restated — see the note in `./lend-copy.ts` on why this slice's
 // three commands all take `requireManager` from the catalogue's copy.
@@ -42,6 +43,14 @@ export const voidLoan: Command<VoidLoanInput, { loanId: string }> = async (
   input,
 ) => {
   requireManager(ctx);
+  // `voided_by` is *nullable* (`0005_circulation.sql:41`), which is why this
+  // command was the one that silently resolved with a null actor rather than
+  // failing on a constraint the way `lendCopy` did. A void with nobody's name
+  // on it is the one outcome BR §11 rules out by argument: the reason voiding
+  // beats deleting is that "why is there no loan here" has an answer six
+  // months later, and a null `voided_by` beside a null `audit_log.actor_id`
+  // is half an answer. INV-8 asks for the actor by name.
+  requireIdentifiedActor(ctx);
 
   // Trimmed, so a reason of three spaces is the same as no reason at all. The
   // check is here rather than left to `loans_voided_has_reason`

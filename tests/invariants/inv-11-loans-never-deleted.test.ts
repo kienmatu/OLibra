@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { systemContext } from "../../src/domain/kernel/tenant";
 import { runCommand } from "../../src/domain/kernel/unit-of-work";
 import { lendCopy } from "../../src/domain/circulation/commands/lend-copy";
 import { receiveReturn } from "../../src/domain/circulation/commands/receive-return";
@@ -172,6 +173,34 @@ test("voiding writes an audit record naming the reason", async () => {
   expect(entry.before.status).toBe("active");
   expect(entry.after.status).toBe("voided");
   expect(entry.after.reason).toBe("Ghi nhầm bạn đọc");
+});
+
+test("INV-8: a void with nobody's name on it is refused, whatever the role", async () => {
+  // The point of voiding rather than deleting (BR §11) is that "why is there
+  // no loan here" has an answer six months later. `voided_by` is *nullable*
+  // (0005_circulation.sql:41) and `audit_log.actor_id` is too, so nothing in
+  // the schema stops a void with no actor — and `requireManager` cannot,
+  // because `systemContext` is `role: "super_admin"` with `userId: null` and
+  // outranks every check in `ROLE_RANK`. This command used to resolve under it
+  // and commit both nulls. `requireIdentifiedActor` (kernel/tenant.ts) is what
+  // refuses it; the assertions below are on the *columns*, since the refusal
+  // is only worth having if it stops the row being written.
+  const { shelf, ctx, loanId } = await lentOut(sql);
+
+  await expect(
+    runCommand(sql, systemContext(shelf.id, ctx.clock), voidLoan, {
+      loanId,
+      reason: "Ghi nhầm",
+    }),
+  ).rejects.toMatchObject({ code: "not_permitted" });
+
+  const [loan] = await sql<{ status: string; voided_by: string | null }[]>`
+    select status, voided_by from loans where id = ${loanId}
+  `;
+  expect(loan.status).toBe("active");
+  expect(loan.voided_by).toBeNull();
+  const voids = await sql`select 1 from audit_log where action = 'loan.voided'`;
+  expect(voids).toHaveLength(0);
 });
 
 test("only a manager may void a loan", async () => {

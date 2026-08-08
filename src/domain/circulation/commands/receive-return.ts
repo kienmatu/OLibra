@@ -1,5 +1,6 @@
 import type { AuditEntry } from "../../kernel/audit";
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
+import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command, Tx } from "../../kernel/unit-of-work";
 // Imported, not restated — see the note in `./lend-copy.ts` on why this slice's
 // three commands all take `requireManager` from the catalogue's copy.
@@ -68,15 +69,18 @@ export const receiveReturn: Command<
 > = async (tx, ctx, input) => {
   requireManager(ctx);
 
-  if (!isCopyCondition(input.condition)) {
-    throw new ValidationFailed("validation_failed", "condition");
-  }
   // `condition_assessments.assessed_by` is `not null references users(id)`
   // (0005_circulation.sql:90), so a system context — the seed, scheduled
   // housekeeping — cannot record one. Rejected by name here rather than as a
   // not-null violation from inside the transaction, the same way
-  // `assessCondition` (B1) rejects it.
-  if (!ctx.actor.userId) throw new RuleViolated("not_permitted");
+  // `assessCondition` (B1) rejects it. Shared with `lendCopy` and `voidLoan`
+  // since the fix report: all three write an actor column and only this one
+  // used to refuse.
+  requireIdentifiedActor(ctx);
+
+  if (!isCopyCondition(input.condition)) {
+    throw new ValidationFailed("validation_failed", "condition");
+  }
 
   const [loan] = await tx<
     {

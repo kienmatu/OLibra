@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
-import type { TenantContext } from "../../../src/domain/kernel/tenant";
+import {
+  systemContext,
+  type TenantContext,
+} from "../../../src/domain/kernel/tenant";
 import { runCommand } from "../../../src/domain/kernel/unit-of-work";
 import { lendCopy } from "../../../src/domain/circulation/commands/lend-copy";
 import { migrate } from "../../../src/db/migrate";
@@ -52,6 +55,27 @@ test("only a manager may lend", async () => {
       membershipId: reader.id,
     }),
   ).rejects.toMatchObject({ code: "not_permitted" });
+  expect(await sql`select 1 from loans`).toHaveLength(0);
+});
+
+test("a system context cannot lend, and does not reach the insert to find out", async () => {
+  // `systemContext` (kernel/tenant.ts) is `{ userId: null, membershipId: null,
+  // role: "super_admin" }` — the top of `ROLE_RANK`, so `requireManager` waves
+  // it straight through. Before `requireIdentifiedActor`, this call reached the
+  // insert and came back as a raw `PostgresError` 23502 on `lent_by`: an
+  // unstructured exception from inside a transaction, which OPS §2 forbids.
+  // The assertion is on the *code*, because a `rejects.toThrow()` alone was
+  // already satisfied by the 23502.
+  const { shelf } = await shelfWithManager("kien-giang");
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const reader = await makeMember(sql, shelf.id);
+
+  await expect(
+    runCommand(sql, systemContext(shelf.id, clock), lendCopy, {
+      copyId: copyIds[0],
+      membershipId: reader.id,
+    }),
+  ).rejects.toMatchObject({ code: "not_permitted", name: "RuleViolated" });
   expect(await sql`select 1 from loans`).toHaveLength(0);
 });
 

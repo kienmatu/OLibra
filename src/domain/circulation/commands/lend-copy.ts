@@ -1,5 +1,6 @@
 import type { AuditEntry } from "../../kernel/audit";
 import { isUniqueViolation, NotFound, RuleViolated } from "../../kernel/errors";
+import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command, Tx } from "../../kernel/unit-of-work";
 // `requireManager` is imported rather than restated. Two identical copies of
 // it already exist — `../../catalogue/policy.ts:223` and
@@ -92,6 +93,13 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
   input,
 ) => {
   requireManager(ctx);
+  // `loans.lent_by` is `not null references users(id)`
+  // (`0005_circulation.sql:23`). Without this, a `systemContext` — which
+  // `requireManager` waves through on rank alone — reached the insert and came
+  // back as a raw `PostgresError` 23502 from inside the transaction, the
+  // unstructured exception OPS §2 forbids. INV-8's "the audit record names the
+  // actor" wants the same thing one line earlier.
+  requireIdentifiedActor(ctx);
 
   // Both rows are read before either predicate runs, because `copyLendable`
   // needs this reader's *user* id to answer "is this hold theirs?" while OPS

@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
-import type { TenantContext } from "../../../src/domain/kernel/tenant";
+import {
+  systemContext,
+  type TenantContext,
+} from "../../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
 import { lendCopy } from "../../../src/domain/circulation/commands/lend-copy";
 import { receiveReturn } from "../../../src/domain/circulation/commands/receive-return";
@@ -624,6 +627,28 @@ test("only a manager may receive a return", async () => {
   await expect(
     runCommand(sql, asReader, receiveReturn, { loanId, condition: "perfect" }),
   ).rejects.toMatchObject({ code: "not_permitted" });
+});
+
+test("a system context cannot receive a return", async () => {
+  // The one of the three commands that always refused this, kept as a test now
+  // that the check is shared (`requireIdentifiedActor`, kernel/tenant.ts).
+  // `condition_assessments.assessed_by` is `not null references users(id)`
+  // (0005_circulation.sql:90), so the seed and scheduled housekeeping cannot
+  // record one — and `requireManager` alone cannot say so, because
+  // `systemContext`'s role is `super_admin`.
+  const { shelf, loanId } = await lentOut(sql);
+
+  await expect(
+    runCommand(sql, systemContext(shelf.id, clock), receiveReturn, {
+      loanId,
+      condition: "perfect",
+    }),
+  ).rejects.toMatchObject({ code: "not_permitted" });
+
+  const [loan] = await sql<{ status: string }[]>`
+    select status from loans where id = ${loanId}
+  `;
+  expect(loan.status).toBe("active");
 });
 
 test("a condition outside the enum is refused before anything is written", async () => {
