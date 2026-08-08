@@ -38,6 +38,19 @@ export const ERROR_MESSAGES = {
   not_lost: "Bản sách này hiện không ở trạng thái đã mất.",
   copy_on_loan:
     "Không thể ngừng dùng bản sách đang được mượn. Hãy nhận trả hoặc báo mất trước.",
+  // — catalogue: added by B1 —
+  // OPS §4.1 gives `validation_failed` three different sentences across
+  // CreateBook, UpdateBook and AddCopies. One code maps to one sentence, so
+  // the two that are not the shipped wording get their own codes.
+  required_fields_missing: "Vui lòng điền đầy đủ các trường bắt buộc.",
+  copy_count_invalid: "Số bản phải lớn hơn 0.",
+  category_not_found: "Không tìm thấy thể loại này.",
+  // Q3, decided in the B1 plan: BR §7.1 draws only on_loan → lost. The
+  // sentence names what is allowed instead, per BR §17.7.
+  copy_not_on_loan: "Chỉ có thể báo mất bản sách đang được mượn.",
+  // Distinct from `reason_required`, whose shipped sentence says "lý do
+  // huỷ" — a cancellation. Withdrawing a copy from the shelf is not that.
+  retire_reason_required: "Vui lòng ghi lý do ngừng dùng bản sách này.",
 
   // — circulation —
   copy_not_available: "Bản sách này đang được mượn hoặc đang giữ chỗ.",
