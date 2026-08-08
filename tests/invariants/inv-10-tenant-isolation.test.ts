@@ -175,6 +175,61 @@ test("INV-10/INV-11: olibra_app cannot delete a loan", async () => {
   ).rejects.toMatchObject({ code: "42501" });
 });
 
+test("INV-10: feedback is shelf-scoped — shelf A cannot read or resolve shelf B's messages", async () => {
+  // CRITICAL 1: `feedback` carries a `bookshelf_id` (nullable, for
+  // genuinely site-wide messages) but 0010_rls.sql's loop skipped it on the
+  // strength of a DATABASE.md §3 sentence that, read literally, covers the
+  // whole table rather than just its null rows. Demonstrated live before
+  // the fix: `olibra_app` scoped to shelf A could read shelf B's guest
+  // names/phone numbers and resolve shelf B's message.
+  const a = await makeShelf(sql);
+  const b = await makeShelf(sql);
+  const [msgB] = await sql<{ id: string }[]>`
+    insert into feedback (bookshelf_id, subject, body, guest_name, guest_contact)
+    values (${b.id}, 'Xin chào', 'Nội dung', 'Người B', '0900000001')
+    returning id
+  `;
+
+  const visible = await sql.begin(async (tx) => {
+    await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
+    await tx`set local role olibra_app`;
+    return tx`select id from feedback where id = ${msgB.id}`;
+  });
+  expect(visible).toHaveLength(0);
+
+  await expect(
+    sql.begin(async (tx) => {
+      await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
+      await tx`set local role olibra_app`;
+      return tx`update feedback set status = 'resolved' where id = ${msgB.id}`;
+    }),
+  ).resolves.toBeDefined(); // the UPDATE itself does not error...
+
+  // ...but RLS's `using` clause filters shelf B's row out of the update's
+  // candidate set entirely, so it silently affects zero rows rather than
+  // shelf B's, and the row is untouched.
+  const [row] = await sql<{ status: string }[]>`
+    select status from feedback where id = ${msgB.id}
+  `;
+  expect(row.status).toBe("new");
+});
+
+test("INV-10: a genuinely site-wide feedback row (null bookshelf_id) is visible from any shelf session", async () => {
+  const a = await makeShelf(sql);
+  const [siteWide] = await sql<{ id: string }[]>`
+    insert into feedback (bookshelf_id, subject, body, guest_name, guest_contact)
+    values (null, 'Góp ý chung', 'Nội dung', 'Khách', '0900000002')
+    returning id
+  `;
+
+  const visible = await sql.begin(async (tx) => {
+    await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
+    await tx`set local role olibra_app`;
+    return tx`select id from feedback where id = ${siteWide.id}`;
+  });
+  expect(visible).toHaveLength(1);
+});
+
 test("INV-10/INV-12: olibra_app cannot update an audit row", async () => {
   const shelf = await makeShelf(sql);
   const [entry] = await sql<{ id: string }[]>`
