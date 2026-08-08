@@ -50,15 +50,31 @@ const no = (reason: ErrorCode): Block => ({ blocked: true, reason });
  * question that distinguishes `LendCopy` from `HandoverRequest`, and the
  * reason this predicate exists alongside that one rather than instead of it.
  *
- * **The hold branch is guarded on `state === "held"`, and that guard is what
- * keeps a lost copy reading as lost.** A copy can carry a stale approved hold
- * and then be reported lost — nothing deletes the `borrow_requests` row (OPS
- * §2 lists it among the tables never hard-deleted) — so `heldForUserId` can be
- * non-null on a copy whose state is `lost`. The volunteer must hear "đã mất
- * hoặc ngừng dùng", which names something they can act on, rather than "đang
- * được mượn hoặc đang giữ chỗ", which sends them to look for a book that is
- * not on the shelf. Dropping `copy.state === "held" &&` reads as a safe
- * simplification — surely only a held copy has a holder — and is not.
+ * **The hold branch is guarded on `state === "held"`, and the state it is
+ * about is `on_loan`.** An earlier version of this paragraph said the guard was
+ * what keeps a lost copy reading as lost. It is not, and the next paragraph
+ * said so against it: the `lost || retired` branch returns three lines above,
+ * so a lost copy with a stale hold never reaches this line at all. Measured —
+ * dropping `copy.state === "held" &&` leaves every lost/retired test green.
+ *
+ * What it actually decides is the one remaining case: a copy that is `on_loan`
+ * while a live approved hold names the reader now asking for it. Without the
+ * guard this predicate answers *yes* to that, and the copy in a child's hands
+ * gets promised to somebody else. The command would still refuse — INV-1's
+ * partial unique index rejects the second active loan and `lendCopy`
+ * translates the `23505` to the same `copy_not_available` — but that is a
+ * constraint violation caught after the write was attempted, where BR §16.3
+ * asks for an answer a *screen* can give before the confirm step, and a screen
+ * cannot consult an index. A pure predicate that is wrong and rescued by a
+ * constraint is still wrong.
+ *
+ * That state is representable across two tables even though no single column
+ * admits it (DB §4.4 and §7 on what `book_copies.state` alone guarantees), and
+ * it was reachable through C1's own commands until `lendCopy` started closing
+ * a collected hold in the transaction that collects it. It is C2's request
+ * commands that could make it reachable again; the guard is what makes the
+ * answer right either way, and `tests/domain/circulation/policy.test.ts` pins
+ * it directly rather than through a case that returns earlier.
  *
  * The *statement order* of the two blocks, by contrast, carries no weight:
  * `state` holds one value, so the branches cannot both match. Measured, by

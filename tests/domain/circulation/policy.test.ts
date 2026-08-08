@@ -64,15 +64,35 @@ test("INV-7 over INV-3: a lost copy someone holds still reads as lost", () => {
   // which names something they can act on, rather than "đang được mượn hoặc
   // đang giữ chỗ", which sends them to find a book that is not on the shelf.
   //
-  // What this catches is precisely the loss of the `state === "held"` guard on
-  // the hold branch — `if (copy.heldForUserId === forUserId) return OK`, which
-  // reads as a safe simplification and makes this copy lendable. Falsified
-  // against exactly that edit. It does *not* catch the two blocks being
-  // swapped: `state` holds one value, so their order changes no answer, and
-  // the docstring on `copyLendable` says so rather than implying otherwise.
+  // What this catches is the `lost || retired` branch being moved *below* the
+  // hold branch, or losing its own hold-insensitivity. It does **not** catch
+  // the loss of `copy.state === "held" &&` on the hold branch, which an earlier
+  // version of this comment claimed: the branch above returns first, so this
+  // case never reaches the guard. Measured, by making exactly that edit and
+  // watching this stay green — the test below is the one that catches it. Nor
+  // does it catch the two blocks being swapped: `state` holds one value, so
+  // their order changes no answer.
   expect(copyLendable({ state: "lost", heldForUserId: "u1" }, "u1")).toEqual({
     blocked: true,
     reason: "copy_lost_or_retired",
+  });
+});
+
+test("INV-3: a copy out with someone is not lendable to whoever holds it", () => {
+  // The `state === "held"` guard's real effect, and the only case that reaches
+  // it: `on_loan`, with a live approved hold naming the very reader asking.
+  // Drop `copy.state === "held" &&` and this predicate answers *yes* — the copy
+  // in one child's hands is promised to another.
+  //
+  // `lendCopy` would still refuse, because INV-1's partial unique index rejects
+  // the second active loan and the `23505` becomes this same code. That is why
+  // no end-to-end test can catch this and why it is asserted here: the command
+  // being rescued by a constraint is not the predicate being right, and BR
+  // §16.3 wants an answer a screen can give *before* the confirm step, from
+  // this function, with no transaction open.
+  expect(copyLendable({ state: "on_loan", heldForUserId: "u1" }, "u1")).toEqual({
+    blocked: true,
+    reason: "copy_not_available",
   });
 });
 
