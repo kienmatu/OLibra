@@ -536,6 +536,18 @@ create policy bookshelves_public_read on bookshelves
   using (status = 'active' and deleted_at is null);
 ```
 
+**What this policy stops protecting, and what must protect it instead.** Row Level
+Security is row-level: once this policy admits a shelf's row, every column on it
+is readable — `settings`, `keeper_phone`, `created_by`. The portal is specified
+to show **name and address only** (BR §16.1: book counts, reader counts and
+keeper contact are withheld because "a person with no membership has no business
+knowing them"), and that restriction is now entirely the query's job. OPERATIONS
+§3.1 already forbids the tempting shortcut — a candidate implementation "must not
+join that data in and trim it client-side, since that would put it on the wire."
+So `GetPortalDirectory` and `SearchBookshelves` select two columns, and a
+reviewer who sees `select *` there should treat it as a defect rather than a
+style question.
+
 - [ ] **Step 2: Write the failing test**
 
 Create `tests/auth/guards.test.ts`:
