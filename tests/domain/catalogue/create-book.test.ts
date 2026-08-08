@@ -212,6 +212,98 @@ test("a duplicate ISBN on the same shelf is refused; the same ISBN elsewhere is 
   ).resolves.toMatchObject({ bookId: expect.any(String) });
 });
 
+test("IMPORTANT 2: two concurrent CreateBook calls with the same ISBN do not both commit", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. The ISBN check ran *before*
+  // allocateCopyCodes's advisory lock, so its window was not actually closed
+  // by that lock — verified live, both committed and `select count(*) from
+  // books where isbn = ...` returned 2. The check now runs after the lock,
+  // so exactly one of these two must win.
+  const { ctx } = await shelfWithManager();
+
+  const results = await withTwoConnections((a, b) =>
+    Promise.allSettled([
+      runCommand(a, ctx, createBook, {
+        ...BOOK,
+        title: "Sách A",
+        isbn: "SAME-ISBN",
+      }),
+      runCommand(b, ctx, createBook, {
+        ...BOOK,
+        title: "Sách B",
+        isbn: "SAME-ISBN",
+      }),
+    ]),
+  );
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  const [rejected] = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  expect(rejected.reason).toMatchObject({ code: "duplicate_isbn" });
+
+  const [{ count }] = await sql<{ count: string }[]>`
+    select count(*) from books where isbn = 'SAME-ISBN'
+  `;
+  expect(count).toBe("1");
+});
+
+test("CRITICAL 1: a second, different edition of a title already on this shelf gets a disambiguated slug, not a 23505", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. books_bookshelf_id_slug_key is a
+  // live partial unique index; cataloguing the same title twice used to
+  // crash with a raw PostgresError 23505 — verified live.
+  const { ctx } = await shelfWithManager();
+  const first = await runCommand(sql, ctx, createBook, {
+    ...BOOK,
+    isbn: "EDITION-1",
+  });
+  const second = await runCommand(sql, ctx, createBook, {
+    ...BOOK,
+    isbn: "EDITION-2",
+  });
+
+  expect(first.bookId).not.toBe(second.bookId);
+  const rows = await sql<{ id: string; slug: string }[]>`
+    select id, slug from books where title = ${BOOK.title} order by created_at
+  `;
+  expect(rows.map((r) => r.slug)).toEqual([
+    "de-men-phieu-luu-ky",
+    "de-men-phieu-luu-ky-2",
+  ]);
+
+  // A third edition continues the sequence rather than colliding with -2.
+  const third = await runCommand(sql, ctx, createBook, {
+    ...BOOK,
+    isbn: "EDITION-3",
+  });
+  const [thirdRow] = await sql<{ slug: string }[]>`
+    select slug from books where id = ${third.bookId}
+  `;
+  expect(thirdRow.slug).toBe("de-men-phieu-luu-ky-3");
+});
+
+test("CRITICAL 1: two concurrent CreateBook calls for the same title never pick the same slug", async () => {
+  // The advisory lock allocateCopyCodes already takes is what allocateCopyCodes
+  // documents as the guarantee for copy codes; the slug disambiguation reuses
+  // it (see nextAvailableSlug's docstring). Both calls must commit, each with
+  // its own slug.
+  const { ctx } = await shelfWithManager();
+
+  const results = await withTwoConnections((a, b) =>
+    Promise.allSettled([
+      runCommand(a, ctx, createBook, { ...BOOK, isbn: "CONCURRENT-1" }),
+      runCommand(b, ctx, createBook, { ...BOOK, isbn: "CONCURRENT-2" }),
+    ]),
+  );
+  expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+
+  const rows = await sql<{ slug: string }[]>`
+    select slug from books where title = ${BOOK.title} order by slug
+  `;
+  expect(rows.map((r) => r.slug)).toEqual([
+    "de-men-phieu-luu-ky",
+    "de-men-phieu-luu-ky-2",
+  ]);
+});
+
 test("a reader cannot catalogue a book", async () => {
   // BR §13.3: the screen hiding the button is not the security control.
   const { shelf, ctx } = await shelfWithManager();
@@ -323,4 +415,27 @@ test("a soft-deleted code is never handed out again", async () => {
 
   const { codes } = await runCommand(sql, ctx, addCopies, { bookId, count: 1 });
   expect(codes).toEqual(["DT-0218"]);
+});
+
+test("M7: a copy_code_prefix override containing an underscore is not treated as a LIKE wildcard", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. `code like ${prefix + "-%"}` with an
+  // unescaped prefix would let Postgres's LIKE single-character wildcard
+  // sweep a hand-imported code with a different letter in that position into
+  // this shelf's sequence — verified live, an unescaped "D_T" prefix picked
+  // up a hand-written "DXT-0099" and allocated "D_T-0100" instead of
+  // "D_T-0001".
+  const { shelf, ctx } = await shelfWithManager("thanhtam");
+  await sql`update bookshelves set settings = '{"copy_code_prefix": "D_T"}'::jsonb where id = ${shelf.id}`;
+  const { bookId } = await runCommand(sql, ctx, createBook, {
+    ...BOOK,
+    copyCount: 1,
+  });
+  // A hand-imported code that must NOT be swept into "D_T"'s own sequence.
+  await sql`
+    insert into book_copies (bookshelf_id, book_id, code, state, condition)
+    values (${shelf.id}, ${bookId}, 'DXT-0099', 'available', 'perfect')
+  `;
+
+  const { codes } = await runCommand(sql, ctx, addCopies, { bookId, count: 1 });
+  expect(codes).toEqual(["D_T-0002"]);
 });

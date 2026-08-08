@@ -114,6 +114,56 @@ export function slugifyTitle(title: string): string {
 }
 
 /**
+ * Picks a live slug for a title, given the slugs already live on this shelf.
+ *
+ * CRITICAL 1 (fix-report, 2026-08-08-b1-catalogue): `books_bookshelf_id_slug_key`
+ * is a live partial unique index — `unique (bookshelf_id, slug) where
+ * deleted_at is null` — so cataloguing a second, different edition of a
+ * title this shelf already holds collides on the identical slug the first
+ * edition already claimed, and crashes with a raw `23505` (verified live).
+ * A different edition is a new `books` row, not `AddCopies`, so the manager
+ * has no other path than `CreateBook` for it.
+ *
+ * The decision this plan makes: disambiguate rather than reject. `base`,
+ * then `base-2`, `base-3`, ... — a volunteer holding a second edition should
+ * not have to invent a different title to get past a uniqueness rule they
+ * cannot see. The slug is an opaque URL segment (see `UpdateBook`'s
+ * docstring for why it is never edited once set), so a slightly uglier one
+ * is far cheaper than blocking a real cataloguing action.
+ *
+ * Pure — the caller supplies `existingSlugs` (the live, non-deleted slugs on
+ * this shelf that share `base`'s pattern) so this stays a function of its
+ * arguments, testable with no database, matching the rest of this file.
+ */
+export function nextAvailableSlug(
+  base: string,
+  existingSlugs: readonly string[],
+): string {
+  if (!existingSlugs.includes(base)) return base;
+  let n = 2;
+  while (existingSlugs.includes(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
+}
+
+/**
+ * Escapes `%`, `_` and the escape character itself for a `LIKE` pattern, so
+ * a value containing one is matched literally rather than as a wildcard.
+ *
+ * M7 (fix-report, 2026-08-08-b1-catalogue): `copy-codes.ts`'s allocator
+ * builds `code like ${prefix + "-%"}` from a shelf's `copy_code_prefix`
+ * override — free text from `settings`, not folded or restricted to
+ * `[a-z0-9]`. A prefix containing `_` (Postgres's LIKE single-character
+ * wildcard) would match any hand-imported code with a different letter in
+ * that position, widening the max-code scan across codes that were never
+ * meant to be in this shelf's sequence. Call this on `prefix` only — the
+ * trailing `-%` the allocator appends afterwards is the intended wildcard
+ * and must stay unescaped.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
  * The letters in front of a copy code — `DT` in `DT-0215`.
  *
  * There is no `copy_code_prefix` column on `bookshelves`, and adding one

@@ -2,7 +2,7 @@ import type { AuditEntry } from "../../kernel/audit";
 import { RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { allocateCopyCodes } from "../copy-codes";
-import { requireManager, slugifyTitle } from "../policy";
+import { nextAvailableSlug, requireManager, slugifyTitle } from "../policy";
 
 export interface DonorInput {
   /** A member of this shelf, chosen from a search (DB §4.4). */
@@ -63,13 +63,24 @@ export const createBook: Command<
   `;
   if (!category) throw new ValidationFailed("category_not_found", "categorySlug");
 
+  // `allocateCopyCodes` below takes a per-shelf advisory lock that
+  // serialises the rest of this command per shelf. IMPORTANT 2 (fix-report,
+  // 2026-08-08-b1-catalogue): both the ISBN check and the slug
+  // disambiguation just below must run *after* that lock is taken, not
+  // before — a check-then-write ahead of the lock only looks serialised.
+  // The second transaction's snapshot is already taken by the time it
+  // blocks on the lock, so two concurrent `CreateBook` calls with the same
+  // ISBN could both pass a pre-lock check and both commit (verified live:
+  // `select count(*) from books where isbn = ...` returned 2 with the check
+  // ordered this way). Ordered as it is here, the lock has already been
+  // acquired by the time either check runs, so the window really is closed.
+  // See the plan's "Known gaps" for why a partial unique index would still
+  // be the structural fix for the ISBN case.
+  const codes = await allocateCopyCodes(tx, ctx, input.copyCount);
+
   if (!blank(input.isbn)) {
-    // No unique index backs this — `duplicate_isbn` is a check-then-write.
-    // The window is closed against another CreateBook on the same shelf by
-    // the advisory lock `allocateCopyCodes` takes below, which serialises
-    // this whole command per shelf. See the plan's "Known gaps" for why a
-    // partial unique index would be the structural fix and why it is not
-    // here.
+    // No unique index backs this — `duplicate_isbn` is a check-then-write,
+    // safe here only because it runs after the advisory lock above.
     const clash = await tx`
       select 1 from books
       where bookshelf_id = ${ctx.bookshelfId}
@@ -79,7 +90,25 @@ export const createBook: Command<
     if (clash.length > 0) throw new RuleViolated("duplicate_isbn");
   }
 
-  const codes = await allocateCopyCodes(tx, ctx, input.copyCount);
+  // CRITICAL 1 (fix-report, 2026-08-08-b1-catalogue): `books_bookshelf_id_
+  // slug_key` is a live partial unique index, so a second, different
+  // edition of a title already on this shelf collides on the identical slug
+  // the first edition claimed — verified live, a raw 23505. Disambiguating
+  // here, rather than rejecting the title, is the decision this plan makes
+  // (see `nextAvailableSlug`'s docstring). Safe as a plain select-then-use,
+  // with no race, because the advisory lock above already serialises this
+  // whole command per shelf — the same guarantee the copy codes get.
+  const baseSlug = slugifyTitle(input.title);
+  const existingSlugs = await tx<{ slug: string }[]>`
+    select slug from books
+    where bookshelf_id = ${ctx.bookshelfId}
+      and deleted_at is null
+      and (slug = ${baseSlug} or slug ~ ${`^${baseSlug}-[0-9]+$`})
+  `;
+  const slug = nextAvailableSlug(
+    baseSlug,
+    existingSlugs.map((r) => r.slug),
+  );
 
   const [book] = await tx<{ id: string; slug: string }[]>`
     insert into books (
@@ -88,7 +117,7 @@ export const createBook: Command<
       language, is_published, added_by
     ) values (
       ${ctx.bookshelfId}, ${category.id}, ${input.title.trim()},
-      ${slugifyTitle(input.title)}, ${input.author.trim()},
+      ${slug}, ${input.author.trim()},
       ${input.publisher ?? null}, ${input.publishedYear ?? null},
       ${input.pageCount ?? null}, ${input.isbn ?? null},
       ${input.description ?? null}, ${input.coverUrl ?? null},

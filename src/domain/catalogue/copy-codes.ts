@@ -1,7 +1,7 @@
 import { NotFound } from "../kernel/errors";
 import type { TenantContext } from "../kernel/tenant";
 import type { Tx } from "../kernel/unit-of-work";
-import { copyCodePrefix, formatCopyCode } from "./policy";
+import { copyCodePrefix, escapeLikePattern, formatCopyCode } from "./policy";
 
 /**
  * Reserves the next `count` copy codes on this shelf, in order.
@@ -54,11 +54,20 @@ export async function allocateCopyCodes(
   // `substring(code from '([0-9]+)$')` returns the capture group, or null for
   // a code that does not end in digits — `max` ignores those, so a shelf that
   // was imported with hand-written codes does not break the sequence.
+  //
+  // M7 (fix-report, 2026-08-08-b1-catalogue): `prefix` is free text from a
+  // shelf's `copy_code_prefix` override (`settings`, not folded or
+  // restricted to `[a-z0-9]`), so it can legitimately contain `_` —
+  // Postgres's LIKE single-character wildcard. Unescaped, that would widen
+  // this scan to any hand-imported code with a different letter in that
+  // position, on this same shelf, inflating `max` past this prefix's own
+  // sequence. `escapeLikePattern` escapes only `prefix`; the trailing `-%`
+  // is the allocator's own, intentional wildcard and stays as-is.
   const [{ last }] = await tx<{ last: number }[]>`
     select coalesce(max(substring(code from '([0-9]+)$')::int), 0) as last
     from book_copies
     where bookshelf_id = ${ctx.bookshelfId}
-      and code like ${prefix + "-%"}
+      and code like ${escapeLikePattern(prefix) + "-%"} escape ${"\\"}
   `;
 
   // Padded here, not with SQL's `lpad`, which truncates on the right — see
