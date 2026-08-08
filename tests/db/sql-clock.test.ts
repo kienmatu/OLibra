@@ -78,20 +78,57 @@ function readLoan(shelfId: string, instant: string): Promise<LoanRow> {
 }
 
 /**
- * The id of the transaction that last wrote the loan row.
+ * `readLoan`, with the *session* timezone pinned for the duration of the read.
  *
- * Read from `loans`, not from `loans_current`: a view exposes no system
+ * The timezone test below is the only caller and needs this to be a guard
+ * rather than a coincidence. `set local` inside the same transaction
+ * `runQuery` opened, so it is scoped to this read and reverts with it —
+ * `SET` is permitted in a read-only transaction.
+ */
+function readLoanInZone(
+  shelfId: string,
+  instant: string,
+  zone: string,
+): Promise<LoanRow> {
+  return runQuery(sql, ctxAt(shelfId, instant), async (tx) => {
+    await tx`select set_config('TimeZone', ${zone}, true)`;
+    const [row] = await tx<LoanRow[]>`
+      select is_overdue, days_remaining from loans_current
+    `;
+    return row;
+  });
+}
+
+/**
+ * The id of the transaction that last wrote a row, plus the columns the
+ * clock could plausibly be accused of having rewritten.
+ *
+ * Read from the base table, not through the view: a view exposes no system
  * columns, so `select xmin from loans_current` fails outright with `column
  * "xmin" does not exist` — which is itself worth knowing, since it is the
  * reason the "nothing was written" assertions below reach past the view to
  * the table underneath it.
+ *
+ * **What the `xmin` assertions are and are not.** They are confirmatory
+ * narration, not a regression guard, and the comments below say so rather
+ * than implying otherwise. `xmin` *cannot* differ across these reads: every
+ * read here goes through `runQuery`, which issues `set transaction read only`
+ * before anything else, so a write attempted inside one is rejected by
+ * Postgres outright rather than committing and bumping `xmin`. There is no
+ * implementation of `olibra_now()` or of these views that could make the
+ * assertion fail. It is kept because it states, in the database's own terms
+ * and not the test's, what "the clock is the only thing that moved" means —
+ * and because a future rewrite of these tests that dropped `runQuery` for a
+ * raw handle would find the assertion already in place.
  */
-async function loanXmin(loanId: string): Promise<string> {
+async function xminOf(table: "loans" | "borrow_requests", id: string) {
   const [row] = await sql<{ xmin: string }[]>`
-    select xmin::text from loans where id = ${loanId}
+    select xmin::text from ${sql(table)} where id = ${id}
   `;
   return row.xmin;
 }
+
+const loanXmin = (loanId: string) => xminOf("loans", loanId);
 
 test("a loan due tomorrow is overdue two days later, with nothing written in between", async () => {
   // BR §8 / G5: overdue is computed on read. The point of this test is the
@@ -106,10 +143,12 @@ test("a loan due tomorrow is overdue two days later, with nothing written in bet
   const after = await readLoan(shelfId, "2026-08-10T03:00:00Z");
   expect(after.is_overdue).toBe(true);
 
-  // Nothing wrote the row between the two reads: `xmin` is the id of the
-  // transaction that last wrote it, so an equal `xmin` is Postgres saying
-  // the row is untouched — stronger than comparing `updated_at`, which a
-  // trigger could have rewritten to the same value.
+  // Nothing wrote the row between the two reads, in Postgres's own terms:
+  // `xmin` is the id of the transaction that last wrote it, so an equal
+  // `xmin` says the row is physically untouched — a stronger statement than
+  // comparing `updated_at`, which a trigger could have rewritten to the same
+  // value. Confirmatory rather than a guard: see `xminOf` for why it cannot
+  // fail while the reads go through `runQuery`.
   expect(await loanXmin(loanId)).toBe(xminBefore);
 });
 
@@ -164,16 +203,39 @@ test("the overdue boundary is midnight in Asia/Ho_Chi_Minh, not midnight UTC", a
   // `olibra_now()::date` instead of `(olibra_now() at time zone
   // 'Asia/Ho_Chi_Minh')::date` reads them as the same day, so the second
   // assertion pair below flips: not overdue, days_remaining 0.
+  //
+  // **The session timezone is pinned, and that is what makes this a guard.**
+  // `olibra_now()::date` — the broken form — resolves through the *session's*
+  // `TimeZone`, so whether it gives the wrong answer depends on what that
+  // happens to be. It is UTC today only because that is Docker's default and
+  // `compose.yaml` pins nothing; give the `db-test` container
+  // `TZ=Asia/Ho_Chi_Minh` and the broken view agrees with the correct one and
+  // this test goes green against it. Verified by doing exactly that: recreated
+  // the container with that TZ (tmpfs, so a fresh initdb picks it up), applied
+  // a view without the conversion, and watched this test pass.
+  //
+  // Reading under three zones — one of which is the application's own — and
+  // demanding the same answer from all three is the fix, and it needs no
+  // cooperation from the server's configuration: under the correct view the
+  // explicit `at time zone` makes the session irrelevant, and under the broken
+  // one at least two of the three disagree with these expectations no matter
+  // what the server default is.
   const { shelfId, loanId } = await shelfWithLoan("2026-08-08");
   const xminBefore = await loanXmin(loanId);
 
-  const stillToday = await readLoan(shelfId, "2026-08-08T16:00:00Z");
-  expect(stillToday.is_overdue).toBe(false);
-  expect(Number(stillToday.days_remaining)).toBe(0);
+  for (const zone of ["UTC", "America/Los_Angeles", "Asia/Ho_Chi_Minh"]) {
+    const stillToday = await readLoanInZone(shelfId, "2026-08-08T16:00:00Z", zone);
+    expect(stillToday.is_overdue, zone).toBe(false);
+    expect(Number(stillToday.days_remaining), zone).toBe(0);
 
-  const justAfterMidnight = await readLoan(shelfId, "2026-08-08T17:30:00Z");
-  expect(justAfterMidnight.is_overdue).toBe(true);
-  expect(Number(justAfterMidnight.days_remaining)).toBe(-1);
+    const justAfterMidnight = await readLoanInZone(
+      shelfId,
+      "2026-08-08T17:30:00Z",
+      zone,
+    );
+    expect(justAfterMidnight.is_overdue, zone).toBe(true);
+    expect(Number(justAfterMidnight.days_remaining), zone).toBe(-1);
+  }
 
   expect(await loanXmin(loanId)).toBe(xminBefore);
 });
@@ -198,6 +260,7 @@ test("an unexpired hold hides a copy, and the clock alone makes it borrowable ag
        timestamptz '2026-08-08T02:00:00Z', timestamptz '2026-08-08T10:00:00Z')
     returning id
   `;
+  const xminBefore = await xminOf("borrow_requests", hold.id);
 
   const borrowable = (instant: string) =>
     runQuery(
@@ -209,13 +272,26 @@ test("an unexpired hold hides a copy, and the clock alone makes it borrowable ag
   expect(await borrowable("2026-08-08T09:59:00Z")).toHaveLength(0);
   expect(await borrowable("2026-08-08T10:01:00Z")).toHaveLength(1);
 
-  // Nothing tidied the hold up: it is still `approved`, still not deleted,
-  // and still the same physical row. Only the clock moved.
-  const [after] = await sql<{ status: string; deleted_at: string | null }[]>`
-    select status, deleted_at from borrow_requests where id = ${hold.id}
+  // Nothing tidied the hold up. `hold_expires_at` is the column this test's
+  // whole claim turns on — "the clock moved, the expiry did not" — and it was
+  // the one column not being checked: `status` and `deleted_at` alone leave
+  // room for an implementation that quietly pushed the expiry around. It is
+  // asserted first, and against the literal the fixture was written with.
+  const [after] = await sql<
+    { status: string; deleted_at: string | null; hold_expires_at: Date }[]
+  >`
+    select status, deleted_at, hold_expires_at
+      from borrow_requests where id = ${hold.id}
   `;
+  expect(after.hold_expires_at.toISOString()).toBe("2026-08-08T10:00:00.000Z");
   expect(after.status).toBe("approved");
   expect(after.deleted_at).toBeNull();
+
+  // And the row is physically the one that was inserted — the same `xmin`
+  // assertion the loan tests make, for the same reason and with the same
+  // caveat: confirmatory, not a guard, since both reads above ran in
+  // `runQuery`'s read-only transaction. See `xminOf`.
+  expect(await xminOf("borrow_requests", hold.id)).toBe(xminBefore);
 });
 
 test("the copy is hidden again when the clock moves back before the hold expires", async () => {
