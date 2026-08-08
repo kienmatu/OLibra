@@ -2,7 +2,11 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
-import { copyStateTransition } from "../../src/domain/catalogue/policy";
+import {
+  copyStateTransition,
+  type CopyState,
+} from "../../src/domain/catalogue/policy";
+import { copyLendable } from "../../src/domain/circulation/policy";
 import { reportCopyLost } from "../../src/domain/catalogue/commands/report-copy-lost";
 import { retireCopy } from "../../src/domain/catalogue/commands/retire-copy";
 import { migrate } from "../../src/db/migrate";
@@ -31,14 +35,19 @@ afterAll(closeAll);
  * would pass against an implementation where the view still offered the copy
  * up, which is the failure that actually reaches a reader.
  *
- * **Deferred to C1, and said plainly rather than silently skipped:** nothing
- * here exercises `LendCopy` or `ApproveBorrowRequest` refusing a lost/retired
- * copy at the command level, because neither command exists yet. This file
- * proves the two halves that already exist today — the transition table and
- * the borrowable view — leave no way for such a copy to be lent through this
- * slice's own machinery. It does not yet prove the third half; C1 must add
- * that case to this same file when `LendCopy` lands, not assume the first two
- * halves are enough on their own.
+ * **C1 has landed a third test below, and the third half is still not
+ * complete.** Both statements are true and it is worth being exact about
+ * which is which. C1's Task 1 shipped `copyLendable`, the predicate `LendCopy`
+ * will consult, and the test at the foot of this file closes the loop between
+ * it and the database: a copy taken to `lost` and to `retired` by the real
+ * commands, with the state read back out of `book_copies` and fed to the
+ * predicate. That is the seam the first test above cannot cover, because it
+ * spells the states as literals rather than taking what the `copy_state` enum
+ * produced.
+ *
+ * What is still outstanding is `LendCopy` and `ApproveBorrowRequest`
+ * themselves. C1 shipped its Tasks 1 and 2 ahead of Task 3, so neither command
+ * exists in this branch yet; see the closing note.
  */
 
 const clock = fixedClock("2026-08-08T03:00:00Z");
@@ -86,4 +95,58 @@ test("INV-7: a lost or retired copy disappears from copies_borrowable", async ()
 
   const left = await borrowable();
   expect(left.map((c) => c.id)).toEqual([copyIds[2]]);
+});
+
+test("INV-7: the state a real lost or retired copy carries is the state the predicate refuses", async () => {
+  // The seam between the two halves above, which neither of them covers.
+  //
+  // `copyLendable` (C1, `src/domain/circulation/policy.ts`) tests
+  // `copy.state === "lost" || copy.state === "retired"` against string
+  // literals it declares itself. The first test in this file does the same.
+  // So both would stay green if the `copy_state` enum ever gained a different
+  // spelling for either state, or if `reportCopyLost` started writing
+  // something else — and the predicate would silently fall through to
+  // `copy_not_available`, which tells a volunteer the book is out with a
+  // reader when it is in fact gone. This test takes the state the database
+  // actually holds after the real commands have run, and asserts the predicate
+  // refuses *that*.
+  //
+  // Reaching `lost` needs `on_loan → lost` (`catalogue/policy.ts:46-60`), so
+  // the fixture lends first — the same shape the test above already uses.
+  const shelf = await makeShelf(sql, { slug: "can-tho" });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 2);
+  const ctx: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock,
+  };
+
+  const borrower = await makeMember(sql, shelf.id);
+  await sql`
+    insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on)
+    values (${shelf.id}, ${copyIds[0]}, ${bookId}, ${borrower.userId},
+            ${manager.userId}, date '2026-08-22')
+  `;
+  await sql`update book_copies set state = 'on_loan' where id = ${copyIds[0]}`;
+
+  await runCommand(sql, ctx, reportCopyLost, { copyId: copyIds[0] });
+  await runCommand(sql, ctx, retireCopy, { copyId: copyIds[1], reason: "Mục nát" });
+
+  const rows = await sql<{ id: string; state: CopyState }[]>`
+    select id, state from book_copies where id in ${sql(copyIds)} order by id
+  `;
+  expect(rows.map((r) => r.state).sort()).toEqual(["lost", "retired"]);
+
+  for (const row of rows) {
+    // Refused with INV-7's own reason, not INV-3's. The distinction reaches a
+    // volunteer: "đã mất hoặc ngừng dùng" sends them to the manager, while
+    // "đang được mượn hoặc đang giữ chỗ" sends them to look for a book nobody
+    // has. A predicate that stopped recognising these two states would still
+    // refuse the lend — it would just refuse it for the wrong reason, which is
+    // why the assertion is on the code and not merely on `blocked`.
+    expect(
+      copyLendable({ state: row.state, heldForUserId: null }, borrower.userId),
+    ).toEqual({ blocked: true, reason: "copy_lost_or_retired" });
+  }
 });
