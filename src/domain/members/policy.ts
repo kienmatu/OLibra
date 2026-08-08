@@ -21,10 +21,18 @@ export type MembershipRole = "reader" | "manager" | "admin";
  * BR §7.5's diagram, arrow for arrow, plus two arrows the diagram does not
  * draw but the catalogue and the requirements both require:
  *
- * - **any → left.** OPS §4.3's MarkMembershipLeft is explicit: "Any status →
- *   left". BR §7.5 draws only `active`/`suspended → left` because those are
- *   the interesting cases; a pending application whose family moved away
- *   before anyone got to it is still a real thing to close.
+ * - **any → left, including left → left.** OPS §4.3's MarkMembershipLeft is
+ *   explicit: "Any status → left". BR §7.5 draws only `active`/`suspended →
+ *   left` because those are the interesting cases; a pending application
+ *   whose family moved away before anyone got to it is still a real thing to
+ *   close. "Any" is read literally rather than "any status other than left
+ *   itself": M6 (fix-report, 2026-08-08-b2-members) — without this self-loop
+ *   a volunteer re-clicking "Đánh dấu đã rời" on someone who already left
+ *   fell through to the same sentence ApproveMembership uses for a decided
+ *   registration, which is not what happened here. Idempotent rather than a
+ *   bespoke "already left" refusal, because OPS's sentence draws no
+ *   distinction and a second click changing nothing is the least surprising
+ *   reading of "Any status → left" for a status that is already `left`.
  * - **rejected → pending and left → pending.** BR §2: rejected registrations
  *   "are retained with a reason for audit purposes, and the person may
  *   re-apply". Re-applying cannot be a second row: `memberships_one_per_shelf`
@@ -48,6 +56,7 @@ const ALLOWED: ReadonlySet<string> = new Set(
       ["active", "left"],
       ["suspended", "left"],
       ["rejected", "left"],
+      ["left", "left"],
       ["rejected", "pending"],
       ["left", "pending"],
     ] as const

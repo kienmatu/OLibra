@@ -1,10 +1,6 @@
 import { NotFound, RuleViolated } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
-import {
-  type MembershipStatus,
-  membershipTransition,
-  requireManager,
-} from "../policy";
+import { type MembershipStatus, requireManager } from "../policy";
 
 /**
  * `pending → active` (BR §7.5; BR §16.3's review card, "with prominent Approve
@@ -19,6 +15,19 @@ import {
  * membership affects zero rows silently — so without a prior read the caller
  * would get the kernel guard's generic `write_target_not_found` instead of
  * "Không tìm thấy bạn đọc này."
+ *
+ * **Deliberately not `membershipTransition(status, "active")`.** IMPORTANT 3
+ * (fix-report, 2026-08-08-b2-members): this is the mirror image of
+ * `reactivateMembership`'s own docstring, which explains why *that* command
+ * cannot delegate to the shared graph for `to === "active"` — `suspended →
+ * active` is a real edge in `policy.ts`, so the generic transition would let
+ * this command un-suspend a membership, clearing nothing but
+ * `rejection_reason` and leaving `status = 'active'` with a live
+ * `suspension_reason` still attached (which `getReaderDetail` renders
+ * verbatim). ApproveMembership's own rule is exactly as narrow and
+ * unambiguous as ReactivateMembership's — only a *pending* application may be
+ * approved — so it is checked directly against `status`, not through the
+ * shared graph.
  */
 export const approveMembership: Command<{ membershipId: string }, void> = async (
   tx,
@@ -33,8 +42,9 @@ export const approveMembership: Command<{ membershipId: string }, void> = async 
   `;
   if (!membership) throw new NotFound("membership_not_found");
 
-  const move = membershipTransition(membership.status, "active");
-  if (!move.allowed) throw new RuleViolated(move.reason!);
+  if (membership.status !== "pending") {
+    throw new RuleViolated("registration_not_pending");
+  }
 
   await tx`
     update memberships

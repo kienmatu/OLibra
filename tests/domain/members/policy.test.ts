@@ -36,6 +36,9 @@ test("the transition table is BR §7.5's diagram, arrow for arrow", () => {
     ["suspended", "left"],
     ["pending", "left"],
     ["rejected", "left"],
+    // M6: "Any status → left" read literally includes a status that is
+    // already left — a re-click is idempotent, not a fresh refusal.
+    ["left", "left"],
     // Re-application (BR §2: "the person may re-apply"). The row is reused
     // because memberships_one_per_shelf ignores status — verified live.
     ["rejected", "pending"],

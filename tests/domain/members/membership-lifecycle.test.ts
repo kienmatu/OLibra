@@ -61,6 +61,27 @@ test("approving twice says the application was already dealt with", async () => 
   ).rejects.toMatchObject({ code: "registration_not_pending" });
 });
 
+test("IMPORTANT 3: approving a suspended membership is refused, not a silent un-suspend", async () => {
+  // membershipTransition("suspended", "active") is a real edge (it is
+  // Reactivate's own edge) — approveMembership must not delegate to the
+  // shared graph for this the same way reactivateMembership's own docstring
+  // explains it cannot delegate the other direction. Mirrors that: a direct
+  // status !== "pending" check.
+  const { ctx, member } = await shelfWith("suspended");
+  await sql`
+    update memberships set suspension_reason = 'Tạm khoá' where id = ${member.id}
+  `;
+  await expect(
+    runCommand(sql, ctx, approveMembership, { membershipId: member.id }),
+  ).rejects.toMatchObject({ code: "registration_not_pending" });
+
+  const [m] = await sql<
+    { status: string; suspension_reason: string | null }[]
+  >`select status, suspension_reason from memberships where id = ${member.id}`;
+  expect(m.status).toBe("suspended");
+  expect(m.suspension_reason).toBe("Tạm khoá");
+});
+
 test("rejecting keeps the record and its reason, so the person may re-apply", async () => {
   // BR §2: "They are retained with a reason for audit purposes, and the person
   // may re-apply." The row survives; nothing is deleted (G10).
@@ -138,8 +159,11 @@ test("reactivating clears the suspension reason, and needs a suspended member", 
 // — left —
 
 test("a member with no books out may be marked left, from any status", async () => {
-  // OPS §4.3: "Any status → left".
-  for (const from of ["pending", "active", "suspended", "rejected"]) {
+  // OPS §4.3: "Any status → left" — including a member already marked left.
+  // M6: a volunteer re-clicking "Đánh dấu đã rời" on someone who already left
+  // must not be told their *registration application* was already processed
+  // (registration_not_pending) — that sentence is about a different act.
+  for (const from of ["pending", "active", "suspended", "rejected", "left"]) {
     await resetDatabase();
     const { ctx, member } = await shelfWith(from);
     await runCommand(sql, ctx, markMembershipLeft, { membershipId: member.id });
