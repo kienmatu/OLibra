@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AlertCircle, HelpCircle } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Field, Textarea } from "@/components/ui/field";
@@ -157,10 +157,9 @@ export default async function NhanTraBaoMatPage({
           </p>
 
           <div className="mt-8 max-w-xl">
-            <Button type="submit" variant="danger" size="lg" className="w-full">
-              <HelpCircle aria-hidden className="size-5" strokeWidth={1.75} />
+            <SubmitButton variant="danger" icon={HelpCircle} className="w-full">
               Xác nhận báo mất
-            </Button>
+            </SubmitButton>
           </div>
         </form>
       ) : (

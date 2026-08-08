@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   AlertCircle,
   Archive,
+  Check,
   CheckCircle2,
   Clock3,
   FileX,
@@ -11,7 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { Card } from "@/components/ui/card";
 import { BookCover, BookTitle } from "@/components/ui/book";
@@ -224,8 +225,25 @@ export default async function NhanTraPage({
                     name="tinh-trang"
                     value={condition}
                     defaultChecked={condition === DEFAULT_CONDITION}
-                    className="sr-only"
+                    className="peer sr-only"
                   />
+                  {/* BR §17.4:648, restored: "Selection is shown by a filled
+                      background **and a check**, not by colour alone." `main`
+                      drew this; the CSS-only radio rewrite kept the fill and
+                      the border weight and dropped the check, which leaves
+                      colour doing the work on its own for anyone who cannot
+                      separate terracotta from paper.
+
+                      `peer-checked:flex` beats the `hidden` beside it on
+                      variant order, so this still needs no client JavaScript —
+                      the input has to precede the badge in the DOM for `peer`
+                      to reach it, which it does. */}
+                  <span
+                    aria-hidden
+                    className="absolute top-1.5 right-1.5 hidden size-4 items-center justify-center rounded-full bg-terracotta text-white peer-checked:flex"
+                  >
+                    <Check className="size-2.5" strokeWidth={3} />
+                  </span>
                   <Icon aria-hidden className="size-6" strokeWidth={1.75} />
                   {CONDITION_LABELS[condition]}
                 </label>
@@ -252,9 +270,7 @@ export default async function NhanTraPage({
             <StatusBadge status="available" size="sm" className="align-middle" />
           </p>
 
-          <Button type="submit" variant="primary" size="lg" className="mt-6 w-full">
-            Xác nhận nhận trả
-          </Button>
+          <SubmitButton className="mt-6 w-full">Xác nhận nhận trả</SubmitButton>
 
           {/* Not a seventh condition — condition is how damaged a book is, loss
               is a state that removes it from circulation entirely. Per OPS §4.2

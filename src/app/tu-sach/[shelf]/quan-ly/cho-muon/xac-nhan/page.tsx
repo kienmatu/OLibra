@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AlertCircle, Calendar, Check } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StepIndicator } from "@/components/ui/step-indicator";
@@ -259,16 +259,12 @@ export default async function ChoMuonXacNhanPage({
         {/* Carried only so a refusal can come back to this same screen with the
             book still chosen. */}
         <input type="hidden" name="sach" value={sach ?? ""} />
-        <Button
-          type="submit"
-          variant="primary"
-          size="lg"
-          className="w-full"
-          disabled={blocking !== null}
-        >
-          <Check aria-hidden className="size-5" strokeWidth={1.75} />
+        {/* `disabled` composes with the pending state rather than being
+            replaced by it: a rule that already closed this button must not
+            reopen when a submit settles. */}
+        <SubmitButton icon={Check} className="w-full" disabled={blocking !== null}>
           Xác nhận cho mượn
-        </Button>
+        </SubmitButton>
       </form>
 
       <div className="mt-3 max-w-xl text-center">
