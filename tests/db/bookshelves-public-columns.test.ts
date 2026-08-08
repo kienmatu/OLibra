@@ -84,8 +84,17 @@ import { expect, test } from "vitest";
  * exactly that argument, one step narrower still: it reads `settings` only for
  * BR §5.5's `hold_days`, only inside the branch where the manager asked to hold
  * the copy for a queued reader, and only as `coalesce((settings->>'hold_days')
- * ::int, 3)`. Same `requireManager`, same integer, same absence from anything
- * the command returns.
+ * ::int, 3)`. Same `requireManager`, same integer.
+ *
+ * Its absence from the command's output needs the same precision `lend-copy.ts`
+ * uses above, and for the same reason: the integer never leaves, but something
+ * *derived* from it does. `ReceiveReturnResult` carries only `loanId` and
+ * `queuedRequestId`, neither of which touches `settings` — but `hold_expires_at`
+ * is `clock.now() + hold_days` and it reaches both the `borrow_requests` row and
+ * the `request.approved` audit entry. That is the same shape as `due_on` under
+ * `lend-copy.ts`: a date computed from a shelf setting, not the setting, and not
+ * `keeper_phone`, `keeper_name` or `created_by`, which are what BR §16.1
+ * withholds and what this guard exists for.
  *
  * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
  * per-column, not per-file.** All three justifications above are for reading

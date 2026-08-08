@@ -76,7 +76,7 @@ believed is Task 7, for the reason in the last table row.
 
 ## Task 1: Blocking conditions as pure predicates
 
-BR §16.3: "Blocking conditions surface as a clear message *before* the confirm step, never as an error afterwards." The same predicates must answer both the "can I?" question on the screen and the "may I?" question in the command, or the two will disagree and a volunteer will be told yes and then no.
+BR §16.3: "Blocking conditions (reader at loan limit, copy already lent, membership not active) surface as a clear message *before* the confirm step, never as an error afterwards." The same predicates must answer both the "can I?" question on the screen and the "may I?" question in the command, or the two will disagree and a volunteer will be told yes and then no.
 
 **`Block` already exists — import it, do not redefine it.** The parish-taxonomy module needed this same "can I?" shape before this slice was written (`src/domain/members/parish-taxonomy.ts`'s `validateSelection` already returns it), so it was pulled out to `src/domain/kernel/block.ts` rather than being defined inside a lending-specific file — the members domain has no business depending on circulation, so the shape had to live somewhere neither owns. `policy.ts` below imports it from there; it does not declare its own copy.
 
@@ -1294,6 +1294,18 @@ Two things follow for C1 specifically:
 The column defaults themselves stay. They are the backstop for rows written outside the domain — migrations, `seed()`, a `psql` session — and `feat/sql-clock` deliberately changed none of them. This is a rule about what a *command* writes, not a schema change; if a later slice wants to drop the defaults, that is its own decision with its own migration.
 
 **Not in scope for C1:** nothing here asks this slice to change an existing command or a column default. `LendCopy` is simply the first command written after the rule existed.
+
+---
+
+## Deferred from OPS §4.2, and written down rather than implied
+
+**`LendCopy` takes a `copyId` only. OPS §4.2 lists its inputs as "`bookId`, `copyId` (or `bookId` when the title has exactly one copy)"; the `bookId` form is not implemented, and nothing in this slice recorded that.**
+
+The shipped signature is `{ copyId, membershipId }` (`src/domain/circulation/commands/lend-copy.ts`). Every caller today — the quick-lend screen and BR §16.1's **Cho mượn** button on book detail — has a copy id by the time it reaches the confirm step, because BR §16.3 says a copy selector appears between steps one and two whenever the title has several copies and "if it has one copy, that step does not exist" (BR:542). So the one-copy shorthand saves the *screen* a step it already skips; it does not unblock anything.
+
+What implementing it would cost is a decision this slice should not make alone: resolving a `bookId` to "the" copy means choosing which copy, and the only honest source for that is `copies_borrowable` — which is a *view*, so the choice has to be ordered (by `code`? by least-recently-lent?) or it is arbitrary, and an arbitrary choice made inside a command is invisible to the manager who will later be asked why that copy went out. It also has to decide what happens when the title turns out to have two free copies after all, between page load and confirm: refuse with which code, or pick one? OPS §4.2 lists no failure mode for it, and an `ErrorCode` may not be invented with a Vietnamese sentence nobody wrote.
+
+**Not implemented here, deliberately.** Whichever slice adds it owns those two questions and the OPS entry that answers them.
 
 ---
 

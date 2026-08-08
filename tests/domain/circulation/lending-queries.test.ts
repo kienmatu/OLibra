@@ -43,8 +43,9 @@ afterAll(closeAll);
 // — the agreement between the screen and the command —
 
 test("the reader search's block reason is the code lendCopy throws", async () => {
-  // BR §16.3: "Blocking conditions surface as a clear message *before* the
-  // confirm step, never as an error afterwards." The failure this catches is
+  // BR §16.3: "Blocking conditions (reader at loan limit, copy already lent,
+  // membership not active) surface as a clear message *before* the confirm
+  // step, never as an error afterwards." The failure this catches is
   // not a wrong message — it is the screen and the command disagreeing, so a
   // volunteer is told yes and then no with the book already in a child's
   // hands, or told no about a reader who was never blocked at all.

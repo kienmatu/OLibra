@@ -16,8 +16,9 @@ import { membershipAllowsNewLoan, type MembershipStatus } from "../members/polic
  * `../catalogue/policy.ts` holds BR §7.1's state machine and
  * `../members/policy.ts` holds BR §7.5's.
  *
- * BR §16.3: "Blocking conditions surface as a clear message *before* the
- * confirm step, never as an error afterwards." The same predicates answer both
+ * BR §16.3: "Blocking conditions (reader at loan limit, copy already lent,
+ * membership not active) surface as a clear message *before* the confirm step,
+ * never as an error afterwards." The same predicates answer both
  * the "can I?" question on the quick-lend screen and the "may I?" question
  * inside the command at commit time. If those were two implementations they
  * would drift, and a volunteer would be told yes and then no — which is worse

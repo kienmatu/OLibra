@@ -389,7 +389,7 @@ test("collecting a hold closes its request, and the copy is free again after the
   // Before this was fixed: the hold-collecting lend left the `borrow_requests`
   // row `approved` and still naming this copy. The lend itself looked right,
   // the return looked right, and then `copies_borrowable`'s hold clause
-  // (20260808_14_olibra_now.sql:119-125) went on excluding the copy for the
+  // (20260808_14_olibra_now.sql:120-126) went on excluding the copy for the
   // rest of `hold_days` — so every public surface told a child there was no
   // copy free while the book sat on the shelf, and `lendCopy` handed it to the
   // next person who asked anyway. BR §16.3's screen/command disagreement, in

@@ -67,7 +67,7 @@ export interface LendCopyResult {
  * `HandoverRequest`: "`loan.created` (with `request.fulfilled` written in the
  * same transaction)". The pairing is not bookkeeping. A request left `approved`
  * still names this copy, so `copies_borrowable`'s hold clause
- * (`20260808_14_olibra_now.sql:119-125`) keeps excluding it for the rest of
+ * (`20260808_14_olibra_now.sql:120-126`) keeps excluding it for the rest of
  * `hold_days` — and it keeps excluding it *after the copy comes back*, so every
  * public surface tells a child there is no copy free while the book sits on the
  * shelf and `lendCopy` hands it to the next person who asks. That is BR §16.3's
@@ -335,11 +335,21 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
  * already has a transaction open. `makeShelf` leaves `settings` as `{}` and DB
  * §4.2 says a shelf row "need only store what it overrides", so the coalesce
  * default is the value nearly every shelf actually uses, not a corner case.
+ *
+ * The missing-row case is `NotFound("shelf_not_found")`, matching its sibling
+ * `resolveHold` (`./receive-return.ts`) rather than destructuring an absent row
+ * and returning a raw `TypeError` from inside a transaction — the unstructured
+ * exception OPS §2 forbids. It is not reachable today: `bookshelves_tenant`'s
+ * policy matches unconditionally (verified against `pg_policy`), so a shelf id
+ * that reached `runCommand` finds its row. Two functions doing the same read
+ * one file apart should not disagree about what happens when it comes back
+ * empty, whichever of them is right about reachability.
  */
 async function loanDaysFor(tx: Tx, bookshelfId: string): Promise<number> {
   const [row] = await tx<{ loan_days: number }[]>`
     select coalesce((settings->>'loan_days')::int, 14) as loan_days
       from bookshelves where id = ${bookshelfId}
   `;
+  if (!row) throw new NotFound("shelf_not_found");
   return row.loan_days;
 }

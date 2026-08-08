@@ -90,8 +90,18 @@ test("INV-1: the index, not the predicate, is what refuses the loser", async () 
   // fired. Whichever transaction loses the coin flip may well have started
   // after the winner committed, in which case its own `select ... from
   // book_copies` already sees `on_loan` and `copyLendable` refuses it — the
-  // same code, from a completely different line, and a `lendCopy` with no
-  // `catch` at all would still pass it most runs.
+  // same code, from a completely different line.
+  //
+  // The comment that stood here went further and said a `lendCopy` with no
+  // `catch` at all "would still pass it most runs". Measured, on this
+  // machine, against exactly that edit (the `isUniqueViolation` translation
+  // deleted, `throw e` left): the test above failed 5 runs out of 5, so on
+  // this hardware the two transactions really do overlap and the index really
+  // does arbitrate. That is a property of one machine's scheduling, not a
+  // guarantee — nothing in `Promise.allSettled` forces the interleaving, and
+  // a slower or busier host can serialise them — which is why the test below
+  // exists. The honest claim is "cannot say which refusal fired", not "would
+  // usually pass".
   //
   // So this one forces the interleaving that only the index can survive.
   // `withDelayedQuery` (tests/support/db.ts) holds the *first* transaction

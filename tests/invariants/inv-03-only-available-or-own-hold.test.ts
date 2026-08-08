@@ -303,7 +303,7 @@ test("INV-3: an available copy lends, and the copy becomes on_loan", async () =>
   // `borrower_id` holds the reader's *user* id, not their membership id
   // (0005_circulation.sql:20). Asserted on the row the command actually wrote,
   // because a membership id here fails the FK on the very first lend — and if
-  // it somehow did not, `search-readers-for-lending.ts:67`'s
+  // it somehow did not, `search-readers-for-lending.ts:92`'s
   // `l.borrower_id = u.id` join would silently never find the loan.
   const [loan] = await sql<{ borrower_id: string; lent_by: string }[]>`
     select borrower_id, lent_by from loans where id = ${loanId}
