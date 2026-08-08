@@ -1,4 +1,4 @@
-import postgres, { type Sql } from "postgres";
+import postgres, { type Sql, type TransactionSql } from "postgres";
 import { testDatabaseUrl } from "./env";
 
 /**
@@ -32,6 +32,75 @@ export async function withTwoConnections<T>(
   } finally {
     await Promise.all([a.end(), b.end()]);
   }
+}
+
+/**
+ * Wraps `raw` so that any query issued inside a transaction whose first
+ * template chunk satisfies `match` does not resolve to its caller until
+ * `gate` resolves — while the query is still sent, and its real result
+ * still fetched, immediately.
+ *
+ * Built for IMPORTANT 3 (fix-report, 2026-08-08-b1-catalogue): a "lost
+ * update" bug only reproduces when a second, fully separate transaction
+ * commits in the exact window between a first command's own read and its
+ * own later write, within the *same* open transaction. A real two-connection
+ * race for that is a coin flip — nothing forces the interleaving to land in
+ * that window. This holds a command's transaction open exactly where that
+ * window is (right after a query matching `match` resolves), so a caller
+ * can run a second, independent command to completion in between,
+ * deterministically, against the real production command — not a
+ * hand-rolled duplicate of its SQL.
+ *
+ * Positioned *underneath* the kernel's own `guardWrites` (this wraps the raw
+ * `sql.begin`, before the kernel wraps its `tx` argument), so the delayed
+ * query still carries every method (`.allowZero`, `.simple`, `.raw`, ...)
+ * `guardPendingQuery` expects to find and re-bind — it copies them across
+ * exactly the way that function does, rather than returning a bare
+ * `.then()` chain that would be missing them.
+ */
+export function withDelayedQuery(
+  raw: Sql,
+  match: (firstChunk: string) => boolean,
+  gate: Promise<void>,
+): Sql {
+  const delayMatchingQueries = (tx: TransactionSql): TransactionSql => {
+    const callable = tx as unknown as (...args: unknown[]) => any;
+    return new Proxy(callable, {
+      apply(target, thisArg, argArray) {
+        const real = Reflect.apply(target, thisArg, argArray);
+        const strings = argArray[0] as TemplateStringsArray | undefined;
+        if (!strings || !match(strings[0])) return real;
+        const delayed = real.then(async (result: unknown) => {
+          await gate;
+          return result;
+        });
+        return Object.assign(delayed, {
+          simple: real.simple.bind(real),
+          readable: real.readable.bind(real),
+          writable: real.writable.bind(real),
+          execute: real.execute.bind(real),
+          cancel: real.cancel.bind(real),
+          forEach: real.forEach.bind(real),
+          cursor: real.cursor.bind(real),
+          describe: real.describe.bind(real),
+          values: real.values.bind(real),
+          raw: real.raw.bind(real),
+        });
+      },
+    }) as unknown as TransactionSql;
+  };
+
+  return new Proxy(raw, {
+    get(target, prop, receiver) {
+      if (prop === "begin") {
+        return (fn: (tx: TransactionSql) => unknown) =>
+          (target.begin as (fn: (tx: TransactionSql) => unknown) => unknown)((tx) =>
+            fn(delayMatchingQueries(tx)),
+          );
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as Sql;
 }
 
 /**

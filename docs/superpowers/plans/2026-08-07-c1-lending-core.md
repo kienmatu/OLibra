@@ -1122,6 +1122,14 @@ git commit -m "feat(ui): wire quick-lend and receive-return to the domain"
 
 ---
 
+## Forward risk, recorded from B1's code review (not this slice's to fix)
+
+**Watch lock ordering if a command here ever row-locks a `book_copies` row and then calls `allocateCopyCodes`.** B1's allocator (`src/domain/catalogue/copy-codes.ts`) takes a per-shelf `pg_advisory_xact_lock` as its first statement, before touching any row. Both of B1's current callers (`CreateBook`, `AddCopies`) take that lock before any row-level lock exists in their transaction at all, so there is no ordering inversion today — verified by reading both call sites, not assumed.
+
+A C1 command that acquired a row-level lock on `book_copies` (e.g. `select ... for update`) and *then* called `allocateCopyCodes` would invert that order: row lock first, advisory lock second. Two such transactions, each already holding a different row lock and each waiting on the other's advisory lock (or vice versa), is exactly the shape of a deadlock — Postgres would detect and abort one side with `40P01`, not silently corrupt anything, but that is still an unstructured failure a volunteer should never see (BR §2). Nothing in C1's current task list (`LendCopy`, `ReceiveReturn`, `VoidLoan`) calls `allocateCopyCodes` at all, so this is not a live bug in this plan — it is a note for whichever future command is first to combine a row lock with a copy-code allocation: take the advisory lock first, or take no row lock before it, matching the order B1's two callers already establish.
+
+---
+
 ## Done when
 
 - [ ] Two concurrent `lendCopy` calls on separate connections produce exactly one loan, and the loser sees `copy_not_available` — the named error, not a `23505`.

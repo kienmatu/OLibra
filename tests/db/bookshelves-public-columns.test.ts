@@ -26,14 +26,50 @@ import { expect, test } from "vitest";
  * approach `tests/architecture/boundaries.test.ts` already uses and this
  * codebase already trusts.
  *
- * `src/auth/guards.ts` is exempt: `resolveShelfId` already selects only
- * `id`, and it is the one place resolving a slug *before* any session or
- * membership is known — the reason `bookshelves_public_read` exists at all.
- * `src/db/seed.ts` is exempt too: it runs as `olibra_admin`, writing the
- * fixture shelves in the first place, not serving a request.
+ * `src/auth/guards.ts` needs no exemption at all: `resolveShelfId` selects
+ * only `id`, so it never mentions a withheld column, and it is the one place
+ * resolving a slug *before* any session or membership is known — the reason
+ * `bookshelves_public_read` exists at all. `src/db/seed.ts` needs none
+ * either: it writes fixture rows with `insert into bookshelves`, never
+ * `... from bookshelves`, so the guard's own trigger condition never fires
+ * for it — it runs as `olibra_admin`, seeding data, not serving a request.
+ * Neither appears in `EXEMPT_COLUMNS` below; if either one ever grows a
+ * `select ... from bookshelves` that names a withheld column, it should be
+ * caught like anything else, not waved through by a leftover entry.
+ *
+ * `src/domain/catalogue/copy-codes.ts` (B1) is exempt for a different
+ * reason: it reads `settings` deliberately, to resolve a shelf's
+ * `copy_code_prefix` override (`policy.ts`'s `copyCodePrefix`), and it only
+ * ever runs inside `allocateCopyCodes`, itself only reachable from a
+ * `Command` already past `requireManager` — never from an unauthenticated
+ * path `bookshelves_public_read` was written for. `settings` is read into a
+ * local variable and never appears in a command's `result` or `audit`; only
+ * the two-or-three-letter prefix derived from it does.
+ *
+ * `src/domain/catalogue/queries/get-book-detail.ts` (B1 Task 5) is exempt for
+ * the same shape of reason: it reads `settings` to resolve BR §5.5's
+ * `public_show_current_borrower` and `public_name_display` overrides, and it
+ * only ever runs past `requireReader` — a membership of *this* shelf, never
+ * the unauthenticated portal path `bookshelves_public_read` protects against.
+ * `settings` itself never appears in the returned `BookDetail`; only the two
+ * booleans/strings derived from it (whether `currentLoan` is null, and which
+ * of the borrower's names to show) do.
+ *
+ * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
+ * per-column, not per-file.** Both justifications above are for reading
+ * `settings`, and only `settings`, out of these two files — neither one is a
+ * blanket "trust this whole file" pass. A whole-file exemption skipped the
+ * `select *` check and the *other* withheld columns too, in a file that
+ * genuinely earns an exemption for exactly one of them: changing
+ * `get-book-detail.ts` to select `keeper_phone`, `keeper_name` and
+ * `created_by` alongside `settings` left the guard green — verified live.
+ * `select *` is never exempt, for any file, regardless of this map.
  */
 
-const EXEMPT_FILES = new Set(["src/auth/guards.ts", "src/db/seed.ts"]);
+const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  "src/domain/catalogue/copy-codes.ts": ["settings"],
+  "src/domain/catalogue/queries/get-book-detail.ts": ["settings"],
+};
 
 // The whole point of §16.1: a person with no membership has no business
 // knowing these. Not exhaustive of every column on the table — just the
@@ -51,22 +87,30 @@ function filesUnder(dir: string): string[] {
   return out;
 }
 
-test("no non-exempt code path selects every column, or a withheld one, from bookshelves", () => {
+test("no code path selects every column, or a withheld one it is not individually exempted for, from bookshelves", () => {
   const offenders: string[] = [];
 
   for (const file of filesUnder("src")) {
     const relative = file.replace(process.cwd() + "/", "");
-    if (EXEMPT_FILES.has(relative)) continue;
 
     const source = readFileSync(file, "utf8");
     if (!/from\s+bookshelves\b/i.test(source)) continue;
 
+    // IMPORTANT 4: "select *" is never exempt, for any file — unlike the
+    // per-column check below, there is no column list that could make a
+    // wildcard select safe.
     if (/select\s+\*\s+from\s+bookshelves\b/i.test(source)) {
       offenders.push(`${relative}: "select *" against bookshelves`);
       continue;
     }
 
+    // Per-file, per-column — not a whole-file `continue` the way this used
+    // to read. A file earning an exemption for `settings` still has every
+    // other withheld column, and its own `select *`, checked normally.
+    const allowedColumns = new Set(EXEMPT_COLUMNS[relative] ?? []);
+
     for (const column of WITHHELD_COLUMNS) {
+      if (allowedColumns.has(column)) continue;
       // A loose same-file check, not a per-statement parser (same trade-off
       // stripCommentsAndStrings's own comment in boundaries.test.ts makes):
       // good enough to catch the shape the live reproduction found, not a
