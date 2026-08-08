@@ -15,6 +15,15 @@ const CASES = [
   "Đất Rừng Phương Nam",
   "Totto-chan Bên Cửa Sổ",
   "Kính Vạn Hoa tập 4",
+  // None of the twelve titles in src/lib/fixtures.ts contain a lowercase đ:
+  // every đ in that file starts a title-cased word, so it is always Đ.
+  // Without a case like this one, the parity test above never exercises the
+  // .replace(/đ/g, "d") branch of fold() — only the capital-Đ branch — so a
+  // regression isolated to lowercase đ would pass unnoticed. Sentence case
+  // here (only the first word capitalised) is how the real title is
+  // published (Nguyễn Nhật Ánh, NXB Trẻ), and it puts "đến" mid-string,
+  // lowercase, exactly where that gap was.
+  "Cô gái đến từ hôm qua",
 ];
 
 test.each(CASES)("SQL and TypeScript fold %s identically", async (input) => {
