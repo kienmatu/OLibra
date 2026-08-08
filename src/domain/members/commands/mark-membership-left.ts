@@ -52,7 +52,10 @@ export const markMembershipLeft: Command<{ membershipId: string }, void> = async
   // for the same reason. The shelf scoping comes from RLS on the view, not
   // from the join key.
   //
-  // `loans_current` (`0011_views.sql`) is `select l.*, is_overdue,
+  // `loans_current` (defined in `0011_views.sql`, redefined by
+  // `20260808_14_olibra_now.sql` — the live definition is the latter's, and
+  // `pg_get_viewdef` is where to read it rather than either file) is
+  // `select l.*, is_overdue,
   // days_remaining from loans l` — every loan, not only active ones; "current"
   // names the read path DB §6 points to for a loan's *live, derived* fields,
   // not a pre-filtered set. `status = 'active'` here reads that column through

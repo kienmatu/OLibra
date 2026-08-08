@@ -223,10 +223,12 @@ The cost is that dropping a value requires a type rewrite. That is acceptable be
 §4 fixes the application timezone at `Asia/Ho_Chi_Minh` regardless of where the system runs. Store instants as `timestamptz`; derive calendar days by converting explicitly:
 
 ```sql
-(loan.due_on < (now() at time zone 'Asia/Ho_Chi_Minh')::date)
+(loan.due_on < (olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date)
 ```
 
 Never rely on the session `TimeZone` setting for correctness — a background job, a migration console and a web request may each carry a different one.
+
+`olibra_now()` rather than `now()` is deliberate and is what the shipped views actually call: it is `now()` on any connection that has not been given a clock, and the injected instant on one that has. See §6 for why it exists and why it is `STABLE`.
 
 ---
 
@@ -1157,8 +1159,8 @@ as
 select
   l.*,
   (l.status = 'active'
-   and l.due_on < (now() at time zone 'Asia/Ho_Chi_Minh')::date) as is_overdue,
-  (l.due_on - (now() at time zone 'Asia/Ho_Chi_Minh')::date)     as days_remaining
+   and l.due_on < (olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date) as is_overdue,
+  (l.due_on - (olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date)     as days_remaining
 from loans l;
 
 create view copies_borrowable
@@ -1172,12 +1174,73 @@ where c.state = 'available'
     select 1 from borrow_requests r
     where r.copy_id = c.id
       and r.status = 'approved'
-      and r.hold_expires_at > now()
+      and r.hold_expires_at > olibra_now()
       and r.deleted_at is null
   );
 
 grant select on loans_current, copies_borrowable to olibra_app, olibra_admin;
 ```
+
+### `olibra_now()` — the clock, injectable in SQL
+
+**Both views called SQL `now()` until `20260808_14_olibra_now.sql`, and that made the whole of "computed against the current clock" untestable.** `src/domain/kernel/clock.ts` exists so that time is an injected dependency, and says so in its own opening comment: every rule computed against the clock "is only testable if the clock can be moved". It could be moved in TypeScript and not in the database. A test holding a `fixedClock` could not make `is_overdue` true and could not make a hold expire without waiting real wall-clock time — so `tests/db/derived-state.test.ts` moves `due_on` and `hold_expires_at` instead of the clock, and B2's plan recorded the limitation as its Known gap #14, explicitly handing it to C1/C2 as unresolved. C2's acceptance criterion ("the test advances an injected `Clock` rather than sleeping") was not achievable against views built that way.
+
+The fix is the tenant mechanism, in the same shape, because it is already proven here. `0010_rls.sql`'s policies read `nullif(current_setting('olibra.bookshelf_id', true), '')` and `unit-of-work.ts` sets that GUC transaction-locally at the top of every command and every scoped query. `olibra.now` is set on the next line and read back the same way:
+
+```sql
+-- 20260808_15_olibra_now_strict.sql; 20260808_14 was the same thing in
+-- `language sql`, with no validation and no `raise`.
+create or replace function olibra_now()
+returns timestamptz
+language plpgsql
+stable          -- never immutable; see below
+parallel safe
+as $fn$
+declare
+  raw text := nullif(current_setting('olibra.now', true), '');
+begin
+  if raw is null then
+    return now();
+  end if;
+  if raw !~ '^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$' then
+    raise exception using errcode = '22007', message = '...';   -- see below
+  end if;
+  return raw::timestamptz;
+end;
+$fn$;
+```
+
+**The pattern is a guard, not decoration: the original cast whatever string was in the GUC and guessed.** Measured against it, by setting `olibra.now` directly:
+
+- **`'2026-08-08 10:00:00'` — no offset — was accepted and resolved through the session `TimeZone`.** The same string is three different instants under `UTC`, `Asia/Ho_Chi_Minh` and `America/Los_Angeles`; all three verified. That is exactly what §2.2 says must never be relied on, and the only thing preventing it was one `.toISOString()` call in TypeScript that nothing in SQL required.
+- **`'now'` and `'epoch'` were accepted**, resolving silently to real time and to 1970 — a frozen clock that is not frozen.
+- **`'infinity'` was accepted**, and then `copies_borrowable` hid every copy in the database (nothing is `> infinity`) while `loans_current` stopped being queryable at all: `due_on - 'infinity'::date` raises `cannot subtract infinite dates`. A GUC value that makes a view *raise* is worse than one that makes it wrong.
+
+So the contract is: an explicit offset and a finite value, or an error. The pattern enforces both at once — a string matching it has a four-digit year and a real offset, so it cannot be `infinity`, `epoch`, `now` or a bare local time — which is why there is no separate `isfinite()` check to read as a guarantee somebody may weaken the pattern against. Unset and the empty string are *not* errors and must never become ones; both still fall back to `now()`, for the two reasons in the numbered list below. `tests/db/sql-clock.test.ts` pins the rejected set, the accepted set (`toISOString()`'s exact output first, since it is the only writer today), and that a rejected value produces `22007` from the *function* rather than an arithmetic error from one view and silence from the other.
+
+**`language plpgsql` is not only about being able to `raise`, and it is faster.** A SQL function this small is inlined into the calling query, and the expanded `coalesce(nullif(current_setting(...))..., now())` is not something the planner will use as an index bound: `where t > olibra_now()` planned as a **Seq Scan**. The plpgsql function stays opaque and `STABLE`, which is the shape the planner treats as a run-time constant — the same query planned as a parallel **Index Only Scan** with `Index Cond: (t > olibra_now())`, 11 ms against 15 ms over 200k rows on this cluster.
+
+`runQuery`, `runCommand` and `runGlobalCommand` all set it from `ctx.clock`, which every `TenantContext` has already carried since S2 — no signature changed to make this work. **This does not change what these two views are for in production, but it does change whose clock they read:** `ctx.clock` is `systemClock` on every real request, so the value written is `new Date()` in the *application* process, not `now()` in the database. Those are two clocks, and they agree only to the extent the two hosts' clocks agree — see "Two clocks in one transaction", below, which is the part of this change that has a production consequence. What is *not* given up is one-consistent-now-per-transaction, which is the first thing a reader worries about: Postgres's `now()` is *transaction start* time, not statement time, and this is likewise one value captured once, before the command body runs, and read by every statement in the transaction.
+
+**Three details, each wrong in an obvious-looking alternative, and each with a test that goes red without it** (`tests/db/sql-clock.test.ts`, all falsified by hand — see the task report):
+
+1. **`current_setting(name, true)`** — the `true` is `missing_ok`. Without it a session that never set `olibra.now` raises `unrecognized configuration parameter` instead of returning null, which breaks every `psql` session, every migration, and `seed()`. Falsified: dropping it turns "falls back to `now()` on a connection the kernel never touched" red with exactly that error.
+
+2. **`nullif(..., '')` on top of that is not redundant with `missing_ok`.** §3 spells out this trap for `olibra.bookshelf_id` and it is identical here: once *any* transaction on a connection has `set_config`'d a GUC locally, it does not revert to unset when that transaction ends — it reverts to the **empty string**. `''::timestamptz` does not return null, it raises `invalid input syntax for type timestamp with time zone: ""`. On a pooled connection that is every second and subsequent transaction, not a corner case. Falsified: dropping the `nullif` turns the transaction-locality test red with exactly that error.
+
+3. **`STABLE`, and it must not be `IMMUTABLE`.** Both built-ins underneath are `STABLE`/`PARALLEL SAFE` on this cluster (`select provolatile, proparallel from pg_proc`, PostgreSQL 16.10), so `STABLE` is the strongest correct marking. `IMMUTABLE` is a lie the planner acts on, and this was verified rather than reasoned about — marking it immutable and running `explain (verbose, costs off) select * from copies_borrowable` shows the call already folded to a literal in the plan:
+
+   ```
+   Index Cond: (r.hold_expires_at > '2026-08-08 16:12:28.22945+00'::timestamp with time zone)
+   ```
+
+   A clock frozen at plan time, ignoring the GUC entirely — the exact failure this function exists to prevent, reintroduced silently. Five tests go red under it.
+
+   **Contrast `olibra_fold` in §5, which genuinely is `IMMUTABLE` and has to be:** it feeds a generated column, and Postgres refuses a `STABLE` function there. The two functions look alike; their volatility markings are opposite, for reasons that belong to each.
+
+`at time zone 'Asia/Ho_Chi_Minh'` stays exactly where it was on both derived columns. §2.2's rule is unchanged — injecting the clock does not make the conversion unnecessary, it makes it *testable*, which is what the boundary pair in `tests/db/sql-clock.test.ts` now pins: a loan due `2026-08-08` is not overdue at `2026-08-08T16:00:00Z` (23:00 +07, still the due date) and is overdue at `2026-08-08T17:30:00Z` (00:30 +07 the next day). Both instants are `2026-08-08` in UTC, so a view comparing against `olibra_now()::date` reads them as the same day and the second assertion flips.
+
+That pair is read **under three pinned session timezones** — `UTC`, `America/Los_Angeles` and `Asia/Ho_Chi_Minh` — and required to give the same answer in all three, which is what makes it a guard rather than an accident of configuration. `olibra_now()::date`, the broken form, resolves through the *session's* `TimeZone`, so whether it gives the wrong answer depends on what that happens to be; it is UTC today only because that is Docker's default and `compose.yaml` pins nothing on the `db` or `db-test` services. Verified rather than reasoned: recreating `db-test` with `TZ=Asia/Ho_Chi_Minh` (tmpfs, so a fresh `initdb` picks it up) and applying a `loans_current` without the conversion made the single-zone version of that test **pass** against the broken view. The three-zone version fails against it under either server default, and the whole suite is green under both.
 
 **`security_invoker = true` is load-bearing here, not boilerplate, and dropping it reopens INV-10 through the back door.** PostgreSQL's default is the opposite of what §3's row-level-security policies assume: without this clause a view evaluates row security as the view's *owner*, not as the role running the query — the same mechanism a `SECURITY DEFINER` function uses. Migrations in this project run as a `bypassrls` superuser (§3), so a view created the ordinary way carries that superuser's bypass with it: `olibra_app`, scoped to one shelf, queries the view and gets every shelf's rows back, because the policy is being evaluated as the owner, not as `olibra_app`. This was verified directly rather than assumed — the same view created without `security_invoker` and queried by a shelf-scoped `olibra_app` connection returned rows from every shelf; adding the clause cut that to exactly the querying shelf's rows. `security_invoker = true` makes each view apply the *invoking* role's policies instead of the owner's, which is what lets `olibra_app` see only its own shelf through these views (INV-10) while `olibra_admin` still bypasses deliberately, via `bypassrls`, as designed (§3). Skip the clause and these two convenience views become the one place in the schema where the tenant boundary silently does not hold.
 
@@ -1185,7 +1248,38 @@ This was, for one branch, verified only by hand and never by a test: `tests/db/d
 
 `copies_borrowable` is the direct expression of §8's "a copy is borrowable when it is available and no unexpired hold references it". The `r.deleted_at is null` line matches the treatment `book_copies` already gets one line above it: a soft-deleted `borrow_requests` row must not go on blocking a copy just because nobody remembered to also filter deleted holds — that row is otherwise invisible everywhere else `deleted_at` is filtered, so a copy stuck behind one had no explanation visible anywhere in the UI. Fixed in `20260808_05_copies_borrowable_deleted_at.sql`.
 
-**What background work is still for:** image processing, cache warming, backups, and tidying up expired holds as housekeeping rather than as correctness. If the tidy-up never runs, `copies_borrowable` is still right, because the hold expiry is compared against `now()` rather than trusted from a column somebody was meant to update.
+**What background work is still for:** image processing, cache warming, backups, and tidying up expired holds as housekeeping rather than as correctness. If the tidy-up never runs, `copies_borrowable` is still right, because the hold expiry is compared against the clock (`olibra_now()`, above) on every read rather than trusted from a column somebody was meant to update. `tests/db/sql-clock.test.ts` asserts exactly that sentence: one hold, written once, read at two instants either side of its expiry, with `hold_expires_at`, `status` and `deleted_at` all unchanged afterwards — `hold_expires_at` above all, since that is the column the claim turns on and the one an implementation that quietly pushed the expiry around would have moved. The `xmin` assertion alongside them is confirmatory narration rather than a regression guard, and the test says so: every read there runs inside `runQuery`'s `set transaction read only`, so no write could have committed and bumped it regardless of how the views were built.
+
+### Two clocks in one transaction
+
+**A kernel transaction now runs under two different clocks at once, and which one a timestamp gets depends on how it was written.** This is a real consequence of `olibra_now()`, it is not written down anywhere else, and it is the thing to know before adding a timestamp column or a command that writes one.
+
+Inside a single `runCommand` transaction:
+
+| Reads / writes | Clock | Examples |
+|---|---|---|
+| `olibra_now()` — so `loans_current.is_overdue`, `loans_current.days_remaining`, `copies_borrowable`'s hold-expiry check | **the application host's**, via `ctx.clock` and the `olibra.now` GUC | every overdue badge, every availability count |
+| A value the domain passes in from `ctx.clock` | **the application host's** | `audit_log.occurred_at` and `condition_assessments.assessed_at` as actually written (by `runAs` and `AssessCondition`), plus `approved_at`, `lost_reported_at`, `retired_at`, `deleted_at` |
+| A column `default now()`, or a trigger calling `now()` | **the database host's** | `loans.lent_at` and `borrow_requests.requested_at` — no command writes either yet, so today the default is the only source — plus the *defaults* on `audit_log.occurred_at` and `condition_assessments.assessed_at`, every `created_at`, and `set_updated_at()` in `20260808_06_updated_at_triggers.sql` |
+
+Both are observable in the same transaction: with a `fixedClock` at `2020-01-02T03:04:05Z`, `select now(), olibra_now()` returns real database time in the first column and the injected instant in the second.
+
+**What this couples.** The application host is now authoritative for overdue status and hold expiry. The database host is still authoritative for when rows say they were created. **App and database clocks must therefore not drift**, and today they do not: `compose.yaml` runs `app` and `db` in the same Docker stack on one host, so they share the machine's clock. That colocation is now load-bearing rather than incidental — splitting the application onto a different host than the database makes NTP on both a correctness requirement, not hygiene.
+
+**The failure this would cause is reasoned, not reproduced.** Suppose the application host runs 90 seconds ahead of the database host, or — the likelier version, since OPS §6 contemplates two managers on two app-server processes — two application instances disagree with each other. Then, in the same second: the same loan is overdue when read through one instance and not through the other; a hold expires early on one instance and is still blocking on the other; and `hold_expires_at`, which was written from a `ctx.clock` on whichever instance approved the request, is compared against a *different* instance's clock on every subsequent read. None of these produces an error. They produce two correct-looking answers to the same question.
+
+### The rule: a timestamp the domain means comes from `ctx.clock`
+
+**If a timestamp is a fact the domain is asserting — when a loan was lent, when a request was made, when an assessment happened — write it explicitly from `ctx.clock`. Do not let a column default supply it.**
+
+Column defaults stay exactly where they are, as a backstop for rows written outside the domain: a migration, `seed()`, a `psql` session, a fix applied by hand. That is what a default is good at and it should keep doing it. What it must not be is the *only* source of a timestamp that a domain command was responsible for, because then that one row is stamped by a clock no test can move and no other column in the same transaction agrees with.
+
+Two reasons, in order of how soon they bite:
+
+1. **Testability, immediately.** A `fixedClock` moves `olibra_now()` and every value the command passes in. It does not move a column default. A test that sets the clock to 2026 and inserts a loan gets a `lent_at` of whatever real time it is — so any assertion relating `lent_at` to `due_on`, or to `occurred_at` on the same transaction's audit row, is asserting against two clocks and quietly cannot be written.
+2. **Consistency, under drift.** In one transaction, `occurred_at` comes from the application host and `lent_at` from the database host. Under the skew above they are minutes apart on rows written by the same statement pair.
+
+**This branch changes no command and no column default** — doing so is C1's and B3's work and would turn a change about `olibra_now()` into a change about every table. The rule is recorded here so that the next command written honours it rather than inheriting the current mixture by copying it. C1's plan already writes `lent_at` from `${ctx.clock.now()}` in its `insert into loans`; that line is now load-bearing rather than stylistic, and the note appended to `docs/superpowers/plans/2026-08-07-c1-lending-core.md` says so.
 
 ---
 

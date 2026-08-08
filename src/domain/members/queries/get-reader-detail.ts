@@ -40,10 +40,23 @@ export interface ReaderDetail extends ReaderRow {
  * for one than the audit log is).
  *
  * `currentLoans`' `isOverdue`/`daysRemaining` come straight from
- * `loans_current`'s own derived columns (G5) rather than being recomputed
- * here from `ctx.clock` — the view computes both from SQL `now()`, not the
- * injected clock (verified via `pg_get_viewdef`), a known limitation this
- * slice inherits rather than works around.
+ * `loans_current`'s own derived columns (G5) and **must not be recomputed
+ * here from `ctx.clock`.** Doing so would create a second definition of
+ * "overdue" in a second language, which is the exact thing G5 exists to
+ * prevent — and it would buy nothing, because the view already follows
+ * `ctx.clock`: `20260808_14_olibra_now.sql` replaced the SQL `now()` both
+ * derived columns used to call with `olibra_now()`, which reads the
+ * transaction-local `olibra.now` GUC that `unit-of-work.ts` sets from
+ * `ctx.clock` on every command and every scoped query. Handing this query a
+ * `fixedClock` moves `isOverdue` and `daysRemaining`; see DB §6 and
+ * `tests/db/sql-clock.test.ts`.
+ *
+ * (An earlier version of this comment said the opposite — that the view read
+ * SQL `now()` and ignored the injected clock, "verified via `pg_get_viewdef`"
+ * — and called it a limitation to inherit. That was true when it was written
+ * and false from `20260808_14` onward. It is corrected here rather than
+ * deleted because it is the note a C1/C2 implementer would have read as
+ * permission to derive overdue in TypeScript.)
  */
 export async function getReaderDetail(
   tx: Tx,

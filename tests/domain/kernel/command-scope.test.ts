@@ -317,6 +317,107 @@ test("an empty-string bookshelfId still fails closed to zero rows, not an error"
   expect(rows).toHaveLength(0);
 });
 
+// Minor 3 (review, branch feat/sql-clock): the clock got none of the
+// pre-transaction validation the tenant id above gets, even though both
+// settings on a scoped transaction come from `ctx` and both are set on
+// adjacent lines. `ctx.clock.now().toISOString()` was evaluated *inside*
+// `sql.begin`, so a broken clock produced exactly what
+// `assertValidBookshelfId` exists to prevent. Measured before the fix, all
+// three through `runQuery`:
+//
+//   new Date("nonsense")  -> RangeError: Invalid time value, from inside the
+//   new Date(Infinity)       transaction. No `code`, not a DomainError.
+//   new Date(8.64e15)     -> PostgresError 22009, "time zone displacement out
+//                            of range: +275760-09-13T00:00:00.000Z" — raised
+//                            when a view calls olibra_now() and the cast
+//                            fails, i.e. a raw driver error at the kernel
+//                            boundary.
+//
+// Unreachable in production: `systemClock.now()` is `new Date()`. This is a
+// test-authoring footgun — `fixedClock("2026-13-45")` is a plausible typo —
+// and a symmetry gap, and it is fixed as one.
+describe("a Clock that cannot produce a sendable instant is a named ValidationFailed", () => {
+  const broken: Record<string, Date> = {
+    // `new Date` of an unparseable string, and of a non-finite number: both
+    // are the Invalid Date, whose `toISOString()` throws.
+    'fixedClock("2026-13-45")-style Invalid Date': new Date("2026-13-45"),
+    "new Date(Infinity)": new Date(Infinity),
+    // Valid, and the largest `Date` there is. `toISOString()` succeeds here —
+    // it yields "+275760-09-13T00:00:00.000Z" — so a finiteness check alone
+    // would let this through to Postgres and the 22009 above.
+    "new Date(8.64e15), the maximum valid Date": new Date(8.64e15),
+  };
+
+  for (const [name, instant] of Object.entries(broken)) {
+    test(name, async () => {
+      const ctx = {
+        bookshelfId: "",
+        actor: { userId: null, membershipId: null, role: "manager" as const },
+        clock: { now: () => instant, today: () => "2026-08-08" },
+      };
+
+      // The query body reads a view that calls olibra_now(), so this is the
+      // path that produced the 22009 rather than one that only sets the GUC
+      // and never reads it back.
+      await expect(
+        runQuery(sql, ctx, (tx) => tx`select count(*) from loans_current`),
+      ).rejects.toBeInstanceOf(ValidationFailed);
+
+      await expect(
+        runCommand(
+          sql,
+          { ...ctx, bookshelfId: (await makeShelf(sql)).id },
+          async () => ({
+            result: null,
+            audit: { action: "x.y", entityType: "x", entityId: "x" },
+          }),
+          {},
+        ),
+      ).rejects.toBeInstanceOf(ValidationFailed);
+    });
+  }
+
+  test("the error names the clock, not the shelf", async () => {
+    // Both settings share one `ErrorCode` (`validation_failed`; this branch
+    // adds none), so `field` is the only thing that says which of the two was
+    // wrong. Asserting it is what keeps a future refactor from routing a bad
+    // clock through the bookshelf-id branch and leaving this suite green.
+    const error = await runQuery(
+      sql,
+      {
+        bookshelfId: "",
+        actor: { userId: null, membershipId: null, role: "manager" as const },
+        clock: { now: () => new Date(Infinity), today: () => "2026-08-08" },
+      },
+      (tx) => tx`select 1`,
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ValidationFailed);
+    expect((error as ValidationFailed).field).toBe("clock");
+  });
+
+  test("a valid clock at the far end of the range is not caught by this", async () => {
+    // The guard must reject what Postgres cannot take, not everything
+    // unusual. Year 9999 is the largest four-digit year and round-trips
+    // fine — without this, tightening the check into a narrow "plausible
+    // dates only" range would go unnoticed.
+    const row = await runQuery(
+      sql,
+      {
+        bookshelfId: "",
+        actor: { userId: null, membershipId: null, role: "manager" as const },
+        clock: {
+          now: () => new Date("9999-12-31T23:59:59Z"),
+          today: () => "9999-12-31",
+        },
+      },
+      async (tx) =>
+        (await tx<{ injected: string }[]>`select olibra_now() as injected`)[0],
+    );
+    expect(new Date(row.injected).toISOString()).toBe("9999-12-31T23:59:59.000Z");
+  });
+});
+
 // Item 2 (re-review follow-up): unlike runQuery, the write path has no
 // nullif(...) between ctx.bookshelfId and the audit insert's uuid column —
 // an empty string used to reach that column raw and surface as

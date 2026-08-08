@@ -57,8 +57,16 @@ test("an expired hold stops blocking a copy without any tidy-up running", async 
   `;
 
   // The hold row is still 'approved' — nothing tidied it. The copy is
-  // borrowable anyway, because expiry is compared against now() rather than
-  // trusted from a column somebody was meant to update.
+  // borrowable anyway, because expiry is compared against the clock on every
+  // read rather than trusted from a column somebody was meant to update.
+  //
+  // The clock here is real time: the view calls `olibra_now()` since
+  // `20260808_14_olibra_now.sql`, and this file queries the raw `sql` handle
+  // rather than going through `runQuery`, so `olibra.now` is unset (or the
+  // empty string) and `olibra_now()` falls back to `now()`. That is why the
+  // fixture is written in `now() - interval` terms and why it still reads the
+  // way it did before that migration. `tests/db/sql-clock.test.ts` is the file
+  // that moves the clock instead of the fixture.
   const rows = await sql`select id from copies_borrowable`;
   expect(rows).toHaveLength(1);
 });

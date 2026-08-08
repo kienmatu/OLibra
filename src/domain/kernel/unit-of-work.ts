@@ -53,6 +53,134 @@ function assertValidBookshelfId(
   }
 }
 
+/**
+ * The shape `Date.prototype.toISOString()` produces for every instant
+ * `olibra_now()` will accept: a four-digit year, and `Z` rather than a naked
+ * local time.
+ *
+ * Deliberately the same shape `olibra_now()` itself enforces
+ * (`20260808_15_olibra_now_strict.sql`). Two checks, one contract: this one
+ * so the failure is a named error at the kernel boundary, that one because
+ * the function is the schema's contract and is reachable from `psql`.
+ */
+const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Rejects a `Clock` whose `now()` cannot be sent to Postgres, before
+ * `sql.begin` ever opens a transaction — the symmetry `assertValidBookshelfId`
+ * above already has, and the clock did not.
+ *
+ * Both settings on a scoped transaction come from `ctx`; only one of them was
+ * checked. `ctx.clock.now().toISOString()` was evaluated *inside* `sql.begin`,
+ * so a broken clock surfaced exactly the way a malformed `bookshelfId` used to,
+ * which is the thing that function exists to prevent. Measured through
+ * `runQuery` against a view that calls `olibra_now()`:
+ *
+ * - `new Date("nonsense")`, `new Date(Infinity)` — `toISOString()` throws a
+ *   raw `RangeError: Invalid time value` from inside the transaction. No
+ *   `code`, not a `DomainError`, nothing a caller can branch on.
+ * - `new Date(8.64e15)`, the largest valid `Date` — `toISOString()` succeeds
+ *   and yields `+275760-09-13T00:00:00.000Z`, which Postgres then rejects with
+ *   `PostgresError 22009: time zone displacement out of range`. A raw driver
+ *   error from inside a transaction: the exact shape, and the exact place,
+ *   `assertValidBookshelfId` was written for.
+ *
+ * **None of this is reachable in production.** `systemClock.now()` is
+ * `new Date()`, which is always valid and always in range. This is a
+ * test-authoring footgun and a symmetry gap, not a defect: `fixedClock(
+ * "2026-13-45")` is a plausible typo, and today it fails deep in the kernel
+ * with a message that names neither the clock nor the test that set it.
+ *
+ * The code is `validation_failed` rather than something clock-specific
+ * because this branch adds no `ErrorCode`; the `field` is what carries which
+ * of the two settings was wrong, exactly as `"bookshelfId"` does above. A
+ * later slice that wants a distinct code and Vietnamese sentence for it is
+ * welcome to it — no volunteer can act on either message, so the value would
+ * be to the next developer reading a stack trace, not to a reader.
+ *
+ * Returns the string to send, so the caller cannot check one value and send a
+ * differently-derived other one.
+ */
+function assertValidClockInstant(clock: TenantContext["clock"]): string {
+  const instant = clock.now();
+  if (!Number.isFinite(instant.getTime())) {
+    throw new ValidationFailed("validation_failed", "clock");
+  }
+  const iso = instant.toISOString();
+  if (!ISO_INSTANT_RE.test(iso)) {
+    throw new ValidationFailed("validation_failed", "clock");
+  }
+  return iso;
+}
+
+/**
+ * Sets the two session settings every scoped transaction runs under: the
+ * tenant, and the clock.
+ *
+ * Both are `set_config(..., true)` — the `true` is `LOCAL`, scoped to this
+ * transaction and no further, which is why the driver must be pooled in
+ * transaction mode (DB §3). Getting that wrong leaks one request's shelf
+ * into the next request on the same connection, silently; the same is now
+ * true of one request's clock, and `tests/db/sql-clock.test.ts` asserts the
+ * non-leak directly rather than trusting the flag.
+ *
+ * `olibra.bookshelf_id` is read back by `0010_rls.sql`'s `<table>_tenant`
+ * policies. `olibra.now` is read back by `olibra_now()`
+ * (`20260808_14_olibra_now.sql`), which `loans_current` and
+ * `copies_borrowable` call in place of `now()` — so `is_overdue`,
+ * `days_remaining` and hold expiry all follow `ctx.clock` instead of
+ * ignoring it. Before this, `src/domain/kernel/clock.ts`'s whole premise
+ * ("every one of those rules is only testable if the clock can be moved")
+ * held in TypeScript and failed in SQL: a test could hold a `fixedClock` and
+ * still not make a loan overdue or a hold expire without waiting real time.
+ *
+ * **This does change whose clock the two views read in production, and that
+ * is worth being precise about.** `ctx.clock` is `systemClock` on every real
+ * request, so the value written here is `new Date()` in *this Node/Bun
+ * process* — not `now()` in the database. On the composed stack those are the
+ * same machine and the distinction is invisible; split them, or run two app
+ * instances whose clocks disagree, and overdue status and hold expiry follow
+ * the application host while every `default now()` column follows the
+ * database host. DB §6, "Two clocks in one transaction", is the long version,
+ * including the rule that follows from it: **a timestamp the domain means —
+ * `lent_at`, `requested_at`, `assessed_at` — is written explicitly from
+ * `ctx.clock`, not left to a column default.** Defaults stay as a backstop
+ * for rows written outside the domain; they are not a source a `fixedClock`
+ * can move, and they are not the same clock as this one.
+ *
+ * What is *not* given up is the one-consistent-now-per-transaction property a
+ * reader will immediately wonder about: Postgres's `now()` is *transaction
+ * start* time, not statement time, and this is one value captured once,
+ * before the command body runs, and read by every statement in the
+ * transaction. That is the same guarantee, sourced from the clock the domain
+ * already injects everywhere else.
+ *
+ * `nowIso` is an ISO-8601 string rather than the `Date` itself, because
+ * `set_config`'s second parameter is `text`: the driver would otherwise bind a
+ * `timestamptz` against a `text` parameter. The explicit `Z` offset is not
+ * cosmetic — it is what makes the string round-trip through `::timestamptz` in
+ * `olibra_now()` unambiguously, regardless of the session's `TimeZone`, which
+ * DB §2.2 warns must never be relied on for correctness since a web request, a
+ * migration console and a background job may each carry a different one. The
+ * same string without an offset is three different instants under three
+ * `TimeZone` settings, so `olibra_now()` refuses one (see
+ * `20260808_15_olibra_now_strict.sql`) and `assertValidClockInstant` above
+ * refuses to send one.
+ *
+ * It arrives as a parameter, already checked by `assertValidClockInstant`
+ * *before* `sql.begin`, rather than being derived here — a clock read here
+ * could be a different value from the one that was validated, and a clock
+ * that throws here throws from inside a transaction.
+ */
+async function setSessionScope(
+  tx: RawTx,
+  ctx: TenantContext,
+  nowIso: string,
+): Promise<void> {
+  await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+  await tx`select set_config('olibra.now', ${nowIso}, true)`;
+}
+
 /** `UPDATE`/`DELETE` are the two statement types RLS's `using` clause can filter to zero rows without raising. */
 const GUARDED_COMMANDS = new Set(["UPDATE", "DELETE"]);
 
@@ -278,8 +406,9 @@ async function runAs<I, O>(
   input: I,
 ): Promise<O> {
   assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: false });
+  const nowIso = assertValidClockInstant(ctx.clock);
   return sql.begin(async (tx) => {
-    await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+    await setSessionScope(tx as RawTx, ctx, nowIso);
     await tx`set local role olibra_app`;
 
     const { result, audit } = await command(guardWrites(tx as RawTx), ctx, input);
@@ -401,9 +530,10 @@ export async function runQuery<O>(
   query: (tx: Tx, ctx: TenantContext) => Promise<O>,
 ): Promise<O> {
   assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: true });
+  const nowIso = assertValidClockInstant(ctx.clock);
   return sql.begin(async (tx) => {
     await tx`set transaction read only`;
-    await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+    await setSessionScope(tx as RawTx, ctx, nowIso);
     await tx`set local role olibra_app`;
     return query(guardWrites(tx as RawTx), ctx);
   }) as Promise<O>;
