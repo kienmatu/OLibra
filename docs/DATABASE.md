@@ -155,8 +155,8 @@ flowchart TB
         I2["INV-2 · never held and on loan<br/>single state column"]
         I9["INV-9 · comments public only when approved<br/>partial index"]
         I10["INV-10 · every query scoped to a shelf<br/>row level security"]
-        I11["INV-11 · loans never deleted<br/>no column, revoked grant"]
-        I12["INV-12 · audit never altered<br/>revoked grant"]
+        I11["INV-11 · loans never deleted<br/>no column, trigger + revoked grant"]
+        I12["INV-12 · audit never altered<br/>trigger + revoked grant"]
         I13a["INV-13a · at most one pending<br/>profile request per person<br/>partial unique index"]
         I14["INV-14 · credentials paired,<br/>or absent entirely<br/>check constraint"]
     end
@@ -239,10 +239,13 @@ alter table books enable row level security;
 alter table books force row level security;
 
 create policy books_tenant on books
-  using (bookshelf_id = current_setting('olibra.bookshelf_id', true)::uuid);
+  using (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid)
+  with check (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid);
 ```
 
 The application sets `olibra.bookshelf_id` once per transaction. A query that forgets its `where` clause returns nothing rather than another parish's readers.
+
+**One trap worth naming, because it bites quietly and only on a connection that has been used before** — the same treatment §5 gives `unaccent`'s two traps. `current_setting(name, true)` returns `null` the first time a session touches a GUC nobody has set. But once any transaction on that connection has called `set_config('olibra.bookshelf_id', ..., true)` — the `true` meaning `LOCAL`, scoped to that one transaction — the setting does not go back to being unset when the transaction ends; it reverts to an **empty string**, not `null`. A bare `::uuid` cast against an empty string does not return zero rows, it raises `invalid input syntax for type uuid: ""` — failing loudly instead of failing closed. That is not a corner case: it is every pooled connection, and every connection reused across more than one transaction, which in production is effectively all of them. `nullif(current_setting(...), '')` turns the empty string back into `null` before the cast, so a transaction that never set a shelf sees zero rows — "returns nothing rather than another parish's readers", the promise made two paragraphs up — instead of erroring out.
 
 **Why this is the recommendation:** it survives a change of application stack, an ORM upgrade, a raw SQL patch, and a new developer. It is the only option that makes the guarantee structural in the sense §6 demands.
 
@@ -864,13 +867,13 @@ that exclusion needs a test, because the failure is silent and permanent.
 
 `bigint identity` rather than uuid: this is the highest-volume table, it is only ever appended and read in time order, and a monotonic key keeps the index dense.
 
-**Append-only is enforced by permission, not convention** — INV-12 says audit records are never changed or removed:
+**Append-only is enforced by a trigger, not by permission alone — `revoke` is defence in depth for the application role, not the guarantee itself.** INV-12 says audit records are never changed or removed, and unlike a `GRANT`, that has to hold for every role, not only the one the application connects as:
 
 ```sql
-revoke update, delete, truncate on audit_log from application_role;
+revoke update, delete on audit_log from olibra_app, olibra_admin;
 ```
 
-The application role can `insert` and `select`, nothing else. A rule enforced by a `GRANT` cannot be bypassed by a careless migration or an ORM's `save()`.
+`olibra_app` can `insert` and `select` on `audit_log`, nothing else — an application query that attempts `update` or `delete` fails at the permission check before it ever reaches a row. But `GRANT`/`REVOKE` privileges do not apply to a table's owner or to a superuser; both bypass them entirely, by design, no matter what has been revoked from anyone else — and the migrations in this project, along with any admin tooling that connects the same way, run as exactly such a role. So the actual guarantee is `forbid_row_mutation()`, a `before update` / `before delete` trigger (§7.3) that raises for every role attempting the write, ownership and superuser status included; the revoke above is what stops a careless application-level `update` or `delete` from ever reaching a row to begin with, which is real value — just not the whole of INV-12. Worth stating because it reads the opposite way on a skim: the revoke above also strips `olibra_admin`, the role built to bypass Row Level Security, so even that role cannot mutate an audit row. INV-11 and INV-12 are the two rules in this schema with no admin exception (§7.3).
 
 §14 also requires that audit records are written **in the same transaction** as the change they describe, so an audit record and its subject can never diverge, and that auditing is never deferred to a background job — an audit trail that can be lost to a failed job is not an audit trail.
 
@@ -976,7 +979,9 @@ The reasoning is worth restating because it is not obvious: any status a backgro
 Express these as views, so no caller can forget the rule:
 
 ```sql
-create view loans_current as
+create view loans_current
+  with (security_invoker = true)
+as
 select
   l.*,
   (l.status = 'active'
@@ -984,7 +989,9 @@ select
   (l.due_on - (now() at time zone 'Asia/Ho_Chi_Minh')::date)     as days_remaining
 from loans l;
 
-create view copies_borrowable as
+create view copies_borrowable
+  with (security_invoker = true)
+as
 select c.*
 from book_copies c
 where c.state = 'available'
@@ -995,7 +1002,11 @@ where c.state = 'available'
       and r.status = 'approved'
       and r.hold_expires_at > now()
   );
+
+grant select on loans_current, copies_borrowable to olibra_app, olibra_admin;
 ```
+
+**`security_invoker = true` is load-bearing here, not boilerplate, and dropping it reopens INV-10 through the back door.** PostgreSQL's default is the opposite of what §3's row-level-security policies assume: without this clause a view evaluates row security as the view's *owner*, not as the role running the query — the same mechanism a `SECURITY DEFINER` function uses. Migrations in this project run as a `bypassrls` superuser (§3), so a view created the ordinary way carries that superuser's bypass with it: `olibra_app`, scoped to one shelf, queries the view and gets every shelf's rows back, because the policy is being evaluated as the owner, not as `olibra_app`. This was verified directly rather than assumed — the same view created without `security_invoker` and queried by a shelf-scoped `olibra_app` connection returned rows from every shelf; adding the clause cut that to exactly the querying shelf's rows. `security_invoker = true` makes each view apply the *invoking* role's policies instead of the owner's, which is what lets `olibra_app` see only its own shelf through these views (INV-10) while `olibra_admin` still bypasses deliberately, via `bypassrls`, as designed (§3). Skip the clause and these two convenience views become the one place in the schema where the tenant boundary silently does not hold.
 
 `copies_borrowable` is the direct expression of §8's "a copy is borrowable when it is available and no unexpired hold references it".
 
@@ -1019,8 +1030,8 @@ This is the table to read before writing any application code.
 | **INV-8** | Every state transition writes an audit record | Application, same transaction | See §4.10 |
 | **INV-9** | A comment is publicly visible only when approved | **Database** (access path) | Partial index, §4.8 |
 | **INV-10** | Every query scoped to one bookshelf | **Database** | Row Level Security, §3 |
-| **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; `revoke delete` |
-| **INV-12** | Audit records never change or disappear | **Database** | `revoke update, delete`, §4.10 |
+| **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; a `before delete` trigger raises for every role, §7.3 |
+| **INV-12** | Audit records never change or disappear | **Database** | A `before update` / `before delete` trigger raises for every role, §7.3 |
 | **INV-14** | Either both username and password, or neither | **Database** | `users_credentials_paired` check, §4.1 |
 | **INV-13** | At most one pending profile change request per person; a person's details change only through an approved one | **Database** (the first half) + **Application** (the second) | Partial unique index for "at most one pending", §4.11; "only through an approved request" is which code path is allowed to write `users`, which no constraint can express |
 
@@ -1055,6 +1066,37 @@ Three options, in descending order of preference:
 3. **A counter column on `memberships` with a check constraint**, maintained by trigger. Denormalisation, drift risk, and it contradicts §8's spirit.
 
 **Recommendation: option 1**, with the named test §6 requires and an honest note that a determined race could exceed the limit by one. That is a much cheaper failure than a corrupted loan record, and a manager can void the extra loan.
+
+### 7.3 INV-11 and INV-12, and why `revoke` alone is not the guarantee
+
+Crediting `revoke delete on loans` and `revoke update, delete on audit_log` as *the* mechanism for INV-11 and INV-12 would be true for `olibra_app` and false for anyone else. A table's owner and a Postgres superuser bypass `GRANT`/`REVOKE` checks entirely, regardless of what has been revoked from any other role — and that is exactly the role every migration in this project, and any admin tooling that connects the same way, runs as. A `revoke` that only the application role ever has to obey is not nothing, but it is not INV-11 or INV-12 either.
+
+The actual guarantee is a trigger, which has no equivalent of `bypassrls`:
+
+```sql
+create function forbid_row_mutation() returns trigger as $$
+begin
+  raise exception 'rows in % cannot be %d directly', tg_table_name, lower(tg_op)
+    using errcode = '42501';
+end;
+$$ language plpgsql;
+
+create trigger loans_no_delete
+  before delete on loans
+  for each row execute function forbid_row_mutation();
+
+create trigger audit_log_no_update
+  before update on audit_log
+  for each row execute function forbid_row_mutation();
+
+create trigger audit_log_no_delete
+  before delete on audit_log
+  for each row execute function forbid_row_mutation();
+```
+
+A `before` trigger fires for every role that reaches the row, ownership and superuser status included. That is what makes it the guarantee rather than the `revoke` statements described here and in §4.10: those still matter as defence in depth, turning a bug in `olibra_app`'s own code into a permission error before the query ever reaches a row, but they were never going to stop a hurried `delete` typed by hand against a role that owns the table.
+
+**The revoke strips `olibra_admin` too, and that is deliberate, not an oversight to loosen.** `olibra_admin` is the role built to bypass Row Level Security for legitimate cross-shelf work (§3); it is not built to bypass INV-11 or INV-12, which — unlike tenant isolation — carry no admin exception anywhere in §6 of the requirements. So the same `revoke` applies to it as to `olibra_app`, and the trigger backs both regardless: even the role that can see every shelf cannot delete a loan or mutate an audit row.
 
 ---
 
