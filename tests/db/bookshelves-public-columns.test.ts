@@ -31,9 +31,22 @@ import { expect, test } from "vitest";
  * membership is known — the reason `bookshelves_public_read` exists at all.
  * `src/db/seed.ts` is exempt too: it runs as `olibra_admin`, writing the
  * fixture shelves in the first place, not serving a request.
+ *
+ * `src/domain/catalogue/copy-codes.ts` (B1) is exempt for a different
+ * reason: it reads `settings` deliberately, to resolve a shelf's
+ * `copy_code_prefix` override (`policy.ts`'s `copyCodePrefix`), and it only
+ * ever runs inside `allocateCopyCodes`, itself only reachable from a
+ * `Command` already past `requireManager` — never from an unauthenticated
+ * path `bookshelves_public_read` was written for. `settings` is read into a
+ * local variable and never appears in a command's `result` or `audit`; only
+ * the two-or-three-letter prefix derived from it does.
  */
 
-const EXEMPT_FILES = new Set(["src/auth/guards.ts", "src/db/seed.ts"]);
+const EXEMPT_FILES = new Set([
+  "src/auth/guards.ts",
+  "src/db/seed.ts",
+  "src/domain/catalogue/copy-codes.ts",
+]);
 
 // The whole point of §16.1: a person with no membership has no business
 // knowing these. Not exhaustive of every column on the table — just the
