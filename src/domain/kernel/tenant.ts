@@ -38,10 +38,7 @@ export interface TenantContext {
   clock: Clock;
 }
 
-export function systemContext(
-  bookshelfId: string,
-  clock: Clock,
-): TenantContext {
+export function systemContext(bookshelfId: string, clock: Clock): TenantContext {
   return {
     bookshelfId,
     actor: { userId: null, membershipId: null, role: "super_admin" },

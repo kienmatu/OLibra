@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
-import { ROLE_RANK, atLeast, systemContext } from "../../../src/domain/kernel/tenant";
+import {
+  ROLE_RANK,
+  atLeast,
+  systemContext,
+} from "../../../src/domain/kernel/tenant";
 
 test("roles are hierarchical within a shelf", () => {
   // BR §13.1: admin ⊃ manager ⊃ reader. OPS §2 relies on this so the
