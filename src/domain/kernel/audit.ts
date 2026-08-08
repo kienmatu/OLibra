@@ -50,6 +50,18 @@ export interface AuditEntry {
  * and error messages are Vietnamese-facing (BR §2, §14), and a diff object
  * assembled from a Vietnamese-named source column is exactly the kind of
  * thing a command author might do without thinking of it as "password".
+ * Kept despite being unreachable by any column in the live schema today (all
+ * 275 columns are English-named) and despite tokenizing inconsistently —
+ * `matKhau` matches (camelCase splits to `mat`/`khau`), `matkhau` does not
+ * (no boundary to split on) — because removing it only shrinks coverage with
+ * no column it would stop protecting; if a future Vietnamese-named column
+ * does show up, this entry already covers its most likely spelling.
+ *
+ * `key`, `salt`, `otp` were added after a live audit of all 275 columns in
+ * `olibra_test` found exactly two secret-shaped columns (`users
+ * .password_hash`, `feedback.guest_hash`, both already caught) and three
+ * forbidden-token gaps that were not: `api_key`-shaped columns, `salt`, and
+ * `otp` all reached the audit log before this list caught them.
  */
 const FORBIDDEN = [
   "password",
@@ -59,6 +71,9 @@ const FORBIDDEN = [
   "session",
   "secret",
   "mat_khau",
+  "key",
+  "salt",
+  "otp",
 ];
 
 /**
@@ -107,15 +122,35 @@ function isForbiddenKey(key: string): boolean {
   return FORBIDDEN.some((term) => matchesForbiddenTerm(kt, term));
 }
 
-function walk(value: unknown): void {
+/**
+ * How many levels of nesting `walk` will follow before giving up.
+ *
+ * An audit diff assembled by a command is a plain data structure a person
+ * wrote by hand; nothing in the catalogue nests anywhere near this deep. The
+ * cap exists for the payload nobody wrote by hand — a cyclic object (`a.self
+ * = a`) or a pathologically deep one recurses without bound and blows the
+ * call stack with a bare `RangeError: Maximum call stack size exceeded`,
+ * the same unstructured-exception class `assertNoSecrets` throwing
+ * `RuleViolated` instead of a bare `Error` was already fixed for (IMPORTANT
+ * 2 / MINOR 4, fix-report 2026-08-07-s2-domain-kernel). A depth cap turns
+ * that crash into the same named domain error every other failure in this
+ * function produces, cycles included — a cycle simply reaches the cap
+ * before the stack would.
+ */
+const MAX_AUDIT_DEPTH = 20;
+
+function walk(value: unknown, depth: number): void {
+  if (depth > MAX_AUDIT_DEPTH) {
+    throw new RuleViolated("audit_nesting_too_deep");
+  }
   if (Array.isArray(value)) {
-    value.forEach((item) => walk(item));
+    value.forEach((item) => walk(item, depth + 1));
     return;
   }
   if (value === null || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     if (isForbiddenKey(key)) throw new RuleViolated("audit_forbidden_field");
-    walk(child);
+    walk(child, depth + 1);
   }
 }
 
@@ -137,7 +172,7 @@ function walk(value: unknown): void {
 export function assertNoSecrets(entry: AuditEntry): void {
   for (const bag of [entry.before, entry.after]) {
     if (!bag) continue;
-    walk(bag);
+    walk(bag, 0);
   }
 }
 

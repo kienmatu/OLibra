@@ -52,6 +52,9 @@ test.each([
   { session: "abc" },
   { secret: "abc" },
   { mat_khau: "abc" },
+  { api_key: "abc" },
+  { salt: "abc" },
+  { otp: "123456" },
 ])("a bare %o is caught", (after) => {
   expect(() =>
     assertNoSecrets({
@@ -115,6 +118,63 @@ test("an entry with no secrets anywhere passes", () => {
       entityId: "x",
       before: null,
       after: null,
+    }),
+  ).not.toThrow();
+});
+
+// New with the recursive walk (IMPORTANT 2): a cyclic or pathologically deep
+// payload used to recurse without bound and crash with a bare `RangeError:
+// Maximum call stack size exceeded` — the same unstructured-exception class
+// this guard was already fixed for once. A depth cap turns both the cyclic
+// case and the merely-very-deep case into the same named RuleViolated.
+test("a cyclic payload is a named RuleViolated, not a bare RangeError", () => {
+  const cyclic: Record<string, unknown> = { child: {} as Record<string, unknown> };
+  (cyclic.child as Record<string, unknown>).parent = cyclic;
+
+  expect(() =>
+    assertNoSecrets({
+      action: "x.y",
+      entityType: "x",
+      entityId: "x",
+      after: cyclic,
+    }),
+  ).toThrow(RuleViolated);
+
+  try {
+    assertNoSecrets({
+      action: "x.y",
+      entityType: "x",
+      entityId: "x",
+      after: cyclic,
+    });
+  } catch (e) {
+    expect((e as RuleViolated).code).toBe("audit_nesting_too_deep");
+  }
+});
+
+test("a pathologically deep (but non-cyclic) payload is also a named RuleViolated", () => {
+  let deep: Record<string, unknown> = { value: "leaf" };
+  for (let i = 0; i < 50; i++) {
+    deep = { child: deep };
+  }
+
+  expect(() =>
+    assertNoSecrets({
+      action: "x.y",
+      entityType: "x",
+      entityId: "x",
+      after: deep,
+    }),
+  ).toThrow(RuleViolated);
+});
+
+test("ordinary nesting well under the depth cap still passes", () => {
+  expect(() =>
+    assertNoSecrets({
+      action: "x.y",
+      entityType: "x",
+      entityId: "x",
+      after: { a: { b: { c: { d: "fine" } } } },
     }),
   ).not.toThrow();
 });
