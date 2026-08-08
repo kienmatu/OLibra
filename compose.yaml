@@ -107,10 +107,24 @@ services:
     depends_on:
       storage:
         condition: service_healthy
+    # `anonymous set download` is not optional decoration: a bucket is private
+    # by default, so without it `ObjectStore.url()` returns a perfectly correct
+    # URL that answers 403 to a browser — every cover and avatar in the app is
+    # a broken image, and nothing in the server logs says why. B5's suite found
+    # this against a bucket created exactly the way this sidecar creates one;
+    # `tests/storage/s3.test.ts` applies the equivalent policy to its own test
+    # bucket, which is why the two must be changed together.
+    #
+    # `download` means anonymous *read* only — it grants s3:GetObject and
+    # nothing else, so an unauthenticated caller can fetch an object it can
+    # already name but cannot write, delete or list one. Covers, avatars and
+    # condition photographs are public by design (SDD §6.8); keys are opaque
+    # UUIDs rather than names precisely because they are.
     entrypoint: >
       /bin/sh -c "
       mc alias set olibra http://storage:9000 '${S3_ACCESS_KEY_ID}' '${S3_SECRET_ACCESS_KEY}' &&
       mc mb --ignore-existing olibra/${S3_BUCKET:-olibra} &&
+      mc anonymous set download olibra/${S3_BUCKET:-olibra} &&
       echo 'bucket ready: ${S3_BUCKET:-olibra}'
       "
     restart: "no"

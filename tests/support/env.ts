@@ -1,3 +1,5 @@
+import type { S3Config } from "../../src/storage/s3";
+
 /**
  * Where the suite's database lives, and the one guard worth having here.
  *
@@ -21,6 +23,57 @@ export function testDatabaseUrl(): string {
     );
   }
   return url;
+}
+
+/**
+ * Where the suite's object storage lives, and the same guard for the same
+ * reason `testDatabaseUrl` above carries one.
+ *
+ * The storage tests **delete objects**. That is the identical hazard the
+ * database guard exists for — a one-character slip in a bucket name, pointed
+ * at the development bucket, and the covers and avatars somebody was working
+ * with are gone. So `TEST_S3_BUCKET` must contain `test`, checked before a
+ * client is constructed.
+ *
+ * These are seven `TEST_S3_*` variables mirroring the seven `S3_*` ones rather
+ * than a reuse of `s3ConfigFromEnv()` with the bucket swapped, and the reason
+ * is CI rather than tidiness. `tests/architecture/ci-supplies-required-env.test.ts`
+ * guards every `TEST_`-prefixed variable `.env.example` documents; a config
+ * that borrowed `S3_ENDPOINT` and friends would need six unguarded variables
+ * present in the workflow, which is precisely the failure that turned `main`
+ * red for three merges when `TEST_POOL_DATABASE_URL` shipped without them.
+ */
+export function testS3Config(): S3Config {
+  const bucket = requireTestVar("TEST_S3_BUCKET");
+  if (!bucket.includes("test")) {
+    throw new Error(
+      `TEST_S3_BUCKET must name a test bucket — its name has to contain ` +
+        `"test", because the suite deletes objects out of it. Got: ${bucket}`,
+    );
+  }
+
+  return {
+    endpoint: requireTestVar("TEST_S3_ENDPOINT"),
+    region: requireTestVar("TEST_S3_REGION"),
+    bucket,
+    accessKeyId: requireTestVar("TEST_S3_ACCESS_KEY_ID"),
+    secretAccessKey: requireTestVar("TEST_S3_SECRET_ACCESS_KEY"),
+    forcePathStyle: requireTestVar("TEST_S3_FORCE_PATH_STYLE") === "true",
+    publicUrl: requireTestVar("TEST_S3_PUBLIC_URL"),
+  };
+}
+
+function requireTestVar(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `${name} is not set. Start the object store with:\n` +
+        "  docker compose up -d storage\n" +
+        "and copy .env.example to .env — the storage suite needs all seven " +
+        "TEST_S3_* variables.",
+    );
+  }
+  return value.trim();
 }
 
 /**
