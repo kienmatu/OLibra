@@ -53,6 +53,49 @@ function assertValidBookshelfId(
   }
 }
 
+/**
+ * Sets the two session settings every scoped transaction runs under: the
+ * tenant, and the clock.
+ *
+ * Both are `set_config(..., true)` — the `true` is `LOCAL`, scoped to this
+ * transaction and no further, which is why the driver must be pooled in
+ * transaction mode (DB §3). Getting that wrong leaks one request's shelf
+ * into the next request on the same connection, silently; the same is now
+ * true of one request's clock, and `tests/db/sql-clock.test.ts` asserts the
+ * non-leak directly rather than trusting the flag.
+ *
+ * `olibra.bookshelf_id` is read back by `0010_rls.sql`'s `<table>_tenant`
+ * policies. `olibra.now` is read back by `olibra_now()`
+ * (`20260808_14_olibra_now.sql`), which `loans_current` and
+ * `copies_borrowable` call in place of `now()` — so `is_overdue`,
+ * `days_remaining` and hold expiry all follow `ctx.clock` instead of
+ * ignoring it. Before this, `src/domain/kernel/clock.ts`'s whole premise
+ * ("every one of those rules is only testable if the clock can be moved")
+ * held in TypeScript and failed in SQL: a test could hold a `fixedClock` and
+ * still not make a loan overdue or a hold expire without waiting real time.
+ *
+ * **This does not change what "now" means in production.** `ctx.clock` is
+ * `systemClock` on every real request, so the value written here is the same
+ * instant `now()` would have returned. Nor does it give up the one-consistent-
+ * now-per-transaction property a reader will immediately wonder about:
+ * Postgres's `now()` is *transaction start* time, not statement time, and
+ * this is one value captured once, before the command body runs, and read by
+ * every statement in the transaction. That is the same guarantee, sourced
+ * from the clock the domain already injects everywhere else.
+ *
+ * `.toISOString()` rather than the `Date` itself, because `set_config`'s
+ * second parameter is `text`: the driver would otherwise bind a `timestamptz`
+ * against a `text` parameter. ISO-8601 with the `Z` offset round-trips
+ * through `::timestamptz` in `olibra_now()` unambiguously, regardless of the
+ * session's `TimeZone` — which DB §2.2 warns must never be relied on for
+ * correctness, since a web request, a migration console and a background job
+ * may each carry a different one.
+ */
+async function setSessionScope(tx: RawTx, ctx: TenantContext): Promise<void> {
+  await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+  await tx`select set_config('olibra.now', ${ctx.clock.now().toISOString()}, true)`;
+}
+
 /** `UPDATE`/`DELETE` are the two statement types RLS's `using` clause can filter to zero rows without raising. */
 const GUARDED_COMMANDS = new Set(["UPDATE", "DELETE"]);
 
@@ -279,7 +322,7 @@ async function runAs<I, O>(
 ): Promise<O> {
   assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: false });
   return sql.begin(async (tx) => {
-    await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+    await setSessionScope(tx as RawTx, ctx);
     await tx`set local role olibra_app`;
 
     const { result, audit } = await command(guardWrites(tx as RawTx), ctx, input);
@@ -403,7 +446,7 @@ export async function runQuery<O>(
   assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: true });
   return sql.begin(async (tx) => {
     await tx`set transaction read only`;
-    await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+    await setSessionScope(tx as RawTx, ctx);
     await tx`set local role olibra_app`;
     return query(guardWrites(tx as RawTx), ctx);
   }) as Promise<O>;

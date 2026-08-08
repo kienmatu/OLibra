@@ -198,12 +198,19 @@ test("the detail carries the manager-only fields BR §5.3 names", async () => {
 });
 
 test("days remaining and overdue are read from the view, never recomputed here", async () => {
-  // G5, through loans_current's own derived columns. **The view computes both
-  // from SQL `now()`, not from the injected Clock** — verified by reading
-  // pg_get_viewdef: `due_on < (now() at time zone 'Asia/Ho_Chi_Minh')::date`.
-  // So this test moves `due_on`, which it controls, rather than the clock,
-  // which the view does not consult. See the plan's note on this — it is a
-  // real limitation and C1/C2 inherit it, not a quirk of this test.
+  // G5, through loans_current's own derived columns. This test moves `due_on`
+  // rather than the clock, and that is now a choice rather than the only
+  // option: it is asserting that `GetReaderDetail` *reads* the view instead of
+  // recomputing overdue in TypeScript, which a `due_on` move demonstrates as
+  // well as a clock move and with less machinery.
+  //
+  // The comment that used to sit here said the view computed both columns from
+  // SQL `now()` and that the injected Clock could not move them, calling it a
+  // real limitation for C1/C2 to inherit. That is no longer true:
+  // `20260808_14_olibra_now.sql` replaced `now()` with `olibra_now()`, which
+  // reads the `olibra.now` GUC that `unit-of-work.ts` sets from `ctx.clock` on
+  // every command and every scoped query. `tests/db/sql-clock.test.ts` moves
+  // the clock and nothing else.
   const { ctx, shelf, manager } = await shelfWithReaders();
   const r = await reader(shelf.id, { fullName: "Trần Minh" });
   const loanId = await lend(shelf.id, r.userId, manager.userId, "2999-01-01");
