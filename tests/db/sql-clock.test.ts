@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import postgres from "postgres";
+import postgres, { type TransactionSql } from "postgres";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runQuery } from "../../src/domain/kernel/unit-of-work";
@@ -315,4 +315,139 @@ test("olibra.now is transaction-local and does not leak to the next transaction"
   expect(row.leftover).toBe("");
   expect(row.matches_now).toBe(true);
   expect(Number(row.drift)).toBeLessThan(5);
+});
+
+/**
+ * What `olibra_now()` refuses (`20260808_15_olibra_now_strict.sql`).
+ *
+ * These are the third and last exception to this file's "go through
+ * `runQuery`" rule, and the reason is the opposite of the other two: the
+ * kernel *cannot* produce any of these values —
+ * `assertValidClockInstant`/`toISOString()` see to that — so a test that went
+ * through the kernel could not reach the guard at all. The function is the
+ * schema's contract, not the kernel's private helper: a `psql` session, a
+ * migration or a future slice can set this GUC, and what happens then is what
+ * these pin.
+ *
+ * `set_config(..., true)` — LOCAL, inside `sql.begin` — so a rejected value
+ * cannot outlive its transaction and poison the rest of the suite on this
+ * `max: 1` handle.
+ */
+function withOlibraNow<T>(value: string, body: (tx: TransactionSql) => Promise<T>) {
+  return sql.begin(async (tx) => {
+    await tx`select set_config('olibra.now', ${value}, true)`;
+    return body(tx as TransactionSql);
+  }) as Promise<T>;
+}
+
+async function errorFor(
+  value: string,
+): Promise<{ code?: string; message: string }> {
+  return withOlibraNow(value, (tx) => tx`select olibra_now()`).then(
+    () => ({ message: "no error was raised" }),
+    (e: { code?: string; message: string }) => e,
+  );
+}
+
+test("a value with no offset is refused rather than read in the session's timezone", async () => {
+  // The headline case, and the one that would have been silently wrong rather
+  // than loudly wrong. `'2026-08-08 10:00:00'` was accepted by the original
+  // function and resolved through the session `TimeZone`, so the *same string*
+  // was 10:00+00 under UTC, 10:00+07 under Asia/Ho_Chi_Minh and 10:00-07 under
+  // America/Los_Angeles — all three measured. DB §2.2: "Never rely on the
+  // session TimeZone setting for correctness." Nothing in SQL required the
+  // offset; one `.toISOString()` call in TypeScript was the whole guarantee.
+  const e = await errorFor("2026-08-08 10:00:00");
+  expect(e.code).toBe("22007");
+  expect(e.message).toMatch(/explicit UTC offset/);
+
+  // And the reason this is a guard rather than a preference: under a session
+  // timezone that is not UTC, the accepted-and-guessed reading is a different
+  // instant from the one the same wall-clock text means with `Z` on the end.
+  // If the guard is ever relaxed, this is the assertion that says what it
+  // costs.
+  const [row] = await sql<{ differs: boolean }[]>`
+    select (timestamptz '2026-08-08 10:00:00 +07' <> timestamptz '2026-08-08 10:00:00Z')
+      as differs
+  `;
+  expect(row.differs).toBe(true);
+});
+
+test("the strings Postgres would happily reinterpret are refused", async () => {
+  // Each of these casts cleanly to timestamptz and means something other than
+  // "the instant the caller had in mind": 'now' is real time (a frozen clock
+  // that is not frozen), 'epoch' is 1970, 'today' is midnight in the session
+  // timezone. Accepting them is guessing.
+  for (const value of ["now", "epoch", "today", "yesterday", "allballs"]) {
+    const e = await errorFor(value);
+    expect(e.code, `${value} should be refused`).toBe("22007");
+  }
+
+  // A date is not an instant, and neither is a naked time. (The empty string
+  // is deliberately absent: it is the pooled-connection sentinel that must
+  // keep falling back to `now()`, pinned by the test above this one.)
+  for (const value of ["2026-08-08", "10:00:00Z"]) {
+    const e = await errorFor(value);
+    expect(e.code, `${value} should be refused`).toBe("22007");
+  }
+});
+
+test("infinity is refused, so loans_current stays queryable", async () => {
+  // 'infinity' is a legal timestamptz and was accepted. Two separate failures
+  // followed, both measured against the original function:
+  //
+  //   copies_borrowable  hid *every* copy — nothing is `> infinity` — so the
+  //                      whole catalogue reads as unavailable, with no error.
+  //   loans_current      stopped being queryable at all: `due_on -
+  //                      'infinity'::date` raises `cannot subtract infinite
+  //                      dates`, taking down reads that have nothing to do
+  //                      with the clock.
+  //
+  // The second is why this is worth a guard rather than a shrug: a GUC value
+  // that makes a view *raise* is worse than one that makes it wrong.
+  const { shelfId } = await shelfWithLoan("2026-08-09");
+
+  for (const value of ["infinity", "-infinity"]) {
+    const e = await errorFor(value);
+    expect(e.code, `${value} should be refused`).toBe("22007");
+  }
+
+  // The refusal is at the function, so both views fail the same legible way
+  // rather than one hiding rows and the other raising an arithmetic error.
+  const viewError = await withOlibraNow(
+    "infinity",
+    (tx) => tx`select is_overdue from loans_current`,
+  ).then(
+    () => ({ code: undefined as string | undefined }),
+    (e: { code?: string }) => e,
+  );
+  expect(viewError.code).toBe("22007");
+
+  // And with a value the guard accepts, the same view on the same fixture
+  // answers normally — the guard rejects what is ambiguous, not what is
+  // merely unusual.
+  expect((await readLoan(shelfId, "2026-08-10T03:00:00Z")).is_overdue).toBe(true);
+});
+
+test("the shapes the kernel and a human might legitimately send are accepted", async () => {
+  // The negative control. A guard that rejects everything would pass every
+  // test above and break the application, so this pins the accepted set:
+  // `toISOString()`'s exact output first, because that is the only writer
+  // today, then the forms a migration or a psql session would plausibly type.
+  const accepted: [string, string][] = [
+    ["2026-08-08T10:00:00.000Z", "2026-08-08T10:00:00.000Z"],
+    ["2026-08-08T10:00:00Z", "2026-08-08T10:00:00.000Z"],
+    ["2026-08-08 10:00:00+07", "2026-08-08T03:00:00.000Z"],
+    ["2026-08-08 10:00:00+07:00", "2026-08-08T03:00:00.000Z"],
+    ["2026-08-08T10:00:00.123456-05:30", "2026-08-08T15:30:00.123Z"],
+    ["9999-12-31T23:59:59.000Z", "9999-12-31T23:59:59.000Z"],
+  ];
+
+  for (const [value, expected] of accepted) {
+    const [row] = await withOlibraNow(
+      value,
+      (tx) => tx<{ injected: string }[]>`select olibra_now() as injected`,
+    );
+    expect(new Date(row.injected).toISOString(), value).toBe(expected);
+  }
 });

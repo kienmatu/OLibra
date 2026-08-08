@@ -1188,18 +1188,37 @@ grant select on loans_current, copies_borrowable to olibra_app, olibra_admin;
 The fix is the tenant mechanism, in the same shape, because it is already proven here. `0010_rls.sql`'s policies read `nullif(current_setting('olibra.bookshelf_id', true), '')` and `unit-of-work.ts` sets that GUC transaction-locally at the top of every command and every scoped query. `olibra.now` is set on the next line and read back the same way:
 
 ```sql
+-- 20260808_15_olibra_now_strict.sql; 20260808_14 was the same thing in
+-- `language sql`, with no validation and no `raise`.
 create or replace function olibra_now()
 returns timestamptz
-language sql
+language plpgsql
 stable          -- never immutable; see below
 parallel safe
-as $$
-  select coalesce(
-    nullif(current_setting('olibra.now', true), '')::timestamptz,
-    now()
-  )
-$$;
+as $fn$
+declare
+  raw text := nullif(current_setting('olibra.now', true), '');
+begin
+  if raw is null then
+    return now();
+  end if;
+  if raw !~ '^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$' then
+    raise exception using errcode = '22007', message = '...';   -- see below
+  end if;
+  return raw::timestamptz;
+end;
+$fn$;
 ```
+
+**The pattern is a guard, not decoration: the original cast whatever string was in the GUC and guessed.** Measured against it, by setting `olibra.now` directly:
+
+- **`'2026-08-08 10:00:00'` — no offset — was accepted and resolved through the session `TimeZone`.** The same string is three different instants under `UTC`, `Asia/Ho_Chi_Minh` and `America/Los_Angeles`; all three verified. That is exactly what §2.2 says must never be relied on, and the only thing preventing it was one `.toISOString()` call in TypeScript that nothing in SQL required.
+- **`'now'` and `'epoch'` were accepted**, resolving silently to real time and to 1970 — a frozen clock that is not frozen.
+- **`'infinity'` was accepted**, and then `copies_borrowable` hid every copy in the database (nothing is `> infinity`) while `loans_current` stopped being queryable at all: `due_on - 'infinity'::date` raises `cannot subtract infinite dates`. A GUC value that makes a view *raise* is worse than one that makes it wrong.
+
+So the contract is: an explicit offset and a finite value, or an error. The pattern enforces both at once — a string matching it has a four-digit year and a real offset, so it cannot be `infinity`, `epoch`, `now` or a bare local time — which is why there is no separate `isfinite()` check to read as a guarantee somebody may weaken the pattern against. Unset and the empty string are *not* errors and must never become ones; both still fall back to `now()`, for the two reasons in the numbered list below. `tests/db/sql-clock.test.ts` pins the rejected set, the accepted set (`toISOString()`'s exact output first, since it is the only writer today), and that a rejected value produces `22007` from the *function* rather than an arithmetic error from one view and silence from the other.
+
+**`language plpgsql` is not only about being able to `raise`, and it is faster.** A SQL function this small is inlined into the calling query, and the expanded `coalesce(nullif(current_setting(...))..., now())` is not something the planner will use as an index bound: `where t > olibra_now()` planned as a **Seq Scan**. The plpgsql function stays opaque and `STABLE`, which is the shape the planner treats as a run-time constant — the same query planned as a parallel **Index Only Scan** with `Index Cond: (t > olibra_now())`, 11 ms against 15 ms over 200k rows on this cluster.
 
 `runQuery`, `runCommand` and `runGlobalCommand` all set it from `ctx.clock`, which every `TenantContext` has already carried since S2 — no signature changed to make this work. **This does not change what these two views are for in production, but it does change whose clock they read:** `ctx.clock` is `systemClock` on every real request, so the value written is `new Date()` in the *application* process, not `now()` in the database. Those are two clocks, and they agree only to the extent the two hosts' clocks agree — see "Two clocks in one transaction", below, which is the part of this change that has a production consequence. What is *not* given up is one-consistent-now-per-transaction, which is the first thing a reader worries about: Postgres's `now()` is *transaction start* time, not statement time, and this is likewise one value captured once, before the command body runs, and read by every statement in the transaction.
 
