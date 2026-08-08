@@ -4,7 +4,9 @@
 
 **Goal:** Build the machinery every one of the 57 commands sits on — the transaction boundary that pairs a state change with its audit record, the named-error taxonomy, and the tenant context that makes RLS impossible to forget.
 
-**Architecture:** One `runCommand` function owns the transaction, sets the RLS session variable, and refuses to commit without an audit record. Commands are plain functions that receive a transaction handle and return a result plus an audit entry; they never open a transaction themselves. That inversion is what makes G3 structural rather than a convention.
+**Architecture:** One `runCommand` function owns the transaction, sets the RLS session variable *and* switches the session into the unprivileged `olibra_app` role (both are required for RLS to bite against the superuser connection every environment uses today — see Task 3, below), and refuses to commit without an audit record. Commands are plain functions that receive a transaction handle and return a result plus an audit entry; they never open a transaction themselves. That inversion is what makes G3 structural rather than a convention. A second entry point, `runGlobalCommand`, exists for the one case `runCommand` cannot serve — a command whose audit entry has no owning shelf — and escalates only its own audit insert to `olibra_admin`, never the command body.
+
+**Reconciled against what shipped (fix-report, 2026-08-07-s2-domain-kernel):** this paragraph, and Task 3's code listing below, originally described `runCommand` as setting only the RLS session variable, with no role switch. That version shipped, and its own first test — "an ordinary command cannot write a row belonging to another shelf", now in `tests/domain/kernel/command-scope.test.ts` — failed against it, because every connection in this codebase is a `bypassrls` superuser and a bare `set_config` does nothing to a superuser's view of the data. The fix (commit `4fd078c`) is what Task 3's listing now shows. A second, related gap was found and closed after that: `runGlobalCommand` (added later, and not originally planned as a separate function at all) escalated the *entire* transaction to `olibra_admin` rather than only its audit insert, so a command run through it could write into another shelf — see the fix report at `.superpowers/sdd/2026-08-07-s2-domain-kernel/fix-report.md` for the live reproduction and the six-line fix. A third pass (`.superpowers/sdd/2026-08-07-s2-domain-kernel/final-fix-report.md`) closed a fail-safety gap in that same fix report's own design decision: `assertWritten`, the guard against a cross-shelf `update`/`delete` silently affecting zero rows, was opt-in, and a scoped re-review reproduced the original bug live against a command that simply forgot to call it. `runAs` now hands every `Command` a guarded `tx` (see Task 3's `unit-of-work.ts` listing, below) so that failure rejects by construction instead. The same pass also closed a raw-driver-error gap on the write side for an empty-string `bookshelfId` (Task 3's `assertValidBookshelfId`, now shown in the listing rather than only in prose) and added a depth cap to `assertNoSecrets` (Task 3's `audit.ts` listing). The takeaway for whoever reads this plan next: treat the code listings below as reconciled against `src/domain/kernel/unit-of-work.ts` and `src/domain/kernel/audit.ts` as they exist on `main`, not as a historical record of what was first written — each listing's own "Reconciled" note underneath it says which pass changed what, and why.
 
 **Tech Stack:** TypeScript · `postgres` (porsager) · Vitest.
 
@@ -155,6 +157,12 @@ export const ERROR_MESSAGES = {
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
   not_permitted: "Bạn không có quyền thực hiện việc này.",
+
+  // — kernel —
+  invalid_bookshelf_id: "Mã tủ sách không hợp lệ.",
+  audit_forbidden_field: "Không thể ghi nhật ký chứa thông tin bí mật.",
+  write_target_not_found: "Không tìm thấy dữ liệu cần thay đổi.",
+  audit_nesting_too_deep: "Dữ liệu nhật ký lồng quá sâu để kiểm tra.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;
@@ -196,10 +204,14 @@ export function isUniqueViolation(e: unknown): boolean {
 }
 ```
 
+**Reconciled against what shipped (final-fix-report, 2026-08-07-s2-domain-kernel):** the `// — kernel —` category above (`invalid_bookshelf_id`, `audit_forbidden_field`, `write_target_not_found`, `audit_nesting_too_deep`) was not part of this task's original scope — none of the machinery that needs them (`assertValidBookshelfId`, `assertNoSecrets`, the zero-row write guard) exists yet at Task 1. All four were added later, as Task 3 (and the two fix-report passes after it) needed a named `ErrorCode` for a failure the kernel itself detects rather than one a command declares: a malformed or empty `bookshelfId` on the write path, a secret field in an audit diff, a cyclic/too-deep audit payload, and an `UPDATE`/`DELETE` that silently affected zero rows. See Task 3, below, and the final fix report for each one's live reproduction.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun run test tests/domain/kernel/errors.test.ts`
 Expected: PASS — 4 tests.
+
+**Two files already import `ErrorCode` from this module and must still compile after Step 3's replacement:** `src/domain/kernel/block.ts` (`type Block = { blocked: true; reason: ErrorCode } | { blocked: false }`) and `src/domain/members/parish-taxonomy.ts` (`const no = (reason: ErrorCode): Block => ...`). Both use `ErrorCode` only as a type — as the type of a field or a parameter — never by naming its members or assuming it is declared as an explicit union rather than a `keyof typeof`. Going from `export type ErrorCode = "a" | "b" | "c"` to `export type ErrorCode = keyof typeof ERROR_MESSAGES` changes how the type is *derived*, not what it *is*: both remain a closed union of the same string literals, so both files type-check unchanged. Run `bun run check` after Step 3 to confirm rather than take this on faith — a future edit to either file could still introduce a real dependency on the old shape.
 
 - [ ] **Step 5: Commit**
 
@@ -223,11 +235,13 @@ parish_unit_l2_not_in_l1). This adds the rest without touching those three."
 **Interfaces:**
 - Produces:
   ```ts
-  interface Actor { userId: string; membershipId: string | null; role: Role }
+  interface Actor { userId: string | null; membershipId: string | null; role: Role }
   interface TenantContext { bookshelfId: string; actor: Actor; clock: Clock }
   function systemContext(bookshelfId: string, clock: Clock): TenantContext
   ```
   Every command and every scoped query takes a `TenantContext` as its first parameter. There is no overload that omits it.
+
+  **Reconciled:** this summary previously typed `userId` as non-nullable `string`, which contradicts both `systemContext` below (`userId: null` for system actions) and the test "a system context carries no actor", which asserts `ctx.actor.userId` is `null`. `userId` is `string | null` — null exactly when the actor is the system, matching the doc comment on `Actor.userId` in Step 3.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -345,10 +359,11 @@ git commit -m "feat(domain): tenant context and the role hierarchy"
 
 The centrepiece. G3 says a command's state change and its audit record commit together or not at all. The way to make that structural rather than remembered is to make the command *return* its audit entry, so a command that produces none does not type-check.
 
+**Reconciled against the shipped schema:** [the master plan](2026-08-07-olibra-backend-master.md)'s §4 file structure pencils in `src/db/transaction.ts` for "begin/commit + `set local olibra.bookshelf_id`". That responsibility ships here instead, inside `src/domain/kernel/unit-of-work.ts`'s `runCommand`/`runQuery` — `src/db/client.ts` (already created in S1) stays pure connection plumbing, "one place that knows the connection string", and the begin/set-config/audit-insert sequence lives in the domain layer where G3 needs it to be a property of a function signature, not a helper anyone could bypass. No file at `src/db/transaction.ts` exists on this branch, and this task does not create one — the line has been removed from the file list below so an implementer does not go looking for it.
+
 **Files:**
 - Create: `src/domain/kernel/audit.ts`
 - Create: `src/domain/kernel/unit-of-work.ts`
-- Modify: `src/db/transaction.ts` (created here)
 - Test: `tests/domain/kernel/unit-of-work.test.ts`
 
 **Interfaces:**
@@ -400,7 +415,7 @@ test("a successful command writes its audit record in the same transaction", asy
 
   const bookId = await runCommand(sql, ctx, async (tx, c, input: { title: string }) => {
     const [book] = await tx<{ id: string }[]>`
-      insert into books (bookshelf_id, title, author, slug, published)
+      insert into books (bookshelf_id, title, author, slug, is_published)
       values (${c.bookshelfId}, ${input.title}, 'Tô Hoài', 'x', true)
       returning id
     `;
@@ -430,7 +445,7 @@ test("a failed command leaves neither the change nor the audit record", async ()
   await expect(
     runCommand(sql, ctx, async (tx, c) => {
       await tx`
-        insert into books (bookshelf_id, title, author, slug, published)
+        insert into books (bookshelf_id, title, author, slug, is_published)
         values (${c.bookshelfId}, 'Sách hỏng', 'Tô Hoài', 'y', true)
       `;
       throw new RuleViolated("validation_failed");
@@ -464,7 +479,7 @@ test("a command may write several audit entries", async () => {
 
   await runCommand(sql, ctx, async (tx, c) => {
     const [book] = await tx<{ id: string }[]>`
-      insert into books (bookshelf_id, title, author, slug, published)
+      insert into books (bookshelf_id, title, author, slug, is_published)
       values (${c.bookshelfId}, 'Sách', 'Tô Hoài', 'z', true)
       returning id
     `;
@@ -505,6 +520,8 @@ test("the actor and the shelf are recorded on every entry", async () => {
 });
 ```
 
+**Reconciled against the shipped schema:** the three `insert into books` statements above write `is_published`, not `published`. `books` has no `published` column — the boolean is `is_published` (`src/db/migrations/0004_catalogue.sql`: `is_published boolean not null default true`), and `tests/support/factories.ts`'s own `makeBookWithCopies` already gets this right. Verified by running the literal insert against `db-test`: `published` fails with `column "published" of relation "books" does not exist`; `is_published` succeeds.
+
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `bun run test tests/domain/kernel/unit-of-work.test.ts`
@@ -515,6 +532,7 @@ Expected: FAIL — module not found.
 Create `src/domain/kernel/audit.ts`:
 
 ```ts
+import { RuleViolated } from "./errors";
 import type { TenantContext } from "./tenant";
 
 /**
@@ -531,60 +549,169 @@ export interface AuditEntry {
   entityId: string;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
+  /**
+   * True for a system-wide fact with no owning shelf. Only `runGlobalCommand`
+   * (Task 3, below) can make this stick — see its docstring.
+   */
+  global?: boolean;
 }
 
 /**
- * Fields never permitted in an audit record.
- *
- * BR §2: "The audit records the act, never the secret." No password, no hash,
- * no session token — only that a named manager set credentials for a named
- * reader at a given time. The temptation to log "what it was changed to" is
- * strongest exactly here, so this is enforced rather than documented.
+ * Fields never permitted in an audit record, matched as whole tokens rather
+ * than substrings, plus a short allowlist for field names that would
+ * otherwise match a token but name something BR §2 explicitly permits (a
+ * timestamp or a boolean *about* a secret, never the secret). See
+ * `assertNoSecrets` below for how the two interact, and the fix report for
+ * why this list and the matching logic changed after this task first shipped.
  */
-const FORBIDDEN = ["password", "password_hash", "token", "session", "secret"];
+const FORBIDDEN = [
+  "password", "hash", "pwd", "token", "session", "secret", "mat_khau",
+  "key", "salt", "otp",
+];
+const ALLOWED = new Set([
+  "password_changed_at",
+  "password_set_at",
+  "has_password",
+  "session_count",
+]);
+const MAX_AUDIT_DEPTH = 20; // named RuleViolated("audit_nesting_too_deep") past this, not a bare RangeError
 
+/**
+ * Walks `before`/`after` — including nested objects and arrays, the natural
+ * shape for a diff — and rejects any field whose name is a secret. Throws
+ * `RuleViolated`, a `DomainError` carrying `audit_forbidden_field`, per OPS
+ * §2 ("a command never fails with a bare 500 or an unstructured exception").
+ * A cyclic or pathologically deep `before`/`after` is rejected the same way,
+ * as `RuleViolated("audit_nesting_too_deep")`, once `MAX_AUDIT_DEPTH` is
+ * exceeded — see the final fix report for why this exists (a bare
+ * `RangeError: Maximum call stack size exceeded` otherwise).
+ */
 export function assertNoSecrets(entry: AuditEntry): void {
-  for (const bag of [entry.before, entry.after]) {
-    if (!bag) continue;
-    for (const key of Object.keys(bag)) {
-      if (FORBIDDEN.some((f) => key.toLowerCase().includes(f))) {
-        throw new Error(
-          `Audit entry for ${entry.action} carries a forbidden field "${key}". ` +
-            "BR §2: the audit records the act, never the secret.",
-        );
-      }
-    }
-  }
+  // See src/domain/kernel/audit.ts for the current implementation — the
+  // tokenizing, the recursive walk, the depth cap, and the allowlist check.
 }
 
-export type AuditRow = AuditEntry & {
-  bookshelfId: string;
+export type AuditRow = Omit<AuditEntry, "global"> & {
+  bookshelfId: string | null;
   actorId: string | null;
   occurredAt: Date;
 };
 
 export function toRow(entry: AuditEntry, ctx: TenantContext): AuditRow {
   assertNoSecrets(entry);
+  const { global: isGlobal, ...fact } = entry;
   return {
-    ...entry,
-    bookshelfId: ctx.bookshelfId,
+    ...fact,
+    bookshelfId: isGlobal ? null : ctx.bookshelfId,
     actorId: ctx.actor.userId,
     occurredAt: ctx.clock.now(),
   };
 }
 ```
 
+**Reconciled against what shipped (fix-report, 2026-08-07-s2-domain-kernel):** three things changed since this listing was first written, none of them part of this task's original scope. (1) `AuditEntry.global` and `AuditRow.bookshelfId: string | null` were added later, for `runGlobalCommand` (Task 3's `runCommand`/`runQuery` section, below) — a command whose audit entry has no owning shelf. (2) `FORBIDDEN` originally read `["password", "password_hash", "token", "session", "secret"]` and matched by plain substring (`key.toLowerCase().includes(f)`); that blocked legitimate fields (`password_changed_at`, `has_password`, `session_count`, `tokens_read`) and, because it only ever walked the top level of `before`/`after`, let a secret nested one level deep — `after: { credentials: { password_hash } }`, or inside an array, `after: { changes: [{ password_hash }] }` — straight through, along with bare top-level fields the list simply didn't cover (`hash`, `pwd`, the Vietnamese `mat_khau`). (3) The thrown error was a bare `Error`, not a `DomainError`, which OPS §2 rules out. `src/domain/kernel/audit.ts` on `main` is the current, hardened version — the `assertNoSecrets` body above is elided rather than reproduced a second time, to avoid this listing drifting out of sync with the source again. `tests/domain/kernel/audit.test.ts` covers the token-matching, nesting, allowlist, and error-shape behavior directly; see the fix report for the live before/after reproduction.
+
+**Reconciled a second time (final-fix-report, 2026-08-07-s2-domain-kernel):** two more things changed after the pass above. (4) `FORBIDDEN` gained `key`, `salt`, `otp` — a live audit of all 275 columns in `olibra_test` found these three token gaps (an `api_key`-shaped column, `salt`, `otp` all reached the audit log uncaught before this); `mat_khau` was kept despite being unreachable by any column in the live schema and despite tokenizing inconsistently (`matKhau` matches, `matkhau` does not), on the judgment that removing it only shrinks coverage with no compensating benefit. (5) `walk` gained `MAX_AUDIT_DEPTH` (20) and a `depth` parameter: a cyclic or pathologically deep `before`/`after` used to recurse without bound and crash with a bare `RangeError`, the same unstructured-exception class this function was already hardened against once — the depth cap turns that into `RuleViolated("audit_nesting_too_deep")` instead, cycles included, since a cycle simply reaches the cap before the stack would.
+
 - [ ] **Step 4: Write the unit of work**
 
 Create `src/domain/kernel/unit-of-work.ts`:
 
 ```ts
-import type { Sql, TransactionSql } from "postgres";
+import type { JSONValue, PendingQuery, Row, Sql, TransactionSql } from "postgres";
 import type { AuditEntry } from "./audit";
 import { toRow } from "./audit";
+import type { ErrorCode } from "./errors";
+import { NotFound, ValidationFailed } from "./errors";
 import type { TenantContext } from "./tenant";
 
-export type Tx = TransactionSql;
+type RawTx = TransactionSql; // the driver's own handle, before the guard (below) wraps it
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Rejects a malformed `bookshelfId` before it ever reaches Postgres —
+ * `ValidationFailed("invalid_bookshelf_id")` instead of a raw driver error.
+ * `allowEmpty` differs by caller: `runQuery` passes `true` (empty is the
+ * sentinel the RLS policy's `nullif(...)` fails closed on, correctly);
+ * `runAs` passes `false` (the audit insert has no such `nullif` between it
+ * and its `uuid` column, so an empty string reaches the cast raw). See
+ * `src/domain/kernel/unit-of-work.ts` for the full rationale.
+ */
+function assertValidBookshelfId(
+  bookshelfId: string,
+  { allowEmpty }: { allowEmpty: boolean },
+): void {
+  if (bookshelfId === "") {
+    if (allowEmpty) return;
+    throw new ValidationFailed("invalid_bookshelf_id", "bookshelfId");
+  }
+  if (!UUID_RE.test(bookshelfId)) {
+    throw new ValidationFailed("invalid_bookshelf_id", "bookshelfId");
+  }
+}
+
+/** RLS's `using` clause can filter these two to zero rows without raising. */
+const GUARDED_COMMANDS = new Set(["UPDATE", "DELETE"]);
+
+/** A guarded `tx\`...\`` result. `.allowZero()` opts a query out of the guard below. */
+export interface GuardedPendingQuery<T extends readonly (object | undefined)[] = Row[]>
+  extends PendingQuery<T> {
+  allowZero(): PendingQuery<T>;
+}
+
+/** The handle a `Command` receives — `tx`, wrapped so its calls return a `GuardedPendingQuery`. */
+export interface Tx extends RawTx {
+  <T extends readonly (object | undefined)[] = Row[]>(
+    strings: TemplateStringsArray,
+    ...values: readonly unknown[]
+  ): GuardedPendingQuery<T>;
+}
+
+/**
+ * Wraps one `tx\`...\`` result so an `UPDATE`/`DELETE` affecting zero rows
+ * rejects (`NotFound("write_target_not_found")`) instead of resolving as if
+ * it had succeeded — unless the query called `.allowZero()` first. Body
+ * elided; see `src/domain/kernel/unit-of-work.ts` for the implementation
+ * (it chains onto `Query`'s `Symbol.species = Promise`, so the result is a
+ * plain `Promise` safe to attach `allowZero` to, and forwards every other
+ * `PendingQuery` method to the original, unguarded query object).
+ */
+function guardPendingQuery<T extends readonly (object | undefined)[]>(
+  pending: PendingQuery<T>,
+): GuardedPendingQuery<T> {
+  /* … */
+  return pending as unknown as GuardedPendingQuery<T>;
+}
+
+/**
+ * Wraps a transaction handle so every tagged-template call a `Command` makes
+ * through it goes through `guardPendingQuery`, above. A `Proxy` intercepting
+ * only `apply` — every other property (`.json`, `.unsafe`, `.begin`, ...)
+ * passes through untouched, which is safe because `postgres`'s `Sql`
+ * function is a plain closure with methods attached by `Object.assign`, not
+ * a class relying on `this` or private fields (verified against
+ * `node_modules/postgres/src/index.js`).
+ */
+function guardWrites(raw: RawTx): Tx {
+  /* … */
+  return raw as unknown as Tx;
+}
+
+/**
+ * Asserts a write affected exactly the row(s) expected — the explicit,
+ * code-carrying alternative to the automatic guard above, for a command that
+ * wants its own `ErrorCode` (or a count other than 1). Pair with
+ * `.allowZero()` on the query to opt out of the default first:
+ * `assertWritten(await tx\`update ...\`.allowZero(), "book_not_found")`.
+ */
+export function assertWritten(
+  result: { count: number | null },
+  code: ErrorCode,
+  expected = 1,
+): void {
+  if (result.count !== expected) throw new NotFound(code);
+}
 
 /**
  * A command: one business fact, plus the audit record that describes it.
@@ -604,42 +731,94 @@ export type Command<I, O> = (
 ) => Promise<{ result: O; audit: AuditEntry | AuditEntry[] }>;
 
 /**
- * Runs a command in one transaction, with tenant scoping applied.
+ * Runs `command` in one transaction, scoped to `ctx.bookshelfId`, as `role`.
  *
  * `set_config(..., true)` is transaction-local, which is why the driver must
  * be pooled in transaction mode rather than session mode (DB §3). Getting that
  * wrong leaks one request's shelf into the next request on the same
  * connection, and it does so silently.
+ *
+ * `set_config` alone does *not* make RLS bite: every connection in this
+ * codebase, dev and test alike, authenticates as `olibra`, a `bypassrls`
+ * superuser (DATABASE.md §3), and a superuser ignores row-level security
+ * regardless of what `set_config` claims the shelf is. `set local role
+ * olibra_app` is the switch that actually turns the GUC into enforcement —
+ * see the "Reconciled" note below this listing for why that line exists at
+ * all. The command body always runs as `olibra_app`; `role` controls only
+ * whether the *audit insert*, after the command returns, may write a
+ * null-`bookshelf_id` row as `olibra_admin` — `runGlobalCommand`'s one job.
+ * `command` is handed `guardWrites(tx)`, not `tx` itself — see above.
+ *
+ * `nullif(current_setting(...), '')` — not a bare cast — lives in the policy,
+ * not here (see `0010_rls.sql`): `runAs` only ever calls `set_config` with a
+ * real, non-empty `ctx.bookshelfId` (checked by `assertValidBookshelfId`,
+ * `allowEmpty: false`), so it has nothing to guard against on that front.
  */
+async function runAs<I, O>(
+  sql: Sql,
+  ctx: TenantContext,
+  role: "olibra_app" | "olibra_admin",
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: false });
+  return sql.begin(async (tx) => {
+    await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+    await tx`set local role olibra_app`;
+
+    const { result, audit } = await command(guardWrites(tx as RawTx), ctx, input);
+
+    const entries = Array.isArray(audit) ? audit : [audit];
+
+    if (role === "olibra_admin") {
+      await tx`set local role olibra_admin`;
+    }
+
+    for (const entry of entries) {
+      const row = toRow(entry, ctx);
+      await tx`
+        insert into audit_log
+          (bookshelf_id, actor_id, action, entity_type, entity_id,
+           before, after, occurred_at)
+        values
+          (${row.bookshelfId}, ${row.actorId}, ${row.action}, ${row.entityType},
+           ${row.entityId}, ${tx.json((row.before ?? null) as JSONValue)},
+           ${tx.json((row.after ?? null) as JSONValue)}, ${row.occurredAt})
+      `;
+    }
+
+    if (role === "olibra_admin") {
+      await tx`set local role olibra_app`;
+    }
+
+    return result;
+  }) as Promise<O>;
+}
+
 export async function runCommand<I, O>(
   sql: Sql,
   ctx: TenantContext,
   command: Command<I, O>,
   input: I,
 ): Promise<O> {
-  return sql.begin(async (tx) => {
-    await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+  return runAs(sql, ctx, "olibra_app", command, input);
+}
 
-    const { result, audit } = await command(tx as Tx, ctx, input);
-
-    const entries = Array.isArray(audit) ? audit : [audit];
-    for (const entry of entries) {
-      const row = toRow(entry, ctx);
-      await tx`
-        insert into audit_log
-          (bookshelf_id, actor_id, action, entity_type, entity_id,
-           before_values, after_values, occurred_at)
-        values
-          (${row.bookshelfId}, ${row.actorId}, ${row.action}, ${row.entityType},
-           ${row.entityId}, ${tx.json(row.before ?? null)},
-           ${tx.json(row.after ?? null)}, ${row.occurredAt})
-      `;
-    }
-
-    return result;
-  }) as Promise<O>;
+export async function runGlobalCommand<I, O>(
+  sql: Sql,
+  ctx: TenantContext,
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  return runAs(sql, ctx, "olibra_admin", command, input);
 }
 ```
+
+**Reconciled a third time (final-fix-report, 2026-08-07-s2-domain-kernel):** the listing above adds three things beyond the two reconciliation passes below it. (1) `assertValidBookshelfId` — present in prose in an earlier pass of this plan but never actually shown in a code listing here; now shown, with the `allowEmpty` split `runAs`/`runQuery` disagree on (see its own docstring above, and `runQuery`'s listing in Task 5). (2) The `Tx`/`GuardedPendingQuery` wrapper (`guardWrites`/`guardPendingQuery`) — `assertWritten` used to be the *only* defense against a cross-shelf `update`/`delete` silently affecting zero rows, and it was opt-in: a command that forgot to call it reproduced the original bug (a scoped re-review reproduced this live against `runCommand`, unguarded). `runAs` now hands every `Command` a guarded `tx` instead of the raw one, so the same failure rejects by construction — `NotFound("write_target_not_found")` — with `.allowZero()` as the explicit, visible opt-out for a genuinely conditional write. (3) `assertWritten` itself, present in this plan only as prose before now, is shown in full above — it still exists, but for a command that wants a specific `ErrorCode` or a count other than 1, not as the only guard. See the final fix report for the live reproduction (an unguarded cross-shelf update, before and after) and `tests/domain/kernel/command-scope.test.ts` for the four behaviors the guard is tested against: a same-shelf write, a cross-shelf write, an `.allowZero()`'d conditional write, and a read.
+
+**Reconciled against the shipped schema:** the insert above writes `before`/`after`, not `before_values`/`after_values`. The shipped `audit_log` table (`src/db/migrations/0007_audit_notifications.sql`, confirmed live: `docker compose exec -T db-test psql -U olibra -d olibra_test -c '\d audit_log'`) names the columns `before` and `after` — DATABASE.md §4.10's own `create table` block agrees. Neither word is a PostgreSQL reserved keyword, so they parse unquoted in both the column list and the `select` list; verified directly against the running database rather than assumed, because `before`/`after` read like they *should* need quoting. `AuditEntry`'s TypeScript field names (`before?`, `after?`, in the Interfaces block above) already matched the column names — only this SQL string, and the test in Task 4 that reads it back, had drifted.
+
+**Reconciled against what shipped (fix-report, 2026-08-07-s2-domain-kernel):** this listing originally had `runCommand` as a single function that called `set_config` and nothing else — no `set local role`, and no `runAs`/`runGlobalCommand` split at all (`runGlobalCommand` did not exist in this task's original scope; it was added afterward, once a command needing a null-`bookshelf_id` audit entry made the gap visible). That version shipped, and its own Step 5 test run was never actually clean: the very first test `tests/domain/kernel/command-scope.test.ts` adds — "an ordinary command cannot write a row belonging to another shelf" — failed against it, because a `set_config` with no accompanying role switch does nothing against a `bypassrls` superuser connection, which is what every connection in this codebase is (DATABASE.md §3). Commit `4fd078c` is the fix; the listing above matches it. A second bug was found and fixed after that, in `runGlobalCommand` specifically: an earlier version of `runAs` set `role` once for the whole transaction, so `runGlobalCommand` escalated the command body's own writes to `olibra_admin` along with the audit insert, and a command run through it could write into another shelf. The listing above already has the fix — `set local role olibra_app` unconditionally, `set local role olibra_admin` only around the audit-insert loop when `role` asks for it, then back to `olibra_app` — see `src/domain/kernel/unit-of-work.ts` on `main` for the fully-commented version, including the note that this is structural against *mistakes*, not against a command that deliberately runs `reset role`. `src/domain/kernel/unit-of-work.ts` also now exports `assertWritten`, a helper for a related but distinct gap RLS leaves open on `update`/`delete` (its `using` clause filters silently rather than raising, unlike `insert`'s `with check`) — see the fix report for the full writeup and `tests/domain/kernel/command-scope.test.ts` for the tests.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -671,6 +850,7 @@ anyone's memory."
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import { assertNoSecrets } from "../../src/domain/kernel/audit";
+import { RuleViolated } from "../../src/domain/kernel/errors";
 import { runCommand } from "../../src/domain/kernel/unit-of-work";
 import { migrate } from "../../src/db/migrate";
 import { makeShelf } from "../support/factories";
@@ -705,12 +885,12 @@ test("INV-8: an audit record names actor, time, before and after", async () => {
   );
 
   const [entry] = await sql<Record<string, unknown>[]>`
-    select actor_id, occurred_at, before_values, after_values from audit_log
+    select actor_id, occurred_at, before, after from audit_log
   `;
   expect(entry.actor_id).toBe(user.id);
   expect(entry.occurred_at).toEqual(clock.now());
-  expect(entry.before_values).toEqual({ state: "available" });
-  expect(entry.after_values).toEqual({ state: "on_loan" });
+  expect(entry.before).toEqual({ state: "available" });
+  expect(entry.after).toEqual({ state: "on_loan" });
 });
 
 test("INV-8: a secret can never reach the audit log", () => {
@@ -724,9 +904,11 @@ test("INV-8: a secret can never reach the audit log", () => {
       entityId: "x",
       after: { password_hash: "$2b$whatever" },
     }),
-  ).toThrow(/never the secret/);
+  ).toThrow(RuleViolated);
 });
 ```
+
+**Reconciled against what shipped (fix-report, 2026-08-07-s2-domain-kernel):** the matcher above was originally `.toThrow(/never the secret/)`, which worked only while `assertNoSecrets` threw a bare `Error` with that English string baked into its message. MINOR 4 of the fix report changed the throw to `RuleViolated` (a `DomainError`, per OPS §2), whose message is the Vietnamese sentence for `audit_forbidden_field`, not English — so the regex match had to become an instance check. `tests/domain/kernel/audit.test.ts` covers the guard's behavior in more depth (nesting, arrays, the allowlist, the error's `.code`); this test stays as the DB-backed, end-to-end INV-8 case.
 
 - [ ] **Step 2: Run it**
 
@@ -735,7 +917,9 @@ Expected: PASS — 2 tests.
 
 - [ ] **Step 3: Prove the secret guard can fail**
 
-Temporarily remove `password_hash` from `FORBIDDEN` in `src/domain/kernel/audit.ts`, re-run, observe the second test fail, then restore it and re-run.
+Temporarily remove `"password"` from `FORBIDDEN` in `src/domain/kernel/audit.ts`, re-run, observe the second test fail, then restore it and re-run.
+
+**Reconciled against what shipped (fix-report, 2026-08-07-s2-domain-kernel):** this step originally named `password_hash`, not `password`. `password_hash` was in `FORBIDDEN` too at the time, but so was `password`, and `"password_hash".includes("password")` is `true` — so removing only `password_hash` from the list would never have made this test fail; `password` alone still caught it. The experiment, as written, proved nothing. `password_hash` has since been dropped from `FORBIDDEN` for exactly this reason (MINOR 4 of the fix report): it was always redundant with `password` under substring matching, and stays redundant under the current whole-token matching, since `password_hash` tokenizes to `["password", "hash"]` and `password` alone still matches the first token.
 
 - [ ] **Step 4: Commit**
 
@@ -761,6 +945,8 @@ Commands are covered. Queries are the larger surface — 43 of them — and each
   ```
 
 - [ ] **Step 1: Write the failing test**
+
+Create `tests/domain/kernel/query-scope.test.ts`:
 
 ```ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -802,7 +988,7 @@ test("a query cannot write", async () => {
     runQuery(
       sql,
       { bookshelfId: a.id, actor: { userId: null, membershipId: null, role: "reader" }, clock },
-      (tx) => tx`insert into books (bookshelf_id, title, author, slug, published)
+      (tx) => tx`insert into books (bookshelf_id, title, author, slug, is_published)
                  values (${a.id}, 'x', 'y', 'z', true)`,
     ),
   ).rejects.toThrow(/read-only/i);
@@ -826,21 +1012,39 @@ Append to `src/domain/kernel/unit-of-work.ts`:
  * convention into something enforced. A query that grows an `insert` during a
  * hurried afternoon fails loudly instead of quietly becoming a command with no
  * audit record.
+ *
+ * `set local role olibra_app` is what actually makes the tenant scoping
+ * bite — see `runAs`'s docstring, above, for why a bare `set_config` does
+ * nothing against the `bypassrls` superuser connection every environment
+ * uses today.
+ *
+ * `assertValidBookshelfId` is called with `allowEmpty: true` here — unlike
+ * the write path, an empty `ctx.bookshelfId` has a legitimate reading for a
+ * read (the RLS policy's own `nullif(...)` sentinel, failing closed to zero
+ * rows), not an error. See that function's docstring, in Task 3 above, for
+ * why the write path disagrees. `query` is handed `guardWrites(tx)`, same as
+ * `runAs` — a no-op for a read in practice (the guard only ever fires on an
+ * `UPDATE`/`DELETE` that affects zero rows, and this transaction is
+ * read-only), kept for consistency with the type `Tx` promises callers.
  */
 export async function runQuery<O>(
   sql: Sql,
   ctx: TenantContext,
   query: (tx: Tx, ctx: TenantContext) => Promise<O>,
 ): Promise<O> {
+  assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: true });
   return sql.begin(async (tx) => {
     await tx`set transaction read only`;
     await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
-    return query(tx as Tx, ctx);
+    await tx`set local role olibra_app`;
+    return query(guardWrites(tx as RawTx), ctx);
   }) as Promise<O>;
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+**Reconciled against what shipped (fix-report, 2026-08-07-s2-domain-kernel):** this listing was also missing `set local role olibra_app` — the same omission `runCommand`'s listing had, and for the same reason it matters: without it, `runQuery` scopes nothing against the superuser connection every environment in this codebase uses. The shipped `runQuery` (`src/domain/kernel/unit-of-work.ts` on `main`) has always had this line — it was added correctly the first time in that file — so this was a documentation-only staleness, not a second live bug; it is fixed here for the same reason the rest of this task's reconciliation exists, so a future implementer copying this listing does not reintroduce it elsewhere.
+
+**Reconciled a second time (final-fix-report, 2026-08-07-s2-domain-kernel):** `assertValidBookshelfId` and `guardWrites` above were added in the same pass that added them to `runAs` (see Task 3's third reconciliation note) — `runQuery` never had the raw-driver-error bug `runAs` had (its empty-`bookshelfId` case was already correct, failing closed via the policy's own `nullif`), so this listing's addition is about keeping `runQuery` and `runAs` sharing the same helpers, not a second fix to `runQuery` itself.
 
 Run: `bun run test tests/domain/kernel/query-scope.test.ts`
 Expected: PASS — 2 tests.

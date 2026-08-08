@@ -6,6 +6,8 @@
 
 **Architecture:** Blocking conditions are pure predicates in `policy.ts`, testable with no database at all; the commands compose them inside a `runCommand` transaction. INV-1's race is left to the partial unique index and the loser's `23505` is translated, rather than being pre-checked and hoped about.
 
+**Reconciled against what shipped (fix-report, 2026-08-07-s2-domain-kernel):** `runCommand` is treated as a black box throughout this plan — the ~15 call sites below pass it a command function and never reproduce its internals — so nothing here needed to change when that kernel was hardened after this plan was first written. Two things are still worth knowing before writing a command against it: (1) `runCommand` now switches the transaction into `olibra_app` before running the command body, not only setting the RLS session variable — the earlier version did not, and its own first test failed live; see the S2 fix report for the reproduction. (2) `unit-of-work.ts` now also exports `assertWritten`, for the one case `runCommand` cannot make structural on its own — a `update`/`delete` targeting a row belonging to another shelf silently affects zero rows rather than erroring, because RLS's `using` clause filters rather than raises on those statements (only `insert`'s `with check` raises). `lendCopy`'s own `update book_copies set state = 'on_loan' where id = ${copy.id}` (Task 3, below) is annotated with why it does not need this — `copy` is already shelf-scoped by a prior select in the same transaction — but any future command that writes by id without such a select first must wrap the write in `assertWritten`.
+
 **Tech Stack:** TypeScript · PostgreSQL · Vitest.
 
 **Blocked by:** S3, B1 (catalogue), B2 (members). A loan needs a copy and a member — both, not either.
@@ -486,6 +488,18 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
     }
   })();
 
+  // Domain-kernel fix report (2026-08-07-s2-domain-kernel, IMPORTANT 1):
+  // RLS's `with check` raises on a cross-shelf insert, but its `using`
+  // clause only *filters* rows on update — a blind `update ... where id =
+  // ...` against a row belonging to another shelf silently affects zero
+  // rows rather than erroring. This call is not that bug: `copy` was
+  // fetched by a shelf-scoped select earlier in this same transaction, so
+  // `copy.id` is already known to belong to `ctx.bookshelfId`. It is written
+  // this way, without `assertWritten`, deliberately — not as an oversight to
+  // copy elsewhere. A command that writes by id *without* a prior
+  // shelf-scoped select must wrap the result in
+  // `assertWritten(result, someNotFoundCode)` (exported from
+  // `src/domain/kernel/unit-of-work.ts`) instead.
   await tx`update book_copies set state = 'on_loan' where id = ${copy.id}`;
 
   return {
