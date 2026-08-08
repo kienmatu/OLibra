@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { filesUnder } from "../support/source-text";
 
@@ -21,48 +22,75 @@ import { filesUnder } from "../support/source-text";
  * get wired in later slices. The trigger is reaching Postgres, because that is
  * exactly the property that makes a cached copy dangerous.
  *
+ * **Reaching it *through anything*, not only directly.** This shipped reading
+ * one file: the route's own import list. A page whose only import is a helper
+ * in `src/lib/` that resolves the tenant from the slug and runs `runQuery`
+ * therefore passed all three tests, and `next build` prerendered it as
+ * `● (SSG)` with real database rows baked into the static HTML — rendered once
+ * at build time, with no session, served to everyone, which is §2's failure
+ * verbatim. No shipped page has that shape, but this slice adds
+ * `src/lib/shelf.ts` and `src/lib/lending.ts` as exactly that kind of helper,
+ * and forty-one pages are going to trust this test. So the check follows local
+ * imports transitively (`reachTable` below) and asks whether Postgres is
+ * anywhere in the closure.
+ *
  * Reading `cookies()` (which `loadPage` does on every call) already forces
- * dynamic rendering in the App Router, so today this is belt to that braces.
- * It is written down anyway because relying on it means relying on a side
- * effect of an implementation detail: move the cookie read behind a cache, add
- * a `use cache` above the component, or take the seam somewhere that resolves
- * the tenant without a cookie, and the implicit opt-out silently stops
- * applying while the page keeps rendering correctly in development, where
- * there is only ever one tenant signed in.
+ * dynamic rendering in the App Router, so for a page that goes through the seam
+ * this is belt to that braces. It is written down anyway because relying on it
+ * means relying on a side effect of an implementation detail: move the cookie
+ * read behind a cache, add a `use cache` above the component, or take the seam
+ * somewhere that resolves the tenant without a cookie — which is precisely the
+ * shape the transitive gap let through — and the implicit opt-out silently
+ * stops applying while the page keeps rendering correctly in development,
+ * where there is only ever one tenant signed in.
  *
  * Verified against the installed Next.js (16.3.0) rather than assumed from an
  * older major:
  * - `dynamic: 'force-dynamic'` is still an accepted route segment config —
  *   `node_modules/next/dist/build/segment-config/app/app-segment-config.js`
  *   parses the segment exports against a Zod schema whose `dynamic` key is
- *   `z.enum(['auto', 'error', 'force-static', 'force-dynamic'])`, and an
- *   unrecognised key or value is a build error rather than a shrug.
+ *   `z.enum(['auto', 'error', 'force-static', 'force-dynamic'])`, so an
+ *   unrecognised *value* is a build error. An unrecognised *key* is not:
+ *   `AppSegmentConfigSchema` is a plain `z.object` with no `.strict()` (three
+ *   other schemas in that same file do call it), so a misspelled export is
+ *   dropped in silence. Which is one more reason for this file to exist: a
+ *   typo'd `dynamik` is a page nothing complains about and nothing protects.
  * - It is honoured at render time, not merely accepted at build time:
  *   `dist/server/app-render/create-component-tree.js` branches on
  *   `dynamic === 'force-dynamic'` to abort a static render, and
  *   `dist/server/app-render/app-render.js` treats "a page with `dynamic =
  *   "force-dynamic"` did not trigger the dynamic pathway" as an internal
  *   invariant violation.
- * - `next build` reports this project's wired page as `ƒ (Dynamic)` in its
- *   route table. Measured with the marker deleted, everything else unchanged:
- *   still `ƒ`, because `loadPage` reads `cookies()`. So the marker really is
- *   belt to that braces *today* — and the five not-yet-wired lending pages
- *   beside it are still `● (SSG)`, prerendered at build time out of
- *   `src/lib/fixtures.ts`, which is what this guard has to keep from happening
- *   to a page once it holds real tenant data.
+ * - `next build` reports all six wired lending pages as `ƒ (Dynamic)` in its
+ *   route table. Measured with the marker deleted from one of them, everything
+ *   else unchanged: still `ƒ`, because `loadPage` reads `cookies()`. So the
+ *   marker really is belt to that braces *for a page that goes through the
+ *   seam* — and the forty-one pages that have not been wired yet are still
+ *   `● (SSG)`, prerendered at build time out of `src/lib/fixtures.ts`, which is
+ *   what this guard has to keep from happening to a page once it holds real
+ *   tenant data. (At `48f9591` only one page was wired and the other five
+ *   lending screens were among the prerendered; `af55e95` wired the rest.)
  *
  * Read as source text, with the same limits every other architecture test in
- * this directory declares: an export assembled at runtime, or re-exported from
- * another module, slips past. It catches the shape a person actually types.
+ * this directory declares, now stated for a walk rather than for one file:
+ * a specifier assembled at runtime, a reach that leaves the repository and
+ * comes back (a re-export through `node_modules`), and a module that opens its
+ * own connection without naming any of `DATABASE_REACHING_IMPORTS` all slip
+ * past. It catches the shape a person actually types.
  */
 
 /**
- * A module whose presence means this file talks to Postgres.
+ * A module whose presence anywhere in a page's import closure means that page
+ * talks to Postgres.
  *
  * `lib/page-data` is the seam every wired page is meant to use. The other two
  * are here so that bypassing the seam — importing `pool()` or `runQuery`
- * straight into a page — does not also bypass the guard, which would make the
- * check depend on the mistake being made politely.
+ * straight into a page, or into a helper the page imports — does not also
+ * bypass the guard, which would make the check depend on the mistake being
+ * made politely. `db/client` is the only door to a connection in this
+ * codebase, so a helper that issues SQL either takes a `Tx`
+ * (`domain/kernel/unit-of-work`) or opens one (`db/client`), and both are on
+ * the list.
  *
  * Matched as a path fragment rather than as the exact `@/…` specifier, so a
  * relative reach (`../../../lib/page-data`) counts too — the same shape
@@ -81,23 +109,194 @@ function routeFiles(): string[] {
   );
 }
 
-function reachesTheDatabase(source: string): boolean {
-  return DATABASE_REACHING_IMPORTS.some((specifier) => {
-    const literal = specifier.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-    return new RegExp(
-      `\\b(?:from|import|require)\\s*\\(?\\s*["'][^"']*${literal}["']`,
-    ).test(source);
-  });
+/**
+ * Comments removed, string literals kept.
+ *
+ * The opposite of `stripCommentsAndStrings`, and for the opposite reason: the
+ * thing being looked for here *is* a string literal — the module specifier —
+ * while a docstring saying "importing `pool()` straight into a page" must not
+ * count as one. The `[^:]` guard keeps a `//` inside a URL from being read as
+ * the start of a line comment. Not a parser: a `/*` inside a string literal
+ * would eat code as if it were a comment, which happens nowhere here and is a
+ * false negative rather than a crash.
+ */
+function withoutComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-test("every page that reaches the database is explicitly dynamic", () => {
-  const offenders = routeFiles()
-    .filter((file) => {
-      const source = readFileSync(file, "utf8");
-      if (!reachesTheDatabase(source)) return false;
-      return !/export\s+const\s+dynamic\s*=\s*["']force-dynamic["']/.test(source);
-    })
+/**
+ * Every module specifier a file names, in any of the four spellings.
+ *
+ * A static import or `export … from`, a side-effect `import "x"`, a dynamic
+ * `import("x")` and a `require("x")` alike — the same set `boundaries.test.ts`
+ * enumerates, for the same reason: a rule that only catches the tidy spelling
+ * is a rule about tidiness.
+ */
+function specifiersIn(source: string): string[] {
+  return [
+    ...withoutComments(source).matchAll(
+      /\b(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g,
+    ),
+  ].map((m) => m[1]);
+}
+
+/**
+ * A specifier resolved to a file in this repository, or `null` for a package.
+ *
+ * `@/` is the alias `tsconfig.json` maps to `src/`. A package specifier is
+ * where the walk stops on purpose: `node_modules` is not this project's code,
+ * and following it would turn a source-text check into a module resolver.
+ */
+function resolveLocal(fromFile: string, specifier: string): string | null {
+  let base: string;
+  if (specifier.startsWith("@/")) base = join("src", specifier.slice(2));
+  else if (specifier.startsWith(".")) base = join(dirname(fromFile), specifier);
+  else return null;
+
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, "index.ts"),
+    join(base, "index.tsx"),
+  ]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/**
+ * A module every export of which is a server action, and where the walk stops.
+ *
+ * **A server action is not part of a render.** `"use server"` is the
+ * framework's own declaration that these functions run in their own POST, after
+ * the HTML has been built and sent, so nothing they read can be baked into a
+ * cached page — which is the only thing this file is about. Without this the
+ * check is useless in the loudest possible way: `public-header.tsx` renders a
+ * sign-out `<form action={signOutAction}>`, `dang-nhap/actions.ts` imports
+ * `pool()`, and therefore *every public page in the app* — the landing page,
+ * the portal, the catalogue — reports as database-backed and has to be marked
+ * `force-dynamic` for rendering a header.
+ *
+ * The declared gap: a Server Component that `await`s a `"use server"` export
+ * directly, during its render, does reach Postgres and is not seen here. Next
+ * discourages exactly that (an action is meant to be passed to a `form` or
+ * called from the client), no page in this repository does it, and closing it
+ * would mean telling a call site apart from a `form` attribute in source text.
+ * Stated rather than papered over, in the same spirit as the limits at the top.
+ */
+function isServerActionModule(source: string): boolean {
+  return /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*["']use server["']/.test(source);
+}
+
+function namesADatabaseModule(specifier: string): boolean {
+  return DATABASE_REACHING_IMPORTS.some((fragment) =>
+    specifier.replace(/\\/g, "/").includes(fragment),
+  );
+}
+
+/**
+ * `file → does anything it can reach issue SQL`, for every route file at once.
+ *
+ * Computed as one memoised walk rather than per test, because three tests
+ * asking the same question of forty-seven pages is the same graph three times.
+ * A cycle answers `false` on the edge that closes it — some other path through
+ * the cycle still reports the reach, so the answer for the closure is
+ * unchanged, and nothing recurses forever.
+ */
+function reachTable(): (file: string) => boolean {
+  const answers = new Map<string, boolean>();
+
+  function reaches(file: string, visiting: Set<string>): boolean {
+    const cached = answers.get(file);
+    if (cached !== undefined) return cached;
+    if (visiting.has(file)) return false;
+
+    const source = readFileSync(file, "utf8");
+    if (isServerActionModule(source)) {
+      answers.set(file, false);
+      return false;
+    }
+
+    visiting.add(file);
+    let found = false;
+    for (const specifier of specifiersIn(source)) {
+      if (namesADatabaseModule(specifier)) {
+        found = true;
+        break;
+      }
+      const target = resolveLocal(file, specifier);
+      if (target && reaches(target, visiting)) {
+        found = true;
+        break;
+      }
+    }
+    visiting.delete(file);
+
+    answers.set(file, found);
+    return found;
+  }
+
+  return (file: string) => reaches(file, new Set());
+}
+
+const reachesTheDatabase = reachTable();
+
+/** The route files that issue SQL, directly or through anything they import. */
+function databaseBackedRoutes(): string[] {
+  return routeFiles().filter(reachesTheDatabase);
+}
+
+function offendersAmongThem(predicate: (source: string) => boolean): string[] {
+  return databaseBackedRoutes()
+    .filter((file) => predicate(readFileSync(file, "utf8")))
     .map((f) => f.replace(process.cwd() + "/", ""));
+}
+
+test("the guard sees a page that reaches Postgres only through a helper", () => {
+  // The guard's own guard. Every assertion below is `toEqual([])`, which a
+  // `reachesTheDatabase` that answered `false` for everything would satisfy
+  // perfectly — and that is exactly the bug this file shipped with, one level
+  // of indirection down. So: the six wired lending screens must be *found*,
+  // and every one of them reaches Postgres through `src/lib/`, not by naming
+  // `db/client` or `runQuery` itself.
+  //
+  // Named individually rather than counted, because a count stays green while
+  // the set drifts. When a later slice wires the other forty-one pages this
+  // list grows; it is not a ceiling, only a floor (`toContain`).
+  const found = databaseBackedRoutes().map((f) =>
+    f.replace(process.cwd() + "/", "").replace(/\\/g, "/"),
+  );
+  const base = "src/app/tu-sach/[shelf]/quan-ly";
+  for (const page of [
+    `${base}/cho-muon/page.tsx`,
+    `${base}/cho-muon/nguoi-doc/page.tsx`,
+    `${base}/cho-muon/xac-nhan/page.tsx`,
+    `${base}/nhan-tra/page.tsx`,
+    `${base}/nhan-tra/bao-mat/page.tsx`,
+    `${base}/sach/[id]/page.tsx`,
+  ]) {
+    expect(found, page).toContain(page);
+  }
+
+  // And the walk really is transitive: `src/lib/shelf.ts` names no page-data,
+  // no client and no unit-of-work value import — it takes a `Tx` and runs SQL
+  // on it — yet a page whose only reach is through it must still be caught.
+  expect(reachesTheDatabase("src/lib/shelf.ts")).toBe(true);
+  expect(reachesTheDatabase("src/lib/lending.ts")).toBe(true);
+  // A page that still renders from fixtures is not swept up by it. Without
+  // this, "flag everything" would pass every test in the file.
+  expect(found).not.toContain("src/app/page.tsx");
+  expect(found).not.toContain(`${base}/thong-ke/page.tsx`);
+});
+
+test("every page that reaches the database is explicitly dynamic", () => {
+  const offenders = offendersAmongThem(
+    (source) =>
+      !/export\s+const\s+dynamic\s*=\s*["']force-dynamic["']/.test(source),
+  );
 
   expect(offenders).toEqual([]);
 });
@@ -111,13 +310,9 @@ test("no page that reaches the database is also prerendered by generateStaticPar
   // fixtures.ts`), which is precisely the "rendered once at build time, with
   // no session at all, and served to everyone" shape of U1 §2. Two guards
   // because the first one failing alone should not be enough to leak.
-  const offenders = routeFiles()
-    .filter((file) => {
-      const source = readFileSync(file, "utf8");
-      if (!reachesTheDatabase(source)) return false;
-      return /\bgenerateStaticParams\b/.test(source);
-    })
-    .map((f) => f.replace(process.cwd() + "/", ""));
+  const offenders = offendersAmongThem((source) =>
+    /\bgenerateStaticParams\b/.test(source),
+  );
 
   expect(offenders).toEqual([]);
 });
@@ -129,13 +324,9 @@ test("no page that reaches the database opts into the use-cache directive", () =
   // shelf's URL. `force-dynamic` and `use cache` in the same file is a
   // contradiction Next.js resolves in ways nobody should be reasoning about
   // on a page that renders children's names.
-  const offenders = routeFiles()
-    .filter((file) => {
-      const source = readFileSync(file, "utf8");
-      if (!reachesTheDatabase(source)) return false;
-      return /["']use cache["']/.test(source);
-    })
-    .map((f) => f.replace(process.cwd() + "/", ""));
+  const offenders = offendersAmongThem((source) =>
+    /["']use cache["']/.test(source),
+  );
 
   expect(offenders).toEqual([]);
 });
