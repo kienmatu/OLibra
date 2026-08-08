@@ -385,10 +385,14 @@ test("a match and a miss are indistinguishable from outside", async () => {
   expect(actions.map((a) => a.action)).toEqual(["membership.registered"]);
 
   // IMPORTANT 5: a shape assertion alone would still pass against an
-  // implementation that quietly resurrects a non-reapplicable membership —
-  // the "miss" branch above is a write, not a read, and so is a probe. The
-  // state has to be checked too: exactly one row per identity, on the shelf
-  // that already knew them.
+  // implementation that quietly inserted a second row for an identity that
+  // should have been reused — the "miss" branch above is a write, not a
+  // read, and so is a probe. The state has to be checked too: exactly one
+  // row per identity, on the shelf that already knew them. (This does not
+  // exercise a suspended or left row — that is what the dedicated
+  // "IMPORTANT 5: a probe against a suspended membership" test below
+  // checks; a re-review of the previous fix report found this test had been
+  // credited with catching that case, which it never exercised.)
   const [{ count: userCount }] = await sql<
     { count: string }[]
   >`select count(*) from users`;
@@ -399,9 +403,17 @@ test("a match and a miss are indistinguishable from outside", async () => {
   expect(Number(bMemberships)).toBe(2); // one row per shelf (a and b), not per attempt.
 });
 
-test("IMPORTANT 5: a probe against a suspended or left membership leaves that row exactly as it was", async () => {
+test("IMPORTANT 5: a probe against a suspended membership leaves that row exactly as it was", async () => {
   // The state half of the anti-probe property: whatever the response says,
   // a probe must never be a write against a row it was not entitled to touch.
+  //
+  // `suspended` is the only status this still holds for. `left` (and
+  // `rejected`) are not a probe target any more — `policy.ts`'s graph already
+  // allows `left -> pending`, and the walk-back's re-review (fix-report,
+  // 2026-08-08-b2-members) removed the separate `role === "reader"` gate that
+  // used to block a non-reader `left` row here too, since `role` on a
+  // non-active row confers nothing. See "a manager who left can re-register
+  // through the public form" above for that path's own coverage.
   const { ctx } = await guestAt("dong-thap");
 
   const suspended = await runCommand(sql, ctx, registerMembership, FAMILY);
@@ -413,19 +425,6 @@ test("IMPORTANT 5: a probe against a suspended or left membership leaves that ro
   const before = await membership(suspended.membershipId);
   await expect(runCommand(sql, ctx, registerMembership, FAMILY)).rejects.toThrow();
   expect(await membership(suspended.membershipId)).toEqual(before);
-
-  const other = await guestAt("can-tho");
-  const OTHER_FAMILY = { ...FAMILY, fullName: "Lê Văn Long", phone: "0912345680" };
-  const left = await runCommand(sql, other.ctx, registerMembership, OTHER_FAMILY);
-  await sql`
-    update memberships set status = 'left', role = 'manager'
-    where id = ${left.membershipId}
-  `;
-  const beforeLeft = await membership(left.membershipId);
-  await expect(
-    runCommand(sql, other.ctx, registerMembership, OTHER_FAMILY),
-  ).rejects.toThrow();
-  expect(await membership(left.membershipId)).toEqual(beforeLeft);
 });
 
 // — re-application (BR §2) —
@@ -495,10 +494,18 @@ test("CRITICAL 1: a suspended membership does not walk back to pending through r
   expect(suspension_reason).toBe("Tạm khoá");
 });
 
-// — IMPORTANT 2: the walk-back must never carry a non-reader membership back
-// into the pending queue —
+// — the walk-back forces role = 'reader' rather than refusing —
 
-test("IMPORTANT 2: a manager's left membership cannot be revived as a pending reader application", async () => {
+test("a manager who left can re-register through the public form, landing pending and demoted to reader", async () => {
+  // Re-review (2026-08-08-b2-members): `role` on a non-active row confers
+  // nothing — src/auth/guards.ts's membership lookup filters
+  // `status = 'active'`, so this `left` row already resolves its holder to
+  // `guest`. Refusing the walk-back protected a privilege that was not
+  // there, and left a returning ex-manager stuck: nothing in src/ ever
+  // writes memberships.role outside register()'s own hardcoded 'reader'
+  // insert, so no command could ever re-enrol them. Forcing 'reader' here
+  // matches that insert path and stays safe — the row lands pending, so a
+  // manager still approves it.
   const { ctx } = await guestAt("dong-thap");
   const first = await runCommand(sql, ctx, registerMembership, FAMILY);
   await sql`
@@ -506,9 +513,10 @@ test("IMPORTANT 2: a manager's left membership cannot be revived as a pending re
     where id = ${first.membershipId}
   `;
 
-  await expect(runCommand(sql, ctx, registerMembership, FAMILY)).rejects.toThrow();
+  const again = await runCommand(sql, ctx, registerMembership, FAMILY);
+  expect(again.membershipId).toBe(first.membershipId);
 
   const m = await membership(first.membershipId);
-  expect(m.status).toBe("left");
-  expect(m.role).toBe("manager");
+  expect(m.status).toBe("pending");
+  expect(m.role).toBe("reader");
 });

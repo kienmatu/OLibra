@@ -77,7 +77,7 @@ export type PasswordHasher = (plain: string) => Promise<string>;
  * `verifier` below.
  */
 let hasher: PasswordHasher = () => {
-  throw new NotWired("PasswordHasher");
+  throw new NotWired("password_hasher_not_wired");
 };
 
 export function setPasswordHasher(next: PasswordHasher): void {
@@ -132,7 +132,7 @@ async function credentialsFrom(
  * something to do.
  */
 let verifier: (plain: string, stored: string) => Promise<boolean> = async () => {
-  throw new NotWired("PasswordVerifier");
+  throw new NotWired("password_verifier_not_wired");
 };
 
 export function setPasswordVerifier(
@@ -293,24 +293,35 @@ export async function register(
     // pending by resubmitting the public form — so this refuses it exactly
     // the way it already refused `pending`/`active`, with the same sentence.
     //
-    // IMPORTANT 2: role is checked here too, not written by the update below.
-    // A non-`reader` membership (a manager or admin who left, or was rejected)
-    // must never re-enter the pending queue through this door — the insert
-    // path two branches down never creates anything but a `reader`, and an
-    // unauthenticated caller who happens to know a manager's name, date of
-    // birth and phone must not be able to either. Silently pinning
-    // `role = 'reader'` in the update would be the same bug in a different
-    // shape — a manager's own row demoted by a stranger's form submission —
-    // so this refuses the whole walk-back instead of rewriting the role.
-    const canReapply =
-      existing.role === "reader" &&
-      membershipTransition(existing.status as MembershipStatus, "pending").allowed;
-    if (!canReapply) {
+    // Reversed on re-review (fix-report, 2026-08-08-b2-members): the walk-back
+    // used to refuse outright when `existing.role !== "reader"`, to stop a
+    // manager's row being silently demoted by a stranger's form submission.
+    // That fear describes stripping a privilege the row does not have —
+    // `role` on a non-active row confers nothing, since
+    // `src/auth/guards.ts`'s membership lookup filters `and m.status =
+    // 'active'`, so a `left` or `rejected` holder already resolves to
+    // `guest` regardless of what `role` says. History survives in
+    // `audit_log`. And the refusal was unrecoverable by anyone: nothing in
+    // `src/` ever writes `memberships.role` except the hardcoded `'reader'`
+    // in the insert below, so a returning ex-manager could not be re-enrolled
+    // by the public form, by a manager (`managerRegisterReader` shares this
+    // same function and got the identical refusal), or by any other command —
+    // only by someone with database access. Forcing `role = 'reader'` here
+    // instead matches the insert path two branches down, which never creates
+    // anything but a `reader`, and stays safe: the row still lands in
+    // whichever `status` this call was asked for, so a `pending` result still
+    // waits on a manager's approval — a de-escalation, not a privilege grant.
+    const move = membershipTransition(
+      existing.status as MembershipStatus,
+      "pending",
+    );
+    if (!move.allowed) {
       throw new RuleViolated("already_registered_here");
     }
     await tx`
       update memberships
       set status = ${status},
+          role = 'reader',
           parish_unit_l1_id = ${l1},
           parish_unit_l2_id = ${l2},
           rejection_reason = null,

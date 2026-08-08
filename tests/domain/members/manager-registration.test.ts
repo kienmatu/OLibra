@@ -126,6 +126,31 @@ test("a reader cannot register anybody", async () => {
   }
 });
 
+test("a left manager walked back by managerRegisterReader also lands demoted to reader", async () => {
+  // Re-review (2026-08-08-b2-members): registerMembership and
+  // managerRegisterReader share register()'s walk-back, so the reversal —
+  // force role = 'reader' instead of refusing — applies here too. The
+  // eligibility check is always against `-> pending` (CRITICAL 1's own
+  // comment in registration.ts); this command's own `status = "active"`
+  // argument decides what the walked-back row lands at, same as a brand
+  // -new registration through this door.
+  const { ctx } = await shelfWithManager();
+  const first = await runCommand(sql, ctx, managerRegisterReader, FAMILY);
+  await sql`
+    update memberships set status = 'left', role = 'manager'
+    where id = ${first.membershipId}
+  `;
+
+  const again = await runCommand(sql, ctx, managerRegisterReader, FAMILY);
+  expect(again.membershipId).toBe(first.membershipId);
+
+  const [m] = await sql<{ status: string; role: string }[]>`
+    select status, role from memberships where id = ${first.membershipId}
+  `;
+  expect(m.status).toBe("active");
+  expect(m.role).toBe("reader");
+});
+
 test("the same person, registered actively at a second shelf, keeps one identity", async () => {
   // BR §5.3, through the manager path rather than the public one.
   const a = await shelfWithManager("dong-thap");
