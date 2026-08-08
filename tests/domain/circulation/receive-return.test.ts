@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
-import { runCommand } from "../../../src/domain/kernel/unit-of-work";
+import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
 import { lendCopy } from "../../../src/domain/circulation/commands/lend-copy";
 import { receiveReturn } from "../../../src/domain/circulation/commands/receive-return";
 import { migrate } from "../../../src/db/migrate";
@@ -321,6 +321,199 @@ test("a copy held for the next reader is lendable to them and to nobody else", a
   await expect(
     runCommand(sql, ctx, lendCopy, { copyId, membershipId: waiting.id }),
   ).resolves.toMatchObject({ loanId: expect.any(String) });
+});
+
+test("collecting a hold closes its request, and the copy is free again after the return", async () => {
+  // The whole round trip C1's INV-3 branch makes reachable, asserted end to
+  // end because the defect it catches only shows up at the end of it.
+  //
+  // Before this was fixed: the hold-collecting lend left the `borrow_requests`
+  // row `approved` and still naming this copy. The lend itself looked right,
+  // the return looked right, and then `copies_borrowable`'s hold clause
+  // (20260808_14_olibra_now.sql:119-125) went on excluding the copy for the
+  // rest of `hold_days` — so every public surface told a child there was no
+  // copy free while the book sat on the shelf, and `lendCopy` handed it to the
+  // next person who asked anyway. BR §16.3's screen/command disagreement, in
+  // the direction where the screen is the one that lies.
+  const { shelf, manager, ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { reader: waiting, requestId } = await queueReader(ctx.bookshelfId, bookId);
+
+  await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+    holdForRequestId: requestId,
+  });
+
+  const { loanId: collectedLoanId } = await runCommand(sql, ctx, lendCopy, {
+    copyId,
+    membershipId: waiting.id,
+  });
+
+  // Fulfilled, and pointing at the loan that fulfilled it — BR §7.2's
+  // `pending → approved → fulfilled`, and `fulfilled_loan_id` is the column
+  // 0005_circulation.sql:73 exists for.
+  const [request] = await sql<
+    { status: string; fulfilled_loan_id: string | null; copy_id: string }[]
+  >`select status, fulfilled_loan_id, copy_id from borrow_requests where id = ${requestId}`;
+  expect(request.status).toBe("fulfilled");
+  expect(request.fulfilled_loan_id).toBe(collectedLoanId);
+  expect(request.copy_id).toBe(copyId);
+
+  // And the loan points back, so a loan that came out of the queue does not
+  // read as a walk-up lend from its own row.
+  const [loan] = await sql<{ request_id: string | null }[]>`
+    select request_id from loans where id = ${collectedLoanId}
+  `;
+  expect(loan.request_id).toBe(requestId);
+
+  // The reader brings it back the next day, with nobody queued behind them.
+  const nextDay: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock: fixedClock("2026-08-08T10:00:00Z"),
+  };
+  await runCommand(sql, nextDay, receiveReturn, {
+    loanId: collectedLoanId,
+    condition: "perfect",
+  });
+
+  // The assertion the defect actually failed. `copies_borrowable` is what
+  // `getCatalogue`, `searchCatalogue`, `getBookDetail`, `getBooksList`,
+  // `getBookDetailManager` and `searchBooksForLending` all read; a stale
+  // approved hold naming this copy empties every one of them at once, and the
+  // reason is invisible from any of them.
+  const borrowable = await runQuery(
+    sql,
+    nextDay,
+    (tx) => tx<{ id: string }[]>`select id from copies_borrowable`,
+  );
+  expect(borrowable.map((c) => c.id)).toEqual([copyId]);
+});
+
+test("collecting a hold writes both facts, one audit row each", async () => {
+  // OPS §4.2 pairs them by name for `HandoverRequest`: "`loan.created` (with
+  // `request.fulfilled` written in the same transaction)". Two records, because
+  // they are two things happening to two different rows — the same reasoning
+  // `receiveReturn`'s `loan.returned` + `request.approved` pair already
+  // follows, and the reason the kernel takes an array at all.
+  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { reader: waiting, requestId } = await queueReader(ctx.bookshelfId, bookId);
+
+  await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+    holdForRequestId: requestId,
+  });
+  const { loanId: collectedLoanId } = await runCommand(sql, ctx, lendCopy, {
+    copyId,
+    membershipId: waiting.id,
+  });
+
+  const rows = await sql<
+    {
+      action: string;
+      entity_type: string;
+      entity_id: string;
+      before: Record<string, unknown>;
+      after: Record<string, unknown>;
+    }[]
+    // `id`, not `occurred_at`: every row here is stamped with the same
+    // `fixedClock` instant (audit.ts's `toRow` uses `ctx.clock.now()`), so
+    // ordering by the timestamp would sort three simultaneous facts
+    // alphabetically and say nothing about which happened first. The identity
+    // column is the only write order this table records.
+  >`select action, entity_type, entity_id, before, after
+      from audit_log order by id`;
+  expect(rows.map((r) => r.action)).toEqual([
+    "loan.created", // the original lend, from `lentOut`
+    "loan.returned",
+    "request.approved",
+    "loan.created", // the collection
+    "request.fulfilled",
+  ]);
+
+  const fulfilled = rows.find((r) => r.action === "request.fulfilled")!;
+  expect(fulfilled.entity_type).toBe("request");
+  expect(fulfilled.entity_id).toBe(requestId);
+  expect(fulfilled.before).toMatchObject({ status: "approved" });
+  expect(fulfilled.after).toMatchObject({
+    status: "fulfilled",
+    fulfilled_loan_id: collectedLoanId,
+  });
+
+  // And the lend's own record says which request it came out of, so the two
+  // rows are readable as a pair without a join.
+  const collection = rows.filter((r) => r.action === "loan.created").at(-1)!;
+  expect(collection.after).toMatchObject({ request_id: requestId });
+});
+
+test("a lend that collects nobody's hold leaves the queue and the loan unlinked", async () => {
+  // The other side of the branch, so the fix cannot degenerate into "close
+  // whatever request is lying around". A reader is queued for this title and
+  // has *not* been given a hold; lending the copy to somebody else must leave
+  // their place in the queue exactly where it was.
+  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { requestId } = await queueReader(ctx.bookshelfId, bookId);
+  const walkUp = await makeMember(sql, ctx.bookshelfId);
+
+  await runCommand(sql, ctx, receiveReturn, { loanId, condition: "perfect" });
+  const { loanId: second } = await runCommand(sql, ctx, lendCopy, {
+    copyId,
+    membershipId: walkUp.id,
+  });
+
+  const [request] = await sql<
+    { status: string; fulfilled_loan_id: string | null }[]
+  >`select status, fulfilled_loan_id from borrow_requests where id = ${requestId}`;
+  expect(request.status).toBe("pending");
+  expect(request.fulfilled_loan_id).toBeNull();
+
+  const [loan] = await sql<{ request_id: string | null }[]>`
+    select request_id from loans where id = ${second}
+  `;
+  expect(loan.request_id).toBeNull();
+
+  const actions = await sql<{ action: string }[]>`select action from audit_log`;
+  expect(actions.map((a) => a.action)).not.toContain("request.fulfilled");
+});
+
+test("a hold belonging to somebody else is never the one a lend closes", async () => {
+  // The other half of "which request does this lend fulfil?", and the only
+  // shape in which the holder comparison can bite: a copy left `available`
+  // while an approved hold names it. No C1 command produces that — a hold from
+  // `receiveReturn` moves the copy to `held`, where `copyLendable` refuses
+  // everyone but the holder — but the schema represents it (two tables, no
+  // constraint), and `inv-03-only-available-or-own-hold.test.ts`'s fourth test
+  // records that which of the two shapes C2's `ApproveBorrowRequest` will
+  // produce is not settled. Written with direct SQL for exactly that reason,
+  // the way that file writes its own hold fixtures.
+  //
+  // Drop `copy.held_for_user === member.user_id` from `collectedHoldId` and
+  // this lend marks a waiting child's request `fulfilled` — the queue screen
+  // stops showing them, the notification says they got the book, and they did
+  // not.
+  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const holder = await makeMember(sql, ctx.bookshelfId);
+  const walkUp = await makeMember(sql, ctx.bookshelfId);
+
+  await runCommand(sql, ctx, receiveReturn, { loanId, condition: "perfect" });
+  const [request] = await sql<{ id: string }[]>`
+    insert into borrow_requests
+      (bookshelf_id, book_id, copy_id, member_id, status, requested_at,
+       hold_expires_at)
+    values
+      (${ctx.bookshelfId}, ${bookId}, ${copyId}, ${holder.userId}, 'approved',
+       ${clock.now()}, timestamptz '2026-08-10T10:00:00Z')
+    returning id
+  `;
+
+  await runCommand(sql, ctx, lendCopy, { copyId, membershipId: walkUp.id });
+
+  const [after] = await sql<
+    { status: string; fulfilled_loan_id: string | null }[]
+  >`select status, fulfilled_loan_id from borrow_requests where id = ${request.id}`;
+  expect(after.status).toBe("approved");
+  expect(after.fulfilled_loan_id).toBeNull();
 });
 
 test("the hold clock is the injected one, so the hold lapses without a job running", async () => {

@@ -1,3 +1,4 @@
+import type { AuditEntry } from "../../kernel/audit";
 import { isUniqueViolation, NotFound, RuleViolated } from "../../kernel/errors";
 import type { Command, Tx } from "../../kernel/unit-of-work";
 // `requireManager` is imported rather than restated. Two identical copies of
@@ -52,9 +53,38 @@ export interface LendCopyResult {
  * has — and the select below resolves it to a `user_id` in the same statement
  * that reads the membership's status. Writing `ctx.actor.membershipId` or
  * `input.membershipId` into either column is a `23503` on the very first lend,
- * and the shipped `members/queries/search-readers-for-lending.ts:67` already
+ * and the shipped `members/queries/search-readers-for-lending.ts:92` already
  * joins `l.borrower_id = u.id`, so even a hypothetical membership id that
  * satisfied the FK would produce loans that query cannot see.
+ *
+ * **Lending a held copy to its own holder closes that hold, in this same
+ * transaction.** INV-3's second clause makes this command the one that hands a
+ * child the copy their approved request put aside for them, and a request whose
+ * copy has just been handed over is fulfilled — BR §7.2's `pending → approved →
+ * fulfilled`, and the only terminal status in that enum that means "the book
+ * went to the reader". OPS §4.2 already pairs the two facts for
+ * `HandoverRequest`: "`loan.created` (with `request.fulfilled` written in the
+ * same transaction)". The pairing is not bookkeeping. A request left `approved`
+ * still names this copy, so `copies_borrowable`'s hold clause
+ * (`20260808_14_olibra_now.sql:119-125`) keeps excluding it for the rest of
+ * `hold_days` — and it keeps excluding it *after the copy comes back*, so every
+ * public surface tells a child there is no copy free while the book sits on the
+ * shelf and `lendCopy` hands it to the next person who asks. That is BR §16.3's
+ * screen-and-command disagreement in the "told no when the answer is yes"
+ * direction. It also closes the window in which the copy is `on_loan` while a
+ * live approved hold names it, which is INV-2 in substance across two tables
+ * (DB §4.4 and §7 say what the `state` column alone does and does not
+ * guarantee).
+ *
+ * The two rows point at each other — `borrow_requests.fulfilled_loan_id` at the
+ * loan, `loans.request_id` at the request ("originating request",
+ * `0005_circulation.sql:21`). Writing only the first would leave a loan that
+ * fulfilled a queued request looking, from its own row, like a walk-up lend.
+ *
+ * This is *not* `HandoverRequest`. That command (C2) takes a `requestId`, finds
+ * the copy from it, and checks the hold has not expired; this one takes a
+ * `copyId`, and closing the request is a consequence of the lend it was already
+ * performing. Nothing here creates, approves, rejects or skips a request.
  */
 export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
   tx,
@@ -74,22 +104,36 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
       book_id: string;
       state: CopyState;
       held_for_user: string | null;
+      hold_request_id: string | null;
     }[]
   >`
-    select c.id, c.book_id, c.state,
-           -- member_id, not requester_id (0005_circulation.sql:63), and it
-           -- holds a users(id). Compared against olibra_now() rather than a
-           -- bound ctx.clock.now() for the same reason copies_borrowable does
-           -- (20260808_14_olibra_now.sql:124): one clock, set once per
-           -- transaction by the kernel, read by every statement in it.
-           (select r.member_id
-              from borrow_requests r
-             where r.copy_id = c.id
-               and r.status = 'approved'
-               and r.deleted_at is null
-               and r.hold_expires_at > olibra_now()
-             limit 1) as held_for_user
+    select c.id, c.book_id, c.state, h.member_id as held_for_user,
+           h.id as hold_request_id
       from book_copies c
+      -- The live hold on this copy, if there is one. member_id, not
+      -- requester_id (0005_circulation.sql:63), and it holds a users(id).
+      -- Compared against olibra_now() rather than a bound ctx.clock.now() for
+      -- the same reason copies_borrowable does
+      -- (20260808_14_olibra_now.sql:124): one clock, set once per transaction
+      -- by the kernel, read by every statement in it.
+      --
+      -- A lateral join rather than a scalar subquery because two columns are
+      -- wanted from the same row and two subqueries could, in principle,
+      -- resolve to two different requests — the holder from one and the id
+      -- from another — which is exactly the kind of gap that would fulfil the
+      -- wrong request. The order by is there for the same reason
+      -- receiveReturn's queue read carries one: limit 1 over a set with no
+      -- ordering is whatever the plan happens to produce.
+      left join lateral (
+        select r.id, r.member_id
+          from borrow_requests r
+         where r.copy_id = c.id
+           and r.status = 'approved'
+           and r.deleted_at is null
+           and r.hold_expires_at > olibra_now()
+         order by r.requested_at asc, r.id asc
+         limit 1
+      ) h on true
      where c.id = ${input.copyId} and c.deleted_at is null
   `;
   // INV-10, and OPS §5 step 1: a copy id from another shelf is filtered out by
@@ -146,23 +190,38 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
   );
   if (memberBlock.blocked) throw new RuleViolated(memberBlock.reason);
 
+  // The hold this lend collects, or null when the copy was simply available.
+  //
+  // Both halves are required, and neither is redundant. `hold_request_id`
+  // being non-null says a live approved hold names this copy; the id
+  // comparison says it is *this reader's*, which is the only case
+  // `copyLendable` admitted a non-`available` copy for. Closing a hold that
+  // belongs to somebody else would take a child's turn away — the one thing
+  // worse than leaving the row open.
+  const collectedHoldId =
+    copy.hold_request_id !== null && copy.held_for_user === member.user_id
+      ? copy.hold_request_id
+      : null;
+
   const dueOn = dueDateFor(ctx.clock, await loanDaysFor(tx, ctx.bookshelfId));
 
   let loanId: string;
   try {
     const [row] = await tx<{ id: string }[]>`
       insert into loans
-        (bookshelf_id, copy_id, book_id, borrower_id, lent_by, lent_at, due_on, status)
+        (bookshelf_id, copy_id, book_id, borrower_id, lent_by, lent_at, due_on,
+         status, request_id)
       values
         (${ctx.bookshelfId}, ${copy.id}, ${copy.book_id}, ${member.user_id},
-         ${ctx.actor.userId}, ${ctx.clock.now()}, ${dueOn}, 'active')
+         ${ctx.actor.userId}, ${ctx.clock.now()}, ${dueOn}, 'active',
+         ${collectedHoldId})
       returning id
     `;
     loanId = row.id;
   } catch (e) {
     // INV-1's loser. BR §2: it "must fail cleanly and see a plain message,
     // never a silently corrupted record." `isUniqueViolation` tests `23505`
-    // (`errors.ts:167`); anything else is rethrown untouched, because a
+    // (`errors.ts:192`); anything else is rethrown untouched, because a
     // `catch` that swallowed every error here would turn an FK violation or a
     // dead connection into "Bản sách này đang được mượn".
     if (isUniqueViolation(e)) throw new RuleViolated("copy_not_available");
@@ -204,9 +263,8 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
   // code for a specific one, or to assert a count other than one.
   await tx`update book_copies set state = 'on_loan' where id = ${copy.id}`;
 
-  return {
-    result: { loanId, dueOn },
-    audit: {
+  const audit: AuditEntry[] = [
+    {
       action: "loan.created",
       entityType: "loan",
       entityId: loanId,
@@ -220,9 +278,43 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
         borrower_id: member.user_id,
         membership_id: member.id,
         due_on: dueOn,
+        // Null for the ordinary direct lend, so an auditor can tell the two
+        // apart without joining anything: this loan either came out of a
+        // queue or it did not.
+        request_id: collectedHoldId,
       },
     },
-  };
+  ];
+
+  if (collectedHoldId) {
+    // `fulfilled`, from BR §7.2's `pending → approved → fulfilled`. Not a
+    // status invented here: `request_status` (`0005_circulation.sql:54`)
+    // spells exactly six, and `fulfilled` is the only one of them that means
+    // the reader got the book. `expired` would say the hold lapsed and
+    // `cancelled` that the reader withdrew — both of which describe a child
+    // who went home empty-handed.
+    //
+    // `hold_expires_at` is deliberately left where it stands. It is the
+    // record of a deadline this reader met, and every read of it is already
+    // gated on `status = 'approved'` (`copies_borrowable`, and the lateral
+    // join above), so a fulfilled row's expiry is inert rather than stale.
+    // Blanking it would erase how long they had.
+    await tx`
+      update borrow_requests
+         set status = 'fulfilled',
+             fulfilled_loan_id = ${loanId}
+       where id = ${collectedHoldId}
+    `;
+    audit.push({
+      action: "request.fulfilled",
+      entityType: "request",
+      entityId: collectedHoldId,
+      before: { status: "approved", copy_id: copy.id, fulfilled_loan_id: null },
+      after: { status: "fulfilled", copy_id: copy.id, fulfilled_loan_id: loanId },
+    });
+  }
+
+  return { result: { loanId, dueOn }, audit };
 };
 
 /**
