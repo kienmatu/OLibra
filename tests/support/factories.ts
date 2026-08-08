@@ -37,11 +37,19 @@ export async function makeMember(
   over: { role?: string; status?: string } = {},
 ) {
   const user = await makeUser(sql);
+  const status = over.status ?? "active";
+  // memberships_rejected_has_reason (verified live) requires a reason
+  // whenever status = 'rejected'. A fixture that only varies status must
+  // still satisfy it, so a rejected row gets a placeholder reason nobody
+  // asserts on rather than tripping a 23514 unrelated to what the test means
+  // to check.
+  const rejectionReason =
+    status === "rejected" ? "lý do khởi tạo cho kiểm thử" : null;
   const [row] = await sql<{ id: string }[]>`
-    insert into memberships (bookshelf_id, user_id, role, status)
+    insert into memberships (bookshelf_id, user_id, role, status, rejection_reason)
     values (
       ${bookshelfId}, ${user.id},
-      ${over.role ?? "reader"}, ${over.status ?? "active"}
+      ${over.role ?? "reader"}, ${status}, ${rejectionReason}
     )
     returning id
   `;
