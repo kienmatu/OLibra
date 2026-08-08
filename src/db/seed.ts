@@ -311,6 +311,34 @@ export async function seed(sql: Sql): Promise<void> {
     // `lent_by` on every loan the seed writes.
     const lenderId = userIdByReaderId.get("lan")!;
 
+    // U1: and she is a `manager`, not a `reader`.
+    //
+    // The loop above writes `role: 'reader'` for everyone, because
+    // `fixtures.ts`'s `Reader` type carries a membership *status* and no role
+    // at all. That left the seeded data contradicting the rule the domain
+    // enforces: every loan below names her as `lent_by`, and `LendCopy`
+    // (`src/domain/circulation/commands/lend-copy.ts`) opens with
+    // `requireManager`. A shelf whose entire loan history was lent by somebody
+    // who could not have lent any of it is not a faithful starting position.
+    //
+    // It is also the difference between the manager screens being reachable
+    // and not. Before this, `bun run db:seed` produced eleven readers, no
+    // manager and no super_admin, so *every* `/quan-ly` page answered 404 to
+    // every seeded account — which is correct behaviour (U1 §3.4) against data
+    // that made it impossible to see any other outcome. `scripts/check-links
+    // .mjs` crawls as this account for exactly that reason.
+    //
+    // Only this shelf's keeper, and only on her own shelf: the other three
+    // shelves each describe one reader and nothing about them says who keeps
+    // them. `bookshelves.keeper_name` for Đồng Tháp is her ("Maria Nguyễn Thị
+    // Lan", `fixtures.ts`'s `shelf.keeper`), so this promotes the person the
+    // fixtures already name rather than picking one.
+    await tx`
+      update memberships
+         set role = 'manager'
+       where user_id = ${lenderId} and bookshelf_id = ${dongThapId}
+    `;
+
     // ── 6. Loans ─────────────────────────────────────────────────────────
     // `loans.status` is UI shorthand for "onloan" vs "overdue" — in the
     // database both are simply 'active' (DATABASE.md §6: overdue is
