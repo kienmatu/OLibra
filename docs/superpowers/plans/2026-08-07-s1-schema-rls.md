@@ -36,10 +36,14 @@ Inherited from [the master plan](2026-08-07-olibra-backend-master.md#global-cons
 
 Create `tests/db/migrate.test.ts`:
 
+This file does not use `resetDatabase` from `tests/support/db.ts` (already shipped by S0), and that is deliberate rather than an oversight worth "fixing" into a shared helper. `resetDatabase` truncates every table except `schema_migrations` specifically so a suite that has already migrated can clear its data without forcing every other test file to re-run every migration. This suite is testing the *runner itself* — it needs a schema with no tables and no ledger at all, so `applies every migration in order` starts from nothing rather than from whatever an earlier test file left behind. `drop schema public cascade` is the only one of the two that gets there; reusing `resetDatabase` here would leave `schema_migrations` populated from a previous run and make "applies every migration in order" observe zero pending migrations instead of every one of them.
+
+This is also why `vitest.config.ts`'s `fileParallelism: false` (set in S0) is load-bearing for this file specifically, not just for the ordinary `beforeEach(resetDatabase)` files: a `drop schema public cascade` running concurrently with any other test file's queries would take the whole suite down, not just this one. Every other file's own `beforeAll(migrate)` re-applies whatever this file's last test left behind, so the suite is self-healing regardless of file execution order — it is the *concurrency*, not the order, that `fileParallelism: false` is protecting against here.
+
 ```ts
 import { afterAll, beforeEach, expect, test } from "vitest";
 import { migrate } from "../../src/db/migrate";
-import { closeAll, resetDatabase, sql } from "../support/db";
+import { closeAll, sql } from "../support/db";
 
 beforeEach(async () => {
   await sql`drop schema public cascade`;
@@ -305,13 +309,17 @@ git commit -m "feat(db): search folding, with a parity test against src/lib/sear
 ## Task 3: The schema
 
 **Files:**
-- Create: `src/db/migrations/0003_identity.sql` — `users`, `memberships`, `bookshelves`
+- Create: `src/db/migrations/0003_identity.sql` — `users`, `bookshelves`, `parish_units`, `memberships`
 - Create: `src/db/migrations/0004_catalogue.sql` — `categories`, `books`, `book_copies`
 - Create: `src/db/migrations/0005_circulation.sql` — `loans`, `borrow_requests`, `condition_assessments`
-- Create: `src/db/migrations/0006_community.sql` — `comments`, `announcements`, `feedback`
+- Create: `src/db/migrations/0006_community.sql` — `comments`, `announcements`, `feedback`, `book_donations`
 - Create: `src/db/migrations/0007_audit_notifications.sql` — `audit_log`, `notifications`
 - Create: `src/db/migrations/0008_profile_changes.sql` — `profile_change_requests`
 - Test: `tests/db/schema.test.ts`
+
+`parish_units` (DB §4.1) is the per-shelf taxonomy the parish-taxonomy design added, and it goes in `0003_identity.sql` rather than a file of its own: a `memberships` row references it directly (`parish_unit_l1_id`, `parish_unit_l2_id`), so it must exist in the same transaction, before `memberships` is created. That also forces the table order *inside* the file to depart from DATABASE.md's own section order — §4.1 (as written) runs `users` → `parish_units` → `memberships`, with `bookshelves` not appearing until §4.2, but `parish_units.bookshelf_id` and `memberships.bookshelf_id` both reference it. Create `bookshelves` first, then `parish_units`, then `memberships`, regardless of which order the document's prose presents them in — a straight top-to-bottom transcription would fail on a missing-relation error the first time it ran.
+
+`book_donations` (DB §4.8) joins the community file rather than getting its own: it is documented alongside `comments`, `announcements` and `feedback` in DATABASE.md, and its only foreign keys — `bookshelves` and `memberships` — are already satisfied by `0003_identity.sql`.
 
 **Interfaces:**
 - Produces: every table in DATABASE.md §4, with the enums of §2.1.
@@ -330,10 +338,16 @@ beforeAll(async () => {
 });
 afterAll(closeAll);
 
+// DATABASE.md §4 defines seventeen tables — count them by `create table`
+// statements, not by section headings, since §4.1 alone holds three
+// (users, parish_units, memberships) and §4.8 holds four. This array is
+// those seventeen plus schema_migrations, which the migration runner owns
+// rather than DATABASE.md.
 const EXPECTED_TABLES = [
   "announcements",
   "audit_log",
   "book_copies",
+  "book_donations",
   "books",
   "bookshelves",
   "borrow_requests",
@@ -344,6 +358,7 @@ const EXPECTED_TABLES = [
   "loans",
   "memberships",
   "notifications",
+  "parish_units",
   "profile_change_requests",
   "schema_migrations",
   "users",
@@ -397,9 +412,11 @@ Expected: FAIL — the table list contains only `schema_migrations`.
 
 Transcribe the DDL from `docs/DATABASE.md` §4.1 through §4.11 into the six files listed above, in that order. The document holds the authoritative column lists, types, enums and foreign keys; this plan does not duplicate them, because a duplicated schema is a schema that will disagree with itself.
 
-Three things to carry across exactly, because they are the ones a transcription tends to soften:
+Five things to carry across exactly, because they are the ones a transcription tends to soften:
 
 - `users_credentials_paired` (§4.1) — the check constraint behind INV-14.
+- `parish_units_name_unique_in_scope` (§4.1) — `unique nulls not distinct (bookshelf_id, level, parent_id, name)`, not plain `unique`. Plain `unique` treats every `null` as distinct from every other `null`, and `parent_id is null` is not the rare case for this table — it is true of *every* level-1 unit by definition, and of every level-2 unit on a shelf with nesting off. Under plain `unique`, an admin typing "Tổ 1" twice on a one-level shelf inserts two rows cleanly, splitting that unit's readers between them — the exact "cannot be grouped" failure the parish-taxonomy design (§1) exists to prevent. `nulls not distinct` is what makes two `null` `parent_id`s collide the same way two nested level-2 units sharing a real parent already do.
+- `parish_units_l1_has_no_parent` (§4.1) — `check (level = 2 or parent_id is null)`. A level-1 unit is defined by having no parent; drop this and nothing stops one from being parented into another unit, and "level 1" stops meaning anything structural.
 - `books.title_folded` and `books.author_folded` as **generated** columns over `olibra_fold` (§5), not columns a trigger maintains.
 - `audit_log` with no `updated_at` and no soft-delete column (§4.10).
 
@@ -417,7 +434,7 @@ git commit -m "feat(db): the schema from DATABASE.md §4"
 
 ---
 
-## Task 4: The seven structural invariants, each with its named test
+## Task 4: The seven structural invariants, each with its named test — and one more constraint that isn't among them
 
 G12: a constraint nobody exercised is a constraint nobody has checked is there. Each of these gets its own file under `tests/invariants/`, named for the rule, so a failure names the business rule it broke rather than a table.
 
@@ -429,6 +446,7 @@ G12: a constraint nobody exercised is a constraint nobody has checked is there. 
 - Test: `tests/invariants/inv-12-audit-immutable.test.ts`
 - Test: `tests/invariants/inv-13-one-pending-profile-change.test.ts`
 - Test: `tests/invariants/inv-14-credentials-paired.test.ts`
+- Test: `tests/invariants/parish-units-name-unique-in-scope.test.ts` — not `inv-15-…`; see Step 7 for why.
 - Create: `tests/support/factories.ts`
 
 **Interfaces:**
@@ -719,12 +737,84 @@ test("INV-12: an audit record cannot be updated or deleted", async () => {
 
 Write `inv-09`, `inv-11` and `inv-13` following the same shape: set up the minimum rows, attempt the thing the rule forbids, assert the database refuses.
 
-- [ ] **Step 7: Run the whole invariant suite**
+- [ ] **Step 7: Write a test for `parish_units_name_unique_in_scope` — real, database-enforced, and not one of the fourteen**
+
+`parish_units_name_unique_in_scope` (§4.1, carried across in Task 3) is exactly the kind of constraint G12 is worried about: it is real, it is enforced by the database, and if nobody writes the test that proves it fires, nobody has checked it is there. But it is not one of the fourteen numbered invariants in BR §6 or DATABASE.md §7 — DATABASE.md §7 explicitly declines to give a row to the *other* new parish-taxonomy rule (nesting) and to `book_donations`' lifecycle, on the grounds that BR §6 owns that numbered list and this document does not add to it unasked. The same reasoning applies here, so this test is named for what it proves, not for a number that does not exist: `parish-units-name-unique-in-scope.test.ts`, not `inv-15-…`.
+
+```ts
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { migrate } from "../../src/db/migrate";
+import { makeShelf } from "../support/factories";
+import { closeAll, resetDatabase, sql } from "../support/db";
+
+beforeAll(() => migrate(sql));
+beforeEach(resetDatabase);
+afterAll(closeAll);
+
+const insertUnit = (
+  shelfId: string,
+  level: 1 | 2,
+  parentId: string | null,
+  name: string,
+) => sql`
+  insert into parish_units (bookshelf_id, level, parent_id, name)
+  values (${shelfId}, ${level}, ${parentId}, ${name})
+`;
+
+test("two level-1 units with the same name on the same shelf collide", async () => {
+  // The case plain `unique` would miss silently: every level-1 unit has a
+  // null parent_id by definition, so this is the common case, not an edge
+  // one. If this test passes against a schema using plain `unique` instead
+  // of `unique nulls not distinct`, the constraint is not doing its job —
+  // Postgres treats the two nulls as distinct and lets both rows in.
+  const shelf = await makeShelf(sql);
+  await insertUnit(shelf.id, 1, null, "Tổ 1");
+  await expect(insertUnit(shelf.id, 1, null, "Tổ 1")).rejects.toMatchObject({
+    code: "23505",
+  });
+});
+
+test("the same name under two different parents does not collide", async () => {
+  // BR §5.6's worked example, repeated in DATABASE.md §4.1: "Tổ 1" appears
+  // once under Giáo họ Thánh Tâm and again, a different unit, under Giáo họ
+  // Mân Côi. Two different parent_id values, so two rows are correct, not a
+  // duplicate.
+  const shelf = await makeShelf(sql);
+  const [ghA] = await sql<{ id: string }[]>`
+    insert into parish_units (bookshelf_id, level, parent_id, name)
+    values (${shelf.id}, 1, null, 'Giáo họ Thánh Tâm')
+    returning id
+  `;
+  const [ghB] = await sql<{ id: string }[]>`
+    insert into parish_units (bookshelf_id, level, parent_id, name)
+    values (${shelf.id}, 1, null, 'Giáo họ Mân Côi')
+    returning id
+  `;
+  await insertUnit(shelf.id, 2, ghA.id, "Tổ 1");
+  await expect(insertUnit(shelf.id, 2, ghB.id, "Tổ 1")).resolves.toBeDefined();
+});
+
+test("a level-1 unit cannot be given a parent", async () => {
+  // parish_units_l1_has_no_parent, the other constraint carried across in
+  // Task 3. A level-1 unit is defined by having no parent.
+  const shelf = await makeShelf(sql);
+  const [parent] = await sql<{ id: string }[]>`
+    insert into parish_units (bookshelf_id, level, parent_id, name)
+    values (${shelf.id}, 1, null, 'Giáo họ Thánh Tâm')
+    returning id
+  `;
+  await expect(
+    insertUnit(shelf.id, 1, parent.id, "Giáo họ Mân Côi"),
+  ).rejects.toMatchObject({ code: "23514" });
+});
+```
+
+- [ ] **Step 8: Run the whole invariant suite**
 
 Run: `bun run test tests/invariants/`
-Expected: PASS — six files, all green.
+Expected: PASS — seven files, all green (the six numbered ones plus `parish-units-name-unique-in-scope.test.ts`).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/db/migrations/0009_invariant_constraints.sql tests/invariants/ tests/support/factories.ts
@@ -732,7 +822,9 @@ git commit -m "feat(db): the seven structural invariants, each with its named te
 
 Each test was run against the schema before its constraint existed and
 observed to fail. A constraint nobody exercised is a constraint nobody has
-checked is there."
+checked is there. parish_units_name_unique_in_scope gets the same treatment
+even though it isn't one of the fourteen numbered invariants — the reasoning
+in G12 doesn't stop at the numbered list."
 ```
 
 ---
@@ -840,12 +932,33 @@ revoke update, delete on audit_log from olibra_app, olibra_admin;
 do $$
 declare t text;
 begin
-  -- Every shelf-scoped table. users, categories and schema_migrations are
-  -- global and carry no policy (DB §3).
+  -- Every shelf-scoped table. DB §3 names three things this loop must not
+  -- touch: users, categories and site-wide feedback are global reference or
+  -- cross-tenant data and carry no policy. schema_migrations isn't tenant
+  -- data at all, so it was never a candidate.
+  --
+  -- audit_log is deliberately left out too, and that is a narrower claim
+  -- than the three above: DB §3 calls it "scoped but with a nullable
+  -- bookshelf_id for system-wide actions", which this loop's plain equality
+  -- policy cannot honour — a `with check` of `bookshelf_id = current_setting
+  -- (...)::uuid` would reject every system-wide audit insert (bookshelf_id
+  -- null), which is not append-only behaviour, it is broken behaviour. A
+  -- policy for audit_log needs to treat null as "visible to every shelf,
+  -- writable by nobody but the system" and this loop does not express that
+  -- shape. Out of scope for this migration; flagged rather than silently
+  -- assumed away.
+  --
+  -- parish_units and book_donations both carry a not-null bookshelf_id and
+  -- are tenant data from the row's first moment ("At a glance"'s own diagram
+  -- has "BOOKSHELVES  ||--o{ PARISH_UNITS  : scopes"; §4.8 says as much
+  -- explicitly for book_donations: "Row Level Security applies exactly as it
+  -- does to every other table in this section"), so they get the same
+  -- policy as everything else here rather than a bespoke one.
   foreach t in array array[
-    'bookshelves', 'memberships', 'books', 'book_copies', 'loans',
-    'borrow_requests', 'condition_assessments', 'comments',
-    'announcements', 'notifications', 'profile_change_requests'
+    'bookshelves', 'memberships', 'parish_units', 'books', 'book_copies',
+    'loans', 'borrow_requests', 'condition_assessments', 'comments',
+    'announcements', 'book_donations', 'notifications',
+    'profile_change_requests'
   ]
   loop
     execute format('alter table %I enable row level security', t);
@@ -1000,7 +1113,7 @@ Create `tests/db/seed.test.ts`:
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { migrate } from "../../src/db/migrate";
 import { seed } from "../../src/db/seed";
-import { books, shelves } from "../../src/lib/fixtures";
+import { books, donations, shelves } from "../../src/lib/fixtures";
 import { closeAll, resetDatabase, sql } from "../support/db";
 
 beforeAll(() => migrate(sql));
@@ -1028,6 +1141,109 @@ test("the seed reproduces the UI fixtures exactly", async () => {
   );
 });
 
+test("each shelf keeps its own parish taxonomy, not a shared default", async () => {
+  // fixtures.ts is explicit about why: the four shelves are deliberately
+  // shaped differently — one flat level, two nested, two flat (parish-
+  // taxonomy design §2) — because a seed that flattened them to one shape
+  // would hide exactly the bugs parish_units exists to catch. bookshelves
+  // .settings is jsonb (DB §4.2); the seed writes each shelf's own
+  // parishTaxonomy into it rather than leaving every shelf on the default.
+  await seed(sql);
+
+  for (const s of shelves) {
+    const [row] = await sql<{ taxonomy: Record<string, unknown> }[]>`
+      select settings -> 'parish_taxonomy' as taxonomy
+      from bookshelves where slug = ${s.slug}
+    `;
+    expect(row.taxonomy).toEqual({
+      levels: s.parishTaxonomy.levels,
+      nested: s.parishTaxonomy.nested,
+      level1_label: s.parishTaxonomy.level1Label,
+      level2_label: s.parishTaxonomy.level2Label,
+    });
+  }
+});
+
+test("every shelf's parish units are seeded, including the one soft-deleted unit", async () => {
+  // Counting deleted_at and all: DB §4.1 says a soft-deleted unit stops
+  // being offered but is never removed, and the one deliberately
+  // soft-deleted fixture unit (dt-to-mc-3, Tổ 3 under Giáo họ Mân Côi on
+  // Đồng Tháp) must survive the seed the same way a live one does.
+  await seed(sql);
+
+  for (const s of shelves) {
+    const [{ count }] = await sql<{ count: string }[]>`
+      select count(*) from parish_units pu
+      join bookshelves b on b.id = pu.bookshelf_id
+      where b.slug = ${s.slug}
+    `;
+    expect(Number(count)).toBe(s.parishUnits.length);
+  }
+});
+
+test("a reader's parish_unit ids resolve to the right units, nested and unassigned alike", async () => {
+  // fixtures.ts assigns each reader a fixture-local id like "dt-gh-thanh-tam"
+  // — not a real uuid. The seed must map every one of those to the row it
+  // actually inserted; a broken mapping would either insert nothing (nulls
+  // where the fixture has a value) or throw (a foreign key to nothing).
+  // Maria Nguyễn Thị Lan is nested two levels deep; Phanxicô Nguyễn Văn Lộc
+  // has neither set at all (design §5: both stay optional, permanently).
+  await seed(sql);
+
+  const [lan] = await sql<{ l1: string | null; l2: string | null }[]>`
+    select l1.name as l1, l2.name as l2
+    from memberships m
+    join users u on u.id = m.user_id
+    left join parish_units l1 on l1.id = m.parish_unit_l1_id
+    left join parish_units l2 on l2.id = m.parish_unit_l2_id
+    where u.full_name = 'Maria Nguyễn Thị Lan'
+  `;
+  expect(lan).toEqual({ l1: "Giáo họ Thánh Tâm", l2: "Tổ 3" });
+
+  const [loc] = await sql<{ l1: string | null; l2: string | null }[]>`
+    select m.parish_unit_l1_id as l1, m.parish_unit_l2_id as l2
+    from memberships m
+    join users u on u.id = m.user_id
+    where u.full_name = 'Phanxicô Nguyễn Văn Lộc'
+  `;
+  expect(loc).toEqual({ l1: null, l2: null });
+});
+
+test("lost copies are seeded in the lost state, not just available and on_loan ones", async () => {
+  // The refinements design added ReportCopyLost's third path and
+  // fixtures.lostCopies. A seed that only knew about `loans` would leave
+  // these three copies `available` — silently contradicting
+  // books.copiesAvailable, which fixtures.ts's own comments work out by
+  // hand precisely so this can't drift.
+  await seed(sql);
+
+  const [{ count }] = await sql<{ count: string }[]>`
+    select count(*) from book_copies where state = 'lost'
+  `;
+  expect(Number(count)).toBe(3);
+});
+
+test("the reader's donation offers are seeded as book_donations, every status", async () => {
+  // Refinements design §3: BookDonation is the offer, not the provenance —
+  // and fixtures.donations carries pending, received and declined examples,
+  // not only the manager's pending queue. All of them must round-trip.
+  await seed(sql);
+
+  const [{ count }] = await sql<{ count: string }[]>`
+    select count(*) from book_donations
+  `;
+  expect(Number(count)).toBe(donations.length);
+
+  const declined = await sql<{ decision_note: string | null }[]>`
+    select decision_note from book_donations where status = 'declined'
+  `;
+  // book_donations_declined_has_reason (DB §4.8): every one of these must be
+  // non-null, or the migration's own constraint would already have rejected
+  // the insert — this asserts the fixture's decisionNote actually made it
+  // across the mapping.
+  for (const row of declined) expect(row.decision_note).not.toBeNull();
+});
+
 test("the seed is idempotent", async () => {
   await seed(sql);
   await seed(sql);
@@ -1049,12 +1265,65 @@ Create `src/db/migrations/0012_indexes.sql` with every index from DATABASE.md §
 
 - [ ] **Step 4: Write the seed**
 
-Create `src/db/seed.ts`, reading from `src/lib/fixtures.ts` and inserting shelves, categories, books, copies, members and the `loans` fixture. Use `on conflict do nothing` keyed on the natural keys (`bookshelves.slug`, `books.slug`, `book_copies.code`) so it is idempotent.
+Create `src/db/seed.ts`, reading from `src/lib/fixtures.ts`. It has more to reproduce than the original three tables, because `src/lib/fixtures.ts` now carries per-shelf parish taxonomies, parish units, lost copies and donations — flattening any of them would defeat the reason the fixtures were written to differ in the first place (design §2). In order:
+
+1. **Shelves.** Insert `shelves`, writing each one's own `parishTaxonomy` into `bookshelves.settings.parish_taxonomy` (§4.2) rather than leaving every row on the default — that is what the taxonomy test above checks.
+2. **Categories.** Unchanged from before.
+3. **Parish units, in two passes.** Every fixture unit's `id` (`"dt-gh-thanh-tam"`) is a stable string for cross-referencing within the fixture file, not a real `uuid` — the seed cannot insert it as the primary key and must instead remember which real row each fixture id became:
+
+   ```ts
+   const unitIdByFixtureId = new Map<string, string>();
+
+   for (const shelf of shelves) {
+     const bookshelfId = bookshelfIdBySlug.get(shelf.slug)!;
+     const level1 = shelf.parishUnits.filter((u) => u.level === 1);
+     const level2 = shelf.parishUnits.filter((u) => u.level === 2);
+
+     // Pass 1: every level-1 unit has parent_id null (parish_units_l1_has_no_parent),
+     // so none of these depend on anything inserted in this loop.
+     for (const u of level1) {
+       const [row] = await sql`
+         insert into parish_units (bookshelf_id, level, parent_id, name, sort_order, deleted_at)
+         values (${bookshelfId}, 1, null, ${u.name}, ${u.sortOrder}, ${u.deletedAt})
+         on conflict (bookshelf_id, level, parent_id, name)
+         do update set sort_order = excluded.sort_order
+         returning id
+       `;
+       unitIdByFixtureId.set(u.id, row.id);
+     }
+
+     // Pass 2: a nested level-2 unit's parent_id resolves through the map
+     // pass 1 just built. An unnested shelf's level-2 units carry
+     // parentId: null in the fixture already — design §3.1's "Nesting off"
+     // means every level-2 unit has a null parent_id — so this same insert
+     // handles both without branching on shelf.parishTaxonomy.nested.
+     for (const u of level2) {
+       const parentId = u.parentId ? unitIdByFixtureId.get(u.parentId)! : null;
+       const [row] = await sql`
+         insert into parish_units (bookshelf_id, level, parent_id, name, sort_order, deleted_at)
+         values (${bookshelfId}, 2, ${parentId}, ${u.name}, ${u.sortOrder}, ${u.deletedAt})
+         on conflict (bookshelf_id, level, parent_id, name)
+         do update set sort_order = excluded.sort_order
+         returning id
+       `;
+       unitIdByFixtureId.set(u.id, row.id);
+     }
+   }
+   ```
+
+   `on conflict … do update`, not `do nothing`: a re-run of the seed must still populate `unitIdByFixtureId` for pass 2 and for the memberships in step 5, and `do nothing` returns no row at all on the conflicting path — the very case a second run of the seed hits on every one of these inserts. The `set` clause writes back a value already equal to what is there, so the row is otherwise untouched; only the `returning id` is what the upsert is for.
+
+4. **Books and copies.** As before, plus the copies in `fixtures.lostCopies` — insert those with `state = 'lost'`, not `'available'`. Each book's `copiesTotal` / `copiesAvailable` split is worked out by hand in `fixtures.ts`'s own comments across `loans`, `lostCopies` and whatever remains `available`; the seed must produce exactly that split, because a copy holds exactly one state (INV-2) and a copy left over in the wrong one is silently wrong rather than loudly broken.
+5. **Members.** Insert `readers` as `memberships`, resolving `parishUnitL1Id` / `parishUnitL2Id` through `unitIdByFixtureId` from step 3 (`null` stays `null` — design §5, both fields are optional permanently, not just until every reader has a value).
+6. **Loans.** As before, from the `loans` fixture.
+7. **Donations.** Insert `donations` as `book_donations`, resolving each `readerId` through the same user/membership lookups step 5 already built, into `donor_membership_id`. Every status round-trips (`pending`, `received`, `declined`), and a `declined` row's `decisionNote` becomes `decision_note` — `book_donations_declined_has_reason` (§4.8) means an omitted one is a rejected insert, not a silently blank column.
+
+Every step that a later step depends on by id — `bookshelves` (categories, books, parish_units, memberships all reference it), `books` (copies), `book_copies` (loans), `users` (memberships, loans) — needs the same `on conflict … do update … returning id` shape as step 3's, for the same reason: a plain `on conflict do nothing` is idempotent for the row itself but returns nothing to key the next insert off of, which breaks the seed the moment it is run a second time against a database that already has one. Only leaf tables with nothing depending on their id (`loans`, `book_donations`) can use plain `on conflict do nothing`.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `bun run test tests/db/seed.test.ts`
-Expected: PASS — 2 tests.
+Expected: PASS — 7 tests.
 
 - [ ] **Step 6: Add the scripts**
 
@@ -1076,9 +1345,10 @@ git commit -m "feat(db): indexes and a seed that reproduces the UI fixtures"
 
 ## Done when
 
-- [ ] `bun run db:migrate && bun run db:seed` against a fresh compose stack produces a database the UI's fixtures describe exactly.
-- [ ] `tests/invariants/` holds seven files — INV-1, 9, 10, 11, 12, 13, 14 — and every one of them was observed to fail before its constraint existed.
-- [ ] A transaction that does not set `olibra.bookshelf_id` reads zero rows from every scoped table.
+- [ ] `bun run db:migrate && bun run db:seed` against a fresh compose stack produces a database the UI's fixtures describe exactly — including each shelf's own parish taxonomy and units, lost copies, and the donation queue, not just books and loans.
+- [ ] `tests/invariants/` holds eight files: the seven numbered ones — INV-1, 9, 10, 11, 12, 13, 14 — each observed to fail before its constraint existed, plus `parish-units-name-unique-in-scope.test.ts` for the same reason, correctly left unnumbered because it is not one of the fourteen.
+- [ ] A transaction that does not set `olibra.bookshelf_id` reads zero rows from every scoped table, `parish_units` and `book_donations` included.
 - [ ] `loans_current` and `copies_borrowable` give correct answers with no scheduled job having ever run.
+- [ ] The seed is idempotent: running it twice against the same database leaves every table's row count unchanged, `parish_units` and `book_donations` included.
 
 **Next slice:** [S2 · Domain kernel](2026-08-07-s2-domain-kernel.md).
