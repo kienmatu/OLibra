@@ -201,6 +201,8 @@ export function isUniqueViolation(e: unknown): boolean {
 Run: `bun run test tests/domain/kernel/errors.test.ts`
 Expected: PASS — 4 tests.
 
+**Two files already import `ErrorCode` from this module and must still compile after Step 3's replacement:** `src/domain/kernel/block.ts` (`type Block = { blocked: true; reason: ErrorCode } | { blocked: false }`) and `src/domain/members/parish-taxonomy.ts` (`const no = (reason: ErrorCode): Block => ...`). Both use `ErrorCode` only as a type — as the type of a field or a parameter — never by naming its members or assuming it is declared as an explicit union rather than a `keyof typeof`. Going from `export type ErrorCode = "a" | "b" | "c"` to `export type ErrorCode = keyof typeof ERROR_MESSAGES` changes how the type is *derived*, not what it *is*: both remain a closed union of the same string literals, so both files type-check unchanged. Run `bun run check` after Step 3 to confirm rather than take this on faith — a future edit to either file could still introduce a real dependency on the old shape.
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -223,11 +225,13 @@ parish_unit_l2_not_in_l1). This adds the rest without touching those three."
 **Interfaces:**
 - Produces:
   ```ts
-  interface Actor { userId: string; membershipId: string | null; role: Role }
+  interface Actor { userId: string | null; membershipId: string | null; role: Role }
   interface TenantContext { bookshelfId: string; actor: Actor; clock: Clock }
   function systemContext(bookshelfId: string, clock: Clock): TenantContext
   ```
   Every command and every scoped query takes a `TenantContext` as its first parameter. There is no overload that omits it.
+
+  **Reconciled:** this summary previously typed `userId` as non-nullable `string`, which contradicts both `systemContext` below (`userId: null` for system actions) and the test "a system context carries no actor", which asserts `ctx.actor.userId` is `null`. `userId` is `string | null` — null exactly when the actor is the system, matching the doc comment on `Actor.userId` in Step 3.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -345,10 +349,11 @@ git commit -m "feat(domain): tenant context and the role hierarchy"
 
 The centrepiece. G3 says a command's state change and its audit record commit together or not at all. The way to make that structural rather than remembered is to make the command *return* its audit entry, so a command that produces none does not type-check.
 
+**Reconciled against the shipped schema:** [the master plan](2026-08-07-olibra-backend-master.md)'s §4 file structure pencils in `src/db/transaction.ts` for "begin/commit + `set local olibra.bookshelf_id`". That responsibility ships here instead, inside `src/domain/kernel/unit-of-work.ts`'s `runCommand`/`runQuery` — `src/db/client.ts` (already created in S1) stays pure connection plumbing, "one place that knows the connection string", and the begin/set-config/audit-insert sequence lives in the domain layer where G3 needs it to be a property of a function signature, not a helper anyone could bypass. No file at `src/db/transaction.ts` exists on this branch, and this task does not create one — the line has been removed from the file list below so an implementer does not go looking for it.
+
 **Files:**
 - Create: `src/domain/kernel/audit.ts`
 - Create: `src/domain/kernel/unit-of-work.ts`
-- Modify: `src/db/transaction.ts` (created here)
 - Test: `tests/domain/kernel/unit-of-work.test.ts`
 
 **Interfaces:**
@@ -400,7 +405,7 @@ test("a successful command writes its audit record in the same transaction", asy
 
   const bookId = await runCommand(sql, ctx, async (tx, c, input: { title: string }) => {
     const [book] = await tx<{ id: string }[]>`
-      insert into books (bookshelf_id, title, author, slug, published)
+      insert into books (bookshelf_id, title, author, slug, is_published)
       values (${c.bookshelfId}, ${input.title}, 'Tô Hoài', 'x', true)
       returning id
     `;
@@ -430,7 +435,7 @@ test("a failed command leaves neither the change nor the audit record", async ()
   await expect(
     runCommand(sql, ctx, async (tx, c) => {
       await tx`
-        insert into books (bookshelf_id, title, author, slug, published)
+        insert into books (bookshelf_id, title, author, slug, is_published)
         values (${c.bookshelfId}, 'Sách hỏng', 'Tô Hoài', 'y', true)
       `;
       throw new RuleViolated("validation_failed");
@@ -464,7 +469,7 @@ test("a command may write several audit entries", async () => {
 
   await runCommand(sql, ctx, async (tx, c) => {
     const [book] = await tx<{ id: string }[]>`
-      insert into books (bookshelf_id, title, author, slug, published)
+      insert into books (bookshelf_id, title, author, slug, is_published)
       values (${c.bookshelfId}, 'Sách', 'Tô Hoài', 'z', true)
       returning id
     `;
@@ -504,6 +509,8 @@ test("the actor and the shelf are recorded on every entry", async () => {
   expect(entry.bookshelf_id).toBe(shelf.id);
 });
 ```
+
+**Reconciled against the shipped schema:** the three `insert into books` statements above write `is_published`, not `published`. `books` has no `published` column — the boolean is `is_published` (`src/db/migrations/0004_catalogue.sql`: `is_published boolean not null default true`), and `tests/support/factories.ts`'s own `makeBookWithCopies` already gets this right. Verified by running the literal insert against `db-test`: `published` fails with `column "published" of relation "books" does not exist`; `is_published` succeeds.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -610,6 +617,18 @@ export type Command<I, O> = (
  * be pooled in transaction mode rather than session mode (DB §3). Getting that
  * wrong leaks one request's shelf into the next request on the same
  * connection, and it does so silently.
+ *
+ * This is the write side of the trap `0010_rls.sql` documents at length: on a
+ * connection that has set `olibra.bookshelf_id` before, `current_setting`
+ * reverts to `''` rather than `null` once the transaction that set it ends, so
+ * every `<table>_tenant` policy reads it back through
+ * `nullif(current_setting(...), '')::uuid` rather than a bare cast. That
+ * `nullif` lives in the policy, not here — `runCommand` only ever calls
+ * `set_config` with a real, non-empty `ctx.bookshelfId`, so it has nothing to
+ * guard against on the write side. Confirmed against the live policy
+ * (`\d books` on `db-test` shows `USING (bookshelf_id = (NULLIF(current_setting(
+ * 'olibra.bookshelf_id', true), ''))::uuid)`) — the shape below matches it as
+ * shipped, not as an earlier draft of `0010_rls.sql` might have had it.
  */
 export async function runCommand<I, O>(
   sql: Sql,
@@ -628,7 +647,7 @@ export async function runCommand<I, O>(
       await tx`
         insert into audit_log
           (bookshelf_id, actor_id, action, entity_type, entity_id,
-           before_values, after_values, occurred_at)
+           before, after, occurred_at)
         values
           (${row.bookshelfId}, ${row.actorId}, ${row.action}, ${row.entityType},
            ${row.entityId}, ${tx.json(row.before ?? null)},
@@ -640,6 +659,8 @@ export async function runCommand<I, O>(
   }) as Promise<O>;
 }
 ```
+
+**Reconciled against the shipped schema:** the insert above writes `before`/`after`, not `before_values`/`after_values`. The shipped `audit_log` table (`src/db/migrations/0007_audit_notifications.sql`, confirmed live: `docker compose exec -T db-test psql -U olibra -d olibra_test -c '\d audit_log'`) names the columns `before` and `after` — DATABASE.md §4.10's own `create table` block agrees. Neither word is a PostgreSQL reserved keyword, so they parse unquoted in both the column list and the `select` list; verified directly against the running database rather than assumed, because `before`/`after` read like they *should* need quoting. `AuditEntry`'s TypeScript field names (`before?`, `after?`, in the Interfaces block above) already matched the column names — only this SQL string, and the test in Task 4 that reads it back, had drifted.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -705,12 +726,12 @@ test("INV-8: an audit record names actor, time, before and after", async () => {
   );
 
   const [entry] = await sql<Record<string, unknown>[]>`
-    select actor_id, occurred_at, before_values, after_values from audit_log
+    select actor_id, occurred_at, before, after from audit_log
   `;
   expect(entry.actor_id).toBe(user.id);
   expect(entry.occurred_at).toEqual(clock.now());
-  expect(entry.before_values).toEqual({ state: "available" });
-  expect(entry.after_values).toEqual({ state: "on_loan" });
+  expect(entry.before).toEqual({ state: "available" });
+  expect(entry.after).toEqual({ state: "on_loan" });
 });
 
 test("INV-8: a secret can never reach the audit log", () => {
@@ -762,6 +783,8 @@ Commands are covered. Queries are the larger surface — 43 of them — and each
 
 - [ ] **Step 1: Write the failing test**
 
+Create `tests/domain/kernel/query-scope.test.ts`:
+
 ```ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
@@ -802,7 +825,7 @@ test("a query cannot write", async () => {
     runQuery(
       sql,
       { bookshelfId: a.id, actor: { userId: null, membershipId: null, role: "reader" }, clock },
-      (tx) => tx`insert into books (bookshelf_id, title, author, slug, published)
+      (tx) => tx`insert into books (bookshelf_id, title, author, slug, is_published)
                  values (${a.id}, 'x', 'y', 'z', true)`,
     ),
   ).rejects.toThrow(/read-only/i);
