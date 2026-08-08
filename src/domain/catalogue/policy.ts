@@ -1,3 +1,4 @@
+import { fold } from "../kernel/fold";
 import type { ErrorCode } from "../kernel/errors";
 import { RuleViolated } from "../kernel/errors";
 import { atLeast, type TenantContext } from "../kernel/tenant";
@@ -96,21 +97,21 @@ export function copyStateTransition(
  * `books.slug`, derived from the title exactly as `src/lib/fixtures.ts`
  * already spells it — verified against all twelve fixture titles.
  *
- * The folding is the same folding search uses (`src/lib/search.ts`'s
- * `fold`, and its SQL twin `olibra_fold`), reimplemented here rather than
- * imported so the domain does not depend on `src/lib` for a rule of its own;
- * `tests/db/folding.test.ts` is what keeps the two SQL/TS implementations in
- * step, and Task 1's test is what keeps this one honest against the fixtures.
+ * **This is `fold` with hyphens instead of spaces, and it says so in code.**
+ * An earlier version reimplemented the five folding steps here, on the
+ * reasoning that the domain should not depend on `src/lib` for a rule of its
+ * own. That instinct was right and the resolution was backwards: folding *is*
+ * a domain rule (BR §12), so it moved to `src/domain/kernel/fold` and `src/lib`
+ * now borrows it. Two copies of a normalisation drift, and drift between the
+ * slug and the search index is exactly the failure DATABASE.md §5 is written
+ * about.
+ *
+ * A title that folds to nothing — punctuation only — would otherwise produce
+ * an empty slug, which is not a routable URL segment. It falls back to `sach`,
+ * and `pickSlug` disambiguates from there.
  */
 export function slugifyTitle(title: string): string {
-  return title
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // combining marks
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return fold(title).replace(/ /g, "-") || "sach";
 }
 
 /**
