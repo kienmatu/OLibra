@@ -74,14 +74,26 @@ function assertValidBookshelfId(
  * held in TypeScript and failed in SQL: a test could hold a `fixedClock` and
  * still not make a loan overdue or a hold expire without waiting real time.
  *
- * **This does not change what "now" means in production.** `ctx.clock` is
- * `systemClock` on every real request, so the value written here is the same
- * instant `now()` would have returned. Nor does it give up the one-consistent-
- * now-per-transaction property a reader will immediately wonder about:
- * Postgres's `now()` is *transaction start* time, not statement time, and
- * this is one value captured once, before the command body runs, and read by
- * every statement in the transaction. That is the same guarantee, sourced
- * from the clock the domain already injects everywhere else.
+ * **This does change whose clock the two views read in production, and that
+ * is worth being precise about.** `ctx.clock` is `systemClock` on every real
+ * request, so the value written here is `new Date()` in *this Node/Bun
+ * process* — not `now()` in the database. On the composed stack those are the
+ * same machine and the distinction is invisible; split them, or run two app
+ * instances whose clocks disagree, and overdue status and hold expiry follow
+ * the application host while every `default now()` column follows the
+ * database host. DB §6, "Two clocks in one transaction", is the long version,
+ * including the rule that follows from it: **a timestamp the domain means —
+ * `lent_at`, `requested_at`, `assessed_at` — is written explicitly from
+ * `ctx.clock`, not left to a column default.** Defaults stay as a backstop
+ * for rows written outside the domain; they are not a source a `fixedClock`
+ * can move, and they are not the same clock as this one.
+ *
+ * What is *not* given up is the one-consistent-now-per-transaction property a
+ * reader will immediately wonder about: Postgres's `now()` is *transaction
+ * start* time, not statement time, and this is one value captured once,
+ * before the command body runs, and read by every statement in the
+ * transaction. That is the same guarantee, sourced from the clock the domain
+ * already injects everywhere else.
  *
  * `.toISOString()` rather than the `Date` itself, because `set_config`'s
  * second parameter is `text`: the driver would otherwise bind a `timestamptz`

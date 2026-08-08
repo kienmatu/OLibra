@@ -1201,7 +1201,7 @@ as $$
 $$;
 ```
 
-`runQuery`, `runCommand` and `runGlobalCommand` all set it from `ctx.clock`, which every `TenantContext` has already carried since S2 — no signature changed to make this work. **This does not change what "now" means in production:** `ctx.clock` is `systemClock` on every real request, so the value written is the instant `now()` would have returned anyway. Nor does it give up one-consistent-now-per-transaction, which is the first thing a reader worries about: Postgres's `now()` is *transaction start* time, not statement time, and this is likewise one value captured once, before the command body runs, and read by every statement in the transaction.
+`runQuery`, `runCommand` and `runGlobalCommand` all set it from `ctx.clock`, which every `TenantContext` has already carried since S2 — no signature changed to make this work. **This does not change what these two views are for in production, but it does change whose clock they read:** `ctx.clock` is `systemClock` on every real request, so the value written is `new Date()` in the *application* process, not `now()` in the database. Those are two clocks, and they agree only to the extent the two hosts' clocks agree — see "Two clocks in one transaction", below, which is the part of this change that has a production consequence. What is *not* given up is one-consistent-now-per-transaction, which is the first thing a reader worries about: Postgres's `now()` is *transaction start* time, not statement time, and this is likewise one value captured once, before the command body runs, and read by every statement in the transaction.
 
 **Three details, each wrong in an obvious-looking alternative, and each with a test that goes red without it** (`tests/db/sql-clock.test.ts`, all falsified by hand — see the task report):
 
@@ -1228,6 +1228,37 @@ This was, for one branch, verified only by hand and never by a test: `tests/db/d
 `copies_borrowable` is the direct expression of §8's "a copy is borrowable when it is available and no unexpired hold references it". The `r.deleted_at is null` line matches the treatment `book_copies` already gets one line above it: a soft-deleted `borrow_requests` row must not go on blocking a copy just because nobody remembered to also filter deleted holds — that row is otherwise invisible everywhere else `deleted_at` is filtered, so a copy stuck behind one had no explanation visible anywhere in the UI. Fixed in `20260808_05_copies_borrowable_deleted_at.sql`.
 
 **What background work is still for:** image processing, cache warming, backups, and tidying up expired holds as housekeeping rather than as correctness. If the tidy-up never runs, `copies_borrowable` is still right, because the hold expiry is compared against the clock (`olibra_now()`, above) on every read rather than trusted from a column somebody was meant to update. `tests/db/sql-clock.test.ts` asserts exactly that sentence and nothing weaker: one hold, written once, read at two instants either side of its expiry, with the row still `approved` and still not deleted afterwards — the clock is the only thing that moved.
+
+### Two clocks in one transaction
+
+**A kernel transaction now runs under two different clocks at once, and which one a timestamp gets depends on how it was written.** This is a real consequence of `olibra_now()`, it is not written down anywhere else, and it is the thing to know before adding a timestamp column or a command that writes one.
+
+Inside a single `runCommand` transaction:
+
+| Reads / writes | Clock | Examples |
+|---|---|---|
+| `olibra_now()` — so `loans_current.is_overdue`, `loans_current.days_remaining`, `copies_borrowable`'s hold-expiry check | **the application host's**, via `ctx.clock` and the `olibra.now` GUC | every overdue badge, every availability count |
+| A value the domain passes in from `ctx.clock` | **the application host's** | `audit_log.occurred_at` and `condition_assessments.assessed_at` as actually written (by `runAs` and `AssessCondition`), plus `approved_at`, `lost_reported_at`, `retired_at`, `deleted_at` |
+| A column `default now()`, or a trigger calling `now()` | **the database host's** | `loans.lent_at` and `borrow_requests.requested_at` — no command writes either yet, so today the default is the only source — plus the *defaults* on `audit_log.occurred_at` and `condition_assessments.assessed_at`, every `created_at`, and `set_updated_at()` in `20260808_06_updated_at_triggers.sql` |
+
+Both are observable in the same transaction: with a `fixedClock` at `2020-01-02T03:04:05Z`, `select now(), olibra_now()` returns real database time in the first column and the injected instant in the second.
+
+**What this couples.** The application host is now authoritative for overdue status and hold expiry. The database host is still authoritative for when rows say they were created. **App and database clocks must therefore not drift**, and today they do not: `compose.yaml` runs `app` and `db` in the same Docker stack on one host, so they share the machine's clock. That colocation is now load-bearing rather than incidental — splitting the application onto a different host than the database makes NTP on both a correctness requirement, not hygiene.
+
+**The failure this would cause is reasoned, not reproduced.** Suppose the application host runs 90 seconds ahead of the database host, or — the likelier version, since OPS §6 contemplates two managers on two app-server processes — two application instances disagree with each other. Then, in the same second: the same loan is overdue when read through one instance and not through the other; a hold expires early on one instance and is still blocking on the other; and `hold_expires_at`, which was written from a `ctx.clock` on whichever instance approved the request, is compared against a *different* instance's clock on every subsequent read. None of these produces an error. They produce two correct-looking answers to the same question.
+
+### The rule: a timestamp the domain means comes from `ctx.clock`
+
+**If a timestamp is a fact the domain is asserting — when a loan was lent, when a request was made, when an assessment happened — write it explicitly from `ctx.clock`. Do not let a column default supply it.**
+
+Column defaults stay exactly where they are, as a backstop for rows written outside the domain: a migration, `seed()`, a `psql` session, a fix applied by hand. That is what a default is good at and it should keep doing it. What it must not be is the *only* source of a timestamp that a domain command was responsible for, because then that one row is stamped by a clock no test can move and no other column in the same transaction agrees with.
+
+Two reasons, in order of how soon they bite:
+
+1. **Testability, immediately.** A `fixedClock` moves `olibra_now()` and every value the command passes in. It does not move a column default. A test that sets the clock to 2026 and inserts a loan gets a `lent_at` of whatever real time it is — so any assertion relating `lent_at` to `due_on`, or to `occurred_at` on the same transaction's audit row, is asserting against two clocks and quietly cannot be written.
+2. **Consistency, under drift.** In one transaction, `occurred_at` comes from the application host and `lent_at` from the database host. Under the skew above they are minutes apart on rows written by the same statement pair.
+
+**This branch changes no command and no column default** — doing so is C1's and B3's work and would turn a change about `olibra_now()` into a change about every table. The rule is recorded here so that the next command written honours it rather than inheriting the current mixture by copying it. C1's plan already writes `lent_at` from `${ctx.clock.now()}` in its `insert into loans`; that line is now load-bearing rather than stylistic, and the note appended to `docs/superpowers/plans/2026-08-07-c1-lending-core.md` says so.
 
 ---
 

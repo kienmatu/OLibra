@@ -1122,6 +1122,23 @@ git commit -m "feat(ui): wire quick-lend and receive-return to the domain"
 
 ---
 
+## Constraint, recorded from the `feat/sql-clock` review (this slice must honour it)
+
+**Every timestamp this slice writes comes from `ctx.clock`, never from a column default.** `lent_at` is the first column the rule applies to, and Task 3's `insert into loans` above already writes `${ctx.clock.now()}` into it explicitly — **keep that.** It reads like an optional flourish next to `lent_at timestamptz not null default now()` in `0005_circulation.sql`; it is not, and dropping it to "let the default handle it" is the tempting simplification this note exists to refuse.
+
+The reason changed under this plan's feet. `20260808_14_olibra_now.sql` (branch `feat/sql-clock`) made `loans_current` read the injected clock: `is_overdue` and `days_remaining` are now computed against `ctx.clock`, via the transaction-local `olibra.now` GUC, rather than against SQL `now()`. So a `runCommand` transaction runs under **two** clocks — the application host's for anything sourced from `ctx.clock`, the database host's for anything sourced from a `default now()` or from `set_updated_at()`. Both are observable in the same transaction. DB §6, "Two clocks in one transaction", has the full table and the drift scenario.
+
+Two things follow for C1 specifically:
+
+1. **`lent_at` must be `ctx.clock`'s instant.** Otherwise a test that sets a `fixedClock` to 2026, lends a copy, and reads the loan back gets a `due_on` and an `is_overdue` from the injected clock and a `lent_at` from real wall-clock time — three columns on one row, two of them agreeing and one of them not. Any assertion relating them cannot be written, and INV-8's "a loan's `lent_at` precedes its `due_on`" becomes untestable rather than false.
+2. **The same applies to every timestamp C2 and B3 add next** — `requested_at`, `assessed_at`, `hold_expires_at`. `hold_expires_at` is the sharpest case: it is *written* by whichever process approved the request and *compared against `olibra_now()`* on every later read, so if it is not written from `ctx.clock` it is being compared against a clock that did not produce it.
+
+The column defaults themselves stay. They are the backstop for rows written outside the domain — migrations, `seed()`, a `psql` session — and `feat/sql-clock` deliberately changed none of them. This is a rule about what a *command* writes, not a schema change; if a later slice wants to drop the defaults, that is its own decision with its own migration.
+
+**Not in scope for C1:** nothing here asks this slice to change an existing command or a column default. `LendCopy` is simply the first command written after the rule existed.
+
+---
+
 ## Forward risk, recorded from B1's code review (not this slice's to fix)
 
 **Watch lock ordering if a command here ever row-locks a `book_copies` row and then calls `allocateCopyCodes`.** B1's allocator (`src/domain/catalogue/copy-codes.ts`) takes a per-shelf `pg_advisory_xact_lock` as its first statement, before touching any row. Both of B1's current callers (`CreateBook`, `AddCopies`) take that lock before any row-level lock exists in their transaction at all, so there is no ordering inversion today — verified by reading both call sites, not assumed.
@@ -1137,6 +1154,7 @@ A C1 command that acquired a row-level lock on `book_copies` (e.g. `select ... f
 - [ ] A reader suspended mid-loan keeps their book.
 - [ ] A return with a queued reader does **not** hold the copy unless the manager asked.
 - [ ] Overdue still comes from `loans_current` — no scheduled job writes a status anywhere in this slice.
+- [ ] Every timestamp this slice writes comes from `ctx.clock`, not from a column default — `lent_at` above all (see the constraint recorded from the `feat/sql-clock` review).
 - [ ] The three screens look and behave exactly as they did against fixtures.
 
 **Next:** [C2 · Requests and holds](2026-08-07-olibra-backend-master.md#76-c2--requests-and-holds) — but resolve **Q1** (what `SkipRequest` actually does) first.
