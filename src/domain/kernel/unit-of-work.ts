@@ -1,61 +1,196 @@
-import type { JSONValue, Sql, TransactionSql } from "postgres";
+import type { JSONValue, PendingQuery, Row, Sql, TransactionSql } from "postgres";
 import type { AuditEntry } from "./audit";
 import { toRow } from "./audit";
 import type { ErrorCode } from "./errors";
 import { NotFound, ValidationFailed } from "./errors";
 import type { TenantContext } from "./tenant";
 
-export type Tx = TransactionSql;
+/** The driver's own transaction handle, before the zero-row write guard (below) wraps it. */
+type RawTx = TransactionSql;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Rejects a malformed `bookshelfId` before it ever reaches Postgres.
  *
- * An empty string is the sentinel `0010_rls.sql`'s `nullif(current_setting
- * (...), '')` exists to handle: it fails closed to zero rows, deliberately,
- * so it passes through here unchanged. A non-empty string that is not a UUID
- * has no such handling anywhere in the policy — it reaches the cast inside
- * that same `nullif(...)::uuid` the moment any scoped table is touched and
- * raises a raw `PostgresError: invalid input syntax for type uuid` from
- * inside the transaction, a driver error at the kernel boundary rather than
- * a named one. Checking the shape here, before `sql.begin` ever opens a
- * transaction, turns that into `ValidationFailed` instead.
+ * A non-empty string that is not a UUID has no handling anywhere in the
+ * policy — it reaches the cast inside `nullif(current_setting(...), '')
+ * ::uuid` the moment any scoped table is touched and raises a raw
+ * `PostgresError: invalid input syntax for type uuid` from inside the
+ * transaction, a driver error at the kernel boundary rather than a named
+ * one. Checking the shape here, before `sql.begin` ever opens a transaction,
+ * turns that into `ValidationFailed` instead, on both paths.
+ *
+ * An empty string is different, and the two callers below disagree about it
+ * on purpose:
+ *
+ * - `runQuery` passes `allowEmpty: true`. Empty is the sentinel
+ *   `0010_rls.sql`'s policy is built to handle: `nullif('', '')` is `null`,
+ *   `null::uuid` never raises, and the policy's own comparison then fails
+ *   closed to zero rows — a read that asks for no shelf sees nothing, which
+ *   is correct and must not become an error.
+ * - `runAs` (the write path, both `runCommand` and `runGlobalCommand`)
+ *   passes `allowEmpty: false`. The audit insert this function does after
+ *   every command has no such `nullif` between it and the `uuid` column —
+ *   `insert into audit_log (bookshelf_id, ...) values (${row.bookshelfId},
+ *   ...)` binds an empty string straight into a `uuid` column, and Postgres
+ *   raises the same raw, unstructured `PostgresError` a malformed id does.
+ *   There is no legitimate "fails closed" reading of an empty shelf on the
+ *   write path — a command always acts within a real shelf — so this is
+ *   rejected the same way a non-UUID string is, before any transaction
+ *   opens.
  */
-function assertValidBookshelfId(bookshelfId: string): void {
-  if (bookshelfId !== "" && !UUID_RE.test(bookshelfId)) {
+function assertValidBookshelfId(
+  bookshelfId: string,
+  { allowEmpty }: { allowEmpty: boolean },
+): void {
+  if (bookshelfId === "") {
+    if (allowEmpty) return;
+    throw new ValidationFailed("invalid_bookshelf_id", "bookshelfId");
+  }
+  if (!UUID_RE.test(bookshelfId)) {
     throw new ValidationFailed("invalid_bookshelf_id", "bookshelfId");
   }
 }
 
+/** `UPDATE`/`DELETE` are the two statement types RLS's `using` clause can filter to zero rows without raising. */
+const GUARDED_COMMANDS = new Set(["UPDATE", "DELETE"]);
+
 /**
- * Asserts a write affected exactly the row(s) a command expected — call this
- * immediately after any `update`/`delete` meant to touch a specific known
- * row (or rows).
+ * A guarded `tx\`...\`` result. Awaiting it is unchanged for a read, and for
+ * a write that matched rows. `allowZero()` is the escape hatch for a write
+ * that may legitimately match nothing — a genuinely conditional
+ * `update`/`delete` — declared at the call site, before the await, so a
+ * reviewer sees the opt-out exactly where the risk is:
  *
- * RLS's `with check` raises on an `insert` that names another shelf, but its
- * `using` clause only *filters* rows on `update`/`delete` — it does not
- * raise. A command that does `update books set title = ... where id =
- * ${bookId}` against a `bookId` belonging to another shelf is not rejected:
- * the statement affects zero rows, the command still resolves, and — because
- * the kernel does not parse SQL and cannot tell the difference — the audit
- * entry the command returns still commits, claiming a change that never
- * happened.
+ * ```ts
+ * const result = await tx`update ... where id = ${id} and status = 'draft'`.allowZero();
+ * ```
+ */
+export interface GuardedPendingQuery<
+  T extends readonly (object | undefined)[] = Row[],
+> extends PendingQuery<T> {
+  allowZero(): PendingQuery<T>;
+}
+
+/**
+ * The handle a `Command` actually receives — `tx` from the driver, wrapped
+ * so its tagged-template calls return a `GuardedPendingQuery` (see
+ * `guardWrites`, below) instead of a bare `PendingQuery`. Everything else on
+ * `Tx` — `.json`, `.unsafe`, `.array`, `.begin`/`.savepoint`, and so on — is
+ * the driver's own `TransactionSql`, untouched.
+ */
+export interface Tx extends RawTx {
+  <T extends readonly (object | undefined)[] = Row[]>(
+    strings: TemplateStringsArray,
+    ...values: readonly unknown[]
+  ): GuardedPendingQuery<T>;
+}
+
+/**
+ * Wraps one `tx\`...\`` result so an `UPDATE`/`DELETE` that affects zero
+ * rows rejects instead of resolving as if it had succeeded.
+ *
+ * `result.command` and `result.count` come straight from the `postgres`
+ * driver's own `ResultMeta` — the kernel does not parse SQL to get them.
+ * Probed live, inside a real `runCommand`, against the three statement
+ * shapes a command actually issues:
+ *
+ * ```
+ * update -> command=UPDATE count=0 | select -> command=SELECT count=1 | insert -> command=INSERT count=1
+ * ```
+ *
+ * `SELECT` and `INSERT` are never in `GUARDED_COMMANDS`: a read has nothing
+ * to guard, and `insert`'s cross-shelf case is already rejected by RLS's
+ * `with check` (raises, rather than filtering) before this ever runs. Only
+ * `UPDATE`/`DELETE` reach here with a `count` that can silently be `0`.
+ *
+ * The check runs inside the `.then` chained onto the driver's own pending
+ * query (`Query` sets `Symbol.species` to the plain `Promise`, so this
+ * chain is a normal `Promise`, safe to attach extra properties to) — every
+ * other `PendingQuery` method (`.raw()`, `.values()`, `.cursor()`, ...) is
+ * forwarded to the original, unguarded, query object, since none of them
+ * participate in the settled `count`/`command` this guard inspects.
+ */
+function guardPendingQuery<T extends readonly (object | undefined)[]>(
+  pending: PendingQuery<T>,
+): GuardedPendingQuery<T> {
+  let allow = false;
+
+  const checked = pending.then((result) => {
+    const meta = result as unknown as { command: string; count: number | null };
+    if (!allow && GUARDED_COMMANDS.has(meta.command) && meta.count === 0) {
+      throw new NotFound("write_target_not_found");
+    }
+    return result;
+  });
+
+  return Object.assign(checked, {
+    allowZero: () => {
+      allow = true;
+      return checked;
+    },
+    simple: pending.simple.bind(pending),
+    readable: pending.readable.bind(pending),
+    writable: pending.writable.bind(pending),
+    execute: pending.execute.bind(pending),
+    cancel: pending.cancel.bind(pending),
+    forEach: pending.forEach.bind(pending),
+    cursor: pending.cursor.bind(pending),
+    describe: pending.describe.bind(pending),
+    values: pending.values.bind(pending),
+    raw: pending.raw.bind(pending),
+  }) as unknown as GuardedPendingQuery<T>;
+}
+
+/**
+ * Wraps a transaction handle so every tagged-template call a `Command` makes
+ * through it returns a `GuardedPendingQuery` (see `guardPendingQuery`,
+ * above) rather than a bare one.
+ *
+ * A `Proxy` around the callable `tx`, intercepting only `apply` — the
+ * tagged-template call itself. Every other property (`.json`, `.unsafe`,
+ * `.array`, `.begin`, ...) falls through to the driver's default behavior
+ * untouched, which is safe here specifically because `postgres`'s `Sql`
+ * function is a plain closure with methods attached by `Object.assign`
+ * (verified against `node_modules/postgres/src/index.js`) — none of it
+ * reads `this`, so a `Proxy` receiver in place of the real object changes
+ * nothing. (This would not be safe against a class using private `#fields`,
+ * where a `Proxy` receiver breaks `this.#field` access; `postgres` uses
+ * neither classes nor private fields for `Sql` itself.)
+ */
+function guardWrites(raw: RawTx): Tx {
+  const callable = raw as unknown as (...args: unknown[]) => PendingQuery<Row[]>;
+  return new Proxy(callable, {
+    apply(target, _thisArg, argArray) {
+      return guardPendingQuery(Reflect.apply(target, undefined, argArray));
+    },
+  }) as unknown as Tx;
+}
+
+/**
+ * Asserts a write affected exactly the row(s) a command expected — an
+ * explicit, code-carrying alternative to the guard above, for a command
+ * that wants its own `ErrorCode` (or a count other than 1) instead of the
+ * guard's generic `write_target_not_found`.
+ *
+ * As of the `Tx` wrapper (above), the guard already rejects any
+ * `UPDATE`/`DELETE` a `Command` runs through `tx` that affects zero rows —
+ * `assertWritten` is no longer what makes that structural. What it is still
+ * for: a command that wants a *specific* `NotFound` (`book_not_found`
+ * rather than the kernel's generic code) or an *expected count other than
+ * one*. Reach for both together — call `.allowZero()` on the query to opt
+ * out of the automatic guard, then call `assertWritten` on the result with
+ * the code this command actually wants:
+ *
+ * ```ts
+ * const result = await tx`update books set title = ... where id = ${bookId}`.allowZero();
+ * assertWritten(result, "book_not_found");
+ * ```
  *
  * `sql\`update ...\`` and `sql\`delete ...\`` results carry a `.count` from
  * the command tag (the `postgres` driver's `ResultMeta`); pass that result
  * straight through.
- *
- * Deliberately not automatic — `runCommand`/`runGlobalCommand` do not call
- * this for every write in a transaction. The kernel has no way to tell "zero
- * rows because this row belongs to another shelf" (a bug) apart from "zero
- * rows because a genuinely conditional update legitimately found nothing to
- * do" (fine) — only the command, which knows what it expected, can. Most
- * commands in the catalogue select the row first (inside the same
- * transaction, already shelf-scoped) and so never hit this at all; the ones
- * that write by id without a prior select are exactly the ones that must
- * call this, the same way reaching for `runGlobalCommand` is a deliberate,
- * visible act rather than something the kernel infers for you.
  */
 export function assertWritten(
   result: { count: number | null },
@@ -117,10 +252,16 @@ export type Command<I, O> = (
  * variable, so nothing in this function hands Postgres an interpolated role
  * name.
  *
+ * `command` receives `guardWrites(tx)`, not `tx` itself — see `guardWrites`
+ * and `guardPendingQuery`, above, for the zero-row write guard this hands
+ * every command by construction.
+ *
  * `nullif(current_setting(...), '')` — not a bare cast — lives in the policy,
  * not here (see `0010_rls.sql`): `runAs` only ever calls `set_config` with a
  * real, non-empty `ctx.bookshelfId` (checked by `assertValidBookshelfId`
- * above), so it has nothing to guard against on that front.
+ * above, with `allowEmpty: false` — the write path has no legitimate
+ * "empty shelf" reading, see that function's docstring), so it has nothing
+ * to guard against on that front.
  *
  * What this is not: a defense against a malicious command. A command body
  * can run `reset role` and regain the underlying connection's superuser
@@ -136,12 +277,12 @@ async function runAs<I, O>(
   command: Command<I, O>,
   input: I,
 ): Promise<O> {
-  assertValidBookshelfId(ctx.bookshelfId);
+  assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: false });
   return sql.begin(async (tx) => {
     await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
     await tx`set local role olibra_app`;
 
-    const { result, audit } = await command(tx as Tx, ctx, input);
+    const { result, audit } = await command(guardWrites(tx as RawTx), ctx, input);
 
     const entries = Array.isArray(audit) ? audit : [audit];
 
@@ -178,14 +319,16 @@ async function runAs<I, O>(
  * belonging to another shelf, or to no shelf, is rejected by the database
  * before it commits.
  *
- * That rejection is `insert`-only. An `update`/`delete` that targets a row
- * belonging to another shelf is not rejected — RLS's `using` clause filters
- * it to zero affected rows instead of raising, so the statement "succeeds"
- * having changed nothing. A command that writes by id without first
- * selecting the row (already shelf-scoped, in the same transaction) must
- * call `assertWritten` on the result to turn that silent zero into a named
- * error instead of a command that resolves successfully and commits an
- * audit entry describing a change that never happened.
+ * That rejection is `insert`-only at the database level. An `update`/
+ * `delete` that targets a row belonging to another shelf is not rejected by
+ * RLS — its `using` clause filters it to zero affected rows instead of
+ * raising, so the statement "succeeds" having changed nothing. `command`
+ * runs against a guarded `tx` (see `guardWrites`, above), which is what
+ * turns that silent zero into a rejection by default: an `UPDATE`/`DELETE`
+ * a command runs through `tx` that affects zero rows throws
+ * `NotFound("write_target_not_found")` unless the query explicitly opts out
+ * with `.allowZero()`. See `assertWritten`'s docstring for when a command
+ * wants a more specific error than that default.
  */
 export async function runCommand<I, O>(
   sql: Sql,
@@ -245,17 +388,23 @@ export async function runGlobalCommand<I, O>(
  * `runGlobalCommand`) does this too, closing what DATABASE.md §3 used to
  * flag as still-missing there; that gap is closed, not open, as of this
  * module.
+ *
+ * `assertValidBookshelfId` is called with `allowEmpty: true` here — unlike
+ * the write path, an empty `ctx.bookshelfId` has a legitimate reading for a
+ * read: it is the sentinel the policy's `nullif(...)` handles by failing
+ * closed to zero rows, not an error. See that function's docstring for why
+ * the write path disagrees.
  */
 export async function runQuery<O>(
   sql: Sql,
   ctx: TenantContext,
   query: (tx: Tx, ctx: TenantContext) => Promise<O>,
 ): Promise<O> {
-  assertValidBookshelfId(ctx.bookshelfId);
+  assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: true });
   return sql.begin(async (tx) => {
     await tx`set transaction read only`;
     await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
     await tx`set local role olibra_app`;
-    return query(tx as Tx, ctx);
+    return query(guardWrites(tx as RawTx), ctx);
   }) as Promise<O>;
 }

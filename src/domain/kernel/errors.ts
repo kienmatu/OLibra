@@ -74,6 +74,8 @@ export const ERROR_MESSAGES = {
   // — kernel —
   invalid_bookshelf_id: "Mã tủ sách không hợp lệ.",
   audit_forbidden_field: "Không thể ghi nhật ký chứa thông tin bí mật.",
+  write_target_not_found: "Không tìm thấy dữ liệu cần thay đổi.",
+  audit_nesting_too_deep: "Dữ liệu nhật ký lồng quá sâu để kiểm tra.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;

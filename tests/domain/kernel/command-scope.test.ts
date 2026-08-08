@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
 import { NotFound, ValidationFailed } from "../../../src/domain/kernel/errors";
 import {
@@ -315,4 +315,182 @@ test("an empty-string bookshelfId still fails closed to zero rows, not an error"
 
   const rows = await runQuery(sql, ctx, (tx) => tx`select 1 from books`);
   expect(rows).toHaveLength(0);
+});
+
+// Item 2 (re-review follow-up): unlike runQuery, the write path has no
+// nullif(...) between ctx.bookshelfId and the audit insert's uuid column —
+// an empty string used to reach that column raw and surface as
+// `PostgresError: invalid input syntax for type uuid: ""`. Confirmed live
+// before this test existed; see the final-fix-report for the reproduction.
+test("an empty-string bookshelfId on the command path is also a named ValidationFailed, not a raw driver error", async () => {
+  const ctx = {
+    bookshelfId: "",
+    actor: { userId: null, membershipId: null, role: "manager" as const },
+    clock,
+  };
+
+  await expect(
+    runCommand(
+      sql,
+      ctx,
+      async () => ({
+        result: null,
+        audit: { action: "x.y", entityType: "x", entityId: "x" },
+      }),
+      {},
+    ),
+  ).rejects.toBeInstanceOf(ValidationFailed);
+});
+
+// Item 1 (re-review follow-up): assertWritten was opt-in, so a command that
+// forgot to call it got a cross-shelf update's `count: 0`, resolved
+// successfully, and committed an audit record describing a change that
+// never happened. `runAs` now hands every Command a guarded `tx` (see
+// `guardWrites`/`guardPendingQuery` in unit-of-work.ts) so an UPDATE/DELETE
+// affecting zero rows rejects by construction — with no assertWritten call
+// anywhere in the command below. The four tests here are the guard's four
+// behaviours: a same-shelf write still succeeds, a cross-shelf write is
+// auto-rejected, a genuinely-conditional write can opt out with
+// `.allowZero()`, and reads are untouched.
+describe("the guarded Tx a Command receives (fail-safe zero-row writes)", () => {
+  test("a same-shelf update through the guarded tx succeeds with no assertWritten call", async () => {
+    const shelf = await makeShelf(sql);
+    const [book] = await sql<{ id: string }[]>`
+      insert into books (bookshelf_id, title, author, slug, is_published)
+      values (${shelf.id}, 'Original', 'Tô Hoài', 'guard-same-shelf', true)
+      returning id
+    `;
+    const ctx = {
+      bookshelfId: shelf.id,
+      actor: { userId: null, membershipId: null, role: "manager" as const },
+      clock,
+    };
+
+    await runCommand(
+      sql,
+      ctx,
+      async (tx) => {
+        // No assertWritten call — the guard alone must carry this.
+        const result =
+          await tx`update books set title = 'Updated' where id = ${book.id}`;
+        expect(result.command).toBe("UPDATE");
+        expect(result.count).toBe(1);
+        return {
+          result: null,
+          audit: {
+            action: "book.updated",
+            entityType: "book",
+            entityId: book.id,
+            after: { title: "Updated" },
+          },
+        };
+      },
+      {},
+    );
+
+    const [row] = await sql<
+      { title: string }[]
+    >`select title from books where id = ${book.id}`;
+    expect(row.title).toBe("Updated");
+  });
+
+  test("a cross-shelf update through the guarded tx is auto-rejected with no assertWritten call", async () => {
+    const a = await makeShelf(sql);
+    const b = await makeShelf(sql);
+    const [bookB] = await sql<{ id: string }[]>`
+      insert into books (bookshelf_id, title, author, slug, is_published)
+      values (${b.id}, 'Original', 'Tô Hoài', 'guard-cross-shelf', true)
+      returning id
+    `;
+    const ctxA = {
+      bookshelfId: a.id,
+      actor: { userId: null, membershipId: null, role: "manager" as const },
+      clock,
+    };
+
+    await expect(
+      runCommand(
+        sql,
+        ctxA,
+        async (tx) => {
+          // Deliberately does not call assertWritten — the forgetful command
+          // the original bug rewarded. The guard must catch it anyway.
+          await tx`update books set title = 'HACKED' where id = ${bookB.id}`;
+          return {
+            result: null,
+            audit: {
+              action: "book.updated",
+              entityType: "book",
+              entityId: bookB.id,
+              after: { title: "HACKED" },
+            },
+          };
+        },
+        {},
+      ),
+    ).rejects.toBeInstanceOf(NotFound);
+
+    const [row] = await sql<
+      { title: string }[]
+    >`select title from books where id = ${bookB.id}`;
+    expect(row.title).toBe("Original");
+    expect(await sql`select 1 from audit_log`).toHaveLength(0);
+  });
+
+  test("allowZero() opts a genuinely conditional update out of the guard", async () => {
+    const shelf = await makeShelf(sql);
+    const ctx = {
+      bookshelfId: shelf.id,
+      actor: { userId: null, membershipId: null, role: "manager" as const },
+      clock,
+    };
+
+    await runCommand(
+      sql,
+      ctx,
+      async (tx) => {
+        const result = await tx`
+          update books set title = 'Updated'
+          where slug = 'does-not-exist-in-this-shelf'
+        `.allowZero();
+        expect(result.command).toBe("UPDATE");
+        expect(result.count).toBe(0);
+        return {
+          result: null,
+          audit: { action: "book.updated", entityType: "book", entityId: shelf.id },
+        };
+      },
+      {},
+    );
+
+    expect(await sql`select 1 from audit_log`).toHaveLength(1);
+  });
+
+  test("reads through the guarded tx are unaffected", async () => {
+    const shelf = await makeShelf(sql);
+    await sql`
+      insert into books (bookshelf_id, title, author, slug, is_published)
+      values (${shelf.id}, 'Sách', 'Tô Hoài', 'guard-select', true)
+    `;
+    const ctx = {
+      bookshelfId: shelf.id,
+      actor: { userId: null, membershipId: null, role: "manager" as const },
+      clock,
+    };
+
+    await runCommand(
+      sql,
+      ctx,
+      async (tx) => {
+        const rows = await tx`select 1 from books`;
+        expect(rows.command).toBe("SELECT");
+        expect(rows).toHaveLength(1);
+        return {
+          result: null,
+          audit: { action: "probe.done", entityType: "x", entityId: shelf.id },
+        };
+      },
+      {},
+    );
+  });
 });
