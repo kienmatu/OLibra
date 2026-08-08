@@ -1,0 +1,303 @@
+import type { AuditEntry } from "../kernel/audit";
+import { RuleViolated, ValidationFailed } from "../kernel/errors";
+import type { TenantContext } from "../kernel/tenant";
+import type { Tx } from "../kernel/unit-of-work";
+import { loadParishContext } from "./parish-context";
+import { validateSelection } from "./parish-taxonomy";
+import { assertPasswordLength, blank } from "./policy";
+
+/**
+ * Everything OPS §4.3's registration form posts.
+ *
+ * `fatherName` and `motherName` are **required**, against OPS §4.3's own input
+ * list, which marks both optional. BR §5.3 says the opposite in as many words
+ * ("father's name and mother's name (both required)") and explains why —
+ * they are how a manager tells two children with the same name apart, which
+ * BR §3 lists as a real edge case — BR §16.1 says it a third time, and
+ * `users.father_name`/`mother_name` are `not null` in the live schema. A
+ * command that treated them as optional would raise a bare 23502 from inside
+ * the transaction instead of a named failure.
+ */
+export interface RegistrationInput {
+  username?: string | null;
+  password?: string | null;
+  passwordConfirm?: string | null;
+  saintName?: string | null;
+  fullName: string;
+  /** `YYYY-MM-DD`. A date, not a timestamp — a birthday has no o'clock. */
+  dateOfBirth: string;
+  fatherName: string;
+  motherName: string;
+  phone: string;
+  email?: string | null;
+  /**
+   * An object **already** in storage, not bytes.
+   *
+   * B5 (master §7.5) is not built and `src/storage/` does not exist. This
+   * slice records which object is this person's photograph and does not move
+   * it; the upload belongs to the surface, which already handles a multipart
+   * form. A stub `ObjectStore` here would occupy the path B5's plan names and
+   * be read as B5 having landed — see the plan's Avatars decision.
+   */
+  avatarUrl?: string | null;
+  parishUnitL1Id?: string | null;
+  parishUnitL2Id?: string | null;
+}
+
+export interface RegistrationResult {
+  userId: string;
+  membershipId: string;
+}
+
+export type PasswordHasher = (plain: string) => Promise<string>;
+
+/**
+ * Argon2id lives in `src/auth/password.ts`, which `src/domain` may not import
+ * (`tests/architecture/boundaries.test.ts`). Injected once at module scope
+ * rather than threaded through `RegistrationInput`, which would put a function
+ * into the same object a command's inputs are logged and validated from.
+ *
+ * The default throws. An unwired hasher must fail loudly rather than write a
+ * plausible-looking string into `password_hash`, where nobody would notice
+ * until someone tried to sign in.
+ */
+let hasher: PasswordHasher = () => {
+  throw new RuleViolated("not_permitted");
+};
+
+export function setPasswordHasher(next: PasswordHasher): void {
+  hasher = next;
+}
+
+const trimmed = (v: string | null | undefined) => (blank(v) ? null : v!.trim());
+
+/**
+ * INV-14, checked before anything is written: either both credentials or
+ * neither. The database's `users_credentials_paired` check would catch it too,
+ * but as a 23514 rather than a sentence a child can read.
+ */
+async function credentialsFrom(
+  input: RegistrationInput,
+): Promise<{ username: string | null; passwordHash: string | null }> {
+  const username = trimmed(input.username);
+  const password = blank(input.password) ? null : input.password!;
+
+  if (username === null && password === null) {
+    return { username: null, passwordHash: null };
+  }
+  if (username === null || password === null) {
+    throw new ValidationFailed("required_fields_missing", "username");
+  }
+  assertPasswordLength(password, "password_too_short");
+  if (input.passwordConfirm !== undefined && input.passwordConfirm !== password) {
+    throw new ValidationFailed("passwords_dont_match", "passwordConfirm");
+  }
+  return { username, passwordHash: await hasher(password) };
+}
+
+/**
+ * A password verifier, injected for the same reason the hasher is. Defaults to
+ * refusing every match, so an unwired verifier cannot turn rule 2 into a
+ * back door — it fails closed, into `username_taken`.
+ */
+let verifier: (plain: string, stored: string) => Promise<boolean> = async () =>
+  false;
+
+export function setPasswordVerifier(
+  next: (plain: string, stored: string) => Promise<boolean>,
+): void {
+  verifier = next;
+}
+
+/**
+ * Finds the person this registration is for, or `null` if they are new.
+ *
+ * The anti-probe rules, in full (see the plan's "Identity is reused across
+ * shelves" section for the reasoning):
+ *
+ * - **A supplied username is matched only against its own password.** If the
+ *   username exists and the password verifies, this is that person. If it does
+ *   not verify — or the account has no password at all, INV-14's valid state —
+ *   the caller gets `username_taken`, exactly what an unrelated collision
+ *   gives. A stranger guessing usernames learns only "taken", which the form
+ *   has to tell them anyway.
+ * - **With no username, the match is the exact triple** `full_name` (case
+ *   -insensitively), `date_of_birth`, `phone`. No fuzzy matching: BR §5.3's own
+ *   argument for requiring both parents' names is that a name alone does not
+ *   identify a child, and a looser rule here would merge two people. Near
+ *   -matches belong on `GetPendingRegistrations`' similar-name warning (OPS
+ *   §3.3), surfaced to a manager who knows the family.
+ *
+ * `users` carries no RLS (DB §3), so this reads across every shelf by design —
+ * that is what "identity is reused" means. Nothing about the result is
+ * returned to the caller; see `register` below.
+ */
+async function findExistingPerson(
+  tx: Tx,
+  input: RegistrationInput,
+  verify: (plain: string, stored: string) => Promise<boolean>,
+): Promise<string | null> {
+  const username = trimmed(input.username);
+
+  if (username !== null) {
+    const [row] = await tx<{ id: string; password_hash: string | null }[]>`
+      select id, password_hash from users
+      where lower(username) = lower(${username}) and deleted_at is null
+    `;
+    if (!row) return null;
+    const ok =
+      row.password_hash !== null &&
+      !blank(input.password) &&
+      (await verify(input.password!, row.password_hash));
+    if (!ok) throw new RuleViolated("username_taken");
+    return row.id;
+  }
+
+  const [row] = await tx<{ id: string }[]>`
+    select id from users
+    where deleted_at is null
+      and lower(full_name) = lower(${input.fullName.trim()})
+      and date_of_birth = ${input.dateOfBirth}::date
+      and phone = ${input.phone.trim()}
+  `;
+  return row?.id ?? null;
+}
+
+/**
+ * The shared body of all three registration commands (OPS §4.3:
+ * `RegisterMembership`, `ManagerRegisterReader`, `RegisterMemberOnBehalf`).
+ * Only `status` and who the actor is differ between them.
+ *
+ * Returns the result; the caller builds the audit entry, because the three
+ * commands describe the same fact differently (OPS §4.3 records the manager as
+ * actor for the two manager-typed ones, "distinguishing it from a
+ * self-registration awaiting approval").
+ */
+export async function register(
+  tx: Tx,
+  ctx: TenantContext,
+  input: RegistrationInput,
+  status: "pending" | "active",
+): Promise<RegistrationResult> {
+  for (const [field, value] of [
+    ["fullName", input.fullName],
+    ["dateOfBirth", input.dateOfBirth],
+    ["fatherName", input.fatherName],
+    ["motherName", input.motherName],
+    ["phone", input.phone],
+  ] as const) {
+    if (blank(value)) throw new ValidationFailed("required_fields_missing", field);
+  }
+
+  const credentials = await credentialsFrom(input);
+
+  // OPS §4.3's named invariant: the parish rule is checked here, in the same
+  // transaction as the write, "not by a constraint (DATABASE.md §7)". Verified
+  // live why: the composite FK proves the unit is on this shelf and nothing
+  // more — a *level-2* unit's id inserts cleanly into parish_unit_l1_id.
+  const l1 = input.parishUnitL1Id ?? null;
+  const l2 = input.parishUnitL2Id ?? null;
+  if (l1 !== null || l2 !== null) {
+    const { taxonomy, units } = await loadParishContext(tx, ctx);
+    const check = validateSelection(taxonomy, units, { l1, l2 });
+    if (check.blocked) throw new ValidationFailed(check.reason!, "parishUnitL1Id");
+  }
+
+  const existingId = await findExistingPerson(tx, input, verifier);
+
+  let userId: string;
+  if (existingId !== null) {
+    // BR §5.3: "their identity is reused and only the parish details are
+    // re-entered." Nothing on the person is touched — INV-13 makes an approved
+    // ProfileChangeRequest the only path by which a verified detail changes,
+    // and a registration form at a second parish is not that.
+    userId = existingId;
+  } else {
+    const [created] = await tx<{ id: string }[]>`
+      insert into users (
+        saint_name, full_name, date_of_birth, father_name, mother_name,
+        phone, email, avatar_url, username, password_hash
+      ) values (
+        ${trimmed(input.saintName)}, ${input.fullName.trim()},
+        ${input.dateOfBirth}::date, ${input.fatherName.trim()},
+        ${input.motherName.trim()}, ${input.phone.trim()},
+        ${trimmed(input.email)}, ${trimmed(input.avatarUrl)},
+        ${credentials.username}, ${credentials.passwordHash}
+      )
+      returning id
+    `;
+    userId = created.id;
+  }
+
+  // BR §2: a rejected applicant "may re-apply", and a member who left may come
+  // back. `memberships_one_per_shelf` is `unique (bookshelf_id, user_id) where
+  // deleted_at is null` and ignores status entirely — verified live, a second
+  // insert over a rejected row raises 23505 — so a re-application walks the
+  // existing row back rather than adding one. Keeping the id keeps every audit
+  // entry already pointing at this relationship pointing at the same one.
+  const [existing] = await tx<{ id: string; status: string }[]>`
+    select id, status from memberships
+    where user_id = ${userId} and deleted_at is null
+  `;
+
+  if (existing) {
+    if (existing.status === "pending" || existing.status === "active") {
+      throw new RuleViolated("already_registered_here");
+    }
+    await tx`
+      update memberships
+      set status = ${status},
+          parish_unit_l1_id = ${l1},
+          parish_unit_l2_id = ${l2},
+          rejection_reason = null,
+          suspension_reason = null,
+          approved_by = ${status === "active" ? ctx.actor.userId : null},
+          approved_at = ${status === "active" ? ctx.clock.now() : null}
+      where id = ${existing.id}
+    `;
+    return { userId, membershipId: existing.id };
+  }
+
+  const [membership] = await tx<{ id: string }[]>`
+    insert into memberships (
+      bookshelf_id, user_id, role, status,
+      parish_unit_l1_id, parish_unit_l2_id, approved_by, approved_at
+    ) values (
+      ${ctx.bookshelfId}, ${userId}, 'reader', ${status},
+      ${l1}, ${l2},
+      ${status === "active" ? ctx.actor.userId : null},
+      ${status === "active" ? ctx.clock.now() : null}
+    )
+    returning id
+  `;
+
+  return { userId, membershipId: membership.id };
+}
+
+/**
+ * The audit entry all three registration commands share.
+ *
+ * Deliberately carries no `phone`, no `dateOfBirth` and no parents' names: BR
+ * §5.3 makes those manager-only fields, and `audit_log` is readable by every
+ * manager of the shelf *and* by the super administrator across every shelf
+ * (BR §13.2). The membership id and the person's name are enough for the
+ * Vietnamese sentence BR §14 asks the browser to render.
+ */
+export function registrationAudit(
+  input: RegistrationInput,
+  result: RegistrationResult,
+  status: "pending" | "active",
+): AuditEntry {
+  return {
+    action: "membership.registered",
+    entityType: "membership",
+    entityId: result.membershipId,
+    after: {
+      userId: result.userId,
+      fullName: input.fullName.trim(),
+      status,
+      parishUnitL1Id: input.parishUnitL1Id ?? null,
+      parishUnitL2Id: input.parishUnitL2Id ?? null,
+    },
+  };
+}
