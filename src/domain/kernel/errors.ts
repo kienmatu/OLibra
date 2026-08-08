@@ -117,6 +117,17 @@ export const ERROR_MESSAGES = {
   audit_forbidden_field: "Không thể ghi nhật ký chứa thông tin bí mật.",
   write_target_not_found: "Không tìm thấy dữ liệu cần thay đổi.",
   audit_nesting_too_deep: "Dữ liệu nhật ký lồng quá sâu để kiểm tra.",
+  // Reshaped from a bare `Error` on re-review (fix-report, 2026-08-08-b2
+  // -members): a boot-time wiring gap belongs in the same catalogue as
+  // `audit_forbidden_field` and `audit_nesting_too_deep` above — an internal
+  // fault no volunteer can act on, but OPS §2 still asks for a named code and
+  // a sentence rather than an unstructured exception. Two codes, not one,
+  // so which setter was skipped survives on the error itself rather than
+  // only in a message string.
+  password_hasher_not_wired:
+    "Hệ thống chưa sẵn sàng để tạo mật khẩu, vui lòng thử lại sau.",
+  password_verifier_not_wired:
+    "Hệ thống chưa sẵn sàng để kiểm tra mật khẩu, vui lòng thử lại sau.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;
@@ -170,23 +181,32 @@ export function isUniqueViolation(e: unknown): boolean {
  * username-reuse attempt (BR §5.3) failing closed to `username_taken` with no
  * signal anything was ever missing.
  *
- * Deliberately **not** a `DomainError` / `ErrorCode`: those are a promise of
- * a Vietnamese sentence a real user might plausibly read as a legitimate
- * outcome, and adding a code here would mean this joins `ERROR_MESSAGES` and
- * every exhaustive `switch` over `ErrorCode` has to account for a failure
- * mode that should never reach a screen at all. This is meant to be loud in
- * the operational sense instead: an uncaught exception whose message names
- * exactly which setter was never called, surfacing as a server fault (see
- * `src/app/dang-nhap/actions.ts`, which only ever catches specific
- * `RuleViolated` codes by name and lets everything else — this included —
- * propagate) rather than as a business-shaped refusal a support ticket gets
- * filed against for the wrong reason.
+ * Reshaped into a coded `DomainError` on re-review (fix-report,
+ * 2026-08-08-b2-members). The bare-`Error` shape above argued that a code
+ * here would burden "every exhaustive `switch` over `ErrorCode`" — checked
+ * directly: `ErrorCode` has exactly two consumers in `src/`, `messageFor` and
+ * this class's own constructor (inherited from `DomainError`); every other
+ * import only propagates the *type*, and no `switch` over the union exists
+ * anywhere in the codebase. There was nothing to burden. Meanwhile this is
+ * exactly the class of internal fault `audit_forbidden_field`,
+ * `audit_nesting_too_deep`, `invalid_bookshelf_id` and
+ * `write_target_not_found` already cover — something no volunteer can act
+ * on, carrying a code and a Vietnamese sentence anyway because OPS §2 asks
+ * for a named failure everywhere, not only where a real user might plausibly
+ * read the result as a legitimate outcome. This is the third time a bare
+ * exception in this shape has been replaced with one of these (the audit
+ * guard's own `Error` and `RangeError`, `src/domain/kernel/audit.ts`, were
+ * the first two).
+ *
+ * Loudness survives the reshape unchanged: `src/app/dang-nhap/actions.ts`
+ * catches only `RuleViolated` with `code === "sign_in_failed"` and rethrows
+ * everything else, `DomainError` included, so this still surfaces as an
+ * uncaught exception and a server fault rather than a caught, swallowed
+ * refusal. `NotWired` is its own marker — a sibling of `NotFound`,
+ * `ValidationFailed` and `RuleViolated` under `DomainError`, not a
+ * `RuleViolated` itself — because what it names is not a business rule the
+ * input failed; it is the boot sequence's own omission. Two codes, one per
+ * setter, so which dependency was never wired is still readable off the
+ * error itself (`.code`), not only reconstructable from a message string.
  */
-export class NotWired extends Error {
-  constructor(what: string) {
-    super(
-      `${what} was never wired — call its setter during boot before this code path runs.`,
-    );
-    this.name = "NotWired";
-  }
-}
+export class NotWired extends DomainError {}
