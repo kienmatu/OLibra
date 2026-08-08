@@ -23,30 +23,44 @@ export type Command<I, O> = (
 ) => Promise<{ result: O; audit: AuditEntry | AuditEntry[] }>;
 
 /**
- * Runs a command in one transaction, with tenant scoping applied.
+ * Runs `command` in one transaction, scoped to `ctx.bookshelfId`, as `role`.
  *
  * `set_config(..., true)` is transaction-local, which is why the driver must
  * be pooled in transaction mode rather than session mode (DB §3). Getting that
  * wrong leaks one request's shelf into the next request on the same
  * connection, and it does so silently.
  *
- * This is the write side of the trap `0010_rls.sql` documents at length: on a
- * connection that has set `olibra.bookshelf_id` before, `current_setting`
- * reverts to `''` rather than `null` once the transaction that set it ends, so
- * every `<table>_tenant` policy reads it back through
- * `nullif(current_setting(...), '')::uuid` rather than a bare cast. That
- * `nullif` lives in the policy, not here — `runCommand` only ever calls
- * `set_config` with a real, non-empty `ctx.bookshelfId`, so it has nothing to
- * guard against on the write side.
+ * `set local role` is what makes the scoping bite rather than merely read as
+ * intent: every connection in this codebase, dev and test alike, currently
+ * authenticates as `olibra`, a `bypassrls` superuser (DATABASE.md §3), and a
+ * superuser ignores row-level security regardless of what `set_config` claims
+ * the shelf is. `set local role olibra_app` (or `olibra_admin`, for the
+ * escalation `runGlobalCommand` asks for) is the same switch
+ * `tests/invariants/inv-10-tenant-isolation.test.ts` already relies on for
+ * reads — a superuser may always switch into an unprivileged role, and once
+ * switched, RLS applies. Only two literal `set local role` statements ever
+ * run here, never one built from a variable, so nothing in this function
+ * hands Postgres an interpolated role name.
+ *
+ * `nullif(current_setting(...), '')` — not a bare cast — lives in the policy,
+ * not here (see `0010_rls.sql`): `runAs` only ever calls `set_config` with a
+ * real, non-empty `ctx.bookshelfId`, so it has nothing to guard against on
+ * that front.
  */
-export async function runCommand<I, O>(
+async function runAs<I, O>(
   sql: Sql,
   ctx: TenantContext,
+  role: "olibra_app" | "olibra_admin",
   command: Command<I, O>,
   input: I,
 ): Promise<O> {
   return sql.begin(async (tx) => {
     await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+    if (role === "olibra_admin") {
+      await tx`set local role olibra_admin`;
+    } else {
+      await tx`set local role olibra_app`;
+    }
 
     const { result, audit } = await command(tx as Tx, ctx, input);
 
@@ -66,6 +80,47 @@ export async function runCommand<I, O>(
 
     return result;
   }) as Promise<O>;
+}
+
+/**
+ * Runs a command as `olibra_app` — every ordinary request. This is the only
+ * path almost every command in the catalogue needs: RLS scopes both the
+ * command's own writes and its audit entry to `ctx.bookshelfId`, and an
+ * attempt to write a row (or an audit entry, via `AuditEntry.global`)
+ * belonging to another shelf, or to no shelf, is rejected by the database
+ * before it commits.
+ */
+export async function runCommand<I, O>(
+  sql: Sql,
+  ctx: TenantContext,
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  return runAs(sql, ctx, "olibra_app", command, input);
+}
+
+/**
+ * Runs a command as `olibra_admin` — the deliberate, visible escalation for
+ * a system-wide fact that has no owning shelf.
+ *
+ * This exists for exactly one reason: `audit_log`'s policy makes a null
+ * `bookshelf_id` unreachable to `olibra_app` in either direction (BR §13.2,
+ * DATABASE.md §3), so a command whose audit entry sets `global: true` cannot
+ * run through `runCommand` — the insert is rejected, not silently rescoped.
+ * S1 built two separate Postgres roles precisely so that reaching for the
+ * bypass is a name a reviewer sees at the call site (`runGlobalCommand`, not
+ * a boolean option buried in an args bag that quietly widens scope). Every
+ * command in the catalogue today is shelf-scoped; this function is the
+ * exception, not the default, and should stay rare enough that a diff
+ * introducing a new call to it is worth a second look.
+ */
+export async function runGlobalCommand<I, O>(
+  sql: Sql,
+  ctx: TenantContext,
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  return runAs(sql, ctx, "olibra_admin", command, input);
 }
 
 /**

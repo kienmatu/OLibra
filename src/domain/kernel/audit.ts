@@ -14,6 +14,21 @@ export interface AuditEntry {
   entityId: string;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
+  /**
+   * True for a system-wide fact with no owning shelf — a null `bookshelf_id`
+   * row in `audit_log` (BR §13.2: cross-shelf audit visibility is a
+   * super_admin permission; DATABASE.md §3: audit_log's null means a
+   * system-wide action, and its policy makes a null row unreachable, in
+   * either direction, to `olibra_app`).
+   *
+   * Only `runGlobalCommand` can make this stick: it runs as `olibra_admin`,
+   * which bypasses the policy. A command run through the ordinary
+   * `runCommand` path (`olibra_app`) that sets this is not silently
+   * downgraded to its own shelf — the insert is rejected outright, because
+   * `audit_log_tenant`'s `with check` requires `bookshelf_id` to equal the
+   * session's shelf, and null never does.
+   */
+  global?: boolean;
 }
 
 /**
@@ -40,17 +55,18 @@ export function assertNoSecrets(entry: AuditEntry): void {
   }
 }
 
-export type AuditRow = AuditEntry & {
-  bookshelfId: string;
+export type AuditRow = Omit<AuditEntry, "global"> & {
+  bookshelfId: string | null;
   actorId: string | null;
   occurredAt: Date;
 };
 
 export function toRow(entry: AuditEntry, ctx: TenantContext): AuditRow {
   assertNoSecrets(entry);
+  const { global: isGlobal, ...fact } = entry;
   return {
-    ...entry,
-    bookshelfId: ctx.bookshelfId,
+    ...fact,
+    bookshelfId: isGlobal ? null : ctx.bookshelfId,
     actorId: ctx.actor.userId,
     occurredAt: ctx.clock.now(),
   };
