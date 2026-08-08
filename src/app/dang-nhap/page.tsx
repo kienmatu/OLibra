@@ -4,9 +4,23 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ShelfHeader } from "@/components/shell/public-header";
+import { messageFor } from "@/domain/kernel/errors";
 import { shelf } from "@/lib/fixtures";
+import { SIGN_IN_FAILED } from "@/lib/session-cookie";
+import { signInAction } from "./actions";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ loi?: string }>;
+}) {
+  const { loi } = await searchParams;
+  // The same generic sentence for a wrong password and for an account with
+  // no credentials at all (INV-14) — neither case should tell a visitor
+  // which one happened.
+  const signInError =
+    loi === SIGN_IN_FAILED ? messageFor("not_authenticated") : undefined;
+
   return (
     <>
       <ShelfHeader shelf={shelf} />
@@ -18,18 +32,24 @@ export default function LoginPage() {
             Đăng nhập để xem sách bạn đang mượn và xin mượn sách mới.
           </p>
 
-          <form className="mt-8 space-y-6">
+          <form action={signInAction} className="mt-8 space-y-6">
             <Field label="Tên đăng nhập" required htmlFor="ten-dang-nhap">
-              <Input id="ten-dang-nhap" icon={User} placeholder="vd: lan.nguyen" />
+              <Input
+                id="ten-dang-nhap"
+                name="username"
+                icon={User}
+                placeholder="vd: lan.nguyen"
+              />
             </Field>
 
-            <Field
-              label="Mật khẩu"
-              required
-              htmlFor="mat-khau"
-              error="Mật khẩu không đúng. Thử lại giúp mình nhé."
-            >
-              <Input id="mat-khau" type="password" icon={Lock} invalid />
+            <Field label="Mật khẩu" required htmlFor="mat-khau" error={signInError}>
+              <Input
+                id="mat-khau"
+                name="password"
+                type="password"
+                icon={Lock}
+                invalid={Boolean(signInError)}
+              />
             </Field>
 
             <div className="flex items-center justify-between gap-4">
