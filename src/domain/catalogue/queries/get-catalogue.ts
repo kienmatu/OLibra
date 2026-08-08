@@ -73,9 +73,11 @@ export interface CataloguePage {
  * violated under delivery pressure, and this join is where it lives: a left
  * join from each live copy to `copies_borrowable`, counted. `copies_borrowable`
  * is itself the expression of "available and no unexpired hold references it",
- * evaluated against `now()` — so a hold that lapsed a minute ago is already
- * gone from the count with no job having run. If a reviewer ever sees a
- * `copies_available` column appear in a migration, this is the rule it broke.
+ * evaluated against `olibra_now()` — the injected clock, since
+ * `20260808_14_olibra_now.sql`; SQL `now()` before that — so a hold that
+ * lapsed a minute ago is already gone from the count with no job having run.
+ * If a reviewer ever sees a `copies_available` column appear in a migration,
+ * this is the rule it broke.
  *
  * `availability` is the title-level badge the card shows, aggregated from the
  * copy states rather than stored: available if anything is borrowable, then
