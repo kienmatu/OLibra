@@ -5,6 +5,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { beforeAll, expect, test } from "vitest";
 import { createObjectStore, objectKey, type S3Config } from "../../src/storage/s3";
+import { publicReadPolicy } from "../support/bucket-policy";
 import { testS3Config } from "../support/env";
 
 /**
@@ -38,11 +39,17 @@ const config = testS3Config();
  * by default, so `url()` returning a perfectly correct URL that answers 403 to
  * a browser is the natural state of a fresh deployment. This suite found that
  * — the fetch cases below failed against a bucket the compose sidecar had
- * created exactly the way production would — and `compose.yaml`'s
- * `storage-init` now sets the same policy with `mc anonymous set download`.
- * Doing it only here would have made the suite green while every `<img>` in
- * the running application 404ed on a bucket nobody had thought to open, which
- * is precisely the failure ordering this slice keeps arguing against.
+ * created exactly the way production would — so `compose.yaml`'s
+ * `storage-init` opens the real bucket too.
+ *
+ * The policy comes from `tests/support/bucket-policy.ts` rather than being
+ * spelled out here, and `tests/architecture/compose-grants-only-get-object.test.ts`
+ * asserts `compose.yaml` writes that same document. It used to be spelled out
+ * here, with a comment claiming compose's `mc anonymous set download` was
+ * "the equivalent policy". It was not: `download` also grants `s3:ListBucket`,
+ * so the shipped bucket answered an unauthenticated `?list-type=2` with the key
+ * of every avatar in it, and this suite stayed green because it applied its own
+ * narrower policy over the top — green *because* it did not use what ships.
  *
  * SDD §6.8 and the plan's §5 settle that these objects *are* public: covers
  * and avatars are fetched directly by a browser and nothing in the
@@ -71,17 +78,7 @@ beforeAll(async () => {
   await client.send(
     new PutBucketPolicyCommand({
       Bucket: config.bucket,
-      Policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [
-          {
-            Effect: "Allow",
-            Principal: { AWS: ["*"] },
-            Action: ["s3:GetObject"],
-            Resource: [`arn:aws:s3:::${config.bucket}/*`],
-          },
-        ],
-      }),
+      Policy: JSON.stringify(publicReadPolicy(config.bucket)),
     }),
   );
 });
@@ -119,6 +116,36 @@ test("delete removes the object — the same URL then 404s", async () => {
 
   await store.delete(key);
   expect((await fetch(store.url(key))).status).toBe(404);
+});
+
+test("the public bucket cannot be listed anonymously", async () => {
+  // The behavioural half of `compose-grants-only-get-object.test.ts`. That one
+  // proves compose ships this exact policy document; this proves the document
+  // means what it says, against a real MinIO, by doing what an attacker would
+  // do — `GET /<bucket>/?list-type=2` with no credentials.
+  //
+  // This is what `mc anonymous set download` failed: it answered 200 and
+  // paginated every key in the bucket. Avatars are photographs of children, and
+  // `objectKey()`'s opaque UUIDs stop being privacy the moment a stranger can
+  // ask for the list.
+  const store = createObjectStore(config);
+  const key = objectKey("test-fixtures", "png");
+
+  try {
+    await store.put(key, BYTES, "image/png");
+
+    // Path-style, which is what MinIO and the `TEST_S3_*` variables use; the
+    // assertion is about the policy, not the addressing style.
+    expect(config.forcePathStyle).toBe(true);
+    const listing = await fetch(
+      `${config.publicUrl.replace(/\/+$/, "")}/${config.bucket}/?list-type=2`,
+    );
+
+    expect(listing.status).not.toBe(200);
+    expect(await listing.text()).not.toContain(key);
+  } finally {
+    await store.delete(key);
+  }
 });
 
 test("delete of a key that was never there does not throw", async () => {
