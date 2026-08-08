@@ -50,6 +50,43 @@ test("the same name under two different parents does not collide", async () => {
   await expect(insertUnit(shelf.id, 2, ghB.id, "Tổ 1")).resolves.toBeDefined();
 });
 
+test("IMPORTANT 5: a soft-deleted unit's name returns to circulation", async () => {
+  // DATABASE.md §4.1 named this trade explicitly before the constraint even
+  // shipped: "the constraint does not exclude soft-deleted rows, so
+  // soft-deleting Tổ 1 ... blocks creating a live Tổ 1 there afterwards.
+  // That is the wrong trade." Reproduced live with the seed's own
+  // soft-deleted "Tổ 3": re-inserting a live unit of that name errored
+  // before 20260808_03_soft_delete_aware_uniqueness.sql turned the plain
+  // constraint into a partial index scoped to `deleted_at is null`.
+  const shelf = await makeShelf(sql);
+  const [unit] = await sql<{ id: string }[]>`
+    insert into parish_units (bookshelf_id, level, parent_id, name)
+    values (${shelf.id}, 1, null, 'Tổ 3')
+    returning id
+  `;
+  await sql`update parish_units set deleted_at = now() where id = ${unit.id}`;
+
+  await expect(insertUnit(shelf.id, 1, null, "Tổ 3")).resolves.toBeDefined();
+});
+
+test("two live units still collide even with a soft-deleted namesake present", async () => {
+  // The partial index must still do its actual job: excluding soft-deleted
+  // rows from the uniqueness check must not accidentally exclude live rows
+  // too.
+  const shelf = await makeShelf(sql);
+  const [unit] = await sql<{ id: string }[]>`
+    insert into parish_units (bookshelf_id, level, parent_id, name)
+    values (${shelf.id}, 1, null, 'Tổ 4')
+    returning id
+  `;
+  await sql`update parish_units set deleted_at = now() where id = ${unit.id}`;
+  await insertUnit(shelf.id, 1, null, "Tổ 4");
+
+  await expect(insertUnit(shelf.id, 1, null, "Tổ 4")).rejects.toMatchObject({
+    code: "23505",
+  });
+});
+
 test("a level-1 unit cannot be given a parent", async () => {
   // parish_units_l1_has_no_parent, the other constraint carried across in
   // Task 3. A level-1 unit is defined by having no parent.

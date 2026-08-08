@@ -1,4 +1,4 @@
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 import {
   books,
   donations,
@@ -69,7 +69,7 @@ export async function seed(sql: Sql): Promise<void> {
           ${s.slug}, ${s.name}, ${s.location}, ${s.hours}, ${s.keeper}, ${s.phone},
           ${tx.json(settings)}
         )
-        on conflict (slug) do update set
+        on conflict (slug) where deleted_at is null do update set
           name          = excluded.name,
           location      = excluded.location,
           opening_hours = excluded.opening_hours,
@@ -116,16 +116,15 @@ export async function seed(sql: Sql): Promise<void> {
       // (parish_units_l1_has_no_parent), so none of these depend on
       // anything inserted in this loop.
       for (const u of level1) {
-        const [row] = await tx<{ id: string }[]>`
-          insert into parish_units (
-            bookshelf_id, level, parent_id, name, sort_order, deleted_at
-          )
-          values (${bookshelfId}, 1, null, ${u.name}, ${u.sortOrder}, ${u.deletedAt})
-          on conflict (bookshelf_id, level, parent_id, name)
-          do update set sort_order = excluded.sort_order
-          returning id
-        `;
-        unitIdByFixtureId.set(u.id, row.id);
+        const id = await upsertParishUnit(tx, {
+          bookshelfId,
+          level: 1,
+          parentId: null,
+          name: u.name,
+          sortOrder: u.sortOrder,
+          deletedAt: u.deletedAt,
+        });
+        unitIdByFixtureId.set(u.id, id);
         shelfSlugByUnitFixtureId.set(u.id, s.slug);
       }
 
@@ -135,16 +134,15 @@ export async function seed(sql: Sql): Promise<void> {
       // both without branching on shelf.parishTaxonomy.nested.
       for (const u of level2) {
         const parentId = u.parentId ? unitIdByFixtureId.get(u.parentId)! : null;
-        const [row] = await tx<{ id: string }[]>`
-          insert into parish_units (
-            bookshelf_id, level, parent_id, name, sort_order, deleted_at
-          )
-          values (${bookshelfId}, 2, ${parentId}, ${u.name}, ${u.sortOrder}, ${u.deletedAt})
-          on conflict (bookshelf_id, level, parent_id, name)
-          do update set sort_order = excluded.sort_order
-          returning id
-        `;
-        unitIdByFixtureId.set(u.id, row.id);
+        const id = await upsertParishUnit(tx, {
+          bookshelfId,
+          level: 2,
+          parentId,
+          name: u.name,
+          sortOrder: u.sortOrder,
+          deletedAt: u.deletedAt,
+        });
+        unitIdByFixtureId.set(u.id, id);
         shelfSlugByUnitFixtureId.set(u.id, s.slug);
       }
     }
@@ -368,6 +366,69 @@ const CATEGORIES = [
 ] as const;
 
 /**
+ * Inserts or reuses one parish unit, id-returning.
+ *
+ * `parish_units_name_unique_in_scope` (20260808_03_soft_delete_aware_
+ * uniqueness.sql) became a partial unique index — `where deleted_at is
+ * null` — so that soft-deleting a unit stops permanently blocking its name.
+ * A side effect: a plain `on conflict (bookshelf_id, level, parent_id,
+ * name)` can only infer that index as its arbiter if it repeats the same
+ * predicate, and even then the arbiter never fires for a *soft-deleted*
+ * fixture row (the index does not cover those rows at all) — so rerunning
+ * the seed would insert a fresh duplicate of the one soft-deleted fixture
+ * unit ("Tổ 3", src/lib/fixtures.ts) every time. Live rows go through
+ * `on conflict`, matching the index exactly; a soft-deleted row gets its
+ * own existence check first, keyed on every column including `deleted_at`
+ * — the same style `book_donations` already uses below for a table with no
+ * unique index at all.
+ */
+async function upsertParishUnit(
+  tx: TransactionSql,
+  input: {
+    bookshelfId: string;
+    level: 1 | 2;
+    parentId: string | null;
+    name: string;
+    sortOrder: number;
+    deletedAt: string | null;
+  },
+): Promise<string> {
+  const { bookshelfId, level, parentId, name, sortOrder, deletedAt } = input;
+
+  if (deletedAt === null) {
+    const [row] = await tx<{ id: string }[]>`
+      insert into parish_units (
+        bookshelf_id, level, parent_id, name, sort_order, deleted_at
+      )
+      values (${bookshelfId}, ${level}, ${parentId}, ${name}, ${sortOrder}, null)
+      on conflict (bookshelf_id, level, parent_id, name) where deleted_at is null
+      do update set sort_order = excluded.sort_order
+      returning id
+    `;
+    return row.id;
+  }
+
+  const [existing] = await tx<{ id: string }[]>`
+    select id from parish_units
+    where bookshelf_id = ${bookshelfId}
+      and level = ${level}
+      and parent_id is not distinct from ${parentId}
+      and name = ${name}
+      and deleted_at = ${deletedAt}
+  `;
+  if (existing) return existing.id;
+
+  const [row] = await tx<{ id: string }[]>`
+    insert into parish_units (
+      bookshelf_id, level, parent_id, name, sort_order, deleted_at
+    )
+    values (${bookshelfId}, ${level}, ${parentId}, ${name}, ${sortOrder}, ${deletedAt})
+    returning id
+  `;
+  return row.id;
+}
+
+/**
  * `books[].category` is free text in the fixture ("Thơ thiếu nhi" for
  * Góc Sân Và Khoảng Trời), and one value — that one — has no exact match
  * among the twelve seeded categories, only a prefix match against "Thơ".
@@ -395,11 +456,18 @@ function parseFullDate(input: string): string {
 
 /**
  * Every other date in the fixture is "dd/mm", sometimes with leading text
- * ("Chúa nhật 20/08"), and carries no year — the fixture's own dates
- * (loans, donations, announcements) are all written as though the current
- * year is 2026, matching the environment this seed is written against.
+ * ("Chúa nhật 20/08"), and carries no year — the fixture's dates (loans,
+ * donations, announcements) are written to read as *recent*, relative to
+ * whenever the seed actually runs, not pinned to one calendar year. A
+ * hardcoded `year = 2026` default drifts the moment the calendar turns:
+ * from January 2027 every seeded loan reads as wildly overdue and the
+ * fixtures' own `daysLeft` numbers stop matching what the screen shows —
+ * quietly breaking the "no visible change" promise this seed exists to
+ * keep (docs/DATABASE.md §9). Defaulting to the real current year keeps
+ * that promise as the clock moves, the same way `is_overdue` itself is
+ * computed on read rather than written once (§6/§8).
  */
-function parseShortDate(input: string, year = 2026): string {
+function parseShortDate(input: string, year = new Date().getFullYear()): string {
   const match = input.match(/(\d{2})\/(\d{2})\s*$/);
   if (!match) throw new Error(`seed: cannot parse date "${input}"`);
   const [, d, m] = match;
