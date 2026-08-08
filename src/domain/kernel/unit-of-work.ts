@@ -67,3 +67,39 @@ export async function runCommand<I, O>(
     return result;
   }) as Promise<O>;
 }
+
+/**
+ * Runs a read in a scoped, read-only transaction.
+ *
+ * Read-only is not decoration: OPS §1 says "queries never change state", and
+ * a transaction the database refuses writes on turns that from a naming
+ * convention into something enforced. A query that grows an `insert` during a
+ * hurried afternoon fails loudly instead of quietly becoming a command with no
+ * audit record.
+ *
+ * `set local role olibra_app` is what actually makes the tenant scoping bite.
+ * DB §3 (see `docs/DATABASE.md`) is explicit that every connection in this
+ * codebase — dev and test alike — authenticates as `olibra`, a bypassrls
+ * superuser, until S3 wires up a real non-superuser application role; a
+ * superuser ignores row-level security regardless of what `set_config`
+ * claims the shelf is. `tests/invariants/inv-10-tenant-isolation.test.ts`
+ * already leans on exactly this: `set local role olibra_app` works today
+ * because a superuser may always switch into an unprivileged role, and once
+ * switched, RLS applies. `runQuery` does the same switch so that scoping is a
+ * property of the function rather than of the caller remembering to ask for
+ * it — DATABASE.md §3 flags this same switch as still-missing on the write
+ * side (`runCommand`), which is why `INV-10: a query scoped to shelf A cannot
+ * see shelf B's books`-style enforcement was never structural until now.
+ */
+export async function runQuery<O>(
+  sql: Sql,
+  ctx: TenantContext,
+  query: (tx: Tx, ctx: TenantContext) => Promise<O>,
+): Promise<O> {
+  return sql.begin(async (tx) => {
+    await tx`set transaction read only`;
+    await tx`select set_config('olibra.bookshelf_id', ${ctx.bookshelfId}, true)`;
+    await tx`set local role olibra_app`;
+    return query(tx as Tx, ctx);
+  }) as Promise<O>;
+}
