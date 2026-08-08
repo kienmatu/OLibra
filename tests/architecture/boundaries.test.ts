@@ -1,44 +1,6 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-
-function filesUnder(dir: string): string[] {
-  let out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) out = out.concat(filesUnder(path));
-    else if (path.endsWith(".ts")) out.push(path);
-  }
-  return out;
-}
-
-/**
- * Crude removal of block comments, line comments, and string literals.
- *
- * Not a parser — just enough to keep the Bun-usage check below from tripping
- * on a comment or string that merely contains the text "Bun.". Known gaps:
- * block comments are stripped *before* strings, so a string literal
- * containing a slash-star sequence is read as the start of a block comment,
- * and everything up to the next comment-close marker — including real code —
- * is deleted as if it were a comment. That is a false negative (code that
- * should have tripped the check silently vanishes instead), not a crash, and
- * it does not happen anywhere in this codebase today. An expression embedded
- * in a template literal
- * (`` `${Bun.file()}` ``) is stripped along with the surrounding backticks,
- * so usage written that way would also be missed. Good enough for a
- * same-repo architecture test; it is deliberately not a parser and makes no
- * claim to be one.
- */
-function stripCommentsAndStrings(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""') // double-quoted strings
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''") // single-quoted strings
-    .replace(/`(?:[^`\\]|\\.)*`/g, "``") // template literals
-    .replace(/\/\/.*$/gm, ""); // line comments (after strings, so a "//"
-  // inside a string — e.g. a URL — has already been replaced and can't be
-  // mistaken for a comment marker)
-}
+import { filesUnder, stripCommentsAndStrings } from "../support/source-text";
 
 test("the domain imports no framework", () => {
   // G1 / SDD §3.1. This is what keeps the backend's location (SDD §3.4) a

@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
+import { filesUnder, stripCommentsAndStrings } from "../support/source-text";
 
 /**
  * SDD §6.8's portability claim, as tests rather than as a sentence.
@@ -22,44 +22,10 @@ import { expect, test } from "vitest";
  * because it looked convenient.
  */
 
-function filesUnder(dir: string): string[] {
-  let out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) out = out.concat(filesUnder(path));
-    else if (path.endsWith(".ts") || path.endsWith(".tsx")) out.push(path);
-  }
-  return out;
-}
-
 /** Every module specifier in `source`, however the import is spelled. */
 function importSpecifiers(source: string): string[] {
   const pattern = /\b(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
   return [...source.matchAll(pattern)].map((m) => m[1]);
-}
-
-/**
- * Comments and string literals removed, so the two environment checks below
- * see code and only code.
- *
- * They need it more than they might appear to: `src/storage/s3.ts` documents
- * *why* it reads the environment from one place, and does so by naming
- * `process.env` several times in prose sitting above the function. Counting
- * raw occurrences would make the module fail its own test for explaining
- * itself, which is the wrong incentive to build into the suite.
- *
- * A deliberate small copy of `boundaries.test.ts`'s helper rather than a
- * shared one — same known gaps (a string containing a block-comment opener is
- * misread, which is a false negative and happens nowhere in this repo), and
- * the same disclaimer applies: it is not a parser and does not claim to be.
- */
-function stripCommentsAndStrings(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
-    .replace(/`(?:[^`\\]|\\.)*`/g, "``")
-    .replace(/\/\/.*$/gm, "");
 }
 
 test("no MinIO SDK is a dependency", () => {
@@ -104,14 +70,46 @@ const S3_VARIABLES = [
   "S3_SECRET_ACCESS_KEY",
 ];
 
-test("the object store reads exactly the seven documented S3 variables", () => {
+/**
+ * Every file in the storage module, as code with comments and strings removed.
+ *
+ * The whole directory, not `s3.ts`. Both checks below used to read that one
+ * hard-coded path, and the escape from them was not adversarial — it was the
+ * ordinary next file. A reviewer added `src/storage/env-extra.ts` reading an
+ * eighth variable *and* `DATABASE_URL`, imported it from `s3.ts`, and all four
+ * tests here stayed green. `src/storage/config.ts` or `src/storage/r2.ts` is
+ * what that looks like when nobody is trying.
+ *
+ * ## What this still does not catch, stated rather than implied
+ *
+ * These are text checks, and the following are known to slip through. They are
+ * left uncaught deliberately — each is a deliberate evasion rather than a thing
+ * someone does by accident, and chasing them means writing a parser, which is a
+ * larger surface to be subtly wrong in than the rule it would be guarding:
+ *
+ * - `const leaked = process.env;` inside `s3ConfigFromEnv`, then `leaked.X`
+ *   anywhere else in the module.
+ * - `import.meta.env.X`, which is a different expression entirely.
+ * - `process["env"].X`, which the string-stripping above turns into
+ *   `process[""].X` before either regex ever sees it.
+ *
+ * The claim these tests support is therefore "no eighth variable arrived by
+ * ordinary means", which is the failure that actually happens.
+ */
+const STORAGE_SOURCES = filesUnder("src/storage").map((file) => ({
+  file,
+  code: stripCommentsAndStrings(readFileSync(file, "utf8")),
+}));
+
+test("the storage module reads exactly the seven documented S3 variables", () => {
   // Each name is read as a literal property access in `s3ConfigFromEnv` — a
   // `process.env[name]` lookup inside a helper would be invisible here, and
   // this test would then pass over a module reading whatever it liked. That is
   // why the implementation writes each name twice and says so.
-  const source = stripCommentsAndStrings(readFileSync("src/storage/s3.ts", "utf8"));
-  const read = [...source.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)].map(
-    (m) => m[1],
+  expect(STORAGE_SOURCES.length).toBeGreaterThan(0);
+
+  const read = STORAGE_SOURCES.flatMap(({ code }) =>
+    [...code.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]),
   );
 
   expect([...new Set(read)].sort()).toEqual([...S3_VARIABLES].sort());
@@ -119,22 +117,28 @@ test("the object store reads exactly the seven documented S3 variables", () => {
 
 test("only s3ConfigFromEnv reads the environment", () => {
   // The criterion above is only meaningful if there is one place to look. A
-  // module that reached for `process.env.S3_BUCKET` from three functions would
-  // still satisfy the name check while making "and nothing else" a claim
-  // nobody can verify without re-reading the whole file — and would leave the
-  // suite unable to point a store at a test bucket without mutating
-  // `process.env`, which under `fileParallelism: false` leaks into every later
-  // file in the same worker.
-  const source = stripCommentsAndStrings(readFileSync("src/storage/s3.ts", "utf8"));
-  const start = source.indexOf("export function s3ConfigFromEnv");
-  expect(start).toBeGreaterThan(-1);
+  // module that reached for `process.env.S3_BUCKET` from three functions — or,
+  // as above, from a second file — would still satisfy the name check while
+  // making "and nothing else" a claim nobody can verify without re-reading the
+  // whole directory. It would also leave the suite unable to point a store at a
+  // test bucket without mutating `process.env`, which under
+  // `fileParallelism: false` leaks into every later file in the same worker.
+  const declaring = STORAGE_SOURCES.filter(({ code }) =>
+    code.includes("export function s3ConfigFromEnv"),
+  );
+  expect(declaring.map((s) => s.file)).toEqual(["src/storage/s3.ts"]);
 
+  const source = declaring[0].code;
+  const start = source.indexOf("export function s3ConfigFromEnv");
   // The function's closing brace: the first `}` at column zero after it.
   const end = source.indexOf("\n}", start);
   expect(end).toBeGreaterThan(start);
   const body = source.slice(start, end);
 
-  const inFile = [...source.matchAll(/process\.env/g)].length;
+  const inModule = STORAGE_SOURCES.reduce(
+    (n, { code }) => n + [...code.matchAll(/process\.env/g)].length,
+    0,
+  );
   const inFunction = [...body.matchAll(/process\.env/g)].length;
-  expect(inFunction).toBe(inFile);
+  expect(inFunction).toBe(inModule);
 });
