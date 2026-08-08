@@ -7,6 +7,25 @@ beforeAll(() => migrate(sql));
 beforeEach(resetDatabase);
 afterAll(closeAll);
 
+/**
+ * "Yesterday", in the timezone the view actually compares against.
+ *
+ * `current_date` is the *session's* date, and the session is UTC here — but
+ * `loans_current` compares `due_on` against
+ * `(olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date`, because a book is
+ * due at the end of a day and not at 17:00 on it (`Clock.today()` says the
+ * same thing on the TypeScript side).
+ *
+ * Between 17:00Z and midnight those two dates differ, so a fixture built from
+ * `current_date` was off by one for seven hours out of every twenty-four:
+ * `days_remaining` read −2 where this file asserts −1, and the failure
+ * appeared and disappeared on a daily cycle with no commit behind it. It went
+ * unnoticed because CI happened to run before 17:00Z. This is the exact hazard
+ * DATABASE.md §2.2 names — never rely on the session `TimeZone` for
+ * correctness.
+ */
+const APP_TODAY = sql`(olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date`;
+
 test("a loan becomes overdue at midnight with no job running", async () => {
   // BR §8: any status a background job must write is stale, and therefore
   // wrong, for as long as the job takes to run again. Nothing is scheduled in
@@ -17,7 +36,7 @@ test("a loan becomes overdue at midnight with no job running", async () => {
 
   await sql`
     insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on, status)
-    values (${shelf.id}, ${copyIds[0]}, ${bookId}, ${reader.userId}, ${reader.userId}, current_date - 1, 'active')
+    values (${shelf.id}, ${copyIds[0]}, ${bookId}, ${reader.userId}, ${reader.userId}, ${APP_TODAY} - 1, 'active')
   `;
 
   const [row] = await sql<{ is_overdue: boolean; days_remaining: number }[]>`
@@ -34,7 +53,7 @@ test("a returned loan is never overdue, however old", async () => {
 
   await sql`
     insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on, status, return_condition)
-    values (${shelf.id}, ${copyIds[0]}, ${bookId}, ${reader.userId}, ${reader.userId}, current_date - 400, 'returned', 'perfect')
+    values (${shelf.id}, ${copyIds[0]}, ${bookId}, ${reader.userId}, ${reader.userId}, ${APP_TODAY} - 400, 'returned', 'perfect')
   `;
 
   const [row] = await sql<{ is_overdue: boolean }[]>`
@@ -125,8 +144,8 @@ test("INV-10: loans_current is tenant-scoped for olibra_app", async () => {
   await sql`
     insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on, status)
     values
-      (${a.id}, ${copiesA[0]}, ${bookA}, ${readerA.userId}, ${readerA.userId}, current_date + 7, 'active'),
-      (${b.id}, ${copiesB[0]}, ${bookB}, ${readerB.userId}, ${readerB.userId}, current_date + 7, 'active')
+      (${a.id}, ${copiesA[0]}, ${bookA}, ${readerA.userId}, ${readerA.userId}, ${APP_TODAY} + 7, 'active'),
+      (${b.id}, ${copiesB[0]}, ${bookB}, ${readerB.userId}, ${readerB.userId}, ${APP_TODAY} + 7, 'active')
   `;
 
   const visible = await sql.begin(async (tx) => {
