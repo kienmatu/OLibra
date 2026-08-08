@@ -43,16 +43,36 @@ export interface UpdateBookInput {
  * "unstructured exception from inside the transaction" OPS §2 forbids just
  * as much as a silent data-loss bug would be.
  *
- * The fix either way is the same: never let a bare `undefined` reach a `tx`
- * call. Every nullable, independently-optional column (`publisher`,
- * `publishedYear`, `pageCount`, `isbn`, `description`, `coverUrl`) has its
- * current value read in the `select` below, and the update always binds
- * either the input's new value or that already-known current one — `null`
- * where the column already is `null`, never `undefined`. `title`, `author`,
- * `language` and `published` stay on `coalesce`, which needs no such
- * fallback: they are never legitimately cleared to `null` (a book always has
- * a title), so `input.x ?? null` folding "omitted" and "explicitly null"
- * together is exactly the read `coalesce(..., column)` wants.
+ * **IMPORTANT 3 (fix-report, 2026-08-08-b1-catalogue): the first fix for
+ * that question read `before` and bound it straight back on any omitted
+ * field, which traded the crash for a worse bug.** Reading `publisher` (etc.)
+ * into a JS variable at the top of the command and writing that same
+ * variable back at the bottom makes the `UPDATE` a full-row write: a second
+ * manager's edit to a field *this* call never touched, committed in the
+ * window between this command's own read and its own write, was silently
+ * discarded — verified live with two connections, one editing `title` and
+ * the other `publisher`, the second manager's publisher reverted to the
+ * first manager's stale snapshot the moment the first manager's command
+ * finished. `title`, `author`, `language` and `published` never had this
+ * problem: `coalesce(${x ?? null}, column)` reads `column`'s *current* value
+ * inside the same `UPDATE` statement, atomically, rather than from a value
+ * fetched earlier — which is exactly why they stay on `coalesce`. They are
+ * also never legitimately cleared to `null` (a book always has a title), so
+ * folding "omitted" and "explicitly null" together is safe for them and
+ * would not be for the rest.
+ *
+ * Every other column — `categoryId` (derived from `categorySlug`),
+ * `publisher`, `publishedYear`, `pageCount`, `isbn`, `description`,
+ * `coverUrl` — can be legitimately cleared to `null`, so `coalesce` cannot
+ * tell "omitted" from "explicitly null" for them. Each instead gets a
+ * `has<Field>` flag (`input.x !== undefined`, computed once, before any
+ * `await`) and a `case when ${hasX} then ${input.x ?? null} else column end`
+ * in the `UPDATE`: when the caller did not name the field, the `else`
+ * branch reads the column's own current value inside the same atomic
+ * statement — never a value this command fetched earlier — so a concurrent
+ * edit to a field this call never touched survives untouched. When the
+ * caller *did* name the field, `${input.x ?? null}` writes exactly what was
+ * asked for, `null` included.
  */
 export const updateBook: Command<UpdateBookInput, void> = async (
   tx,
@@ -61,35 +81,50 @@ export const updateBook: Command<UpdateBookInput, void> = async (
 ) => {
   requireManager(ctx);
 
+  // IMPORTANT 3: only the columns this command still needs a snapshot of —
+  // the existence check, the audit's `before`, and the ISBN clash check.
+  // Every other column's *current* value is read live, inside the `UPDATE`
+  // below, rather than through this snapshot — see this file's docstring.
   const [before] = await tx<
     {
       title: string;
       author: string | null;
       isbn: string | null;
       is_published: boolean;
-      category_id: string | null;
-      publisher: string | null;
-      published_year: number | null;
-      page_count: number | null;
-      description: string | null;
-      cover_url: string | null;
     }[]
   >`
-    select title, author, isbn, is_published, category_id,
-           publisher, published_year, page_count, description, cover_url
+    select title, author, isbn, is_published
     from books where id = ${input.bookId} and deleted_at is null
   `;
   if (!before) throw new NotFound("book_not_found");
 
-  if (input.title !== undefined && input.title.trim() === "") {
+  // M5 (fix-report, 2026-08-08-b1-catalogue): trimmed once, reused for both
+  // the write below and the audit entry, so the two can never disagree the
+  // way a raw `input.title` in the write and a `.trim()`ed one in the audit
+  // used to.
+  const trimmedTitle = input.title?.trim();
+  const trimmedAuthor = input.author?.trim();
+  if (trimmedTitle === "") {
     throw new ValidationFailed("validation_failed", "title");
   }
-  if (input.author !== undefined && input.author.trim() === "") {
+  if (trimmedAuthor === "") {
     throw new ValidationFailed("validation_failed", "author");
   }
 
-  let categoryId = before.category_id;
-  if (input.categorySlug !== undefined) {
+  // IMPORTANT 3: one `has<Field>` flag per nullable, independently-optional
+  // column, computed before any further `await` — see this file's docstring
+  // for why `coalesce` cannot stand in for these the way it does for
+  // `title`/`author`/`language`/`published`.
+  const hasCategory = input.categorySlug !== undefined;
+  const hasPublisher = input.publisher !== undefined;
+  const hasPublishedYear = input.publishedYear !== undefined;
+  const hasPageCount = input.pageCount !== undefined;
+  const hasIsbn = input.isbn !== undefined;
+  const hasDescription = input.description !== undefined;
+  const hasCoverUrl = input.coverUrl !== undefined;
+
+  let categoryId: string | null = null;
+  if (hasCategory) {
     const [category] = await tx<{ id: string }[]>`
       select id from categories where slug = ${input.categorySlug} and deleted_at is null
     `;
@@ -112,28 +147,17 @@ export const updateBook: Command<UpdateBookInput, void> = async (
     if (clash.length > 0) throw new RuleViolated("duplicate_isbn");
   }
 
-  const publisher =
-    input.publisher !== undefined ? input.publisher : before.publisher;
-  const publishedYear =
-    input.publishedYear !== undefined ? input.publishedYear : before.published_year;
-  const pageCount =
-    input.pageCount !== undefined ? input.pageCount : before.page_count;
-  const isbn = input.isbn !== undefined ? input.isbn : before.isbn;
-  const description =
-    input.description !== undefined ? input.description : before.description;
-  const coverUrl = input.coverUrl !== undefined ? input.coverUrl : before.cover_url;
-
   const result = await tx`
     update books set
-      category_id    = ${categoryId},
-      title          = coalesce(${input.title ?? null}, title),
-      author         = coalesce(${input.author ?? null}, author),
-      publisher      = ${publisher},
-      published_year = ${publishedYear},
-      page_count     = ${pageCount},
-      isbn           = ${isbn},
-      description    = ${description},
-      cover_url      = ${coverUrl},
+      category_id    = case when ${hasCategory} then ${categoryId} else category_id end,
+      title          = coalesce(${trimmedTitle ?? null}, title),
+      author         = coalesce(${trimmedAuthor ?? null}, author),
+      publisher      = case when ${hasPublisher} then ${input.publisher ?? null} else publisher end,
+      published_year = case when ${hasPublishedYear} then ${input.publishedYear ?? null} else published_year end,
+      page_count     = case when ${hasPageCount} then ${input.pageCount ?? null} else page_count end,
+      isbn           = case when ${hasIsbn} then ${input.isbn ?? null} else isbn end,
+      description    = case when ${hasDescription} then ${input.description ?? null} else description end,
+      cover_url      = case when ${hasCoverUrl} then ${input.coverUrl ?? null} else cover_url end,
       language       = coalesce(${input.language ?? null}, language),
       is_published   = coalesce(${input.published ?? null}, is_published)
     where id = ${input.bookId} and deleted_at is null
@@ -153,9 +177,9 @@ export const updateBook: Command<UpdateBookInput, void> = async (
         isPublished: before.is_published,
       },
       after: {
-        title: input.title?.trim() ?? before.title,
-        author: input.author?.trim() ?? before.author,
-        isbn,
+        title: trimmedTitle ?? before.title,
+        author: trimmedAuthor ?? before.author,
+        isbn: hasIsbn ? (input.isbn ?? null) : before.isbn,
         isPublished: input.published ?? before.is_published,
       },
     },

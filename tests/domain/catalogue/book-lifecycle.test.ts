@@ -7,7 +7,13 @@ import { updateBook } from "../../../src/domain/catalogue/commands/update-book";
 import { deleteBook } from "../../../src/domain/catalogue/commands/delete-book";
 import { migrate } from "../../../src/db/migrate";
 import { makeBookWithCopies, makeMember, makeShelf } from "../../support/factories";
-import { closeAll, resetDatabase, sql } from "../../support/db";
+import {
+  closeAll,
+  resetDatabase,
+  sql,
+  withDelayedQuery,
+  withTwoConnections,
+} from "../../support/db";
 
 beforeAll(() => migrate(sql));
 beforeEach(resetDatabase);
@@ -93,6 +99,80 @@ test("UpdateBook writes only the fields it was given, and audits before and afte
     title: "Dế Mèn Phiêu Lưu Ký",
     isPublished: false,
   });
+});
+
+test("IMPORTANT 3: a concurrent edit to a field this call never named is not silently reverted", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. The first fix for the
+  // undefined-binding question read every optional column's current value
+  // up front and bound that same JS value back at the end, which makes the
+  // UPDATE a full-row write: a second manager's commit landing in the
+  // window between this command's own read and its own write was silently
+  // discarded — verified live, with a manually-controlled transaction
+  // reproducing exactly this window, two connections, manager A editing
+  // title, manager B committing a publisher change mid-flight; B's
+  // publisher came back overwritten with A's stale snapshot.
+  //
+  // withDelayedQuery holds connection A's own `before` read open — inside
+  // its own transaction, past its own await — until B's entire, separate
+  // runCommand has committed, so the interleaving is deterministic rather
+  // than a race that might not land in the window at all.
+  const { ctx, bookId } = await catalogued();
+  await sql`update books set publisher = 'NXB Cũ' where id = ${bookId}`;
+
+  await withTwoConnections(async (a, b) => {
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const delayedA = withDelayedQuery(
+      a,
+      (s) => s.includes("select title, author, isbn, is_published"),
+      gate,
+    );
+
+    const pendingA = runCommand(delayedA, ctx, updateBook, {
+      bookId,
+      title: "Tên Mới",
+    });
+    // Give A's own `before` read time to be sent and its (delayed)
+    // resolution queued before B starts.
+    await new Promise((r) => setTimeout(r, 20));
+
+    await runCommand(b, ctx, updateBook, { bookId, publisher: "NXB Mới" });
+    releaseGate();
+    await pendingA;
+  });
+
+  const [row] = await sql<
+    { title: string; publisher: string }[]
+  >`select title, publisher from books where id = ${bookId}`;
+  expect(row.title).toBe("Tên Mới");
+  // The field this call is about, per the docstring on `undefined`-binding.
+  expect(row.publisher).toBe("NXB Mới");
+});
+
+test("M5: an update that trims a title stores the same trimmed value it audits", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. `title = coalesce(${input.title ??
+  // null}, title)` bound the raw, untrimmed input, while the audit's `after`
+  // used `input.title?.trim()` — so the row and the audit trail disagreed
+  // about a title with leading/trailing whitespace. Both now come from one
+  // trimmed value.
+  const { ctx, bookId } = await catalogued();
+
+  await runCommand(sql, ctx, updateBook, {
+    bookId,
+    title: "  Tên Có Khoảng Trắng  ",
+  });
+
+  const [row] = await sql<{ title: string }[]>`
+    select title from books where id = ${bookId}
+  `;
+  expect(row.title).toBe("Tên Có Khoảng Trắng");
+
+  const [entry] = await sql<{ after: { title: string } }[]>`
+    select after from audit_log where action = 'book.updated'
+  `;
+  expect(entry.after.title).toBe(row.title);
 });
 
 test("UpdateBook does not move the slug out from under an existing link", async () => {
@@ -220,6 +300,26 @@ test("DeleteBook audits the delete with the retention it performed", async () =>
   >`select action, entity_id, after from audit_log where action = 'book.deleted'`;
   expect(entry.entity_id).toBe(bookId);
   expect(entry.after.copiesDeleted).toBe(2);
+});
+
+test("M6: DeleteBook writes deleted_at through the injected clock, not SQL's now()", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. `update ... set deleted_at = now()`
+  // used Postgres's own clock while the audited `deletedAt` used
+  // `ctx.clock.now()` — under the suite's fixed clock (2026-08-08T03:00:00Z)
+  // those differ by hours, and G6 requires every command to write time
+  // through the injected clock so a test can move it.
+  const { ctx, bookId } = await catalogued(1);
+
+  await runCommand(sql, ctx, deleteBook, { bookId });
+
+  const [book] = await sql<{ deleted_at: Date }[]>`
+    select deleted_at from books where id = ${bookId}
+  `;
+  const [copy] = await sql<{ deleted_at: Date }[]>`
+    select deleted_at from book_copies where book_id = ${bookId}
+  `;
+  expect(book.deleted_at.toISOString()).toBe(clock.now().toISOString());
+  expect(copy.deleted_at.toISOString()).toBe(clock.now().toISOString());
 });
 
 test("a reader can neither edit nor delete", async () => {

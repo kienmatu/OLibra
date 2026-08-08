@@ -43,11 +43,19 @@ export const deleteBook: Command<
   `;
   if (busy.length > 0) throw new RuleViolated("has_active_loans");
 
+  // M6 (fix-report, 2026-08-08-b1-catalogue): `ctx.clock.now()`, captured
+  // once and reused below, not SQL's `now()` — every other command in this
+  // slice writes time through the injected clock (G6), and under the
+  // suite's fixed clock the two disagree by a full UTC/Asia-Ho_Chi_Minh
+  // offset. The audit's `deletedAt` was already `ctx.clock.now()`; these two
+  // row writes now agree with it, and with each other.
+  const deletedAt = ctx.clock.now();
+
   // A copy is "with history" if any loan row references it — including a
   // returned or voided one. Loans are never deleted (INV-11), so this is the
   // permanent record BR §11 means.
   const deleted = await tx`
-    update book_copies set deleted_at = now()
+    update book_copies set deleted_at = ${deletedAt}
     where book_id = ${book.id}
       and deleted_at is null
       and not exists (select 1 from loans l where l.copy_id = book_copies.id)
@@ -58,7 +66,7 @@ export const deleteBook: Command<
     where book_id = ${book.id} and deleted_at is null
   `;
 
-  await tx`update books set deleted_at = now() where id = ${book.id}`;
+  await tx`update books set deleted_at = ${deletedAt} where id = ${book.id}`;
 
   const copiesDeleted = deleted.count ?? 0;
 
@@ -70,7 +78,7 @@ export const deleteBook: Command<
       entityId: book.id,
       before: { title: book.title, deletedAt: null },
       after: {
-        deletedAt: ctx.clock.now().toISOString(),
+        deletedAt: deletedAt.toISOString(),
         copiesDeleted,
         copiesRetained: retained,
       },
