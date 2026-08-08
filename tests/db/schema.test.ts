@@ -30,6 +30,7 @@ const EXPECTED_TABLES = [
   "parish_units",
   "profile_change_requests",
   "schema_migrations",
+  "sessions",
   "users",
 ];
 
