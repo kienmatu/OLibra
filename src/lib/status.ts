@@ -7,6 +7,7 @@ import {
   HelpCircle,
   type LucideIcon,
 } from "lucide-react";
+import type { CopyCondition, CopyState } from "@/domain/catalogue/policy";
 
 /**
  * The six copy states from BUSINESS-REQUIREMENTS §17.2.
@@ -74,6 +75,24 @@ export const STATUS: Record<CopyStatus, StatusDescriptor> = {
   },
 };
 
+/**
+ * `book_copies.state` → the badge that describes it.
+ *
+ * Five of the six badges above; `overdue` is deliberately unreachable from
+ * here, because it is not a copy state at all. BR §8 derives it from the loan
+ * (`loans_current.is_overdue`, computed on read against `olibra_now()`), so a
+ * screen showing an overdue badge must have a *loan* in hand — never a copy
+ * row alone. Spelling the map out this way is what stops a caller from
+ * reaching for "overdue" where it cannot honestly be known.
+ */
+export const COPY_STATE_STATUS: Record<CopyState, CopyStatus> = {
+  available: "available",
+  held: "held",
+  on_loan: "onloan",
+  lost: "lost",
+  retired: "retired",
+};
+
 /** The six condition grades from §9. A flat list, deliberately not a scale. */
 export const CONDITIONS = [
   "Nguyên vẹn",
@@ -85,3 +104,26 @@ export const CONDITIONS = [
 ] as const;
 
 export type Condition = (typeof CONDITIONS)[number];
+
+/**
+ * The Vietnamese word for each value of the `copy_condition` enum.
+ *
+ * Written out as a `Record<CopyCondition, Condition>` rather than zipped
+ * against `CONDITIONS` by index, which is the version that looks tidier and
+ * silently mislabels every copy on the shelf the day somebody reorders either
+ * list. Typed on `CopyCondition`, so adding a seventh grade to
+ * `COPY_CONDITIONS` (`domain/catalogue/policy.ts`) is a compile error here
+ * rather than a picker that quietly cannot offer it.
+ *
+ * The words themselves are not new: they are `CONDITIONS` above, which came
+ * from BR §9. The enum's spellings are the database's, from
+ * `0004_catalogue.sql`. This is the only place the two meet.
+ */
+export const CONDITION_LABELS: Record<CopyCondition, Condition> = {
+  perfect: "Nguyên vẹn",
+  slightly_worn: "Hơi cũ",
+  worn: "Cũ",
+  torn: "Rách",
+  missing_pages: "Mất trang",
+  written_on: "Bị vẽ vào",
+};

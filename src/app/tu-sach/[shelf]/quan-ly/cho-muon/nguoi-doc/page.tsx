@@ -1,61 +1,132 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ChevronRight, Info, Search, UserPlus } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { ButtonLink } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StepIndicator } from "@/components/ui/step-indicator";
-import { describeSelection } from "@/domain/members/parish-taxonomy";
-import {
-  bookBySlug,
-  readers,
-  shelfBySlug,
-  shelves,
-  type Reader,
-} from "@/lib/fixtures";
+import { messageFor } from "@/domain/kernel/errors";
+import { searchReadersForLending } from "@/domain/members/queries/search-readers-for-lending";
+import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
+import { loadPage } from "@/lib/page-data";
+import { param, type SearchParams } from "@/lib/search-params";
+import { readShelf } from "@/lib/shelf";
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
+/**
+ * U1 §2, the same marker every page in this seam carries. A cached render of a
+ * manager screen is RLS never being consulted rather than RLS defeated, and no
+ * `tests/db/` test can see it happen because no SQL is issued.
+ * `tests/architecture/pages-reading-the-database-are-dynamic.test.ts` is the
+ * guard; this line is what it looks for.
+ */
+export const dynamic = "force-dynamic";
 
-/** Derived, not hard-coded: a reader who cannot borrow right now, and why. */
-function blockReason(reader: Reader): string | null {
-  if (reader.membership === "suspended") return "Tài khoản đang tạm khoá";
-  if (reader.holding >= 3) return "Đã mượn tối đa 3 cuốn";
-  return null;
-}
-
+/**
+ * Step 2 of BR §16.3's quick-lend: the reader.
+ *
+ * **Also step 1 of the two-step lend.** OPS §5's "second, shorter entry point"
+ * arrives here directly from a book's detail page with `?sach=` already set,
+ * because the manager is standing at the shelf with the book in their hand.
+ * Nothing about this page is different in that case — the book was chosen
+ * somewhere else either way, and the URL is the only place that fact lives.
+ *
+ * **Blocked readers are listed, never filtered out.** BR §16.3: a blocking
+ * condition surfaces "as a clear message *before* the confirm step". A reader
+ * silently missing from the results sends the volunteer searching again,
+ * wondering whether they typed the name wrong; a row saying "Tài khoản đang
+ * tạm khoá, không thể mượn thêm." tells them what to do instead. The sentence
+ * is `messageFor`'s, and the code behind it is the very one `lendCopy` throws
+ * — `searchReadersForLending` calls `memberMayBorrow`, the predicate the
+ * command applies, rather than composing INV-4 and INV-5 for itself.
+ *
+ * **And that sentence is wrong for two of the four statuses it covers.**
+ * `membershipAllowsNewLoan` (`src/domain/members/policy.ts`) answers
+ * `membership_not_active` for everything that is not `active`, so a reader
+ * whose registration has not been approved yet (`pending`) and one who has
+ * left the shelf (`left`) are both told their account is temporarily locked.
+ * U1 is the first slice to show any of them to a volunteer and U1 §7 records
+ * it; the fix is the same one-code-one-sentence split `errors.ts` has already
+ * made three times, and it belongs to B2's membership lifecycle rather than
+ * here — this page must keep rendering whichever code the domain hands it, or
+ * the screen and the command stop agreeing.
+ */
 export default async function ChoMuonNguoiDocPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  /** Every parameter, at the shape Next actually delivers — `search-params.ts`. */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
+  const search = await searchParams;
+  const sach = param(search, "sach");
+  const query = param(search, "q") ?? "";
 
-  const base = `/tu-sach/${shelf.slug}/quan-ly`;
-  const book = bookBySlug("de-men-phieu-luu-ky")!;
+  const { shelf, book, copy, readers } = await loadPage(slug, async (tx, ctx) => {
+    const shelf = await readShelf(tx, ctx);
+    const book = await bookFromSlug(tx, ctx, sach);
+    return {
+      shelf,
+      book,
+      // Shown beside the title, so the volunteer sees the shelf-mark they are
+      // about to hand over one step before they are asked to confirm it. It is
+      // the same copy `xac-nhan` resolves — `chooseCopyToLend` is deterministic
+      // (the lowest code) precisely so the two screens agree.
+      copy: book ? chooseCopyToLend(book).copy : null,
+      readers: await searchReadersForLending(tx, ctx, {
+        q: query,
+        // BR §5.5, read from the shelf rather than defaulted to 3 here. A shelf
+        // that raised its own limit would otherwise have this list refuse a
+        // reader `lendCopy` would accept — the disagreement BR §16.3 exists to
+        // prevent, in its worse direction.
+        maxConcurrentLoans: shelf.maxConcurrentLoans,
+      }),
+    };
+  });
+
+  const base = `/tu-sach/${slug}/quan-ly`;
+  // Every link out of this page keeps the book. Written once: `?sach=` is the
+  // whole of the state carried from step 1, and a link that dropped it would
+  // silently restart the flow.
+  const carrying = (extra?: Record<string, string>) =>
+    new URLSearchParams({ ...(sach ? { sach } : {}), ...extra }).toString();
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="cho-muon">
+    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="cho-muon">
       <StepIndicator
         steps={["Tìm sách", "Chọn người đọc", "Xác nhận"]}
         current={2}
       />
 
       <div className="mt-6 flex max-w-xl items-center gap-3 rounded-card border border-hairline bg-paper p-4">
-        <BookCover title={book.title} className="w-12 text-[1rem]" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] text-meta">Sách đã chọn</p>
-          <BookTitle className="block truncate text-base leading-snug">
-            {book.title}
-          </BookTitle>
-          <p className="truncate text-[14px] text-meta">
-            {book.author} · Bản DT-0142
+        {book ? (
+          <>
+            <BookCover title={book.book.title} className="w-12 text-[1rem]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] text-meta">Sách đã chọn</p>
+              <BookTitle className="block truncate text-base leading-snug">
+                {book.book.title}
+              </BookTitle>
+              <p className="truncate text-[14px] text-meta">
+                {book.book.author}
+                {/* The shelf-mark only when there is a copy to name. A title
+                    whose copies are all out has none, and inventing one here
+                    would promise a physical object that is not on the shelf. */}
+                {copy ? ` · Bản ${copy.code}` : null}
+              </p>
+            </div>
+          </>
+        ) : (
+          // No `?sach=`, or one naming a book this shelf does not have. Not a
+          // 404: the page itself is perfectly real and the volunteer is one tap
+          // from fixing it, so it says which of the two things is missing and
+          // points back at step 1. The sentence is the domain's own
+          // (`book_not_found`), never wording invented here.
+          <p className="min-w-0 flex-1 text-[15px] text-meta">
+            {messageFor("book_not_found")}
           </p>
-        </div>
+        )}
         <Link
           href={`${base}/cho-muon`}
           className="inline-flex min-h-11 shrink-0 items-center rounded-control px-3 text-[14px] font-medium text-sage hover:underline"
@@ -68,81 +139,92 @@ export default async function ChoMuonNguoiDocPage({
         Chọn người đọc
       </h1>
 
-      <div className="mt-5 max-w-xl">
+      <form action={`${base}/cho-muon/nguoi-doc`} className="mt-5 max-w-xl">
+        {/* The chosen book rides through the search as a hidden field. A GET
+            form replaces the whole query string, so without this, searching for
+            a reader would quietly drop the book and send the volunteer back to
+            an empty step 2. */}
+        {sach ? <input type="hidden" name="sach" value={sach} /> : null}
         <Input
+          name="q"
           icon={Search}
+          defaultValue={query}
           placeholder="Tìm theo tên"
           aria-label="Tìm người đọc"
           className="h-14 text-[17px]"
         />
-      </div>
+      </form>
 
-      <ul className="mt-6 max-w-2xl divide-y divide-hairline border-y border-hairline">
-        {readers.map((reader) => {
-          const reason = blockReason(reader);
-          const initial = reader.name.charAt(0).toUpperCase();
+      {readers.length > 0 ? (
+        <ul className="mt-6 max-w-2xl divide-y divide-hairline border-y border-hairline">
+          {readers.map((reader) => {
+            const initial = reader.fullName.charAt(0).toUpperCase();
 
-          const rowInner = (
-            <>
-              <span
-                aria-hidden
-                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
-              >
-                {initial}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[16px] font-medium">
-                  {reader.fullName}
-                </p>
-                <p className="truncate text-[14px] text-meta">
-                  {describeSelection(shelf.parishTaxonomy, shelf.parishUnits, {
-                    l1: reader.parishUnitL1Id,
-                    l2: reader.parishUnitL2Id,
-                  }) || "Chưa có"}
-                </p>
-                {reason ? (
-                  <p className="mt-1 flex items-center gap-1.5 text-[13px] text-meta">
-                    <Info aria-hidden className="size-3.5" strokeWidth={1.75} />
-                    {reason}
-                  </p>
-                ) : null}
-              </div>
-              {!reason ? (
-                <ChevronRight
+            const rowInner = (
+              <>
+                <span
                   aria-hidden
-                  className="size-5 shrink-0 text-meta"
-                  strokeWidth={1.75}
-                />
-              ) : null}
-            </>
-          );
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
+                >
+                  {initial}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[16px] font-medium">
+                    {reader.fullName}
+                  </p>
+                  <p className="truncate text-[14px] text-meta">
+                    {reader.parishLine || "Chưa có"}
+                  </p>
+                  {reader.block.blocked ? (
+                    <p className="mt-1 flex items-center gap-1.5 text-[13px] text-meta">
+                      <Info aria-hidden className="size-3.5" strokeWidth={1.75} />
+                      {messageFor(reader.block.reason)}
+                    </p>
+                  ) : null}
+                </div>
+                {!reader.block.blocked ? (
+                  <ChevronRight
+                    aria-hidden
+                    className="size-5 shrink-0 text-meta"
+                    strokeWidth={1.75}
+                  />
+                ) : null}
+              </>
+            );
 
-          if (reason) {
+            if (reader.block.blocked) {
+              return (
+                // No aria-disabled: the listitem role does not support it. The
+                // row carries no control, and the inline reason states plainly
+                // why this reader cannot be chosen.
+                <li
+                  key={reader.membershipId}
+                  className="flex items-center gap-3 bg-paper py-3.5"
+                >
+                  {rowInner}
+                </li>
+              );
+            }
+
             return (
-              // No aria-disabled: the listitem role does not support it. The
-              // row carries no control, and the inline reason states plainly
-              // why this reader cannot be chosen.
-              <li
-                key={reader.id}
-                className="flex items-center gap-3 bg-paper py-3.5"
-              >
-                {rowInner}
+              <li key={reader.membershipId}>
+                <Link
+                  href={`${base}/cho-muon/xac-nhan?${carrying({
+                    "nguoi-doc": reader.membershipId,
+                  })}`}
+                  className="flex items-center gap-3 py-3.5 hover:bg-paper"
+                >
+                  {rowInner}
+                </Link>
               </li>
             );
-          }
-
-          return (
-            <li key={reader.id}>
-              <Link
-                href={`${base}/cho-muon/xac-nhan`}
-                className="flex items-center gap-3 py-3.5 hover:bg-paper"
-              >
-                {rowInner}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+          })}
+        </ul>
+      ) : query.trim() ? (
+        <p className="mt-6 max-w-2xl text-[15px] text-meta">
+          {messageFor("membership_not_found")}
+        </p>
+      ) : null}
 
       <ButtonLink
         href={`${base}/nguoi-doc/moi`}

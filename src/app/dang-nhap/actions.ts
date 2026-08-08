@@ -2,7 +2,7 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { connect } from "@/db/client";
+import { pool } from "@/db/client";
 import { RuleViolated } from "@/domain/kernel/errors";
 import { systemClock } from "@/domain/kernel/clock";
 import { landingShelfFor } from "@/auth/guards";
@@ -46,7 +46,11 @@ export async function signInAction(formData: FormData): Promise<void> {
   const userAgent = hdrs.get("user-agent");
   const ipAddress = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
 
-  const sql = connect();
+  // U1: the process-wide pool, not a connection of this action's own. It is
+  // never `end()`ed — see `pool()` — which is why the `finally` that used to
+  // sit on the try below is gone rather than moved: closing it here would
+  // close it for every page render too.
+  const sql = pool();
   const outcome = await (async () => {
     try {
       const { token, userId } = await signIn(sql, {
@@ -66,8 +70,6 @@ export async function signInAction(formData: FormData): Promise<void> {
         return { ok: false as const };
       }
       throw err;
-    } finally {
-      await sql.end();
     }
   })();
 
@@ -99,14 +101,9 @@ export async function signOutAction(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
 
-  if (token) {
-    const sql = connect();
-    try {
-      await signOut(sql, token);
-    } finally {
-      await sql.end();
-    }
-  }
+  // Same pool, same reason (see `signInAction` above): shared and never
+  // closed, so there is nothing here to unwind in a `finally`.
+  if (token) await signOut(pool(), token);
 
   jar.delete(SESSION_COOKIE);
   redirect("/");

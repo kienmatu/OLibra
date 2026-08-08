@@ -96,6 +96,36 @@ import { expect, test } from "vitest";
  * `keeper_phone`, `keeper_name` or `created_by`, which are what BR §16.1
  * withholds and what this guard exists for.
  *
+ * `src/lib/shelf.ts` (U1 Task 3) is the first exemption on the *surface* side
+ * of the boundary rather than inside `src/domain`, and it is worth saying why
+ * the argument still holds there. `readShelf` reads the shelf's name for the
+ * manager chrome and BR §5.5's `max_concurrent_loans` for the lending screens,
+ * the second as `coalesce((settings->>'max_concurrent_loans')::int, 3)` — the
+ * identical read `lend-copy.ts` is already exempted for, producing the
+ * identical integer. `ShelfPageData` carries that integer and the name;
+ * `settings` itself never leaves the function, and nothing derived from it
+ * beyond the integer does.
+ *
+ * The difference from the five entries above is real and does not rescue
+ * itself: `readShelf` runs on the `Tx` `loadPage` hands a page, *before* any
+ * `requireManager` in the query beside it, so unlike a `Command` body it is
+ * genuinely reachable from a request with no session. What makes that
+ * harmless is that it is reachable only with the *shelf's own id already
+ * resolved* and only through `runQuery`'s scoped transaction — and, more to
+ * the point, that nothing it returns reaches a response a stranger sees:
+ * every page calling it also calls a manager-gated query, whose
+ * `RuleViolated("not_permitted")` `loadPage` turns into a 404 before a byte
+ * of HTML is rendered. The column list is what this guard protects, and this
+ * one names two columns: `name`, which BR §16.1 publishes to the portal
+ * anyway, and `settings`, which is exempted here and nowhere else on the
+ * surface.
+ *
+ * Deliberately **not** solved by defaulting to 3 on the page. A shelf that
+ * overrides `max_concurrent_loans` would then have its reader search block at
+ * three while `lendCopy` allowed four — BR §16.3's screen-and-command
+ * disagreement, in the direction that turns a child away from a book that is
+ * actually there.
+ *
  * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
  * per-column, not per-file.** All three justifications above are for reading
  * `settings`, and only `settings`, out of these files — none of them are a
@@ -113,6 +143,7 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   "src/domain/members/parish-context.ts": ["settings"],
   "src/domain/circulation/commands/lend-copy.ts": ["settings"],
   "src/domain/circulation/commands/receive-return.ts": ["settings"],
+  "src/lib/shelf.ts": ["settings"],
 };
 
 // The whole point of §16.1: a person with no membership has no business

@@ -1,57 +1,16 @@
-import { AlertTriangle, Clock, Hand, Lock, type LucideIcon } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
+import { ERROR_STATES } from "@/lib/error-states";
 
 export const metadata = { title: "Các trang lỗi khác — OLibra" };
 
-type Panel = {
-  key: string;
-  caption: string;
-  icon: LucideIcon;
-  ink: string;
-  heading: string;
-  body: string;
-  action: string;
-};
-
-const PANELS: Panel[] = [
-  {
-    key: "403",
-    caption: "403 — không có quyền",
-    icon: Lock,
-    ink: "text-leather",
-    heading: "Trang này chỉ dành cho quản lý",
-    body: "Tài khoản của em không mở được trang này. Nếu em nghĩ đây là nhầm lẫn, nhắn cho quản lý tủ sách giúp nhé.",
-    action: "Về trang của em",
-  },
-  {
-    key: "het-phien",
-    caption: "Phiên đăng nhập hết hạn",
-    icon: Clock,
-    ink: "text-leather",
-    heading: "Em cần đăng nhập lại",
-    body: "Em đã không dùng trang trong một lúc lâu nên tủ sách tự đăng xuất cho an toàn.",
-    action: "Đăng nhập lại",
-  },
-  {
-    key: "429",
-    caption: "Quá nhiều yêu cầu",
-    icon: Hand,
-    ink: "text-brick",
-    heading: "Chậm lại một chút nhé",
-    body: "Em vừa gửi hơi nhiều yêu cầu trong thời gian ngắn. Em chờ khoảng một phút rồi thử lại.",
-    action: "Thử lại",
-  },
-  {
-    key: "500",
-    caption: "500 — lỗi máy chủ",
-    icon: AlertTriangle,
-    ink: "text-brick",
-    heading: "Tủ sách đang gặp trục trặc",
-    body: "Lỗi từ phía tủ sách, không phải do em. Ban quản trị đã được báo và đang xem.",
-    action: "Thử lại",
-  },
-];
+/**
+ * The reference sheet. The panels themselves moved to `src/lib/error-states.ts`
+ * when `src/app/error.tsx` started rendering the server-failure one for real —
+ * this page shows all four, the boundary uses that one, and both read the same
+ * objects so a reworded sentence cannot end up meaning two things.
+ */
+const PANELS = ERROR_STATES;
 
 export default function ErrorStatesSheetPage() {
   return (

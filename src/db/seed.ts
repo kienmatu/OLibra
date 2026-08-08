@@ -311,6 +311,38 @@ export async function seed(sql: Sql): Promise<void> {
     // `lent_by` on every loan the seed writes.
     const lenderId = userIdByReaderId.get("lan")!;
 
+    // U1: and she is a `manager`, not a `reader`.
+    //
+    // The loop above writes `role: 'reader'` for everyone, because
+    // `fixtures.ts`'s `Reader` type carries a membership *status* and no role
+    // at all. That left the seeded data contradicting the rule the domain
+    // enforces: every loan below names her as `lent_by`, and `LendCopy`
+    // (`src/domain/circulation/commands/lend-copy.ts`) opens with
+    // `requireManager`. A shelf whose entire loan history was lent by somebody
+    // who could not have lent any of it is not a faithful starting position.
+    //
+    // It is also the difference between the manager screens being reachable
+    // and not. Before this, `bun run db:seed` produced eleven readers, no
+    // manager and no super_admin, so *every* `/quan-ly` page answered 404 to
+    // every seeded account — which is correct behaviour (U1 §3.4) against data
+    // that made it impossible to see any other outcome. `scripts/check-links
+    // .mjs` crawls as this account for exactly that reason.
+    //
+    // Only this shelf's keeper, and only on her own shelf. Not because the
+    // other three name no keeper — the loop above writes `keeper_name` for all
+    // four, from `fixtures.ts`'s `shelf.keeper` — but because those three
+    // keepers are not seeded *accounts*. `fixtures.ts` gives each of the other
+    // shelves one reader, and none of them is the person named as its keeper,
+    // so there is no membership to promote and promoting somebody else would
+    // be inventing a manager the fixtures never described. Đồng Tháp is the
+    // one shelf where the two coincide: its `keeper_name` is "Maria Nguyễn Thị
+    // Lan", and she is also reader "lan", the account this promotes.
+    await tx`
+      update memberships
+         set role = 'manager'
+       where user_id = ${lenderId} and bookshelf_id = ${dongThapId}
+    `;
+
     // ── 6. Loans ─────────────────────────────────────────────────────────
     // `loans.status` is UI shorthand for "onloan" vs "overdue" — in the
     // database both are simply 'active' (DATABASE.md §6: overdue is
