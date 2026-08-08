@@ -224,6 +224,27 @@ test("INV-10: a manager of one shelf cannot set credentials on another shelf's r
   expect(Number(count)).toBe(0);
 });
 
+test("IMPORTANT 4: a soft-deleted identity cannot receive new credentials", async () => {
+  // Narrower than the identity-slice Critical: signIn and resolveSession both
+  // filter deleted_at, so credentials written here could never be used to
+  // sign in. But the membership select alone does not join users at all, so
+  // nothing stops the write from landing on a deleted identity — latent today
+  // because nothing soft-deletes a users row yet, live the moment something
+  // does.
+  const { ctx, reader } = await shelfWithReader();
+  await sql`update users set deleted_at = now() where id = ${reader.userId}`;
+
+  await expect(
+    runCommand(sql, ctx, setReaderCredentials, {
+      membershipId: reader.id,
+      username: "tranminh",
+      password: "matkhau123",
+    }),
+  ).rejects.toMatchObject({ code: "membership_not_found" });
+
+  expect((await credentialsOf(reader.userId)).username).toBeNull();
+});
+
 test("a reader cannot set anyone's credentials, including their own", async () => {
   // BR §2 makes this a manager's act specifically. A reader changing their own
   // password is ChangeOwnPassword, which needs the current one.

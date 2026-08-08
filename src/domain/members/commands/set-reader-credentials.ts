@@ -58,6 +58,17 @@ import { hashFor } from "../registration";
  * this shelf — is the entire protection between a manager of one parish and
  * every account in the system. That is why the input is a `membershipId` and
  * why there is no `userId` parameter to get wrong.
+ *
+ * **5. The identity itself must not be soft-deleted.** IMPORTANT 4
+ * (fix-report, 2026-08-08-b2-members): the membership select joins `users`
+ * with `deleted_at is null`, the same predicate `changeOwnPassword` reaches
+ * `users` through and `getReaderDetail`/`getReadersList` already filter on.
+ * Narrower than an identity-slice Critical would be — `signIn` and
+ * `resolveSession` both filter `deleted_at` too, so a credential written onto
+ * a deleted row could never be used to sign in — but a manager should never
+ * see this command succeed against a reader every other screen already
+ * refuses to show. Nothing soft-deletes a `users` row yet, which is exactly
+ * why this was easy to miss and why it must not stay missing.
  */
 export const setReaderCredentials: Command<
   { membershipId: string; username: string; password: string },
@@ -73,10 +84,13 @@ export const setReaderCredentials: Command<
   // RLS scopes this to ctx.bookshelfId. A membership on another shelf is
   // filtered to zero rows, so the sentence a cross-shelf caller gets is
   // "Không tìm thấy bạn đọc này." — which is also the honest one: as far as
-  // this shelf is concerned, there is no such reader.
+  // this shelf is concerned, there is no such reader. The join onto `users`
+  // adds the other half of that same sentence: a soft-deleted identity is
+  // "no such reader" too (note 5 above).
   const [membership] = await tx<{ user_id: string }[]>`
-    select user_id from memberships
-    where id = ${input.membershipId} and deleted_at is null
+    select m.user_id from memberships m
+    join users u on u.id = m.user_id and u.deleted_at is null
+    where m.id = ${input.membershipId} and m.deleted_at is null
   `;
   if (!membership) throw new NotFound("membership_not_found");
 
