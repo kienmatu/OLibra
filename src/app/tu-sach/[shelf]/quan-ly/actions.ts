@@ -32,10 +32,15 @@ import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
  * Everything else is rethrown. The tempting implementation is
  * `catch (e) { return { error: messageFor(...) } }`, and it is wrong in a way
  * nobody notices until it matters: a `PostgresError` from a database that is
- * down, a `NotFound` for an id the surface should never have been holding, a
+ * down, a `ValidationFailed` for a condition grade this form cannot submit, a
  * `NotWired` from a boot sequence that skipped a setter — every one of them
  * would be rendered to a volunteer as "your input was wrong". U1 §3.3 calls
  * this "the one worth a test", and `tests/lib/lending-actions.test.ts` is it.
+ *
+ * A `NotFound` is the exception, and it never reaches this file: OPS §2 gives
+ * "not found" its own shape and its own answer — a 404 page — and
+ * `submitCommand` makes it one. See its docstring for why
+ * `write_target_not_found` is excluded from that.
  *
  * **No `requireManager` here, and none in the pages either.** All three
  * commands open with it (and `lendCopy` and `receiveReturn` with
@@ -85,6 +90,43 @@ function field(form: FormData, name: string): string {
 }
 
 /**
+ * Whether every id this command needs actually arrived.
+ *
+ * **The case:** `xac-nhan` renders `value={copy?.copyId ?? ""}` and disables
+ * the confirm button when there is no copy to hand over. Remove the `disabled`
+ * attribute in a browser's inspector and the form posts `ban=""`, which reaches
+ * Postgres as a failed `uuid` cast and comes back a raw `22P02` — a bare 500,
+ * which OPS §2 forbids, for a form this application itself rendered incomplete.
+ *
+ * **The line drawn, and it is a decision rather than an oversight:** this
+ * checks *presence*, not shape. A field the surface left empty is the surface's
+ * own doing and must never travel to the database; a field carrying a
+ * well-formed-looking non-uuid is somebody rewriting the request by hand, and
+ * the honest answer to that is the fault the database raises. That distinction
+ * is also what keeps `tests/lib/lending-actions.test.ts`'s "a fault is not
+ * swallowed into a friendly refusal" load-bearing — a `22P02` is its only
+ * vehicle, and turning every malformed id into a friendly sentence would
+ * disarm the one guard U1 §3.3 calls "the one worth a test".
+ *
+ * `readerFromParam` (`src/lib/lending.ts`) does check the shape, and the two
+ * are not in disagreement: it guards a **GET a volunteer can reach from a stale
+ * bookmark or a pasted link**, where a 500 is a dead end with no author. This
+ * guards a **POST that only this app's own forms produce**.
+ *
+ * `validation_failed` — "Vui lòng kiểm tra lại thông tin." — rather than a
+ * per-field code, because the action cannot know *why* the field is empty. Only
+ * the screen knows that, and it is already showing the reason: BR §16.3's
+ * blocking message sits directly above the button, in the copy's or the
+ * reader's own words.
+ */
+function complete(form: FormData, names: string[]): boolean {
+  return names.every((name) => field(form, name) !== "");
+}
+
+/** What `complete` returning false comes back as — `attempt`'s refusal shape. */
+const INCOMPLETE = { ok: false, code: "validation_failed" } as const;
+
+/**
  * OPS §4.2's `LendCopy` — step 3 of quick-lend, and the two-step entry from a
  * book's detail page.
  *
@@ -96,10 +138,12 @@ function field(form: FormData, name: string): string {
  */
 export async function lendCopyAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
-  const outcome = await attempt(shelfSlug, lendCopy, {
-    copyId: field(form, "ban"),
-    membershipId: field(form, "nguoi-doc"),
-  });
+  const outcome = complete(form, ["ban", "nguoi-doc"])
+    ? await attempt(shelfSlug, lendCopy, {
+        copyId: field(form, "ban"),
+        membershipId: field(form, "nguoi-doc"),
+      })
+    : INCOMPLETE;
 
   const base = managerBase(shelfSlug);
   if (!outcome.ok) {
@@ -134,14 +178,16 @@ export async function lendCopyAction(form: FormData): Promise<void> {
 export async function receiveReturnAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
   const note = field(form, "ghi-chu");
-  const outcome = await attempt(shelfSlug, receiveReturn, {
-    loanId: field(form, "muon"),
-    condition: field(form, "tinh-trang") as CopyCondition,
-    // An empty textarea is no note, not a note that says nothing —
-    // `condition_assessments.note` is nullable and a blank string would
-    // read, a year later, as a manager who wrote something illegible.
-    note: note === "" ? null : note,
-  });
+  const outcome = complete(form, ["muon", "tinh-trang"])
+    ? await attempt(shelfSlug, receiveReturn, {
+        loanId: field(form, "muon"),
+        condition: field(form, "tinh-trang") as CopyCondition,
+        // An empty textarea is no note, not a note that says nothing —
+        // `condition_assessments.note` is nullable and a blank string would
+        // read, a year later, as a manager who wrote something illegible.
+        note: note === "" ? null : note,
+      })
+    : INCOMPLETE;
 
   const base = managerBase(shelfSlug);
   if (!outcome.ok) {
@@ -169,12 +215,14 @@ export async function receiveReturnAction(form: FormData): Promise<void> {
 export async function reportCopyLostAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
   const note = field(form, "ghi-chu");
-  const outcome = await attempt(shelfSlug, reportCopyLost, {
-    copyId: field(form, "ban"),
-    // BR §5.4 gives BookCopy no lost-note column, so this reaches the audit
-    // entry and nowhere else — see `reportCopyLost`'s own docstring.
-    note: note === "" ? null : note,
-  });
+  const outcome = complete(form, ["ban"])
+    ? await attempt(shelfSlug, reportCopyLost, {
+        copyId: field(form, "ban"),
+        // BR §5.4 gives BookCopy no lost-note column, so this reaches the audit
+        // entry and nowhere else — see `reportCopyLost`'s own docstring.
+        note: note === "" ? null : note,
+      })
+    : INCOMPLETE;
 
   const base = managerBase(shelfSlug);
   if (!outcome.ok) {

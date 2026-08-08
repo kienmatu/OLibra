@@ -265,21 +265,198 @@ test("a fault is not swallowed into a friendly refusal", async () => {
 });
 
 test("a post to a shelf that does not exist is a 404, not a refusal", async () => {
-  // `submitCommand`'s one translation, and it is the same one `loadPage`
-  // makes: `contextFor` throws before there is a tenant at all, so there is no
-  // rule anybody broke — only a URL naming nothing.
-  const { copyIds } = await shelfWithManager();
+  // The translation `loadPage` also makes: `contextFor` throws before there is
+  // a tenant at all, so there is no rule anybody broke — only a URL naming
+  // nothing.
+  //
+  // The form is complete on purpose. `nguoi-doc` used to be `""` here, which
+  // now stops at the completeness check above (see `complete` in `actions.ts`)
+  // and never reaches `contextFor` — so the assertion would have been about the
+  // wrong thing. A whole form aimed at a shelf that does not exist is exactly
+  // the case this test is named for.
+  const { shelf, copyIds } = await shelfWithManager();
+  const reader = await makeMember(sql, shelf.id);
 
   await expect(
     lendCopyAction(
       form({
         "tu-sach": "khong-co-tu-sach-nay",
         ban: copyIds[0],
-        "nguoi-doc": "",
+        "nguoi-doc": reader.id,
         sach: "",
       }),
     ),
   ).rejects.toMatchObject({ digest: NOT_FOUND });
+});
+
+test("a copy id from another shelf is a 404, not a bare 500", async () => {
+  // Minor 4. `submitCommand` translated `shelf_not_found` and nothing else, so
+  // `lendCopy`'s `NotFound("copy_not_found")` — which is what a copy belonging
+  // to somebody else's shelf becomes, because RLS filters the row before the
+  // command's own `if (!copy)` runs — left the action throwing and a volunteer
+  // looking at an HTTP 500. OPERATIONS.md:33 names the three shapes and what
+  // each is for: "inline field error vs. a named blocking message vs. a 404
+  // page". A bare 500 is not on that list.
+  const { shelf } = await shelfWithManager();
+  const reader = await makeMember(sql, shelf.id);
+  const theirs = await makeShelf(sql, { slug: "can-tho" });
+  const { copyIds: theirCopies } = await makeBookWithCopies(sql, theirs.id, 1);
+
+  await expect(
+    lendCopyAction(
+      form({
+        "tu-sach": "dong-thap",
+        ban: theirCopies[0],
+        "nguoi-doc": reader.id,
+        sach: "",
+      }),
+    ),
+  ).rejects.toMatchObject({ digest: NOT_FOUND });
+
+  // And nothing was written to either shelf — the 404 is the whole outcome.
+  expect(await activeLoansOn(theirCopies[0])).toHaveLength(0);
+});
+
+test("a well-formed uuid naming nothing at all is the same 404", async () => {
+  // The other half of the same defect, and the one with no cross-tenant story
+  // behind it: a link a volunteer kept after the copy was deleted.
+  const { shelf } = await shelfWithManager();
+  const reader = await makeMember(sql, shelf.id);
+
+  await expect(
+    lendCopyAction(
+      form({
+        "tu-sach": "dong-thap",
+        ban: "00000000-0000-4000-8000-000000000000",
+        "nguoi-doc": reader.id,
+        sach: "",
+      }),
+    ),
+  ).rejects.toMatchObject({ digest: NOT_FOUND });
+
+  // The same for the reader half, so the translation is not one command's.
+  await expect(
+    reportCopyLostAction(
+      form({
+        "tu-sach": "dong-thap",
+        ban: "00000000-0000-4000-8000-000000000000",
+        muon: "",
+        "ghi-chu": "",
+        q: "",
+      }),
+    ),
+  ).rejects.toMatchObject({ digest: NOT_FOUND });
+});
+
+test("an incomplete form is a refusal in words, not a 22P02", async () => {
+  // Removing `disabled` from the confirm button in a browser's inspector and
+  // submitting sends `ban=""`, which Postgres answers with a failed `uuid`
+  // cast — a bare 500 for a form this application itself rendered incomplete.
+  //
+  // The decision recorded in `complete()`: an *empty* required id is refused
+  // here, a *malformed* one is still the database's answer. So the shape check
+  // covers the form the app produced and not the request somebody rewrote —
+  // which is also what leaves "a fault is not swallowed into a friendly
+  // refusal" above with a real fault to be about.
+  const { shelf, copyIds } = await shelfWithManager();
+  const reader = await makeMember(sql, shelf.id);
+
+  const noCopy = await redirectedTo(
+    lendCopyAction(
+      form({
+        "tu-sach": "dong-thap",
+        ban: "",
+        "nguoi-doc": reader.id,
+        sach: "de-men",
+      }),
+    ),
+  );
+  expect(noCopy.split("?")[0]).toBe("/tu-sach/dong-thap/quan-ly/cho-muon/xac-nhan");
+  expect(refusalIn(noCopy)).toBe("validation_failed");
+  // Back to the same screen with the book still chosen, like every other
+  // refusal — the point is that the volunteer keeps their place.
+  expect(new URLSearchParams(noCopy.split("?")[1]).get("sach")).toBe("de-men");
+
+  const noReader = await redirectedTo(
+    lendCopyAction(
+      form({
+        "tu-sach": "dong-thap",
+        ban: copyIds[0],
+        "nguoi-doc": "",
+        sach: "de-men",
+      }),
+    ),
+  );
+  expect(refusalIn(noReader)).toBe("validation_failed");
+  expect(await activeLoansOn(copyIds[0])).toHaveLength(0);
+
+  const noLoan = await redirectedTo(
+    receiveReturnAction(
+      form({
+        "tu-sach": "dong-thap",
+        muon: "",
+        "tinh-trang": "perfect",
+        "ghi-chu": "",
+        q: "de men",
+      }),
+    ),
+  );
+  expect(noLoan.split("?")[0]).toBe("/tu-sach/dong-thap/quan-ly/nhan-tra");
+  expect(refusalIn(noLoan)).toBe("validation_failed");
+
+  const noLostCopy = await redirectedTo(
+    reportCopyLostAction(
+      form({
+        "tu-sach": "dong-thap",
+        ban: "",
+        muon: "",
+        "ghi-chu": "",
+        q: "de men",
+      }),
+    ),
+  );
+  expect(noLostCopy.split("?")[0]).toBe(
+    "/tu-sach/dong-thap/quan-ly/nhan-tra/bao-mat",
+  );
+  expect(refusalIn(noLostCopy)).toBe("validation_failed");
+});
+
+test("a ValidationFailed from a command is still a fault, not a friendly sentence", async () => {
+  // The half of "everything else throws" that a `PostgresError` cannot show.
+  // `receiveReturn` validates the condition against the `copy_condition` enum
+  // itself and throws `ValidationFailed` — a `DomainError` like `RuleViolated`,
+  // carrying a code with a Vietnamese sentence, and therefore exactly the class
+  // a too-eager `catch (e) { return { error: messageFor(e.code) } }` would
+  // swallow. The picker can only ever submit one of six; anything else is a
+  // rewritten request, and it stays loud.
+  const { shelf, copyIds } = await shelfWithManager();
+  const reader = await makeMember(sql, shelf.id);
+  await redirectedTo(
+    lendCopyAction(
+      form({
+        "tu-sach": "dong-thap",
+        ban: copyIds[0],
+        "nguoi-doc": reader.id,
+        sach: "",
+      }),
+    ),
+  );
+  const [loan] = await activeLoansOn(copyIds[0]);
+
+  const run = receiveReturnAction(
+    form({
+      "tu-sach": "dong-thap",
+      muon: loan.id,
+      "tinh-trang": "khong-co-tinh-trang-nay",
+      "ghi-chu": "",
+      q: "de men",
+    }),
+  );
+
+  await expect(run).rejects.toMatchObject({ code: "validation_failed" });
+  await expect(run).rejects.not.toMatchObject({
+    digest: expect.stringContaining("NEXT_REDIRECT"),
+  });
 });
 
 test("a return closes the loan, records the condition and frees the copy", async () => {

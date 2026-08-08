@@ -122,14 +122,32 @@ export async function loadPage<T>(
  * the action, which turns it into a code the form renders through
  * `messageFor`. U1 §3.3, and `tests/lib/lending-actions.test.ts` pins it.
  *
- * `shelf_not_found` is still a 404, for the same reason it is one on a read:
- * it is thrown by `contextFor` before there is a tenant at all, and a POST to a
- * shelf that does not exist is a mistyped URL, not a rule anybody broke.
+ * **A `NotFound` is a 404**, and that includes but is no longer limited to
+ * `shelf_not_found`. This shipped translating that one code and nothing else,
+ * so a `copyId` belonging to another shelf — or any well-formed uuid naming
+ * nothing — left `lendCopy`'s `NotFound("copy_not_found")` uncaught and gave a
+ * volunteer a bare HTTP 500. OPERATIONS.md:33 names all three shapes and what
+ * each one is for: a candidate stack "must be able to distinguish *not found*,
+ * *validation failure*, and *business-rule violation* as different error
+ * shapes, because the UI treats them differently (inline field error vs. a
+ * named blocking message vs. **a 404 page**)." A bare 500 is the one outcome
+ * that sentence exists to forbid. `shelf_not_found` keeps its own line in the
+ * reasoning — it is thrown by `contextFor` before there is a tenant at all —
+ * but it no longer needs its own branch.
  *
- * Everything else propagates untouched — a `PostgresError`, a `NotFound` for
- * an id the surface should never have been holding, a `NotWired`. U1 §3.3 is
- * blunt about why: a fault rendered as a friendly Vietnamese sentence tells a
- * volunteer their input was wrong when the database was down.
+ * **Except `write_target_not_found`.** That code is not a URL naming nothing;
+ * it is `unit-of-work.ts`'s own guard firing because an `update` a command
+ * issued matched zero rows, which `errors.ts` groups with
+ * `audit_forbidden_field` and `invalid_bookshelf_id` as an internal fault no
+ * volunteer can act on. Rendering it as a 404 would hide a bug inside a
+ * command behind a page that looks like a mistyped address. Matched on the
+ * code rather than by excluding a class, for the reason `loadPage` matches
+ * `RuleViolated` on its code: the class is not the question.
+ *
+ * Everything else propagates untouched — a `PostgresError`, a
+ * `ValidationFailed`, a `NotWired`. U1 §3.3 is blunt about why: a fault
+ * rendered as a friendly Vietnamese sentence tells a volunteer their input was
+ * wrong when the database was down.
  */
 export async function submitCommand<I, O>(
   shelfSlug: string,
@@ -140,7 +158,9 @@ export async function submitCommand<I, O>(
     const ctx = await contextForRequest(shelfSlug);
     return await runCommand(pool(), ctx, command, input);
   } catch (err) {
-    if (err instanceof NotFound && err.code === "shelf_not_found") notFound();
+    if (err instanceof NotFound && err.code !== "write_target_not_found") {
+      notFound();
+    }
     throw err;
   }
 }
