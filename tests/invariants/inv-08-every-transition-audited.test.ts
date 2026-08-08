@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import { assertNoSecrets } from "../../src/domain/kernel/audit";
+import { RuleViolated } from "../../src/domain/kernel/errors";
 import { runCommand } from "../../src/domain/kernel/unit-of-work";
 import { migrate } from "../../src/db/migrate";
 import { makeShelf } from "../support/factories";
@@ -50,7 +51,11 @@ test("INV-8: an audit record names actor, time, before and after", async () => {
 test("INV-8: a secret can never reach the audit log", () => {
   // BR §2: "The audit records the act, never the secret." SetReaderCredentials
   // is the command where the temptation to log what it was changed to is
-  // strongest, so the guard is in the kernel rather than in that command.
+  // strongest, so the guard is in the kernel rather than in that command. OPS
+  // §2: the failure is a named DomainError, not a bare exception — see
+  // tests/domain/kernel/audit.test.ts for the guard's full behaviour,
+  // including the nested-object and array cases that a top-level-only guard
+  // let through.
   expect(() =>
     assertNoSecrets({
       action: "credentials.set",
@@ -58,5 +63,5 @@ test("INV-8: a secret can never reach the audit log", () => {
       entityId: "x",
       after: { password_hash: "$2b$whatever" },
     }),
-  ).toThrow(/never the secret/);
+  ).toThrow(RuleViolated);
 });

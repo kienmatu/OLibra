@@ -70,6 +70,10 @@ export const ERROR_MESSAGES = {
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
   not_permitted: "Bạn không có quyền thực hiện việc này.",
+
+  // — kernel —
+  invalid_bookshelf_id: "Mã tủ sách không hợp lệ.",
+  audit_forbidden_field: "Không thể ghi nhật ký chứa thông tin bí mật.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;
