@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { fixedClock } from "../../src/domain/kernel/clock";
+import { signIn } from "../../src/auth/session";
 import { migrate } from "../../src/db/migrate";
-import { seed } from "../../src/db/seed";
+import { seed, SEED_DEV_PASSWORD } from "../../src/db/seed";
 import { books, donations, shelves } from "../../src/lib/fixtures";
 import { closeAll, resetDatabase, sql } from "../support/db";
 
@@ -128,6 +130,24 @@ test("the reader's donation offers are seeded as book_donations, every status", 
   // the insert — this asserts the fixture's decisionNote actually made it
   // across the mapping.
   for (const row of declined) expect(row.decision_note).not.toBeNull();
+});
+
+test("a seeded reader can sign in with the documented development password", async () => {
+  // IMPORTANT 5: the placeholder `SEED_PASSWORD_HASH` ("seed$not-a-real-hash
+  // $...") could never verify against anything — DATABASE.md §9 promises the
+  // seed lets the UI be pointed at a real database "with no visible change",
+  // and being unable to sign in as any of the eleven seeded readers is
+  // exactly such a change. A real Argon2id hash of a documented password
+  // fixes it.
+  await seed(sql);
+
+  const clock = fixedClock("2026-08-08T10:00:00Z");
+  const { token } = await signIn(sql, {
+    username: "lan.nguyen",
+    password: SEED_DEV_PASSWORD,
+    clock,
+  });
+  expect(token).toBeTruthy();
 });
 
 test("the seed is idempotent", async () => {
