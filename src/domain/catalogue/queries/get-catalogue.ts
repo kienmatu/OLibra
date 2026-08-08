@@ -3,11 +3,39 @@ import type { Tx } from "../../kernel/unit-of-work";
 import { type CopyState, requireReader } from "../policy";
 
 /**
- * The DB's own `copy_state` spelling. `src/lib/status.ts` calls the same thing
- * `onloan`; the mapping belongs to E's UI wiring, not here — the domain does
- * not import an icon library to name a state.
+ * The DB's own `copy_state` spelling, plus `"none"` — M8 (fix-report,
+ * 2026-08-08-b1-catalogue). `CopyState` alone has no member for "this title
+ * has no live copies at all", so every query below fell through its CASE's
+ * final `else` to `"retired"` whenever a book had zero rows to count —
+ * indistinguishable, on the wire, from a title whose copies are genuinely
+ * all retired. `src/lib/status.ts`'s state-to-icon mapping is E's UI wiring,
+ * not this domain's; adding a member here is this domain's own call.
  */
-export type Availability = CopyState;
+export type Availability = CopyState | "none";
+
+/**
+ * The one place BR §8's "available, then on_loan, then held, then lost,
+ * then retired, then none" ladder is written — M8 (fix-report,
+ * 2026-08-08-b1-catalogue). Previously copy-pasted as a SQL `CASE` into
+ * five queries (`getCatalogue`, `getBooksList`, `searchCatalogue`,
+ * `getBookDetail`, `getBookDetailManager`); C1 would have made that six.
+ * Each of those queries now selects the raw counts this needs and calls
+ * this instead, so the ladder has exactly one copy to keep in step.
+ */
+export function deriveAvailability(counts: {
+  copiesAvailable: number;
+  onLoan: number;
+  held: number;
+  lost: number;
+  hasRetired: boolean;
+}): Availability {
+  if (counts.copiesAvailable > 0) return "available";
+  if (counts.onLoan > 0) return "on_loan";
+  if (counts.held > 0) return "held";
+  if (counts.lost > 0) return "lost";
+  if (counts.hasRetired) return "retired";
+  return "none";
+}
 
 export interface CatalogueRow {
   bookId: string;
@@ -74,7 +102,10 @@ export async function getCatalogue(
       category: string | null;
       copies_total: number;
       copies_available: number;
-      availability: string;
+      on_loan: number;
+      held: number;
+      lost: number;
+      has_retired: boolean;
       total_count: number;
     }[]
   >`
@@ -91,7 +122,13 @@ export async function getCatalogue(
         count(av.id)                                              as copies_available,
         count(cp.id) filter (where cp.state = 'on_loan')          as on_loan,
         count(cp.id) filter (where cp.state = 'held')             as held,
-        count(cp.id) filter (where cp.state = 'lost')             as lost
+        count(cp.id) filter (where cp.state = 'lost')             as lost,
+        -- M8: a separate join, deliberately not merged into the cp join
+        -- above — cp excludes retired copies on purpose (copies_total must
+        -- not count them), so whether a retired copy exists at all has to
+        -- be tracked independently, purely to tell "all copies retired"
+        -- apart from "no copies at all" in deriveAvailability below.
+        bool_or(cpr.id is not null)                               as has_retired
       from books b
       left join categories c on c.id = b.category_id
       left join book_copies cp
@@ -101,21 +138,18 @@ export async function getCatalogue(
             and cp.state <> 'retired'
       -- The whole of BR §8, in one join.
       left join copies_borrowable av on av.id = cp.id
+      left join book_copies cpr
+             on cpr.bookshelf_id = b.bookshelf_id
+            and cpr.book_id = b.id
+            and cpr.deleted_at is null
+            and cpr.state = 'retired'
       where b.deleted_at is null
         and b.is_published
         and (${input.category ?? null}::text is null or c.slug = ${input.category ?? null})
       group by b.id, c.name
     ),
     scoped as (
-      select *,
-        case
-          when copies_available > 0 then 'available'
-          when on_loan > 0          then 'on_loan'
-          when held > 0             then 'held'
-          when lost > 0             then 'lost'
-          else 'retired'
-        end as availability
-      from counted
+      select * from counted
       where not ${availableOnly} or copies_available > 0
     )
     select *, count(*) over ()::int as total_count
@@ -137,7 +171,13 @@ export async function getCatalogue(
       category: r.category,
       copiesTotal: Number(r.copies_total),
       copiesAvailable: Number(r.copies_available),
-      availability: r.availability as Availability,
+      availability: deriveAvailability({
+        copiesAvailable: Number(r.copies_available),
+        onLoan: Number(r.on_loan),
+        held: Number(r.held),
+        lost: Number(r.lost),
+        hasRetired: r.has_retired,
+      }),
     })),
     page,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),

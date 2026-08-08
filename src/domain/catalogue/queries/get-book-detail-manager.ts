@@ -2,7 +2,7 @@ import { NotFound } from "../../kernel/errors";
 import type { TenantContext } from "../../kernel/tenant";
 import type { Tx } from "../../kernel/unit-of-work";
 import { type CopyCondition, type CopyState, requireManager } from "../policy";
-import type { Availability } from "./get-catalogue";
+import { deriveAvailability } from "./get-catalogue";
 import type { BooksListRow } from "./get-books-list";
 
 export interface ManagerCopyRow {
@@ -69,46 +69,46 @@ export async function getBookDetailManager(
       category: string | null;
       copies_total: number;
       copies_available: number;
-      availability: string;
+      on_loan: number;
+      held: number;
+      lost: number;
+      has_retired: boolean;
       is_published: boolean;
       codes: string;
     }[]
   >`
-    with counted as (
-      select
-        b.id as book_id, b.slug, b.title, b.author, b.cover_url,
-        b.is_published,
-        c.name as category,
-        count(cp.id)                                     as copies_total,
-        count(av.id)                                      as copies_available,
-        count(cp.id) filter (where cp.state = 'on_loan')  as on_loan,
-        count(cp.id) filter (where cp.state = 'held')     as held,
-        count(cp.id) filter (where cp.state = 'lost')     as lost,
-        case
-          when count(cp.id) = 0 then ''
-          when min(cp.code) = max(cp.code) then min(cp.code)
-          else min(cp.code) || ' – ' || max(cp.code)
-        end as codes
-      from books b
-      left join categories c on c.id = b.category_id
-      left join book_copies cp
-             on cp.bookshelf_id = b.bookshelf_id
-            and cp.book_id = b.id
-            and cp.deleted_at is null
-            and cp.state <> 'retired'
-      left join copies_borrowable av on av.id = cp.id
-      where b.id = ${input.bookId} and b.deleted_at is null
-      group by b.id, c.name
-    )
-    select *,
+    select
+      b.id as book_id, b.slug, b.title, b.author, b.cover_url,
+      b.is_published,
+      c.name as category,
+      count(cp.id)                                     as copies_total,
+      count(av.id)                                      as copies_available,
+      count(cp.id) filter (where cp.state = 'on_loan')  as on_loan,
+      count(cp.id) filter (where cp.state = 'held')     as held,
+      count(cp.id) filter (where cp.state = 'lost')     as lost,
+      -- M8 (fix-report, 2026-08-08-b1-catalogue): see get-catalogue.ts's
+      -- twin join and deriveAvailability, which this now calls.
+      bool_or(cpr.id is not null)                       as has_retired,
       case
-        when copies_available > 0 then 'available'
-        when on_loan > 0          then 'on_loan'
-        when held > 0             then 'held'
-        when lost > 0             then 'lost'
-        else 'retired'
-      end as availability
-    from counted
+        when count(cp.id) = 0 then ''
+        when min(cp.code) = max(cp.code) then min(cp.code)
+        else min(cp.code) || ' – ' || max(cp.code)
+      end as codes
+    from books b
+    left join categories c on c.id = b.category_id
+    left join book_copies cp
+           on cp.bookshelf_id = b.bookshelf_id
+          and cp.book_id = b.id
+          and cp.deleted_at is null
+          and cp.state <> 'retired'
+    left join copies_borrowable av on av.id = cp.id
+    left join book_copies cpr
+           on cpr.bookshelf_id = b.bookshelf_id
+          and cpr.book_id = b.id
+          and cpr.deleted_at is null
+          and cpr.state = 'retired'
+    where b.id = ${input.bookId} and b.deleted_at is null
+    group by b.id, c.name
   `;
   if (!book) throw new NotFound("book_not_found");
 
@@ -199,7 +199,13 @@ export async function getBookDetailManager(
       category: book.category,
       copiesTotal: Number(book.copies_total),
       copiesAvailable: Number(book.copies_available),
-      availability: book.availability as Availability,
+      availability: deriveAvailability({
+        copiesAvailable: Number(book.copies_available),
+        onLoan: Number(book.on_loan),
+        held: Number(book.held),
+        lost: Number(book.lost),
+        hasRetired: book.has_retired,
+      }),
       isPublished: book.is_published,
       codes: book.codes,
     },

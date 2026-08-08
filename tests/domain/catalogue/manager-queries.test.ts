@@ -87,6 +87,33 @@ test("the manager list filters by folded query and by category", async () => {
   ).toHaveLength(0);
 });
 
+test("M7: a garbage manager-list query returns nothing, not the whole shelf", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. Same mechanism as search-catalogue's
+  // twin test: olibra_fold() strips a query made entirely of punctuation
+  // down to '', which used to degenerate the LIKE pattern to '%%' and
+  // reveal every book — even though the manager typed something, and even
+  // though this list already shows everything for a truly empty query.
+  const { ctx } = await shelf();
+  const garbage = await runQuery(sql, ctx, (tx) =>
+    getBooksList(tx, ctx, { q: "%" }),
+  );
+  expect(garbage.rows).toHaveLength(0);
+
+  // The truly-empty case is unchanged: still shows everything.
+  const empty = await runQuery(sql, ctx, (tx) => getBooksList(tx, ctx, { q: "" }));
+  expect(empty.rows.length).toBeGreaterThan(0);
+});
+
+test("M8: the manager list reports none, not retired, for a title with zero live copies", async () => {
+  const { ctx, bookId } = await shelf();
+  await sql`update book_copies set deleted_at = now() where book_id = ${bookId}`;
+
+  const list = await runQuery(sql, ctx, (tx) => getBooksList(tx, ctx, {}));
+  const row = list.rows.find((r) => r.bookId === bookId)!;
+  expect(row.availability).toBe("none");
+  expect(row.copiesTotal).toBe(0);
+});
+
 test("manager book detail carries per-copy state, condition and 'đang ở đâu'", async () => {
   const { ctx, s, manager, bookId } = await shelf();
   const copies = await sql<{ id: string; code: string }[]>`
@@ -208,6 +235,17 @@ test("quick-lend search is diacritic-insensitive, like every other search", asyn
     searchBooksForLending(tx, ctx, { q: "de men" }),
   );
   expect(rows.map((r) => r.title)).toContain("Dế Mèn Phiêu Lưu Ký");
+});
+
+test("M7: a garbage quick-lend query returns nothing, not the whole shelf", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. See the twin tests on
+  // searchCatalogue and getBooksList — same olibra_fold()-strips-to-empty
+  // mechanism, same "whole shelf revealed" bug.
+  const { ctx } = await shelf();
+  const rows = await runQuery(sql, ctx, (tx) =>
+    searchBooksForLending(tx, ctx, { q: "%" }),
+  );
+  expect(rows).toHaveLength(0);
 });
 
 test("a reader reaches none of the three", async () => {

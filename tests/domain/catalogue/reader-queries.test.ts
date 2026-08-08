@@ -5,7 +5,10 @@ import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { createBook } from "../../../src/domain/catalogue/commands/create-book";
 import { retireCopy } from "../../../src/domain/catalogue/commands/retire-copy";
-import { getCatalogue } from "../../../src/domain/catalogue/queries/get-catalogue";
+import {
+  deriveAvailability,
+  getCatalogue,
+} from "../../../src/domain/catalogue/queries/get-catalogue";
 import { searchCatalogue } from "../../../src/domain/catalogue/queries/search-catalogue";
 import { getBookDetail } from "../../../src/domain/catalogue/queries/get-book-detail";
 import { migrate } from "../../../src/db/migrate";
@@ -133,6 +136,68 @@ test("scope=available hides a title with nothing on the shelf; scope=all does no
   expect(row.availability).toBe("retired");
 });
 
+test("M8: deriveAvailability distinguishes zero live copies from every copy retired", () => {
+  // fix-report, 2026-08-08-b1-catalogue. `Availability = CopyState` had no
+  // member for "no live copies at all", so every query's CASE fell through
+  // its final `else` to 'retired' whichever way a title got to zero counted
+  // copies — indistinguishable from a title whose copies are genuinely all
+  // retired. The pure function this now calls draws that line explicitly.
+  const zero = { copiesAvailable: 0, onLoan: 0, held: 0, lost: 0 };
+  expect(deriveAvailability({ ...zero, hasRetired: false })).toBe("none");
+  expect(deriveAvailability({ ...zero, hasRetired: true })).toBe("retired");
+  expect(
+    deriveAvailability({
+      copiesAvailable: 1,
+      onLoan: 0,
+      held: 0,
+      lost: 0,
+      hasRetired: true,
+    }),
+  ).toBe("available");
+  expect(
+    deriveAvailability({
+      copiesAvailable: 0,
+      onLoan: 1,
+      held: 0,
+      lost: 0,
+      hasRetired: true,
+    }),
+  ).toBe("on_loan");
+  expect(
+    deriveAvailability({
+      copiesAvailable: 0,
+      onLoan: 0,
+      held: 1,
+      lost: 0,
+      hasRetired: true,
+    }),
+  ).toBe("held");
+  expect(
+    deriveAvailability({
+      copiesAvailable: 0,
+      onLoan: 0,
+      held: 0,
+      lost: 1,
+      hasRetired: true,
+    }),
+  ).toBe("lost");
+});
+
+test("M8: a title with zero live copies reports availability none, not retired", async () => {
+  // The case deriveAvailability's unit test above cannot reach on its own —
+  // this drives it through the real query and a real row, with a copy that
+  // was soft-deleted directly (never retired) so the title has no live
+  // copies of any kind.
+  const { readerCtx, ids } = await shelfWithCatalogue();
+  const bookId = ids["Kính Vạn Hoa tập 4"];
+  await sql`update book_copies set deleted_at = now() where book_id = ${bookId}`;
+
+  const all = await catalogue(readerCtx, { scope: "all" });
+  const row = all.rows.find((r) => r.bookId === bookId)!;
+  expect(row.availability).toBe("none");
+  expect(row.copiesTotal).toBe(0);
+});
+
 test("an unpublished draft is hidden from members, on both scopes", async () => {
   // BR §5.4's published flag "hides drafts from the public" — member-facing,
   // not public, per BR §1.2. The manager list (Task 6) still shows it.
@@ -229,6 +294,26 @@ test("an empty search term returns nothing rather than the whole shelf", async (
   expect(
     await runQuery(sql, readerCtx, (tx) =>
       searchCatalogue(tx, readerCtx, { q: "   " }),
+    ),
+  ).toHaveLength(0);
+});
+
+test("M7: a query that folds to nothing returns nothing, not the whole shelf", async () => {
+  // fix-report, 2026-08-08-b1-catalogue. olibra_fold() strips a query made
+  // entirely of punctuation down to '' — verified live, olibra_fold('%') is
+  // ''. Before this fix, that degenerated the LIKE pattern to '%%', which
+  // matches every row: a search for a lone percent sign returned the whole
+  // shelf, the exact outcome the sibling "empty search" test above exists to
+  // prevent for the truly-blank case.
+  const { readerCtx } = await shelfWithCatalogue();
+  expect(
+    await runQuery(sql, readerCtx, (tx) =>
+      searchCatalogue(tx, readerCtx, { q: "%" }),
+    ),
+  ).toHaveLength(0);
+  expect(
+    await runQuery(sql, readerCtx, (tx) =>
+      searchCatalogue(tx, readerCtx, { q: "___" }),
     ),
   ).toHaveLength(0);
 });

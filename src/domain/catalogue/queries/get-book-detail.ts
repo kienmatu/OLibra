@@ -2,7 +2,7 @@ import { NotFound } from "../../kernel/errors";
 import type { TenantContext } from "../../kernel/tenant";
 import type { Tx } from "../../kernel/unit-of-work";
 import { requireReader } from "../policy";
-import type { CatalogueRow } from "./get-catalogue";
+import { deriveAvailability, type CatalogueRow } from "./get-catalogue";
 
 export interface BookDetail extends CatalogueRow {
   publisher: string | null;
@@ -74,7 +74,10 @@ export async function getBookDetail(
       language: string;
       copies_total: number;
       copies_available: number;
-      availability: string;
+      on_loan: number;
+      held: number;
+      lost: number;
+      has_retired: boolean;
     }[]
   >`
     select
@@ -83,13 +86,12 @@ export async function getBookDetail(
       b.isbn, b.description, b.language,
       count(cp.id) as copies_total,
       count(av.id) as copies_available,
-      case
-        when count(av.id) > 0 then 'available'
-        when count(cp.id) filter (where cp.state = 'on_loan') > 0 then 'on_loan'
-        when count(cp.id) filter (where cp.state = 'held')    > 0 then 'held'
-        when count(cp.id) filter (where cp.state = 'lost')    > 0 then 'lost'
-        else 'retired'
-      end as availability
+      count(cp.id) filter (where cp.state = 'on_loan') as on_loan,
+      count(cp.id) filter (where cp.state = 'held')    as held,
+      count(cp.id) filter (where cp.state = 'lost')    as lost,
+      -- M8 (fix-report, 2026-08-08-b1-catalogue): see get-catalogue.ts's
+      -- twin join and deriveAvailability, which this now calls.
+      bool_or(cpr.id is not null) as has_retired
     from books b
     left join categories c on c.id = b.category_id
     left join book_copies cp
@@ -98,6 +100,11 @@ export async function getBookDetail(
           and cp.deleted_at is null
           and cp.state <> 'retired'
     left join copies_borrowable av on av.id = cp.id
+    left join book_copies cpr
+           on cpr.bookshelf_id = b.bookshelf_id
+          and cpr.book_id = b.id
+          and cpr.deleted_at is null
+          and cpr.state = 'retired'
     where b.slug = ${input.bookSlug} and b.deleted_at is null and b.is_published
     group by b.id, c.name
   `;
@@ -154,7 +161,13 @@ export async function getBookDetail(
     category: book.category,
     copiesTotal: Number(book.copies_total),
     copiesAvailable: Number(book.copies_available),
-    availability: book.availability as CatalogueRow["availability"],
+    availability: deriveAvailability({
+      copiesAvailable: Number(book.copies_available),
+      onLoan: Number(book.on_loan),
+      held: Number(book.held),
+      lost: Number(book.lost),
+      hasRetired: book.has_retired,
+    }),
     publisher: book.publisher,
     publishedYear: book.published_year,
     pageCount: book.page_count,

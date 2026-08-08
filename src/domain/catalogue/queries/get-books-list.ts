@@ -1,7 +1,7 @@
 import type { TenantContext } from "../../kernel/tenant";
 import type { Tx } from "../../kernel/unit-of-work";
 import { requireManager } from "../policy";
-import type { Availability, CatalogueRow } from "./get-catalogue";
+import { deriveAvailability, type CatalogueRow } from "./get-catalogue";
 
 export interface BooksListRow extends CatalogueRow {
   isPublished: boolean;
@@ -52,7 +52,10 @@ export async function getBooksList(
       category: string | null;
       copies_total: number;
       copies_available: number;
-      availability: string;
+      on_loan: number;
+      held: number;
+      lost: number;
+      has_retired: boolean;
       is_published: boolean;
       codes: string;
       total_count: number;
@@ -73,6 +76,9 @@ export async function getBooksList(
         count(cp.id) filter (where cp.state = 'on_loan')          as on_loan,
         count(cp.id) filter (where cp.state = 'held')             as held,
         count(cp.id) filter (where cp.state = 'lost')             as lost,
+        -- M8 (fix-report, 2026-08-08-b1-catalogue): see get-catalogue.ts's
+        -- twin join and deriveAvailability, which this now calls.
+        bool_or(cpr.id is not null)                               as has_retired,
         case
           when count(cp.id) = 0 then ''
           when min(cp.code) = max(cp.code) then min(cp.code)
@@ -86,28 +92,36 @@ export async function getBooksList(
             and cp.deleted_at is null
             and cp.state <> 'retired'
       left join copies_borrowable av on av.id = cp.id
+      left join book_copies cpr
+             on cpr.bookshelf_id = b.bookshelf_id
+            and cpr.book_id = b.id
+            and cpr.deleted_at is null
+            and cpr.state = 'retired'
       where b.deleted_at is null
         and (${input.category ?? null}::text is null or c.slug = ${input.category ?? null})
         and (
           ${q} = ''
-          or b.title_folded like '%' || olibra_fold(${q}) || '%'
-          or b.author_folded like '%' || olibra_fold(${q}) || '%'
+          -- M7 (fix-report, 2026-08-08-b1-catalogue): olibra_fold() strips a
+          -- query made entirely of punctuation (a lone percent sign,
+          -- underscores, ...) down to the empty string — verified live,
+          -- olibra_fold of a lone percent sign is ''. Without the extra
+          -- olibra_fold <> '' guard below, that degenerates the LIKE
+          -- pattern to matching every row even though the raw query is not
+          -- the empty string — a manager typing a lone percent sign would
+          -- see the whole shelf, not the "no matches" a garbage query
+          -- should give.
+          or (
+            olibra_fold(${q}) <> ''
+            and (
+              b.title_folded like '%' || olibra_fold(${q}) || '%'
+              or b.author_folded like '%' || olibra_fold(${q}) || '%'
+            )
+          )
         )
       group by b.id, c.name
-    ),
-    scoped as (
-      select *,
-        case
-          when copies_available > 0 then 'available'
-          when on_loan > 0          then 'on_loan'
-          when held > 0             then 'held'
-          when lost > 0             then 'lost'
-          else 'retired'
-        end as availability
-      from counted
     )
     select *, count(*) over ()::int as total_count
-    from scoped
+    from counted
     order by
       case when ${input.sort ?? "recent"} = 'title' then title end asc,
       created_at desc
@@ -125,7 +139,13 @@ export async function getBooksList(
       category: r.category,
       copiesTotal: Number(r.copies_total),
       copiesAvailable: Number(r.copies_available),
-      availability: r.availability as Availability,
+      availability: deriveAvailability({
+        copiesAvailable: Number(r.copies_available),
+        onLoan: Number(r.on_loan),
+        held: Number(r.held),
+        lost: Number(r.lost),
+        hasRetired: r.has_retired,
+      }),
       isPublished: r.is_published,
       codes: r.codes,
     })),

@@ -56,6 +56,11 @@ export async function searchBooksForLending(
           and cp.state <> 'retired'
     left join copies_borrowable av on av.id = cp.id
     where b.deleted_at is null
+      -- M7 (fix-report, 2026-08-08-b1-catalogue): see search-catalogue.ts's
+      -- twin guard. A query made entirely of punctuation folds to '', which
+      -- would otherwise degenerate the LIKE pattern below to '%%' and reveal
+      -- the whole shelf to quick-lend's search.
+      and olibra_fold(${input.q}) <> ''
       and (
         b.title_folded  like '%' || olibra_fold(${input.q}) || '%'
         or b.author_folded like '%' || olibra_fold(${input.q}) || '%'

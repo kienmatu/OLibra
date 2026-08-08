@@ -1,7 +1,7 @@
 import type { TenantContext } from "../../kernel/tenant";
 import type { Tx } from "../../kernel/unit-of-work";
 import { requireReader } from "../policy";
-import type { CatalogueRow } from "./get-catalogue";
+import { deriveAvailability, type CatalogueRow } from "./get-catalogue";
 
 /**
  * Diacritic- and case-insensitive substring search over title and author
@@ -39,7 +39,10 @@ export async function searchCatalogue(
       category: string | null;
       copies_total: number;
       copies_available: number;
-      availability: string;
+      on_loan: number;
+      held: number;
+      lost: number;
+      has_retired: boolean;
     }[]
   >`
     select
@@ -47,13 +50,12 @@ export async function searchCatalogue(
       c.name as category,
       count(cp.id)  as copies_total,
       count(av.id)  as copies_available,
-      case
-        when count(av.id) > 0 then 'available'
-        when count(cp.id) filter (where cp.state = 'on_loan') > 0 then 'on_loan'
-        when count(cp.id) filter (where cp.state = 'held')    > 0 then 'held'
-        when count(cp.id) filter (where cp.state = 'lost')    > 0 then 'lost'
-        else 'retired'
-      end as availability
+      count(cp.id) filter (where cp.state = 'on_loan') as on_loan,
+      count(cp.id) filter (where cp.state = 'held')    as held,
+      count(cp.id) filter (where cp.state = 'lost')    as lost,
+      -- M8 (fix-report, 2026-08-08-b1-catalogue): see get-catalogue.ts's
+      -- twin join and deriveAvailability, which this now calls.
+      bool_or(cpr.id is not null) as has_retired
     from books b
     left join categories c on c.id = b.category_id
     left join book_copies cp
@@ -62,8 +64,22 @@ export async function searchCatalogue(
           and cp.deleted_at is null
           and cp.state <> 'retired'
     left join copies_borrowable av on av.id = cp.id
+    left join book_copies cpr
+           on cpr.bookshelf_id = b.bookshelf_id
+          and cpr.book_id = b.id
+          and cpr.deleted_at is null
+          and cpr.state = 'retired'
     where b.deleted_at is null
       and b.is_published
+      -- M7 (fix-report, 2026-08-08-b1-catalogue): olibra_fold() replaces
+      -- every non-[a-z0-9] run with a space, so a query made entirely of
+      -- punctuation (a lone "%", "___", ...) folds to '' — verified live:
+      -- olibra_fold('%') = ''. That degenerates the pattern below to '%%',
+      -- which matches every row, revealing the whole shelf to a query the
+      -- blank-string guard above never sees as blank (it is not the empty
+      -- string, just punctuation). This extra guard makes a garbage query
+      -- behave like a blank one: no rows.
+      and olibra_fold(${input.q}) <> ''
       and (
         b.title_folded  like '%' || olibra_fold(${input.q}) || '%'
         or b.author_folded like '%' || olibra_fold(${input.q}) || '%'
@@ -81,6 +97,12 @@ export async function searchCatalogue(
     category: r.category,
     copiesTotal: Number(r.copies_total),
     copiesAvailable: Number(r.copies_available),
-    availability: r.availability as CatalogueRow["availability"],
+    availability: deriveAvailability({
+      copiesAvailable: Number(r.copies_available),
+      onLoan: Number(r.on_loan),
+      held: Number(r.held),
+      lost: Number(r.lost),
+      hasRetired: r.has_retired,
+    }),
   }));
 }
