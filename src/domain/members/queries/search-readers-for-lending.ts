@@ -1,9 +1,13 @@
 import type { Block } from "../../kernel/block";
 import type { TenantContext } from "../../kernel/tenant";
 import type { Tx } from "../../kernel/unit-of-work";
+// Upwards into circulation, deliberately. See the paragraph on the block
+// reason in the docstring below for why this file calls C1's predicate rather
+// than composing INV-4 and INV-5 for itself.
+import { memberMayBorrow } from "../../circulation/policy";
 import { loadParishContext } from "../parish-context";
 import { describeSelection } from "../parish-taxonomy";
-import { membershipAllowsNewLoan, requireManager } from "../policy";
+import { requireManager } from "../policy";
 import type { MembershipStatus } from "../policy";
 
 export interface LendableReaderRow {
@@ -26,11 +30,32 @@ export interface LendableReaderRow {
  * volunteer searching again, wondering why; a row with "Tài khoản đang tạm
  * khoá" tells them what to do instead.
  *
- * The block reason is computed from `membershipAllowsNewLoan` — Task 1's own
- * predicate, not a second copy of INV-4's status list — composed with
- * INV-5's loan-count check against `input.maxConcurrentLoans`, the shelf's
- * own setting (BR §5.5) which the *caller* reads and passes in, so this
- * query is not a second place that knows where policy configuration lives.
+ * **The block reason is `memberMayBorrow`'s, not this file's.** When B2a
+ * shipped this query that predicate did not exist, so the composition —
+ * `membershipAllowsNewLoan` for INV-4, then `activeLoans >=
+ * maxConcurrentLoans` for INV-5 — was written out here. C1 put the same
+ * composition in `../../circulation/policy.ts` because `lendCopy` needs it
+ * too, and two implementations of INV-5's threshold are two things that can
+ * disagree about a reader standing at the shelf: the screen would say
+ * lendable and the command would refuse, which is precisely the failure BR
+ * §16.3 is written to prevent. So this now *calls* it, and
+ * `tests/domain/circulation/lending-queries.test.ts` asserts that what this
+ * row carries is the very code `lendCopy` throws for the same reader.
+ *
+ * That makes the members domain import from circulation, which — with C1's
+ * `policy.ts` importing `membershipAllowsNewLoan` from this domain — is a
+ * cycle between the two *modules*. It is not a cycle between the two *files*
+ * (`circulation/policy.ts → members/policy.ts`, `members/queries/… →
+ * circulation/policy.ts`), so nothing loads before it is defined, and
+ * `tests/architecture/boundaries.test.ts` constrains what `src/domain` may
+ * import from *outside* it, not module-to-module edges inside — read, not
+ * assumed. If the edge ever reads badly, the fix is to move `memberMayBorrow`
+ * down beside `Block` in the kernel, never to keep a second copy of the
+ * comparison here.
+ *
+ * `maxConcurrentLoans` stays a parameter: it is the shelf's own setting (BR
+ * §5.5), which the *caller* reads and passes in, so this query is not a
+ * second place that knows where policy configuration lives.
  */
 export async function searchReadersForLending(
   tx: Tx,
@@ -80,17 +105,13 @@ export async function searchReadersForLending(
 
   return rows.map((r) => {
     const activeLoans = Number(r.active_loans);
-    // INV-4 from the members domain, INV-5 from the shelf's own limit (BR
-    // §5.5). Blocked readers are returned, not filtered: see the docstring
-    // above.
-    const status = membershipAllowsNewLoan({
-      status: r.status as MembershipStatus,
-    });
-    const block: Block = status.blocked
-      ? status
-      : activeLoans >= input.maxConcurrentLoans
-        ? { blocked: true, reason: "loan_limit_reached" }
-        : { blocked: false };
+    // The one predicate `lendCopy` also applies, INV-4 and INV-5 together,
+    // in the order that decides which single sentence a volunteer reads.
+    // Blocked readers are returned, not filtered: see the docstring above.
+    const block: Block = memberMayBorrow(
+      { status: r.status as MembershipStatus, activeLoans },
+      input.maxConcurrentLoans,
+    );
 
     return {
       membershipId: r.membership_id,

@@ -58,6 +58,31 @@ export const ERROR_MESSAGES = {
   membership_not_active: "Tài khoản đang tạm khoá, không thể mượn thêm.",
   loan_limit_reached: "Bạn đọc đã mượn tối đa số sách cho phép.",
   loan_not_active: "Lượt mượn này đã được xử lý.",
+  // C1. OPS §4.2 gives `loan_not_active` one sentence under ReceiveReturn —
+  // "Lượt mượn này đã được xử lý.", the shipped wording above
+  // (`docs/OPERATIONS.md:256`) — and a different one under VoidLoan
+  // (`:282`). The two refusals are not the same refusal: returning a returned
+  // loan is a double-submit and nothing is wrong, while voiding a closed loan
+  // is a manager reaching for an undo that no longer applies. One code maps to
+  // one sentence, or `messageFor` is a lie. The sentence names what is allowed
+  // instead, per BR §17.7.
+  //
+  // The third time this collision has turned up in the catalogue: B1 split OPS
+  // §4.1's `validation_failed` into `required_fields_missing` and
+  // `copy_count_invalid`, B2a split §4.3's into `reject_reason_required`,
+  // `not_active_cannot_suspend` and `not_suspended_cannot_reactivate`.
+  //
+  // Checked for a fourth while adding this one, and there is not one *in C1*.
+  // `reason_required` above looks like a candidate — OPS uses it at five sites
+  // — but its shipped sentence, "Vui lòng ghi lý do huỷ.", is VoidLoan's own
+  // (`:283`), and the four sites saying "lý do từ chối" were already split off
+  // into `reject_reason_required` by B2a. Two collisions *are* still open, and
+  // both belong to C2 rather than to this slice: `membership_not_active` reads
+  // "không thể mượn thêm" here and "không thể gửi yêu cầu mượn" under
+  // CreateBorrowRequest (`:293`), and `copy_lost_or_retired` gains "Bản sách đã
+  // chọn…" under ApproveBorrowRequest (`:305`). Whichever slice writes those
+  // two commands has the same split to make.
+  loan_not_active_cannot_void: "Chỉ có thể huỷ lượt mượn đang diễn ra.",
   no_renewals_remaining: "Bạn đã dùng hết số lần gia hạn cho lượt mượn này.",
   title_has_queue: "Có bạn khác đang chờ mượn cuốn này, không thể gia hạn.",
   reason_required: "Vui lòng ghi lý do huỷ.",

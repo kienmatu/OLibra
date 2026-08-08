@@ -69,6 +69,33 @@ import { expect, test } from "vitest";
  * never returns the `settings` value itself, only the four derived fields
  * (`levels`, `nested`, `level1Label`, `level2Label`) it reads out of it.
  *
+ * `src/domain/circulation/commands/lend-copy.ts` (C1 Task 3) is exempt on the
+ * narrowest version of the `copy-codes.ts` argument. It reads `settings` twice,
+ * for BR §5.5's `max_concurrent_loans` and `loan_days`, and both reads are
+ * `coalesce((settings->>'…')::int, n)` — an integer leaves the query, never
+ * the JSON. It is a `Command`, so it is unreachable except through
+ * `runCommand`, and its first statement is `requireManager`: there is no
+ * unauthenticated path to it at all, which is the situation
+ * `bookshelves_public_read` was widened for. Neither integer, nor anything
+ * derived from `settings`, appears in its `result` or its `audit` beyond the
+ * `due_on` the loan row itself already carries.
+ *
+ * `src/domain/circulation/commands/receive-return.ts` (C1 Task 4) is exempt on
+ * exactly that argument, one step narrower still: it reads `settings` only for
+ * BR §5.5's `hold_days`, only inside the branch where the manager asked to hold
+ * the copy for a queued reader, and only as `coalesce((settings->>'hold_days')
+ * ::int, 3)`. Same `requireManager`, same integer.
+ *
+ * Its absence from the command's output needs the same precision `lend-copy.ts`
+ * uses above, and for the same reason: the integer never leaves, but something
+ * *derived* from it does. `ReceiveReturnResult` carries only `loanId` and
+ * `queuedRequestId`, neither of which touches `settings` — but `hold_expires_at`
+ * is `clock.now() + hold_days` and it reaches both the `borrow_requests` row and
+ * the `request.approved` audit entry. That is the same shape as `due_on` under
+ * `lend-copy.ts`: a date computed from a shelf setting, not the setting, and not
+ * `keeper_phone`, `keeper_name` or `created_by`, which are what BR §16.1
+ * withholds and what this guard exists for.
+ *
  * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
  * per-column, not per-file.** All three justifications above are for reading
  * `settings`, and only `settings`, out of these files — none of them are a
@@ -84,6 +111,8 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   "src/domain/catalogue/copy-codes.ts": ["settings"],
   "src/domain/catalogue/queries/get-book-detail.ts": ["settings"],
   "src/domain/members/parish-context.ts": ["settings"],
+  "src/domain/circulation/commands/lend-copy.ts": ["settings"],
+  "src/domain/circulation/commands/receive-return.ts": ["settings"],
 };
 
 // The whole point of §16.1: a person with no membership has no business
