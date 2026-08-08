@@ -80,6 +80,25 @@ export const ERROR_MESSAGES = {
   parish_unit_l2_not_in_l1:
     "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.",
 
+  // — members: B2a —
+  // OPS §4.3's own sentences where OPS gives one; a distinct code wherever
+  // OPS reuses a code for a different sentence (see the plan's collision
+  // table). `membership_not_active` above is C1's, about borrowing — do not
+  // reuse it for SuspendMembership's refusal, which says something else.
+  username_taken: "Tên đăng nhập đã được dùng, hãy chọn tên khác.",
+  username_in_use: "Tên đăng nhập này đã có người dùng.",
+  password_too_short: "Mật khẩu cần ít nhất 8 ký tự.",
+  new_password_too_short: "Mật khẩu mới cần ít nhất 8 ký tự.",
+  passwords_dont_match: "Mật khẩu nhập lại không khớp.",
+  current_password_incorrect: "Mật khẩu hiện tại không đúng.",
+  already_registered_here: "Bạn đã đăng ký ở tủ sách này rồi.",
+  registration_not_pending: "Đơn đăng ký này đã được xử lý.",
+  not_active_cannot_suspend: "Chỉ có thể tạm khoá tài khoản đang hoạt động.",
+  not_suspended_cannot_reactivate:
+    "Chỉ có thể kích hoạt lại tài khoản đang tạm khoá.",
+  member_has_active_loans: "Bạn đọc này còn sách chưa trả, hãy nhận trả trước.",
+  reject_reason_required: "Vui lòng ghi lý do từ chối.",
+
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
   not_permitted: "Bạn không có quyền thực hiện việc này.",
