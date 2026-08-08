@@ -28,6 +28,15 @@ import { type MembershipStatus, requireManager } from "../policy";
  * unambiguous as ReactivateMembership's — only a *pending* application may be
  * approved — so it is checked directly against `status`, not through the
  * shared graph.
+ *
+ * **The `update` clears `suspension_reason` too, not only `rejection_reason`.**
+ * Re-review (fix-report, 2026-08-08-b2-members): today no command produces a
+ * `pending` row carrying a live `suspension_reason` — an exhaustive walk of
+ * all seven members commands confirmed it — so "no active row carries a
+ * live suspension reason" held only as a reachability accident, not as
+ * something this command itself guaranteed. `reactivateMembership` already
+ * clears its own stale reason defensively rather than trusting upstream; one
+ * more assignment here makes the same guarantee local instead of borrowed.
  */
 export const approveMembership: Command<{ membershipId: string }, void> = async (
   tx,
@@ -51,7 +60,8 @@ export const approveMembership: Command<{ membershipId: string }, void> = async 
     set status = 'active',
         approved_by = ${ctx.actor.userId},
         approved_at = ${ctx.clock.now()},
-        rejection_reason = null
+        rejection_reason = null,
+        suspension_reason = null
     where id = ${membership.id}
   `;
 

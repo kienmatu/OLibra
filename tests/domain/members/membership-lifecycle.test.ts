@@ -54,6 +54,27 @@ test("approving a pending application records who approved it, and when", async 
   expect(await auditActions()).toEqual(["membership.approved"]);
 });
 
+test("approving clears any suspension_reason left on the row, defensively", async () => {
+  // Re-review (2026-08-08-b2-members): today no command produces a `pending`
+  // row carrying a live `suspension_reason` — an exhaustive walk of all seven
+  // commands confirmed it — so this only guards a reachability accident, the
+  // same way `reactivateMembership` already clears defensively rather than
+  // trusting that nothing upstream could have left one. The row is forced
+  // into the state by hand here, past every command, to prove the guarantee
+  // is now local to this one rather than borrowed from the rest of the
+  // catalogue.
+  const { ctx, member } = await shelfWith("pending");
+  await sql`
+    update memberships set suspension_reason = 'cũ' where id = ${member.id}
+  `;
+  await runCommand(sql, ctx, approveMembership, { membershipId: member.id });
+  const [m] = await sql<
+    { status: string; suspension_reason: string | null }[]
+  >`select status, suspension_reason from memberships where id = ${member.id}`;
+  expect(m.status).toBe("active");
+  expect(m.suspension_reason).toBeNull();
+});
+
 test("approving twice says the application was already dealt with", async () => {
   const { ctx, member } = await shelfWith("active");
   await expect(
