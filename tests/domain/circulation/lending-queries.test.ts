@@ -6,12 +6,16 @@ import { receiveReturn } from "../../../src/domain/circulation/commands/receive-
 import { searchLoansForReturn } from "../../../src/domain/circulation/queries/search-loans-for-return";
 import { searchBooksForLending } from "../../../src/domain/catalogue/queries/search-books-for-lending";
 import { searchReadersForLending } from "../../../src/domain/members/queries/search-readers-for-lending";
+import { reportCopyLost } from "../../../src/domain/catalogue/commands/report-copy-lost";
+import { retireCopy } from "../../../src/domain/catalogue/commands/retire-copy";
+import type { CopyState } from "../../../src/domain/catalogue/policy";
 import { migrate } from "../../../src/db/migrate";
 import { makeBookWithCopies, makeMember } from "../../support/factories";
 import {
   lentOut,
   managerContext,
   managerContextFor,
+  SCENARIO_CLOCK,
 } from "../../support/scenarios";
 import { closeAll, resetDatabase, sql } from "../../support/db";
 
@@ -83,42 +87,102 @@ test("the reader search's block reason is the code lendCopy throws", async () =>
   expect(queried).toEqual({ blocked: true, reason: thrown });
 });
 
-test("the book search's block reason is the code lendCopy throws", async () => {
-  // The same agreement on the copy side. `searchBooksForLending` derives its
-  // reason from `copiesAvailable === 0` rather than from `copyLendable`, since
-  // it aggregates a title rather than judging one copy — so this is the test
-  // that keeps that aggregate honest against the per-copy predicate the
-  // command applies.
+test("the book search's block reason is the code lendCopy throws, in every copy state", async () => {
+  // The same agreement on the copy side, and the one that had a hole in it.
+  //
+  // `searchBooksForLending` aggregates a title where `lendCopy` judges one
+  // copy, so the two cannot share `copyLendable` and the agreement has to be
+  // asserted rather than inherited. The version of this test that shipped
+  // exercised `on_loan` only — the single state where both sides already
+  // agreed — while claiming to keep the aggregate honest. They disagreed on
+  // `lost` and on `retired`: the query said `copy_not_available` ("đang được
+  // mượn hoặc đang giữ chỗ" — *go and wait for it*) about a title whose only
+  // copy nobody has. `inv-07-lost-or-retired-not-lendable.test.ts` asserts
+  // twice that this distinction is what reaches the volunteer.
+  //
+  // So every state a single-copy title can be in, in one loop, with both sides
+  // measured from the same fixture. The expected code is never written down
+  // here: `thrown` is whatever the command really did, so the two
+  // implementations cannot drift to a third value together and stay green.
   const { shelf, ctx } = await managerContext(sql);
-  const first = await makeMember(sql, shelf.id);
-  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
-  await runCommand(sql, ctx, lendCopy, {
-    copyId: copyIds[0],
-    membershipId: first.id,
-  });
 
-  const rows = await runQuery(
-    sql,
-    ctx,
-    (tx, c) => searchBooksForLending(tx, c, { q: "sach" }), // makeBookWithCopies titles "Sách N"
-  );
-  const row = rows.find((r) => r.copiesTotal === 1)!;
+  // Each entry leaves its one copy in the named state and returns the title's
+  // book id. The states are reached the way the product reaches them wherever
+  // a command exists for it — `lost` and `retired` are `reportCopyLost` and
+  // `retireCopy`, not an UPDATE — so a change to those commands cannot leave
+  // this file passing against a state nothing produces.
+  const inState = async (state: CopyState) => {
+    const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+    const copyId = copyIds[0];
+    if (state === "on_loan" || state === "lost") {
+      const holder = await makeMember(sql, shelf.id);
+      const { loanId } = await runCommand(sql, ctx, lendCopy, {
+        copyId,
+        membershipId: holder.id,
+      });
+      if (state === "lost") {
+        await runCommand(sql, ctx, reportCopyLost, { copyId });
+      } else {
+        void loanId;
+      }
+    } else if (state === "retired") {
+      await runCommand(sql, ctx, retireCopy, { copyId, reason: "Mục nát" });
+    } else if (state === "held") {
+      // No C1 command puts a copy aside for a reader without a loan coming
+      // back first, and `receiveReturn`'s hold is already covered elsewhere;
+      // what this row needs is the *state*, so the hold is written the way
+      // `inv-03-only-available-or-own-hold.test.ts` writes its own.
+      const holder = await makeMember(sql, shelf.id);
+      await sql`
+        insert into borrow_requests
+          (bookshelf_id, book_id, copy_id, member_id, status, requested_at,
+           hold_expires_at)
+        values
+          (${shelf.id}, ${bookId}, ${copyId}, ${holder.userId}, 'approved',
+           ${SCENARIO_CLOCK}::timestamptz, timestamptz '2026-08-10T10:00:00Z')
+      `;
+      await sql`update book_copies set state = 'held' where id = ${copyId}`;
+    }
+    return { bookId, copyId };
+  };
 
-  // A second reader, unblocked, so the refusal below can only be the copy's.
-  const second = await makeMember(sql, shelf.id);
-  const thrown = await runCommand(sql, ctx, lendCopy, {
-    copyId: copyIds[0],
-    membershipId: second.id,
-  }).then(
-    () => null,
-    (e: { code: string }) => e.code,
-  );
+  for (const state of [
+    "available",
+    "on_loan",
+    "held",
+    "lost",
+    "retired",
+  ] as const) {
+    const { bookId, copyId } = await inState(state);
 
-  expect(thrown).not.toBeNull();
-  expect({ blocked: row.blocked, reason: row.reason }).toEqual({
-    blocked: true,
-    reason: thrown,
-  });
+    const rows = await runQuery(
+      sql,
+      ctx,
+      (tx, c) => searchBooksForLending(tx, c, { q: "sach" }), // titles are "Sách N"
+    );
+    const row = rows.find((r) => r.bookId === bookId)!;
+    expect(row, `${state}: the title is missing from the search`).toBeDefined();
+
+    // A fresh reader each time, unblocked, so the command's refusal — or its
+    // success — can only be about the copy.
+    const reader = await makeMember(sql, shelf.id);
+    const thrown = await runCommand(sql, ctx, lendCopy, {
+      copyId,
+      membershipId: reader.id,
+    }).then(
+      () => null,
+      (e: { code: string }) => e.code,
+    );
+
+    expect(
+      { blocked: row.blocked, reason: row.reason },
+      `state ${state}: the screen and the command disagree`,
+    ).toEqual(
+      thrown === null
+        ? { blocked: false, reason: undefined }
+        : { blocked: true, reason: thrown },
+    );
+  }
 });
 
 // — SearchLoansForReturn —
