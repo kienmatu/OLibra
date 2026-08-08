@@ -426,6 +426,12 @@ that power leans on."
 
 The place OPS §2's "membership, not just authentication" rule is enforced: a valid `reader` session for shelf A grants nothing on shelf B.
 
+**Owned here, not optional: wire `olibra_app`/`olibra_admin` to a real login role.** S1's schema-rls review found this gap and recorded it rather than fixing it, because there was no application connection yet to wire — DATABASE.md §3, "The application role is not wired to a login role yet". This task is the first place a real login role exists, so it is the place this gets closed:
+
+- `contextFor` (or whatever calls it — the connection-pool setup, most likely) must issue `set local role olibra_app` for every ordinary request, inside the same transaction as the query it guards, immediately after `set_config('olibra.bookshelf_id', ...)`. Using `olibra_admin` anywhere outside a deliberate, explicitly-named cross-shelf admin path is a regression of INV-10.
+- The connecting Postgres role backing the application's connection pool must be granted membership in `olibra_app` (`grant olibra_app to <pool_role>`) and must **not** itself be a superuser — a superuser bypasses RLS regardless of which role it then `set`s to, which is exactly the trap that let 0010_rls.sql's tests pass throughout S1 with no real enforcement wired to anything. Verify this by running the guards test suite against a pool role that is provably not a superuser (`select rolsuper from pg_roles where rolname = current_user` inside a connection made through the pool) — not by inspecting the grant alone.
+- `bookshelves` has no `insert` grant for `olibra_app` (0010_rls.sql; DATABASE.md §3). Whatever handles shelf onboarding must run as `olibra_admin`, deliberately, not as a side effect of `contextFor` defaulting to it when no shelf is set yet.
+
 **Files:**
 - Create: `src/auth/guards.ts`
 - Test: `tests/auth/guards.test.ts`
@@ -736,5 +742,6 @@ git commit -m "feat(auth): wire the sign-in screen to real sessions"
 - [ ] An account with no credentials is a valid record that cannot sign in (INV-14).
 - [ ] `revokeAllSessions` ends every session for a person — the property that justified a database-backed store.
 - [ ] No screen's URL or visible layout changed.
+- [ ] The application's connection-pool role is a genuine non-superuser granted membership in `olibra_app` (and, only for the deliberate cross-shelf admin path, `olibra_admin`), and every ordinary request path runs `set local role olibra_app` — closing the gap DATABASE.md §3 records ("The application role is not wired to a login role yet").
 
 **Next:** Wave 1 opens. [B1 Catalogue](2026-08-07-olibra-backend-master.md#71-b1--catalogue), [B2 Members](2026-08-07-olibra-backend-master.md#72-b2--members), [B3 Community](2026-08-07-olibra-backend-master.md#73-b3--community), [B4 Administration](2026-08-07-olibra-backend-master.md#74-b4--administration) and [B5 Storage](2026-08-07-olibra-backend-master.md#75-b5--object-storage) can now run in parallel. [C1 Lending](2026-08-07-c1-lending-core.md) starts when B1 and B2 both land.
