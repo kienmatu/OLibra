@@ -55,9 +55,23 @@ import { expect, test } from "vitest";
  * booleans/strings derived from it (whether `currentLoan` is null, and which
  * of the borrower's names to show) do.
  *
+ * `src/domain/members/parish-context.ts` (B2a Task 2) is exempt for the same
+ * shape of reason, with one difference worth naming: `loadParishContext` is
+ * *not* gated behind `requireReader` itself (its caller `getParishUnits` is,
+ * but the B2a plan is explicit that `RegisterMembership` calls
+ * `loadParishContext` directly, inside its own transaction, precisely so a
+ * guest filling out the registration form can have their selection validated
+ * without ever being handed the unit list through a reader-gated query). So
+ * this file's `settings` read genuinely is reachable from an unauthenticated
+ * path — but what BR §16.1 withholds is `keeper_phone`, `keeper_name` and
+ * `created_by`; a shelf's parish taxonomy (how many levels, what they are
+ * called) is not the fact this guard exists to protect, and `toTaxonomy`
+ * never returns the `settings` value itself, only the four derived fields
+ * (`levels`, `nested`, `level1Label`, `level2Label`) it reads out of it.
+ *
  * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
- * per-column, not per-file.** Both justifications above are for reading
- * `settings`, and only `settings`, out of these two files — neither one is a
+ * per-column, not per-file.** All three justifications above are for reading
+ * `settings`, and only `settings`, out of these files — none of them are a
  * blanket "trust this whole file" pass. A whole-file exemption skipped the
  * `select *` check and the *other* withheld columns too, in a file that
  * genuinely earns an exemption for exactly one of them: changing
@@ -69,6 +83,7 @@ import { expect, test } from "vitest";
 const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   "src/domain/catalogue/copy-codes.ts": ["settings"],
   "src/domain/catalogue/queries/get-book-detail.ts": ["settings"],
+  "src/domain/members/parish-context.ts": ["settings"],
 };
 
 // The whole point of §16.1: a person with no membership has no business
