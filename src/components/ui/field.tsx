@@ -1,3 +1,4 @@
+import { cloneElement, isValidElement } from "react";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,29 @@ export function Field({
   htmlFor?: string;
   children: React.ReactNode;
 }) {
+  // M9: this error paragraph used to be purely decorative — no `role="alert"`,
+  // no link back to the control it describes. That was tolerable while these
+  // pages were static; it stopped being tolerable the moment a page reload
+  // (dang-nhap/actions.ts's redirect) could put a real validation failure
+  // here with nothing announcing it to a screen-reader user. `errorId` ties
+  // the message to the control via `aria-describedby`, and the control also
+  // gets `aria-invalid` — both injected onto `children` here rather than
+  // pushed onto every call site, so a caller cannot forget the wiring the
+  // way `dang-nhap/page.tsx` had (it separately, and still correctly, sets
+  // `invalid` on `Input` for the red border, which is a visual concern this
+  // does not replace).
+  const errorId = error && htmlFor ? `${htmlFor}-loi` : undefined;
+  const control =
+    error && isValidElement(children)
+      ? cloneElement(
+          children as React.ReactElement<{
+            "aria-invalid"?: boolean;
+            "aria-describedby"?: string;
+          }>,
+          { "aria-invalid": true, "aria-describedby": errorId },
+        )
+      : children;
+
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -40,9 +64,13 @@ export function Field({
         ) : null}
       </div>
       {hint ? <p className="text-[14px] text-meta">{hint}</p> : null}
-      {children}
+      {control}
       {error ? (
-        <p className="flex items-center gap-1.5 text-[14px] text-brick">
+        <p
+          id={errorId}
+          role="alert"
+          className="flex items-center gap-1.5 text-[14px] text-brick"
+        >
           <AlertCircle aria-hidden className="size-[18px]" strokeWidth={1.75} />
           {error}
         </p>

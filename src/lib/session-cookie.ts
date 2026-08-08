@@ -12,7 +12,15 @@ export const SESSION_COOKIE = "olibra_session";
  */
 export const SIGN_IN_FAILED = "khong_dang_nhap_duoc";
 
-export function cookieOptions(env = process.env.NODE_ENV) {
+/**
+ * `remember` (default `true`) is M10/"Ghi nhớ đăng nhập": when the box is
+ * left unchecked, the cookie carries no `maxAge` at all, which makes it a
+ * session cookie the browser discards on close — the standard meaning of an
+ * unchecked "remember me". The underlying row in `sessions` still lives for
+ * `SESSION_DAYS` either way (`src/auth/session.ts`); this only controls how
+ * long the *browser* holds on to the cookie naming it.
+ */
+export function cookieOptions(env = process.env.NODE_ENV, remember = true) {
   return {
     httpOnly: true,
     // `lax` rather than `strict`: a volunteer following a link to the shelf
@@ -23,6 +31,6 @@ export function cookieOptions(env = process.env.NODE_ENV) {
     // the first response to that is to disable the flag everywhere.
     secure: env === "production",
     path: "/",
-    maxAge: 30 * 86_400,
+    ...(remember ? { maxAge: 30 * 86_400 } : {}),
   };
 }

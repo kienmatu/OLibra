@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { migrate } from "../../src/db/migrate";
-import { makeBookWithCopies, makeShelf } from "../support/factories";
+import { makeBookWithCopies, makeMember, makeShelf } from "../support/factories";
 import { closeAll, resetDatabase, sql } from "../support/db";
 
 beforeAll(() => migrate(sql));
@@ -17,6 +17,31 @@ test("INV-10: a query scoped to shelf A cannot see shelf B's books", async () =>
     await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
     await tx`set local role olibra_app`;
     return tx<{ bookshelf_id: string }[]>`select bookshelf_id from books`;
+  });
+
+  expect(visible).toHaveLength(1);
+  expect(visible[0].bookshelf_id).toBe(a.id);
+});
+
+test("INV-10: memberships_tenant itself blocks a cross-shelf read, with no application-level filter to lean on", async () => {
+  // M7: tests/auth/guards.test.ts's "a valid session for shelf A grants
+  // nothing on shelf B" passes even with memberships_tenant (0010_rls.sql)
+  // dropped entirely, because membershipFor's own join names the shelf
+  // explicitly (`m.bookshelf_id = ${bookshelfId}`) — that test proves the
+  // application layer, not the database one. Both layers are real (DB §3's
+  // "Option A, with Option B's scoping layer on top of it"), so both need a
+  // test that can fail on its own. This one runs a query with no
+  // `bookshelf_id` filter in the SQL at all — if RLS is doing nothing, it
+  // returns both shelves' rows; the policy is what has to narrow it to one.
+  const a = await makeShelf(sql, { slug: "dong-thap" });
+  const b = await makeShelf(sql, { slug: "an-giang" });
+  await makeMember(sql, a.id);
+  await makeMember(sql, b.id);
+
+  const visible = await sql.begin(async (tx) => {
+    await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
+    await tx`set local role olibra_app`;
+    return tx<{ bookshelf_id: string }[]>`select bookshelf_id from memberships`;
   });
 
   expect(visible).toHaveLength(1);

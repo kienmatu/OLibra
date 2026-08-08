@@ -40,7 +40,7 @@ test("a wrong password does not sign in", async () => {
   await makeUserWithCredentials("tranminh", "con-meo-nho");
   await expect(
     signIn(sql, { username: "tranminh", password: "sai", clock }),
-  ).rejects.toMatchObject({ code: "not_authenticated" });
+  ).rejects.toMatchObject({ code: "sign_in_failed" });
 });
 
 test("an account with no credentials cannot sign in", async () => {
@@ -53,7 +53,29 @@ test("an account with no credentials cannot sign in", async () => {
   `;
   await expect(
     signIn(sql, { username: "leanh", password: "bat-ky", clock }),
-  ).rejects.toMatchObject({ code: "not_authenticated" });
+  ).rejects.toMatchObject({ code: "sign_in_failed" });
+});
+
+test("who signed in from where is recorded, per DATABASE.md §4.1's promise", async () => {
+  // M8: user_agent/ip_address were columns on the table and nothing more —
+  // signIn never wrote them. Optional, still: a caller with nothing to
+  // report (this suite, most tests above) must not be forced to invent one.
+  await makeUserWithCredentials("tranminh", "con-meo-nho");
+  await signIn(sql, {
+    username: "tranminh",
+    password: "con-meo-nho",
+    clock,
+    userAgent: "OLibra test suite",
+    ipAddress: "203.0.113.7",
+  });
+
+  const [row] = await sql<
+    { user_agent: string | null; ip_address: string | null }[]
+  >`
+    select user_agent, ip_address from sessions
+  `;
+  expect(row.user_agent).toBe("OLibra test suite");
+  expect(row.ip_address).toBe("203.0.113.7");
 });
 
 test("the raw token is never stored", async () => {
@@ -82,6 +104,25 @@ test("an expired session resolves to nothing, with no sweep having run", async (
   expect(await resolveSession(sql, token, muchLater)).toBeNull();
   // The row is still there — nothing tidied it — and it is still unusable.
   expect(await sql`select 1 from sessions`).toHaveLength(1);
+});
+
+test("a soft-deleted user's session no longer resolves", async () => {
+  // CRITICAL 1, the other half: resolveSession never checked users.deleted_at,
+  // so contextFor's per-request identity check ran the same gap even where
+  // membershipFor was fixed. Deleting a person must stop their existing
+  // session from resolving, the same way it stops a fresh signIn (which
+  // already filters `deleted_at is null`).
+  const userId = await makeUserWithCredentials("tranminh", "con-meo-nho");
+  const { token } = await signIn(sql, {
+    username: "tranminh",
+    password: "con-meo-nho",
+    clock,
+  });
+  expect(await resolveSession(sql, token, clock)).toEqual({ userId });
+
+  await sql`update users set deleted_at = ${clock.now()} where id = ${userId}`;
+
+  expect(await resolveSession(sql, token, clock)).toBeNull();
 });
 
 test("signing out invalidates only that session", async () => {

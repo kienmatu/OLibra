@@ -12,14 +12,17 @@ import { signInAction } from "./actions";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ loi?: string }>;
+  searchParams: Promise<{ loi?: string; ten?: string }>;
 }) {
-  const { loi } = await searchParams;
-  // The same generic sentence for a wrong password and for an account with
-  // no credentials at all (INV-14) — neither case should tell a visitor
-  // which one happened.
+  const { loi, ten } = await searchParams;
+  // The same generic sentence for a wrong password, an unknown username and
+  // an account with no credentials at all (INV-14) — neither case should
+  // tell a visitor which one happened. `sign_in_failed`, not
+  // `not_authenticated`: that code's sentence is "you need to sign in to
+  // continue", written for a stranger reaching a page that requires a
+  // session, not for someone who just tried and failed (IMPORTANT 3).
   const signInError =
-    loi === SIGN_IN_FAILED ? messageFor("not_authenticated") : undefined;
+    loi === SIGN_IN_FAILED ? messageFor("sign_in_failed") : undefined;
 
   return (
     <>
@@ -39,6 +42,8 @@ export default async function LoginPage({
                 name="username"
                 icon={User}
                 placeholder="vd: lan.nguyen"
+                // M11: a failed attempt used to lose whatever was typed here.
+                defaultValue={ten}
               />
             </Field>
 
@@ -56,6 +61,7 @@ export default async function LoginPage({
               <label className="inline-flex min-h-11 items-center gap-2 text-[15px]">
                 <input
                   type="checkbox"
+                  name="remember"
                   className="size-[18px] rounded-control border-hairline accent-sage"
                 />
                 Ghi nhớ đăng nhập

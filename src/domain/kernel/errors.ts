@@ -70,6 +70,15 @@ export const ERROR_MESSAGES = {
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
   not_permitted: "Bạn không có quyền thực hiện việc này.",
+  // IMPORTANT 3: a distinct code from not_authenticated above, which is the
+  // catalogue entry for "you are not signed in" — shown when a stranger
+  // reaches a page that requires a session. A failed sign-in is a different
+  // situation and needs its own sentence: one code covering a wrong
+  // password, an unknown username, and an account with no credentials at
+  // all (INV-14) alike, deliberately not distinguishing which — telling a
+  // caller which one happened is what the earlier, more specific wording
+  // this replaced was leaking.
+  sign_in_failed: "Tên đăng nhập hoặc mật khẩu chưa đúng, em thử lại nhé.",
 
   // — kernel —
   invalid_bookshelf_id: "Mã tủ sách không hợp lệ.",

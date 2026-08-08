@@ -40,7 +40,18 @@ const hashToken = (token: string) =>
 
 export async function signIn(
   sql: Sql,
-  input: { username: string; password: string; clock: Clock },
+  input: {
+    username: string;
+    password: string;
+    clock: Clock;
+    // M8: DATABASE.md §4.1 promises these columns make "who signed in from
+    // where" answerable. Optional, and defaulted to null below, because not
+    // every caller of signIn runs inside a request with headers to read —
+    // tests, a future CLI-driven sign-in — and a caller with nothing to
+    // report should not have to fabricate a value.
+    userAgent?: string | null;
+    ipAddress?: string | null;
+  },
 ): Promise<{ token: string; userId: string }> {
   return asApp(sql, async (tx) => {
     const [user] = await tx<{ id: string; password_hash: string | null }[]>`
@@ -61,7 +72,13 @@ export async function signIn(
         ),
         false);
 
-    if (!user || !ok) throw new RuleViolated("not_authenticated");
+    // IMPORTANT 3: `sign_in_failed`, not `not_authenticated` — that code's
+    // Vietnamese sentence is "you need to sign in to continue", the wrong
+    // thing to tell someone who just tried and failed. One code covers a
+    // wrong password, an unknown username and an account with no
+    // credentials at all (INV-14) alike, deliberately: distinguishing them
+    // in the response would tell a caller which accounts exist.
+    if (!user || !ok) throw new RuleViolated("sign_in_failed");
 
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(
@@ -69,8 +86,11 @@ export async function signIn(
     );
 
     await tx`
-      insert into sessions (token_hash, user_id, expires_at)
-      values (${hashToken(token)}, ${user.id}, ${expiresAt})
+      insert into sessions (token_hash, user_id, expires_at, user_agent, ip_address)
+      values (
+        ${hashToken(token)}, ${user.id}, ${expiresAt},
+        ${input.userAgent ?? null}, ${input.ipAddress ?? null}
+      )
     `;
 
     return { token, userId: user.id };
@@ -83,10 +103,18 @@ export async function resolveSession(
   clock: Clock,
 ): Promise<{ userId: string } | null> {
   return asApp(sql, async (tx) => {
+    // CRITICAL 1: a session row surviving its owner does not mean the owner
+    // may still act. Deleting a user (safeguarding, a merged duplicate
+    // account, a manager's mistake undone) must sign them out in substance,
+    // not merely stop `signIn` from issuing a *new* token — an existing one
+    // must stop resolving too, on the very next request, not up to
+    // SESSION_DAYS later when it happens to expire.
     const [row] = await tx<{ user_id: string }[]>`
-      select user_id from sessions
-      where token_hash = ${hashToken(token)}
-        and expires_at > ${clock.now()}
+      select s.user_id from sessions s
+      join users u on u.id = s.user_id
+      where s.token_hash = ${hashToken(token)}
+        and s.expires_at > ${clock.now()}
+        and u.deleted_at is null
     `;
     return row ? { userId: row.user_id } : null;
   });
