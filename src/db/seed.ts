@@ -164,7 +164,7 @@ export async function seed(sql: Sql): Promise<void> {
           ${dongThapId}, ${categoryId}, ${b.title}, ${b.slug}, ${b.author},
           ${b.publisher}, ${b.year}, ${b.pages}, ${description}, true
         )
-        on conflict (bookshelf_id, slug) do update set
+        on conflict (bookshelf_id, slug) where deleted_at is null do update set
           title          = excluded.title,
           category_id    = excluded.category_id,
           author         = excluded.author,
@@ -222,7 +222,7 @@ export async function seed(sql: Sql): Promise<void> {
             ${dongThapId}, ${bookId}, ${code}, ${state},
             ${lostReportedAt}, ${retiredAt}, ${retiredReason}
           )
-          on conflict (bookshelf_id, code) do update set
+          on conflict (bookshelf_id, code) where deleted_at is null do update set
             state             = excluded.state,
             lost_reported_at  = excluded.lost_reported_at,
             retired_at        = excluded.retired_at,
@@ -279,7 +279,7 @@ export async function seed(sql: Sql): Promise<void> {
           bookshelf_id, user_id, role, status, parish_unit_l1_id, parish_unit_l2_id
         )
         values (${bookshelfId}, ${userRow.id}, 'reader', ${r.membership}, ${l1}, ${l2})
-        on conflict (bookshelf_id, user_id) do update set
+        on conflict (bookshelf_id, user_id) where deleted_at is null do update set
           status            = excluded.status,
           parish_unit_l1_id = excluded.parish_unit_l1_id,
           parish_unit_l2_id = excluded.parish_unit_l2_id
