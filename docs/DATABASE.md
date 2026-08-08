@@ -155,8 +155,8 @@ flowchart TB
         I2["INV-2 · never held and on loan<br/>single state column"]
         I9["INV-9 · comments public only when approved<br/>partial index"]
         I10["INV-10 · every query scoped to a shelf<br/>row level security"]
-        I11["INV-11 · loans never deleted<br/>no column, revoked grant"]
-        I12["INV-12 · audit never altered<br/>revoked grant"]
+        I11["INV-11 · loans never deleted<br/>no column, trigger + revoked grant"]
+        I12["INV-12 · audit never altered<br/>trigger + revoked grant"]
         I13a["INV-13a · at most one pending<br/>profile request per person<br/>partial unique index"]
         I14["INV-14 · credentials paired,<br/>or absent entirely<br/>check constraint"]
     end
@@ -203,7 +203,7 @@ So each of the fourteen rules below is marked with where it is enforced. Seven o
 | Text | `text` throughout. `varchar(n)` buys nothing in Postgres and invites arbitrary limits |
 | Enums | Postgres `enum` types, not check constraints or lookup tables. See §2.1 |
 | Naming | `snake_case`, tables plural, foreign keys `<singular>_id` |
-| Every table | `created_at timestamptz not null default now()`, and `updated_at` where the row is mutable |
+| Every table | `created_at timestamptz not null default now()`, and `updated_at` where the row is mutable, kept current by a `set_updated_at()` `before update` trigger rather than trusted to application code |
 | Soft delete | `deleted_at timestamptz` on the tables §11 permits, and only those |
 
 ### 2.1 Why enums rather than lookup tables
@@ -239,10 +239,13 @@ alter table books enable row level security;
 alter table books force row level security;
 
 create policy books_tenant on books
-  using (bookshelf_id = current_setting('olibra.bookshelf_id', true)::uuid);
+  using (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid)
+  with check (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid);
 ```
 
 The application sets `olibra.bookshelf_id` once per transaction. A query that forgets its `where` clause returns nothing rather than another parish's readers.
+
+**One trap worth naming, because it bites quietly and only on a connection that has been used before** — the same treatment §5 gives `unaccent`'s two traps. `current_setting(name, true)` returns `null` the first time a session touches a GUC nobody has set. But once any transaction on that connection has called `set_config('olibra.bookshelf_id', ..., true)` — the `true` meaning `LOCAL`, scoped to that one transaction — the setting does not go back to being unset when the transaction ends; it reverts to an **empty string**, not `null`. A bare `::uuid` cast against an empty string does not return zero rows, it raises `invalid input syntax for type uuid: ""` — failing loudly instead of failing closed. That is not a corner case: it is every pooled connection, and every connection reused across more than one transaction, which in production is effectively all of them. `nullif(current_setting(...), '')` turns the empty string back into `null` before the cast, so a transaction that never set a shelf sees zero rows — "returns nothing rather than another parish's readers", the promise made two paragraphs up — instead of erroring out.
 
 **Why this is the recommendation:** it survives a change of application stack, an ORM upgrade, a raw SQL patch, and a new developer. It is the only option that makes the guarantee structural in the sense §6 demands.
 
@@ -256,7 +259,32 @@ A single data-access module that refuses to build a query without a bookshelf. C
 
 ### Global tables
 
-`users`, `categories` and site-wide `feedback` are not shelf-scoped and carry no policy. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point. `audit_log` is scoped but with a nullable `bookshelf_id` for system-wide actions.
+`users` and `categories` are not shelf-scoped and carry no policy at all. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point.
+
+**`feedback` and `audit_log` are not global tables, even though each has a nullable `bookshelf_id`.** Both carry the same `<table>_tenant` policy shape as every other table in this section (§4.8, §4.10) — a row with a non-null `bookshelf_id` is exactly as much tenant data as a row in `books`. What differs between them is only what the *null* case means, and each table's policy treats it differently, on purpose:
+
+- `audit_log`'s null means a system-wide action (BR §13.2 makes cross-shelf audit visibility a super_admin permission), so a null row is invisible to `olibra_app` under plain equality — `null = x` is never true — and reaching it at all requires `olibra_admin`'s deliberate `bypassrls`.
+- `feedback`'s null means a message sent through the contact page with no shelf selected — genuinely site-wide, not restricted — so its policy explicitly lets the null case through (`bookshelf_id = ... or bookshelf_id is null`) rather than hiding it the way `audit_log` does.
+
+An earlier draft of this sentence read "`users`, `categories` and site-wide `feedback` are not shelf-scoped and carry no policy", which was read — reasonably, and wrongly — as covering the whole `feedback` table rather than just its null rows. 0010_rls.sql's table-name loop skipped `feedback` entirely on that reading, which meant every row with a real `bookshelf_id` (guest names, phone numbers, a shelf's own message queue) had no policy at all. See CRITICAL 1 in `.superpowers/sdd/2026-08-07-s1-schema-rls/fix-report.md` for how that was demonstrated and closed (`20260808_01_feedback_rls.sql`).
+
+### Foreign keys stay inside one tenant
+
+RLS answers "who can see this row", not "does this row point at something on the same shelf". A plain `parish_unit_l1_id uuid references parish_units(id)` only checks that the id exists *somewhere* — nothing stops a row on shelf A from pointing at a row on shelf B. Demonstrated live: as `olibra_app` scoped to Đồng Tháp, inserting a membership whose `parish_unit_l1_id` names a Cần Thơ unit succeeded. Reading it back, from the same session, shows a parish line that resolves to null: RLS hides the Cần Thơ row from a Đồng Tháp session, but the foreign key value is not null, so the owning shelf can neither read nor repair it.
+
+The fix is structural, the same way tenant isolation itself is: every shelf-scoped parent table carries `unique (bookshelf_id, id)` alongside its primary key, and every foreign key between two shelf-scoped tables is a composite `(bookshelf_id, x_id) references parent (bookshelf_id, id)` rather than a plain `x_id references parent(id)`. A row can then only reference a parent on its own shelf — the foreign key enforces what RLS could only ever hide. This applies to every reference between two shelf-scoped tables (`parish_units.parent_id`, `memberships.parish_unit_l1_id`/`l2_id`, `book_copies.book_id`, `loans.copy_id`/`book_id`/`request_id`, `borrow_requests.book_id`/`copy_id`/`fulfilled_loan_id`, `condition_assessments.copy_id`/`loan_id`, `comments.book_id`, `book_donations.donor_membership_id`, and `book_copies.acquired_from_membership_id`) — not to references at a global table (`users`, `categories`), which have no second shelf-scoped column to pair with. See `20260808_04_composite_tenant_fks.sql` and CRITICAL 6 in the S1 fix report for the full list and the live reproduction above.
+
+Nullable referencing columns keep working unchanged: Postgres's default `MATCH SIMPLE` means a composite foreign key is satisfied whenever *any* of its columns is null, so "no parent unit yet" or "no donor account" still needs nothing extra — `bookshelf_id` itself is never null on any of these tables, so the only column that can carry the null is the original one.
+
+### The application role is not wired to a login role yet
+
+`set local role olibra_app` (this section, and every test in `tests/invariants/`) works today only because the connection making it is a Postgres superuser — a superuser can always `set role` to anything, and a superuser also bypasses RLS unconditionally regardless of which role it then sets. There is no `pg_auth_members` row granting `olibra_app` or `olibra_admin` to any login role, because there is no application connection yet to wire it to.
+
+This is not a gap to close now — S3 (identity and session) is where a real login role first exists — but it is a real trap waiting there: `set local role olibra_app` against a properly least-privileged, non-superuser connection pool role will either fail outright (if that role was never `GRANT`ed membership in `olibra_app`) or, if someone notices under deadline pressure and simply drops the `set local role` line to make the error go away, silently run every request as a role that bypasses no policies and enforces nothing — while this entire test suite stays green, because every test in it already runs as a superuser and would not notice the difference. S3's plan (`docs/superpowers/plans/2026-08-07-s3-identity-session.md`) names this explicitly in its task list so it has an owner rather than being rediscovered mid-implementation.
+
+One more consequence of the same fact worth stating here: `olibra_app` holds no `insert` grant on `bookshelves` at all. Shelf onboarding — creating a new bookshelf — must run as `olibra_admin`, deliberately; there is no "self-serve create a shelf" path for an ordinary session, for the same reason `bookshelves` needed its own bespoke policy above rather than joining the tenant-table loop: a session with no shelf set yet has nothing to scope an `insert` to.
+
+**Correction:** an earlier draft of this sentence — and the S3 plan bullet built on it (`docs/superpowers/plans/2026-08-07-s3-identity-session.md`, Task 4) — stated this as already true. It was not. `0010_rls.sql`'s own `grant select, insert, update on all tables in schema public to olibra_app` runs against *every* table that exists at that point in the migration, `bookshelves` included — the bespoke `bookshelves_tenant` policy right above it only scopes *which rows* an `insert`/`update` may touch, not *whether* `olibra_app` may `insert` at all. Verified live: `has_table_privilege('olibra_app', 'bookshelves', 'INSERT')` returned `true`, and an `olibra_app` session scoped to an id of its own choosing successfully inserted a bookshelf row carrying that id — `bookshelves_tenant`'s `with check (id = ...)` only requires the new row's id to match the session GUC, which the caller controls completely before the row exists. `20260808_08_revoke_bookshelves_insert_from_app.sql` closes the gap with an explicit `revoke insert on bookshelves from olibra_app`, so the sentence above is now enforced rather than aspirational. `update` is deliberately left granted: a shelf legitimately edits its own row (name, opening hours, `settings`) as `olibra_app`, scoped by the same `with check` every other tenant table's self-service write already relies on — only the act of creating a new row is reserved for `olibra_admin`.
 
 ---
 
@@ -338,18 +366,32 @@ create table parish_units (
 
   constraint parish_units_l1_has_no_parent
     check (level = 2 or parent_id is null),
-  constraint parish_units_name_unique_in_scope
-    unique nulls not distinct (bookshelf_id, level, parent_id, name)
+  unique (bookshelf_id, id)
 );
+
+-- A UNIQUE *constraint* cannot carry a predicate — only an index can — so
+-- uniqueness-scoped-to-live-rows has to be a partial unique index, not a
+-- table constraint. See the soft-delete note below for why the predicate
+-- matters.
+create unique index parish_units_name_unique_in_scope
+  on parish_units (bookshelf_id, level, parent_id, name)
+  nulls not distinct
+  where deleted_at is null;
+
+-- parent_id references parish_units(bookshelf_id, id), not a bare
+-- parish_units(id): see "Foreign keys stay inside one tenant" below.
+alter table parish_units
+  add constraint parish_units_parent_id_fkey
+    foreign key (bookshelf_id, parent_id) references parish_units (bookshelf_id, id);
 ```
 
 A level-1 unit never has a parent — that is what makes it level 1 — and `parish_units_l1_has_no_parent` is what makes that structural rather than a convention a command has to remember. **Nesting off** means every level-2 unit carries a null `parent_id`, same as a level-1 unit; **nesting on** means it carries the id of its level-1 parent. A shelf switching between the two is switching data, not running a migration.
 
 `parish_units_name_unique_in_scope` scopes uniqueness to `(bookshelf_id, level, parent_id, name)` rather than just `(bookshelf_id, name)`, deliberately: BR §5.6's own worked example has "Tổ 1" appearing once under *Giáo họ Thánh Tâm* and again, a different unit, under *Giáo họ Mân Côi* — two different `parent_id` values, so two different rows are correct, not a collision.
 
-It is `unique nulls not distinct`, not plain `unique`, and that clause is load-bearing rather than decorative. Plain PostgreSQL `unique` treats every `null` as distinct from every other `null`, so it never actually fires for the case most units are in: every level-1 unit has `parent_id is null` by definition, and so does every level-2 unit on a shelf with nesting off. Under plain `unique`, an admin typing "Tổ 1" twice on a one-level shelf would insert two rows without a peep — two identically-named units that split readers between them, which is the exact "cannot be grouped" failure BR §5.6 exists to prevent. `nulls not distinct` (PostgreSQL 15 and later; this system targets 16) makes the constraint compare nulls as equal to each other, so two level-1 rows named "Tổ 1" on the same shelf collide correctly, same as two nested level-2 rows sharing a real `parent_id` already did.
+It is `nulls not distinct`, not plain `unique`, and that clause is load-bearing rather than decorative. Plain PostgreSQL uniqueness treats every `null` as distinct from every other `null`, so it never actually fires for the case most units are in: every level-1 unit has `parent_id is null` by definition, and so does every level-2 unit on a shelf with nesting off. Without it, an admin typing "Tổ 1" twice on a one-level shelf would insert two rows without a peep — two identically-named units that split readers between them, which is the exact "cannot be grouped" failure BR §5.6 exists to prevent. `nulls not distinct` (PostgreSQL 15 and later; this system targets 16) makes the index compare nulls as equal to each other, so two level-1 rows named "Tổ 1" on the same shelf collide correctly, same as two nested level-2 rows sharing a real `parent_id` already did.
 
-**One consequence worth stating, because it is not obvious.** The constraint does not exclude soft-deleted rows, so soft-deleting *Tổ 1* on a flat shelf blocks creating a live *Tổ 1* there afterwards. That is the wrong trade: the reason units are soft-deleted rather than removed is that a membership still points at one (§11), which is a statement about history, not a reservation of the name. Add `where deleted_at is null` when this becomes a real index, so a name returns to circulation once the unit carrying it is retired.
+**One consequence worth stating, because it was shipped once as a bug and is worth naming so it does not happen again.** A version of this index without `where deleted_at is null` does not exclude soft-deleted rows, so soft-deleting *Tổ 1* on a flat shelf blocks creating a live *Tổ 1* there afterwards. That is the wrong trade: the reason units are soft-deleted rather than removed is that a membership still points at one (§11), which is a statement about history, not a reservation of the name. The predicate above is what keeps a name in circulation once the unit carrying it is retired — see `20260808_03_soft_delete_aware_uniqueness.sql`, which converted the constraint this branch originally shipped without the predicate.
 
 **No hard delete of a unit a member references** (BR §5.6, and the general policy in §11): `deleted_at` takes a unit out of the pickers built from it while leaving every membership that already points at it exactly as it was. `sort_order` is explicit and never inferred by parsing a unit's name — "Tổ 10" sorting before "Tổ 2" because of the digits is exactly the carelessness an explicit column exists to prevent.
 
@@ -381,10 +423,22 @@ create table memberships (
   updated_at        timestamptz not null default now(),
   deleted_at        timestamptz,
 
-  constraint memberships_one_per_shelf unique (bookshelf_id, user_id),
   constraint memberships_rejected_has_reason
     check (status <> 'rejected' or rejection_reason is not null)
 );
+
+-- Not a table-level UNIQUE constraint: same soft-delete trap named for
+-- parish_units_name_unique_in_scope and bookshelves_slug_unique above, and
+-- the worst of the four the S1 re-review found still shaped that way. A
+-- plain unique constraint here does not just reserve a name — it locks out
+-- a *person*: without `where deleted_at is null`, a soft-deleted membership
+-- permanently blocks that same person from ever rejoining that bookshelf.
+-- A family that leaves the parish and later comes back could not be
+-- re-registered, and nothing in the interface would explain why. See
+-- 20260808_09_soft_delete_aware_uniqueness_round_2.sql.
+create unique index memberships_one_per_shelf
+  on memberships (bookshelf_id, user_id)
+  where deleted_at is null;
 ```
 
 `memberships_one_per_shelf` enforces §4 assumption 8: **a person has at most one role per bookshelf.** Roles are hierarchical (`admin` ⊃ `manager` ⊃ `reader`), so one row with the highest role is sufficient and two rows would be ambiguous.
@@ -404,7 +458,7 @@ create type bookshelf_status as enum ('active', 'archived');
 
 create table bookshelves (
   id            uuid primary key default gen_random_uuid(),
-  slug          text not null unique,
+  slug          text not null,
   name          text not null,
   description   text,
   location      text,                      -- physical location, shown publicly
@@ -423,9 +477,18 @@ create table bookshelves (
   updated_at    timestamptz not null default now(),
   deleted_at    timestamptz
 );
+
+-- Not a plain `unique` on slug: the same soft-delete trap
+-- parish_units_name_unique_in_scope names above (§4.1) — a plain unique
+-- constraint blocks ever reusing a slug once the bookshelf that held it is
+-- soft-deleted, which is the wrong trade for data §11 retains as history
+-- rather than reserves as a name.
+create unique index bookshelves_slug_unique
+  on bookshelves (slug)
+  where deleted_at is null;
 ```
 
-**`slug` is immutable after creation** (§16.4) because it appears in links people have already shared. Enforce with a trigger rather than trusting the UI:
+**`slug` is immutable after creation** (§16.4) because it appears in links people have already shared. Enforce with a trigger, not trusting the UI — and the trigger must actually be attached, not merely defined:
 
 ```sql
 create or replace function forbid_slug_change() returns trigger as $$
@@ -435,6 +498,10 @@ begin
   end if;
   return new;
 end $$ language plpgsql;
+
+create trigger bookshelves_no_slug_change
+  before update on bookshelves
+  for each row execute function forbid_slug_change();
 ```
 
 **`settings` is `jsonb`, not thirteen columns.** §5.5 lists thirteen per-shelf settings and says "adding a setting must never be a disruptive change". Thirteen columns would mean a migration and a deploy for each new one. The trade-off is no type checking at the database level, so the application validates the shape and supplies defaults for missing keys — the defaults table in §5.5 is the source of truth, and a shelf row need only store what it overrides.
@@ -468,6 +535,8 @@ create table categories (
   deleted_at timestamptz
 );
 ```
+
+**`categories.slug` deliberately keeps a plain `unique` constraint, not the soft-delete-aware partial index `parish_units_name_unique_in_scope`, `bookshelves_slug_unique` and (as of the S1 re-review) `memberships_one_per_shelf`, `books_bookshelf_id_slug_key`, `book_copies_code_unique` and `announcements_bookshelf_id_slug_key` all use.** §11 lists "categories" among the soft-deletable things, so the trade would in principle apply the same way — but nothing in this codebase soft-deletes a category in practice: `src/lib/fixtures.ts` carries no soft-deleted category, and there is no admin flow yet that removes one. Converting a constraint nothing exercises would add a migration with no test that could fail red first. If a category ever is soft-deleted, the same one-line `create unique index ... where deleted_at is null` conversion applies, and it should happen then, with a test that reproduces the lockout the way `memberships_one_per_shelf`'s did.
 
 Seeded with one list every shelf draws from:
 
@@ -547,9 +616,19 @@ create table books (
   added_by       uuid references users(id),
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
-  deleted_at     timestamptz,
-  unique (bookshelf_id, slug)
+  deleted_at     timestamptz
 );
+
+-- Soft-delete-aware partial index, not a table constraint — the same shape
+-- as parish_units_name_unique_in_scope and bookshelves_slug_unique (§4.1,
+-- §4.2). Without `where deleted_at is null`, soft-deleting a book would
+-- permanently reserve its slug on that shelf even though §11's whole reason
+-- for soft-deleting rather than removing is that history (loans, comments)
+-- may still point at the row. See 20260808_09_soft_delete_aware_
+-- uniqueness_round_2.sql.
+create unique index books_bookshelf_id_slug_key
+  on books (bookshelf_id, slug)
+  where deleted_at is null;
 ```
 
 ```sql
@@ -575,10 +654,18 @@ create table book_copies (
   updated_at      timestamptz not null default now(),
   deleted_at      timestamptz,
 
-  constraint book_copies_code_unique unique (bookshelf_id, code),
   constraint book_copies_retired_has_reason
     check (state <> 'retired' or retired_reason is not null)
 );
+
+-- Same shape and same reason as books_bookshelf_id_slug_key above: a
+-- soft-deleted (e.g. permanently lost, catalogued in error) copy must not
+-- hold its code hostage — a new copy carrying the same physical label
+-- needs to be insertable. See 20260808_09_soft_delete_aware_uniqueness_
+-- round_2.sql.
+create unique index book_copies_code_unique
+  on book_copies (bookshelf_id, code)
+  where deleted_at is null;
 ```
 
 `on delete cascade` from `books` is the one cascade in the schema, and it is deliberate: §5.2 says a copy has no meaning without its title, and §11 says only a book's copies follow it when the book goes. A book with loan history cannot be deleted anyway — the loan's foreign key restricts it.
@@ -739,9 +826,15 @@ create table announcements (
   author_id     uuid references users(id),
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
-  deleted_at    timestamptz,
-  unique (bookshelf_id, slug)
+  deleted_at    timestamptz
 );
+
+-- Same shape and same reason as books_bookshelf_id_slug_key (§4.4): a
+-- soft-deleted announcement must not permanently reserve its slug on that
+-- shelf. See 20260808_09_soft_delete_aware_uniqueness_round_2.sql.
+create unique index announcements_bookshelf_id_slug_key
+  on announcements (bookshelf_id, slug)
+  where deleted_at is null;
 
 create type feedback_status as enum ('new', 'read', 'resolved');
 
@@ -762,6 +855,21 @@ create table feedback (
 ```
 
 `feedback` has no `deleted_at` — §11 lists it among the never-deleted.
+
+**`feedback` carries RLS like every other shelf-scoped table, with its null `bookshelf_id` treated as visible rather than hidden** — see §3's "Global tables" for the full reasoning and why an earlier draft of this document was read as saying otherwise. BR §13 makes "view feedback / resolve feedback" a per-shelf manager permission; a shelf's guest messages (names, phone numbers) are tenant data the moment `bookshelf_id` is set.
+
+**The write side needed a narrower rule than the read side.** `feedback_tenant`'s `using`/`with check` let a null `bookshelf_id` through symmetrically — correct for reading, but on the write side it meant any shelf session could also run either of these, both reproduced live before this was closed:
+
+```sql
+update feedback set bookshelf_id = '<own shelf>' where bookshelf_id is null;  -- re-assign a site-wide row onto this shelf
+update feedback set bookshelf_id = null           where bookshelf_id = '<own shelf>';  -- push this shelf's own row to site-wide
+```
+
+The first pulls a site-wide message onto one shelf, removing it from every other shelf's view — one-way and unlogged, nothing records that it happened or undoes it. The second does the opposite: it exposes a guest's name and phone number, previously visible only to the shelf they wrote to, to every shelf in the system. Reassignment to a *third* shelf's id was never possible — the existing `with check` already required the new `bookshelf_id` to be the session's own shelf or null — only the null ↔ shelf transitions were open.
+
+**The call made: a site-wide message is addressed to whoever administers the site, not to any one shelf, so a shelf reading it — and resolving it — stays allowed, but changing who it is addressed to does not.** Reading a site-wide row is already the design (above); marking it read or resolved is kept too, since feedback made visible to every shelf is already a shared inbox in every sense but this one, and BR §13's "resolve feedback" permission naturally extends to whatever a manager can see. What is not a triage action is deciding a message belongs to a *different* audience than the one it was written to — that is a routing decision, and a single shelf making it unilaterally, invisibly, and irreversibly is the actual bug.
+
+So `bookshelf_id` is now immutable after a `feedback` row is created, for every role — the same shape `forbid_slug_change()` already gives `bookshelves.slug` (§4.2) — rather than a narrower RLS `with check`, because a trigger fires regardless of role: `olibra_admin`'s `bypassrls` skips row-level security policies but never triggers, so the guarantee holds even on the deliberate cross-shelf admin path. Every other column — `status`, `handled_by`, `handled_at` — is untouched and stays freely updatable under the existing policy. See `20260808_10_feedback_bookshelf_immutable.sql`.
 
 **BookDonation records a reader's offer to give books to the shelf, and a manager's decision on it — it is not the provenance of any physical object.** Two very different moments meet here: a family handing a bag of books to a volunteer after mass has its provenance recorded, once catalogued, directly on the copies via `book_copies.acquired_from` / `acquired_from_membership_id` (§4.4); a reader deciding at home to give books away has nothing catalogued yet, and this table is where that offer lives until a manager turns it into copies on the shelf.
 
@@ -864,13 +972,13 @@ that exclusion needs a test, because the failure is silent and permanent.
 
 `bigint identity` rather than uuid: this is the highest-volume table, it is only ever appended and read in time order, and a monotonic key keeps the index dense.
 
-**Append-only is enforced by permission, not convention** — INV-12 says audit records are never changed or removed:
+**Append-only is enforced by a trigger, not by permission alone — `revoke` is defence in depth for the application role, not the guarantee itself.** INV-12 says audit records are never changed or removed, and unlike a `GRANT`, that has to hold for every role, not only the one the application connects as:
 
 ```sql
-revoke update, delete, truncate on audit_log from application_role;
+revoke update, delete on audit_log from olibra_app, olibra_admin;
 ```
 
-The application role can `insert` and `select`, nothing else. A rule enforced by a `GRANT` cannot be bypassed by a careless migration or an ORM's `save()`.
+`olibra_app` can `insert` and `select` on `audit_log`, nothing else — an application query that attempts `update` or `delete` fails at the permission check before it ever reaches a row. But `GRANT`/`REVOKE` privileges do not apply to a table's owner or to a superuser; both bypass them entirely, by design, no matter what has been revoked from anyone else — and the migrations in this project, along with any admin tooling that connects the same way, run as exactly such a role. So the actual guarantee is `forbid_row_mutation()`, a `before update` / `before delete` trigger (§7.3) that raises for every role attempting the write, ownership and superuser status included; the revoke above is what stops a careless application-level `update` or `delete` from ever reaching a row to begin with, which is real value — just not the whole of INV-12. Worth stating because it reads the opposite way on a skim: the revoke above also strips `olibra_admin`, the role built to bypass Row Level Security, so even that role cannot mutate an audit row. INV-11 and INV-12 are the two rules in this schema with no admin exception (§7.3).
 
 §14 also requires that audit records are written **in the same transaction** as the change they describe, so an audit record and its subject can never diverge, and that auditing is never deferred to a background job — an audit trail that can be lost to a failed job is not an audit trail.
 
@@ -976,7 +1084,9 @@ The reasoning is worth restating because it is not obvious: any status a backgro
 Express these as views, so no caller can forget the rule:
 
 ```sql
-create view loans_current as
+create view loans_current
+  with (security_invoker = true)
+as
 select
   l.*,
   (l.status = 'active'
@@ -984,7 +1094,9 @@ select
   (l.due_on - (now() at time zone 'Asia/Ho_Chi_Minh')::date)     as days_remaining
 from loans l;
 
-create view copies_borrowable as
+create view copies_borrowable
+  with (security_invoker = true)
+as
 select c.*
 from book_copies c
 where c.state = 'available'
@@ -994,10 +1106,17 @@ where c.state = 'available'
     where r.copy_id = c.id
       and r.status = 'approved'
       and r.hold_expires_at > now()
+      and r.deleted_at is null
   );
+
+grant select on loans_current, copies_borrowable to olibra_app, olibra_admin;
 ```
 
-`copies_borrowable` is the direct expression of §8's "a copy is borrowable when it is available and no unexpired hold references it".
+**`security_invoker = true` is load-bearing here, not boilerplate, and dropping it reopens INV-10 through the back door.** PostgreSQL's default is the opposite of what §3's row-level-security policies assume: without this clause a view evaluates row security as the view's *owner*, not as the role running the query — the same mechanism a `SECURITY DEFINER` function uses. Migrations in this project run as a `bypassrls` superuser (§3), so a view created the ordinary way carries that superuser's bypass with it: `olibra_app`, scoped to one shelf, queries the view and gets every shelf's rows back, because the policy is being evaluated as the owner, not as `olibra_app`. This was verified directly rather than assumed — the same view created without `security_invoker` and queried by a shelf-scoped `olibra_app` connection returned rows from every shelf; adding the clause cut that to exactly the querying shelf's rows. `security_invoker = true` makes each view apply the *invoking* role's policies instead of the owner's, which is what lets `olibra_app` see only its own shelf through these views (INV-10) while `olibra_admin` still bypasses deliberately, via `bypassrls`, as designed (§3). Skip the clause and these two convenience views become the one place in the schema where the tenant boundary silently does not hold.
+
+This was, for one branch, verified only by hand and never by a test: `tests/db/derived-state.test.ts` queried both views as the migrating superuser, so it asserted the arithmetic and nothing about tenancy, and `tests/invariants/inv-10-tenant-isolation.test.ts` never touched the views at all — `alter view loans_current reset (security_invoker)` left the entire suite green while `olibra_app` scoped to one shelf saw every shelf's loans. Two tests in `tests/db/derived-state.test.ts` now query each view as `olibra_app` with two shelves seeded and assert only one shelf's rows come back; see CRITICAL 2 in the S1 fix report for the before/after run that proves they catch the regression.
+
+`copies_borrowable` is the direct expression of §8's "a copy is borrowable when it is available and no unexpired hold references it". The `r.deleted_at is null` line matches the treatment `book_copies` already gets one line above it: a soft-deleted `borrow_requests` row must not go on blocking a copy just because nobody remembered to also filter deleted holds — that row is otherwise invisible everywhere else `deleted_at` is filtered, so a copy stuck behind one had no explanation visible anywhere in the UI. Fixed in `20260808_05_copies_borrowable_deleted_at.sql`.
 
 **What background work is still for:** image processing, cache warming, backups, and tidying up expired holds as housekeeping rather than as correctness. If the tidy-up never runs, `copies_borrowable` is still right, because the hold expiry is compared against `now()` rather than trusted from a column somebody was meant to update.
 
@@ -1019,8 +1138,8 @@ This is the table to read before writing any application code.
 | **INV-8** | Every state transition writes an audit record | Application, same transaction | See §4.10 |
 | **INV-9** | A comment is publicly visible only when approved | **Database** (access path) | Partial index, §4.8 |
 | **INV-10** | Every query scoped to one bookshelf | **Database** | Row Level Security, §3 |
-| **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; `revoke delete` |
-| **INV-12** | Audit records never change or disappear | **Database** | `revoke update, delete`, §4.10 |
+| **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; a `before delete` trigger raises for every role, §7.3 |
+| **INV-12** | Audit records never change or disappear | **Database** | A `before update` / `before delete` trigger raises for every role, §7.3 |
 | **INV-14** | Either both username and password, or neither | **Database** | `users_credentials_paired` check, §4.1 |
 | **INV-13** | At most one pending profile change request per person; a person's details change only through an approved one | **Database** (the first half) + **Application** (the second) | Partial unique index for "at most one pending", §4.11; "only through an approved request" is which code path is allowed to write `users`, which no constraint can express |
 
@@ -1055,6 +1174,37 @@ Three options, in descending order of preference:
 3. **A counter column on `memberships` with a check constraint**, maintained by trigger. Denormalisation, drift risk, and it contradicts §8's spirit.
 
 **Recommendation: option 1**, with the named test §6 requires and an honest note that a determined race could exceed the limit by one. That is a much cheaper failure than a corrupted loan record, and a manager can void the extra loan.
+
+### 7.3 INV-11 and INV-12, and why `revoke` alone is not the guarantee
+
+Crediting `revoke delete on loans` and `revoke update, delete on audit_log` as *the* mechanism for INV-11 and INV-12 would be true for `olibra_app` and false for anyone else. A table's owner and a Postgres superuser bypass `GRANT`/`REVOKE` checks entirely, regardless of what has been revoked from any other role — and that is exactly the role every migration in this project, and any admin tooling that connects the same way, runs as. A `revoke` that only the application role ever has to obey is not nothing, but it is not INV-11 or INV-12 either.
+
+The actual guarantee is a trigger, which has no equivalent of `bypassrls`:
+
+```sql
+create function forbid_row_mutation() returns trigger as $$
+begin
+  raise exception 'rows in % cannot be %d directly', tg_table_name, lower(tg_op)
+    using errcode = '42501';
+end;
+$$ language plpgsql;
+
+create trigger loans_no_delete
+  before delete on loans
+  for each row execute function forbid_row_mutation();
+
+create trigger audit_log_no_update
+  before update on audit_log
+  for each row execute function forbid_row_mutation();
+
+create trigger audit_log_no_delete
+  before delete on audit_log
+  for each row execute function forbid_row_mutation();
+```
+
+A `before` trigger fires for every role that reaches the row, ownership and superuser status included. That is what makes it the guarantee rather than the `revoke` statements described here and in §4.10: those still matter as defence in depth, turning a bug in `olibra_app`'s own code into a permission error before the query ever reaches a row, but they were never going to stop a hurried `delete` typed by hand against a role that owns the table.
+
+**The revoke strips `olibra_admin` too, and that is deliberate, not an oversight to loosen.** `olibra_admin` is the role built to bypass Row Level Security for legitimate cross-shelf work (§3); it is not built to bypass INV-11 or INV-12, which — unlike tenant isolation — carry no admin exception anywhere in §6 of the requirements. So the same `revoke` applies to it as to `olibra_app`, and the trigger backs both regardless: even the role that can see every shelf cannot delete a loan or mutate an audit row.
 
 ---
 
@@ -1104,13 +1254,19 @@ If a managed provider is chosen later and it offers database branching, that is 
 
 Rules:
 
-- One migration per change, named with a timestamp and a verb: `20260810_add_notifications_table`.
+- One migration per change, named `YYYYMMDD_NN_verb_description.sql` — a date, a two-digit same-day sequence number, and a verb: `20260808_01_feedback_rls.sql`, `20260808_02_bookshelf_slug_immutable.sql`. `NN` exists because `migrate()` (`src/db/migrate.ts`) applies migrations in filename order, and a bare date alone cannot order two migrations written on the same day relative to each other.
 - Never edit a migration that has run anywhere but a local machine.
 - Data migrations are separate from schema migrations, so a slow backfill does not hold a table lock.
 - Adding a column: always nullable or with a default, never `not null` without a default on a populated table.
 - Renaming a column is two deploys: add, backfill, switch reads, drop. There is no shortcut that does not break the running application.
 
 **Seed data** should create one bookshelf matching the design fixtures — Tủ sách Đồng Tháp, the books and readers already used in `src/lib/fixtures.ts` — so the UI can be pointed at a real database with no visible change. That equivalence is worth preserving deliberately: it makes the transition from fixtures to database a configuration change rather than a rewrite.
+
+**On migration naming: this section has mandated a timestamp since before any migration shipped, and `src/db/migrations/0001_…` through `0012_…` did not follow it.** Bare sequence numbers are the risk this rule already exists to avoid: two branches — S1's own review found this true of the very next slices, S2 and S3, both landing migrations in the same week — each add a `0013_…`, and neither git nor the migration runner catches the collision, since two differently-named files with the same numeric prefix do not conflict as files; they just make "which one actually ran first" depend on which branch happened to merge first, silently, with no error. A timestamp-based name makes that question unambiguous by construction, which is exactly why it was the rule from the start.
+
+The fix here is not to renumber `0001`–`0012`: every one of them has already run against this project's databases, and DATABASE.md §9's "never edit a migration that has run" reasonably extends to renaming — the filename is the row's identity in `schema_migrations`, and changing it would make `migrate()` try to re-apply an already-applied migration under its new name. So the two schemes now coexist deliberately: `0001`–`0012` stay exactly as they are, a frozen legacy block from before this rule was enforced, and every migration from `20260808_01_feedback_rls.sql` onward follows the timestamp rule this section always specified. Filename sort order — what `migrate()` actually relies on — still holds across the boundary without any extra work: every timestamp-named file starts with `2`, which sorts after every `0`-prefixed legacy file.
+
+**A second hazard, distinct from the cross-branch collision above, and the reason there is now a test guarding the naming convention rather than only this prose.** `migrate()` sorts every filename and then drops the ones already recorded in `schema_migrations` — it orders the *pending* set, not the whole directory. A stray `0013_x.sql` sorts, alphabetically, between `0012_…` and `20260808_01_…`. On a fresh database every file is pending, so it runs interleaved, right after `0012`. On a database that already has `0001`–`0012` and every `20260808_*` migration applied, `0013_x.sql` is the *only* pending file, so it runs last — after every `20260808_*` migration, not before them. Same file, two different positions in the actual sequence of DDL that ran, depending only on how old the database happened to be when the file was added. With twelve `00NN_` files already sitting in the directory, adding a thirteenth is the natural instinct, and only this paragraph was stopping it before now — `tests/db/migrate.test.ts` asserts every filename is either one of the frozen `0001`–`0012` files or matches the `YYYYMMDD_NN_` shape, so a new `00NN_` file fails the suite instead of shipping.
 
 ---
 

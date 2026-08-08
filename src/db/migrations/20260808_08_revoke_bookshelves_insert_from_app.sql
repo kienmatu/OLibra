@@ -1,0 +1,39 @@
+-- DATABASE.md §3 states, in "The application role is not wired to a login
+-- role yet": "`olibra_app` holds no `insert` grant on `bookshelves` at all
+-- ... Shelf onboarding — creating a new bookshelf — must run as
+-- `olibra_admin`, deliberately." That sentence was false when it was
+-- written, and the S3 plan copied it into an acceptance-criteria bullet
+-- (docs/superpowers/plans/2026-08-07-s3-identity-session.md, Task 4) before
+-- anyone noticed.
+--
+-- 0010_rls.sql's bespoke `bookshelves_tenant` policy only ever controlled
+-- *which rows* an `insert`/`update` may touch — it says nothing about
+-- *whether* `olibra_app` may `insert` at all. The actual grant is three
+-- lines above the policy, in the same file: `grant select, insert, update
+-- on all tables in schema public to olibra_app`, which runs against every
+-- table that exists at that point in the migration, `bookshelves` included.
+-- Nothing ever carved `bookshelves` out of that blanket grant.
+--
+-- Verified live against the seed database: `has_table_privilege('olibra_app',
+-- 'bookshelves', 'INSERT')` returns `true`, and a session running as
+-- `olibra_app` with `olibra.bookshelf_id` set to an id of its own choosing
+-- successfully inserted a bookshelf row with that same id —
+-- `bookshelves_tenant`'s `with check (id = ...)` only requires the new row's
+-- id to equal the session GUC, which the caller controls completely before
+-- the row exists.
+--
+-- Rather than weaken DATABASE.md to describe the accidental grant, this
+-- migration makes the documentation true: creating a bookshelf becomes
+-- something only `olibra_admin` can do, matching what §3 always claimed
+-- and what an ordinary reader-serving request should never be able to do.
+--
+-- `update` is deliberately left alone. A shelf legitimately edits *its own*
+-- row — name, opening hours, `settings` — as `olibra_app`, scoped by the
+-- same `bookshelves_tenant` `with check (id = ...)` every other tenant
+-- table's self-service write already relies on; nothing in this review
+-- found that path to be a problem, and revoking `update` too would take
+-- away a shelf's ability to manage its own settings for no reason tied to
+-- this bug. Only the act of choosing to create a new row — deciding a
+-- bookshelf should exist at all — is what this migration reserves for
+-- `olibra_admin`.
+revoke insert on bookshelves from olibra_app;
