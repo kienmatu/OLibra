@@ -61,6 +61,26 @@ test("the domain imports no framework", () => {
   expect(offenders).toEqual([]);
 });
 
+test("the domain does not import src/auth", () => {
+  // M13. `src/auth/` (guards.ts, session.ts) exists precisely because
+  // identity and session-handling sit outside the domain (S3 plan's
+  // "Architecture": "Guards live in src/auth/, outside the domain, and
+  // produce the TenantContext the domain requires") — the domain takes a
+  // `TenantContext` as a plain argument and never resolves one itself. That
+  // separation was true by construction until this slice gave `src/auth`
+  // something to import; nothing enforced it staying true. Same detection
+  // approach as "the domain imports no framework" above: every specifier
+  // shape (static, side-effect, dynamic import, `require`, and a relative
+  // reach-up out of src/domain) is forbidden, not just `@/auth/*`.
+  const forbidden =
+    /\b(?:from|import|require)\s*\(?\s*["'](?:@\/auth\/|\.\.\/(?:\.\.\/)*auth\/)/;
+  const offenders = filesUnder("src/domain")
+    .filter((f) => forbidden.test(readFileSync(f, "utf8")))
+    .map((f) => f.replace(process.cwd() + "/", ""));
+
+  expect(offenders).toEqual([]);
+});
+
 test("the domain does not use Bun-specific APIs", () => {
   // G9. The runtime is Bun, but the build and the tests run on Node, and the
   // domain must stay runnable under both. Comments and strings are stripped
