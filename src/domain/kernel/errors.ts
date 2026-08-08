@@ -80,6 +80,25 @@ export const ERROR_MESSAGES = {
   parish_unit_l2_not_in_l1:
     "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.",
 
+  // — members: B2a —
+  // OPS §4.3's own sentences where OPS gives one; a distinct code wherever
+  // OPS reuses a code for a different sentence (see the plan's collision
+  // table). `membership_not_active` above is C1's, about borrowing — do not
+  // reuse it for SuspendMembership's refusal, which says something else.
+  username_taken: "Tên đăng nhập đã được dùng, hãy chọn tên khác.",
+  username_in_use: "Tên đăng nhập này đã có người dùng.",
+  password_too_short: "Mật khẩu cần ít nhất 8 ký tự.",
+  new_password_too_short: "Mật khẩu mới cần ít nhất 8 ký tự.",
+  passwords_dont_match: "Mật khẩu nhập lại không khớp.",
+  current_password_incorrect: "Mật khẩu hiện tại không đúng.",
+  already_registered_here: "Bạn đã đăng ký ở tủ sách này rồi.",
+  registration_not_pending: "Đơn đăng ký này đã được xử lý.",
+  not_active_cannot_suspend: "Chỉ có thể tạm khoá tài khoản đang hoạt động.",
+  not_suspended_cannot_reactivate:
+    "Chỉ có thể kích hoạt lại tài khoản đang tạm khoá.",
+  member_has_active_loans: "Bạn đọc này còn sách chưa trả, hãy nhận trả trước.",
+  reject_reason_required: "Vui lòng ghi lý do từ chối.",
+
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
   not_permitted: "Bạn không có quyền thực hiện việc này.",
@@ -98,6 +117,17 @@ export const ERROR_MESSAGES = {
   audit_forbidden_field: "Không thể ghi nhật ký chứa thông tin bí mật.",
   write_target_not_found: "Không tìm thấy dữ liệu cần thay đổi.",
   audit_nesting_too_deep: "Dữ liệu nhật ký lồng quá sâu để kiểm tra.",
+  // Reshaped from a bare `Error` on re-review (fix-report, 2026-08-08-b2
+  // -members): a boot-time wiring gap belongs in the same catalogue as
+  // `audit_forbidden_field` and `audit_nesting_too_deep` above — an internal
+  // fault no volunteer can act on, but OPS §2 still asks for a named code and
+  // a sentence rather than an unstructured exception. Two codes, not one,
+  // so which setter was skipped survives on the error itself rather than
+  // only in a message string.
+  password_hasher_not_wired:
+    "Hệ thống chưa sẵn sàng để tạo mật khẩu, vui lòng thử lại sau.",
+  password_verifier_not_wired:
+    "Hệ thống chưa sẵn sàng để kiểm tra mật khẩu, vui lòng thử lại sau.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;
@@ -137,3 +167,46 @@ export class RuleViolated extends DomainError {}
 export function isUniqueViolation(e: unknown): boolean {
   return typeof e === "object" && e !== null && "code" in e && e.code === "23505";
 }
+
+/**
+ * A dependency the boot sequence forgot to wire, not a rule the caller broke.
+ *
+ * M7 (fix-report, 2026-08-08-b2-members): `registration.ts`'s default
+ * `PasswordHasher` used to throw `RuleViolated("not_permitted")` when nothing
+ * had called `setPasswordHasher` — a plausible-looking "Bạn không có quyền
+ * thực hiện việc này." that a real reader could read as an ordinary refusal,
+ * hiding a wiring bug behind a sentence that describes a different problem.
+ * The default `PasswordVerifier` was worse: it silently returned `false`,
+ * which reads from the outside as a correct "wrong password" — every
+ * username-reuse attempt (BR §5.3) failing closed to `username_taken` with no
+ * signal anything was ever missing.
+ *
+ * Reshaped into a coded `DomainError` on re-review (fix-report,
+ * 2026-08-08-b2-members). The bare-`Error` shape above argued that a code
+ * here would burden "every exhaustive `switch` over `ErrorCode`" — checked
+ * directly: `ErrorCode` has exactly two consumers in `src/`, `messageFor` and
+ * this class's own constructor (inherited from `DomainError`); every other
+ * import only propagates the *type*, and no `switch` over the union exists
+ * anywhere in the codebase. There was nothing to burden. Meanwhile this is
+ * exactly the class of internal fault `audit_forbidden_field`,
+ * `audit_nesting_too_deep`, `invalid_bookshelf_id` and
+ * `write_target_not_found` already cover — something no volunteer can act
+ * on, carrying a code and a Vietnamese sentence anyway because OPS §2 asks
+ * for a named failure everywhere, not only where a real user might plausibly
+ * read the result as a legitimate outcome. This is the third time a bare
+ * exception in this shape has been replaced with one of these (the audit
+ * guard's own `Error` and `RangeError`, `src/domain/kernel/audit.ts`, were
+ * the first two).
+ *
+ * Loudness survives the reshape unchanged: `src/app/dang-nhap/actions.ts`
+ * catches only `RuleViolated` with `code === "sign_in_failed"` and rethrows
+ * everything else, `DomainError` included, so this still surfaces as an
+ * uncaught exception and a server fault rather than a caught, swallowed
+ * refusal. `NotWired` is its own marker — a sibling of `NotFound`,
+ * `ValidationFailed` and `RuleViolated` under `DomainError`, not a
+ * `RuleViolated` itself — because what it names is not a business rule the
+ * input failed; it is the boot sequence's own omission. Two codes, one per
+ * setter, so which dependency was never wired is still readable off the
+ * error itself (`.code`), not only reconstructable from a message string.
+ */
+export class NotWired extends DomainError {}
