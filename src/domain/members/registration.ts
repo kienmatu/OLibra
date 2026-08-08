@@ -69,6 +69,11 @@ export function setPasswordHasher(next: PasswordHasher): void {
   hasher = next;
 }
 
+/** The injected hasher, read at call time so a later `setPasswordHasher` sticks. */
+export function hashFor(plain: string): Promise<string> {
+  return hasher(plain);
+}
+
 const trimmed = (v: string | null | undefined) => (blank(v) ? null : v!.trim());
 
 /**
@@ -107,6 +112,11 @@ export function setPasswordVerifier(
   next: (plain: string, stored: string) => Promise<boolean>,
 ): void {
   verifier = next;
+}
+
+/** The injected verifier, same reason. Fails closed when unwired. */
+export function verifyFor(plain: string, stored: string): Promise<boolean> {
+  return verifier(plain, stored);
 }
 
 /**
