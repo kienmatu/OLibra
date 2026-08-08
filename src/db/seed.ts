@@ -1,4 +1,5 @@
 import type { Sql, TransactionSql } from "postgres";
+import { hashPassword } from "../auth/password";
 import {
   books,
   donations,
@@ -8,6 +9,15 @@ import {
   shelf as primaryShelf,
   shelves,
 } from "../lib/fixtures";
+
+/**
+ * IMPORTANT 5: the development password every seeded reader's account is
+ * given. Documented rather than secret — DATABASE.md §9 promises the seed
+ * lets the UI be pointed at a real database "with no visible change", and a
+ * password nobody can type would make signing in exactly such a change.
+ * Never used outside a seeded development or test database.
+ */
+export const SEED_DEV_PASSWORD = "olibra-dev";
 
 /**
  * Reproduces `src/lib/fixtures.ts` in a real database (DATABASE.md §9). The
@@ -240,7 +250,14 @@ export async function seed(sql: Sql): Promise<void> {
     // shelf is therefore derived from which shelf owns their level-1 unit,
     // defaulting to Đồng Tháp for a reader with no unit set at all (Phanxicô
     // Nguyễn Văn Lộc) — he is one of the primary list, not one of the three.
-    const SEED_PASSWORD_HASH = "seed$not-a-real-hash$replace-once-real-auth-lands";
+    // A genuine Argon2id hash, not a placeholder string. Beyond letting a
+    // seeded reader actually sign in, this also closes a timing oracle: a
+    // malformed hash fails argon2 at parse time (sub-millisecond), while a
+    // real hash takes Argon2id's ~13ms by design — against a seeded
+    // database, that gap alone told an attacker which usernames exist,
+    // independent of the constant-time comparison signIn already does for a
+    // *missing* account (session.ts's dummy-hash verify).
+    const SEED_PASSWORD_HASH = await hashPassword(SEED_DEV_PASSWORD);
 
     const userIdByReaderId = new Map<string, string>();
     const membershipIdByReaderId = new Map<string, string>();

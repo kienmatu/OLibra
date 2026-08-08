@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LogOut, Menu, Search } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
+import { signOutAction } from "@/app/dang-nhap/actions";
 import type { Shelf } from "@/lib/fixtures";
 
 /**
@@ -13,7 +14,7 @@ function MobileMenu({
   trailing,
 }: {
   links: readonly { href: string; label: string; key: string }[];
-  trailing?: { href: string; label: string };
+  trailing?: { action: (formData: FormData) => Promise<void>; label: string };
 }) {
   return (
     <details className="relative md:hidden [&_svg]:open:rotate-90">
@@ -36,12 +37,14 @@ function MobileMenu({
           </Link>
         ))}
         {trailing ? (
-          <Link
-            href={trailing.href}
-            className="mt-1 flex min-h-11 items-center rounded-control border border-hairline px-3 text-[15px] font-semibold hover:bg-paper"
-          >
-            {trailing.label}
-          </Link>
+          <form action={trailing.action}>
+            <button
+              type="submit"
+              className="mt-1 flex min-h-11 w-full items-center rounded-control border border-hairline px-3 text-left text-[15px] font-semibold hover:bg-paper"
+            >
+              {trailing.label}
+            </button>
+          </form>
         ) : null}
       </div>
     </details>
@@ -116,16 +119,21 @@ export function ShelfHeader({
             </span>
             <span className="max-w-40 truncate">{reader}</span>
           </span>
-          <Link
-            href="/"
-            aria-label="Đăng xuất"
-            className="ml-1 inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
-          >
-            <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
-          </Link>
+          <form action={signOutAction} className="ml-1 flex">
+            <button
+              type="submit"
+              aria-label="Đăng xuất"
+              className="inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
+            >
+              <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
+            </button>
+          </form>
         </nav>
 
-        <MobileMenu links={links} trailing={{ href: "/", label: "Đăng xuất" }} />
+        <MobileMenu
+          links={links}
+          trailing={{ action: signOutAction, label: "Đăng xuất" }}
+        />
       </div>
     </header>
   );

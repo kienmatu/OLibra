@@ -22,6 +22,7 @@ erDiagram
     PARISH_UNITS ||--o{ MEMBERSHIPS   : "level-1 unit of"
     PARISH_UNITS ||--o{ MEMBERSHIPS   : "level-2 unit of"
     USERS        ||--o{ MEMBERSHIPS   : "is, here"
+    USERS        ||--o{ SESSIONS      : "signs in as"
     CATEGORIES   ||--o{ BOOKS         : "groups, shared by every shelf"
     BOOKS        ||--o{ BOOK_COPIES   : "has physical"
     BOOK_COPIES  ||--o{ LOANS         : "lent as"
@@ -50,6 +51,11 @@ erDiagram
         text username UK "unique, case-insensitive"
         text full_name
         bool is_super_admin "the only global role"
+    }
+    SESSIONS {
+        text token_hash PK "sha256 of the token; the raw token is never stored"
+        uuid user_id FK
+        timestamptz expires_at
     }
     MEMBERSHIPS {
         uuid id PK
@@ -259,7 +265,7 @@ A single data-access module that refuses to build a query without a bookshelf. C
 
 ### Global tables
 
-`users` and `categories` are not shelf-scoped and carry no policy at all. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point.
+`users`, `categories` and `sessions` are not shelf-scoped and carry no policy at all. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point; `sessions` is identity data in the same sense `users` is — see §4.1's "Sessions" for why a person's session is not scoped to any one shelf.
 
 **`feedback` and `audit_log` are not global tables, even though each has a nullable `bookshelf_id`.** Both carry the same `<table>_tenant` policy shape as every other table in this section (§4.8, §4.10) — a row with a non-null `bookshelf_id` is exactly as much tenant data as a row in `books`. What differs between them is only what the *null* case means, and each table's policy treats it differently, on purpose:
 
@@ -287,6 +293,16 @@ This is not a gap to close now — S3 (identity and session) is where a real log
 The one case `olibra_app` cannot serve is a command whose audit entry has no owning shelf: `audit_log`'s policy makes a null `bookshelf_id` unreachable to `olibra_app` in either direction (two paragraphs above), so a command that needs one must escalate, deliberately and by name — `runGlobalCommand`, which runs the same way but as `olibra_admin`, and only ever reaches for the bypass when an `AuditEntry` explicitly sets `global: true`. Every command in the catalogue today is shelf-scoped; `runGlobalCommand` is the exception, reserved for genuinely system-wide facts, not a general-purpose admin door.
 
 **What is *not* closed by this:** the connection every one of these functions runs on is still `olibra`, the same `bypassrls` superuser this section opened by naming. `set local role olibra_app` still works today only because a superuser can switch into any role at will — that half of this section's warning stands exactly as written above. Wiring a genuine non-superuser connection-pool role, actually `GRANT`ed membership in `olibra_app` (and, for the admin path, `olibra_admin`), remains S3's job; the S3 plan bullet has been narrowed to that, since the application-code switch it used to ask for already exists.
+
+**Update (S3 fix wave, CRITICAL 2): this is closed now, verified live.** `20260808_13_pool_role.sql` creates `olibra_pool` — `login`, granted membership in both `olibra_app` and `olibra_admin` `with inherit false`, and deliberately left `nosuperuser`/`nobypassrls` (Postgres defaults for a freshly created role that this migration never touches). `compose.yaml`'s `app` service and `.env.example`'s `DATABASE_URL` now authenticate as `olibra_pool`, not `olibra` — the connection every request in this project runs on is, for the first time, one RLS actually applies to regardless of which role it then `set local role`s to.
+
+The `with inherit false` on both grants is a second, independent fix, not a restatement of the first: without it, a role merely granted membership in `olibra_app`/`olibra_admin` carries their table privileges automatically the moment it connects — which is exactly the "quietly depend on a GRANT's INHERIT flag nobody re-checks" risk this section warned about two paragraphs up. `with inherit false` (PostgreSQL 16+) means membership alone grants nothing; `set local role` has to name the target explicitly, on every call, the way `guards.ts`, `session.ts` and `unit-of-work.ts` already write it. `olibra_admin` membership is not a mistake or an oversight here — it is exactly what lets the deliberate, explicitly-named cross-shelf paths (`runGlobalCommand`, `seed()`, `landingShelfFor`) keep `set local role`-ing into it from the *real* connection, not only from a test's superuser one; `with inherit false` is what keeps that membership from being anything more than "may ask to become `olibra_admin`, must still ask."
+
+The password is not a literal in the migration: `migrate()` (`src/db/migrate.ts`) substitutes `__ENV_OLIBRA_POOL_PASSWORD__` from `process.env.OLIBRA_POOL_PASSWORD` before running the file's SQL — see `.env.example` for the variable and `renderMigration`'s own doc comment for why a migration needs this at all (DDL has no parameter binding).
+
+Migrations themselves still run as the `olibra` superuser — they always will, since creating a role or enabling `force row level security` needs privileges `olibra_pool` must never have. `MIGRATION_DATABASE_URL` (`.env.example`, `compose.yaml`) is the new variable for that; `DATABASE_URL` is exclusively what the running application connects as, from here on. `src/db/migrate-cli.ts` and `src/db/seed-cli.ts` read `MIGRATION_DATABASE_URL` explicitly rather than falling back to `DATABASE_URL`'s default, so pointing them at the wrong role fails loudly (`process.env.MIGRATION_DATABASE_URL is not set`) instead of quietly running as `olibra_pool` and hitting a wall of `permission denied` on the first `create role`.
+
+Verified the way the acceptance bullet above asks: `tests/auth/pool-role.test.ts` runs `signIn`, `resolveSession`, `contextFor` (on both a member's own shelf and another shelf), `revokeAllSessions` and `signOut` through a second connection authenticated as `olibra_pool` — not the suite's ordinary superuser `sql` handle — asserting `rolsuper = false` and `rolbypassrls = false` for that connection's own `current_user` inside the test itself, not merely trusting the migration wrote what it says it did.
 
 One more consequence of the same fact worth stating here: `olibra_app` holds no `insert` grant on `bookshelves` at all. Shelf onboarding — creating a new bookshelf — must run as `olibra_admin`, deliberately; there is no "self-serve create a shelf" path for an ordinary session, for the same reason `bookshelves` needed its own bespoke policy above rather than joining the tenant-table loop: a session with no shelf set yet has nothing to scope an `insert` to.
 
@@ -457,6 +473,39 @@ The membership row *is* the registration record (§5.1). There is no separate ap
 
 **When a shelf's taxonomy is nested, `parish_unit_l2_id` must belong to `parish_unit_l1_id`.** This is not expressed as a constraint here — see §7's note on why, and where it is actually enforced.
 
+**Sessions.** A signed-in reader is a row in this table, not a signed cookie — SDD.md §11 leaves the choice open, and the identity-session slice closes it here:
+
+```sql
+create table sessions (
+  -- The token is stored hashed. A leaked database backup should not be a
+  -- stack of usable sessions, for the same reason password_hash above is
+  -- not plaintext.
+  token_hash   text        primary key,
+  user_id      uuid        not null references users (id) on delete cascade,
+  created_at   timestamptz not null default now(),
+  expires_at   timestamptz not null,
+  -- BR §5.4's context fields for AuditLog ("address, device, screen"),
+  -- borrowed for the same purpose here: "who signed in from where" is
+  -- answerable without a second store.
+  user_agent   text,
+  ip_address   inet
+);
+
+create index sessions_by_user on sessions (user_id);
+create index sessions_expiry  on sessions (expires_at);
+
+grant select, insert, delete on sessions to olibra_app;
+grant all on sessions to olibra_admin;
+```
+
+The token itself is hashed with SHA-256, not Argon2id: a session token is 256 bits of randomness generated by the server, not a human-chosen secret, so there is nothing weak to brute-force the way a password's limited entropy invites — and unlike a password hash, this one is computed on every request that carries a cookie, where Argon2id's deliberate slowness would be a cost paid for no benefit.
+
+**No RLS policy, deliberately — the same treatment §3's "Global tables" gives `users` and `categories`.** A session belongs to a *person*, and identity is global while the *parish relationship* is what is shelf-scoped (this section, above): a reader signs in once and that one session is what every bookshelf's request checks, with the *membership* lookup — not the session — deciding what any given shelf lets them see (`contextFor`, `src/auth/guards.ts`, enforcing OPERATIONS.md §2's "a valid `reader` session for shelf A grants nothing on shelf B"). Scoping the `sessions` row itself by `bookshelf_id` would be scoping the wrong table for that rule; it already lives one join away, on `memberships`.
+
+**Database-backed, not a signed stateless cookie — the reason is BR §2's manager-sets-credentials power.** A manager may set or change any reader's password, and the design leans on that power being *visible* rather than restricted (BR §2, §14: every use writes an audit entry naming the manager, the reader and the time). Visibility is not enough by itself, though: a manager who has just reset a compromised child's password must also be able to end whatever session the *old* password is still authenticating, immediately, not merely prevent a new one. A signed stateless cookie carries no server-side state to revoke — once issued, nothing short of its own expiry can invalidate it. A row that a `delete` can remove is the only shape that satisfies both halves of that requirement at once (`revokeAllSessions`, `src/auth/session.ts`), and the cost is one indexed lookup per request against a table that will hold, for a system of this size, a few hundred rows — nothing worth avoiding it for.
+
+`sessions_expiry` exists for housekeeping only, not correctness (§8, the same "computed on read, never written by a job" rule §6 gives loan overdue status): `resolveSession` compares `expires_at` against the clock at read time, so an unswept expired row is already unusable the moment it lapses — the index only makes a periodic sweep of dead rows cheap to run, it is not what makes an expired session stop working.
+
 ### 4.2 The shelf
 
 ```sql
@@ -524,6 +573,18 @@ create trigger bookshelves_no_slug_change
 ```
 
 Defaults for a shelf that has never touched this setting: one level, labelled `Tổ`, not nested. `nested` is meaningful only when `levels` is `2` and is simply ignored otherwise, rather than rejected or cleared — a shelf that drops to one level and later returns to two finds its previous label and nesting choice untouched, because nothing wrote over it while it did not apply.
+
+**A second `select` policy, for the one read that has to happen before any shelf is known.** `bookshelves_tenant` (§3) scopes every ordinary read of this table to `id = <the session's already-set shelf GUC>` — but resolving a URL's shelf slug to that id (`contextFor`, `src/auth/guards.ts`, the first thing every request does) cannot set that GUC first, because the id is exactly what the lookup is trying to discover. Asking `bookshelves_tenant` to cover that read is circular, and a stranger with no session at all still needs it to work: OPERATIONS.md §2 lists the sign-in and registration forms, and the portal directory, among the pages a person with no account can reach at all.
+
+```sql
+create policy bookshelves_public_read on bookshelves
+  for select
+  using (status = 'active' and deleted_at is null);
+```
+
+**A second, additive policy, not a replacement.** PostgreSQL ORs together every permissive policy that covers the same command, so this one only ever *widens* what `select` can see — it plays no part in an `insert` or `update`, which stays governed exclusively by `bookshelves_tenant`'s `with check`, unchanged. Restricted to active, undeleted rows: an archived or soft-deleted shelf has no business being discoverable by slug. This is also a product requirement in its own right, not only a fix for how RLS composes: §1.2 specifies the Portal surface as a "searchable directory of bookshelves — name and address only. Public, because someone who has no account yet must be able to find their parish's shelf in order to register for it."
+
+**What this policy stops protecting, and what has to protect it instead.** Row Level Security is row-level: once a policy admits a `bookshelves` row, every column on it is readable through that same query, not only `name` and `location`. §16.1 withholds book counts, reader counts and keeper contact from the portal precisely because "a person with no membership has no business knowing them" — and now that a stranger can read the row at all, that restriction is entirely the query's job, not the policy's. OPERATIONS.md §3.1 already forbids the shortcut this invites: a query built for the portal selects only the two public columns; it must not join the rest in and trim it client-side, which would put it on the wire regardless of what the page then chooses to render. A reviewer who sees `select *` against `bookshelves` from a public code path should treat it as a defect, not a style question.
 
 ### 4.3 Categories
 
@@ -1267,6 +1328,8 @@ Rules:
 - Renaming a column is two deploys: add, backfill, switch reads, drop. There is no shortcut that does not break the running application.
 
 **Seed data** should create one bookshelf matching the design fixtures — Tủ sách Đồng Tháp, the books and readers already used in `src/lib/fixtures.ts` — so the UI can be pointed at a real database with no visible change. That equivalence is worth preserving deliberately: it makes the transition from fixtures to database a configuration change rather than a rewrite.
+
+**Every seeded reader's password is `SEED_DEV_PASSWORD` (`src/db/seed.ts`), currently `olibra-dev`.** "No visible change" includes signing in — a placeholder that fails every login is exactly the visible difference this promise rules out. The seed hashes it for real with Argon2id (`hashPassword`), not a string that merely looks like a hash: an earlier version wrote a malformed placeholder, which was not only unusable but a timing oracle — `@node-rs/argon2` rejects a malformed hash at parse time (sub-millisecond) while a genuine one takes Argon2id's deliberate ~13ms, so the response time alone told an unauthenticated caller which usernames existed in a seeded database, independent of `signIn`'s constant-time handling of a *missing* account. This password is for a seeded development or test database only; it has no meaning once a real manager sets a real reader's credentials (BR §2).
 
 **On migration naming: this section has mandated a timestamp since before any migration shipped, and `src/db/migrations/0001_…` through `0012_…` did not follow it.** Bare sequence numbers are the risk this rule already exists to avoid: two branches — S1's own review found this true of the very next slices, S2 and S3, both landing migrations in the same week — each add a `0013_…`, and neither git nor the migration runner catches the collision, since two differently-named files with the same numeric prefix do not conflict as files; they just make "which one actually ran first" depend on which branch happened to merge first, silently, with no error. A timestamp-based name makes that question unambiguous by construction, which is exactly why it was the rule from the start.
 

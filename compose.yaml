@@ -127,7 +127,21 @@ services:
       storage:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-olibra}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-olibra}
+      # CRITICAL 2: the application connects as olibra_pool, not the olibra
+      # superuser — a superuser bypasses row level security unconditionally
+      # (DATABASE.md §3), which made every RLS policy in this project inert
+      # on the real connection path until this was wired. olibra_pool is
+      # created by 20260808_13_pool_role.sql, granted membership in
+      # olibra_app (and, for the deliberate cross-shelf admin path,
+      # olibra_admin) — but that migration has to run *before* this
+      # container's first request, and it must run as the superuser, which
+      # is exactly what MIGRATION_DATABASE_URL below is for.
+      DATABASE_URL: postgres://olibra_pool:${OLIBRA_POOL_PASSWORD:?set OLIBRA_POOL_PASSWORD in .env}@db:5432/${POSTGRES_DB:-olibra}
+      # `bun run db:migrate` / `bun run db:seed` (docker compose exec app ...)
+      # need the olibra superuser's privileges — creating roles, enabling
+      # row level security — that olibra_pool must never have. Not used by
+      # the running server itself; see src/db/migrate-cli.ts, src/db/seed-cli.ts.
+      MIGRATION_DATABASE_URL: postgres://${POSTGRES_USER:-olibra}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-olibra}
       # Provider-neutral on purpose — see .env.example.
       S3_ENDPOINT: http://storage:9000
       S3_REGION: ${S3_REGION:-us-east-1}
