@@ -58,8 +58,23 @@ test("INV-10: bookshelves is scoped by its own id, not a bookshelf_id column", a
   // The one table this migration's loop cannot touch: a bookshelf's tenant
   // key is its own primary key, so its policy compares `id`, not
   // `bookshelf_id` (which the table does not have).
+  //
+  // Shelf B is archived, deliberately, not active like every other shelf
+  // this file's tests create. `bookshelves_public_read`
+  // (20260808_12_bookshelves_public_read.sql) is a second, OR'd permissive
+  // policy that admits any *active* shelf to a plain `select` regardless of
+  // the session's GUC — a real product requirement (the public portal
+  // directory), not a bug — so an active shelf B would now be visible here
+  // too, for a reason that has nothing to do with `bookshelves_tenant`'s
+  // own id-scoping. Archiving B keeps this test isolating exactly the
+  // property its name claims: only `bookshelves_tenant`'s `id = <GUC>`
+  // decides visibility for a row the public-read policy does not admit.
   const a = await makeShelf(sql, { slug: "dong-thap-2" });
-  const b = await makeShelf(sql, { slug: "an-giang-2" });
+  const [b] = await sql<{ id: string }[]>`
+    insert into bookshelves (slug, name, address, status)
+    values ('an-giang-2', 'Tủ sách an-giang-2', 'Đồng Tháp', 'archived')
+    returning id
+  `;
 
   const visible = await sql.begin(async (tx) => {
     await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
@@ -70,6 +85,27 @@ test("INV-10: bookshelves is scoped by its own id, not a bookshelf_id column", a
   expect(visible).toHaveLength(1);
   expect(visible[0].id).toBe(a.id);
   void b;
+});
+
+test("INV-10: bookshelves_public_read widens select to any active shelf, regardless of the session's GUC — deliberately, for the public portal directory", async () => {
+  // Postgres ORs together permissive policies covering the same command
+  // (`for select`), so bookshelves_public_read only ever adds visibility on
+  // top of bookshelves_tenant, never subtracts from it. A session scoped to
+  // shelf A can now also see shelf B's row through this policy, as long as B
+  // is active and undeleted — that is the point (BUSINESS-REQUIREMENTS.md's
+  // Portal section), not a regression of tenant isolation, since the
+  // *write* path (`with check`) is untouched and still governed exclusively
+  // by bookshelves_tenant.
+  const a = await makeShelf(sql, { slug: "dong-thap-3" });
+  const b = await makeShelf(sql, { slug: "an-giang-3" });
+
+  const visible = await sql.begin(async (tx) => {
+    await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
+    await tx`set local role olibra_app`;
+    return tx<{ id: string }[]>`select id from bookshelves order by id`;
+  });
+
+  expect(visible.map((r) => r.id).sort()).toEqual([a.id, b.id].sort());
 });
 
 test("INV-10: olibra_app can neither read nor write a global (null-shelf) audit row", async () => {
