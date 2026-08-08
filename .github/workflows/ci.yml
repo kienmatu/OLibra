@@ -21,6 +21,17 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://olibra:olibra@localhost:5436/olibra_test
+      # The pool role is a genuine non-superuser, so RLS actually binds it —
+      # that is the whole point of `tests/db/pool-role-privileges.test.ts`,
+      # which asserts `rolsuper = false` before running the guard path through
+      # this handle. A superuser handle would pass every scoping test while
+      # proving nothing.
+      TEST_POOL_DATABASE_URL: postgres://olibra_pool:olibra_pool@localhost:5436/olibra_test
+      # `20260808_13_pool_role.sql` templates its password from the
+      # environment rather than hard-coding one into every deployment, so the
+      # migration runner refuses to render without this. A throwaway value is
+      # correct here: this database is created and destroyed per CI run.
+      OLIBRA_POOL_PASSWORD: olibra_pool
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
