@@ -225,6 +225,21 @@ test("the queue is reported in requested_at order, not insertion order", async (
   // 0005_circulation.sql:66). The two rows below are written in the opposite
   // order to the one they queued in, so a command that reported whatever
   // Postgres returned first would offer the manager the wrong child.
+  //
+  // **The `analyze` is what makes that true, and it is not a trick.** Measured
+  // (fix-report): without it, deleting `order by requested_at asc, id asc`
+  // from `receiveReturn` left this test — and all 42 circulation tests —
+  // green. A table truncated by `resetDatabase` has `reltuples = 0` and no
+  // statistics, and against that the planner costs the partial index
+  // `requests_queue (book_id, requested_at) where status = 'pending'`
+  // (0012_indexes.sql:26) as the cheapest way to find one row — an ordered
+  // index scan, which hands back `requested_at` order for free and made the
+  // guard decorative. A real shelf's `borrow_requests` has been analyzed by
+  // autovacuum, and there the planner sees a two-page table where every row
+  // matches and takes a seq scan for a `limit 1`: heap order, which is
+  // insertion order, which is the wrong child. `analyze` here is what gives
+  // the test database the statistics production has, not a distortion of it.
+  // Re-measured after adding it: deleting the `order by` fails this test.
   const { ctx, bookId, loanId } = await lentOut(sql);
   const later = await queueReader(
     ctx.bookshelfId,
@@ -236,6 +251,7 @@ test("the queue is reported in requested_at order, not insertion order", async (
     bookId,
     new Date("2026-08-01T10:00:00Z"),
   );
+  await sql`analyze borrow_requests`;
 
   const result = await runCommand(sql, ctx, receiveReturn, {
     loanId,
@@ -243,6 +259,46 @@ test("the queue is reported in requested_at order, not insertion order", async (
   });
   expect(result.queuedRequestId).toBe(earlier.requestId);
   expect(result.queuedRequestId).not.toBe(later.requestId);
+});
+
+test("two readers who queued in the same instant are ordered by id, not by luck", async () => {
+  // The `id asc` half of the same `order by`, which had no test at all.
+  //
+  // `requested_at` is a `timestamptz` and two requests can share one — a
+  // reader queueing from home and a manager queueing them at the shelf in the
+  // same second, or (the case the column comment worries about) two rows
+  // written inside one transaction under one `ctx.clock`, where they are equal
+  // by construction. With the ordering key tied, `limit 1` returns whichever
+  // row the plan reaches first, and that is heap order: the row inserted
+  // first. So the ids below are written explicitly and inserted in the
+  // *opposite* order to their sort order — the larger id first — which is what
+  // makes "ordered by id" and "ordered by insertion" give different answers.
+  // Nothing else in this fixture can tell them apart.
+  const { ctx, bookId, loanId } = await lentOut(sql);
+  const readerA = await makeMember(sql, ctx.bookshelfId);
+  const readerB = await makeMember(sql, ctx.bookshelfId);
+  const sameInstant = new Date("2026-08-01T10:00:00Z");
+  const higherId = "ffffffff-0000-4000-8000-000000000002";
+  const lowerId = "00000000-0000-4000-8000-000000000001";
+
+  for (const [id, reader] of [
+    [higherId, readerA],
+    [lowerId, readerB],
+  ] as const) {
+    await sql`
+      insert into borrow_requests
+        (id, bookshelf_id, book_id, member_id, status, requested_at)
+      values (${id}, ${ctx.bookshelfId}, ${bookId}, ${reader.userId}, 'pending',
+              ${sameInstant})
+    `;
+  }
+  await sql`analyze borrow_requests`;
+
+  const result = await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+  });
+  expect(result.queuedRequestId).toBe(lowerId);
 });
 
 test("holding for the next reader is a second fact, in the same transaction", async () => {

@@ -227,6 +227,16 @@ export const receiveReturn: Command<
   // 0005_circulation.sql:66); `id` breaks a tie so two requests written in
   // the same transaction, under one `ctx.clock`, still order deterministically
   // rather than by whatever Postgres happens to return.
+  //
+  // Neither half is decoration, and neither is free. Deleting this clause
+  // changes the answer as soon as the planner stops using
+  // `requests_queue (book_id, requested_at) where status = 'pending'`
+  // (0012_indexes.sql:26) — which it does for a `limit 1` on any table it has
+  // real statistics for, i.e. every live shelf. The two tests that pin it
+  // (`receive-return.test.ts`, "the queue is reported in requested_at order"
+  // and "two readers who queued in the same instant") `analyze` the table
+  // first for exactly that reason; without that they passed against a
+  // `receiveReturn` carrying no `order by` at all.
   const [queued] = await tx<{ id: string }[]>`
       select id from borrow_requests
        where book_id = ${loan.book_id}
