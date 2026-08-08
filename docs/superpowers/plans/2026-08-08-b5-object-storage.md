@@ -89,12 +89,28 @@ Two things to verify rather than assume, both of which have a gate already:
 - **It must not consult the ambient AWS credential chain.** Credentials,
   region and endpoint are passed explicitly, so the default provider chain —
   which reads `AWS_*`, `~/.aws/credentials`, and on a timeout the EC2 instance
-  metadata endpoint — is never constructed. A test asserts the store works with
-  no `AWS_*` variables set at all.
+  metadata endpoint — is never *invoked*. (Not "never constructed":
+  `credentialDefaultProvider` is always assigned into the SDK's runtime
+  configuration. The substance — no `~/.aws` read, no IMDS timeout — is
+  unaffected, but the mechanism was stated wrongly here and in `s3.ts`.) A test
+  asserts the store works with no `AWS_*` variables set at all, and then with
+  hostile ones set, since only the second half distinguishes "never consulted"
+  from "consulted and happened to be empty".
 - **It must survive the Bun runtime and the standalone build.** The Docker
-  `smoke` stage already boots the built server under Bun and fails the build if
-  it does not serve the landing page. If the SDK breaks either, CI's `image`
-  job goes red.
+  `smoke` stage boots the built server under Bun and fails the build if it does
+  not serve the landing page.
+
+  **As of this slice that gate is vacuous, and saying so is the point of this
+  paragraph.** Nothing under `src/app/` imports the store, so Next's dependency
+  tracing never pulls `@aws-sdk/client-s3` into `.next/standalone` —
+  `.next/standalone/node_modules/@aws-sdk` does not exist — and the smoke stage
+  boots a server that has never loaded the SDK. `docker build --target smoke .`
+  does pass, and the SDK does load under Bun when something asks it to; neither
+  fact is evidence produced by this gate. Faking a gate here (importing the
+  store from a route for the sake of the trace) would be worse than having none.
+  **The gate becomes real when B1 or B2b wires the store into a route**, which
+  is the first moment there is something for it to check; until then, "it runs
+  under Bun" is an untested assumption and should be read as one.
 
 ### 4.2 Object keys are opaque, and this slice owns that rule
 
@@ -165,7 +181,16 @@ have to remember to open.
 `olibra_test`, because the suite truncates every table and a one-character slip
 would destroy the development database. The storage tests **delete objects**,
 so they carry the same hazard and get the same guard: `TEST_S3_BUCKET` must
-contain `test`, checked before a connection is opened.
+carry `test` as a hyphen-delimited word, checked before a connection is opened.
+
+**Amended after review, because this understated the hazard.** The suite does
+not only delete out of that bucket — it makes the bucket world-readable, and it
+does so against whatever `TEST_S3_ENDPOINT` names, which this plan left
+unguarded entirely. A mistyped endpoint therefore publishes someone else's
+bucket to the internet, which is a strictly worse outcome than losing test data
+and one no backup undoes. The endpoint must be loopback, with an opt-in that
+repeats the host name rather than being a boolean. The bucket rule is also
+tighter than "contains `test`" — that spelling passed `prod-testimonials`.
 
 ## 5. What this slice does not do
 
