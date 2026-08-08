@@ -193,6 +193,45 @@ test("url() addresses the bucket by host name when forcePathStyle is not set", (
   );
 });
 
+test("url() percent-encodes the key, in both addressing styles", () => {
+  // `objectKey()` never produces a key that needs this, but `url()` is public
+  // and typed `(key: string)` — B1's covers are not obliged to route through
+  // `objectKey()`. Interpolated raw, `avatars/a?b.jpg` emits a URL whose query
+  // string begins at the `?` and `avatars/a#b.jpg` is truncated at the `#`: the
+  // browser fetches a different object, or none, and nothing throws.
+  //
+  // The separators are structure and must survive, which is why this is per
+  // segment rather than `encodeURIComponent` over the whole key.
+  const pathStyle = createObjectStore({
+    ...config,
+    bucket: "olibra-test",
+    publicUrl: "https://files.example.org",
+    forcePathStyle: true,
+  });
+  const virtualHosted = createObjectStore({
+    ...config,
+    bucket: "olibra-test",
+    publicUrl: "https://s3.ap-southeast-1.amazonaws.com",
+    forcePathStyle: false,
+  });
+
+  expect(pathStyle.url("avatars/a?b.jpg")).toBe(
+    "https://files.example.org/olibra-test/avatars/a%3Fb.jpg",
+  );
+  expect(pathStyle.url("avatars/a#b.jpg")).toBe(
+    "https://files.example.org/olibra-test/avatars/a%23b.jpg",
+  );
+  expect(virtualHosted.url("avatars/a?b.jpg")).toBe(
+    "https://olibra-test.s3.ap-southeast-1.amazonaws.com/avatars/a%3Fb.jpg",
+  );
+
+  // And the ordinary key is untouched — an encoder that also escaped the `/`
+  // would flatten every key in the bucket into one segment.
+  expect(pathStyle.url("avatars/abc-1.jpg")).toBe(
+    "https://files.example.org/olibra-test/avatars/abc-1.jpg",
+  );
+});
+
 test("url() is built from the public URL and never from the endpoint", async () => {
   // §7.5's explicit criterion, and not a hypothetical distinction: in compose
   // these two genuinely differ (`http://storage:9000` on the container network

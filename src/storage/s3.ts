@@ -41,9 +41,16 @@
  * `S3_ACCESS_KEY_ID` into a slow, confusing failure on a developer's machine
  * and a *silently different identity* on any host that happens to have an AWS
  * profile. Passing `credentials` explicitly to `S3Client` means the default
- * provider chain is never constructed at all, and a test in
+ * provider chain is **never invoked** — the word matters, and an earlier
+ * version of this comment had it wrong. `credentialDefaultProvider` is always
+ * assigned into the client's runtime configuration; what an explicit
+ * `credentials` object prevents is it ever being *called*. The substance is
+ * unchanged — no `~/.aws` is read, no instance metadata endpoint is dialled —
+ * but "never constructed" is a claim about the SDK's internals that is false,
+ * and a false reason is worse than no reason. A test in
  * `tests/storage/s3.test.ts` runs the whole store with every `AWS_*` variable
- * deleted from the environment to prove it.
+ * deleted from the environment, and then with hostile ones set, to prove the
+ * behaviour rather than the mechanism.
  */
 import {
   DeleteObjectCommand,
@@ -124,7 +131,7 @@ export interface S3Config {
  * pass over a module reading whatever it liked.
  */
 export function s3ConfigFromEnv(): S3Config {
-  return {
+  return validateS3Config({
     endpoint: process.env.S3_ENDPOINT ?? "",
     region: required("S3_REGION", process.env.S3_REGION),
     bucket: required("S3_BUCKET", process.env.S3_BUCKET),
@@ -135,10 +142,22 @@ export function s3ConfigFromEnv(): S3Config {
     ),
     forcePathStyle: flag("S3_FORCE_PATH_STYLE", process.env.S3_FORCE_PATH_STYLE),
     publicUrl: required("S3_PUBLIC_URL", process.env.S3_PUBLIC_URL),
-  };
+  });
 }
 
-function required(name: string, value: string | undefined): string {
+/**
+ * Exported for `tests/storage/s3-config.test.ts`, and for that reason only.
+ *
+ * That is normally a smell, and here it is the lesser one. This function and
+ * `flag()` below carry the most emphatic protection claims in the file, and
+ * until they had tests both claims were unguarded: replacing `flag`'s body with
+ * `return false` left the entire suite green. They take their value as an
+ * argument rather than reading it, so testing them directly costs nothing and
+ * — unlike driving them through `s3ConfigFromEnv` — does not mutate
+ * `process.env`, which under `fileParallelism: false` leaks into every later
+ * file in the same worker.
+ */
+export function required(name: string, value: string | undefined): string {
   if (value === undefined || value.trim() === "") {
     throw new Error(
       `${name} is not set. Copy .env.example to .env; the object store needs ` +
@@ -157,13 +176,100 @@ function required(name: string, value: string | undefined): string {
  * set the variable correctly, which is the worst available ordering for
  * finding out.
  */
-function flag(name: string, value: string | undefined): boolean {
+export function flag(name: string, value: string | undefined): boolean {
   const normalised = (value ?? "").trim().toLowerCase();
   if (normalised === "true") return true;
   if (normalised === "false") return false;
   throw new Error(
     `${name} must be exactly "true" or "false", got: ${JSON.stringify(value)}`,
   );
+}
+
+/**
+ * A DNS-compatible S3 bucket name: lowercase letters, digits and hyphens, 3–63
+ * characters, starting and ending alphanumeric.
+ *
+ * Deliberately stricter than S3's own rule, in one respect: **a dot is
+ * refused**, even though AWS permits one. `url()` addresses a bucket
+ * virtual-hosted when `S3_FORCE_PATH_STYLE` is false, and
+ * `https://my.olibra.bucket.s3.us-east-1.amazonaws.com/...` does not match the
+ * `*.s3.<region>.amazonaws.com` certificate — a wildcard covers one label, not
+ * three. Every browser shows a certificate error, and nothing anywhere throws.
+ * A bucket name with a dot in it is not a configuration this application can
+ * serve, so it is refused where it is written rather than where it breaks.
+ *
+ * Uppercase is refused for the neighbouring reason: `MyBucket` keeps its case
+ * in a path-style URL and is silently lowercased in a virtual-hosted one, so
+ * the same variable names two different objects depending on a flag.
+ */
+const BUCKET_PATTERN = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
+
+/**
+ * The checks that belong at configuration time rather than at `url()` time.
+ *
+ * `flag()` above already refuses a `S3_FORCE_PATH_STYLE` it does not recognise,
+ * on the grounds that a misconfiguration should fail where it is written. These
+ * are the rest of that argument. Without them `url()` has two failure modes
+ * that are silent — it returns a plausible string and nothing throws:
+ *
+ * - a bucket name containing a dot (above);
+ * - an `S3_PUBLIC_URL` with no scheme. `cdn.example.org` produces
+ *   `cdn.example.org/bucket/a.jpg` path-style, which is a relative URL and
+ *   therefore garbage, and throws `Invalid URL` virtual-hosted. The silent
+ *   branch is the one MinIO uses, which is to say the one every developer runs,
+ *   which is exactly the works-locally-breaks-in-production ordering this
+ *   module argues against three times over.
+ *
+ * `createObjectStore` does not call this: an `S3Config` is the contract, and a
+ * caller holding one has already been through here or has constructed it by
+ * hand in a test. `tests/support/env.ts` runs the `TEST_S3_*` variables through
+ * it for the same reason `s3ConfigFromEnv` does.
+ */
+export function validateS3Config(config: S3Config): S3Config {
+  if (!BUCKET_PATTERN.test(config.bucket)) {
+    throw new Error(
+      `S3_BUCKET must be a DNS-compatible bucket name — 3 to 63 characters of ` +
+        `lowercase letters, digits and hyphens, starting and ending ` +
+        `alphanumeric. A dot is refused even though S3 allows one, because ` +
+        `"bucket.with.dots" is not covered by the *.s3.<region>.amazonaws.com ` +
+        `certificate and every browser would show a certificate error. ` +
+        `Got: ${JSON.stringify(config.bucket)}`,
+    );
+  }
+
+  requireAbsoluteHttpUrl("S3_PUBLIC_URL", config.publicUrl);
+  // Empty is the AWS row in `.env.example` — "let the SDK work out its own
+  // endpoint". Anything else has to be a real URL.
+  if (config.endpoint !== "") {
+    requireAbsoluteHttpUrl("S3_ENDPOINT", config.endpoint);
+  }
+
+  return config;
+}
+
+function requireAbsoluteHttpUrl(name: string, value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(
+      `${name} must be an absolute URL including the scheme, e.g. ` +
+        `"https://cdn.example.org" rather than "cdn.example.org". ` +
+        `Got: ${JSON.stringify(value)}`,
+    );
+  }
+
+  // `new URL("cdn.example.org:9000")` parses — "cdn.example.org" is a
+  // syntactically valid scheme — so the protocol has to be checked as well as
+  // the parse, or the commonest form of this mistake still gets through.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(
+      `${name} must use http or https, got the scheme ` +
+        `${JSON.stringify(url.protocol)} in ${JSON.stringify(value)}. ` +
+        `A bare host with a port ("cdn.example.org:9000") parses as a URL ` +
+        `whose scheme is the host name, which is why this is checked.`,
+    );
+  }
 }
 
 export function createObjectStore(config: S3Config): ObjectStore {
@@ -174,7 +280,9 @@ export function createObjectStore(config: S3Config): ObjectStore {
     endpoint: config.endpoint === "" ? undefined : config.endpoint,
     forcePathStyle: config.forcePathStyle,
     // Explicit, so the default provider chain (`AWS_*`, `~/.aws/credentials`,
-    // EC2 instance metadata) is never constructed. See this file's header.
+    // EC2 instance metadata) is never *invoked* — it is still assigned into the
+    // client's runtime configuration, as every SDK client's is. See this file's
+    // header for why the distinction is worth spelling out.
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
@@ -222,11 +330,30 @@ export function createObjectStore(config: S3Config): ObjectStore {
  */
 function objectUrl(config: S3Config, key: string): string {
   const base = config.publicUrl.replace(/\/+$/, "");
-  if (config.forcePathStyle) return `${base}/${config.bucket}/${key}`;
+  const path = encodeKey(key);
+  if (config.forcePathStyle) return `${base}/${config.bucket}/${path}`;
 
   const url = new URL(base);
   url.hostname = `${config.bucket}.${url.hostname}`;
-  return `${url.origin}${url.pathname.replace(/\/+$/, "")}/${key}`;
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}/${path}`;
+}
+
+/**
+ * Percent-encodes each path segment, leaving the separators alone.
+ *
+ * `objectKey()` only ever produces `<prefix>/<uuid>.<ext>`, which needs no
+ * encoding at all — but `url()` is public and typed `(key: string)`, and B1's
+ * covers are not obliged to route through `objectKey()`. Interpolated raw, a
+ * key of `avatars/a?b.jpg` emits a URL whose query string starts at the `?`,
+ * and a `#` truncates the path outright: in both cases the browser fetches a
+ * different object than the one named, or none, and nothing throws.
+ *
+ * Per segment rather than `encodeURIComponent(key)` wholesale, because the `/`
+ * separators are structure and must survive; and `encodeURI` is not the
+ * alternative, since it leaves `?` and `#` exactly as they are.
+ */
+function encodeKey(key: string): string {
+  return key.split("/").map(encodeURIComponent).join("/");
 }
 
 /**
