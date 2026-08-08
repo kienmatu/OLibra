@@ -3,6 +3,7 @@ import { fixedClock } from "../../src/domain/kernel/clock";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import { memberMayBorrow } from "../../src/domain/circulation/policy";
+import { lendCopy } from "../../src/domain/circulation/commands/lend-copy";
 import { suspendMembership } from "../../src/domain/members/commands/suspend-membership";
 import {
   membershipAllowsNewLoan,
@@ -141,24 +142,38 @@ test("INV-4: the composed predicate refuses a suspended reader who is under the 
   ).toEqual({ blocked: true, reason: "membership_not_active" });
 });
 
-// **Still deferred, now to C1's Task 3 rather than to C1 as a whole.**
-//
-// The property this file has wanted since B2a wrote it is that a real
-// `lendCopy` call against a suspended member is refused with
-// `membership_not_active` *before any row is written* — the half a `rejects`
-// alone does not prove, and which the test above cannot reach either, because
-// it exercises the predicate rather than a command.
-//
-// C1 shipped its Tasks 1 and 2 (the pure predicates and these tests) ahead of
-// Task 3 (`lendCopy`), so the command still does not exist in this branch. The
-// test that closes this out belongs here, in this file, and reads:
-//
-//   await expect(
-//     runCommand(sql, ctx, lendCopy, { copyId, membershipId: reader.id }),
-//   ).rejects.toMatchObject({ code: "membership_not_active" });
-//   expect(await sql`select 1 from loans`).toHaveLength(0);
-//   // ...and book_copies.state is still 'available'.
-//
-// The two assertions after the `rejects` are the point of it. A command that
-// threw the right error *after* flipping the copy to `on_loan` would satisfy
-// the first line and leave a copy nobody can lend.
+// The property this file has wanted since B2a wrote it, landed by C1's Task 3:
+// a real `lendCopy` call against a suspended member, refused with
+// `membership_not_active` *before any row is written*.
+test("INV-4: lendCopy refuses a suspended member before writing anything", async () => {
+  const shelf = await makeShelf(sql, { slug: "can-tho" });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const ctx: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock: fixedClock("2026-08-08T03:00:00Z"),
+  };
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const reader = await makeMember(sql, shelf.id, { status: "suspended" });
+
+  await expect(
+    runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: reader.id,
+    }),
+  ).rejects.toMatchObject({ code: "membership_not_active" });
+
+  // The two assertions after the `rejects` are the point of it. A command that
+  // threw the right error *after* flipping the copy to `on_loan` would satisfy
+  // the line above and leave a copy nobody can lend.
+  expect(await sql`select 1 from loans`).toHaveLength(0);
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyIds[0]}
+  `;
+  expect(copy.state).toBe("available");
+});
+
+// **The remaining half is INV-4's other command, not another test here.**
+// `HandoverRequest` (OPS §4.2) applies the same membership check to a reader
+// collecting their own hold, and does not exist in any branch yet — C2's, and
+// it belongs in this file too when it lands.

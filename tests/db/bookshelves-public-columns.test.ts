@@ -69,6 +69,17 @@ import { expect, test } from "vitest";
  * never returns the `settings` value itself, only the four derived fields
  * (`levels`, `nested`, `level1Label`, `level2Label`) it reads out of it.
  *
+ * `src/domain/circulation/commands/lend-copy.ts` (C1 Task 3) is exempt on the
+ * narrowest version of the `copy-codes.ts` argument. It reads `settings` twice,
+ * for BR §5.5's `max_concurrent_loans` and `loan_days`, and both reads are
+ * `coalesce((settings->>'…')::int, n)` — an integer leaves the query, never
+ * the JSON. It is a `Command`, so it is unreachable except through
+ * `runCommand`, and its first statement is `requireManager`: there is no
+ * unauthenticated path to it at all, which is the situation
+ * `bookshelves_public_read` was widened for. Neither integer, nor anything
+ * derived from `settings`, appears in its `result` or its `audit` beyond the
+ * `due_on` the loan row itself already carries.
+ *
  * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
  * per-column, not per-file.** All three justifications above are for reading
  * `settings`, and only `settings`, out of these files — none of them are a
@@ -84,6 +95,7 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   "src/domain/catalogue/copy-codes.ts": ["settings"],
   "src/domain/catalogue/queries/get-book-detail.ts": ["settings"],
   "src/domain/members/parish-context.ts": ["settings"],
+  "src/domain/circulation/commands/lend-copy.ts": ["settings"],
 };
 
 // The whole point of §16.1: a person with no membership has no business

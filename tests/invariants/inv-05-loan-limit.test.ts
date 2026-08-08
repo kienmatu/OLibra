@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
-import { runQuery } from "../../src/domain/kernel/unit-of-work";
+import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import { memberMayBorrow } from "../../src/domain/circulation/policy";
+import { lendCopy } from "../../src/domain/circulation/commands/lend-copy";
 import { migrate } from "../../src/db/migrate";
 import { makeBookWithCopies, makeMember, makeShelf } from "../support/factories";
 import { closeAll, resetDatabase, sql } from "../support/db";
@@ -269,21 +270,146 @@ test("INV-5: a returned or voided loan stops counting; INV-11 keeps the row", as
   });
 });
 
-// **Deferred to C1's Task 3, and said plainly rather than skipped silently.**
+// The two cases C1's Task 3 owed this file, in the order the note that stood
+// here asked for: the cross-shelf one first, because it is the only shape that
+// fails if `lendCopy` runs its count outside the scoped transaction, and the
+// third test above shows exactly how wrong that answer is (3 where it should
+// be 0).
 //
-// Nothing here calls `lendCopy`, because it does not exist in this branch:
-// Task 1 (the predicates) and Task 2 (these tests) were implemented ahead of
-// Task 3, and a test written against a missing module fails to load and takes
-// the five proved above down with it.
-//
-// What Task 3 owes this file is two cases:
-//
-//   * a reader lent three books on a default shelf is refused the fourth with
-//     `loan_limit_reached`, through `runCommand(sql, ctx, lendCopy, …)`;
-//   * the same reader, holding three at one shelf, lends successfully at a
-//     second — the end-to-end form of the third test above, which today pins
-//     the count's scoping but cannot pin the command's use of it.
-//
-// The second is the one to write first: it is the only shape that fails if
-// `lendCopy` runs its count outside the scoped transaction, and the third test
-// above shows exactly how wrong that answer is (3 where it should be 0).
+// `managerContext` rather than `ctxAt`: `loans.lent_by` is `not null
+// references users(id)`, so the `super_admin` context the read-only tests
+// share — whose `actor.userId` is null — cannot lend at all.
+
+async function managerContext(bookshelfId: string): Promise<TenantContext> {
+  const manager = await makeMember(sql, bookshelfId, { role: "manager" });
+  return {
+    bookshelfId,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock: fixedClock("2026-08-08T03:00:00Z"),
+  };
+}
+
+test("INV-5: lendCopy counts per shelf — three books at one, still lendable at another", async () => {
+  // BR §5.3: a child may belong to two parishes. The end-to-end form of the
+  // third test above. One user id, two memberships, two scoped transactions:
+  // if `lendCopy`'s count ran on an unscoped handle it would answer 3 here and
+  // refuse this lend with `loan_limit_reached`.
+  const a = await makeShelf(sql, { slug: "dong-thap" });
+  const b = await makeShelf(sql, { slug: "an-giang" });
+  const ctxA = await managerContext(a.id);
+  const ctxB = await managerContext(b.id);
+
+  const [user] = await sql<{ id: string }[]>`
+    insert into users (full_name, father_name, mother_name, phone)
+    values ('Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0900000000')
+    returning id
+  `;
+  const memberships: string[] = [];
+  for (const shelfId of [a.id, b.id]) {
+    const [m] = await sql<{ id: string }[]>`
+      insert into memberships (bookshelf_id, user_id, role, status)
+      values (${shelfId}, ${user.id}, 'reader', 'active')
+      returning id
+    `;
+    memberships.push(m.id);
+  }
+
+  for (let i = 0; i < 3; i++) {
+    const { copyIds } = await makeBookWithCopies(sql, a.id, 1);
+    await runCommand(sql, ctxA, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: memberships[0],
+    });
+  }
+
+  const { copyIds } = await makeBookWithCopies(sql, b.id, 1);
+  await expect(
+    runCommand(sql, ctxB, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: memberships[1],
+    }),
+  ).resolves.toMatchObject({ loanId: expect.any(String) });
+});
+
+test("INV-5: lendCopy refuses the fourth book on a default shelf", async () => {
+  const shelf = await makeShelf(sql, { slug: "vinh-long" });
+  const ctx = await managerContext(shelf.id);
+  const reader = await makeMember(sql, shelf.id);
+
+  // The default is 3 (BR §5.5); `makeShelf` leaves `settings` as `{}`.
+  for (let i = 0; i < 3; i++) {
+    const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+    await runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: reader.id,
+    });
+  }
+
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  await expect(
+    runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: reader.id,
+    }),
+  ).rejects.toMatchObject({ code: "loan_limit_reached" });
+
+  // Refused before any write, like every other blocking condition: the fourth
+  // copy is still on the shelf, and there are still three loans, not four.
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyIds[0]}
+  `;
+  expect(copy.state).toBe("available");
+  expect(await sql`select 1 from loans`).toHaveLength(3);
+
+  // And the shelf's own setting is what moved the boundary, not a constant:
+  // raise it and the same fourth lend succeeds, with nothing else changed.
+  await sql`
+    update bookshelves
+       set settings = settings || ${sql.json({ max_concurrent_loans: 5 })}
+     where id = ${shelf.id}
+  `;
+  await expect(
+    runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: reader.id,
+    }),
+  ).resolves.toMatchObject({ loanId: expect.any(String) });
+});
+
+test("INV-5: lendCopy counts active loans, not every loan the reader ever had", async () => {
+  // The command half of the fifth test above. G10/INV-11: loans are never
+  // deleted, so "how many books does this reader have out" can only be a
+  // question about status — a count keyed on the row existing would block a
+  // reader permanently after their third book, with no way for the shelf to
+  // unblock them, and every test that lends three books and stops would stay
+  // green.
+  //
+  // The two closed loans are written with raw SQL rather than through
+  // `receiveReturn`/`voidLoan`: this is C1's Task 3, and those two commands are
+  // Tasks 4 and 5. What the test is about is what `lendCopy` *counts*, not how
+  // a loan came to be closed.
+  const shelf = await makeShelf(sql, { slug: "soc-trang" });
+  const ctx = await managerContext(shelf.id);
+  const reader = await makeMember(sql, shelf.id);
+  await lendDirectly(shelf.id, reader.userId);
+  await lendDirectly(shelf.id, reader.userId, {
+    status: "returned",
+    condition: "perfect",
+  });
+  await lendDirectly(shelf.id, reader.userId, { status: "voided" });
+
+  // Three rows, one of them active. A count that ignored `status` would see
+  // three and refuse the next lend.
+  const [{ n }] = await sql<{ n: string }[]>`
+    select count(*) as n from loans where borrower_id = ${reader.userId}
+  `;
+  expect(Number(n)).toBe(3);
+
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  await expect(
+    runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: reader.id,
+    }),
+  ).resolves.toMatchObject({ loanId: expect.any(String) });
+});

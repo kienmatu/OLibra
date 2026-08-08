@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
-import { runQuery } from "../../src/domain/kernel/unit-of-work";
+import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import { copyLendable } from "../../src/domain/circulation/policy";
+import { lendCopy } from "../../src/domain/circulation/commands/lend-copy";
 import { migrate } from "../../src/db/migrate";
 import { makeBookWithCopies, makeMember, makeShelf } from "../support/factories";
 import { closeAll, resetDatabase, sql } from "../support/db";
@@ -24,9 +25,10 @@ afterAll(closeAll);
  *  2. the access path — `copies_borrowable` offers a copy under a live hold to
  *     nobody at all, including its holder, and starts offering it again the
  *     moment the clock passes `hold_expires_at`, with no job having run;
- *  3. the command — `LendCopy` refuses, end to end. **Deferred to C1's Task 3**
- *     (see the closing note), because `lendCopy` does not exist in this branch
- *     yet and a test that cannot run proves nothing.
+ *  3. the command — `LendCopy` refuses, end to end. **Landed by C1's Task 3**;
+ *     the last four tests in this file are it. The fourth is the one that
+ *     closes half 2 back onto half 1: a hold that has lapsed reaches the
+ *     predicate as *absence*, and only a caller can prove that.
  *
  * Halves 1 and 2 are asserted here. Half 2 is not a restatement of half 1: the
  * two answer *different* questions, and the gap between them is why
@@ -209,24 +211,174 @@ test("INV-3: a copy in the held state is out of the view however the hold is rea
   expect(await borrowable()).toHaveLength(0);
 });
 
-// **Deferred to C1's Task 3, and said plainly rather than skipped silently.**
+// The three cases the note that stood here reserved for C1's Task 3. Written
+// in the order it asked for: the held-copy case first, because it is the one
+// the whole predicate exists for and the one a user-id/membership-id mix-up
+// turns green in unit tests and wrong at the shelf.
 //
-// Nothing here exercises `lendCopy` itself refusing a copy that is on loan, or
-// handing a held copy to somebody other than its holder. That command does not
-// exist in this branch: Task 1 (the predicates) and Task 2 (these tests) were
-// implemented on their own, ahead of Task 3, so there is no `lendCopy` to
-// call. A test written against it would fail to load and would take the two
-// halves proved above down with it — the plan's own Task 2 assumed Task 3
-// followed immediately, and it did not.
-//
-// What Task 3 owes this file, concretely, is three cases and no more:
-//
-//   * an available copy lends, and `book_copies.state` becomes `on_loan`;
-//   * a copy held for reader A, lent to reader B, is refused with
-//     `copy_not_available` and nothing is written — the case the second test
-//     above pins the *inputs* of but cannot pin the command's use of;
-//   * a copy already on loan is refused with `copy_not_available`.
-//
-// The middle one is the one to write first. It is the case the whole predicate
-// exists for, and the one a user-id/membership-id mix-up turns green in unit
-// tests and wrong at the shelf.
+// `managerContext` rather than `ctxAt`: `loans.lent_by` is `not null
+// references users(id)`, so the `super_admin` context above — whose
+// `actor.userId` is null — cannot lend at all. A command that writes a loan
+// needs an actor who is a real user, which is what makes this helper different
+// from the read-only one the earlier tests share.
+
+async function managerContext(
+  bookshelfId: string,
+  instant = "2026-08-08T03:00:00Z",
+): Promise<TenantContext> {
+  const manager = await makeMember(sql, bookshelfId, { role: "manager" });
+  return {
+    bookshelfId,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock: fixedClock(instant),
+  };
+}
+
+test("INV-3: lendCopy refuses a held copy to anyone but its holder, and writes nothing", async () => {
+  // The case the second test above pins the *inputs* of but cannot pin the
+  // command's use of. Reader A holds the hold; handing the book to reader B
+  // must fail even though B is a perfectly good member — and then handing it
+  // to A must succeed, from the identical fixture, which is what rules out a
+  // `lendCopy` that simply refuses every `held` copy.
+  const shelf = await makeShelf(sql, { slug: "soc-trang" });
+  const ctx = await managerContext(shelf.id);
+  const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const holder = await makeMember(sql, shelf.id);
+  const stranger = await makeMember(sql, shelf.id);
+  await sql`
+    insert into borrow_requests
+      (bookshelf_id, book_id, copy_id, member_id, status, requested_at,
+       hold_expires_at)
+    values
+      (${shelf.id}, ${bookId}, ${copyIds[0]}, ${holder.userId}, 'approved',
+       ${clock.now()}, timestamptz '2026-08-11T03:00:00Z')
+  `;
+  await sql`update book_copies set state = 'held' where id = ${copyIds[0]}`;
+
+  await expect(
+    runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: stranger.id,
+    }),
+  ).rejects.toMatchObject({ code: "copy_not_available" });
+
+  // "And nothing is written" is the half a `rejects` alone does not prove. A
+  // command that threw the right error after flipping the copy would satisfy
+  // the line above and leave a copy nobody can lend.
+  expect(await sql`select 1 from loans`).toHaveLength(0);
+  const [refused] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyIds[0]}
+  `;
+  expect(refused.state).toBe("held");
+
+  // Same copy, same hold, the holder this time.
+  await expect(
+    runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: holder.id,
+    }),
+  ).resolves.toMatchObject({ loanId: expect.any(String) });
+  const [lent] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyIds[0]}
+  `;
+  expect(lent.state).toBe("on_loan");
+});
+
+test("INV-3: an available copy lends, and the copy becomes on_loan", async () => {
+  const shelf = await makeShelf(sql, { slug: "hau-giang" });
+  const ctx = await managerContext(shelf.id);
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const reader = await makeMember(sql, shelf.id);
+
+  const { loanId } = await runCommand(sql, ctx, lendCopy, {
+    copyId: copyIds[0],
+    membershipId: reader.id,
+  });
+
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyIds[0]}
+  `;
+  expect(copy.state).toBe("on_loan");
+
+  // `borrower_id` holds the reader's *user* id, not their membership id
+  // (0005_circulation.sql:20). Asserted on the row the command actually wrote,
+  // because a membership id here fails the FK on the very first lend — and if
+  // it somehow did not, `search-readers-for-lending.ts:67`'s
+  // `l.borrower_id = u.id` join would silently never find the loan.
+  const [loan] = await sql<{ borrower_id: string; lent_by: string }[]>`
+    select borrower_id, lent_by from loans where id = ${loanId}
+  `;
+  expect(loan.borrower_id).toBe(reader.userId);
+  expect(loan.borrower_id).not.toBe(reader.id);
+  expect(loan.lent_by).toBe(ctx.actor.userId);
+});
+
+test("INV-3: a copy already on loan is refused", async () => {
+  const shelf = await makeShelf(sql, { slug: "bac-lieu" });
+  const ctx = await managerContext(shelf.id);
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const first = await makeMember(sql, shelf.id);
+  const second = await makeMember(sql, shelf.id);
+
+  await runCommand(sql, ctx, lendCopy, {
+    copyId: copyIds[0],
+    membershipId: first.id,
+  });
+
+  await expect(
+    runCommand(sql, ctx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: second.id,
+    }),
+  ).rejects.toMatchObject({ code: "copy_not_available" });
+
+  // Refused by the predicate, before the insert — so exactly one loan exists,
+  // and INV-1's index never had to arbitrate. `inv-01-lend-race.test.ts` is
+  // where the index's own half is proved.
+  const loans = await sql`select 1 from loans`;
+  expect(loans).toHaveLength(1);
+});
+
+test("INV-3: a lapsed hold makes the copy lendable to nobody, its own ex-holder included", async () => {
+  // `copyLendable`'s docstring makes a claim about its *caller*: "a `held` copy
+  // whose hold has lapsed arrives here with `heldForUserId === null`, because
+  // the caller reads that column through a `hold_expires_at > olibra_now()`
+  // filter — so expiry presents as absence, and absence must not match a
+  // reader." Nothing proves that until a caller exists, and the predicate's own
+  // unit tests structurally cannot: they pass `heldForUserId` in by hand.
+  //
+  // Drop that one line from `lendCopy`'s subquery and the copy becomes
+  // lendable to whoever the stale row names, weeks after the hold lapsed —
+  // with every other test in this file, and every test in
+  // `tests/domain/circulation/policy.test.ts`, still green.
+  //
+  // The clock is the only thing that differs between the two contexts below.
+  // Nothing expires the hold; the row is written once and never touched again
+  // (BR §8: "if the tidy-up never runs, `copies_borrowable` is still right").
+  const shelf = await makeShelf(sql, { slug: "kien-giang" });
+  const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const holder = await makeMember(sql, shelf.id);
+  await sql`
+    insert into borrow_requests
+      (bookshelf_id, book_id, copy_id, member_id, status, requested_at,
+       hold_expires_at)
+    values
+      (${shelf.id}, ${bookId}, ${copyIds[0]}, ${holder.userId}, 'approved',
+       ${clock.now()}, timestamptz '2026-08-11T03:00:00Z')
+  `;
+  await sql`update book_copies set state = 'held' where id = ${copyIds[0]}`;
+
+  // Before expiry, this exact call succeeds — asserted by the first test in
+  // this group. After it, the same call from the same holder is refused, and
+  // with INV-3's reason rather than INV-7's: the copy is not gone, it is in a
+  // state somebody has to record their way out of. A lend does not perform
+  // `held → available` on the way past.
+  const after = await managerContext(shelf.id, "2026-08-11T03:01:00Z");
+  await expect(
+    runCommand(sql, after, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: holder.id,
+    }),
+  ).rejects.toMatchObject({ code: "copy_not_available" });
+  expect(await sql`select 1 from loans`).toHaveLength(0);
+});
