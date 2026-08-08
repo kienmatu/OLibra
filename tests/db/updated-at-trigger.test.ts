@@ -48,33 +48,32 @@ test("updating a book advances its updated_at", async () => {
   );
 });
 
-test("every table with both updated_at and mutable rows carries the trigger", async () => {
-  const MUTABLE_TABLES = [
-    "users",
-    "bookshelves",
-    "parish_units",
-    "memberships",
-    "categories",
-    "books",
-    "book_copies",
-    "loans",
-    "borrow_requests",
-    "comments",
-    "announcements",
-    "book_donations",
-    "profile_change_requests",
-  ];
-
-  const rows = await sql<{ event_object_table: string }[]>`
+// S1 re-review, item 4: this test used to assert MUTABLE_TABLES ⊆ triggers
+// against a hardcoded list — a future table that grows an updated_at column
+// and no trigger would pass silently, exactly the gap
+// tests/invariants/rls-policy-completeness.test.ts closed for RLS with
+// set-equality instead of a one-directional subset check. Copying that
+// pattern here: the set of tables carrying an updated_at column must equal
+// the set of tables with the trigger attached, not merely contain the
+// hardcoded list as a subset.
+test("every table with an updated_at column carries the trigger, and nothing else does", async () => {
+  const withColumn = await sql<{ table_name: string }[]>`
+    select c.table_name from information_schema.columns c
+    join information_schema.tables t
+      on t.table_schema = c.table_schema and t.table_name = c.table_name
+    where c.table_schema = 'public'
+      and c.column_name = 'updated_at'
+      and t.table_type = 'BASE TABLE'
+  `;
+  const withTrigger = await sql<{ event_object_table: string }[]>`
     select event_object_table
     from information_schema.triggers
     where trigger_schema = 'public' and action_statement = 'EXECUTE FUNCTION set_updated_at()'
   `;
-  const actual = new Set(rows.map((r) => r.event_object_table));
 
-  for (const table of MUTABLE_TABLES) {
-    expect(actual.has(table), `${table} is missing its updated_at trigger`).toBe(
-      true,
-    );
-  }
+  const expected = new Set(withColumn.map((r) => r.table_name));
+  const actual = new Set(withTrigger.map((r) => r.event_object_table));
+
+  expect([...actual].sort()).toEqual([...expected].sort());
+  expect(actual.size).toBeGreaterThan(0);
 });
