@@ -38,6 +38,17 @@ export const dynamic = "force-dynamic";
  * is `messageFor`'s, and the code behind it is the very one `lendCopy` throws
  * — `searchReadersForLending` calls `memberMayBorrow`, the predicate the
  * command applies, rather than composing INV-4 and INV-5 for itself.
+ *
+ * **And that sentence is wrong for two of the four statuses it covers.**
+ * `membershipAllowsNewLoan` (`src/domain/members/policy.ts`) answers
+ * `membership_not_active` for everything that is not `active`, so a reader
+ * whose registration has not been approved yet (`pending`) and one who has
+ * left the shelf (`left`) are both told their account is temporarily locked.
+ * U1 is the first slice to show any of them to a volunteer and U1 §7 records
+ * it; the fix is the same one-code-one-sentence split `errors.ts` has already
+ * made three times, and it belongs to B2's membership lifecycle rather than
+ * here — this page must keep rendering whichever code the domain hands it, or
+ * the screen and the command stop agreeing.
  */
 export default async function ChoMuonNguoiDocPage({
   params,

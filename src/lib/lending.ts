@@ -80,6 +80,18 @@ export async function bookFromSlug(
  * keeps `copy_not_available`, exactly as that query documents — nothing about
  * it is lost, and there is no third code whose Vietnamese anybody wrote.
  *
+ * **That last case is wrong, and this is not the file that fixes it.** The
+ * sentence `copy_not_available` carries is "Bản sách này đang được mượn hoặc
+ * đang giữ chỗ.", and a title with no copies at all is neither on loan nor on
+ * hold. U1 is the first slice to put that sentence in front of a volunteer and
+ * U1 §7 records it; the fix is a new `ErrorCode` with a sentence nobody has
+ * written and a new failure mode in OPS §4.1/§4.2, which is a domain change
+ * belonging to the slice that makes it. Reproducing the aggregation
+ * faithfully — its defect included — is what keeps step 1's sentence and step
+ * 3's sentence the same sentence in the meantime. A private correction here
+ * would make the two screens disagree, which is the outcome BR §16.3 exists to
+ * prevent.
+ *
  * **`heldForUserId` is `null`, and that is a limit rather than a decision.**
  * `ManagerCopyRow` does not carry whose hold a `held` copy is under, so INV-3's
  * second clause — a held copy *is* lendable to its own holder — cannot be

@@ -10,11 +10,25 @@
  *
  * **The output differs from `src/lib/fixtures.ts`, and that is the point.**
  * The fixtures carry pre-computed display strings — `dueOn: "Chúa nhật 20/08"`
- * (`fixtures.ts:1022-1033`) — that the database does not store. `vi-VN` calls
- * that same day "Thứ Năm, 20/08/2026" when it is a Thursday and "Chủ Nhật"
- * when it is a Sunday, not the Catholic "Chúa nhật" the fixture author typed.
- * U1 §3.5 settles which of the two wins: the locale's, because the alternative
- * is a hand-maintained weekday table that only this project would own.
+ * (`fixtures.ts:1040`; lines 1022-1033 are the `Loan` *type*, which is where
+ * U1 §3.5 pointed and where this comment pointed after it) — that the database
+ * does not store. U1 §3.5 settles the shape: the locale's, because the
+ * alternative is a hand-maintained weekday table that only this project would
+ * own.
+ *
+ * **One word is overridden, and only one.** `vi-VN` renders Sunday as "Chủ
+ * Nhật". Everywhere else in this codebase — nine sites across the dashboard,
+ * the announcements, the statistics summary and the reader's own page — it is
+ * "Chúa nhật", the Catholic usage, in a parish system whose shelves open after
+ * Sunday mass. Shipping both meant the confirm screen and the dashboard it
+ * redirects to disagreed inside one session, over the one word this
+ * application says most often. Going through the locale is still right (SDD
+ * §6.6): `formatToParts` gives the weekday as its own part, so the substitution
+ * is one word in one place rather than a format string, and every other
+ * weekday, the separators, the digit order and a second locale later all
+ * remain `Intl`'s. This file is consequently the only one in `src/` allowed to
+ * contain the string "Chủ Nhật", and `tests/lib/dates.test.ts` enforces both
+ * halves of that.
  *
  * **Two timezones, deliberately, and the distinction is not cosmetic.**
  *
@@ -62,14 +76,32 @@ export function formatDate(isoDate: string): string {
 }
 
 /**
- * A `date` column with its weekday — "Thứ Năm, 20/08/2026".
+ * `vi-VN`'s Sunday, and this project's.
+ *
+ * The only entry, and the bar for a second one is a disagreement as visible as
+ * this one was — not a preference. See the header for why the substitution
+ * happens on a `formatToParts` part rather than in a format string.
+ */
+const SUNDAY = { locale: "Chủ Nhật", parish: "Chúa nhật" };
+
+/**
+ * A `date` column with its weekday — "Thứ Năm, 20/08/2026", "Chúa nhật,
+ * 23/08/2026".
  *
  * The weekday earns its place on a due date and nowhere else: a shelf that
  * opens on Sundays is telling a child which Sunday to come back on, which is
- * the whole reason BR §16.3's confirmation shows a due date at all.
+ * the whole reason BR §16.3's confirmation shows a due date at all — and it is
+ * also why the one weekday this application says most often has to be the word
+ * the parish uses for it.
  */
 export function formatDueDate(isoDate: string): string {
-  return DATE_WITH_WEEKDAY.format(new Date(`${isoDate}T00:00:00Z`));
+  return DATE_WITH_WEEKDAY.formatToParts(new Date(`${isoDate}T00:00:00Z`))
+    .map((part) =>
+      part.type === "weekday" && part.value === SUNDAY.locale
+        ? SUNDAY.parish
+        : part.value,
+    )
+    .join("");
 }
 
 /** A `timestamptz` — the instant rendered in the shelf's own timezone. */

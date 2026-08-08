@@ -159,12 +159,19 @@ export default async function ManagerBookDetailPage({
           <details className="group">
             {/* A `<summary>` cannot render as `<Button>` — it isn't a button
                 or a link — so it reuses the exact same class builder instead
-                of a hand-rolled copy that would drift from it (M1/M2). */}
+                of a hand-rolled copy that would drift from it (M1/M2).
+
+                No `cursor-pointer`: `globals.css` already sets it for `summary`
+                at the base layer, and DESIGN.md §5 is why it does — "a rule
+                that has to be remembered on each new button is a rule that will
+                be forgotten on the twentieth". Passing it here is the twentieth
+                button remembering it, which is the habit the base rule exists to
+                make unnecessary. */}
             <summary
               className={buttonClasses(
                 "quiet",
                 "sm",
-                "cursor-pointer list-none [&::-webkit-details-marker]:hidden",
+                "list-none [&::-webkit-details-marker]:hidden",
               )}
             >
               <Plus aria-hidden className="size-4" strokeWidth={2} />

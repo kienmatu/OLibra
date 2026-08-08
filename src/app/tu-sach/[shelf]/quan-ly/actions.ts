@@ -24,10 +24,12 @@ import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
  * Every command in `domain/circulation/` refuses by throwing
  * `RuleViolated(code)`, where `code` is an `ErrorCode` whose Vietnamese
  * sentence lives in `errors.ts` and whose failure mode is listed under OPS
- * §4.2. Those are the sentences BR §16.3 wants beside the confirm button —
- * "Bạn đọc đã mượn tối đa số sách cho phép." tells a volunteer what to do
- * next. So each action catches `RuleViolated`, and *only* `RuleViolated`, and
- * redirects back to the form with the code in `?loi=`.
+ * §4.2. Those are the sentences BR §16.3 wants beside the confirm button, and
+ * they are OPERATIONS.md's own wording rather than anything BR spells out:
+ * "Bạn đọc đã mượn tối đa số sách cho phép." is OPERATIONS.md:234 under
+ * `LendCopy`, paired with its code at `errors.ts:59`, and it tells a volunteer
+ * what to do next. So each action catches `RuleViolated`, and *only*
+ * `RuleViolated`, and redirects back to the form with the code in `?loi=`.
  *
  * Everything else is rethrown. The tempting implementation is
  * `catch (e) { return { error: messageFor(...) } }`, and it is wrong in a way

@@ -148,9 +148,15 @@ export default async function ChoMuonXacNhanPage({
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="cho-muon">
+      {/* The step actually reached, not the step this route is named after.
+          Fixed at 3, the indicator drew ticks over "Tìm sách" and "Chọn người
+          đọc" on a URL where neither had resolved — telling a volunteer who
+          arrived on a stale link that they had already chosen a book and a
+          reader, on the one screen whose whole job is to show them what they
+          chose. A tick is a claim about the past, and it has to be true. */}
       <StepIndicator
         steps={["Tìm sách", "Chọn người đọc", "Xác nhận"]}
-        current={3}
+        current={!book ? 1 : !reader ? 2 : 3}
       />
 
       <h1 className="mt-6 text-[28px] leading-tight font-semibold">

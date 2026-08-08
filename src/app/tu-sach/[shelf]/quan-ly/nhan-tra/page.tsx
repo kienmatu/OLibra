@@ -251,7 +251,19 @@ export default async function NhanTraPage({
             })}
           </div>
 
-          {/* BR §16.3: the note only appears once a worse grade is chosen, so
+          {/* BR §16.3:548 asks for "Ghi chú và ảnh" here and this is only the
+              note. **The photo is deferred, not forgotten** — U1 §6.1 records
+              what wiring it actually costs: `receiveReturn` already takes a
+              `photo`, and B5 shipped the object store, but nothing in the
+              application constructs one, the running app has never been given
+              the seven `S3_*` variables, and a size limit, a content-type
+              list, what a rejected upload says and what a failed `put` does to
+              the rest of the return are four policies that exist nowhere. It
+              belongs with B2b's avatar upload, which needs the same first
+              three. `main` did not have it either: it drew a dashed box
+              reading "Ghi chú và ảnh · hiện khi chọn tình trạng xấu hơn".
+
+              BR §16.3: the note only appears once a worse grade is chosen, so
               the common case stays two taps. Done in CSS rather than in
               JavaScript — exactly one radio is ever checked, so "Nguyên vẹn is
               not the one" is the same condition as "something worse is".

@@ -81,9 +81,9 @@ Every C1 command already calls `requireManager` and `requireIdentifiedActor`. A 
 
 ### 3.5 Formatting differences from the fixtures are expected
 
-G11 made the seed reproduce the fixtures, so a seeded database should render near-identically. **Near, not exactly.** The fixtures carry pre-computed display strings (`dueOn: "Chúa nhật 20/08"`, `daysLeft`, `borrowedOn: "06/08"` — `src/lib/fixtures.ts:1022-1033`) that the database does not store and `loans_current` derives differently. A diff there is formatting work, not a wrong query.
+G11 made the seed reproduce the fixtures, so a seeded database should render near-identically. **Near, not exactly.** The fixtures carry pre-computed display strings (`dueOn: "Chúa nhật 20/08"`, `daysLeft`, `borrowedOn: "06/08"` — `src/lib/fixtures.ts:1034-1092`; lines 1022-1033, which this plan originally cited and `src/lib/dates.ts` then copied, are the `Loan` *type*) that the database does not store and `loans_current` derives differently. A diff there is formatting work, not a wrong query.
 
-Dates and numbers go through the locale, never a hand-written format string (SDD §6.6).
+Dates and numbers go through the locale, never a hand-written format string (SDD §6.6). **With one substitution**: `vi-VN` renders Sunday as "Chủ Nhật" and this codebase says "Chúa nhật" in nine places, so `formatDueDate` replaces that one `formatToParts` part. Shipping both meant the confirm screen and the dashboard it redirects to disagreed inside one session, over the word a parish shelf says most often. Every other weekday, separator and digit order stays `Intl`'s.
 
 ## 4. Tasks
 
@@ -122,3 +122,34 @@ Walk the three-step lend, the two-step lend from book detail, and the return. Co
 ## 6. Out of scope
 
 The other forty-one pages; requests, holds and the queue (C2); renewals (C3); notifications (D1); statistics and CSV export (D2); avatar upload (B2b, though B5 shipped the store it needs).
+
+### 6.1 Deferred during the fix pass, with reasons
+
+Two things this slice touched and deliberately did not finish. Recorded here rather than left silently missing, which is what this section exists for.
+
+**The return form's photo field (BR §16.3:548).** `main` offered "Ghi chú và ảnh" — as a dashed placeholder box reading "Ghi chú và ảnh · hiện khi chọn tình trạng xấu hơn", never a working upload. HEAD offers a real `Ghi chú` textarea and no photo at all, so the field regressed from a promise to an absence. `receiveReturn` already accepts `photo`, and B5 shipped `src/storage/s3.ts` (`put`, `url`, `delete`, `objectKey`), so the pieces exist. **Wiring them is a slice, not a fix**, and specifically:
+
+- **Nothing in the application constructs an `ObjectStore`.** `createObjectStore`/`s3ConfigFromEnv` have no caller outside `src/storage/` and its tests. It needs the `pool()` treatment — one instance for the process, cached where hot reload cannot lose it — and a decision about where it lives, since `tests/architecture/boundaries.test.ts` forbids the domain importing it. That is §3.1 again, for a second resource.
+- **The running app has never been given the seven `S3_*` variables.** They are in `.env.example` and in CI as `TEST_S3_*` for the storage suite; whether compose's `app` service passes them is untested because nothing has needed them.
+- **Three policies do not exist anywhere.** A maximum upload size, an allowed content-type list, and what a volunteer sees when a photo is rejected. BR does not state any of them, and inventing them here is a decision rather than a fix.
+- **A failed `put` has no answer.** `s3.ts` is explicit that storage failure is a 500 with no `ErrorCode` — "putting it in that catalogue would sit an infrastructure fault beside entries that all name something the user can do instead". So a photo the store refuses would lose the whole return, condition assessment included, unless the action decides to write the return anyway. That is a product decision about which half matters more.
+- **Nothing renders `condition_assessments.photo_url`.** An upload with no screen that shows it is a write-only field.
+
+It belongs with **B2b's avatar upload**, which is out of scope above for the same reason and needs the identical first three bullets. Whichever slice takes it decides the upload pattern for the project the way this one decided the page-data seam.
+
+**The manager shell's chrome.** `src/components/shell/manager-shell.tsx` still hardcodes "Maria Nguyễn Thị Lan" / "Quản lý" in the sidebar footer and a fixed integer on every nav badge (`5`, `2`, `2`, `donationQueue.length`, `3`, `1`) — on all six now-database-backed screens. A page showing real rows under a hardcoded name reads as working and is not.
+
+Sized honestly, it is two very different halves:
+
+- **The name and role are small.** `loadPage` already resolves a `TenantContext`, but `Actor` carries `userId`, `membershipId` and `role` and no display name, so it needs either one extra `select` beside `readShelf` or a field on `Actor` — and the latter is a kernel change that every command's context construction would have to follow. Perhaps a day, and it is a decision about `TenantContext` rather than a page edit.
+- **The badge counts are not.** Six counts across four unshipped slices: pending registrations and profile-change requests (B2), the borrow-request queue (C2), the donation queue (D-something), overdue loans, and comment moderation. OPS §3 defines a query for almost none of them, and inventing six would be exactly the domain change U1 refuses to make.
+
+So: **its own slice**, taken with the first of the forty-one pages, and the two halves can land separately. Until then the chrome is visibly fixture data on screens whose body is not, which is the least confusing of the available wrong states — a badge that read `0` would be a claim, and this is plainly a placeholder.
+
+## 7. Found here, owned elsewhere
+
+Two defects this slice is merely the first to show a volunteer. Both are domain-level and inherited, neither is U1's to fix, and both are recorded at the surface site that renders them so the owning slice finds them from either direction.
+
+**A title with zero copies is described as "đang được mượn hoặc đang giữ chỗ."** `searchBooksForLending` documents the choice deliberately — a title with no copies recorded keeps `copy_not_available`, "because nothing about it is lost or retired" and `ErrorCode` may not gain a third code whose Vietnamese nobody wrote. `src/lib/lending.ts`'s `chooseCopyToLend` reproduces the aggregation so the two screens agree. The consequence is still a sentence that is untrue: a title with no copies at all is not on loan and is not on hold. **Owner: whichever slice adds the code and its sentence** — it is a new entry in `ERROR_MESSAGES` and a new failure mode in OPS §4.1/§4.2, not a surface fix.
+
+**`pending` and `left` memberships both render the *suspended* sentence.** `membershipAllowsNewLoan` (`src/domain/members/policy.ts`) returns `membership_not_active` for every status that is not `active`, and `errors.ts:58` pairs that code with "Tài khoản đang tạm khoá, không thể mượn thêm." A reader whose registration has not been approved yet, and one who has left the shelf, are both told their account is temporarily locked. **Owner: B2's membership lifecycle** — the same one-code-one-sentence split `errors.ts` has already made three times (B1's `validation_failed`, B2a's `reject_reason_required`, C1's `loan_not_active_cannot_void`).

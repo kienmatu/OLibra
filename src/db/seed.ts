@@ -328,11 +328,15 @@ export async function seed(sql: Sql): Promise<void> {
     // that made it impossible to see any other outcome. `scripts/check-links
     // .mjs` crawls as this account for exactly that reason.
     //
-    // Only this shelf's keeper, and only on her own shelf: the other three
-    // shelves each describe one reader and nothing about them says who keeps
-    // them. `bookshelves.keeper_name` for Đồng Tháp is her ("Maria Nguyễn Thị
-    // Lan", `fixtures.ts`'s `shelf.keeper`), so this promotes the person the
-    // fixtures already name rather than picking one.
+    // Only this shelf's keeper, and only on her own shelf. Not because the
+    // other three name no keeper — the loop above writes `keeper_name` for all
+    // four, from `fixtures.ts`'s `shelf.keeper` — but because those three
+    // keepers are not seeded *accounts*. `fixtures.ts` gives each of the other
+    // shelves one reader, and none of them is the person named as its keeper,
+    // so there is no membership to promote and promoting somebody else would
+    // be inventing a manager the fixtures never described. Đồng Tháp is the
+    // one shelf where the two coincide: its `keeper_name` is "Maria Nguyễn Thị
+    // Lan", and she is also reader "lan", the account this promotes.
     await tx`
       update memberships
          set role = 'manager'

@@ -68,7 +68,10 @@ async function contextForRequest(shelfSlug: string): Promise<TenantContext> {
  * - `RuleViolated("not_permitted")` — thrown by `requireManager` /
  *   `requireReader` / `requireIdentifiedActor` inside the query, i.e. by the
  *   domain, which is the only place that decides *permission*. The page
- *   decides *visibility*, and the answer BR §13.3 and U1 §3.4 want is a 404:
+ *   decides *visibility* — BR §13.3, "every screen hides what the user cannot
+ *   do… the interface hiding an action is never the security control", which is
+ *   why both halves exist. The answer U1 §3.4 wants for the hidden half is a
+ *   404:
  *   a redirect to a "you may not" screen confirms the page exists and which
  *   shelf has one. Mapping it here rather than in each page is what stops
  *   forty-six pages from growing forty-six private re-readings of
@@ -115,7 +118,10 @@ export async function loadPage<T>(
  * **What it does not do is catch `RuleViolated`.** `loadPage` translates
  * `not_permitted` into a 404 because a *page* has to decide what a reader who
  * typed a manager URL sees. An action has a different caller with a different
- * need: BR §16.3 wants "Bạn đọc đã mượn tối đa số sách cho phép." rendered
+ * need: BR §16.3 wants a blocking condition to surface "as a clear message
+ * before the confirm step", and the message it surfaces as — "Bạn đọc đã mượn
+ * tối đa số sách cho phép.", OPERATIONS.md:234 under `LendCopy`, and
+ * `errors.ts:59` where the code and the sentence are paired — rendered
  * beside the confirm button, and a 404 would replace the one sentence that
  * tells a volunteer what to do next with a blank wall. So every `RuleViolated`
  * — `not_permitted` included — leaves this function intact and is caught by
