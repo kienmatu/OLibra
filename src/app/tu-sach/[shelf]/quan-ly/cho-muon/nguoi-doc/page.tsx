@@ -9,6 +9,7 @@ import { messageFor } from "@/domain/kernel/errors";
 import { searchReadersForLending } from "@/domain/members/queries/search-readers-for-lending";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
 import { loadPage } from "@/lib/page-data";
+import { param, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 
 /**
@@ -43,11 +44,13 @@ export default async function ChoMuonNguoiDocPage({
   searchParams,
 }: {
   params: Promise<{ shelf: string }>;
-  searchParams: Promise<{ sach?: string; q?: string }>;
+  /** Every parameter, at the shape Next actually delivers — `search-params.ts`. */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const { sach, q } = await searchParams;
-  const query = q ?? "";
+  const search = await searchParams;
+  const sach = param(search, "sach");
+  const query = param(search, "q") ?? "";
 
   const { shelf, book, copy, readers } = await loadPage(slug, async (tx, ctx) => {
     const shelf = await readShelf(tx, ctx);

@@ -12,7 +12,8 @@ import { lendCopy } from "../../../../domain/circulation/commands/lend-copy";
 import { receiveReturn } from "../../../../domain/circulation/commands/receive-return";
 import type { CopyCondition } from "../../../../domain/catalogue/policy";
 import type { Command } from "../../../../domain/kernel/unit-of-work";
-import { ACTION_ERROR_PARAM, submitCommand } from "../../../../lib/page-data";
+import { submitCommand } from "../../../../lib/page-data";
+import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
 
 /**
  * The three confirm buttons of the circulation flows, as server actions.

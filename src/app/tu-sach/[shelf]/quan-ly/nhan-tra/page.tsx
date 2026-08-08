@@ -17,10 +17,11 @@ import { Card } from "@/components/ui/card";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { COPY_CONDITIONS, type CopyCondition } from "@/domain/catalogue/policy";
-import { type ErrorCode, ERROR_MESSAGES, messageFor } from "@/domain/kernel/errors";
+import { messageFor } from "@/domain/kernel/errors";
 import { searchLoansForReturn } from "@/domain/circulation/queries/search-loans-for-return";
 import { formatDueDate } from "@/lib/dates";
-import { ACTION_ERROR_PARAM, loadPage } from "@/lib/page-data";
+import { loadPage } from "@/lib/page-data";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 import { cn } from "@/lib/utils";
 import { CONDITION_LABELS } from "@/lib/status";
@@ -46,10 +47,6 @@ const CONDITION_ICONS: Record<CopyCondition, typeof CheckCircle2> = {
 
 /** BR §16.3: "the common case is two taps", so the picker starts here. */
 const DEFAULT_CONDITION: CopyCondition = "perfect";
-
-function refusalFrom(loi: string | undefined): ErrorCode | null {
-  return loi && loi in ERROR_MESSAGES ? (loi as ErrorCode) : null;
-}
 
 /**
  * OPS §5's return flow, both of its steps on one screen: find the loan, then
@@ -82,16 +79,14 @@ export default async function NhanTraPage({
   searchParams,
 }: {
   params: Promise<{ shelf: string }>;
-  searchParams: Promise<
-    { q?: string; muon?: string } & {
-      [K in typeof ACTION_ERROR_PARAM]?: string;
-    }
-  >;
+  /** `?q=`, `?muon=` and `?loi=` — read through `search-params.ts`, never
+   *  destructured, because a repeated key arrives as an array. */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
   const search = await searchParams;
-  const query = search.q ?? "";
-  const muon = search.muon;
+  const query = param(search, "q") ?? "";
+  const muon = param(search, "muon");
 
   const { shelf, loans } = await loadPage(slug, async (tx, ctx) => ({
     shelf: await readShelf(tx, ctx),
@@ -99,7 +94,7 @@ export default async function NhanTraPage({
   }));
 
   const selected = muon ? (loans.find((l) => l.loanId === muon) ?? null) : null;
-  const refused = refusalFrom(search[ACTION_ERROR_PARAM]);
+  const refused = refusalFrom(search);
 
   const base = `/tu-sach/${slug}/quan-ly`;
   const carrying = (extra: Record<string, string>) =>

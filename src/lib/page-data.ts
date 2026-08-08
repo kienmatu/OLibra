@@ -103,22 +103,6 @@ export async function loadPage<T>(
 }
 
 /**
- * The query-string parameter a server action hands a refusal back through.
- *
- * A *code*, never a sentence: `loi=loan_limit_reached`, and the page looks the
- * Vietnamese up with `messageFor`. `errors.ts:11-16` is the rule — "a screen
- * calls `ERROR_MESSAGES[code]` rather than writing its own wording for a rule
- * it did not define" — and a URL carrying the sentence itself would be a
- * second copy of the wording, editable by whoever is holding the address bar.
- *
- * The same name `dang-nhap/actions.ts` already redirects with, so the two
- * failure paths in this app read alike. That one carries its own fixed marker
- * (`SIGN_IN_FAILED`) rather than an `ErrorCode`, deliberately: which of three
- * sign-in failures happened is exactly what it must not disclose.
- */
-export const ACTION_ERROR_PARAM = "loi";
-
-/**
  * How a server action writes to the database — `loadPage`'s twin, and
  * deliberately not its mirror image.
  *

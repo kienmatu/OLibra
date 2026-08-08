@@ -8,6 +8,7 @@ import { StepIndicator } from "@/components/ui/step-indicator";
 import { messageFor } from "@/domain/kernel/errors";
 import { searchBooksForLending } from "@/domain/catalogue/queries/search-books-for-lending";
 import { loadPage } from "@/lib/page-data";
+import { param, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 
 /**
@@ -43,11 +44,12 @@ export default async function ChoMuonTimSachPage({
   searchParams,
 }: {
   params: Promise<{ shelf: string }>;
-  searchParams: Promise<{ q?: string }>;
+  // Not `{ q?: string }`. `?q=de&q=men` arrives as an array and `q.trim()`
+  // inside the query is then a `TypeError` — see `src/lib/search-params.ts`.
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const { q } = await searchParams;
-  const query = q ?? "";
+  const query = param(await searchParams, "q") ?? "";
 
   const { shelf, results } = await loadPage(slug, async (tx, ctx) => ({
     // U1 Task 2 landed this as an inline `select` here, with a note that the

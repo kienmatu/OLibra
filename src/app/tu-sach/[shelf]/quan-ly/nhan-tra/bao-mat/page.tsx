@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Field, Textarea } from "@/components/ui/field";
-import { type ErrorCode, ERROR_MESSAGES, messageFor } from "@/domain/kernel/errors";
+import { messageFor } from "@/domain/kernel/errors";
 import { searchLoansForReturn } from "@/domain/circulation/queries/search-loans-for-return";
 import { formatDueDate } from "@/lib/dates";
-import { ACTION_ERROR_PARAM, loadPage } from "@/lib/page-data";
+import { loadPage } from "@/lib/page-data";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 import { reportCopyLostAction } from "../../actions";
 
@@ -22,10 +23,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dd className="mt-2">{children}</dd>
     </div>
   );
-}
-
-function refusalFrom(loi: string | undefined): ErrorCode | null {
-  return loi && loi in ERROR_MESSAGES ? (loi as ErrorCode) : null;
 }
 
 /**
@@ -51,16 +48,14 @@ export default async function NhanTraBaoMatPage({
   searchParams,
 }: {
   params: Promise<{ shelf: string }>;
-  searchParams: Promise<
-    { q?: string; muon?: string } & {
-      [K in typeof ACTION_ERROR_PARAM]?: string;
-    }
-  >;
+  /** `?q=`, `?muon=` and `?loi=` — read through `search-params.ts`, never
+   *  destructured, because a repeated key arrives as an array. */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
   const search = await searchParams;
-  const query = search.q ?? "";
-  const muon = search.muon;
+  const query = param(search, "q") ?? "";
+  const muon = param(search, "muon");
 
   const { shelf, loans } = await loadPage(slug, async (tx, ctx) => ({
     shelf: await readShelf(tx, ctx),
@@ -71,7 +66,7 @@ export default async function NhanTraBaoMatPage({
   }));
 
   const loan = muon ? (loans.find((l) => l.loanId === muon) ?? null) : null;
-  const refused = refusalFrom(search[ACTION_ERROR_PARAM]);
+  const refused = refusalFrom(search);
 
   const base = `/tu-sach/${slug}/quan-ly`;
   const backToReturn = `${base}/nhan-tra?${new URLSearchParams({

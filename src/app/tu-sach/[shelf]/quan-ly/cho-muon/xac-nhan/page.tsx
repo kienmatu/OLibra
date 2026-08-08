@@ -8,10 +8,11 @@ import { StepIndicator } from "@/components/ui/step-indicator";
 import { requireManager } from "@/domain/catalogue/policy";
 import { dueDateFor, memberMayBorrow } from "@/domain/circulation/policy";
 import type { Block } from "@/domain/kernel/block";
-import { type ErrorCode, ERROR_MESSAGES, messageFor } from "@/domain/kernel/errors";
+import { type ErrorCode, messageFor } from "@/domain/kernel/errors";
 import { bookFromSlug, chooseCopyToLend, readerFromParam } from "@/lib/lending";
 import { formatDate, formatDueDate } from "@/lib/dates";
-import { ACTION_ERROR_PARAM, loadPage } from "@/lib/page-data";
+import { loadPage } from "@/lib/page-data";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 import { lendCopyAction } from "../../actions";
 
@@ -28,20 +29,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dd className="mt-2">{children}</dd>
     </div>
   );
-}
-
-/**
- * A code that arrived in `?loi=`, if it is one this project has a sentence for.
- *
- * The parameter is in the address bar, so it is whatever somebody typed there.
- * `ERROR_MESSAGES` is a closed union and `messageFor` would return `undefined`
- * for a code outside it — which React renders as nothing, quietly turning a
- * hand-edited URL into a blank alert box. Checking membership first means an
- * unknown code shows no banner at all, which is the honest outcome: nothing
- * refused this lend.
- */
-function refusalFrom(loi: string | undefined): ErrorCode | null {
-  return loi && loi in ERROR_MESSAGES ? (loi as ErrorCode) : null;
 }
 
 /**
@@ -81,19 +68,22 @@ export default async function ChoMuonXacNhanPage({
   searchParams,
 }: {
   params: Promise<{ shelf: string }>;
-  // `loi` is `ACTION_ERROR_PARAM` — spelled out here because a search-param
-  // type needs a literal key, and asserted against the constant below so the
-  // two cannot drift.
-  searchParams: Promise<
-    { sach?: string; "nguoi-doc"?: string } & {
-      [K in typeof ACTION_ERROR_PARAM]?: string;
-    }
-  >;
+  /**
+   * `?sach=`, `?nguoi-doc=` and `?loi=`, read through `param` and
+   * `refusalFrom` rather than destructured.
+   *
+   * The shape this used to declare — three optional `string`s, with `loi`
+   * spelled through `ACTION_ERROR_PARAM` — was a claim about the input rather
+   * than a description of it: Next delivers `string[]` for a repeated key, and
+   * a type that says otherwise only moves the failure from the compiler to a
+   * volunteer's screen. `src/lib/search-params.ts` carries the reasoning.
+   */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
   const query = await searchParams;
-  const sach = query.sach;
-  const nguoiDoc = query["nguoi-doc"];
+  const sach = param(query, "sach");
+  const nguoiDoc = param(query, "nguoi-doc");
 
   const { shelf, book, copy, copyBlock, reader, lentOn, dueOn } = await loadPage(
     slug,
@@ -154,7 +144,7 @@ export default async function ChoMuonXacNhanPage({
   // from `blocking` above and shown even when that is null, because the whole
   // point of the command re-checking is that it can disagree with a read taken
   // seconds earlier.
-  const refused = refusalFrom(query[ACTION_ERROR_PARAM]);
+  const refused = refusalFrom(query);
 
   return (
     <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="cho-muon">
