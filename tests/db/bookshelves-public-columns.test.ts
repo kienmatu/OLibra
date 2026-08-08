@@ -80,6 +80,13 @@ import { expect, test } from "vitest";
  * derived from `settings`, appears in its `result` or its `audit` beyond the
  * `due_on` the loan row itself already carries.
  *
+ * `src/domain/circulation/commands/receive-return.ts` (C1 Task 4) is exempt on
+ * exactly that argument, one step narrower still: it reads `settings` only for
+ * BR §5.5's `hold_days`, only inside the branch where the manager asked to hold
+ * the copy for a queued reader, and only as `coalesce((settings->>'hold_days')
+ * ::int, 3)`. Same `requireManager`, same integer, same absence from anything
+ * the command returns.
+ *
  * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
  * per-column, not per-file.** All three justifications above are for reading
  * `settings`, and only `settings`, out of these files — none of them are a
@@ -96,6 +103,7 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   "src/domain/catalogue/queries/get-book-detail.ts": ["settings"],
   "src/domain/members/parish-context.ts": ["settings"],
   "src/domain/circulation/commands/lend-copy.ts": ["settings"],
+  "src/domain/circulation/commands/receive-return.ts": ["settings"],
 };
 
 // The whole point of §16.1: a person with no membership has no business

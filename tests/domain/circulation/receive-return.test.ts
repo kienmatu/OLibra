@@ -1,0 +1,451 @@
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { fixedClock } from "../../../src/domain/kernel/clock";
+import type { TenantContext } from "../../../src/domain/kernel/tenant";
+import { runCommand } from "../../../src/domain/kernel/unit-of-work";
+import { lendCopy } from "../../../src/domain/circulation/commands/lend-copy";
+import { receiveReturn } from "../../../src/domain/circulation/commands/receive-return";
+import { migrate } from "../../../src/db/migrate";
+import { makeBookWithCopies, makeMember } from "../../support/factories";
+import { lentOut, SCENARIO_CLOCK } from "../../support/scenarios";
+import { closeAll, resetDatabase, sql } from "../../support/db";
+
+beforeAll(() => migrate(sql));
+beforeEach(resetDatabase);
+afterAll(closeAll);
+
+const clock = fixedClock(SCENARIO_CLOCK);
+
+/** A pending request for `bookId`, from a new reader of this shelf. */
+async function queueReader(bookshelfId: string, bookId: string, at = clock.now()) {
+  const reader = await makeMember(sql, bookshelfId);
+  const [request] = await sql<{ id: string }[]>`
+    insert into borrow_requests
+      (bookshelf_id, book_id, member_id, status, requested_at)
+    values (${bookshelfId}, ${bookId}, ${reader.userId}, 'pending', ${at})
+    returning id
+  `;
+  return { reader, requestId: request.id };
+}
+
+test("a returned copy becomes available again", async () => {
+  const { ctx, copyId, loanId } = await lentOut(sql);
+
+  await runCommand(sql, ctx, receiveReturn, { loanId, condition: "perfect" });
+
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyId}
+  `;
+  const [loan] = await sql<{ status: string }[]>`
+    select status from loans where id = ${loanId}
+  `;
+  expect(copy.state).toBe("available");
+  expect(loan.status).toBe("returned");
+});
+
+test("the return records a condition assessment tied to the loan", async () => {
+  // BR §5.4: ConditionAssessment is separate from the loan because a manager
+  // may assess a copy at any time, not only at return. The link back to the
+  // loan is what makes "returned in worse condition than it left in" (BR §3)
+  // answerable later.
+  const { ctx, copyId, loanId } = await lentOut(sql);
+
+  await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "torn",
+    note: "Rách trang 12",
+  });
+
+  const [assessment] = await sql<
+    {
+      copy_id: string;
+      loan_id: string;
+      condition: string;
+      note: string;
+      assessed_by: string;
+      assessed_at: Date;
+    }[]
+  >`select copy_id, loan_id, condition, note, assessed_by, assessed_at
+      from condition_assessments`;
+  expect(assessment).toMatchObject({
+    copy_id: copyId,
+    loan_id: loanId,
+    condition: "torn",
+    note: "Rách trang 12",
+  });
+  // `assessed_by` is a users(id) (0005_circulation.sql:90), like every other
+  // actor column in this schema, and `assessed_at` is the injected clock's —
+  // not the column's `default now()`.
+  expect(assessment.assessed_by).toBe(ctx.actor.userId);
+  expect(assessment.assessed_at.toISOString()).toBe(clock.now().toISOString());
+});
+
+test("the copy carries its new condition forward", async () => {
+  const { ctx, copyId, loanId } = await lentOut(sql);
+
+  await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "worn",
+    note: "Gáy sách long",
+  });
+
+  const [copy] = await sql<{ condition: string; condition_note: string | null }[]>`
+    select condition, condition_note from book_copies where id = ${copyId}
+  `;
+  expect(copy.condition).toBe("worn");
+  // The note travels with the condition, the way `assessCondition` (B1) writes
+  // the pair. A note left behind from an earlier judgement would describe
+  // damage this copy no longer has.
+  expect(copy.condition_note).toBe("Gáy sách long");
+});
+
+test("the loan carries the return's own record: who, when, in what condition", async () => {
+  // `loans_returned_has_condition` (0005_circulation.sql:50) makes the status
+  // and the condition one statement; these three columns are what a manager
+  // reading the loan history a year later actually sees.
+  const { ctx, loanId } = await lentOut(sql);
+
+  await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "slightly_worn",
+    note: "Bìa hơi cong",
+    photo: "https://example.invalid/anh.jpg",
+  });
+
+  const [loan] = await sql<
+    {
+      returned_at: Date;
+      received_by: string;
+      return_condition: string;
+      return_note: string;
+      return_photo_url: string;
+    }[]
+  >`select returned_at, received_by, return_condition, return_note, return_photo_url
+      from loans where id = ${loanId}`;
+  expect(loan.received_by).toBe(ctx.actor.userId);
+  expect(loan.return_condition).toBe("slightly_worn");
+  expect(loan.return_note).toBe("Bìa hơi cong");
+  expect(loan.return_photo_url).toBe("https://example.invalid/anh.jpg");
+  // `returned_at` from `ctx.clock`, not the wall clock: the column has no
+  // default at all, so the only thing this catches is the command reaching for
+  // `new Date()` or SQL's `now()` instead of the clock every other timestamp
+  // on this row already follows.
+  expect(loan.returned_at.toISOString()).toBe(clock.now().toISOString());
+});
+
+test("returning an already-returned loan fails with loan_not_active", async () => {
+  // BR §17.7: every button that triggers a change disables itself in flight,
+  // "which also prevents the double-submit that would otherwise create
+  // duplicate loans." This is the server-side half of that guarantee — the
+  // client-side half is not a security control.
+  const { ctx, loanId } = await lentOut(sql);
+
+  await runCommand(sql, ctx, receiveReturn, { loanId, condition: "perfect" });
+
+  await expect(
+    runCommand(sql, ctx, receiveReturn, { loanId, condition: "perfect" }),
+  ).rejects.toMatchObject({ code: "loan_not_active" });
+
+  // And nothing was written the second time round: one assessment, not two.
+  const [{ n }] = await sql<{ n: string }[]>`
+    select count(*) as n from condition_assessments
+  `;
+  expect(Number(n)).toBe(1);
+});
+
+test("INV-11: a loan is never deleted on return", async () => {
+  const { ctx, loanId } = await lentOut(sql);
+  const [{ count: before }] = await sql<{ count: string }[]>`
+    select count(*) from loans
+  `;
+
+  await runCommand(sql, ctx, receiveReturn, { loanId, condition: "perfect" });
+
+  const [{ count: after }] = await sql<{ count: string }[]>`
+    select count(*) from loans
+  `;
+  expect(after).toBe(before);
+});
+
+test("the returned copy can immediately be lent again — INV-1 stays satisfiable", async () => {
+  // The partial unique index keys on `status = 'active'`. If the return set a
+  // flag beside the status instead of changing it, this fails with a 23505 and
+  // the copy is stuck forever.
+  const { ctx, copyId, loanId } = await lentOut(sql);
+  const next = await makeMember(sql, ctx.bookshelfId);
+
+  await runCommand(sql, ctx, receiveReturn, { loanId, condition: "perfect" });
+
+  await expect(
+    runCommand(sql, ctx, lendCopy, { copyId, membershipId: next.id }),
+  ).resolves.toMatchObject({ loanId: expect.any(String) });
+});
+
+test("nothing is held automatically when the manager does not ask", async () => {
+  // The rule that matters most in this command. OPS §5: "Nothing happens
+  // automatically: the manager decides, because the next reader may not be
+  // standing there." A queued request must still be pending afterwards.
+  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { requestId } = await queueReader(ctx.bookshelfId, bookId);
+
+  const result = await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+  });
+
+  const [request] = await sql<
+    { status: string; copy_id: string | null; hold_expires_at: Date | null }[]
+  >`select status, copy_id, hold_expires_at from borrow_requests`;
+  expect(request.status).toBe("pending");
+  expect(request.copy_id).toBeNull();
+  expect(request.hold_expires_at).toBeNull();
+
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyId}
+  `;
+  expect(copy.state).toBe("available");
+
+  // The command still *tells* the manager somebody is waiting — BR §16.3:
+  // "the confirmation says so immediately and offers to approve the first
+  // person in the queue."
+  expect(result.queuedRequestId).toBe(requestId);
+
+  // One fact, one audit row. The `request.approved` entry belongs to the
+  // decision the manager did not make.
+  const actions = await sql<{ action: string }[]>`
+    select action from audit_log order by action
+  `;
+  expect(actions.map((a) => a.action)).toEqual(["loan.created", "loan.returned"]);
+});
+
+test("the queue is reported in requested_at order, not insertion order", async () => {
+  // `requested_at` is "the queue ordering key" (the column's own comment,
+  // 0005_circulation.sql:66). The two rows below are written in the opposite
+  // order to the one they queued in, so a command that reported whatever
+  // Postgres returned first would offer the manager the wrong child.
+  const { ctx, bookId, loanId } = await lentOut(sql);
+  const later = await queueReader(
+    ctx.bookshelfId,
+    bookId,
+    new Date("2026-08-05T10:00:00Z"),
+  );
+  const earlier = await queueReader(
+    ctx.bookshelfId,
+    bookId,
+    new Date("2026-08-01T10:00:00Z"),
+  );
+
+  const result = await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+  });
+  expect(result.queuedRequestId).toBe(earlier.requestId);
+  expect(result.queuedRequestId).not.toBe(later.requestId);
+});
+
+test("holding for the next reader is a second fact, in the same transaction", async () => {
+  // OPS §5 is explicit that this is two facts and one user action. The kernel
+  // already supports an array of audit entries for exactly this case.
+  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { requestId } = await queueReader(ctx.bookshelfId, bookId);
+
+  const result = await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+    holdForRequestId: requestId,
+  });
+
+  // `queuedRequestId` answers "is anyone *still* waiting", so it is read after
+  // the hold is written rather than before: the only child in the queue has
+  // just been offered the copy, so there is nobody left to offer it to. A read
+  // taken before the write would name the request that was just approved and
+  // send the confirmation screen to offer the same child the same book twice.
+  expect(result.queuedRequestId).toBeNull();
+
+  const [held] = await sql<
+    {
+      status: string;
+      copy_id: string;
+      hold_expires_at: Date;
+      decided_by: string;
+      decided_at: Date;
+    }[]
+  >`select status, copy_id, hold_expires_at, decided_by, decided_at
+      from borrow_requests where id = ${requestId}`;
+  expect(held.status).toBe("approved");
+  expect(held.copy_id).toBe(copyId);
+  expect(held.decided_by).toBe(ctx.actor.userId);
+  expect(held.decided_at.toISOString()).toBe(clock.now().toISOString());
+
+  // BR §5.5's `hold_days`, defaulting to 3, counted from the *injected* clock.
+  // Asserted as an exact instant rather than merely "later than now": the
+  // sharpest case in the `feat/sql-clock` constraint is precisely that this
+  // column is written by one clock and compared against another, and
+  // `toBeGreaterThan(clock.now())` is satisfied by a `now() + interval '3 days'`
+  // written from the database's clock in whatever year this suite really runs.
+  expect(held.hold_expires_at.toISOString()).toBe("2026-08-10T10:00:00.000Z");
+
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyId}
+  `;
+  expect(copy.state).toBe("held");
+
+  const actions = await sql<{ action: string }[]>`
+    select action from audit_log order by action
+  `;
+  expect(actions.map((a) => a.action)).toEqual([
+    "loan.created",
+    "loan.returned",
+    "request.approved",
+  ]);
+});
+
+test("a copy held for the next reader is lendable to them and to nobody else", async () => {
+  // The end of the story OPS §5 tells, and the reason the hold is worth
+  // writing at all: the copy the manager just put aside is the one that child
+  // collects. Both halves in one test, because a `held` state that refused
+  // everybody would satisfy the second alone.
+  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { reader: waiting, requestId } = await queueReader(ctx.bookshelfId, bookId);
+  const stranger = await makeMember(sql, ctx.bookshelfId);
+
+  await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+    holdForRequestId: requestId,
+  });
+
+  await expect(
+    runCommand(sql, ctx, lendCopy, { copyId, membershipId: stranger.id }),
+  ).rejects.toMatchObject({ code: "copy_not_available" });
+
+  await expect(
+    runCommand(sql, ctx, lendCopy, { copyId, membershipId: waiting.id }),
+  ).resolves.toMatchObject({ loanId: expect.any(String) });
+});
+
+test("the hold clock is the injected one, so the hold lapses without a job running", async () => {
+  // BR §8 / DB §6: "if the tidy-up never runs, `copies_borrowable` is still
+  // right." That only holds if `hold_expires_at` and `olibra_now()` are the
+  // same clock — write the column from the database's and this assertion is
+  // unwriteable, because the two are years apart under a `fixedClock`.
+  const { shelf, manager, ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { reader: waiting, requestId } = await queueReader(ctx.bookshelfId, bookId);
+
+  await runCommand(sql, ctx, receiveReturn, {
+    loanId,
+    condition: "perfect",
+    holdForRequestId: requestId,
+  });
+
+  // Three days and a minute later, the same command, the same rows.
+  const after: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock: fixedClock("2026-08-10T10:01:00Z"),
+  };
+  await expect(
+    runCommand(sql, after, lendCopy, { copyId, membershipId: waiting.id }),
+  ).rejects.toMatchObject({ code: "copy_not_available" });
+
+  // Nothing expired it; the clock moved and the row did not.
+  const [request] = await sql<{ status: string }[]>`
+    select status from borrow_requests where id = ${requestId}
+  `;
+  expect(request.status).toBe("approved");
+});
+
+test("holding for a request that is no longer queued fails cleanly", async () => {
+  // The reader cancelled between page load and confirm. OPS §4.2 names this
+  // failure `request_not_queued`.
+  const { ctx, bookId, loanId } = await lentOut(sql);
+  const { requestId } = await queueReader(ctx.bookshelfId, bookId);
+  await sql`
+    update borrow_requests set status = 'cancelled', cancelled_at = ${clock.now()}
+     where id = ${requestId}
+  `;
+
+  await expect(
+    runCommand(sql, ctx, receiveReturn, {
+      loanId,
+      condition: "perfect",
+      holdForRequestId: requestId,
+    }),
+  ).rejects.toMatchObject({ code: "request_not_queued" });
+});
+
+test("holding for a request queued against a different title fails the same way", async () => {
+  // OPS §4.2's wording is "no longer points at a pending request **for this
+  // title**", which is two conditions and one code. A command that checked only
+  // the status would put this copy aside for a child waiting on a book it is
+  // not a copy of — and the queue screen would still show them waiting.
+  const { ctx, loanId } = await lentOut(sql);
+  const { bookId: otherBook } = await makeBookWithCopies(sql, ctx.bookshelfId, 1);
+  const { requestId } = await queueReader(ctx.bookshelfId, otherBook);
+
+  await expect(
+    runCommand(sql, ctx, receiveReturn, {
+      loanId,
+      condition: "perfect",
+      holdForRequestId: requestId,
+    }),
+  ).rejects.toMatchObject({ code: "request_not_queued" });
+});
+
+test("a failed hold rolls back the return as well", async () => {
+  // G3, in its sharpest form: the two facts commit together or not at all.
+  // A return that succeeded while its hold failed would leave a book on the
+  // shelf that the system believes is with a reader.
+  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { requestId } = await queueReader(ctx.bookshelfId, bookId);
+  await sql`
+    update borrow_requests set status = 'cancelled', cancelled_at = ${clock.now()}
+     where id = ${requestId}
+  `;
+
+  await expect(
+    runCommand(sql, ctx, receiveReturn, {
+      loanId,
+      condition: "perfect",
+      holdForRequestId: requestId,
+    }),
+  ).rejects.toThrow();
+
+  const [loan] = await sql<{ status: string }[]>`
+    select status from loans where id = ${loanId}
+  `;
+  expect(loan.status).toBe("active");
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyId}
+  `;
+  expect(copy.state).toBe("on_loan");
+  expect(await sql`select 1 from condition_assessments`).toHaveLength(0);
+});
+
+test("only a manager may receive a return", async () => {
+  const { ctx, reader, loanId } = await lentOut(sql);
+  const asReader: TenantContext = {
+    ...ctx,
+    actor: { userId: reader.userId, membershipId: reader.id, role: "reader" },
+  };
+
+  await expect(
+    runCommand(sql, asReader, receiveReturn, { loanId, condition: "perfect" }),
+  ).rejects.toMatchObject({ code: "not_permitted" });
+});
+
+test("a condition outside the enum is refused before anything is written", async () => {
+  // `copy_condition` would reject it as a 22P02 from inside the transaction;
+  // `isCopyCondition` (B1) turns that into the named failure OPS §2 requires.
+  const { ctx, loanId } = await lentOut(sql);
+
+  await expect(
+    runCommand(sql, ctx, receiveReturn, {
+      loanId,
+      condition: "destroyed" as never,
+    }),
+  ).rejects.toMatchObject({ code: "validation_failed" });
+  const [loan] = await sql<{ status: string }[]>`
+    select status from loans where id = ${loanId}
+  `;
+  expect(loan.status).toBe("active");
+});
