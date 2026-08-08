@@ -8,6 +8,7 @@ import { StepIndicator } from "@/components/ui/step-indicator";
 import { messageFor } from "@/domain/kernel/errors";
 import { searchBooksForLending } from "@/domain/catalogue/queries/search-books-for-lending";
 import { loadPage } from "@/lib/page-data";
+import { readShelf } from "@/lib/shelf";
 
 /**
  * U1 §2. Stated, not inherited.
@@ -48,35 +49,20 @@ export default async function ChoMuonTimSachPage({
   const { q } = await searchParams;
   const query = q ?? "";
 
-  const { shelfName, results } = await loadPage(slug, async (tx, ctx) => {
-    // The shelf's own name, for the chrome. Read here rather than through a
-    // query because there is no `GetShelfHeader` in OPS §3 and inventing one
-    // for a page heading would be a domain change this slice is not making —
-    // the same reasoning U1 §4 gives for a shelf's per-shelf lending policy
-    // being read by the page rather than inside a query. It is a plain read
-    // inside the same scoped transaction, so `bookshelves_tenant` applies to
-    // it exactly as to everything else, and it names only the column it needs
-    // — never one BR §16.1 withholds.
-    //
-    // `tests/db/bookshelves-public-columns.test.ts` is what enforces that, and
-    // it reads this file as raw text with no comment stripping (it cannot strip
-    // strings, because the column names it is looking for live inside a
-    // template literal). So the withheld column names must not appear in this
-    // prose either — which is why the sentence above describes one rather than
-    // naming it.
-    const [shelf] = await tx<{ name: string }[]>`
-      select name from bookshelves where id = ${ctx.bookshelfId}
-    `;
-    return {
-      shelfName: shelf.name,
-      results: await searchBooksForLending(tx, ctx, { q: query }),
-    };
-  });
+  const { shelf, results } = await loadPage(slug, async (tx, ctx) => ({
+    // U1 Task 2 landed this as an inline `select` here, with a note that the
+    // five remaining lending screens would each want the same two lines.
+    // `readShelf` (`src/lib/shelf.ts`) is that extraction; its docstring
+    // carries the reasoning for why a shelf's own name and lending policy are
+    // read by the surface rather than through a query OPS §3 does not define.
+    shelf: await readShelf(tx, ctx),
+    results: await searchBooksForLending(tx, ctx, { q: query }),
+  }));
 
   const base = `/tu-sach/${slug}/quan-ly`;
 
   return (
-    <ManagerShell shelfName={shelfName} shelfSlug={slug} active="cho-muon">
+    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="cho-muon">
       <StepIndicator
         steps={["Tìm sách", "Chọn người đọc", "Xác nhận"]}
         current={1}
@@ -180,7 +166,30 @@ export default async function ChoMuonTimSachPage({
             return (
               <li key={book.bookId}>
                 <Link
-                  href={`${base}/cho-muon/nguoi-doc`}
+                  // The book chosen at step 1, carried to step 2 in the URL.
+                  //
+                  // **A slug, not a `bookId`.** Both are on the row, and the
+                  // reasons for the slug are all about what happens when the
+                  // parameter is wrong: a UUID that is not a UUID reaches
+                  // Postgres as a cast and comes back `22P02` — an unstructured
+                  // exception from inside a transaction, which OPS §2 forbids —
+                  // while a slug that names nothing is simply a `where` clause
+                  // that matches no row, which the page renders as "Không tìm
+                  // thấy sách này." A slug is also what every other book URL in
+                  // this app already carries, and it survives being pasted into
+                  // a message to another volunteer.
+                  //
+                  // **The URL is the whole of the state between the three
+                  // steps** — no cookie, no server-side draft. It survives a
+                  // refresh, a back button and a phone handed to somebody else
+                  // mid-flow, which a shelf staffed by rotating volunteers on
+                  // one shared device actually does. What it cannot be is
+                  // trusted: `xac-nhan` re-reads the book, the copy and the
+                  // reader through the same manager-gated queries that produced
+                  // this link, and `lendCopy` re-checks every rule again inside
+                  // its own transaction (OPS §5). A tampered `?sach=` picks a
+                  // different book to be refused about, never a rule to skip.
+                  href={`${base}/cho-muon/nguoi-doc?sach=${encodeURIComponent(book.slug)}`}
                   className="flex flex-col gap-2 py-4 hover:bg-paper sm:flex-row sm:items-center sm:gap-4"
                 >
                   {content}

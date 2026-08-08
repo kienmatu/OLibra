@@ -8,8 +8,32 @@ import { pool } from "../db/client";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
 import type { TenantContext } from "../domain/kernel/tenant";
-import { runQuery, type Tx } from "../domain/kernel/unit-of-work";
+import {
+  type Command,
+  runCommand,
+  runQuery,
+  type Tx,
+} from "../domain/kernel/unit-of-work";
 import { SESSION_COOKIE } from "./session-cookie";
+
+/**
+ * Session cookie → `TenantContext`, the half `loadPage` and `submitCommand`
+ * share.
+ *
+ * Extracted so the read seam and the write seam cannot drift about *who is
+ * asking* — a `submitCommand` that resolved the actor even slightly
+ * differently from `loadPage` would let a page render for one identity and
+ * write for another, which is the one disagreement neither side could detect.
+ */
+async function contextForRequest(shelfSlug: string): Promise<TenantContext> {
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value ?? null;
+  return contextFor(pool(), {
+    token,
+    bookshelfSlug: shelfSlug,
+    clock: systemClock,
+  });
+}
 
 /**
  * How a page reads from the database. One function, because forty-six of them
@@ -68,20 +92,71 @@ export async function loadPage<T>(
   shelfSlug: string,
   read: (tx: Tx, ctx: TenantContext) => Promise<T>,
 ): Promise<T> {
-  const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value ?? null;
-  const sql = pool();
-
   try {
-    const ctx = await contextFor(sql, {
-      token,
-      bookshelfSlug: shelfSlug,
-      clock: systemClock,
-    });
-    return await runQuery(sql, ctx, read);
+    const ctx = await contextForRequest(shelfSlug);
+    return await runQuery(pool(), ctx, read);
   } catch (err) {
     if (err instanceof NotFound && err.code === "shelf_not_found") notFound();
     if (err instanceof RuleViolated && err.code === "not_permitted") notFound();
+    throw err;
+  }
+}
+
+/**
+ * The query-string parameter a server action hands a refusal back through.
+ *
+ * A *code*, never a sentence: `loi=loan_limit_reached`, and the page looks the
+ * Vietnamese up with `messageFor`. `errors.ts:11-16` is the rule — "a screen
+ * calls `ERROR_MESSAGES[code]` rather than writing its own wording for a rule
+ * it did not define" — and a URL carrying the sentence itself would be a
+ * second copy of the wording, editable by whoever is holding the address bar.
+ *
+ * The same name `dang-nhap/actions.ts` already redirects with, so the two
+ * failure paths in this app read alike. That one carries its own fixed marker
+ * (`SIGN_IN_FAILED`) rather than an `ErrorCode`, deliberately: which of three
+ * sign-in failures happened is exactly what it must not disclose.
+ */
+export const ACTION_ERROR_PARAM = "loi";
+
+/**
+ * How a server action writes to the database — `loadPage`'s twin, and
+ * deliberately not its mirror image.
+ *
+ * The sequence is the same, and shares `contextForRequest` so it cannot become
+ * a second reading of who is asking: session cookie → `TenantContext` →
+ * `runCommand`, which opens one transaction, sets `olibra.bookshelf_id` and
+ * `olibra.now`, assumes `role olibra_app`, runs the command and writes its
+ * audit entries in that same transaction (G3).
+ *
+ * **What it does not do is catch `RuleViolated`.** `loadPage` translates
+ * `not_permitted` into a 404 because a *page* has to decide what a reader who
+ * typed a manager URL sees. An action has a different caller with a different
+ * need: BR §16.3 wants "Bạn đọc đã mượn tối đa số sách cho phép." rendered
+ * beside the confirm button, and a 404 would replace the one sentence that
+ * tells a volunteer what to do next with a blank wall. So every `RuleViolated`
+ * — `not_permitted` included — leaves this function intact and is caught by
+ * the action, which turns it into a code the form renders through
+ * `messageFor`. U1 §3.3, and `tests/lib/lending-actions.test.ts` pins it.
+ *
+ * `shelf_not_found` is still a 404, for the same reason it is one on a read:
+ * it is thrown by `contextFor` before there is a tenant at all, and a POST to a
+ * shelf that does not exist is a mistyped URL, not a rule anybody broke.
+ *
+ * Everything else propagates untouched — a `PostgresError`, a `NotFound` for
+ * an id the surface should never have been holding, a `NotWired`. U1 §3.3 is
+ * blunt about why: a fault rendered as a friendly Vietnamese sentence tells a
+ * volunteer their input was wrong when the database was down.
+ */
+export async function submitCommand<I, O>(
+  shelfSlug: string,
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  try {
+    const ctx = await contextForRequest(shelfSlug);
+    return await runCommand(pool(), ctx, command, input);
+  } catch (err) {
+    if (err instanceof NotFound && err.code === "shelf_not_found") notFound();
     throw err;
   }
 }

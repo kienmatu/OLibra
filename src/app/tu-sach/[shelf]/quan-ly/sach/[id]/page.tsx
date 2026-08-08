@@ -1,139 +1,143 @@
 import { notFound } from "next/navigation";
-import { CircleCheckBig, Pencil, Plus } from "lucide-react";
+import type { ManagerCopyRow } from "@/domain/catalogue/queries/get-book-detail-manager";
+import { BookDown, BookUp, CircleCheckBig, Pencil, Plus } from "lucide-react";
 import { Button, ButtonLink, buttonClasses } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { DonorFields } from "@/components/donor-fields";
-import { bookBySlug, books, shelfBySlug, shelves } from "@/lib/fixtures";
-import type { CopyStatus } from "@/lib/status";
+import { formatDate, formatInstant } from "@/lib/dates";
+import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
+import { loadPage } from "@/lib/page-data";
+import { readShelf } from "@/lib/shelf";
+import { CONDITION_LABELS, COPY_STATE_STATUS, STATUS } from "@/lib/status";
 
-export function generateStaticParams() {
-  return shelves.flatMap((s) => books.map((b) => ({ shelf: s.slug, id: b.slug })));
-}
-
-// Ngày nhận (below, on the "Thêm bản" form) needs today's date in
-// Asia/Ho_Chi_Minh, computed per request — a statically-prerendered page
-// cannot do that, since `new Date()` at build time freezes forever. Forced
-// dynamic rendering is what keeps this page's default in step with the
-// "Thêm sách" form, which reads `searchParams` and is already dynamic for
-// that reason (IMPORTANT 1 of the refinements review).
+/**
+ * U1 §2, and this page had a `force-dynamic` before it read anything: the
+ * "Thêm bản" form below needs today's date in `Asia/Ho_Chi_Minh`, which a
+ * build-time render freezes forever. It now carries the marker for the reason
+ * every page in this seam does as well — a cached render of a manager screen
+ * is RLS never being consulted, with no SQL for any `tests/db/` test to see.
+ */
 export const dynamic = "force-dynamic";
 
-const COPIES: {
-  code: string;
-  status: CopyStatus;
-  condition: string;
-  location: string;
-}[] = [
-  {
-    code: "DT-0140",
-    status: "available",
-    condition: "Nguyên vẹn",
-    location: "Trong tủ",
-  },
-  {
-    code: "DT-0141",
-    status: "onloan",
-    condition: "Hơi cũ",
-    location: "Giuse Trần Minh · hạn 20/08",
-  },
-  {
-    code: "DT-0142",
-    status: "lost",
-    condition: "Nguyên vẹn",
-    location: "Maria Vũ Khánh Linh · báo mất 22/07",
-  },
-];
+/** SDD §6.6, the same formatter the other lending screens use. */
+const NUMBER = new Intl.NumberFormat("vi-VN");
 
-const CONDITION_HISTORY = [
-  {
-    date: "20/07",
-    text: "Bản DT-0141 được đánh giá khi cho Giuse Trần Minh mượn.",
-    condition: "Hơi cũ",
-  },
-  {
-    date: "05/07",
-    text: "Bản DT-0142 được đánh giá khi nhận trả từ Têrêsa Lê Ngọc Ánh.",
-    condition: "Nguyên vẹn",
-  },
-  {
-    date: "18/06",
-    text: "Bản DT-0140 được đánh giá khi nhận trả từ Anna Phạm Thu Hà.",
-    condition: "Nguyên vẹn",
-  },
-];
-
-const LOAN_HISTORY = [
-  {
-    code: "DT-0140",
-    borrower: "Maria Nguyễn Thị Lan",
-    from: "02/06",
-    to: "16/06",
-    condition: "Nguyên vẹn",
-  },
-  {
-    code: "DT-0141",
-    borrower: "Giuse Trần Minh",
-    from: "20/06",
-    to: "—",
-    condition: "Đang mượn",
-  },
-  {
-    code: "DT-0142",
-    borrower: "Têrêsa Lê Ngọc Ánh",
-    from: "22/06",
-    to: "05/07",
-    condition: "Nguyên vẹn",
-  },
-  {
-    code: "DT-0142",
-    borrower: "Maria Vũ Khánh Linh",
-    from: "08/07",
-    to: "—",
-    condition: "Báo mất 22/07",
-  },
-  {
-    code: "DT-0140",
-    borrower: "Anna Phạm Thu Hà",
-    from: "04/06",
-    to: "18/06",
-    condition: "Nguyên vẹn",
-  },
-];
-
+/**
+ * A title's management page (OPS §3.3's `GetBookDetail` (manager)), and — per
+ * BR §16.1 and OPS §5 — the shorter doorway into the two circulation flows.
+ *
+ * **The two entry points are per *title*, not per copy.** OPS §5: "When a copy
+ * of that title is available, the page shows **Cho mượn**; when one is out, it
+ * shows **Nhận trả**." Both open the identical flow with step 1 already done,
+ * "because the book is the page the manager is already looking at" — so
+ * `Cho mượn` lands on step 2 with `?sach=` set, and `Nhận trả` lands on the
+ * return screen with the search already run. Neither adds a command; they are
+ * "the same two flows with a shorter runway".
+ *
+ * Putting them on the copy rows was the tempting alternative and it is subtly
+ * worse: `LendCopy`'s input is one `copyId`, `chooseCopyToLend` picks the
+ * lowest available shelf-mark, and a button on the DT-0141 row that produced a
+ * confirmation naming DT-0140 would be the screen contradicting itself for no
+ * gain. The title is what OPS names, and the title is what a volunteer is
+ * holding.
+ *
+ * **`[id]` is a slug.** Every book URL in this app already carries one, the
+ * crawler's seed list names one, and `getBookDetailManager` takes a `bookId` —
+ * so `bookFromSlug` resolves the one to the other. A slug naming nothing is a
+ * 404, which is what a 404 is for; U1 §3.4's rule about not confirming a page
+ * exists is unaffected, because this answer does not depend on who is asking.
+ *
+ * **Every other control here is unchanged, and none of them writes anything.**
+ * "Thêm bản", "Đánh giá", "Báo mất", "Ngừng dùng" and "Đánh dấu tìm thấy" are
+ * still plain `<button>`s that submit nothing, and "Sửa sách" still links to
+ * the book *list* rather than to an edit form. Their commands all exist
+ * (`addCopies`, `assessCondition`, `reportCopyLost`, `retireCopy`,
+ * `markCopyFound`, `updateBook` — all B1's), but wiring them is not this slice:
+ * U1 is the six lending screens and the seam, and "wire the rest of the
+ * catalogue's buttons while I am here" is how a slice stops being reviewable.
+ * What changed for them is only that they are now drawn from real copies
+ * instead of a fixture array.
+ */
 export default async function ManagerBookDetailPage({
   params,
 }: {
   params: Promise<{ shelf: string; id: string }>;
 }) {
-  const { shelf: shelfSlug, id } = await params;
-  const shelf = shelfBySlug(shelfSlug);
-  const book = bookBySlug(id);
-  if (!shelf || !book) notFound();
+  const { shelf: slug, id } = await params;
 
-  const base = `/tu-sach/${shelf.slug}/quan-ly`;
+  const { shelf, book } = await loadPage(slug, async (tx, ctx) => ({
+    shelf: await readShelf(tx, ctx),
+    book: await bookFromSlug(tx, ctx, id),
+  }));
+  if (!book) notFound();
+
+  const base = `/tu-sach/${slug}/quan-ly`;
+  const lendable = chooseCopyToLend(book).copy;
+  const anyOnLoan = book.copies.some((copy) => copy.state === "on_loan");
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="sach">
+    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="sach">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex gap-4">
-          <BookCover title={book.title} className="w-24 text-[1.6rem]" />
+          <BookCover title={book.book.title} className="w-24 text-[1.6rem]" />
           <div>
             <BookTitle as="h1" className="block text-[28px] leading-tight">
-              {book.title}
+              {book.book.title}
             </BookTitle>
-            <p className="mt-1 text-[16px] text-meta">{book.author}</p>
-            <p className="mt-1 text-[14px] text-meta">
-              {book.category} · {book.publisher} · {book.year} · {book.pages} trang
-            </p>
+            <p className="mt-1 text-[16px] text-meta">{book.book.author}</p>
+            {/* Category and nothing else. `BooksListRow` — which OPS §3.3's
+                manager book detail returns — carries no publisher, year or page
+                count; the reader-facing `getBookDetail` does, and it is gated on
+                `requireReader` and filters unpublished titles, so it is the
+                wrong query for this page twice over. A heading that printed
+                "undefined · undefined" instead would be worse than a shorter
+                one. */}
+            <p className="mt-1 text-[14px] text-meta">{book.book.category}</p>
           </div>
         </div>
-        <ButtonLink href={`${base}/sach`} variant="primary" size="lg">
-          <Pencil aria-hidden className="size-5" strokeWidth={1.75} />
-          Sửa sách
-        </ButtonLink>
+
+        {/* One primary per screen (`button.tsx`: "if two things on a screen are
+            terracotta, one of them is wrong"). It is `Cho mượn` when there is a
+            copy to lend, because that is what a volunteer standing at the shelf
+            with a child in front of them came here to do — "Sửa sách" moves to
+            `quiet` rather than disappearing. When nothing is lendable there is
+            simply no terracotta on the page, which is honest: none of the
+            remaining actions is the obvious next one. */}
+        <div className="flex flex-wrap items-center gap-3">
+          {lendable ? (
+            <ButtonLink
+              href={`${base}/cho-muon/nguoi-doc?sach=${encodeURIComponent(
+                book.book.slug,
+              )}`}
+              variant="primary"
+              size="lg"
+            >
+              <BookUp aria-hidden className="size-5" strokeWidth={1.75} />
+              Cho mượn
+            </ButtonLink>
+          ) : null}
+          {anyOnLoan ? (
+            // The search key is the title, not a copy code: a title with three
+            // copies out has three loans to choose between, and this lands on
+            // the screen that lists exactly those. `searchLoansForReturn` folds
+            // the title on both sides, so the diacritics survive the round trip.
+            <ButtonLink
+              href={`${base}/nhan-tra?q=${encodeURIComponent(book.book.title)}`}
+              variant="outline"
+              size="lg"
+            >
+              <BookDown aria-hidden className="size-5" strokeWidth={1.75} />
+              Nhận trả
+            </ButtonLink>
+          ) : null}
+          <ButtonLink href={`${base}/sach`} variant="quiet" size="lg">
+            <Pencil aria-hidden className="size-5" strokeWidth={1.75} />
+            Sửa sách
+          </ButtonLink>
+        </div>
       </div>
 
       <section className="mt-10">
@@ -145,7 +149,7 @@ export default async function ManagerBookDetailPage({
             in the middle of that height instead of sitting at the top. */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h2 className="pt-2.5 text-xl font-semibold">
-            Các bản sách ({COPIES.length})
+            Các bản sách ({NUMBER.format(book.copies.length)})
           </h2>
           {/* A <details> disclosure, not a separate page: adding more copies
               to a title already catalogued is only two fields beyond the
@@ -185,8 +189,8 @@ export default async function ManagerBookDetailPage({
 
               <DonorFields idPrefix="them-nguoi-tang" />
 
-              {/* Outline, not solid: "Sửa sách" above is already this
-                  screen's one primary action (AGENTS.md/button.tsx — "if two
+              {/* Outline, not solid: this screen's one primary action is
+                  already spoken for above (AGENTS.md/button.tsx — "if two
                   things on a screen are terracotta, one of them is wrong").
                   This form only exists once the disclosure is open, at which
                   point both buttons are on screen at once. */}
@@ -219,21 +223,31 @@ export default async function ManagerBookDetailPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
-              {COPIES.map((copy) => (
-                <tr key={copy.code}>
+              {book.copies.map((copy) => (
+                <tr key={copy.copyId}>
                   <td className="px-4 py-3 text-[15px] font-medium">{copy.code}</td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={copy.status} size="sm" />
+                    <StatusBadge
+                      // `overdue` is a property of a loan, never of a copy —
+                      // `COPY_STATE_STATUS` deliberately cannot produce it. The
+                      // loan is right here, so the badge can be honest about it.
+                      status={
+                        copy.state === "on_loan" && copy.isOverdue
+                          ? "overdue"
+                          : COPY_STATE_STATUS[copy.state]
+                      }
+                      size="sm"
+                    />
                   </td>
                   <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {copy.condition}
+                    {CONDITION_LABELS[copy.condition]}
                   </td>
                   <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {copy.location}
+                    <CopyLocation copy={copy} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      {copy.status === "lost" ? (
+                      {copy.state === "lost" ? (
                         <Button variant="quiet" size="sm">
                           <CircleCheckBig
                             aria-hidden
@@ -264,20 +278,27 @@ export default async function ManagerBookDetailPage({
         </div>
 
         <div className="mt-4 space-y-3 md:hidden">
-          {COPIES.map((copy) => (
+          {book.copies.map((copy) => (
             <div
-              key={copy.code}
+              key={copy.copyId}
               className="rounded-card border border-hairline bg-surface p-4"
             >
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[15px] font-medium">{copy.code}</span>
-                <StatusBadge status={copy.status} size="sm" />
+                <StatusBadge
+                  status={
+                    copy.state === "on_loan" && copy.isOverdue
+                      ? "overdue"
+                      : COPY_STATE_STATUS[copy.state]
+                  }
+                  size="sm"
+                />
               </div>
               <p className="mt-1.5 text-[14px] text-meta">
-                {copy.condition} · {copy.location}
+                {CONDITION_LABELS[copy.condition]} · <CopyLocation copy={copy} />
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {copy.status === "lost" ? (
+                {copy.state === "lost" ? (
                   <Button variant="quiet" size="sm" className="flex-1">
                     <CircleCheckBig
                       aria-hidden
@@ -305,23 +326,40 @@ export default async function ManagerBookDetailPage({
         </div>
       </section>
 
-      <section className="mt-10">
-        <h2 className="text-xl font-semibold">Lịch sử đánh giá tình trạng</h2>
-        <ul className="mt-4 divide-y divide-hairline border-y border-hairline">
-          {CONDITION_HISTORY.map((entry) => (
-            <li
-              key={entry.date + entry.text}
-              className="flex flex-wrap items-center gap-2 py-3 text-[15px]"
-            >
-              <span className="text-meta">{entry.date}</span>
-              <span>{entry.text}</span>
-              <span className="rounded-control bg-paper px-2 py-0.5 text-[13px] font-medium text-leather">
-                {entry.condition}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {/* Dropped entirely when there is nothing to show, rather than drawn as a
+          heading over an empty bordered list. BR §11 keeps assessments forever,
+          so a title with none has simply never been assessed — and the empty
+          state that would say so in Vietnamese is a sentence neither
+          OPERATIONS.md nor `ERROR_MESSAGES` contains, which is not a sentence
+          this slice gets to invent. */}
+      {book.conditionHistory.length > 0 ? (
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold">Lịch sử đánh giá tình trạng</h2>
+          <ul className="mt-4 divide-y divide-hairline border-y border-hairline">
+            {book.conditionHistory.map((entry, i) => (
+              <li
+                // `condition_assessments` has no natural key a screen can reach —
+                // the query returns no id — so the index joins the timestamp to
+                // keep two assessments written in the same instant distinct.
+                key={`${entry.assessedAt}-${i}`}
+                className="flex flex-wrap items-center gap-2 py-3 text-[15px]"
+              >
+                <span className="text-meta">{formatInstant(entry.assessedAt)}</span>
+                <span>Bản {entry.copyCode}</span>
+                {entry.assessorName ? (
+                  <span className="text-meta">{entry.assessorName}</span>
+                ) : null}
+                <span className="rounded-control bg-paper px-2 py-0.5 text-[13px] font-medium text-leather">
+                  {CONDITION_LABELS[entry.condition]}
+                </span>
+                {entry.note ? (
+                  <span className="text-meta">{entry.note}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="mt-10">
         <h2 className="text-xl font-semibold">Lịch sử mượn</h2>
@@ -346,16 +384,22 @@ export default async function ManagerBookDetailPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
-              {LOAN_HISTORY.map((loan, i) => (
-                <tr key={loan.code + loan.from + i}>
-                  <td className="px-4 py-3 text-[15px] font-medium">{loan.code}</td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {loan.borrower}
+              {book.loanHistory.map((loan) => (
+                <tr key={loan.loanId}>
+                  <td className="px-4 py-3 text-[15px] font-medium">
+                    {loan.copyCode}
                   </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">{loan.from}</td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">{loan.to}</td>
                   <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {loan.condition}
+                    {loan.borrowerName}
+                  </td>
+                  <td className="px-4 py-3 text-[15px] text-ink/85">
+                    {formatInstant(loan.lentAt)}
+                  </td>
+                  <td className="px-4 py-3 text-[15px] text-ink/85">
+                    {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-[15px] text-ink/85">
+                    <LoanOutcome loan={loan} />
                   </td>
                 </tr>
               ))}
@@ -364,18 +408,21 @@ export default async function ManagerBookDetailPage({
         </div>
 
         <div className="mt-4 space-y-3 md:hidden">
-          {LOAN_HISTORY.map((loan, i) => (
+          {book.loanHistory.map((loan) => (
             <div
-              key={loan.code + loan.from + i}
+              key={loan.loanId}
               className="rounded-card border border-hairline bg-surface p-4"
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[15px] font-medium">{loan.code}</span>
-                <span className="text-[14px] text-meta">{loan.condition}</span>
+                <span className="text-[15px] font-medium">{loan.copyCode}</span>
+                <span className="text-[14px] text-meta">
+                  <LoanOutcome loan={loan} />
+                </span>
               </div>
-              <p className="mt-1 text-[15px]">{loan.borrower}</p>
+              <p className="mt-1 text-[15px]">{loan.borrowerName}</p>
               <p className="mt-0.5 text-[14px] text-meta">
-                {loan.from} – {loan.to}
+                {formatInstant(loan.lentAt)} –{" "}
+                {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
               </p>
             </div>
           ))}
@@ -387,4 +434,42 @@ export default async function ManagerBookDetailPage({
       </section>
     </ManagerShell>
   );
+}
+
+/** "Đang ở đâu" — on the shelf, or with whom and until when. */
+function CopyLocation({ copy }: { copy: ManagerCopyRow }) {
+  if (copy.holderName) {
+    return (
+      <>
+        {copy.holderName}
+        {copy.dueOn ? ` · hạn ${formatDate(copy.dueOn)}` : null}
+      </>
+    );
+  }
+  if (copy.state === "retired" && copy.retiredReason)
+    return <>{copy.retiredReason}</>;
+  if (copy.state === "available") return <>Trong tủ</>;
+  return <>—</>;
+}
+
+/**
+ * What became of a loan, in the words the badges already use.
+ *
+ * `loans.status` is the database's (`0005_circulation.sql`), and every value it
+ * can hold is answered here from `STATUS` or `CONDITION_LABELS` rather than
+ * from a sentence written on this page.
+ */
+function LoanOutcome({
+  loan,
+}: {
+  loan: { status: string; returnCondition: string | null };
+}) {
+  if (loan.returnCondition) {
+    return (
+      <>{CONDITION_LABELS[loan.returnCondition as keyof typeof CONDITION_LABELS]}</>
+    );
+  }
+  if (loan.status === "lost") return <>{STATUS.lost.label}</>;
+  if (loan.status === "active") return <>{STATUS.onloan.label}</>;
+  return <>—</>;
 }
