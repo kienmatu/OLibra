@@ -40,12 +40,22 @@ import { expect, test } from "vitest";
  * path `bookshelves_public_read` was written for. `settings` is read into a
  * local variable and never appears in a command's `result` or `audit`; only
  * the two-or-three-letter prefix derived from it does.
+ *
+ * `src/domain/catalogue/queries/get-book-detail.ts` (B1 Task 5) is exempt for
+ * the same shape of reason: it reads `settings` to resolve BR §5.5's
+ * `public_show_current_borrower` and `public_name_display` overrides, and it
+ * only ever runs past `requireReader` — a membership of *this* shelf, never
+ * the unauthenticated portal path `bookshelves_public_read` protects against.
+ * `settings` itself never appears in the returned `BookDetail`; only the two
+ * booleans/strings derived from it (whether `currentLoan` is null, and which
+ * of the borrower's names to show) do.
  */
 
 const EXEMPT_FILES = new Set([
   "src/auth/guards.ts",
   "src/db/seed.ts",
   "src/domain/catalogue/copy-codes.ts",
+  "src/domain/catalogue/queries/get-book-detail.ts",
 ]);
 
 // The whole point of §16.1: a person with no membership has no business
