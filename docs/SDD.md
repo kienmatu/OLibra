@@ -213,6 +213,10 @@ A second URL is needed beyond the endpoint. The application reaches storage over
 
 Condition photographs are the one case with a retention question: they are attached to condition assessments, which §11 lists among the never-deleted. The image should follow the same rule.
 
+**Where this lives: `src/storage/s3.ts`.** It is the only module in the codebase that moves bytes, and the only one that reads the `S3_*` variables — from a single function, `s3ConfigFromEnv()`, so that "reads seven variables and nothing else" is a fact a test can check rather than a claim a reviewer has to re-derive. `tests/architecture/storage-speaks-s3.test.ts` is what turns the paragraphs above from documentation into a constraint: it fails on any MinIO SDK in `package.json` or in a source import, and on any eighth variable. `tests/storage/s3.test.ts` proves the rest against a live MinIO — it `put`s an object and then `fetch`es the URL `url()` hands out, which is the only way to check that a browser can retrieve what the server wrote instead of restating that it can.
+
+Two consequences of that portability are easy to miss. Object keys are opaque — `avatars/<uuid>.<ext>`, never derived from the uploaded filename — because a key of `Nguyễn Văn A.jpg` is both the percent-encoding case SigV4 implementations disagree about and a child's name written into server logs, proxy logs and browser history. And the bucket has to be *made* readable: it is private by default, so `compose.yaml`'s `storage-init` grants anonymous `s3:GetObject` and nothing else. Skipping that gives correct URLs that a browser cannot fetch.
+
 ---
 
 ## 7. Phasing

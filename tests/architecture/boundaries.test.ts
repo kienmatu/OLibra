@@ -81,6 +81,30 @@ test("the domain does not import src/auth", () => {
   expect(offenders).toEqual([]);
 });
 
+test("the domain does not import the object store", () => {
+  // B5. The domain records *URLs* and never touches bytes — which is why
+  // `src/domain/members/registration.ts` takes `avatarUrl` as a string and
+  // says so. Nothing enforced that until `src/storage/` existed to be
+  // imported, and the tempting wrong move for a future `ProposeAvatarChange`
+  // is to have the command write the file itself, inside the transaction: a
+  // rollback then leaves an object nobody references and no record that it was
+  // ever written. This test makes that a failure at the moment it is typed
+  // rather than an operational mystery six months later.
+  //
+  // `@aws-sdk/*` is forbidden alongside `src/storage/` deliberately. Reaching
+  // past the store to the SDK it happens to use would satisfy the narrower
+  // rule while breaking the same boundary — and would put a provider-specific
+  // type in a domain signature, which is the coupling SDD §6.8 exists to
+  // prevent. Same specifier shapes as the two checks above.
+  const forbidden =
+    /\b(?:from|import|require)\s*\(?\s*["'](?:@\/storage\/|\.\.\/(?:\.\.\/)*storage\/|@aws-sdk\/)/;
+  const offenders = filesUnder("src/domain")
+    .filter((f) => forbidden.test(readFileSync(f, "utf8")))
+    .map((f) => f.replace(process.cwd() + "/", ""));
+
+  expect(offenders).toEqual([]);
+});
+
 test("the domain does not use Bun-specific APIs", () => {
   // G9. The runtime is Bun, but the build and the tests run on Node, and the
   // domain must stay runnable under both. Comments and strings are stripped

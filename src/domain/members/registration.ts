@@ -38,11 +38,12 @@ export interface RegistrationInput {
   /**
    * An object **already** in storage, not bytes.
    *
-   * B5 (master §7.5) is not built and `src/storage/` does not exist. This
-   * slice records which object is this person's photograph and does not move
-   * it; the upload belongs to the surface, which already handles a multipart
-   * form. A stub `ObjectStore` here would occupy the path B5's plan names and
-   * be read as B5 having landed — see the plan's Avatars decision.
+   * B5 has landed: `src/storage/s3.ts` is the `ObjectStore`. Nothing here
+   * changes because of it — the domain records which object is this person's
+   * photograph and never moves one; the upload belongs to the surface, which
+   * already handles a multipart form. That separation is now enforced rather
+   * than merely intended: `tests/architecture/boundaries.test.ts` fails if
+   * anything under `src/domain/` imports the store.
    */
   avatarUrl?: string | null;
   parishUnitL1Id?: string | null;
