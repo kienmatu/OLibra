@@ -26,6 +26,17 @@ const REQUIRED_IN_CI = [
   "TEST_DATABASE_URL",
   "TEST_POOL_DATABASE_URL",
   "OLIBRA_POOL_PASSWORD",
+  // B5. The storage suite gets its own seven rather than borrowing the
+  // application's `S3_*` ones, and this list is why: it only guards
+  // `TEST_`-prefixed names, so a suite reading `S3_ENDPOINT` would need six
+  // variables in the workflow that nothing here would notice were missing.
+  "TEST_S3_ENDPOINT",
+  "TEST_S3_REGION",
+  "TEST_S3_BUCKET",
+  "TEST_S3_ACCESS_KEY_ID",
+  "TEST_S3_SECRET_ACCESS_KEY",
+  "TEST_S3_FORCE_PATH_STYLE",
+  "TEST_S3_PUBLIC_URL",
 ];
 
 test("every variable the test suite needs is set in the CI workflow", () => {

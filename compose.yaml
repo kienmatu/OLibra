@@ -107,12 +107,47 @@ services:
     depends_on:
       storage:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set olibra http://storage:9000 '${S3_ACCESS_KEY_ID}' '${S3_SECRET_ACCESS_KEY}' &&
-      mc mb --ignore-existing olibra/${S3_BUCKET:-olibra} &&
-      echo 'bucket ready: ${S3_BUCKET:-olibra}'
-      "
+    # Opening the bucket is not optional decoration: a bucket is private by
+    # default, so without a policy `ObjectStore.url()` returns a perfectly
+    # correct URL that answers 403 to a browser — every cover and avatar in the
+    # app is a broken image, and nothing in the server logs says why.
+    #
+    # It is written out in full with `anonymous set-json` rather than with the
+    # shorthand `mc anonymous set download`, and that is the whole point of the
+    # verbosity. `download` is *not* read-only: it emits two statements, and the
+    # first grants `s3:GetBucketLocation` **and `s3:ListBucket`** on the bucket
+    # itself. An unauthenticated `GET /<bucket>/?list-type=2` then answers 200
+    # and paginates the key of every avatar, cover and condition photograph —
+    # and the avatars are photographs of children. Opaque UUID keys (SDD §6.8,
+    # `objectKey()`) protect nothing once the keys can be enumerated. The
+    # application never lists a bucket, so the narrower policy costs nothing.
+    #
+    # The document below is byte-compared against the one
+    # `tests/support/bucket-policy.ts` defines — the policy the storage suite
+    # applies to its own bucket — by
+    # `tests/architecture/compose-grants-only-get-object.test.ts`. Change one
+    # and that test names the other. It was two hand-maintained copies that let
+    # this drift in the first place: the suite was green because it applied its
+    # own, narrower policy over the top and never used what ships here.
+    #
+    # The resource is the whole bucket rather than a prefix, deliberately: every
+    # object this application writes is fetched by a browser from an `<img>`
+    # tag, so there is no private prefix for a narrower rule to protect. See
+    # `tests/support/bucket-policy.ts` for the longer form of that argument.
+    #
+    # List form rather than a folded string, because the policy contains double
+    # quotes and the shell-splitting compose applies to a bare string entrypoint
+    # is not somewhere to find out how it escapes them.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set olibra http://storage:9000 '${S3_ACCESS_KEY_ID}' '${S3_SECRET_ACCESS_KEY}'
+        mc mb --ignore-existing olibra/${S3_BUCKET:-olibra}
+        printf %s '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${S3_BUCKET:-olibra}/*"]}]}' > /tmp/public-read.json
+        mc anonymous set-json /tmp/public-read.json olibra/${S3_BUCKET:-olibra}
+        echo 'bucket ready: ${S3_BUCKET:-olibra}'
     restart: "no"
 
   # ── Application ────────────────────────────────────────────────────────────
