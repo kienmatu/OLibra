@@ -8,6 +8,7 @@ import { Field, Textarea } from "@/components/ui/field";
 import { messageFor } from "@/domain/kernel/errors";
 import { searchLoansForReturn } from "@/domain/circulation/queries/search-loans-for-return";
 import { formatDueDate } from "@/lib/dates";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
@@ -57,13 +58,18 @@ export default async function NhanTraBaoMatPage({
   const query = param(search, "q") ?? "";
   const muon = param(search, "muon");
 
-  const { shelf, loans } = await loadPage(slug, async (tx, ctx) => ({
-    shelf: await readShelf(tx, ctx),
-    // Runs even with no `?q=`, and that is load-bearing rather than wasteful:
-    // `searchLoansForReturn` opens with `requireManager`, so this is also what
-    // makes a reader who typed this URL get U1 §3.4's 404 instead of the page.
-    loans: await searchLoansForReturn(tx, ctx, { q: query }),
-  }));
+  const { shelf, viewer, counts, loans } = await loadPage(
+    slug,
+    async (tx, ctx, viewer) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      // Runs even with no `?q=`, and that is load-bearing rather than wasteful:
+      // `searchLoansForReturn` opens with `requireManager`, so this is also what
+      // makes a reader who typed this URL get U1 §3.4's 404 instead of the page.
+      loans: await searchLoansForReturn(tx, ctx, { q: query }),
+    }),
+  );
 
   const loan = muon ? (loans.find((l) => l.loanId === muon) ?? null) : null;
   const refused = refusalFrom(search);
@@ -75,7 +81,13 @@ export default async function NhanTraBaoMatPage({
   }).toString()}`;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="nhan-tra">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="nhan-tra"
+      viewer={viewer}
+      counts={counts}
+    >
       <p className="flex items-center gap-2 text-[14px] font-semibold text-lost">
         <HelpCircle aria-hidden className="size-[18px]" strokeWidth={1.75} />
         Báo làm mất, không phải nhận trả

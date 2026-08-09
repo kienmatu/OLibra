@@ -9,7 +9,7 @@ import {
 } from "@/domain/catalogue/queries/get-catalogue";
 import { readCatalogueCategories } from "@/lib/catalogue";
 import { loadPage } from "@/lib/page-data";
-import { param, type SearchParams } from "@/lib/search-params";
+import { pageNumber, param, type SearchParams } from "@/lib/search-params";
 import { readShelfIdentity } from "@/lib/shelf";
 import { statusForAvailability } from "@/lib/status";
 
@@ -34,23 +34,6 @@ const PAGE = "trang";
 
 /** The one `sap-xep` value that is not the default — `CatalogueInput`'s "title". */
 const SORT_BY_TITLE = "ten";
-
-/**
- * `?trang=` as a page number, or 1.
- *
- * A query parameter is a string somebody can type, so every way of getting it
- * wrong ends at page 1 rather than at an error: `?trang=abc` is `NaN`,
- * `?trang=0` and `?trang=-3` are not pages, and `?trang=99999999999999999999`
- * is not a safe integer and would otherwise be handed to Postgres as an
- * `offset` in exponential notation. `getCatalogue` clamps the low end too
- * (`Math.max(1, …)`), but `Math.max(1, NaN)` is `NaN`, so the guard has to be
- * here — this is exactly the class of defect `src/lib/search-params.ts` exists
- * for, one type further along.
- */
-function pageFrom(raw: string | undefined): number {
-  const n = Number.parseInt(raw ?? "", 10);
-  return Number.isSafeInteger(n) && n > 0 ? n : 1;
-}
 
 /**
  * BR:505's catalogue: "a cover-forward responsive grid — two columns on
@@ -97,7 +80,7 @@ export default async function CataloguePage({
     scope: showingAll ? "all" : "available",
     category,
     sort: sortByTitle ? "title" : "recent",
-    page: pageFrom(param(search, PAGE)),
+    page: pageNumber(param(search, PAGE)),
   };
 
   const { shelf, viewer, categories, page } = await loadPage(

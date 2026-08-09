@@ -162,7 +162,13 @@ export default async function StatsPage({
   const base = `/tu-sach/${shelf.slug}/quan-ly/thong-ke`;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="thong-ke">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="thong-ke"
+      viewer={null}
+      counts={null}
+    >
       <div className="space-y-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <h1 className="text-[28px] leading-tight font-semibold">Thống kê</h1>

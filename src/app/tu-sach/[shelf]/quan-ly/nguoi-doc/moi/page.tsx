@@ -31,7 +31,13 @@ export default async function RegisterReaderOnBehalfPage({
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="nguoi-doc">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="nguoi-doc"
+      viewer={null}
+      counts={null}
+    >
       <Link
         href={`${base}/nguoi-doc`}
         className="inline-flex min-h-11 items-center gap-1.5 text-[15px] text-meta hover:text-ink"

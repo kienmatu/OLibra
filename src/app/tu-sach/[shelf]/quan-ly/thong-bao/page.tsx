@@ -49,7 +49,13 @@ export default async function AnnouncementsManagePage({
   const expired = announcements[3];
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="thong-bao">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="thong-bao"
+      viewer={null}
+      counts={null}
+    >
       <div className="space-y-8">
         <PageHeading
           title="Thông báo"

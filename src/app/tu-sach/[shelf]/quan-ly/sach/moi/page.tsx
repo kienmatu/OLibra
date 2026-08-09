@@ -5,7 +5,7 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { DonorFields } from "@/components/donor-fields";
-import { shelfBySlug, shelves } from "@/lib/fixtures";
+import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -27,7 +27,13 @@ export default async function NewBookPage({
   const previewCodes = ["DT-0215", "DT-0216", "DT-0217"];
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="sach">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="sach"
+      viewer={null}
+      counts={null}
+    >
       <Link
         href={`${base}/sach`}
         className="inline-flex min-h-11 items-center gap-1.5 text-[15px] text-meta hover:text-ink"
@@ -152,7 +158,18 @@ export default async function NewBookPage({
         {/* A donation approved from the queue (§16.3) arrives here with the
             donor's member id already known — pre-selected below, and just as
             editable as if a manager had chosen it themselves. */}
-        <DonorFields idPrefix="nguoi-tang" selectedMemberId={nguoiTangId} />
+        <DonorFields
+          idPrefix="nguoi-tang"
+          selectedMemberId={nguoiTangId}
+          // Still a fixture page, and this is the fixture list it always
+          // rendered — now passed in rather than reached for, so the component
+          // itself no longer imports `src/lib/fixtures.ts` and cannot carry it
+          // into the wired page beside this one. The wave that wires this form
+          // replaces this with the shelf's own members.
+          donors={readers
+            .filter((r) => r.membership !== "left" && r.membership !== "pending")
+            .map((r) => ({ id: r.id, fullName: r.fullName }))}
+        />
 
         <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">
           <input

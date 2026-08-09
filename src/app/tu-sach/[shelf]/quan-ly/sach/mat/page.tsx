@@ -33,7 +33,13 @@ export default async function LostCopiesPage({
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="sach">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="sach"
+      viewer={null}
+      counts={null}
+    >
       <div className="space-y-8">
         <PageHeading
           title="Sách đã mất"

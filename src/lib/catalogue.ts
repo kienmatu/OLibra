@@ -29,6 +29,16 @@ import type { Tx } from "../domain/kernel/unit-of-work";
  * current `scope`, which would make the filters flicker in and out as somebody
  * toggles "Sách có sẵn".
  *
+ * **`includeDrafts` exists because that agreement runs the other way on the
+ * manager's list** (U3 wave 1). `getBooksList` has no `is_published` filter at
+ * all — "a draft is exactly what this list exists to find" — so on
+ * `quan-ly/sach` the published-only default is the same defect in mirror image:
+ * a shelf part-way through cataloguing a new category would have a filter bar
+ * that cannot reach the very books the list is showing. One parameter rather
+ * than a second function, because the two callers differ in exactly this one
+ * predicate and a near-identical second `select` is how the two later disagree
+ * about something else.
+ *
  * `requireReader` first, as `readShelfIdentity` does and for the same reason:
  * which categories a parish stocks is a fact about that parish's shelf, and
  * this helper must not be the one read on a member page that a guest can reach.
@@ -49,6 +59,7 @@ export interface CatalogueCategory {
 export async function readCatalogueCategories(
   tx: Tx,
   ctx: TenantContext,
+  options: { includeDrafts?: boolean } = {},
 ): Promise<CatalogueCategory[]> {
   requireReader(ctx);
 
@@ -59,7 +70,7 @@ export async function readCatalogueCategories(
     from categories c
     join books b on b.category_id = c.id
     where b.deleted_at is null
-      and b.is_published
+      and (${options.includeDrafts ?? false} or b.is_published)
       and c.deleted_at is null
     order by c.sort_order, folded
   `;

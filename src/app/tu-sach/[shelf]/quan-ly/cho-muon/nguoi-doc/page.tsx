@@ -8,6 +8,7 @@ import { StepIndicator } from "@/components/ui/step-indicator";
 import { messageFor } from "@/domain/kernel/errors";
 import { searchReadersForLending } from "@/domain/members/queries/search-readers-for-lending";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { param, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
@@ -63,27 +64,32 @@ export default async function ChoMuonNguoiDocPage({
   const sach = param(search, "sach");
   const query = param(search, "q") ?? "";
 
-  const { shelf, book, copy, readers } = await loadPage(slug, async (tx, ctx) => {
-    const shelf = await readShelf(tx, ctx);
-    const book = await bookFromSlug(tx, ctx, sach);
-    return {
-      shelf,
-      book,
-      // Shown beside the title, so the volunteer sees the shelf-mark they are
-      // about to hand over one step before they are asked to confirm it. It is
-      // the same copy `xac-nhan` resolves — `chooseCopyToLend` is deterministic
-      // (the lowest code) precisely so the two screens agree.
-      copy: book ? chooseCopyToLend(book).copy : null,
-      readers: await searchReadersForLending(tx, ctx, {
-        q: query,
-        // BR §5.5, read from the shelf rather than defaulted to 3 here. A shelf
-        // that raised its own limit would otherwise have this list refuse a
-        // reader `lendCopy` would accept — the disagreement BR §16.3 exists to
-        // prevent, in its worse direction.
-        maxConcurrentLoans: shelf.maxConcurrentLoans,
-      }),
-    };
-  });
+  const { shelf, viewer, counts, book, copy, readers } = await loadPage(
+    slug,
+    async (tx, ctx, viewer) => {
+      const shelf = await readShelf(tx, ctx);
+      const book = await bookFromSlug(tx, ctx, sach);
+      return {
+        shelf,
+        viewer,
+        counts: await getManagerBadgeCounts(tx, ctx),
+        book,
+        // Shown beside the title, so the volunteer sees the shelf-mark they are
+        // about to hand over one step before they are asked to confirm it. It is
+        // the same copy `xac-nhan` resolves — `chooseCopyToLend` is deterministic
+        // (the lowest code) precisely so the two screens agree.
+        copy: book ? chooseCopyToLend(book).copy : null,
+        readers: await searchReadersForLending(tx, ctx, {
+          q: query,
+          // BR §5.5, read from the shelf rather than defaulted to 3 here. A shelf
+          // that raised its own limit would otherwise have this list refuse a
+          // reader `lendCopy` would accept — the disagreement BR §16.3 exists to
+          // prevent, in its worse direction.
+          maxConcurrentLoans: shelf.maxConcurrentLoans,
+        }),
+      };
+    },
+  );
 
   const base = `/tu-sach/${slug}/quan-ly`;
   // Every link out of this page keeps the book. Written once: `?sach=` is the
@@ -93,7 +99,13 @@ export default async function ChoMuonNguoiDocPage({
     new URLSearchParams({ ...(sach ? { sach } : {}), ...extra }).toString();
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="cho-muon">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="cho-muon"
+      viewer={viewer}
+      counts={counts}
+    >
       <StepIndicator
         steps={["Tìm sách", "Chọn người đọc", "Xác nhận"]}
         current={2}

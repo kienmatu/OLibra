@@ -62,6 +62,8 @@ export default async function PendingApplicationsPage({
       shelfName={shelf.name}
       shelfSlug={shelf.slug}
       active="dang-ky-cho-duyet"
+      viewer={null}
+      counts={null}
     >
       <div className="space-y-8">
         <PageHeading

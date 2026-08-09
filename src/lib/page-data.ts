@@ -7,7 +7,7 @@ import { contextFor } from "../auth/guards";
 import { pool } from "../db/client";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
-import type { TenantContext } from "../domain/kernel/tenant";
+import type { Role, TenantContext } from "../domain/kernel/tenant";
 import {
   type Command,
   runCommand,
@@ -40,11 +40,13 @@ async function contextForRequest(shelfSlug: string): Promise<TenantContext> {
 /**
  * Who the chrome says is signed in.
  *
- * One field today, and an object rather than a bare `string | null` because
- * `ShelfHeader` already draws an avatar initial from the name and U3's manager
- * shell will want an `avatarUrl` beside it (`users.avatar_url` exists). Adding
- * that field then is one line here; widening a positional string parameter
- * across forty-six pages is not.
+ * An object rather than a bare `string | null` because `ShelfHeader` already
+ * draws an avatar initial from the name and the manager shell wants the role
+ * beside it. That prediction is now spent: U3 wave 1 added `role` here, and it
+ * was the one line this shape promised it would be, against the forty-six-page
+ * change widening a positional string parameter would have been. An
+ * `avatarUrl` (`users.avatar_url` exists) is the next candidate and is not
+ * added speculatively.
  */
 export interface Viewer {
   /**
@@ -53,6 +55,25 @@ export interface Viewer {
    * a name. The header keys its whole signed-in/signed-out branch on this.
    */
   name: string | null;
+  /**
+   * `ctx.actor.role` — the role the seam already resolved, carried here so the
+   * chrome can print it (U3 §3.3) without eleven manager pages each reaching
+   * into the `TenantContext` for one field.
+   *
+   * **A copy, and deliberately not a second answer.** It is assigned from
+   * `ctx.actor.role` and nothing else, in `viewerFor` below, so there is one
+   * resolution of "what may this person do" and this is a *display* of it.
+   * Nothing branches on it: `requireManager` inside each query is what decides
+   * permission (BR §13.3, and `loadPage`'s own docstring on why both halves
+   * exist), and a screen that gated itself on this field would be the interface
+   * being the security control.
+   *
+   * `"guest"` for a visitor with no session and for a signed-in non-member
+   * alike — `contextFor` returns that role in both cases, which `loadPage`'s
+   * redirect branch below turns on. `src/lib/roles.ts` gives it no label for
+   * exactly that reason.
+   */
+  role: Role;
 }
 
 /**
@@ -98,13 +119,13 @@ export interface Viewer {
  * setting is about what a shelf discloses to third parties.
  */
 async function viewerFor(tx: Tx, ctx: TenantContext): Promise<Viewer> {
-  if (ctx.actor.userId === null) return { name: null };
+  if (ctx.actor.userId === null) return { name: null, role: ctx.actor.role };
   const [row] = await tx<{ name: string }[]>`
     select coalesce(nullif(display_name, ''), full_name) as name
     from users
     where id = ${ctx.actor.userId} and deleted_at is null
   `;
-  return { name: row?.name ?? null };
+  return { name: row?.name ?? null, role: ctx.actor.role };
 }
 
 /**

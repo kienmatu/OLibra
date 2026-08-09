@@ -21,6 +21,7 @@ import { COPY_CONDITIONS, type CopyCondition } from "@/domain/catalogue/policy";
 import { messageFor } from "@/domain/kernel/errors";
 import { searchLoansForReturn } from "@/domain/circulation/queries/search-loans-for-return";
 import { formatDueDate } from "@/lib/dates";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
@@ -89,10 +90,15 @@ export default async function NhanTraPage({
   const query = param(search, "q") ?? "";
   const muon = param(search, "muon");
 
-  const { shelf, loans } = await loadPage(slug, async (tx, ctx) => ({
-    shelf: await readShelf(tx, ctx),
-    loans: await searchLoansForReturn(tx, ctx, { q: query }),
-  }));
+  const { shelf, viewer, counts, loans } = await loadPage(
+    slug,
+    async (tx, ctx, viewer) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      loans: await searchLoansForReturn(tx, ctx, { q: query }),
+    }),
+  );
 
   const selected = muon ? (loans.find((l) => l.loanId === muon) ?? null) : null;
   const refused = refusalFrom(search);
@@ -102,7 +108,13 @@ export default async function NhanTraPage({
     new URLSearchParams({ ...(query ? { q: query } : {}), ...extra }).toString();
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="nhan-tra">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="nhan-tra"
+      viewer={viewer}
+      counts={counts}
+    >
       <h1 className="text-[28px] leading-tight font-semibold">Nhận trả sách</h1>
 
       {refused ? (

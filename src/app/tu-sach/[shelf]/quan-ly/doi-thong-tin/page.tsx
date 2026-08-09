@@ -159,6 +159,8 @@ export default async function PendingProfileChangesPage({
       shelfName={shelf.name}
       shelfSlug={shelf.slug}
       active="doi-thong-tin"
+      viewer={null}
+      counts={null}
     >
       <div className="space-y-8">
         <PageHeading

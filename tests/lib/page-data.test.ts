@@ -337,7 +337,10 @@ test("the header is handed the name of the person actually signed in", async () 
   await signInAs(shelf.id, "reader", "bandoc");
   await sql`update users set full_name = 'Maria Nguyễn Thị Lan' where username = 'bandoc'`;
 
-  expect(await viewerOf("dong-thap")).toEqual({ name: "Maria Nguyễn Thị Lan" });
+  expect(await viewerOf("dong-thap")).toEqual({
+    name: "Maria Nguyễn Thị Lan",
+    role: "reader",
+  });
 });
 
 test("a display name the reader chose wins over their full name", async () => {
@@ -350,7 +353,7 @@ test("a display name the reader chose wins over their full name", async () => {
   await signInAs(shelf.id, "reader", "bandoc");
   await sql`update users set display_name = 'Lan' where username = 'bandoc'`;
 
-  expect(await viewerOf("dong-thap")).toEqual({ name: "Lan" });
+  expect(await viewerOf("dong-thap")).toEqual({ name: "Lan", role: "reader" });
 });
 
 test("an empty display name falls back to the full name rather than emptying the header", async () => {
@@ -362,7 +365,10 @@ test("an empty display name falls back to the full name rather than emptying the
   await signInAs(shelf.id, "reader", "bandoc");
   await sql`update users set display_name = '' where username = 'bandoc'`;
 
-  expect(await viewerOf("dong-thap")).toEqual({ name: "Giuse Trần Minh" });
+  expect(await viewerOf("dong-thap")).toEqual({
+    name: "Giuse Trần Minh",
+    role: "reader",
+  });
 });
 
 test("a guest has no name, and the header renders signed-out from exactly that", async () => {
@@ -372,7 +378,39 @@ test("a guest has no name, and the header renders signed-out from exactly that",
   // /dang-ky — where this same header renders — honest.
   await makeShelf(sql, { slug: "dong-thap" });
 
-  expect(await viewerOf("dong-thap")).toEqual({ name: null });
+  expect(await viewerOf("dong-thap")).toEqual({ name: null, role: "guest" });
+});
+
+test("the viewer's role is the one the seam resolved, not one the page decided", async () => {
+  // U3 §3.3. The manager shell printed "Quản lý" under a hard-coded name on
+  // every manager page, including the six C1 wired — so it said "Quản lý" to
+  // whoever was looking, correct by luck rather than by reading. Asserted for
+  // a *manager* specifically, because `viewerFor` returning `ctx.actor.role`
+  // and returning the constant `"reader"` are indistinguishable on every other
+  // test in this file.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "manager", "quanly");
+  await sql`update users set full_name = 'Maria Nguyễn Thị Lan' where username = 'quanly'`;
+
+  expect(await viewerOf("dong-thap")).toEqual({
+    name: "Maria Nguyễn Thị Lan",
+    role: "manager",
+  });
+});
+
+test("a signed-in non-member is a guest to the chrome, exactly as they are to the domain", async () => {
+  // `contextFor` reports `role: "guest"` for a real session with no membership
+  // here (its own `if (!membership?.id)` branch), and the chrome must not
+  // invent a role from the fact that somebody is signed in *somewhere*. This
+  // is also the case `loadPage`'s redirect branch below deliberately does not
+  // key on role — see its docstring for the loop that produces.
+  await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(null, "reader", "nguoila");
+
+  expect(await viewerOf("dong-thap")).toEqual({
+    name: "Giuse Trần Minh",
+    role: "guest",
+  });
 });
 
 test("a NotFound from the read is a 404, not a bare 500", async () => {

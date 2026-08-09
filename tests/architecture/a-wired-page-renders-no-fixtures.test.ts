@@ -21,15 +21,20 @@ import { filesUnder } from "../support/source-text";
  * a real `getCatalogue`, because both compile and both render. This is the
  * check that fails at the moment it is typed.
  *
- * **Direct imports only, deliberately.** `src/components/ui/book.tsx` calls
- * `coverForTitle` from the fixtures for its cover art, so every page that shows
- * a book cover reaches the module transitively and a transitive rule would flag
- * all of them. That is a real (small) piece of fixture content in a wired page
- * and the honest fix is to move the artwork map out of `fixtures.ts` — a
- * component change this slice is not making, recorded here rather than hidden
- * by weakening the rule to nothing. What the direct-import form catches is the
- * shape a person actually types while converting a page: reaching into the
- * fixtures from the route file itself.
+ * **The rule below reads the route file only; the chrome rule further down
+ * reads the components it renders.** This split is not tidiness, it is what
+ * the first version got wrong: `src/components/ui/book.tsx` calls
+ * `coverForTitle` from the fixtures for its cover art, so *every* page showing
+ * a book cover reaches the module, and a blanket transitive rule would flag all
+ * of them. The original answer was to look at route files and nothing else,
+ * which meant the check could not see the very shape its own opening paragraph
+ * describes — chrome. U3 wave 1 found two live instances of it (the manager
+ * sidebar's fixture badge, and a donor picker listing eleven invented children
+ * on a wired page) and added `"no chrome rendered by a wired page renders
+ * fixtures either"` below, exempting `coverForTitle` **by name** rather than
+ * `book.tsx` by file. Moving the artwork map out of `fixtures.ts` is still the
+ * honest end state and still nobody's slice; it is now one entry rather than a
+ * blind spot.
  *
  * Same reading strategy as the sibling tests in this directory — source text,
  * with comments removed and string literals *kept*, since the thing being
@@ -153,14 +158,36 @@ test("no page that reads the database also renders fixtures", () => {
  * over route files alone would ever have looked at it — so the components a
  * wired route renders are walked with it.
  *
- * **Href literals, and the two shapes that appear in this codebase.** Every
- * shelf-relative link is written `` `${base}/…` `` where `base` is
- * `/tu-sach/${shelfSlug}`, and every site-absolute one is a plain `"/…"`
- * string. Both are matched; anything more dynamic than that (a href assembled
- * from a variable, or one built by a helper like `hrefWith`) is invisible here,
- * which is the same "known-dangerous shape" bargain `boundaries.test.ts`
- * already makes. What it catches is the shape a person types while adding a
- * link, which is how these four got there.
+ * **Href literals, and the two shapes that appear in this codebase.** A
+ * shelf-relative link is written `` `${base}/…` ``, and every site-absolute one
+ * is a plain `"/…"` string. Both are matched; anything more dynamic than that
+ * (a href assembled from a variable, or one built by a helper like `hrefWith`)
+ * is invisible here, which is the same "known-dangerous shape" bargain
+ * `boundaries.test.ts` already makes. What it catches is the shape a person
+ * types while adding a link, which is how these four got there.
+ *
+ * **`base` is assumed to be `/tu-sach/${shelfSlug}`, and on every manager page
+ * it is not.** U3 wave 1 measured this rather than inferring it. Manager pages
+ * declare `` const base = `/tu-sach/${slug}/quan-ly` ``, so `` `${base}/sach/moi` ``
+ * is resolved here as `src/app/tu-sach/[shelf]/sach/moi` — a route that does
+ * not exist — and `resolveRoute` returns `null`, which is silently dropped. The
+ * manager sidebar is worse still: its nav is `` `${base}/${key}` ``, and an
+ * interpolated *segment* only resolves where the directory has exactly one
+ * `[dynamic]` child, which `src/app/tu-sach/[shelf]` has none of. Verified by
+ * running `linkTargetsIn` verbatim over `manager-shell.tsx`: every nav target
+ * came back `null`. So this rule currently sees no link any manager page emits,
+ * including the eight sidebar entries that point at fixture pages.
+ *
+ * It is left that way in wave 1 **deliberately**, and this paragraph is the
+ * alternative to pretending otherwise. Teaching `resolveRoute` the real `base`
+ * would immediately report about eleven links, of which every one but
+ * `Thông báo`, `Thống kê` and `Cài đặt` is a page U3's own later waves wire —
+ * so today's fix is an eleven-entry exemption list that is stale within the
+ * slice, which is the failure mode this file's own `FIXTURE_TARGETS_THAT_MAY_
+ * STILL_BE_LINKED` is written narrowly to avoid. The right moment is when those
+ * targets are real, and the change is then a strengthening with no exemptions
+ * at all. `the link check resolves the routes it claims to`, below, pins the
+ * current behaviour so this gap cannot close by accident and go unnoticed.
  */
 
 /** Components under `src/components/` that a route renders, one level deep. */
@@ -265,6 +292,120 @@ const FIXTURE_TARGETS_THAT_MAY_STILL_BE_LINKED = [
   "src/app/dang-ky",
 ];
 
+/**
+ * U3 wave 1, and the half of the *first* rule this file could not see.
+ *
+ * "No page renders both" reads one file: the route's own import list. The
+ * defect the docstring at the top of this file says it generalises did not live
+ * in a route file at all — `ShelfHeader` is chrome — and neither did the one
+ * U3 found. `manager-shell.tsx` imported `donationQueue` from
+ * `src/lib/fixtures.ts` and printed `donationQueue.length` as a nav badge, on
+ * six manager pages that have shown real books from a real parish since U1. The
+ * rule above was green for every one of them, because none of those six route
+ * files names the fixtures module.
+ *
+ * So the components a wired route renders are read too — the same one-level
+ * `componentsOf` walk the link rule below already does, for the same reason
+ * (the thing being looked for is in the chrome).
+ *
+ * **Exempted by symbol, not by file.** The top of this file records why the
+ * original rule stopped at direct imports: `src/components/ui/book.tsx` calls
+ * `coverForTitle` from the fixtures for its cover artwork, so every page
+ * showing a book cover reaches the module. That is still true and still the
+ * honest thing to fix elsewhere — moving the artwork map out of `fixtures.ts`
+ * is a component change no slice has made. What has changed is that "so the
+ * rule cannot look at components at all" was too big a concession: one named
+ * export is exempt, everything else in that module is not, and a file that
+ * imports `coverForTitle` *and* something else is reported for the something
+ * else. A whole-file pass would have waved `donationQueue` through the moment
+ * `book.tsx` grew a second import.
+ */
+const FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE = ["coverForTitle"];
+
+/**
+ * The names a file imports from `src/lib/fixtures.ts`.
+ *
+ * `["*"]` for a namespace or default import, which names nothing and could
+ * reach anything — treated as "not exempt" rather than parsed, since no file in
+ * this repository imports the fixtures that way and a rule that guessed would
+ * be guessing about the one shape that can reach everything.
+ */
+function fixtureSymbolsIn(source: string): string[] {
+  const symbols: string[] = [];
+  for (const [, named, whole] of withoutComments(source).matchAll(
+    /import\s+(?:\{([^}]*)\}|([^;]*?))\s*from\s*["']([^"']*lib\/fixtures)["']/g,
+  )) {
+    if (named === undefined) {
+      symbols.push("*");
+      continue;
+    }
+    for (const item of named.split(",")) {
+      // `type X`, `X as Y` — the imported name is the first identifier.
+      const name = item
+        .trim()
+        .replace(/^type\s+/, "")
+        .split(/\s+as\s+/)[0];
+      if (name) symbols.push(name);
+    }
+    void whole;
+  }
+  return symbols;
+}
+
+test("no chrome rendered by a wired page renders fixtures either", () => {
+  const offenders: string[] = [];
+
+  for (const route of routes()) {
+    if (!route.readsTheDatabase) continue;
+    for (const component of componentsOf(route.path)) {
+      const used = fixtureSymbolsIn(readFileSync(component, "utf8")).filter(
+        (name) => !FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE.includes(name),
+      );
+      for (const name of used) {
+        offenders.push(`${component}: ${name} (rendered by ${route.path})`);
+      }
+    }
+  }
+
+  expect([...new Set(offenders)].sort()).toEqual([]);
+});
+
+test("the chrome check reads the chrome, and the exemption is one name wide", () => {
+  // Its own guard, for the reason every `toEqual([])` in this file has one: a
+  // `fixtureSymbolsIn` that found nothing satisfies the rule above perfectly.
+  //
+  // The reach is real — the wired dashboard renders the manager shell, and the
+  // shell is where the fixture badge was.
+  expect(componentsOf("src/app/tu-sach/[shelf]/quan-ly/page.tsx")).toContain(
+    "src/components/shell/manager-shell.tsx",
+  );
+
+  // The shape U3 removed, and the shape that must stay allowed.
+  expect(
+    fixtureSymbolsIn('import { donationQueue } from "@/lib/fixtures";'),
+  ).toEqual(["donationQueue"]);
+  expect(
+    fixtureSymbolsIn('import { coverForTitle } from "@/lib/fixtures";'),
+  ).toEqual(["coverForTitle"]);
+  // A file that earns the exemption for one name does not earn it for another.
+  expect(
+    fixtureSymbolsIn(
+      'import { coverForTitle, donationQueue } from "@/lib/fixtures";',
+    ),
+  ).toEqual(["coverForTitle", "donationQueue"]);
+  // A namespace import names nothing and is never exempt.
+  expect(fixtureSymbolsIn('import * as f from "@/lib/fixtures";')).toEqual(["*"]);
+  // And an unrelated module is not the fixtures.
+  expect(fixtureSymbolsIn('import { cn } from "@/lib/utils";')).toEqual([]);
+
+  // `book.tsx` really is the file the exemption is for, and really does import
+  // only that one name — so the exemption is not quietly covering something
+  // else today.
+  expect(
+    fixtureSymbolsIn(readFileSync("src/components/ui/book.tsx", "utf8")),
+  ).toEqual(["coverForTitle"]);
+});
+
 test("no page that reads the database links to a page that renders fixtures", () => {
   const byPath = new Map(routes().map((r) => [r.path, r]));
   const offenders: string[] = [];
@@ -315,6 +456,20 @@ test("the link check resolves the routes it claims to", () => {
     "src/app/tu-sach/[shelf]/quan-ly/sach/[id]",
   );
   expect(linkTargetsIn(bookPage)).not.toContain("src/app/tu-sach/[shelf]/quan-ly");
+
+  // The declared gap, pinned rather than described (U3 wave 1, and see this
+  // rule's docstring for why it is a gap on purpose today). A manager page's
+  // `base` already contains `/quan-ly`, which this check does not know, so
+  // nothing the manager sidebar links to is seen at all. Written as an
+  // assertion so that the day somebody teaches `resolveRoute` the real `base`,
+  // this line fails and points them at the eleven links that then become
+  // visible — rather than the improvement landing silently beside a comment
+  // that has quietly become false.
+  const managerShell = readFileSync(
+    "src/components/shell/manager-shell.tsx",
+    "utf8",
+  );
+  expect(linkTargetsIn(managerShell)).toEqual(["src/app"]);
 
   // And the four links IMPORTANT 4 removed are the ones this would now report.
   for (const gone of [

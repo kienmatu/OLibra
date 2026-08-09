@@ -178,6 +178,53 @@ test("the name filter is diacritic-insensitive and refuses a garbage query", asy
   expect(garbage.rows).toHaveLength(0);
 });
 
+test("the roster sorts by name in Vietnamese, not in byte order", async () => {
+  // U3 wave 1's reconciliation: this query shipped `order by u.full_name`,
+  // which under this cluster's `C` collation is byte order — `Đ` begins 0xC4,
+  // above every ASCII letter, so every child called Đặng sorted after every
+  // child called Vũ. The same defect U2 fixed in the two catalogue queries and
+  // in getBooksList, on a fourth query nobody had connected to them.
+  const { ctx, shelf } = await shelfWithReaders();
+  for (const fullName of ["Vũ Bảo", "Đặng Minh", "An Nhiên"]) {
+    await reader(shelf.id, { fullName });
+  }
+
+  const page = await runQuery(sql, ctx, (tx, c) => getReadersList(tx, c, {}));
+
+  expect(page.rows.map((r) => r.fullName)).toEqual([
+    "An Nhiên",
+    "Đặng Minh",
+    // The shelf's manager, made by `makeMember` as "Người đọc <n>".
+    expect.stringContaining("Người đọc"),
+    "Vũ Bảo",
+  ]);
+});
+
+test("paging the roster never loses a reader, however alike the names", async () => {
+  // The other half, and the one that is invisible until somebody pages: two
+  // children called "Nguyễn Văn An" is the ordinary case (BR §5.3 requires
+  // parents' names precisely to tell them apart), so `full_name` is not a
+  // total order and `limit`/`offset` over it repeats some rows and drops
+  // others. U2 measured 304 titles collected over a paged walk and 229
+  // distinct. `m.id` ends the order so it cannot tie.
+  const { ctx, shelf } = await shelfWithReaders();
+  for (let i = 0; i < 8; i++) {
+    await reader(shelf.id, { fullName: "Nguyễn Văn An" });
+  }
+
+  const seen: string[] = [];
+  for (let page = 1; page <= 3; page++) {
+    const result = await runQuery(sql, ctx, (tx, c) =>
+      getReadersList(tx, c, { page, pageSize: 3 }),
+    );
+    seen.push(...result.rows.map((r) => r.membershipId));
+  }
+
+  // Eight namesakes plus the manager, walked three at a time.
+  expect(seen).toHaveLength(9);
+  expect(new Set(seen).size).toBe(9);
+});
+
 // — GetReaderDetail —
 
 test("the detail carries the manager-only fields BR §5.3 names", async () => {

@@ -143,7 +143,13 @@ export default async function ManagerReaderDetailPage({
   ];
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="nguoi-doc">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="nguoi-doc"
+      viewer={null}
+      counts={null}
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <span

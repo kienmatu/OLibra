@@ -28,7 +28,13 @@ export default async function DonationQueuePage({
   const base = `/tu-sach/${shelf.slug}/quan-ly`;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="tang-sach">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="tang-sach"
+      viewer={null}
+      counts={null}
+    >
       <div className="space-y-8">
         <PageHeading
           title="Tặng sách"

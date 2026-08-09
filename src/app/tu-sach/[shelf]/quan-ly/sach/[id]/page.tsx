@@ -9,6 +9,7 @@ import { ManagerShell } from "@/components/shell/manager-shell";
 import { DonorFields } from "@/components/donor-fields";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { readShelf } from "@/lib/shelf";
 import { CONDITION_LABELS, COPY_STATE_STATUS, STATUS } from "@/lib/status";
@@ -68,10 +69,15 @@ export default async function ManagerBookDetailPage({
 }) {
   const { shelf: slug, id } = await params;
 
-  const { shelf, book } = await loadPage(slug, async (tx, ctx) => ({
-    shelf: await readShelf(tx, ctx),
-    book: await bookFromSlug(tx, ctx, id),
-  }));
+  const { shelf, viewer, counts, book } = await loadPage(
+    slug,
+    async (tx, ctx, viewer) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      book: await bookFromSlug(tx, ctx, id),
+    }),
+  );
   if (!book) notFound();
 
   const base = `/tu-sach/${slug}/quan-ly`;
@@ -79,7 +85,13 @@ export default async function ManagerBookDetailPage({
   const anyOnLoan = book.copies.some((copy) => copy.state === "on_loan");
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="sach">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="sach"
+      viewer={viewer}
+      counts={counts}
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex gap-4">
           <BookCover title={book.book.title} className="w-24 text-[1.6rem]" />
@@ -194,7 +206,11 @@ export default async function ManagerBookDetailPage({
                 />
               </Field>
 
-              <DonorFields idPrefix="them-nguoi-tang" />
+              {/* No donor list: this page is wired, and reading the shelf's
+                  members for this picker belongs to the wave that gives this
+                  form an action. It used to render eleven invented children
+                  from `src/lib/fixtures.ts` — see `donor-fields.tsx`. */}
+              <DonorFields idPrefix="them-nguoi-tang" donors={[]} />
 
               {/* Outline, not solid: this screen's one primary action is
                   already spoken for above (AGENTS.md/button.tsx — "if two

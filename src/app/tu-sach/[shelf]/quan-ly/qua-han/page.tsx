@@ -22,7 +22,13 @@ export default async function OverdueLoansPage({
   if (!shelf) notFound();
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="qua-han">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="qua-han"
+      viewer={null}
+      counts={null}
+    >
       <div className="space-y-8">
         <PageHeading
           title="Quá hạn"

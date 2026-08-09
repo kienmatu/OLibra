@@ -61,7 +61,13 @@ export default async function ManagerSettingsPage({
   if (!shelf) notFound();
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="cai-dat">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="cai-dat"
+      viewer={null}
+      counts={null}
+    >
       <PageHeading title="Cài đặt" subtitle={`Cài đặt của ${shelf.name}.`} />
 
       <div className="mt-8 max-w-2xl space-y-12">

@@ -110,7 +110,13 @@ export default async function ManagerReadersPage({
   const filterUnitLabel = filterUnits.find((u) => u.id === parishUnitId)?.label;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="nguoi-doc">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="nguoi-doc"
+      viewer={null}
+      counts={null}
+    >
       <PageHeading
         title="Người đọc"
         subtitle="96 bạn đọc đang hoạt động · 5 đơn chờ duyệt"
