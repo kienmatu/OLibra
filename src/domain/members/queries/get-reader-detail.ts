@@ -23,6 +23,20 @@ export interface ReaderDetail extends ReaderRow {
   currentLoans: {
     loanId: string;
     bookId: string;
+    /**
+     * The title and the copy's own code — added by U3 wave 2, which is the
+     * first slice to render this list.
+     *
+     * OPS §3.3 says this query returns "current loans", and a current loan a
+     * screen can show is a *book*: the shipped shape was a `bookId`, a due date
+     * and two derived flags, which is a row a page can only render as a uuid or
+     * by performing a second lookup of its own. Two joins on a query that
+     * already reads `loans_current`, and no change to what this query admits —
+     * `books` and `book_copies` both carry a `<table>_tenant` policy, so a join
+     * to either can only narrow what `loans` already returned.
+     */
+    title: string;
+    copyCode: string;
     dueOn: string;
     isOverdue: boolean;
     daysRemaining: number;
@@ -117,15 +131,24 @@ export async function getReaderDetail(
     {
       id: string;
       book_id: string;
+      title: string;
+      copy_code: string;
       due_on: string;
       is_overdue: boolean;
       days_remaining: number;
     }[]
   >`
-    select l.id, l.book_id, l.due_on::text as due_on, l.is_overdue, l.days_remaining
+    select l.id, l.book_id, b.title, c.code as copy_code,
+           l.due_on::text as due_on, l.is_overdue, l.days_remaining
     from loans_current l
+    join books       b on b.id = l.book_id
+    join book_copies c on c.id = l.copy_id
     where l.borrower_id = ${row.user_id} and l.status = 'active'
-    order by l.due_on
+    -- Soonest due first, then the copy code, so two loans sharing a due date
+    -- come back in a stable order rather than whatever the plan produces --
+    -- searchLoansForReturn orders the same pair for the same reason, and
+    -- book_copies_code_unique is what makes the second key unable to tie.
+    order by l.due_on, c.code
   `;
 
   const [pending] = await tx<{ id: string; requested_at: string }[]>`
@@ -166,6 +189,8 @@ export async function getReaderDetail(
     currentLoans: loans.map((l) => ({
       loanId: l.id,
       bookId: l.book_id,
+      title: l.title,
+      copyCode: l.copy_code,
       dueOn: l.due_on,
       isOverdue: l.is_overdue,
       daysRemaining: Number(l.days_remaining),

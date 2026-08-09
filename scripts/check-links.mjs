@@ -115,7 +115,19 @@ const SEEDS = [
   `${S}/quan-ly/sach/de-men-phieu-luu-ky`,
   `${S}/quan-ly/nguoi-doc`,
   `${S}/quan-ly/nguoi-doc/moi`,
-  `${S}/quan-ly/nguoi-doc/minh`,
+  // `${S}/quan-ly/nguoi-doc/minh` was here, and it was a fixture-era id
+  // (`readers[].id` in `src/lib/fixtures.ts`). U3 wave 2 wired that page to
+  // `GetReaderDetail`, whose `membershipId` is a `uuid` — so this seed became a
+  // failed cast and a raw `22P02`, which is how it was found. The page now
+  // refuses the shape and answers 404, and a 404 cannot be a *seed*: the rule
+  // for these is "must render", and `HOSTILE` below is for a volunteer's own
+  // query parameters, where the page exists and 200 is the right answer.
+  //
+  // Nothing is lost by removing it. `${S}/quan-ly/nguoi-doc` links to every
+  // reader it lists, so the crawler walks into real detail pages by following
+  // rather than by this file guessing an id — which is the same reasoning the
+  // lending seeds above give for reaching `?nguoi-doc=` and `?muon=` by
+  // following.
   `${S}/quan-ly/thong-ke`,
   `${S}/quan-ly/thong-bao`,
   `${S}/quan-ly/cai-dat`,

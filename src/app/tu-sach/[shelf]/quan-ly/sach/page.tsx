@@ -10,6 +10,7 @@ import {
   type BooksListInput,
   getBooksList,
 } from "@/domain/catalogue/queries/get-books-list";
+import { getLostCopyCount } from "@/domain/catalogue/queries/get-lost-copies";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { readCatalogueCategories } from "@/lib/catalogue";
 import { loadPage } from "@/lib/page-data";
@@ -51,14 +52,15 @@ const SORT_BY_TITLE = "ten";
  * **The "Mượn nhiều nhất" sort is gone**, because nothing counts loans per
  * title — the same gap `danh-muc` records for the same missing sort.
  *
- * **The "Đã mất (n)" chip is gone**, and that one is U3 §3.1 rather than a
- * missing sort. Its count was `lostCopies.length` from `src/lib/fixtures.ts`,
- * and no query in this codebase can answer it: nothing selects copies by state
+ * **The "Đã mất (n)" chip is back, with a real count** (U3 wave 2). Wave 1
+ * removed it: its number was `lostCopies.length` from `src/lib/fixtures.ts`, and
+ * no query in this codebase could answer it — nothing selected copies by state
  * across a shelf. BR:559 makes the count the reason that control exists at all
  * ("finding the one lost copy inside a shelf of a few hundred books… is not
- * realistic"), so a chip with the number removed would not be the same control
- * with less on it. The lost-copies view is a later wave of this slice, and the
- * chip comes back with a real count when the query behind it does.
+ * realistic"), so a chip with the number removed would not have been the same
+ * control with less on it. `getLostCopyCount` is now the query behind it, and it
+ * shares its predicate with the screen the chip opens — asserted in
+ * `tests/domain/catalogue/lost-copies.test.ts` rather than left to look alike.
  *
  * **The per-row "Sửa" button is gone** for a plainer reason: it was a `<button>`
  * with no form and no action, so it did nothing at all. "Xem bản" reaches
@@ -98,12 +100,13 @@ export default async function ManagerBooksPage({
     page: pageNumber(param(search, PAGE)),
   };
 
-  const { shelf, viewer, counts, categories, page } = await loadPage(
+  const { shelf, viewer, counts, categories, lostCount, page } = await loadPage(
     slug,
     async (tx, ctx, viewer) => ({
       shelf: await readShelf(tx, ctx),
       viewer,
       counts: await getManagerBadgeCounts(tx, ctx),
+      lostCount: await getLostCopyCount(tx, ctx),
       // `includeDrafts`, unlike the reader catalogue's filter bar: this list
       // shows drafts, so a bar that could not filter to them would be offering
       // a choice that contradicts the table under it.
@@ -213,6 +216,24 @@ export default async function ManagerBooksPage({
             Tên sách
           </Chip>
         </div>
+
+        {/* BR §16.3 reaches the lost-copies view "from the Sách list as a status
+            filter". It is its own route rather than a re-filtered version of
+            this table, because the filter genuinely changes what a row is — a
+            copy, not a title: code, who was holding it and when it was reported
+            lost, instead of author and copy count. Absent when there is nothing
+            lost, rather than a chip reading "(0)" that opens an empty screen. */}
+        {lostCount > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[14px] text-meta">Trạng thái</span>
+            <Chip href={hrefWith({})} active>
+              Tất cả trạng thái
+            </Chip>
+            <Chip href={`${base}/sach/mat`}>
+              Đã mất ({NUMBER.format(lostCount)})
+            </Chip>
+          </div>
+        ) : null}
       </div>
 
       {page.rows.length === 0 ? (

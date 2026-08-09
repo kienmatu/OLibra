@@ -114,3 +114,24 @@ Check `sach/mat` (lost copies) too — BR §1.4 names it as Phase 1, "the lost-c
 ## 6. Out of scope
 
 The audit browser and CSV export (D2 / B4 — the two remaining Phase 1 items); comments, announcements, donations (B3); borrow requests and the queue (C2); renewals (C3); notifications (D1); the reader's own pages `toi/*`; `/quan-tri/*` (super-admin, Phase 3).
+
+## 7. Wave 2, and the decisions it had to make
+
+Wave 2 shipped the remaining eight pages, their two missing queries and their eight server actions. Everything below is a decision this document left open or got wrong; each one is also argued at length in the file that carries it, and this section exists so the *set* of them is readable in one place.
+
+**The on-behalf command is `registerMemberOnBehalf`.** §2 named `RegisterMembership`, which is the guest's own registration and has no manager gate; the reconciliation table above narrowed it to two and left the choice here. BR §16.1 settles it in one sentence — "registering on behalf still creates a pending application rather than an active member, so the approval step and its audit record are never skipped" — and BR §4's assumption 3 makes that approval the consent for holding a minor's data. The page's own shipped copy already promised it, above a button reading **Tạo hồ sơ chờ duyệt**. `managerRegisterReader` stays what OPS §4.3 calls it: the quick-lend escape hatch on `quan-ly/cho-muon/nguoi-doc`, a different screen for a different moment. `tests/lib/manager-actions.test.ts` asserts the resulting `status`, because a page pointed at the other command renders and redirects identically.
+
+**The two new queries.** `getOverdueLoans` (`src/domain/circulation/queries/`) is OPS §3.3's `GetOverdueLoans` — borrower, phone, days late, due date, three orderings, no search term. `getLostCopies` / `getLostCopyCount` (`src/domain/catalogue/queries/`) back BR:559's screen and the **Đã mất (n)** chip that wave 1 removed for want of them. Neither is paged, matching the two shipped queues of the same shape, and both carry a total order anyway. Both derive their headline number from `loans_current` against the injected clock, and both have a test that moves a `fixedClock` with no write and no job.
+
+**OPS defines no `GetLostCopies`.** Its query table omits one; OPS §4.1 names this exact view as `MarkCopyFound`'s UI trigger, which is why the read is a domain query rather than a `src/lib/` helper beside `readCatalogueCategories`.
+
+**`getReaderDetail`'s `currentLoans` gained `title` and `copyCode`.** It returned a `bookId` and nothing renderable; two joins, no change to what the query admits. Recorded because it is a shipped query's shape changing.
+
+**Four things are deliberately absent, and none of them is an oversight:**
+
+- **Credentials on the registration form.** Nothing in the running application calls `setPasswordHasher`, so any screen that sets a password reaches `NotWired` — a fault, not a refusal. The fields are gone rather than shipped as a 500; `SetReaderCredentials` is the shipped path and BR §16.3 puts it on the reader's detail page. **Wiring the hasher belongs to the slice that wires registration**, and this is the second file to record that it is unwired.
+- **A photograph at registration.** `RegistrationInput.avatarUrl` wants a URL to an object already in storage, and the only upload path in this codebase is the avatar lifecycle, which needs a membership that does not exist yet.
+- **The reader detail's administrative actions.** All five commands exist; wiring them is five more forms and five more refusal paths, and one of them is the credentials one above. The page is read-only and says so.
+- **A reader's loan history.** BR §16.3 asks for it and no query answers it — `getBookDetailManager` has a history per *book*. The fixture page filled the gap with four titles sliced out of `src/lib/fixtures.ts` under this reader's name.
+
+**A defect this wave shipped and `bun run check:links` caught.** `quan-ly/nguoi-doc/[id]` took the URL segment straight to a `uuid` column, so the fixture-era link `/quan-ly/nguoi-doc/minh` was a raw `22P02` and an HTTP 500. The shape check now lives once, in `src/lib/search-params.ts`, shared with `readerFromParam`; the page answers 404 and the query parameter answers an empty state, because one is the router's and one is the volunteer's.
