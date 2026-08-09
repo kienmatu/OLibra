@@ -3,7 +3,11 @@ import { fixedClock } from "../../../src/domain/kernel/clock";
 import { RuleViolated } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runQuery, type Tx } from "../../../src/domain/kernel/unit-of-work";
-import { getOverdueLoans } from "../../../src/domain/circulation/queries/get-overdue-loans";
+import {
+  getOverdueLoans,
+  type OverdueLoanRow,
+  type OverdueSort,
+} from "../../../src/domain/circulation/queries/get-overdue-loans";
 import { migrate } from "../../../src/db/migrate";
 import { makeBookWithCopies, makeMember, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";
@@ -239,6 +243,16 @@ test("sorting by borrower folds the name, so Đặng is not last", async () => {
   ]);
 });
 
+/**
+ * Three borrower names, in the order `olibra_fold` puts them: the fold maps `Đ`
+ * to `d`, so the order is An, Đặng, Vũ rather than the byte order that would put
+ * `Đặng` last. Written out rather than recomputed here, so this test does not
+ * carry a second implementation of the fold.
+ */
+const TIEBREAK_NAMES = ["An Nhiên", "Đặng Minh", "Vũ Bảo"] as const;
+/** Three due dates, ascending, all before `ONE_DAY_LATE`. */
+const TIEBREAK_DUES = ["2026-08-01", "2026-08-05", "2026-08-10"] as const;
+
 test("equally late loans are ordered by a key that cannot tie", async () => {
   // The other half of the paging trap, and the half that bites even without
   // paging: two loans due on the same day is the ordinary case for a shelf that
@@ -247,31 +261,83 @@ test("equally late loans are ordered by a key that cannot tie", async () => {
   // list re-reads this screen, and a list that reshuffles between two reads of
   // the same data is one they lose their place in. `l.id` ends the order.
   //
-  // **Asserted as "the tiebreak is applied", not as "two reads agree".** The
-  // weaker assertion was written first and does not hold this line: with the
-  // tiebreak deleted, six rows on a sequential scan came back in physical order
-  // both times and the test stayed green. Loan ids are `gen_random_uuid()`, so
-  // insertion order is not id order, and a `uuid` compares by the same bytes its
-  // canonical lowercase spelling sorts by — which makes "ascending by id" a
-  // property only the `order by` can produce.
+  // ── Why the fixture is eighteen rows over three dates and three names ──────
+  //
+  // This test shipped as six namesakes all due the same day, asserting the whole
+  // result was ascending by `loanId`. That fixture cannot fail, and the reason
+  // is worth writing down because it is not obvious and it is not about this
+  // query.
+  //
+  // With every row sharing one due date and one name, **every** sort key in all
+  // three orderings is equal across all six rows, so the `Sort` node is handed
+  // an input on which no comparison is ever greater than zero. Postgres's
+  // tuplesort short-circuits exactly that case — it checks whether the input is
+  // already sorted and, finding it is (vacuously), returns it untouched. So the
+  // result is whatever order the scan produced. Measured on this cluster: the
+  // first five executions of the statement run a custom plan whose scan order is
+  // not id order, and from the sixth — `plan_cache_mode = auto` switching to a
+  // generic plan — the scan becomes index-ordered on `loans_pkey`, which *is*
+  // ascending by id. postgres.js prepares statements and this file re-uses one
+  // connection, so by the time this test runs the statement is long past its
+  // fifth execution and the broken query returns ascending ids of its own
+  // accord. Raising the row count does not help: the short-circuit fires on any
+  // number of rows whose keys all tie.
+  //
+  // So the fixture has to make the sort **non-degenerate** — a real sort, not a
+  // presorted no-op — while still leaving ties for the tiebreak to resolve.
+  // Three due dates and three folded names, crossed over eighteen loans: six
+  // rows share each due date, six share each name, and two share both. Under
+  // every one of the three sorts the leading key genuinely varies, so Postgres
+  // runs its quicksort, which is not stable and scrambles the tied rows; only
+  // `l.id` puts them back. Eighteen is also past the seven-tuple threshold below
+  // which Postgres sorts with a stable insertion sort — measured, at six rows
+  // even a varied fixture stays green.
+  //
+  // Falsified by deleting `l.id` from the `order by`: red in this file and red
+  // in isolation, on every run.
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
   const manager = await makeMember(sql, shelf.id, { role: "manager" });
-  // Six namesakes, all due the same day: under any of the three sorts, every
-  // key but the tiebreak is equal across all six rows.
-  for (let i = 0; i < 6; i++) {
-    const reader = await borrower(shelf.id, { fullName: "Nguyễn Văn An" });
-    await lend(shelf.id, reader.userId, manager.userId, DUE_ON);
+  for (let i = 0; i < 18; i++) {
+    const reader = await borrower(shelf.id, {
+      fullName: TIEBREAK_NAMES[i % 3],
+    });
+    await lend(
+      shelf.id,
+      reader.userId,
+      manager.userId,
+      TIEBREAK_DUES[Math.floor(i / 3) % 3],
+    );
   }
   const ctx = contextFor(shelf.id, manager);
+
+  // The leading key of each ordering, as a value that sorts the way the SQL
+  // sorts it. `borrower` is the name's index in the folded list above, so this
+  // comparison never re-folds anything.
+  const leadingKey: Record<OverdueSort, (r: OverdueLoanRow) => string> = {
+    "most-late": (r) => r.dueOn,
+    "least-late": (r) => r.dueOn,
+    borrower: (r) => String(TIEBREAK_NAMES.indexOf(r.borrowerName as never)),
+  };
 
   for (const sort of ["most-late", "least-late", "borrower"] as const) {
     const rows = await runQuery(sql, ctx, (tx) =>
       getOverdueLoans(tx, ctx, { sort }),
     );
-    const ids = rows.map((r) => r.loanId);
-    expect(ids).toHaveLength(6);
-    expect(new Set(ids).size).toBe(6);
-    expect(ids, sort).toEqual([...ids].sort());
+    expect(rows, sort).toHaveLength(18);
+    expect(new Set(rows.map((r) => r.loanId)).size, sort).toBe(18);
+
+    // The whole contract, in one comparison: the leading key in its own
+    // direction, then the id. Without `l.id` the tied rows come back in the
+    // order the quicksort left them, which is not this one.
+    const key = leadingKey[sort];
+    const expected = [...rows].sort((a, b) => {
+      const cmp = key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0;
+      if (cmp !== 0) return sort === "least-late" ? -cmp : cmp;
+      return a.loanId < b.loanId ? -1 : a.loanId > b.loanId ? 1 : 0;
+    });
+    expect(rows.map((r) => r.loanId), sort).toEqual(
+      expected.map((r) => r.loanId),
+    );
   }
 });
 

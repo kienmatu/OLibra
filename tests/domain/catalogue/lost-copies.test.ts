@@ -190,9 +190,19 @@ test("the newest report is first, and the order is total", async () => {
   // all equal come back in an arbitrary order that happens to be the ascending
   // one. Nothing about the data available here changes that. The two assertions
   // that *are* falsifiable — newest first, and the `nulls last` in the test
-  // below — were each planted and confirmed red. `getOverdueLoans`' own
-  // tiebreak test does have a real red, because loan ids are random uuids and
-  // "ascending by id" is therefore not a shape any scan order produces.
+  // below — were each planted and confirmed red.
+  //
+  // The sentence that used to end this paragraph said `getOverdueLoans`' own
+  // tiebreak test had a real red "because loan ids are random uuids, so
+  // ascending by id is not a shape any scan order produces". That was wrong on
+  // both halves, and the second half is wrong in a way worth keeping here: an
+  // index scan on `loans_pkey` produces exactly ascending-by-id order, and a
+  // prepared statement past its fifth execution — which is every execution in a
+  // test file that shares one connection — was measured taking that plan. That
+  // test asserted a shape its own broken query already produced, and was green
+  // with the tiebreak deleted. It has since been rewritten around a fixture
+  // whose leading sort key genuinely varies, which is what makes the sort a real
+  // one rather than a presorted no-op; see the comment it now carries.
   const tied: string[] = [];
   for (let i = 0; i < 5; i++) {
     const copy = await lostCopy(shelf.id, ctx, manager.userId, {

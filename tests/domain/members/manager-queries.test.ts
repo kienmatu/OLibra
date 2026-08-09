@@ -200,6 +200,39 @@ test("the roster sorts by name in Vietnamese, not in byte order", async () => {
   ]);
 });
 
+/**
+ * Namesakes in the paging fixture below, and why it is this many.
+ *
+ * The fixture shipped as eight namesakes walked three at a time, and at that
+ * size the guard cannot fail: deleting `m.id` from the `order by` leaves it
+ * green. Postgres answers a small `limit`/`offset` with a bounded top-N
+ * heapsort, and over nine rows in pages of three the heap happens to hand back
+ * a consistent order across the three pages — there are not enough rows for the
+ * per-page heaps to disagree about where a tie belongs.
+ *
+ * Measured on this cluster with `m.id` deleted, rows lost off the roster
+ * entirely:
+ *
+ * | namesakes | pageSize | collected | distinct | lost |
+ * |---|---|---|---|---|
+ * | 8   | 3 | 10  | 10  | 0    |
+ * | 40  | 7 | 41  | 40  | 1    |
+ * | 80  | 7 | 81  | 75  | 5–7  |
+ * | 120 | 7 | 121 | 111 | 9–11 |
+ *
+ * Eighty is the first size with a margin rather than a coincidence: twenty
+ * consecutive trials lost between five and seven readers and none lost zero,
+ * where forty sat on a single row and would go green the first time the heap
+ * broke a tie the other way. It costs about a tenth of a second.
+ *
+ * This is not a hypothetical size, either. BR §5.3 requires parents' names
+ * precisely because a parish can have this many children sharing a name
+ * variant, and a roster that silently drops six of them puts those six on no
+ * page at all.
+ */
+const PAGING_NAMESAKES = 80;
+const PAGING_PAGE_SIZE = 7;
+
 test("paging the roster never loses a reader, however alike the names", async () => {
   // The other half, and the one that is invisible until somebody pages: two
   // children called "Nguyễn Văn An" is the ordinary case (BR §5.3 requires
@@ -207,22 +240,31 @@ test("paging the roster never loses a reader, however alike the names", async ()
   // total order and `limit`/`offset` over it repeats some rows and drops
   // others. U2 measured 304 titles collected over a paged walk and 229
   // distinct. `m.id` ends the order so it cannot tie.
+  //
+  // See `PAGING_NAMESAKES` above for why the fixture is eighty rather than the
+  // eight it shipped as. Falsified by deleting `m.id` from the `order by`: red
+  // on every run, in this file and in isolation.
   const { ctx, shelf } = await shelfWithReaders();
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < PAGING_NAMESAKES; i++) {
     await reader(shelf.id, { fullName: "Nguyễn Văn An" });
   }
 
+  // The namesakes plus the shelf's own manager.
+  const total = PAGING_NAMESAKES + 1;
+  const pages = Math.ceil(total / PAGING_PAGE_SIZE);
+
   const seen: string[] = [];
-  for (let page = 1; page <= 3; page++) {
+  for (let page = 1; page <= pages; page++) {
     const result = await runQuery(sql, ctx, (tx, c) =>
-      getReadersList(tx, c, { page, pageSize: 3 }),
+      getReadersList(tx, c, { page, pageSize: PAGING_PAGE_SIZE }),
     );
     seen.push(...result.rows.map((r) => r.membershipId));
   }
 
-  // Eight namesakes plus the manager, walked three at a time.
-  expect(seen).toHaveLength(9);
-  expect(new Set(seen).size).toBe(9);
+  // Every reader exactly once: none repeated onto a second page, and — the
+  // failure that matters — none dropped off the roster altogether.
+  expect(seen).toHaveLength(total);
+  expect(new Set(seen).size).toBe(total);
 });
 
 // — GetReaderDetail —
