@@ -224,6 +224,13 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // exemption for a file that no longer needs one is the kind of entry that
   // quietly blesses a query somebody adds later.
   "src/domain/circulation/settings.ts": ["settings"],
+  // B3. `commentsEnabled` and `commentsRequireApproval` read two booleans out
+  // of `settings` for `CreateComment`, the same shape circulation's numbers
+  // take. Both leave the query as a boolean and neither reaches a result or an
+  // audit record; the reader who triggers the read is refused by
+  // `comments_disabled` before anything is written, and no path returns the
+  // value itself.
+  "src/domain/community/policy.ts": ["settings"],
   "src/lib/shelf.ts": ["settings", "keeper_name", "keeper_phone"],
 };
 
