@@ -1,3 +1,4 @@
+import { requireReader } from "../domain/catalogue/policy";
 import { NotFound } from "../domain/kernel/errors";
 import type { TenantContext } from "../domain/kernel/tenant";
 import type { Tx } from "../domain/kernel/unit-of-work";
@@ -86,5 +87,87 @@ export async function readShelf(
     name: row.name,
     maxConcurrentLoans: row.max_concurrent_loans,
     loanDays: row.loan_days,
+  };
+}
+
+/**
+ * What a shelf page says about the shelf itself: BR §16.1's shelf-home item 1,
+ * "name, where it is, when it is open, who holds the key with a tappable phone
+ * number".
+ *
+ * Every field is nullable except the name, because every column behind them is
+ * (`0003_identity.sql`) and a parish onboarded on a Sunday afternoon has filled
+ * in what it knew. A page renders the rows it has; a `dt` labelled "Giờ mở cửa"
+ * over a blank `dd` is worse than no row, and a `MapPin` pointing at nothing is
+ * the same mistake the portal already declines to make.
+ *
+ * **`requireReader` is called here, and that is the whole disclosure argument.**
+ * This is the one read in `src/lib/` that names `keeper_name` and
+ * `keeper_phone`, which BR §16.1 withholds from anyone without a membership —
+ * "Book counts, reader counts and keeper contact are not shown, because a
+ * person with no membership has no business knowing them" — and which
+ * `tests/db/bookshelves-public-columns.test.ts` guards for exactly that reason.
+ * `bookshelves_public_read` admits the whole row to any caller, so the column
+ * list is the only thing standing there (DATABASE.md §4.2), and every other
+ * exemption in that guard argues that its file is unreachable without a
+ * membership. `readShelf` above cannot make that argument — it runs on the `Tx`
+ * before the page's own gated query does — so this function does not rely on
+ * the page beside it either. It refuses first, itself, with the domain's own
+ * `requireReader`, and `loadPage` then turns that `RuleViolated` into a
+ * redirect for a guest or a 404 for a signed-in non-member before a byte of
+ * HTML exists.
+ *
+ * That check is *added*, never a gate that was moved or relaxed: the queries
+ * these pages call each still run their own `requireReader`, and nothing in
+ * `src/domain/` changed. Two refusals for one page is the point — U1 §3.4's
+ * split between the domain deciding permission and the surface deciding
+ * visibility only holds while the surface's own reads are gated too.
+ *
+ * **One function for all four member pages**, not a narrow name-only variant
+ * beside it. `danh-muc` and `tim-kiem` render only the name today; the shelf
+ * home and the book page render the keeper line BR §16.1 specifies word for
+ * word ("Liên hệ {keeper} · {phone} để nhận sách."). Splitting that into two
+ * reads would put the same `select` in two places for the benefit of not
+ * loading two strings a member is entitled to see — and two nearly identical
+ * shelf reads is how one of them later drifts from the other's guard exemption.
+ */
+export interface ShelfIdentity {
+  name: string;
+  /** `0003_identity.sql:46` — "physical location, shown publicly". */
+  location: string | null;
+  /** Free text: "Mở sau lễ Chúa nhật · 9:00 đến 11:00". */
+  openingHours: string | null;
+  keeperName: string | null;
+  keeperPhone: string | null;
+}
+
+export async function readShelfIdentity(
+  tx: Tx,
+  ctx: TenantContext,
+): Promise<ShelfIdentity> {
+  requireReader(ctx);
+
+  const [row] = await tx<
+    {
+      name: string;
+      location: string | null;
+      opening_hours: string | null;
+      keeper_name: string | null;
+      keeper_phone: string | null;
+    }[]
+  >`
+    select name, location, opening_hours, keeper_name, keeper_phone
+    from bookshelves
+    where id = ${ctx.bookshelfId}
+  `;
+  // Same reasoning as `readShelf` above: a missing row is the code `loadPage`
+  // maps to a 404, not a `TypeError` from destructuring `undefined`.
+  if (!row) throw new NotFound("shelf_not_found");
+  return {
+    name: row.name,
+    location: row.location,
+    openingHours: row.opening_hours,
+    keeperName: row.keeper_name,
+    keeperPhone: row.keeper_phone,
   };
 }

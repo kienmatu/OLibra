@@ -120,6 +120,32 @@ import { expect, test } from "vitest";
  * anyway, and `settings`, which is exempted here and nowhere else on the
  * surface.
  *
+ * `src/lib/shelf.ts` gains `keeper_name` and `keeper_phone` at U2 Task 4, for
+ * `readShelfIdentity`, and those two are the columns this whole guard was
+ * written about — so the entry needs a stronger argument than the `settings`
+ * one above, not the same one again.
+ *
+ * It has one, and it is structural rather than circumstantial: unlike
+ * `readShelf` beside it, `readShelfIdentity` calls `requireReader(ctx)` as its
+ * first statement. The columns are therefore unreachable without an active
+ * membership of *this* shelf, which is precisely the condition BR §16.1
+ * attaches to them — §16.1 does not withhold keeper contact from everybody, it
+ * puts it on the shelf's own page ("who holds the key with a tappable phone
+ * number") and off the portal, and BR:179 calls the pair "shown publicly" in
+ * the sense of "not a manager-only field". A member reading it is the specified
+ * behaviour; a stranger reading it is what `list-public-shelves.ts` refuses by
+ * naming three columns and taking no exemption at all.
+ *
+ * The exemption stays per-column: `settings` for `readShelf`, plus these two
+ * for `readShelfIdentity`, and `created_by` is deliberately still not on the
+ * list — it is a `users` id no shelf page has any use for, and a `select` of it
+ * here should fail exactly as it would in any other file.
+ *
+ * `tests/lib/shelf-pages.test.ts` is the other half: it asserts a reader gets
+ * the keeper's details and a guest is refused, so this file's argument ("it is
+ * gated") is a fact about running code rather than a claim about a line
+ * somebody could delete.
+ *
  * Deliberately **not** solved by defaulting to 3 on the page. A shelf that
  * overrides `max_concurrent_loans` would then have its reader search block at
  * three while `lendCopy` allowed four — BR §16.3's screen-and-command
@@ -165,7 +191,7 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   "src/domain/members/parish-context.ts": ["settings"],
   "src/domain/circulation/commands/lend-copy.ts": ["settings"],
   "src/domain/circulation/commands/receive-return.ts": ["settings"],
-  "src/lib/shelf.ts": ["settings"],
+  "src/lib/shelf.ts": ["settings", "keeper_name", "keeper_phone"],
 };
 
 // The whole point of §16.1: a person with no membership has no business

@@ -108,3 +108,32 @@ export function formatDueDate(isoDate: string): string {
 export function formatInstant(instant: string | Date): string {
   return INSTANT.format(new Date(instant));
 }
+
+/**
+ * A year, which is a number and is not a quantity.
+ *
+ * `books.published_year` is an `integer`, so the obvious thing is the page's
+ * own `Intl.NumberFormat("vi-VN")` — and that is wrong in a way no type-checker
+ * can see and no unit test of the *query* would notice. `vi-VN` groups
+ * thousands with a full stop, so `format(2016)` is **"2.016"**, and the book
+ * page shipped a browser session reading "Năm xuất bản 2.016" under every
+ * title on the shelf. Found by walking the page, which is why U2's brief says
+ * to verify in a browser rather than a type-checker.
+ *
+ * `useGrouping: false` rather than `String(year)`: SDD §6.6's rule is that
+ * numbers go *through* the locale, and a bare `String()` opts out of it
+ * entirely — correct today only because `vi` uses Western digits, and wrong
+ * again the first time somebody adds a locale that does not. What a year needs
+ * is the locale's digits without its grouping, which is one option on the same
+ * formatter.
+ *
+ * It lives here rather than in the page for the reason this whole module
+ * exists: the alternative is each of the four or five screens that show a year
+ * making the same call and one of them making it differently. `tests/lib/
+ * dates.test.ts` pins the separator, which is the part that was wrong.
+ */
+const YEAR = new Intl.NumberFormat("vi-VN", { useGrouping: false });
+
+export function formatYear(year: number): string {
+  return YEAR.format(year);
+}

@@ -8,6 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { CopyCondition, CopyState } from "@/domain/catalogue/policy";
+import type { Availability } from "@/domain/catalogue/queries/get-catalogue";
 
 /**
  * The six copy states from BUSINESS-REQUIREMENTS §17.2.
@@ -92,6 +93,28 @@ export const COPY_STATE_STATUS: Record<CopyState, CopyStatus> = {
   lost: "lost",
   retired: "retired",
 };
+
+/**
+ * A title's aggregate `availability` → the badge for it, or **no badge**.
+ *
+ * `Availability` is `CopyState | "none"` (`get-catalogue.ts`), and `"none"` is
+ * the member M8 added precisely because a title with no live copies at all had
+ * been indistinguishable from one whose copies are genuinely all retired. There
+ * is no honest badge for it: `STATUS.retired` says "Ngừng dùng", which is a
+ * claim about copies that were withdrawn, and this title has none to withdraw.
+ * So this returns `null` and the caller renders nothing — the same answer the
+ * lending search already gives a blocked row, whose comment records the same
+ * reasoning ("a blocked title has no honest badge").
+ *
+ * A `Record` over the five real states rather than a `switch`, for the reason
+ * `COPY_STATE_STATUS` above is one: adding a sixth `copy_state` is then a
+ * compile error here rather than a title that quietly renders no badge.
+ */
+export function statusForAvailability(
+  availability: Availability,
+): CopyStatus | null {
+  return availability === "none" ? null : COPY_STATE_STATUS[availability];
+}
 
 /** The six condition grades from §9. A flat list, deliberately not a scale. */
 export const CONDITIONS = [
