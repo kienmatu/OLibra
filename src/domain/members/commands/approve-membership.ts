@@ -1,4 +1,5 @@
 import { NotFound, RuleViolated } from "../../kernel/errors";
+import { notify } from "../../notifications/write";
 import type { Command } from "../../kernel/unit-of-work";
 import { type MembershipStatus, requireManager } from "../policy";
 
@@ -45,8 +46,10 @@ export const approveMembership: Command<{ membershipId: string }, void> = async 
 ) => {
   requireManager(ctx);
 
-  const [membership] = await tx<{ id: string; status: MembershipStatus }[]>`
-    select id, status from memberships
+  const [membership] = await tx<
+    { id: string; status: MembershipStatus; user_id: string }[]
+  >`
+    select id, status, user_id from memberships
     where id = ${input.membershipId} and deleted_at is null
   `;
   if (!membership) throw new NotFound("membership_not_found");
@@ -64,6 +67,11 @@ export const approveMembership: Command<{ membershipId: string }, void> = async 
         suspension_reason = null
     where id = ${membership.id}
   `;
+
+  // OPS §7, in this transaction rather than after it: a rolled-back approval
+  // must not leave a child told they were approved. `user_id`, not
+  // `membershipId` — `notifications.user_id` is a `users(id)`.
+  await notify(tx, { userId: membership.user_id, kind: "membership_approved" });
 
   return {
     result: undefined,

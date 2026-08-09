@@ -1,4 +1,5 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
+import { notify } from "../../notifications/write";
 import type { Command } from "../../kernel/unit-of-work";
 import {
   blank,
@@ -29,8 +30,10 @@ export const rejectMembership: Command<
     throw new ValidationFailed("reject_reason_required", "reason");
   }
 
-  const [membership] = await tx<{ id: string; status: MembershipStatus }[]>`
-    select id, status from memberships
+  const [membership] = await tx<
+    { id: string; status: MembershipStatus; user_id: string }[]
+  >`
+    select id, status, user_id from memberships
     where id = ${input.membershipId} and deleted_at is null
   `;
   if (!membership) throw new NotFound("membership_not_found");
@@ -43,6 +46,15 @@ export const rejectMembership: Command<
     set status = 'rejected', rejection_reason = ${input.reason.trim()}
     where id = ${membership.id}
   `;
+
+  // OPS §7. The reason travels with it — §16.3 makes the reason the point of
+  // requiring one, and a rejection a child cannot see the reason for is the
+  // shape this whole flow exists to avoid.
+  await notify(tx, {
+    userId: membership.user_id,
+    kind: "membership_rejected",
+    payload: { reason: input.reason.trim() },
+  });
 
   return {
     result: undefined,
