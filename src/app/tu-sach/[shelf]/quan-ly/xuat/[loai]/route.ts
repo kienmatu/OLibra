@@ -110,6 +110,19 @@ function today(): string {
  * post, so its absence means a caller that is not a browser — `curl`, a health
  * check, a test — and refusing those would be refusing on the strength of a
  * header anybody can omit anyway.
+ *
+ * **The comparison is `Origin` against the `Host` header, and that is an
+ * assumption about the deployment, stated here rather than discovered.** It
+ * holds for the shipped compose topology, where the browser reaches Next
+ * directly and `Host` is what the browser sent. Behind a reverse proxy that
+ * rewrites `Host` — terminating TLS at `tusach.example` and forwarding to
+ * `localhost:3000` — every export answers **403 with no body and no log line**,
+ * and there is nothing on the volunteer's screen to diagnose it from. The fix
+ * at that point is one line and a decision this file must not make on its own:
+ * trust `X-Forwarded-Host`, which means trusting whatever set it, so it belongs
+ * with whoever owns the proxy (OPERATIONS.md), not here. Recorded because a
+ * three-line check that fails closed under a topology change is exactly the
+ * kind of thing nobody finds by reading the handler.
  */
 function sameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");

@@ -113,6 +113,16 @@ const TIMEZONE = "Asia/Ho_Chi_Minh";
  * append-only and never pruned (INV-12), so it is the one table in this system
  * whose size has no ceiling at all — a shelf's catalogue stops growing, its
  * history does not.
+ *
+ * **A page past the end answers `{ rows: [], total: 0, pageCount: 1 }`, and
+ * that strands the reader.** `total` is read off `rows[0]`, so an empty page
+ * carries no count, the screen renders its empty state and hides the pager
+ * behind `pageCount > 1` — no control left to get back with. It is not this
+ * query's defect to fix: `get-readers-list.ts`, `get-catalogue.ts` and
+ * `get-books-list.ts` are identical, and fixing one would leave four paged
+ * screens disagreeing about the same URL. The whole finding, and the two
+ * possible fixes, are written down at `pageNumber` in `src/lib/search-params.ts`
+ * — where every one of those page numbers is parsed.
  */
 export async function getAuditLog(
   tx: Tx,

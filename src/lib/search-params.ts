@@ -67,6 +67,37 @@ export function param(search: SearchParams, name: string): string | undefined {
  * (U3 wave 1, which wires the second paged screen). It is the same class of
  * defect `param` above exists for, one type further along, and two private
  * copies of a parse is how one of them later stops clamping.
+ *
+ * ── An open defect this function cannot fix, recorded where it starts ────────
+ *
+ * **A page number past the end strands the reader, on every paged screen in
+ * this application.** `?trang=99` over 30 rows at pageSize 10 is a well-formed
+ * page number, so it arrives here unchanged and reaches the query, which
+ * answers `{ rows: [], total: 0, pageCount: 1, page: 99 }` — `total` is read
+ * off `rows[0]` and there is no row zero, so the window function that would
+ * have said 30 never ran. The screen then renders its *empty state* ("Chưa có
+ * việc nào được ghi lại", "Chưa có bạn đọc nào"), which is a false statement
+ * about a shelf that has thirty, and it hides the pager, because every one of
+ * them draws it behind `pageCount > 1`. There is no control left on the page to
+ * get back with. Only editing the URL by hand recovers, and the person on a
+ * parish phone who reached this by tapping a stale bookmark cannot.
+ *
+ * **It is repo-wide, not one screen's**, which is why it is written here and
+ * not fixed in whichever query a reviewer happened to be reading. Four queries
+ * carry the identical shape — `get-audit-log.ts:215,232`,
+ * `get-readers-list.ts:142,161`, `get-catalogue.ts:216,236`,
+ * `get-books-list.ts:155,177` — and half-fixing one would leave three screens
+ * behaving differently from the fourth over the same URL, which is worse than
+ * the defect.
+ *
+ * The fix belongs in one place and is a decision, not a patch: either every
+ * paged query counts before it selects (a second statement, so an out-of-range
+ * page can be clamped to the real `pageCount` and the row re-read), or every
+ * paged *page* treats `rows.length === 0 && page > 1` as "past the end" and
+ * renders a way back rather than an empty state. The second is cheaper and
+ * needs no extra query. Neither is P1's, and P1 shipped the fourth instance of
+ * the pattern rather than the first — U3 found the same class of thing in a
+ * query its plan had only warned new queries about.
  */
 export function pageNumber(raw: string | undefined): number {
   const n = Number.parseInt(raw ?? "", 10);
