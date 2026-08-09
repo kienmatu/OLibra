@@ -175,8 +175,10 @@ export function readersTable(rows: ReaderExportRow[]): CsvTable {
       "Trạng thái",
       "Vai trò",
       "Có tài khoản đăng nhập",
+      // No "Ghi chú của quản lý". The column is refused in the query rather
+      // than dropped here — see `exportReaders` for the reason. Nothing is
+      // added to this table that the row type does not carry.
       "Ngày tham gia",
-      "Ghi chú của quản lý",
     ],
     rows: rows.map((r) => [
       cell(r.saintName),
@@ -191,7 +193,6 @@ export function readersTable(rows: ReaderExportRow[]): CsvTable {
       roleWord(r.role),
       yesNo(r.hasCredentials),
       cell(r.joinedOn),
-      cell(r.managerNotes),
     ]),
   };
 }

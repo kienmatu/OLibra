@@ -10,7 +10,7 @@ import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy"
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
 import { getReaderDetail } from "@/domain/members/queries/get-reader-detail";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
-import { formatDate, formatDueDate } from "@/lib/dates";
+import { formatDate, formatDueDate, formatInstant } from "@/lib/dates";
 import { MEMBERSHIP_STATUS } from "@/lib/membership-status";
 import { loadPage } from "@/lib/page-data";
 import { isUuid } from "@/lib/search-params";
@@ -170,6 +170,29 @@ export default async function ManagerReaderDetailPage({
       private: true,
     },
     { label: "Email", value: reader.email ?? "Chưa có" },
+    {
+      label: "Ngày tham gia",
+      // **Added because a file was showing it and this page was not.** P1
+      // §3.5(b) bounds the readers CSV to what BR §16.3 already shows a manager
+      // on screen, and the readers export has carried a "Ngày tham gia" column
+      // since it shipped — from `memberships.approved_at`, the same value read
+      // here. The bound is only a bound if it holds for every column, so the
+      // choice was to render it or to drop it, and rendering is the one that
+      // keeps a fact a manager has an ordinary use for: how long this child has
+      // been with the shelf, which is the first thing asked about a name nobody
+      // on duty recognises.
+      //
+      // `formatInstant`, never `formatDate`: `approved_at` is a `timestamptz`
+      // (0003_identity.sql:97) and not a calendar date, so it is resolved in
+      // `Asia/Ho_Chi_Minh` — the same conversion `exportReaders` does in SQL,
+      // for the same reason. Reading it as a bare date would file an approval
+      // made after 5pm local under the previous day, which is the defect that
+      // slice's own test pins.
+      //
+      // `null` is ordinary rather than missing: a membership created directly
+      // by a manager, and every seeded one, has no approval instant at all.
+      value: reader.approvedAt ? formatInstant(reader.approvedAt) : "Chưa có",
+    },
   ];
 
   return (

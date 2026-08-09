@@ -31,7 +31,14 @@ afterAll(closeAll);
 /**
  * OPS §3.3's three exports, and P1 §3.5's two demands about them: the
  * `manager` gate is **provable by test**, and the file contains nothing BR
- * §16.1 does not already show a manager on screen.
+ * §16.3 does not already show a manager on screen.
+ *
+ * §16.1 is *Public pages* — landing, contact, portal, catalogue, book detail —
+ * and says nothing about what a manager sees of a child. The section that does
+ * is §16.3, Readers: "Detail view shows the full profile — including the
+ * manager-only fields". The plan, this file and `exports.ts` all cited the
+ * wrong number; all four sites are corrected together, because a bound is only
+ * checkable against the section that actually states it.
  */
 
 async function shelfWithManager(slug: string) {
@@ -93,6 +100,42 @@ test("a manager of one shelf exports nothing of another's", async () => {
     (r) => r.fullName,
   );
   expect(namesInB).not.toContain(readers[0].fullName);
+});
+
+test("the readers export carries no manager's private note", async () => {
+  // §3.5(b), and the column that made the bound worth checking rather than
+  // asserting. `memberships.manager_notes` is BR §5.4's "manager's private
+  // notes"; **no screen in this application renders it** — `grep -rn
+  // "managerNotes\|manager_notes" src --include='*.tsx'` finds nothing — so it
+  // was never inside the bound, and the plan's reconciliation recorded it as
+  // rendered on `quan-ly/nguoi-doc/[id]` when it is not.
+  //
+  // No shipped command writes the column either, which is why the note below
+  // goes in with raw SQL and why removing it cost nothing at the time. The
+  // sentence is the point: this is the kind of thing a volunteer writes in a
+  // box marked private, and a downloadable file is not where it belongs.
+  const { shelf, ctx } = await shelfWithManager("dong-thap");
+  const reader = await makeMember(sql, shelf.id);
+  await sql`
+    update memberships set manager_notes = 'bố hay uống rượu, gọi mẹ'
+    where id = ${reader.id}
+  `;
+
+  const rows = await runQuery(sql, ctx, exportReaders);
+  const table = readersTable(rows);
+  const csv = toCsv(...tableOf(table));
+
+  expect(csv).not.toContain("uống rượu");
+  expect(table.headers).not.toContain("Ghi chú của quản lý");
+  // The row type too, not only the file: a column restored to the query but
+  // left out of the table would be a leak one refactor away, and this is the
+  // assertion that says so.
+  expect(rows[0]).not.toHaveProperty("managerNotes");
+  // The positive control. Every assertion above is that something is *absent*,
+  // which an export returning no rows at all satisfies perfectly — the shelf
+  // has its manager and this reader.
+  expect(rows).toHaveLength(2);
+  expect(csv).toContain("Ngày tham gia");
 });
 
 test("the readers export carries no username and no hash", async () => {

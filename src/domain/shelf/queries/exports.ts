@@ -156,21 +156,42 @@ export interface ReaderExportRow {
   status: MembershipStatus;
   role: MembershipRole;
   hasCredentials: boolean;
-  managerNotes: string | null;
   joinedOn: string | null;
 }
 
 /**
  * P1 §3.5: "A CSV of children is a disclosure surface."
  *
- * The column set is bounded by §3.5(b) — "nothing in it that BR §16.1 does not
- * already show a manager on screen" — and every column below is on
- * `quan-ly/nguoi-doc/[id]` today, from `getReaderDetail`'s own select. That is
- * the bound, and it is a real one: `username` and `password_hash` are **not**
- * here. `hasCredentials` is the boolean `getReaderDetail` substitutes for them
- * (INV-14: the two are paired or both null, and neither is ever read out), so
- * the file can answer "does this child have a way in from home" without being a
- * list of accounts to try.
+ * The column set is bounded by §3.5(b) — "nothing in it that BR **§16.3** does
+ * not already show a manager on screen" — and the bound was **checked column by
+ * column against the page**, not against `getReaderDetail`'s select. The plan's
+ * reconciliation row recorded the two as the same thing and they are not: the
+ * query returns four fields the page does not render, and the first version of
+ * this export carried two of them. §16.1 is *Public pages* and says nothing
+ * about what a manager sees of a child; §16.3, Readers, is the section that
+ * does — "Detail view shows the full profile — including the manager-only
+ * fields". The wrong number is corrected here and in the plan.
+ *
+ * **`manager_notes` is deliberately absent, and this is the one that mattered.**
+ * BR §5.4 calls it the manager's *private* notes, no screen in this application
+ * renders it, and no shipped command writes it — so removing it from the file
+ * cost nothing today, which is exactly why it was worth doing today. The day a
+ * later slice ships the field a volunteer types "bố hay uống rượu, gọi mẹ" into,
+ * that sentence would have left the system in a downloadable file, and the
+ * record of the decision would have said the surface was bounded and checked.
+ * `tests/domain/shelf/exports.test.ts` writes a note straight into the column
+ * and asserts it does not reach the CSV, so a later slice restoring the column
+ * has to argue with a test rather than with a comment.
+ *
+ * `username` and `password_hash` are not here either. `hasCredentials` is the
+ * boolean `getReaderDetail` substitutes for them (INV-14: the two are paired or
+ * both null, and neither is ever read out), so the file can answer "does this
+ * child have a way in from home" without being a list of accounts to try.
+ *
+ * `joinedOn` **is** here, and the page earns it rather than the file being
+ * excused: `quan-ly/nguoi-doc/[id]` renders "Ngày tham gia" from the same
+ * `approved_at`, added in this slice. A bound that holds for one column and not
+ * another is not a bound.
  *
  * `parishLine` is `describeSelection`'s, so the file says "Tổ 3 · Giáo họ Thánh
  * Tâm" in the shelf's own words rather than two uuids — the same function every
@@ -178,7 +199,8 @@ export interface ReaderExportRow {
  *
  * §3.5(a) asks for the gate to be provable by test rather than asserted;
  * `tests/domain/shelf/exports.test.ts` runs it as a reader and as a manager of
- * the wrong shelf.
+ * the wrong shelf, and — §3.5(b) — writes a private note into `manager_notes`
+ * and asserts it does not reach the file.
  */
 export async function exportReaders(
   tx: Tx,
@@ -200,14 +222,16 @@ export async function exportReaders(
       status: MembershipStatus;
       role: MembershipRole;
       has_credentials: boolean;
-      manager_notes: string | null;
       joined_on: string | null;
     }[]
   >`
     select u.saint_name, u.full_name, u.date_of_birth::text as date_of_birth,
            u.father_name, u.mother_name, u.phone, u.email,
            m.parish_unit_l1_id, m.parish_unit_l2_id,
-           m.status, m.role, m.manager_notes,
+           -- No m.manager_notes. BR §5.4's private notes are on no screen and
+           -- have no writer command; see this function's docstring for why the
+           -- column is refused now rather than when one appears.
+           m.status, m.role,
            -- The **calendar day in the shelf's own timezone**, not the
            -- session's. approved_at is a timestamptz (0003_identity.sql:97) and
            -- a bare ::date resolves it through the session TimeZone. That is
@@ -245,7 +269,6 @@ export async function exportReaders(
     status: r.status,
     role: r.role,
     hasCredentials: r.has_credentials,
-    managerNotes: r.manager_notes,
     joinedOn: r.joined_on,
   }));
 }
