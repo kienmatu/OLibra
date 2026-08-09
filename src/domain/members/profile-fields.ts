@@ -1,0 +1,336 @@
+import { ValidationFailed } from "../kernel/errors";
+import type { Tx } from "../kernel/unit-of-work";
+
+/**
+ * INV-13b's application half: the one place in `src/domain/` that writes a
+ * person's verified details.
+ *
+ * ── Why this module exists at all ────────────────────────────────────────
+ *
+ * BR §6's INV-13 was restated on 2026-08-09, after the product owner decided
+ * that a manager corrects a reader's details directly rather than by proposing
+ * on their behalf (master plan §5 Q8). That leaves **two** sanctioned write
+ * paths where there was one: `ApproveProfileChange` writes the fields named in
+ * a request's `proposed_values`, and `UpdateReaderProfile` writes the fields
+ * named in a manager's input.
+ *
+ * Two field lists are two things that can disagree, and the failure is silent:
+ * a field added to one path is simply not writable through the other, and
+ * nothing anywhere raises. So neither command writes `users` itself. They call
+ * `applyProfileFields` below, and the allowlist is `PROFILE_FIELDS` — data, not
+ * a chain of `if`s, so the two can be compared by eye and driven by a test.
+ * `tests/invariants/inv-13-one-pending-profile-change.test.ts` iterates
+ * `PROFILE_FIELDS` and drives *both* paths for every entry: a ninth field added
+ * with a one-path implementation fails without anyone having to remember.
+ *
+ * ── The defect this module exists to make impossible ─────────────────────
+ *
+ * A third `update users` appearing in `src/domain/`. INV-13b is application
+ * discipline precisely because no constraint can express which code path may
+ * write a column (DATABASE.md §7, §4.11), so the only thing that can hold it is
+ * a test that reads the source. That test is in the INV-13 file too, and it
+ * **enumerates** the permitted writers with a reason each rather than counting
+ * them — because "exactly one other command writes `users`" was asserted by
+ * B2a and was already false when it was written: `commands/change-own-password
+ * .ts` writes `password_hash` as well, and B2a shipped both.
+ *
+ * ── What is deliberately *not* in the list ───────────────────────────────
+ *
+ * `username` and `password_hash` (`SetReaderCredentials`' pair, INV-14's) are
+ * not verified details — BR §2 gives a manager that power explicitly and by a
+ * separate argument, and the audit rules for it are different (no before, no
+ * after). `is_super_admin` is a grant, not a fact about a person.
+ * `display_name` and `locale` are written by nothing in `src/domain/` at all
+ * today; adding either here would make it writable by a manager on a reader's
+ * behalf, which nothing has asked for.
+ */
+
+/**
+ * The eight columns of `users` that are a person's *verified details* — the
+ * subject of BR §5.3's registration form and of every proposal a reader may
+ * make (OPS §4.3), plus the photograph.
+ *
+ * Spelled as the database spells them, snake_case, because both callers put
+ * these names into `profile_change_requests.proposed_values` (a `jsonb` shadow
+ * of this table's own shape, DATABASE.md §4.11) and into audit `before`/`after`
+ * bags. One spelling end to end means no translation layer that can drift.
+ */
+export const PROFILE_FIELDS = [
+  "saint_name",
+  "full_name",
+  "date_of_birth",
+  "father_name",
+  "mother_name",
+  "phone",
+  "email",
+  "avatar_url",
+] as const;
+
+export type ProfileField = (typeof PROFILE_FIELDS)[number];
+
+/** All eight, as they stand. `date_of_birth` is an ISO `YYYY-MM-DD` string. */
+export type ProfileFields = Record<ProfileField, string | null>;
+
+/** A subset: exactly the fields a caller named, and nothing else. */
+export type ProfilePatch = Partial<ProfileFields>;
+
+/**
+ * The three that are `not null` on the table (`0003_identity.sql:16-19`).
+ *
+ * Blanking one has to be a named refusal — OPS §4.3's
+ * `required_fields_missing` — rather than a `23502` out of the driver, which
+ * OPS §2 forbids ("a command never fails with a bare 500 or an unstructured
+ * exception"). `saint_name`, `phone`, `email`, `date_of_birth` and `avatar_url`
+ * are all nullable and clearing one is a legitimate edit: a family that never
+ * gave a phone number is a real row.
+ */
+export const REQUIRED_PROFILE_FIELDS: readonly ProfileField[] = [
+  "full_name",
+  "father_name",
+  "mother_name",
+];
+
+const PROFILE_FIELD_SET: ReadonlySet<string> = new Set(PROFILE_FIELDS);
+
+/** `YYYY-MM-DD`, the only shape `date_of_birth::date` may be handed. */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Whether a patch *names* a field, which is not the same question as whether
+ * the key is present.
+ *
+ * `undefined` means "not named" and `null` means "clear it" — the same split
+ * `updateBook` settled empirically for the catalogue (`input.x !== undefined`,
+ * IMPORTANT 3, fix-report 2026-08-08-b1-catalogue). Reading presence with
+ * `hasOwnProperty` instead would make `{ phone: undefined }` — the shape a
+ * form handler produces for a field the request omitted — clear the reader's
+ * phone number, which is the exact silent data loss this module is here to
+ * prevent. One definition, used by every function below, so the two halves
+ * (validate, then write) cannot disagree about which fields were named.
+ */
+function named(patch: ProfilePatch, field: ProfileField): boolean {
+  return patch[field] !== undefined;
+}
+
+/**
+ * Keeps only the eight allowed keys out of an untrusted bag, and drops
+ * everything else silently.
+ *
+ * The untrusted bag is real: `proposed_values` is `jsonb` with no check
+ * constraint behind it (DATABASE.md §4.11 names that as the price of the
+ * design), and the avatar wave will put **`avatar_object`** into it — the
+ * storage key of the proposed image, which is never copied onto `users` and
+ * must therefore never reach `applyProfileFields`. That field is called
+ * `avatar_object` rather than the more obvious `avatar_key` because
+ * `kernel/audit.ts`'s `FORBIDDEN` list matches `key` as a whole token, so an
+ * `avatar_key` in an audited payload throws `audit_forbidden_field` the moment
+ * a command audits `proposed_values`. Naming avoids the landmine; remembering
+ * would not have.
+ *
+ * Dropping rather than throwing, because the caller is a historical row: a
+ * request written by an older version of the application, or one carrying a
+ * field a later slice removed from the list, must still be approvable. What it
+ * must not do is write a column nobody sanctioned.
+ */
+export function pickProfileFields(raw: unknown): ProfilePatch {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const patch: ProfilePatch = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!PROFILE_FIELD_SET.has(key)) continue;
+    if (value === null || value === undefined) {
+      patch[key as ProfileField] = null;
+    } else if (typeof value === "string") {
+      patch[key as ProfileField] = value;
+    }
+    // Anything else — a number, an object, a boolean — is dropped rather than
+    // coerced. `String(42)` would write "42" into `phone` and look deliberate.
+  }
+  return patch;
+}
+
+/**
+ * Trims, folds whitespace-only to null, and refuses what the columns refuse —
+ * before any write, so a refusal is a sentence rather than a constraint
+ * violation.
+ *
+ * Trimming here rather than in each caller is the same lesson M5 recorded on
+ * `updateBook` (fix-report, 2026-08-08-b1-catalogue): a value trimmed for the
+ * write and untrimmed for the audit entry is two values, and the audit is the
+ * one that lies.
+ */
+export function normaliseProfilePatch(patch: ProfilePatch): ProfilePatch {
+  const out: ProfilePatch = {};
+  for (const field of PROFILE_FIELDS) {
+    if (!named(patch, field)) continue;
+    const raw = patch[field] ?? null;
+    const value = raw === null ? null : raw.trim() === "" ? null : raw.trim();
+
+    if (value === null && REQUIRED_PROFILE_FIELDS.includes(field)) {
+      throw new ValidationFailed("required_fields_missing", field);
+    }
+    if (field === "date_of_birth" && value !== null && !ISO_DATE_RE.test(value)) {
+      // Two different failures, and the second is the reason this check is not
+      // merely tidiness. Measured against `olibra_test`, whose `DateStyle` is
+      // the Postgres default `ISO, MDY`:
+      //
+      //   select 'hôm qua'::date   -> ERROR 22007, a raw driver error from
+      //                               inside the transaction, which OPS §2
+      //                               forbids
+      //   select '02/04/2015'::date -> 2015-02-04, silently
+      //
+      // The second is worse. A volunteer typing 2 April 2015 the way it is
+      // written in Vietnamese gets 4 February 2015 stored, no error anywhere,
+      // and a child's date of birth quietly wrong on a record BR §5.3 exists to
+      // make trustworthy. DATABASE.md §2.2 already warns that a session setting
+      // (there, `TimeZone`) must never be relied on for correctness, because a
+      // web request, a migration console and a background job may each carry a
+      // different one; `DateStyle` is the same hazard with a quieter failure.
+      // So the shape is fixed here, in the domain, rather than left to whatever
+      // the connection happens to be set to.
+      //
+      // OPS §4.3 gives this command `validation_failed`, and this is what it is
+      // for.
+      throw new ValidationFailed("validation_failed", "date_of_birth");
+    }
+    out[field] = value;
+  }
+  return out;
+}
+
+/**
+ * Which of the eight actually differ, and what they were and became.
+ *
+ * OPS §4.3 wants `profile.corrected`'s audit entry to carry "only the fields
+ * that actually changed", and BR §14 wants an audit browser that can say what
+ * happened. An entry listing all eight, six of them identical on both sides,
+ * says "a manager rewrote this person" when a manager fixed a phone number.
+ */
+export function diffProfileFields(
+  before: ProfileFields,
+  after: ProfileFields,
+): { changed: ProfileField[]; before: ProfilePatch; after: ProfilePatch } {
+  const changed = PROFILE_FIELDS.filter((f) => before[f] !== after[f]);
+  const pick = (from: ProfileFields): ProfilePatch =>
+    Object.fromEntries(changed.map((f) => [f, from[f]])) as ProfilePatch;
+  return { changed: [...changed], before: pick(before), after: pick(after) };
+}
+
+/**
+ * Writes exactly the fields `patch` names onto one person, and returns what
+ * they were and what they became.
+ *
+ * ── Three things about the statement, each of which has a tidier wrong
+ * version somebody will otherwise write ─────────────────────────────────
+ *
+ * **1. Only the named columns move, and the others are not rewritten with a
+ * value this function read earlier.** That is IMPORTANT 3's lesson from
+ * `updateBook` (fix-report, 2026-08-08-b1-catalogue), verified there with two
+ * connections: reading a row into JavaScript and writing the whole row back
+ * silently discards a *different* manager's edit to a field this call never
+ * touched, committed in the window between the read and the write. Here the
+ * `else` branch of every arm reads `prev`, a CTE over the same row in the same
+ * statement — one snapshot, one atomic write, no window.
+ *
+ * **2. `for update` on that CTE.** Both commands calling this read the person
+ * again for their own reasons; the lock makes the whole read-decide-write
+ * sequence serialise against a second manager doing the same thing to the same
+ * reader, so two concurrent corrections produce two audit entries in a defined
+ * order rather than one entry describing a diff that never existed.
+ *
+ * **3. `before` comes out of the same statement as `after`, via `returning`,
+ * not from a separate `select` this function ran first.** An audit entry is a
+ * claim about what changed; sourcing its two halves from two statements makes
+ * it a claim about two different moments.
+ *
+ * A zero-row result raises the kernel's `write_target_not_found` by default
+ * (`guardWrites`, `kernel/unit-of-work.ts`) and is deliberately not opted out
+ * of: both callers have already resolved this `userId` by joining `memberships`
+ * to `users` with `deleted_at is null`, so zero rows here means the row was
+ * soft-deleted underneath them, and silently succeeding at nothing is the
+ * failure mode that guard exists for.
+ *
+ * **`users` has no row-level security** (`0010_rls.sql:38-41`, by design — it
+ * is a global table). This function therefore takes a `userId` that its callers
+ * must have resolved through a shelf-scoped `memberships` row, and it is the
+ * one place in this domain where that obligation is not visible in the type.
+ * Neither command has a `userId` parameter for exactly that reason; see
+ * `commands/update-reader-profile.ts`.
+ */
+export async function applyProfileFields(
+  tx: Tx,
+  userId: string,
+  patch: ProfilePatch,
+): Promise<{ before: ProfileFields; after: ProfileFields }> {
+  const has = (f: ProfileField): boolean => named(patch, f);
+  const val = (f: ProfileField): string | null => patch[f] ?? null;
+
+  // The eight arms below are the only place `PROFILE_FIELDS` is spelled a
+  // second time — the driver takes a tagged template, so a column list cannot
+  // be composed from the array without dropping out of the guarded `tx` the
+  // kernel hands every command. What holds the two spellings in step is the
+  // table-driven test over `PROFILE_FIELDS` in the INV-13 file: a field added
+  // to the array and forgotten here is a red test, not a silent no-op.
+  const [row] = await tx<
+    (Record<`before_${ProfileField}`, string | null> &
+      Record<`after_${ProfileField}`, string | null>)[]
+  >`
+    with prev as (
+      select id, saint_name, full_name, date_of_birth::text as date_of_birth,
+             father_name, mother_name, phone, email, avatar_url
+        from users
+       where id = ${userId} and deleted_at is null
+         for update
+    )
+    update users u set
+      saint_name    = case when ${has("saint_name")}    then ${val("saint_name")}            else prev.saint_name end,
+      full_name     = case when ${has("full_name")}     then ${val("full_name")}             else prev.full_name end,
+      date_of_birth = case when ${has("date_of_birth")} then ${val("date_of_birth")}::date   else prev.date_of_birth::date end,
+      father_name   = case when ${has("father_name")}   then ${val("father_name")}           else prev.father_name end,
+      mother_name   = case when ${has("mother_name")}   then ${val("mother_name")}           else prev.mother_name end,
+      phone         = case when ${has("phone")}         then ${val("phone")}                 else prev.phone end,
+      email         = case when ${has("email")}         then ${val("email")}                 else prev.email end,
+      avatar_url    = case when ${has("avatar_url")}    then ${val("avatar_url")}            else prev.avatar_url end
+      from prev
+     where u.id = prev.id
+    returning
+      prev.saint_name    as before_saint_name,    u.saint_name    as after_saint_name,
+      prev.full_name     as before_full_name,     u.full_name     as after_full_name,
+      prev.date_of_birth as before_date_of_birth, u.date_of_birth::text as after_date_of_birth,
+      prev.father_name   as before_father_name,   u.father_name   as after_father_name,
+      prev.mother_name   as before_mother_name,   u.mother_name   as after_mother_name,
+      prev.phone         as before_phone,         u.phone         as after_phone,
+      prev.email         as before_email,         u.email         as after_email,
+      prev.avatar_url    as before_avatar_url,    u.avatar_url    as after_avatar_url
+  `;
+
+  const side = (prefix: "before" | "after"): ProfileFields =>
+    Object.fromEntries(
+      PROFILE_FIELDS.map((f) => [
+        f,
+        row[`${prefix}_${f}` as keyof typeof row] ?? null,
+      ]),
+    ) as ProfileFields;
+
+  return { before: side("before"), after: side("after") };
+}
+
+/**
+ * The eight fields as they stand, without writing anything.
+ *
+ * `ProposeProfileChange` needs them for `previous_values` — BR §5.4's snapshot,
+ * "so a manager reviewing a week-old request sees what it would actually
+ * change" — and it must not reach `users` by hand to get them, or the field
+ * list has drifted again in a third place.
+ */
+export async function readProfileFields(
+  tx: Tx,
+  userId: string,
+): Promise<ProfileFields | null> {
+  const [row] = await tx<ProfileFields[]>`
+    select saint_name, full_name, date_of_birth::text as date_of_birth,
+           father_name, mother_name, phone, email, avatar_url
+      from users
+     where id = ${userId} and deleted_at is null
+  `;
+  return row ?? null;
+}

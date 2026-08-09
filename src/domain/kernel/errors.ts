@@ -124,6 +124,20 @@ export const ERROR_MESSAGES = {
   member_has_active_loans: "Bạn đọc này còn sách chưa trả, hãy nhận trả trước.",
   reject_reason_required: "Vui lòng ghi lý do từ chối.",
 
+  // — members: B2b —
+  // OPS §4.3's own sentence, under ProposeProfileChange (`:484`), reused
+  // unchanged by UpdateReaderProfile: "nothing differs from the current
+  // values" is the same fact whichever of the two write paths BR §6's restated
+  // INV-13 sanctions is being asked to do nothing. A no-op that wrote an audit
+  // entry would be an entry claiming a change nobody made, which is worse than
+  // a refusal — BR §14's audit browser is read as a record of what happened.
+  //
+  // Checked for a collision before adding, the way B1, B2a and C1 each had to:
+  // there is no other sentence in this catalogue about an empty change, and
+  // `validation_failed` ("Vui lòng kiểm tra lại thông tin.") is the wrong one —
+  // nothing about the input is wrong.
+  empty_proposal: "Vui lòng thay đổi ít nhất một trường.",
+
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
   not_permitted: "Bạn không có quyền thực hiện việc này.",
