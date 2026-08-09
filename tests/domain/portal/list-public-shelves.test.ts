@@ -47,16 +47,29 @@ async function makePublicShelf(
 const directory = (q = "") =>
   runPublicQuery(sql, (tx) => listPublicShelves(tx, { q }));
 
-test("it runs as olibra_app with no shelf scope, and every other table is still empty to it", async () => {
+test("it runs as olibra_public with no shelf scope, and every other table is refused outright", async () => {
   // The claim the whole slice rests on: this read is safe *without* a
-  // membership because RLS is fully in force, not because it was let past.
-  // Three facts, all measured inside the one transaction the query runs in:
-  // the role really is the unprivileged one, the tenant GUC really is the
-  // fail-closed sentinel, and a table with no public-read policy really does
-  // answer zero rows — while `bookshelves` answers.
+  // membership. Three facts, all measured inside the one transaction the query
+  // runs in: the role really is the least-privileged one, the tenant GUC really
+  // is the fail-closed sentinel, and a table a public caller has no business
+  // reading really does refuse — while `bookshelves` answers.
   //
-  // The last one is what a `bypassrls` implementation could not fake. Both
-  // shelves below hold books and members; a public read must see neither.
+  // **The role is `olibra_public`, and the third fact is a privilege error
+  // rather than zero rows.** IMPORTANT 1 (fix-report, 2026-08-09-u2-shelf-and-
+  // portal): this test used to assert `olibra_app` and `count(*) = 0` on
+  // `books` and `memberships`, which was true and was not the question. Both
+  // of those tables carry a `<table>_tenant` policy, so of course they answered
+  // zero under the empty scope; `users`, `sessions`, `categories` and
+  // `schema_migrations` carry no policy at all and answered *everything*, and
+  // this test never looked at them. Sampling three tables is how a check comes
+  // to agree with a false premise.
+  //
+  // So the fix is a role with no grant rather than a policy per table
+  // (20260809_01_public_role.sql), and the assertion is `42501` rather than a
+  // count — an error the next author cannot read as "safe, just empty".
+  // `tests/db/public-role-privileges.test.ts` is the exhaustive half: it sweeps
+  // every relation in the schema, discovered from `pg_class`. This one keeps
+  // the two facts that belong beside the query itself.
   const a = await makePublicShelf("dong-thap", "Tủ sách Đồng Tháp", "Ấp Tân Hoà");
   const b = await makePublicShelf("can-tho", "Tủ sách Cần Thơ", "Phường An Bình");
   await makeBookWithCopies(sql, a.id, 2);
@@ -72,23 +85,31 @@ test("it runs as olibra_app with no shelf scope, and every other table is still 
         current_setting('olibra.bookshelf_id', true) as scope,
         (select rolbypassrls from pg_roles where rolname = current_user) as bypasses
     `;
-    const [counts] = await tx<
-      { shelves: string; books: string; members: string }[]
-    >`
-      select
-        (select count(*) from bookshelves)  as shelves,
-        (select count(*) from books)        as books,
-        (select count(*) from memberships)  as members
+    const [counts] = await tx<{ shelves: string }[]>`
+      select (select count(*) from bookshelves) as shelves
     `;
     return { who, counts };
   });
 
-  expect(probe.who.role).toBe("olibra_app");
+  expect(probe.who.role).toBe("olibra_public");
   expect(probe.who.bypasses).toBe(false);
   expect(probe.who.scope).toBe("");
   expect(Number(probe.counts.shelves)).toBe(2);
-  expect(Number(probe.counts.books)).toBe(0);
-  expect(Number(probe.counts.members)).toBe(0);
+
+  // Both shelves hold books and members. A public read reaches neither, and it
+  // is stopped before RLS is consulted at all.
+  for (const table of ["books", "memberships", "users", "sessions"]) {
+    // Caught outside `runPublicQuery`, not inside: a statement that raises
+    // aborts the transaction it is in, so `sql.begin` rejects regardless of
+    // what the callback does with the rejection. One transaction per probe.
+    const code = await runPublicQuery(sql, (tx) =>
+      tx.unsafe(`select 1 from "${table}" limit 1`),
+    ).then(
+      () => "ok",
+      (err: { code?: string }) => err.code,
+    );
+    expect(code, `${table} should be refused`).toBe("42501");
+  }
 });
 
 test("it returns the shelf's name, address and slug — and no other key", async () => {

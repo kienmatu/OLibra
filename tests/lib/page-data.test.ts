@@ -415,21 +415,34 @@ test("loadPublicPage reads with no shelf and no session, and sees nothing else",
   // the suite's own connection — because that is what a page actually calls.
   // The directory comes back for a caller who named no shelf and holds no
   // cookie, which is the whole point; and in the same transaction `books` is
-  // empty, which is what says the read is scoped rather than privileged.
-  // `tests/domain/portal/list-public-shelves.test.ts` carries the full
-  // argument, including that the role is not `bypassrls`.
+  // unreachable, which is what says the read is least-privileged rather than
+  // merely scoped. `tests/domain/portal/list-public-shelves.test.ts` carries
+  // the full argument, and `tests/db/public-role-privileges.test.ts` sweeps
+  // every relation in the schema rather than this one sample.
+  //
+  // IMPORTANT 1 (fix-report, 2026-08-09-u2-shelf-and-portal): `books` used to
+  // be asserted as `count(*) = 0`, which was true because `books_tenant`
+  // filtered it, and which said nothing about the four tables that carry no
+  // policy at all. `runPublicQuery` now runs as `olibra_public`, which holds
+  // no grant on `books`, so the honest assertion is a refusal.
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
   await makeBookWithCopies(sql, shelf.id, 2);
   await makeShelf(sql, { slug: "can-tho" });
 
-  const seen = await loadPublicPage(async (tx) => {
+  const slugs = await loadPublicPage(async (tx) => {
     const shelves = await tx<{ slug: string }[]>`select slug from bookshelves`;
-    const books = await tx<{ n: string }[]>`select count(*) as n from books`;
-    return { slugs: shelves.map((s) => s.slug).sort(), books: Number(books[0].n) };
+    return shelves.map((s) => s.slug).sort();
   });
+  expect(slugs).toEqual(["can-tho", "dong-thap"]);
 
-  expect(seen.slugs).toEqual(["can-tho", "dong-thap"]);
-  expect(seen.books).toBe(0);
+  // A separate transaction: a statement that raises aborts the one it is in.
+  const books = await loadPublicPage(
+    (tx) => tx`select count(*) as n from books`,
+  ).then(
+    () => "ok",
+    (err: { code?: string }) => err.code,
+  );
+  expect(books).toBe("42501");
 });
 
 test("a real fault is not swallowed into a 404", async () => {

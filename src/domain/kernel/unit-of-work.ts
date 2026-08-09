@@ -546,8 +546,9 @@ export async function runQuery<O>(
  * There is exactly one thing in this system a caller may read without naming a
  * shelf, and OPS §3.1 is where it is enumerated: the portal directory
  * (`GetPortalDirectory`, `SearchBookshelves`), both **Global**, both callable
- * by `guest`. OPS §1 lists that alongside promote-to-super-admin and the
- * cross-shelf administration views as the whole of INV-10's named exceptions.
+ * by `guest`. OPS §2 (`OPERATIONS.md:25`) lists that alongside
+ * promote-to-super-admin and the cross-shelf administration views as the whole
+ * of INV-10's named exceptions.
  * A stranger looking for their parish has no membership anywhere, so there is
  * no shelf for `runQuery` to scope to — which is the situation, and not a
  * shortcut around one.
@@ -555,19 +556,47 @@ export async function runQuery<O>(
  * **What this is not: the `bypassrls` escalation.** `runGlobalCommand` reaches
  * for `olibra_admin`, and its docstring is explicit that this should stay rare
  * enough that a diff introducing a call to it is worth a second look. This
- * function does the opposite: the role is `olibra_app`, exactly as in
- * `runQuery`, so every policy in `0010_rls.sql` applies in full and the only
- * rows a public read can reach are the ones a policy hands to a caller with no
- * shelf. Today that is `bookshelves_public_read`
- * (`20260808_12_bookshelves_public_read.sql`), a *permissive* `for select`
- * policy over `status = 'active' and deleted_at is null` — Postgres ORs
- * permissive policies together, so it widens `select` on `bookshelves` and
- * touches nothing else. Every other table's `<table>_tenant` policy is
- * `bookshelf_id = <the GUC>`, which under the empty scope below is `null` and
- * therefore matches no row at all. A public read that wandered into `books` or
- * `memberships` gets zero rows, not a leak — verified in
- * `tests/domain/portal/list-public-shelves.test.ts`, in the same transaction,
- * rather than reasoned about here.
+ * function goes the other way entirely: `olibra_public`
+ * (`20260809_01_public_role.sql`) holds strictly *less* than the `olibra_app`
+ * every other read runs as.
+ *
+ * **The role is `olibra_public`, and it is privileges rather than policies that
+ * make this safe.** IMPORTANT 1 (fix-report, 2026-08-09-u2-shelf-and-portal):
+ * this function used to run as `olibra_app`, on the argument that "every other
+ * table's `<table>_tenant` policy is `bookshelf_id = <the GUC>`, which under
+ * the empty scope below is `null` and therefore matches no row at all". Swept
+ * through the real pool inside this exact transaction, that held for thirteen
+ * tables and failed for five: `users` and `sessions` carry no RLS at all (so a
+ * public read reached every account row, `password_hash` included, and every
+ * live session token hash), `categories` and `schema_migrations` carry none
+ * either, and `feedback_tenant`'s `using` admits `bookshelf_id is null`, which
+ * is every site-wide row.
+ *
+ * None of it leaked, because `listPublicShelves` only ever touches
+ * `bookshelves` — what it was, was the licence the next public read would be
+ * written against. OPS §3.1 already specifies `GetSiteContact` as
+ * guest-callable and Global, and written to join `users` for the
+ * administrator's name it would have handed a stranger the whole table with
+ * this docstring vouching for it.
+ *
+ * A policy has to be written per table, so it fails open for the table nobody
+ * thought about. A grant is absent by default, so it fails closed for every
+ * table including the ones a later migration adds. `olibra_public` therefore
+ * has `usage` on the schema, a column-level `select` on the five `bookshelves`
+ * columns BR §16.1 publishes, and **nothing else at all** — a public read that
+ * wanders into `users` raises `42501: permission denied for table users`,
+ * which is an error a test asserts and a future author cannot talk themselves
+ * past. `tests/db/public-role-privileges.test.ts` sweeps every relation in the
+ * schema, discovered from `pg_class`, and every column of `bookshelves`,
+ * discovered from `information_schema`, so neither list can go stale.
+ *
+ * RLS still applies on top of that, unchanged and un-relaxed:
+ * `bookshelves_public_read` (`20260808_12_bookshelves_public_read.sql`) is a
+ * *permissive* `for select` policy over `status = 'active' and deleted_at is
+ * null`, Postgres ORs permissive policies together, and `bookshelves_tenant`
+ * under the empty scope below matches nothing. So the rows are the active,
+ * undeleted ones and the columns are the five. Two independent boundaries
+ * where there was one, and the one that was there was the weaker of them.
  *
  * **The scope is set to the empty string, not left unset.** `''` is the
  * sentinel `0010_rls.sql`'s `nullif(current_setting(...), '')` is built around
@@ -602,7 +631,7 @@ export async function runPublicQuery<O>(
     await tx`set transaction read only`;
     await tx`select set_config('olibra.bookshelf_id', '', true)`;
     await tx`select set_config('olibra.now', '', true)`;
-    await tx`set local role olibra_app`;
+    await tx`set local role olibra_public`;
     return query(guardWrites(tx as RawTx));
   }) as Promise<O>;
 }
