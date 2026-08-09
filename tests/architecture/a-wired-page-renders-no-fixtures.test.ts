@@ -134,8 +134,12 @@ test("the check can see both halves of what it compares", () => {
   // `src/lib/fixtures.ts`, and are correctly seen doing it. When a later slice
   // wires them this list shrinks; it is a floor for the detector, not a claim
   // that these pages should stay as they are.
+  // U4 wired `toi/` and `toi/lich-su`, so the floor moved to a page that is
+  // still fixture-backed. It shrinks each time a slice wires one; the day it
+  // cannot name a fixture page at all, this half of the check has nothing left
+  // to prove and should go rather than be pointed at a wired page.
   expect(all.filter((r) => r.importsFixtures).map((r) => r.path)).toContain(
-    `${base}/toi/page.tsx`,
+    `${base}/toi/ho-so/page.tsx`,
   );
 });
 
@@ -478,11 +482,21 @@ test("the link check resolves the routes it claims to", () => {
   );
   expect(linkTargetsIn(managerShell)).toEqual(["src/app"]);
 
-  // And the four links IMPORTANT 4 removed are the ones this would now report.
-  for (const gone of [
-    "src/app/tu-sach/[shelf]/thong-bao",
-    "src/app/tu-sach/[shelf]/toi",
-  ]) {
+  // U4 wired `toi/`, so its link is back — and this asserts *both* halves,
+  // because a link restored to a page that is still fixture-backed is exactly
+  // what IMPORTANT 4 removed it for. Restoring the link without wiring the page
+  // fails on the second line rather than passing quietly.
+  expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/toi");
+  expect(
+    routes().find((r) => r.path === "src/app/tu-sach/[shelf]/toi/page.tsx")
+      ?.importsFixtures,
+  ).toBe(false);
+
+  // `thong-bao` is still out: B3 shipped the announcements query but no slice
+  // has wired that page, so the reasoning IMPORTANT 4 recorded still holds for
+  // it. The two halves of that decision were one sentence about two pages, and
+  // they come back separately because they are wired separately.
+  for (const gone of ["src/app/tu-sach/[shelf]/thong-bao"]) {
     expect(linkTargetsIn(header), gone).not.toContain(gone);
   }
   for (const gone of [
@@ -496,7 +510,7 @@ test("the link check resolves the routes it claims to", () => {
   const byPath = new Map(routes().map((r) => [r.path, r]));
   for (const page of [
     "src/app/tu-sach/[shelf]/thong-bao/page.tsx",
-    "src/app/tu-sach/[shelf]/toi/page.tsx",
+    "src/app/tu-sach/[shelf]/toi/ho-so/page.tsx",
     "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
     "src/app/tu-sach/[shelf]/gop-y/page.tsx",
   ]) {

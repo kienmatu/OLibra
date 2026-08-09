@@ -230,6 +230,36 @@ export function memberMayRequest(member: { status: MembershipStatus }): Block {
 }
 
 /**
+ * INV-6's two refusals, as a pure predicate — so the dashboard and the command
+ * cannot disagree about whether a book can be renewed.
+ *
+ * `renewLoan` had both checks inline when C3 shipped, which was fine while it
+ * was the only caller. U4 gives the reader's dashboard a second one: the screen
+ * has to disable the button *and say why*, and the two sentences differ — "you
+ * have had your turn" versus "somebody else is waiting". A screen that
+ * recomputed either would be a second definition of INV-6, and C1's review
+ * already found a query and a command disagreeing once, in the direction that
+ * turns a child away from a book that is actually there.
+ *
+ * The order matters and matches the command's: renewals first, then the queue.
+ * A reader with no renewals left and somebody waiting should read the sentence
+ * about their own turn, because that is the one they can do nothing about
+ * either way and it is the one that stays true tomorrow.
+ *
+ * Both facts are passed in rather than looked up, like every other predicate in
+ * this file: `maxRenewals` comes from the shelf's settings and `titleHasQueue`
+ * from a count, and a pure function a screen can call cannot reach either.
+ */
+export function loanRenewable(
+  loan: { renewalsUsed: number; titleHasQueue: boolean },
+  maxRenewals: number,
+): Block {
+  if (loan.renewalsUsed >= maxRenewals) return no("no_renewals_remaining");
+  if (loan.titleHasQueue) return no("title_has_queue");
+  return OK;
+}
+
+/**
  * The due date, as a date.
  *
  * BR §5.4: a book is due at the end of a day, not at 14:23 on it — `due_on` is
