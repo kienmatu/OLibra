@@ -10,6 +10,7 @@ import {
   isCopyCondition,
   requireManager,
 } from "../../catalogue/policy";
+import { notify } from "../../notifications/write";
 import { holdExpiryFrom } from "../policy";
 import { holdDaysFor } from "../settings";
 
@@ -235,6 +236,19 @@ export const receiveReturn: Command<
         hold_expires_at: holdExpiresAt.toISOString(),
       },
     });
+
+    // OPS §7 names this explicitly: the reader-facing effect of
+    // `ApproveBorrowRequest` "and the equivalent effect inside `ReceiveReturn`
+    // when it holds for the next reader". One kind from two doors, because a
+    // child experiences one event -- their book is ready.
+    await notify(tx, {
+      userId: hold.memberId,
+      kind: "request_approved",
+      payload: {
+        title: loan.title,
+        hold_until: holdExpiresAt.toISOString().slice(0, 10),
+      },
+    });
   }
 
   // Read *after* the writes, so it answers "is anyone still waiting?" rather
@@ -286,9 +300,12 @@ async function resolveHold(
   bookshelfId: string,
   requestId: string,
   bookId: string,
-): Promise<{ id: string; holdDays: number }> {
-  const [request] = await tx<{ id: string }[]>`
-    select id from borrow_requests
+): Promise<{ id: string; holdDays: number; memberId: string }> {
+  // `member_id` is a users(id) despite the name -- the recurring trap. It is
+  // read here rather than at the call site so the notification below cannot be
+  // handed a membership id by somebody wiring it up in a hurry.
+  const [request] = await tx<{ id: string; member_id: string }[]>`
+    select id, member_id from borrow_requests
      where id = ${requestId}
        and book_id = ${bookId}
        and status = 'pending'
@@ -301,5 +318,9 @@ async function resolveHold(
   // how one of them later stops matching the settings screen. The expiry
   // arithmetic moved to `../policy.ts` (`holdExpiryFrom`) for the same reason
   // and keeps its whole argument there.
-  return { id: request.id, holdDays: await holdDaysFor(tx, bookshelfId) };
+  return {
+    id: request.id,
+    memberId: request.member_id,
+    holdDays: await holdDaysFor(tx, bookshelfId),
+  };
 }

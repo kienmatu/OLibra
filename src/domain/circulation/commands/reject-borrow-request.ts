@@ -1,6 +1,7 @@
 import type { AuditEntry } from "../../kernel/audit";
 import { RuleViolated } from "../../kernel/errors";
 import { requireIdentifiedActor } from "../../kernel/tenant";
+import { notify } from "../../notifications/write";
 import type { Command } from "../../kernel/unit-of-work";
 // Imported, never restated — the note at the top of `./lend-copy.ts` carries
 // the argument.
@@ -114,6 +115,14 @@ export const rejectBorrowRequest: Command<
       reason,
     },
   };
+
+  // OPS §7. `reason` is optional here (Q2's assumed reading), so the sentence
+  // degrades to one without a because-clause rather than printing "null".
+  await notify(tx, {
+    userId: request.member_id,
+    kind: "request_rejected",
+    payload: reason ? { title: request.title, reason } : { title: request.title },
+  });
 
   return { result: { requestId: request.id }, audit };
 };

@@ -1,6 +1,7 @@
 import type { AuditEntry } from "../../kernel/audit";
 import { NotFound, RuleViolated } from "../../kernel/errors";
 import { requireIdentifiedActor } from "../../kernel/tenant";
+import { notify } from "../../notifications/write";
 import type { Command } from "../../kernel/unit-of-work";
 // Imported, never restated — the note at the top of `./lend-copy.ts` carries
 // the argument.
@@ -89,10 +90,24 @@ export const approveBorrowRequest: Command<
   // failure mode here for the request's own state (`:306`), and `errors.ts` may
   // not gain a code whose Vietnamese sentence nobody wrote.
   const [request] = await tx<
-    { id: string; book_id: string; member_id: string; status: string }[]
+    {
+      id: string;
+      book_id: string;
+      member_id: string;
+      status: string;
+      title: string;
+    }[]
   >`
-    select id, book_id, member_id, status from borrow_requests
-     where id = ${input.requestId} and deleted_at is null
+    select r.id, r.book_id, r.member_id, r.status, b.title
+      from borrow_requests r
+      -- The title, for the notification D1 writes below. An inner join is
+      -- right: book_id is not null and books is RLS-scoped to the same shelf,
+      -- so a row that fails this join is a request for another shelf's book,
+      -- which request_not_pending should refuse anyway. (No backticks in a
+      -- SQL comment here: this is inside a tagged template, and one would end
+      -- the literal -- the trap C1's reconciliation caught in a draft.)
+      join books b on b.id = r.book_id
+     where r.id = ${input.requestId} and r.deleted_at is null
   `;
   if (!request || request.status !== "pending") {
     throw new RuleViolated("request_not_pending");
@@ -180,6 +195,19 @@ export const approveBorrowRequest: Command<
       userId: request.member_id,
     },
   };
+
+  // OPS §7 — "yêu cầu mượn được duyệt (kèm hạn đến nhận)" and "sách đã sẵn
+  // sàng để nhận" are one event a reader experiences once, so one row. The
+  // deadline is in the payload because a hold whose end a child does not know
+  // is a hold they will miss.
+  await notify(tx, {
+    userId: request.member_id,
+    kind: "request_approved",
+    payload: {
+      title: request.title,
+      hold_until: holdExpiresAt.toISOString().slice(0, 10),
+    },
+  });
 
   return {
     result: { requestId: request.id, copyId: copy.id, holdExpiresAt },
