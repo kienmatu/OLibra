@@ -78,7 +78,22 @@ export function BookCover({
   );
 }
 
-/** Cover-dominant catalogue card: title clamped to two lines, author to one. */
+/**
+ * Cover-dominant catalogue card: title clamped to two lines, author to one.
+ *
+ * `author` and `status` are both nullable now that the cards come from
+ * `books`/`copies_borrowable` rather than from `src/lib/fixtures.ts`, and the
+ * two nulls mean different things:
+ *
+ * - `books.author` is a nullable column. A title catalogued from a battered
+ *   cover with no author on it renders as a card with no author line, which is
+ *   what the shelf actually knows — never an empty grey strip holding the
+ *   layout open for a fact nobody has.
+ * - `status` is `null` for a title with no live copies at all, which
+ *   `statusForAvailability` (`src/lib/status.ts`) refuses to give a badge.
+ *   Reachable from `?loc=tat-ca`, where BR §16.1's "Toàn bộ tủ sách" is
+ *   supposed to include exactly that title.
+ */
 export function BookCard({
   href,
   title,
@@ -87,25 +102,29 @@ export function BookCard({
 }: {
   href: string;
   title: string;
-  author: string;
-  status: CopyStatus;
+  author: string | null;
+  status: CopyStatus | null;
 }) {
   return (
     <Link href={href} className="group block">
       <div className="relative">
         <BookCover title={title} className="w-full text-[1.5rem]" />
-        <StatusBadge
-          status={status}
-          size="sm"
-          className="absolute bottom-2 left-2 bg-surface/90 backdrop-blur-none"
-        />
+        {status ? (
+          <StatusBadge
+            status={status}
+            size="sm"
+            className="absolute bottom-2 left-2 bg-surface/90 backdrop-blur-none"
+          />
+        ) : null}
       </div>
       <BookTitle className="mt-2.5 line-clamp-2 block text-[16px] leading-snug group-hover:text-terracotta-ink">
         {title}
       </BookTitle>
-      <span className="mt-0.5 line-clamp-1 block text-[13px] text-meta">
-        {author}
-      </span>
+      {author ? (
+        <span className="mt-0.5 line-clamp-1 block text-[13px] text-meta">
+          {author}
+        </span>
+      ) : null}
     </Link>
   );
 }
