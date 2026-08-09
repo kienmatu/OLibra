@@ -138,4 +138,25 @@ The unpaged decision also does not rest on the parity this section implied. See 
 - **The reader detail's administrative actions.** All five commands exist; wiring them is five more forms and five more refusal paths, and one of them is the credentials one above. The page is read-only and says so.
 - **A reader's loan history.** BR §16.3 asks for it and no query answers it — `getBookDetailManager` has a history per *book*. The fixture page filled the gap with four titles sliced out of `src/lib/fixtures.ts` under this reader's name.
 
+**The new Vietnamese is twelve strings, not four.** Wave 2's report described its
+new copy as "one new sentence and three short lines". Review counted the strings
+actually new to the diff and there are **twelve** — empty states, two confirm
+labels, two field labels, the two hints on the copy-count fields, and the
+consequence line under the rejection reason. All twelve were judged natural,
+plain parish Vietnamese with no calques and no jargon, and all twelve stay; the
+one singled out as doing real work is *"Bạn đọc sẽ thấy lý do này"*, which tells
+a volunteer what will happen before she acts rather than after. The count is
+recorded here because a wave that undercounts its own new copy by two thirds is
+a wave whose copy nobody re-read, and this project's rule is that no user-facing
+string is written without a reason (BR §17.1's third principle).
+
+Two were corrected rather than kept. *"Không tìm thấy bạn đọc nào"* was the only
+one of this slice's own empty states without a full stop, against
+`qua-han`'s "Không có cuốn nào quá hạn." — the neighbouring "Không tìm thấy sách
+nào" is a shipped string reused verbatim and keeps its own punctuation.
+*"Hệ thống sẽ tự sinh mã…"* was the one string reaching for a technical noun; it
+is now "Tủ sách tự đặt mã…", which is the actor the shipped hints already use
+("Số ngày tủ sách giữ sách…", "Đây là cách tủ sách liên lạc…"), and it lost the
+invented copy code at the same time (see `sach/moi/page.tsx`).
+
 **A defect this wave shipped and `bun run check:links` caught.** `quan-ly/nguoi-doc/[id]` took the URL segment straight to a `uuid` column, so the fixture-era link `/quan-ly/nguoi-doc/minh` was a raw `22P02` and an HTTP 500. The shape check now lives once, in `src/lib/search-params.ts`, shared with `readerFromParam`; the page answers 404 and the query parameter answers an empty state, because one is the router's and one is the volunteer's.

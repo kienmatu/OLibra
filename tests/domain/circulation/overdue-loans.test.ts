@@ -335,9 +335,10 @@ test("equally late loans are ordered by a key that cannot tie", async () => {
       if (cmp !== 0) return sort === "least-late" ? -cmp : cmp;
       return a.loanId < b.loanId ? -1 : a.loanId > b.loanId ? 1 : 0;
     });
-    expect(rows.map((r) => r.loanId), sort).toEqual(
-      expected.map((r) => r.loanId),
-    );
+    expect(
+      rows.map((r) => r.loanId),
+      sort,
+    ).toEqual(expected.map((r) => r.loanId));
   }
 });
 
