@@ -100,16 +100,45 @@ export function ShelfHeader({
   viewerName: string | null;
 }) {
   const base = `/tu-sach/${shelfSlug}`;
+  /**
+   * **"Thông báo" and "Trang của tôi" are not here, and that is IMPORTANT 4**
+   * (fix-report, 2026-08-09-u2-shelf-and-portal), not an oversight to put back
+   * without wiring the pages first.
+   *
+   * This header sits on all four pages U2 wired. `${base}/thong-bao` and
+   * `${base}/toi` are not wired: they render `src/lib/fixtures.ts` — Đồng
+   * Tháp's invented announcements, and a stranger's loans and donation history
+   * under the name "Giuse Trần Minh". So a real member of Vĩnh Long, having
+   * just seen their real catalogue under their real name, tapped "Thông báo"
+   * and got another parish's notices; tapped "Trang của tôi" and got somebody
+   * else's borrowing record. Signed out entirely, all eight of the unwired
+   * member routes still return 200 with that same dashboard.
+   *
+   * `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` states the
+   * reason better than this comment can: "Mixed into a page whose other half is
+   * real, it is indistinguishable from data, which is exactly what makes it
+   * worse than an obviously unfinished screen." Before U2 the whole shelf area
+   * was uniformly fixture and the nav was consistent with itself. U2 made half
+   * of it real and left the nav pointing at the other half.
+   *
+   * **Why the links go rather than the pages getting gated.** Gating them
+   * behind `loadPage` would stop a stranger reading them and would put the
+   * right parish in the header — and would leave a member looking at a page
+   * whose chrome is real and whose body is invented, which is the precise
+   * failure that guard exists to prevent. It would also make those routes
+   * import both `lib/page-data` and `lib/fixtures`, which that guard fails on
+   * by construction, so "gate them" is not available without weakening it. Two
+   * links is what U2 broke and two links is what U2 can honestly put back.
+   *
+   * Both come back when their slice lands, alongside the page. The eight
+   * routes remain reachable by typing their address; that is the same
+   * condition every one of the forty-one unwired pages in this app is in, it
+   * is not something this slice introduced, and it is recorded in the U2 plan's
+   * §6 rather than half-solved here.
+   */
   const links = [
     { href: `${base}/danh-muc`, label: "Danh mục", key: "danh-muc", icon: false },
-    {
-      href: `${base}/thong-bao`,
-      label: "Thông báo",
-      key: "thong-bao",
-      icon: false,
-    },
     { href: `${base}/tim-kiem`, label: "Tìm kiếm", key: "tim-kiem", icon: true },
-    { href: `${base}/toi`, label: "Trang của tôi", key: "toi", icon: false },
   ] as const;
 
   // The shelf's own name links to the shelf home, which a signed-out visitor

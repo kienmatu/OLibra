@@ -60,8 +60,19 @@ const RECENT_COVERS = 6;
  *   makes the leaderboard opt-in per membership, so the query does not merely
  *   not exist, it has a rule attached that nothing in this slice implements.
  *
- * Item 1 (identity), 3 (the two large buttons) and 7 (the quiet link) are all
- * here and all real.
+ * Item 1 (identity) and 3 (the two large buttons) are here and are real.
+ *
+ * **Item 7, the quiet links out, was here and is gone** (IMPORTANT 4,
+ * fix-report, 2026-08-09-u2-shelf-and-portal). "Tặng sách cho tủ sách" and
+ * "Gửi góp ý cho ban quản trị" pointed at `${base}/tang-sach` and
+ * `${base}/gop-y`, and neither route is wired — both render `src/lib/fixtures
+ * .ts`. So this page, whose whole point is that it is the first *real* thing a
+ * member sees, ended with two links into another parish's invented content.
+ * That is the same class of defect as items 2, 4, 5 and 6 above, arriving by a
+ * different route: not faked *on* the page, but reachable in one tap *from* it,
+ * which is not a distinction the person tapping can make. `ShelfHeader` carries
+ * the same decision for "Thông báo" and "Trang của tôi", and the long version
+ * of why the links go rather than the pages getting gated.
  */
 export default async function ShelfHomePage({
   params,
@@ -205,23 +216,18 @@ export default async function ShelfHomePage({
           </section>
         ) : null}
 
-        {/* 7. The quiet links out. "Tặng sách" is not in BR:503's list, which
-            names only feedback; it is kept because the route exists and a
-            member offering books is BR §16.2's own screen. */}
-        <p className="mt-12 flex flex-wrap gap-x-6 gap-y-1 text-[14px]">
-          <Link
-            href={`${base}/tang-sach`}
-            className="inline-flex min-h-11 items-center text-sage hover:underline"
-          >
-            Tặng sách cho tủ sách
-          </Link>
-          <Link
-            href={`${base}/gop-y`}
-            className="inline-flex min-h-11 items-center text-sage hover:underline"
-          >
-            Gửi góp ý cho ban quản trị
-          </Link>
-        </p>
+        {/* 7. **The quiet links out are gone** (IMPORTANT 4, fix-report,
+            2026-08-09-u2-shelf-and-portal). They pointed at `${base}/tang-sach`
+            and `${base}/gop-y`, and neither route is wired: both render
+            `src/lib/fixtures.ts`, so this page — real books, real shelf, real
+            member's name — handed a member two links into another parish's
+            invented content. `ShelfHeader` carries the same decision for
+            "Thông báo" and "Trang của tôi", and the long version of why the
+            links go rather than the pages getting gated.
+
+            "Tặng sách" was already off BR:503's list, which names only
+            feedback; both come back with their own slice, next to a page that
+            works. */}
       </main>
     </>
   );
