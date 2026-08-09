@@ -108,6 +108,52 @@ export function copyLendable(
 }
 
 /**
+ * Whether a copy may be put aside for a queued reader — `ApproveBorrowRequest`'s
+ * question, and INV-3 and INV-7 again from the other end.
+ *
+ * **Not `copyLendable` with a different caller.** That predicate answers "may
+ * *this reader* take this copy away", and its whole reason for existing is the
+ * `held`-for-me case (see its docstring). This one answers "may this copy be
+ * promised to somebody who is not standing here", and the `held` case is the
+ * opposite answer: a copy already under a live hold is already promised, to a
+ * child who may be on their way to collect it, and promising it twice is how one
+ * of them is sent home. So there is no `forUserId` parameter — there is nobody
+ * to compare against, which is the difference, stated as a signature rather than
+ * as a comment.
+ *
+ * **`heldForUserId` is read through a `hold_expires_at > olibra_now()` filter**,
+ * exactly as `copyLendable`'s caller reads it, so a hold that has lapsed arrives
+ * here as `null`. That is what makes BR §8's "if the tidy-up never runs,
+ * `copies_borrowable` is still right" true of this command too: a copy left
+ * `held` by an uncollected hold is refused by the *state* branch below and not
+ * by the hold branch, and it takes somebody recording `held → available` to free
+ * it — a transition a command performs, not one an approval performs on the way
+ * past. The same line `copyLendable` draws, for the same reason.
+ *
+ * The two refusals are OPS §4.2's own, under `ApproveBorrowRequest` (`:304`,
+ * `:305`) — and `chosen_copy_lost_or_retired` is a distinct code from
+ * `copy_lost_or_retired` because OPS gives the two commands different sentences
+ * (`errors.ts` carries the argument).
+ */
+export function copyHoldable(copy: {
+  state: CopyState;
+  heldForUserId: string | null;
+}): Block {
+  if (copy.state === "lost" || copy.state === "retired") {
+    return no("chosen_copy_lost_or_retired");
+  }
+  // `available` and free of a live hold, in one condition rather than two
+  // branches, because it is one question: `copies_borrowable`
+  // (`20260808_14_olibra_now.sql:114-126`) is these same two clauses, and this
+  // is the predicate form of that view for a caller that has already resolved a
+  // single copy. Both are needed — the state alone would admit a copy sitting
+  // `available` under a hold written by some other path, and the hold alone
+  // would admit one that is `on_loan`.
+  if (copy.state === "available" && copy.heldForUserId === null) return OK;
+  return no("no_copy_available");
+}
+
+/**
  * INV-4 and INV-5, composed — INV-4 borrowed, INV-5 this function's own.
  *
  * The status half is `membershipAllowsNewLoan` (`../members/policy`), called
@@ -143,6 +189,47 @@ export function memberMayBorrow(
 }
 
 /**
+ * Whether this reader may join a queue — INV-4 for `CreateBorrowRequest`.
+ *
+ * **The status list is `membershipAllowsNewLoan`'s, and only the sentence
+ * differs.** `memberMayBorrow` above states at length why INV-4's list of
+ * statuses appears exactly once in this codebase, in the domain that owns
+ * memberships; that argument does not weaken because the refusal is worded
+ * differently. So this calls that function and swaps one code for another,
+ * rather than asking `status === "active"` for a second time.
+ *
+ * The swap is conditional rather than blanket. `membershipAllowsNewLoan`
+ * returns exactly one reason today, and a version of this that threw
+ * `membership_not_active_cannot_request` at *any* refusal would silently
+ * relabel a second reason as the first the day one is added — which is the
+ * shape of the drift the single-list rule exists to prevent, reintroduced one
+ * level up.
+ *
+ * **Why the sentence differs at all.** OPS §4.2 gives `membership_not_active`
+ * "không thể mượn thêm" under `LendCopy` (`:233`) and `HandoverRequest`
+ * (`:245`), and "không thể gửi yêu cầu mượn" under `CreateBorrowRequest`
+ * (`:293`). Both are true statements about a suspended reader and they are not
+ * the same statement: the first is about a book going into a child's hands now,
+ * and a child told they cannot borrow *more* would reasonably conclude the
+ * queue is still open to them. One code maps to one sentence, so the second
+ * gets its own (`errors.ts`).
+ *
+ * INV-5 is deliberately not consulted. A reader at the loan limit may still
+ * queue: nothing goes out on a request, the limit is checked again by
+ * `HandoverRequest` at the moment a book actually changes hands, and a child
+ * who has three books today will not have three when their turn comes. OPS
+ * §4.2 lists `loan_limit_reached` under `HandoverRequest` (`:247`) and not
+ * under `CreateBorrowRequest`, which is the same reading.
+ */
+export function memberMayRequest(member: { status: MembershipStatus }): Block {
+  const standing = membershipAllowsNewLoan(member);
+  if (!standing.blocked) return OK;
+  return standing.reason === "membership_not_active"
+    ? no("membership_not_active_cannot_request")
+    : standing;
+}
+
+/**
  * The due date, as a date.
  *
  * BR §5.4: a book is due at the end of a day, not at 14:23 on it — `due_on` is
@@ -164,4 +251,30 @@ export function dueDateFor(clock: Clock, loanDays: number): string {
   const [y, m, d] = clock.today().split("-").map(Number);
   const due = new Date(Date.UTC(y, m - 1, d + loanDays));
   return due.toISOString().slice(0, 10);
+}
+
+/**
+ * When a hold placed *now* lapses — `hold_days` after the instant the clock
+ * gave, in milliseconds.
+ *
+ * **Not `now() + interval '3 days'` in SQL, and not `olibra_now() + …`
+ * either.** The interval is fixed-length wall time, so no timezone or DST
+ * reasoning applies — unlike `dueDateFor` above, which produces a *date* and
+ * must count in `Asia/Ho_Chi_Minh`. What matters is only which clock the
+ * arithmetic starts from: `now()` would start from the database host's, while
+ * every later read of `hold_expires_at` compares it against `olibra_now()`,
+ * which is `ctx.clock`'s (`20260808_14_olibra_now.sql:124`, and the lateral join
+ * in `./commands/lend-copy.ts`). A `fixedClock` set in 2026 would otherwise find
+ * every hold it wrote already expired, or never expiring, depending on which
+ * direction the two clocks differ — and the acceptance criterion this slice is
+ * built around ("a hold silently stops being handable-over when the clock
+ * advances, with no job running") would be untestable rather than false.
+ *
+ * **Moved here from `./commands/receive-return.ts`, where it was private**
+ * (C2). `ApproveBorrowRequest` writes the same column from the same rule, and
+ * this is a function of its arguments with no I/O in it — which is what this
+ * file is for.
+ */
+export function holdExpiryFrom(now: Date, holdDays: number): Date {
+  return new Date(now.getTime() + holdDays * 24 * 60 * 60 * 1000);
 }

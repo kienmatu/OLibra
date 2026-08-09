@@ -1,10 +1,17 @@
 import { expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
-import { membershipAllowsNewLoan } from "../../../src/domain/members/policy";
+import { messageFor } from "../../../src/domain/kernel/errors";
 import {
+  membershipAllowsNewLoan,
+  MEMBERSHIP_STATUSES,
+} from "../../../src/domain/members/policy";
+import {
+  copyHoldable,
   copyLendable,
   dueDateFor,
+  holdExpiryFrom,
   memberMayBorrow,
+  memberMayRequest,
 } from "../../../src/domain/circulation/policy";
 
 const HELD_BY_NOBODY = null;
@@ -158,4 +165,119 @@ test("the due date crosses a month and a year boundary correctly", () => {
   expect(dueDateFor(fixedClock("2026-12-28T03:00:00Z"), 14)).toBe("2027-01-11");
   // 2028 is a leap year, so the 29th of February exists to be landed on.
   expect(dueDateFor(fixedClock("2028-02-15T03:00:00Z"), 14)).toBe("2028-02-29");
+});
+
+// ── C2: the two predicates the request commands add ──────────────────────────
+
+test("INV-3 from the other end: only a free copy may be put aside for a queue", () => {
+  // `copyHoldable` answers ApproveBorrowRequest's question — "may this copy be
+  // promised to somebody who is not standing here" — and the `held` case is
+  // where it deliberately disagrees with `copyLendable` above. A copy under a
+  // live hold is *already* promised, to a child who may be on their way to
+  // collect it; promising it twice sends one of them home.
+  expect(copyHoldable({ state: "available", heldForUserId: null })).toEqual({
+    blocked: false,
+  });
+  for (const state of ["held", "on_loan"] as const) {
+    expect(copyHoldable({ state, heldForUserId: null }), state).toEqual({
+      blocked: true,
+      reason: "no_copy_available",
+    });
+  }
+  // Both clauses of `copies_borrowable`, as a predicate: a copy sitting
+  // `available` under a live hold written by some other path is still spoken
+  // for. Deleting `copy.heldForUserId === null` from the predicate turns this
+  // line green-to-red on its own.
+  expect(copyHoldable({ state: "available", heldForUserId: "u1" })).toEqual({
+    blocked: true,
+    reason: "no_copy_available",
+  });
+});
+
+test("a lapsed hold does not make its copy holdable for the next reader", () => {
+  // `heldForUserId` is read through a `hold_expires_at > olibra_now()` filter,
+  // so a lapsed hold arrives as absence — the same convention `copyLendable`
+  // is written against. The copy is still in `held`, and it takes somebody
+  // recording `held → available` to free it: an approval does not perform that
+  // transition on the way past, any more than a lend does.
+  expect(copyHoldable({ state: "held", heldForUserId: null })).toEqual({
+    blocked: true,
+    reason: "no_copy_available",
+  });
+});
+
+test("INV-7: a lost or retired copy cannot be put aside either, in its own words", () => {
+  for (const state of ["lost", "retired"] as const) {
+    expect(copyHoldable({ state, heldForUserId: null }), state).toEqual({
+      blocked: true,
+      reason: "chosen_copy_lost_or_retired",
+    });
+  }
+  // One code, one sentence. OPS §4.2 words LendCopy's refusal "Bản sách này…"
+  // (`:232`) and ApproveBorrowRequest's "Bản sách đã chọn…" (`:305`), and the
+  // extra word is the difference between "this book is gone" and "the one you
+  // just chose is gone, choose another". Asserted as *not equal* rather than
+  // against a literal, so this stays true if either sentence is reworded and
+  // fails the moment somebody collapses the two codes back into one.
+  expect(messageFor("chosen_copy_lost_or_retired")).not.toBe(
+    messageFor("copy_lost_or_retired"),
+  );
+});
+
+test("INV-4: joining a queue needs an active membership, in the queue's own words", () => {
+  expect(memberMayRequest({ status: "active" })).toEqual({ blocked: false });
+  for (const status of ["pending", "suspended", "left", "rejected"] as const) {
+    expect(memberMayRequest({ status }), status).toEqual({
+      blocked: true,
+      reason: "membership_not_active_cannot_request",
+    });
+  }
+});
+
+test("the queue's INV-4 list is the loan's list, and only the sentence differs", () => {
+  // The property that matters is not which statuses are refused — that is
+  // `membershipAllowsNewLoan`'s to decide — but that this predicate refuses
+  // *exactly* the same ones. A hand-maintained second list beside the first is
+  // what let a suspended reader clear their own suspension in B2a.
+  for (const status of MEMBERSHIP_STATUSES) {
+    expect(memberMayRequest({ status }).blocked, status).toBe(
+      membershipAllowsNewLoan({ status }).blocked,
+    );
+  }
+  // And the sentences genuinely differ: "không thể mượn thêm" is about a book
+  // going into a child's hands now, and a child told they cannot borrow *more*
+  // would reasonably conclude the queue is still open to them.
+  expect(messageFor("membership_not_active_cannot_request")).not.toBe(
+    messageFor("membership_not_active"),
+  );
+});
+
+test("INV-5 is not consulted when joining a queue", () => {
+  // A reader at the loan limit may still queue: nothing goes out on a request,
+  // the limit is checked again by HandoverRequest at the moment a book changes
+  // hands, and a child who has three books today will not have three when their
+  // turn comes. OPS §4.2 lists `loan_limit_reached` under HandoverRequest
+  // (`:247`) and not under CreateBorrowRequest, which is the same reading.
+  //
+  // Structural rather than incidental: `memberMayRequest` takes no loan count
+  // at all, so this is a statement about the signature. Written down because
+  // the tempting "fix" is to widen it to `memberMayBorrow`, and that would take
+  // the queue away from exactly the readers who need it most.
+  expect(memberMayRequest({ status: "active" })).toEqual({ blocked: false });
+});
+
+test("a hold lapses hold_days after the instant the clock gave", () => {
+  // Fixed-length wall time, in milliseconds — no timezone reasoning, unlike
+  // `dueDateFor` above, because `hold_expires_at` is a `timestamptz` and not a
+  // date. What matters is only which clock the arithmetic starts from: every
+  // later read compares this value against `olibra_now()`, which follows
+  // `ctx.clock`, so starting from `now()` in SQL would compare a hold written
+  // by one clock against another.
+  const at = fixedClock("2026-08-07T10:00:00Z").now();
+  expect(holdExpiryFrom(at, 3).toISOString()).toBe("2026-08-10T10:00:00.000Z");
+  expect(holdExpiryFrom(at, 0).toISOString()).toBe("2026-08-07T10:00:00.000Z");
+  // Across a month boundary and a DST-less zone alike: 24 hours is 24 hours.
+  expect(
+    holdExpiryFrom(fixedClock("2026-08-30T23:00:00Z").now(), 3).toISOString(),
+  ).toBe("2026-09-02T23:00:00.000Z");
 });

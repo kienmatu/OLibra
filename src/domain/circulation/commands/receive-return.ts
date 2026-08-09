@@ -10,6 +10,8 @@ import {
   isCopyCondition,
   requireManager,
 } from "../../catalogue/policy";
+import { holdExpiryFrom } from "../policy";
+import { holdDaysFor } from "../settings";
 
 export interface ReceiveReturnInput {
   loanId: string;
@@ -212,7 +214,7 @@ export const receiveReturn: Command<
   ];
 
   if (hold) {
-    const holdExpiresAt = expiryFrom(ctx.clock.now(), hold.holdDays);
+    const holdExpiresAt = holdExpiryFrom(ctx.clock.now(), hold.holdDays);
     await tx`
         update borrow_requests
            set status = 'approved',
@@ -294,28 +296,10 @@ async function resolveHold(
   `;
   if (!request) throw new RuleViolated("request_not_queued");
 
-  const [shelf] = await tx<{ hold_days: number }[]>`
-    select coalesce((settings->>'hold_days')::int, 3) as hold_days
-      from bookshelves where id = ${bookshelfId}
-  `;
-  if (!shelf) throw new NotFound("shelf_not_found");
-
-  return { id: request.id, holdDays: shelf.hold_days };
-}
-
-/**
- * `hold_days` after the instant the clock gave, in milliseconds.
- *
- * Not `now() + interval '3 days'` in SQL, and not `olibra_now() + …` either.
- * The interval is fixed-length wall time, so no timezone or DST reasoning
- * applies — unlike `due_on`, which is a *date* and must be counted in
- * `Asia/Ho_Chi_Minh` (`dueDateFor`, `../policy.ts`). What matters is only which
- * clock the arithmetic starts from: `now()` would start from the database
- * host's, while every later read of this column compares it against
- * `olibra_now()`, which is `ctx.clock`'s. A `fixedClock` set in 2026 would then
- * find every hold it wrote already expired, or never expiring, depending on
- * which direction the two clocks differ.
- */
-function expiryFrom(now: Date, holdDays: number): Date {
-  return new Date(now.getTime() + holdDays * 24 * 60 * 60 * 1000);
+  // `../settings.ts`, not three lines here: `ApproveBorrowRequest` (C2) reads
+  // the same number for the same purpose, and two copies of "coalesce to 3" is
+  // how one of them later stops matching the settings screen. The expiry
+  // arithmetic moved to `../policy.ts` (`holdExpiryFrom`) for the same reason
+  // and keeps its whole argument there.
+  return { id: request.id, holdDays: await holdDaysFor(tx, bookshelfId) };
 }

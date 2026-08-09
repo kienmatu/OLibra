@@ -3,6 +3,9 @@ import { fixedClock } from "../../src/domain/kernel/clock";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import { copyLendable } from "../../src/domain/circulation/policy";
+import { approveBorrowRequest } from "../../src/domain/circulation/commands/approve-borrow-request";
+import { createBorrowRequest } from "../../src/domain/circulation/commands/create-borrow-request";
+import { handoverRequest } from "../../src/domain/circulation/commands/handover-request";
 import { lendCopy } from "../../src/domain/circulation/commands/lend-copy";
 import { migrate } from "../../src/db/migrate";
 import { makeBookWithCopies, makeMember, makeShelf } from "../support/factories";
@@ -380,5 +383,128 @@ test("INV-3: a lapsed hold makes the copy lendable to nobody, its own ex-holder 
       membershipId: holder.id,
     }),
   ).rejects.toMatchObject({ code: "copy_not_available" });
+  expect(await sql`select 1 from loans`).toHaveLength(0);
+});
+
+// ── C2: the request-shaped path to the same rule ─────────────────────────────
+//
+// Master §7.6 names the case this group exists for: *reader A holds a hold on
+// copy X; handing X to reader B must fail even though B is an active member in
+// good standing.* C1's `lendCopy` test above covers the walk-up form of it. The
+// request commands add three more ways to ask the same question, and the C2
+// plan §3.2's stated risk is that one of them "grows a second definition of who
+// may take a held copy". None of them does: `approveBorrowRequest` consults
+// `copyHoldable` and `handoverRequest` delegates to `lendCopy`, which consults
+// `copyLendable`.
+
+test("INV-3: reader A's held copy cannot be promised or handed to reader B", async () => {
+  const shelf = await makeShelf(sql, { slug: "tra-vinh" });
+  const managerCtx = await managerContext(shelf.id);
+  const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const a = await makeMember(sql, shelf.id);
+  const b = await makeMember(sql, shelf.id);
+
+  const readerCtx = (m: { id: string; userId: string }): TenantContext => ({
+    bookshelfId: shelf.id,
+    actor: { userId: m.userId, membershipId: m.id, role: "reader" },
+    clock: fixedClock("2026-08-08T03:00:00Z"),
+  });
+
+  const forA = await runCommand(sql, readerCtx(a), createBorrowRequest, {
+    bookId,
+    membershipId: a.id,
+  });
+  const forB = await runCommand(sql, readerCtx(b), createBorrowRequest, {
+    bookId,
+    membershipId: b.id,
+  });
+  await runCommand(sql, managerCtx, approveBorrowRequest, {
+    requestId: forA.requestId,
+    copyId: copyIds[0],
+  });
+
+  // 1. The manager cannot promise the same copy to B. `copyHoldable` refuses
+  //    every non-`available` copy, including one held for somebody — which is
+  //    exactly where it differs from `copyLendable`, and the difference is the
+  //    reason there are two predicates rather than one with a parameter.
+  await expect(
+    runCommand(sql, managerCtx, approveBorrowRequest, {
+      requestId: forB.requestId,
+      copyId: copyIds[0],
+    }),
+  ).rejects.toMatchObject({ code: "no_copy_available" });
+
+  // 2. The manager cannot hand it over on B's request either — B has no hold,
+  //    so there is nothing to hand over, whatever is on the shelf.
+  await expect(
+    runCommand(sql, managerCtx, handoverRequest, { requestId: forB.requestId }),
+  ).rejects.toMatchObject({ code: "request_not_held" });
+
+  // 3. Nor by walking up with B in front of them. This is C1's refusal, reached
+  //    from a fixture the request commands built rather than one the test wrote
+  //    by hand — which is the half that proves the two paths agree.
+  await expect(
+    runCommand(sql, managerCtx, lendCopy, {
+      copyId: copyIds[0],
+      membershipId: b.id,
+    }),
+  ).rejects.toMatchObject({ code: "copy_not_available" });
+
+  expect(await sql`select 1 from loans`).toHaveLength(0);
+
+  // 4. And A, from the identical fixture, may collect it — which is what rules
+  //    out a set of commands that simply refuse every `held` copy and would
+  //    satisfy the three assertions above by doing nothing useful.
+  await expect(
+    runCommand(sql, managerCtx, handoverRequest, { requestId: forA.requestId }),
+  ).resolves.toMatchObject({ loanId: expect.any(String) });
+  const [copy] = await sql<{ state: string }[]>`
+    select state from book_copies where id = ${copyIds[0]}
+  `;
+  expect(copy.state).toBe("on_loan");
+});
+
+test("INV-3: the handover's copy-side refusal is copyLendable's, not its own", async () => {
+  // The C2 plan §3.2 asks for the refusal to "come from `copyLendable`, not a
+  // second rule", and a test that only checks the happy path cannot tell the
+  // difference. These two codes can: neither `copy_lost_or_retired` nor
+  // `copy_not_available` is written anywhere in `handover-request.ts` — its
+  // only refusals are `hold_expired` and `request_not_held` — so they can only
+  // have travelled up from `copyLendable`, through `lendCopy`.
+  const shelf = await makeShelf(sql, { slug: "ca-mau" });
+  const managerCtx = await managerContext(shelf.id);
+  const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const holder = await makeMember(sql, shelf.id);
+  const { requestId } = await runCommand(
+    sql,
+    {
+      bookshelfId: shelf.id,
+      actor: { userId: holder.userId, membershipId: holder.id, role: "reader" },
+      clock: fixedClock("2026-08-08T03:00:00Z"),
+    },
+    createBorrowRequest,
+    { bookId, membershipId: holder.id },
+  );
+  await runCommand(sql, managerCtx, approveBorrowRequest, {
+    requestId,
+    copyId: copyIds[0],
+  });
+
+  // A copy reported lost while the hold still stands. INV-7 over INV-3: the
+  // copy is gone, and that is what the volunteer needs to hear.
+  await sql`update book_copies set state = 'lost' where id = ${copyIds[0]}`;
+  await expect(
+    runCommand(sql, managerCtx, handoverRequest, { requestId }),
+  ).rejects.toMatchObject({ code: "copy_lost_or_retired" });
+
+  // And the two-table state INV-2 forbids, arrived at by hand because no
+  // command produces it: a live hold naming a copy that is out. The refusal is
+  // INV-3's, and `copyLendable`'s docstring is where the argument lives for why
+  // the predicate answers it rather than leaving it to INV-1's index.
+  await sql`update book_copies set state = 'on_loan' where id = ${copyIds[0]}`;
+  await expect(
+    runCommand(sql, managerCtx, handoverRequest, { requestId }),
+  ).rejects.toMatchObject({ code: "copy_not_available" });
+
   expect(await sql`select 1 from loans`).toHaveLength(0);
 });
