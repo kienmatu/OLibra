@@ -71,6 +71,38 @@ test("all four formula leaders are neutralised, including a dash in a note", () 
   }
 });
 
+test("whitespace before a formula leader does not get it past the rule", () => {
+  // The three bypasses a reviewer constructed against `neutralise`, and the
+  // reason they are a test rather than a paragraph. A spreadsheet strips a
+  // leading tab, carriage return or space before it decides what the cell *is*,
+  // so `\t=HYPERLINK(…)` is evaluated while `cell[0] === "\t"` is not one of
+  // `FORMULA_LEADERS` — the prefix was never applied.
+  //
+  // None of the three is reachable today, and that is exactly why this is
+  // pinned here: every free-text field that reaches a CSV is `.trim()`ed before
+  // storage by a *different module* (see `neutralise`'s docstring for the five),
+  // and one untrimmed write path re-opens all three at once. This test does not
+  // depend on that property.
+  for (const space of ["\t", "\r", " ", "  \t "]) {
+    const text = toCsv(["Lý do"], [[`${space}=SUM(1+1)`]]);
+    const cell = text.split("\r\n")[1];
+    // The payload is untouched — the whitespace is still there, exactly as
+    // stored, for the same reason the apostrophe is visible rather than a
+    // silent rewrite. What changed is what the *first* character is.
+    expect(cell.replace(/^"|"$/g, ""), JSON.stringify(space)).toBe(
+      `'${space}=SUM(1+1)`,
+    );
+  }
+
+  // And the other two the reviewer tried are correctly left alone: U+2212 (a
+  // minus sign) and U+FF1D (a fullwidth equals) are not formula leaders in
+  // Excel or LibreOffice, so prefixing them would be mangling an ordinary
+  // Vietnamese cell for nothing.
+  for (const lead of ["−", "＝"]) {
+    expect(toCsv(["a"], [[`${lead}5`]]).split("\r\n")[1]).toBe(`${lead}5`);
+  }
+});
+
 test("a header is a cell and gets the same rule", () => {
   expect(toCsv(["=Tên"], [])).toContain("'=Tên");
 });
@@ -116,6 +148,24 @@ test("a carriage return inside a free-text reason is quoted too", () => {
   // strict reader.
   const text = toCsv(["Lý do"], [["một\r\nhai"]]);
   expect(text.slice(1)).toBe('Lý do\r\n"một\r\nhai"\r\n');
+});
+
+test("a lone carriage return, with no line feed after it, is quoted", () => {
+  // **The test above does not exercise the `\r` branch and the one below is why
+  // this one exists.** `"một\r\nhai"` contains a `\n`, so the predicate's `\n`
+  // alternative alone satisfies it: deleting `\r` from `/[",\r\n]/` in
+  // `src/lib/csv.ts` left all 22 tests across this file and
+  // `tests/domain/shelf/exports.test.ts` green — measured, by deleting it. The
+  // guard was decoration.
+  //
+  // A lone CR is what an old Mac-era paste and several mobile keyboards submit,
+  // and it is what the predicate's comment is explicitly about. Unquoted, it is
+  // a bare CR in the middle of a field, and a strict RFC 4180 reader — Excel's
+  // own import among them — takes it as a row terminator: the rest of the
+  // reason becomes a new row with one column, and every column after it in the
+  // real row shifts left by one.
+  const text = toCsv(["Lý do"], [["một\rhai"]]);
+  expect(text.slice(1)).toBe('Lý do\r\n"một\rhai"\r\n');
 });
 
 test("every row ends with CRLF, the last one included", () => {

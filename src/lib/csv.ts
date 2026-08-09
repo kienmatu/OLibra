@@ -84,10 +84,50 @@ const FORMULA_LEADERS = ["=", "+", "-", "@"];
  * for it is §3.3's own argument, word for word — the file is insurance and a
  * phone number that has quietly lost a digit is not insurance — and because
  * removing it is one line if a reviewer disagrees.
+ *
+ * ── What the leader is measured against, and what that used to rest on ───────
+ *
+ * **The leader is the first character a *spreadsheet* sees, which is not
+ * `cell[0]`.** Excel and LibreOffice both strip leading whitespace before
+ * deciding whether a cell is a formula, so `\t=HYPERLINK(…)`, `\r=…` and
+ * ` =…` are all evaluated — while `cell[0]` is a tab, a CR or a space, none
+ * of which is in `FORMULA_LEADERS`. Three constructed bypasses, all of the
+ * same shape, and `LEADING_SPACE` below is why they no longer work.
+ *
+ * Two others were tried and correctly do nothing: `−` (U+2212, minus sign) and
+ * `＝` (U+FF1D, fullwidth equals) are not formula leaders in either
+ * application, so prefixing them would mangle an ordinary cell for nothing. And
+ * the quoting layer cannot manufacture one — `quote` only ever adds `"` at the
+ * very front, and `"` is not a leader either.
+ *
+ * **None of the three was reachable when they were found, and the reason is
+ * the point.** Every free-text field that reaches these files is `.trim()`ed
+ * before it is stored — `quan-ly/actions.ts`'s `field()`, `create-book.ts`,
+ * `void-loan.ts`, `profile-fields.ts`'s `normaliseProfilePatch` and
+ * `registration.ts` — and JavaScript's `.trim()` removes tab, CR and space
+ * alike. So the defence rested on a property of five *other* modules, none of
+ * which is written down as owing this one anything, and a single new write path
+ * that stored what a volunteer typed verbatim would have re-opened all three at
+ * once with nothing here to notice.
+ *
+ * Doing the strip here is cheaper than depending on that, and it is cheaper
+ * than trimming here: **the cell is never altered.** Trimming inside this
+ * function would silently rewrite a value the file is supposed to be an exact
+ * copy of, which is the same mistake as an invisible neutralisation. The
+ * whitespace stays; only the question "what does a spreadsheet think this
+ * starts with" is asked of the stripped string. `tests/lib/csv.test.ts` pins
+ * all five characters, and the phone rule deliberately keeps its own anchored
+ * `^` — a cell beginning with a space is not the all-digits cell that rule is
+ * about.
  */
+const LEADING_SPACE = /^[\t\r\n ]+/;
+
 function neutralise(cell: string): string {
   if (cell === "") return cell;
-  if (FORMULA_LEADERS.includes(cell[0])) return `'${cell}`;
+  // A cell of nothing but whitespace strips to "" and has no leader at all,
+  // which is why this is read into a variable rather than indexed inline.
+  const leader = cell.replace(LEADING_SPACE, "").charAt(0);
+  if (FORMULA_LEADERS.includes(leader)) return `'${cell}`;
   if (/^0\d+$/.test(cell)) return `'${cell}`;
   return cell;
 }
