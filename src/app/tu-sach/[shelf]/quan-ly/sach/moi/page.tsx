@@ -1,33 +1,134 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { ArrowLeft, ImagePlus } from "lucide-react";
-import { Button, ButtonLink } from "@/components/ui/button";
+import { AlertCircle, ArrowLeft } from "lucide-react";
+import { ButtonLink } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { DonorFields } from "@/components/donor-fields";
-import { shelfBySlug, shelves } from "@/lib/fixtures";
+import { messageFor } from "@/domain/kernel/errors";
+import { getReadersList } from "@/domain/members/queries/get-readers-list";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
+import { readCategoryOptions } from "@/lib/catalogue";
+import { loadPage } from "@/lib/page-data";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
+import { readShelf } from "@/lib/shelf";
+import { createBookAction } from "../../actions";
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
+/** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
+export const dynamic = "force-dynamic";
 
+/**
+ * How many members the donor picker offers.
+ *
+ * `getReadersList` is paged and its own ceiling is 100. A shelf with more active
+ * members than that has a picker that cannot reach all of them, and the outsider
+ * text field beside it is not the answer for a member who exists. Recorded
+ * rather than hidden: making this a search is the wave that also makes the
+ * donation queue real (B3), and `DonorFields`' own docstring already carries the
+ * argument for why the member id, not a typed name, is what
+ * `book_copies.acquired_from_membership_id` needs.
+ */
+const DONOR_PAGE_SIZE = 100;
+
+/**
+ * BR §16.3's create form: "the create and edit form is single-column with the
+ * cover uploader first, since a photograph is the strongest recognition cue."
+ *
+ * ── The cover uploader is gone, and it is the one part of that sentence this
+ * page cannot honour ────────────────────────────────────────────────────────
+ *
+ * `createBook` takes a `coverUrl` — a URL to an object *already* in storage —
+ * and nothing in this application puts one there. The only upload path that
+ * exists is the avatar's (`src/lib/avatar.ts`), which is built around a
+ * `ProfileChangeRequest` and its lifecycle of proposal, decision and deletion; a
+ * book cover has none of that and would need its own size limit, its own
+ * content-type list, its own answer for what a failed `put` does to the rest of
+ * the form, and its own retention story. U1 §6.1 recorded the identical gap for
+ * the return photo and deferred it for the identical reasons. So the dashed
+ * "Tải ảnh bìa" box is removed rather than left inert — `BookCover` already
+ * draws the kraft cover its caption promised, everywhere in the app.
+ *
+ * ── And the three copy codes it previewed are gone ──────────────────────────
+ *
+ * The fixture showed `DT-0215 DT-0216 DT-0217` beside the copy-count field.
+ * `allocateCopyCodes` assigns them inside the command's own transaction, under a
+ * per-shelf advisory lock, precisely so two managers cataloguing at once cannot
+ * both claim the same code — so a preview rendered before the form is submitted
+ * is a guess this page has no way to make true. The hint keeps saying that codes
+ * are assigned; it no longer says which.
+ *
+ * That last sentence was not true when it was written. The hint still ended
+ * "ví dụ DT-0215" — the same code, minus two of the three, still named before
+ * anything had been allocated. It made a second claim as well, and a worse one:
+ * `copyCodePrefix` (`src/domain/catalogue/policy.ts:183`) derives the prefix
+ * from the shelf's slug, so `vinh-long` mints `VL-`, `can-tho` `CT-` and
+ * `ben-tre` `BT-`. On three of the four seeded shelves the form promised a
+ * prefix the system will not mint. It is a `hint=` attribute rather than a
+ * rendered record, so `a-wired-page-renders-no-fixtures` was never going to see
+ * it; it was a hand-typed factual claim about this shelf all the same.
+ *
+ * ── What is real ───────────────────────────────────────────────────────────
+ *
+ * The category `<select>` is `readCategoryOptions` — **every** global category,
+ * not the ones this shelf already stocks, because the first book of a new kind
+ * is exactly the one that could not otherwise be catalogued (that helper's
+ * docstring holds the distinction against the filter bar's list). The donor
+ * picker is this shelf's own members, which is what `DonorFields` was waiting
+ * for: it shipped rendering eleven invented children from `src/lib/fixtures.ts`,
+ * on a page one tap from writing a fabricated membership id into
+ * `book_copies.acquired_from_membership_id`.
+ *
+ * Refusals come back through `?loi=` and render as `ERROR_MESSAGES`' own
+ * sentences — `duplicate_isbn`, `category_not_found`, `copy_count_invalid`,
+ * `required_fields_missing`. What the form does **not** do is repopulate itself,
+ * which is a real cost and a small one here: unlike the registration form beside
+ * it, none of these fields is a fact about a child, so the reason is simply that
+ * a title and an author are quick to retype and a query string carrying a
+ * description is not.
+ */
 export default async function NewBookPage({
   params,
   searchParams,
 }: {
   params: Promise<{ shelf: string }>;
-  searchParams: Promise<{ nguoi_tang_id?: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const { nguoi_tang_id: nguoiTangId } = await searchParams;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
+  const search = await searchParams;
+  const refused = refusalFrom(search);
+  // BR §16.3's donation queue opens this form with the donor already known.
+  // B3 owns that queue; the parameter is read now so the two halves agree when
+  // it arrives, and it is a membership id the picker either has or ignores.
+  const donorParam = param(search, "nguoi-tang");
 
-  const base = `/tu-sach/${shelf.slug}/quan-ly`;
-  const previewCodes = ["DT-0215", "DT-0216", "DT-0217"];
+  const { shelf, viewer, counts, categories, donors } = await loadPage(
+    slug,
+    async (tx, ctx, viewer) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      categories: await readCategoryOptions(tx, ctx),
+      // Only members who could plausibly be standing at the shelf handing over
+      // a book — `DonorFields` states the rule and this is a caller applying it.
+      // Somebody who has left has no ongoing relationship to link the gift to,
+      // and somebody still `pending` is not yet a member at all.
+      donors: await getReadersList(tx, ctx, {
+        status: "active",
+        pageSize: DONOR_PAGE_SIZE,
+      }),
+    }),
+  );
+
+  const base = `/tu-sach/${slug}/quan-ly`;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="sach">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="sach"
+      viewer={viewer}
+      counts={counts}
+    >
       <Link
         href={`${base}/sach`}
         className="inline-flex min-h-11 items-center gap-1.5 text-[15px] text-meta hover:text-ink"
@@ -40,63 +141,69 @@ export default async function NewBookPage({
         Thêm sách mới
       </h1>
 
-      <form className="mt-8 max-w-2xl space-y-10">
-        {/* Cover uploader comes first, before any text field. */}
-        <div className="flex flex-wrap items-start gap-6">
-          <div
-            className={
-              "flex aspect-2/3 w-[180px] shrink-0 flex-col items-center " +
-              "justify-center gap-2 rounded-card border border-dashed border-hairline " +
-              "bg-paper p-4 text-center"
-            }
-          >
-            <ImagePlus
-              aria-hidden
-              className="size-7 text-leather"
-              strokeWidth={1.5}
-            />
-            <span className="text-[15px] font-medium">Tải ảnh bìa</span>
-            <span className="text-[13px] text-meta">
-              Chụp bìa sách bằng điện thoại cũng được
-            </span>
-          </div>
-          <p className="max-w-64 pt-2 text-[14px] text-meta">
-            Nếu chưa có ảnh bìa, hệ thống sẽ tự tạo một bìa màu kraft thay thế cho
-            cuốn sách này, giống các bìa khác trong tủ sách.
-          </p>
-        </div>
+      {refused ? (
+        <p
+          role="alert"
+          className="mt-5 flex max-w-2xl items-center gap-2 rounded-card border border-brick bg-brick/8 px-4 py-3 text-[15px] text-brick"
+        >
+          <AlertCircle aria-hidden className="size-5 shrink-0" strokeWidth={1.75} />
+          {messageFor(refused)}
+        </p>
+      ) : null}
+
+      <form action={createBookAction} className="mt-8 max-w-2xl space-y-10">
+        <input type="hidden" name="tu-sach" value={slug} />
 
         <div className="space-y-6">
           <Field label="Tên sách" required htmlFor="ten-sach">
-            <Input id="ten-sach" placeholder="vd: Dế Mèn Phiêu Lưu Ký" />
+            <Input
+              id="ten-sach"
+              name="ten-sach"
+              required
+              placeholder="vd: Dế Mèn Phiêu Lưu Ký"
+            />
           </Field>
 
           <Field label="Tác giả" required htmlFor="tac-gia">
-            <Input id="tac-gia" placeholder="vd: Tô Hoài" />
+            <Input id="tac-gia" name="tac-gia" required placeholder="vd: Tô Hoài" />
           </Field>
 
+          {/* `categories.slug`, not a name and not an id — a global table with a
+              plain `unique (slug)`, which is the stable handle a form can post
+              (`create-book.ts`). */}
           <Field label="Thể loại" required htmlFor="the-loai">
-            <Select id="the-loai" defaultValue="">
+            <Select id="the-loai" name="the-loai" required defaultValue="">
               <option value="" disabled>
                 Chọn thể loại
               </option>
-              <option>Văn học thiếu nhi</option>
-              <option>Văn học nước ngoài</option>
-              <option>Văn học Việt Nam</option>
-              <option>Thơ thiếu nhi</option>
+              {categories.map((category) => (
+                <option key={category.slug} value={category.slug}>
+                  {category.name}
+                </option>
+              ))}
             </Select>
           </Field>
 
           <Field label="Nhà xuất bản" htmlFor="nxb">
-            <Input id="nxb" placeholder="vd: Kim Đồng" />
+            <Input id="nxb" name="nxb" placeholder="vd: Kim Đồng" />
           </Field>
 
           <Field label="Năm xuất bản" htmlFor="nam-xb">
-            <Input id="nam-xb" inputMode="numeric" placeholder="vd: 2019" />
+            <Input
+              id="nam-xb"
+              name="nam-xb"
+              inputMode="numeric"
+              placeholder="vd: 2019"
+            />
           </Field>
 
           <Field label="Số trang" htmlFor="so-trang">
-            <Input id="so-trang" inputMode="numeric" placeholder="vd: 176" />
+            <Input
+              id="so-trang"
+              name="so-trang"
+              inputMode="numeric"
+              placeholder="vd: 176"
+            />
           </Field>
 
           <Field
@@ -104,59 +211,61 @@ export default async function NewBookPage({
             htmlFor="isbn"
             hint="Không bắt buộc. Sách cũ hoặc sách tặng thường không có mã."
           >
-            <Input id="isbn" placeholder="vd: 978-604-2-12345-6" />
+            <Input id="isbn" name="isbn" placeholder="vd: 978-604-2-12345-6" />
           </Field>
 
           <Field label="Mô tả" htmlFor="mo-ta">
             <Textarea
               id="mo-ta"
+              name="mo-ta"
               rows={4}
               placeholder="Vài dòng giới thiệu nội dung cuốn sách"
             />
           </Field>
-
-          <Field label="Ngôn ngữ" htmlFor="ngon-ngu">
-            <Select id="ngon-ngu" defaultValue="vi">
-              <option value="vi">Tiếng Việt</option>
-            </Select>
-          </Field>
         </div>
 
-        {/* Group: số bản sách — the system generates copy codes automatically. */}
+        {/* A code is assigned per copy, inside the command's own transaction.
+            See this page's docstring for why no codes are previewed here — and
+            why the hint no longer names a prefix either: `copyCodePrefix`
+            derives it from the shelf slug, so `DT-` was true on one of the four
+            seeded shelves and a promise the system would break on `vinh-long`,
+            `can-tho` and `ben-tre`. */}
         <div className="space-y-3 rounded-card border border-hairline bg-surface p-5">
           <Field
             label="Số bản sách"
+            required
             htmlFor="so-ban"
-            hint="Hệ thống sẽ tự sinh mã cho từng bản, ví dụ DT-0215, DT-0216, DT-0217"
+            hint="Tủ sách tự đặt mã cho từng bản, không cần điền."
           >
             <Input
               id="so-ban"
+              name="so-ban"
               type="number"
               min={1}
-              defaultValue={3}
+              defaultValue={1}
+              required
               className="max-w-32"
             />
           </Field>
-          <div className="flex flex-wrap gap-2">
-            {previewCodes.map((code) => (
-              <span
-                key={code}
-                className="rounded-control bg-terracotta/10 px-2.5 py-1 text-[13px] font-medium text-terracotta-ink"
-              >
-                {code}
-              </span>
-            ))}
-          </div>
         </div>
 
-        {/* A donation approved from the queue (§16.3) arrives here with the
-            donor's member id already known — pre-selected below, and just as
-            editable as if a manager had chosen it themselves. */}
-        <DonorFields idPrefix="nguoi-tang" selectedMemberId={nguoiTangId} />
+        <DonorFields
+          idPrefix="nguoi-tang"
+          selectedMemberId={donorParam}
+          donors={donors.rows.map((r) => ({
+            id: r.membershipId,
+            fullName: r.fullName,
+          }))}
+        />
 
+        {/* `books.is_published` — the draft flag that hides a title from the
+            reader catalogue while a volunteer is still preparing it. Checked by
+            default, matching `createBook`'s own `input.published ?? true`; an
+            unchecked box posts nothing at all, which is what the action reads. */}
         <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">
           <input
             type="checkbox"
+            name="hien-thi"
             defaultChecked
             className="mt-1 size-5 shrink-0 accent-terracotta"
           />
@@ -172,9 +281,7 @@ export default async function NewBookPage({
         </label>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" variant="primary" size="lg">
-            Lưu sách
-          </Button>
+          <SubmitButton>Lưu sách</SubmitButton>
           <ButtonLink href={`${base}/sach`} variant="ghost" size="lg">
             Huỷ
           </ButtonLink>

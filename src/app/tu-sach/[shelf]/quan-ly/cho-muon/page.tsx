@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { StepIndicator } from "@/components/ui/step-indicator";
 import { messageFor } from "@/domain/kernel/errors";
 import { searchBooksForLending } from "@/domain/catalogue/queries/search-books-for-lending";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { param, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
@@ -51,20 +52,41 @@ export default async function ChoMuonTimSachPage({
   const { shelf: slug } = await params;
   const query = param(await searchParams, "q") ?? "";
 
-  const { shelf, results } = await loadPage(slug, async (tx, ctx) => ({
-    // U1 Task 2 landed this as an inline `select` here, with a note that the
-    // five remaining lending screens would each want the same two lines.
-    // `readShelf` (`src/lib/shelf.ts`) is that extraction; its docstring
-    // carries the reasoning for why a shelf's own name and lending policy are
-    // read by the surface rather than through a query OPS §3 does not define.
-    shelf: await readShelf(tx, ctx),
-    results: await searchBooksForLending(tx, ctx, { q: query }),
-  }));
+  const { shelf, viewer, counts, results } = await loadPage(
+    slug,
+    async (tx, ctx, viewer) => ({
+      // U1 Task 2 landed this as an inline `select` here, with a note that the
+      // five remaining lending screens would each want the same two lines.
+      // `readShelf` (`src/lib/shelf.ts`) is that extraction, and its docstring
+      // carries the reasoning.
+      //
+      // That reasoning is narrower than this comment used to claim. OPS §3
+      // defines no `GetShelfHeader` — a shelf's own *name*, for a heading, has
+      // no query behind it and inventing one would be a domain change U1 was
+      // not making. But it does define `GetShelfSettings` (OPS:97), which
+      // returns "Profile fields, lending-policy values (§5.5)", so the lending
+      // policy half is a query the specification has and this codebase has not
+      // written — the same unimplemented query `manager-shell.tsx:115` names
+      // beside `GetAnnouncementsList` and `GetStatistics`. Reading two columns
+      // on the surface is the choice being made here, not the absence of
+      // anywhere else to read them from.
+      shelf: await readShelf(tx, ctx),
+      viewer,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      results: await searchBooksForLending(tx, ctx, { q: query }),
+    }),
+  );
 
   const base = `/tu-sach/${slug}/quan-ly`;
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="cho-muon">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="cho-muon"
+      viewer={viewer}
+      counts={counts}
+    >
       <StepIndicator
         steps={["Tìm sách", "Chọn người đọc", "Xác nhận"]}
         current={1}

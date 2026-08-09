@@ -50,6 +50,27 @@ export interface ReadersListPage {
  * — Task 5 found the hard way that `loans_current` is every loan plus two
  * derived columns, not a pre-filtered "current" view, so an unfiltered count
  * would count returned loans too.
+ *
+ * **The order is `olibra_fold(u.full_name)` and then `m.id`, and both halves
+ * are corrections** (U3 wave 1's reconciliation). This shipped as
+ * `order by u.full_name`, which is the pair of defects U2 found in the two
+ * reader-facing catalogue queries and then in `getBooksList`, on a fourth
+ * query nobody had connected to them:
+ *
+ * - **Unfolded.** This cluster's collation is `C`, so byte order is the order.
+ *   `Đ` encodes as two bytes beginning `0xC4`, above every ASCII letter, so
+ *   every child called *Đặng* or *Đỗ* sorted after every *Vũ* — at the end of
+ *   the roster, which on a shelf of a few hundred readers is a different page.
+ *   `olibra_fold` maps it to `d`, and on `[a-z0-9 ]` byte order is alphabetical
+ *   order. Folding is what the search on the line above already does to the
+ *   same column, so the list and its search now agree about what a name is.
+ * - **No unique tiebreak, on a paged query.** `full_name` is nowhere near
+ *   unique — two children called "Nguyễn Văn An" is the ordinary case, and it
+ *   is the case BR §5.3 requires parents' names precisely to disambiguate — so
+ *   the sort was not a total order and `limit`/`offset` over it showed some
+ *   rows twice and skipped others. U2 measured that on the catalogue: 304
+ *   titles collected over a paged walk, 229 distinct. `m.id` is the primary
+ *   key, so it ends the order and cannot tie.
  */
 export async function getReadersList(
   tx: Tx,
@@ -110,7 +131,10 @@ export async function getReadersList(
         or (olibra_fold(${q}) <> '' and olibra_fold(u.full_name) like '%' || olibra_fold(${q}) || '%')
       )
     group by m.id, u.id
-    order by u.full_name
+    -- olibra_fold(full_name), then the primary key. See this function's
+    -- docstring: unfolded, every Đ name sorted last; untie-broken, a paged
+    -- walk lost readers between pages.
+    order by olibra_fold(u.full_name), m.id
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;
 

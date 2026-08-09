@@ -178,9 +178,102 @@ test("the name filter is diacritic-insensitive and refuses a garbage query", asy
   expect(garbage.rows).toHaveLength(0);
 });
 
+test("the roster sorts by name in Vietnamese, not in byte order", async () => {
+  // U3 wave 1's reconciliation: this query shipped `order by u.full_name`,
+  // which under this cluster's `C` collation is byte order — `Đ` begins 0xC4,
+  // above every ASCII letter, so every child called Đặng sorted after every
+  // child called Vũ. The same defect U2 fixed in the two catalogue queries and
+  // in getBooksList, on a fourth query nobody had connected to them.
+  const { ctx, shelf } = await shelfWithReaders();
+  for (const fullName of ["Vũ Bảo", "Đặng Minh", "An Nhiên"]) {
+    await reader(shelf.id, { fullName });
+  }
+
+  const page = await runQuery(sql, ctx, (tx, c) => getReadersList(tx, c, {}));
+
+  expect(page.rows.map((r) => r.fullName)).toEqual([
+    "An Nhiên",
+    "Đặng Minh",
+    // The shelf's manager, made by `makeMember` as "Người đọc <n>".
+    expect.stringContaining("Người đọc"),
+    "Vũ Bảo",
+  ]);
+});
+
+/**
+ * Namesakes in the paging fixture below, and why it is this many.
+ *
+ * The fixture shipped as eight namesakes walked three at a time, and at that
+ * size the guard cannot fail: deleting `m.id` from the `order by` leaves it
+ * green. Postgres answers a small `limit`/`offset` with a bounded top-N
+ * heapsort, and over nine rows in pages of three the heap happens to hand back
+ * a consistent order across the three pages — there are not enough rows for the
+ * per-page heaps to disagree about where a tie belongs.
+ *
+ * Measured on this cluster with `m.id` deleted, rows lost off the roster
+ * entirely:
+ *
+ * | namesakes | pageSize | collected | distinct | lost |
+ * |---|---|---|---|---|
+ * | 8   | 3 | 10  | 10  | 0    |
+ * | 40  | 7 | 41  | 40  | 1    |
+ * | 80  | 7 | 81  | 75  | 5–7  |
+ * | 120 | 7 | 121 | 111 | 9–11 |
+ *
+ * Eighty is the first size with a margin rather than a coincidence: twenty
+ * consecutive trials lost between five and seven readers and none lost zero,
+ * where forty sat on a single row and would go green the first time the heap
+ * broke a tie the other way. It costs about a tenth of a second.
+ *
+ * This is not a hypothetical size, either. BR §5.3 requires parents' names
+ * precisely because a parish can have this many children sharing a name
+ * variant, and a roster that silently drops six of them puts those six on no
+ * page at all.
+ */
+const PAGING_NAMESAKES = 80;
+const PAGING_PAGE_SIZE = 7;
+
+test("paging the roster never loses a reader, however alike the names", async () => {
+  // The other half, and the one that is invisible until somebody pages: two
+  // children called "Nguyễn Văn An" is the ordinary case (BR §5.3 requires
+  // parents' names precisely to tell them apart), so `full_name` is not a
+  // total order and `limit`/`offset` over it repeats some rows and drops
+  // others. U2 measured 304 titles collected over a paged walk and 229
+  // distinct. `m.id` ends the order so it cannot tie.
+  //
+  // See `PAGING_NAMESAKES` above for why the fixture is eighty rather than the
+  // eight it shipped as. Falsified by deleting `m.id` from the `order by`: red
+  // on every run, in this file and in isolation.
+  const { ctx, shelf } = await shelfWithReaders();
+  for (let i = 0; i < PAGING_NAMESAKES; i++) {
+    await reader(shelf.id, { fullName: "Nguyễn Văn An" });
+  }
+
+  // The namesakes plus the shelf's own manager.
+  const total = PAGING_NAMESAKES + 1;
+  const pages = Math.ceil(total / PAGING_PAGE_SIZE);
+
+  const seen: string[] = [];
+  for (let page = 1; page <= pages; page++) {
+    const result = await runQuery(sql, ctx, (tx, c) =>
+      getReadersList(tx, c, { page, pageSize: PAGING_PAGE_SIZE }),
+    );
+    seen.push(...result.rows.map((r) => r.membershipId));
+  }
+
+  // Every reader exactly once: none repeated onto a second page, and — the
+  // failure that matters — none dropped off the roster altogether.
+  expect(seen).toHaveLength(total);
+  expect(new Set(seen).size).toBe(total);
+});
+
 // — GetReaderDetail —
 
-test("the detail carries the manager-only fields BR §5.3 names", async () => {
+// BR:126 (§4, assumption 5) is the rule that makes these four manager-only:
+// "Date of birth, parents' names, phone number, and parish-unit placement
+// (§5.6) remain visible only to managers and administrators." §5.3 defines
+// where the fields live, which is a different claim.
+test("the detail carries the manager-only fields BR §4 names", async () => {
   const { ctx, shelf, ids } = await shelfWithReaders();
   const r = await reader(shelf.id, {
     fullName: "Trần Minh",
@@ -233,6 +326,95 @@ test("days remaining and overdue are read from the view, never recomputed here",
     { count: string }[]
   >`select count(*) from audit_log`;
   expect(Number(count)).toBe(0);
+});
+
+test("a current loan names the book and the copy, not just a uuid", async () => {
+  // U3 wave 2 added `title` and `copyCode` to `currentLoans`, and the plan flags
+  // that for what it is — "a shipped query's shape changing". Nothing asserted
+  // the new fields, so the two joins that produce them were unguarded: dropping
+  // either one, or joining the wrong column, still returned a row with a
+  // `bookId` and a due date and still rendered.
+  //
+  // OPS §3.3 says this query returns "current loans", and a current loan a
+  // screen can show is a *book*. The shipped shape was a `bookId`, a due date
+  // and two derived flags — a row a page can only render as a uuid or by
+  // performing a second lookup of its own.
+  const { ctx, shelf, manager } = await shelfWithReaders();
+  const r = await reader(shelf.id, { fullName: "Trần Minh" });
+
+  const [book] = await sql<{ id: string }[]>`
+    insert into books (bookshelf_id, title, author, slug, is_published)
+    values (${shelf.id}, 'Dế Mèn Phiêu Lưu Ký', 'Tô Hoài', 'de-men', true)
+    returning id
+  `;
+  // **Two copies of the one title, and the second is the one lent.** With a
+  // single copy this test passes against a join written `c.book_id = l.book_id`
+  // — planted, and it stayed green — because the only copy of the book is also
+  // the copy on loan. Two makes that join return both rows for one loan, and
+  // makes "which code" a question with a wrong answer available.
+  const [, lent] = await sql<{ id: string }[]>`
+    insert into book_copies (bookshelf_id, book_id, code, state, condition)
+    values
+      (${shelf.id}, ${book.id}, 'DT-0206', 'available', 'perfect'),
+      (${shelf.id}, ${book.id}, 'DT-0207', 'on_loan',   'perfect')
+    returning id
+  `;
+  await sql`
+    insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on)
+    values (${shelf.id}, ${lent.id}, ${book.id}, ${r.userId}, ${manager.userId},
+            date '2026-08-22')
+  `;
+
+  const detail = await runQuery(sql, ctx, (tx, c) =>
+    getReaderDetail(tx, c, { membershipId: r.id }),
+  );
+
+  expect(detail.currentLoans).toHaveLength(1);
+  expect(detail.currentLoans[0].title).toBe("Dế Mèn Phiêu Lưu Ký");
+  // The *copy's* code, not the book's anything — the join is on `l.copy_id`,
+  // and a join written on `l.book_id` would still find a copy of this title.
+  expect(detail.currentLoans[0].copyCode).toBe("DT-0207");
+  expect(detail.currentLoans[0].bookId).toBe(book.id);
+});
+
+test("a soft-deleted book or copy still leaves the loan on the reader's list", async () => {
+  // The two new joins are inner joins with no `deleted_at is null` predicate,
+  // and that is the correct choice rather than an omission — so it needs an
+  // assertion, because adding the filter is the obvious "tidy-up" and it is
+  // wrong. A reader is still holding this book. Dropping the row would tell a
+  // manager the child has nothing out, on the one screen she uses to find out
+  // what to ask for back, and the copy would be unreturnable from the only
+  // place that lists it.
+  //
+  // `getReadersList`'s join to `users` *does* carry `deleted_at is null`, and
+  // that difference is deliberate too: a deleted person is not a reader on the
+  // roster, but a deleted book is still a book somebody has.
+  const { ctx, shelf, manager } = await shelfWithReaders();
+
+  // `lend` makes the book and the copy it lends, so both are reached through
+  // the loan rather than through an id this test held on to.
+  const withDeletedBook = await reader(shelf.id, { fullName: "Sách đã xoá" });
+  await lend(shelf.id, withDeletedBook.userId, manager.userId, "2026-08-22");
+  await sql`
+    update books set deleted_at = now()
+     where id in (select book_id from loans where borrower_id = ${withDeletedBook.userId})
+  `;
+
+  const withDeletedCopy = await reader(shelf.id, { fullName: "Bản đã xoá" });
+  await lend(shelf.id, withDeletedCopy.userId, manager.userId, "2026-08-23");
+  await sql`
+    update book_copies set deleted_at = now()
+     where id in (select copy_id from loans where borrower_id = ${withDeletedCopy.userId})
+  `;
+
+  for (const who of [withDeletedBook, withDeletedCopy]) {
+    const detail = await runQuery(sql, ctx, (tx, c) =>
+      getReaderDetail(tx, c, { membershipId: who.id }),
+    );
+    expect(detail.currentLoans).toHaveLength(1);
+    expect(detail.currentLoans[0].title).not.toBe("");
+    expect(detail.currentLoans[0].copyCode).toMatch(/^DT-/);
+  }
 });
 
 test("the detail never carries a password hash", async () => {

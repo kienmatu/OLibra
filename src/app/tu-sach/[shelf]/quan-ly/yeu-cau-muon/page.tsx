@@ -95,6 +95,8 @@ export default async function BorrowRequestsPage({
       shelfName={shelf.name}
       shelfSlug={shelf.slug}
       active="yeu-cau-muon"
+      viewer={null}
+      counts={null}
     >
       <div className="space-y-8">
         <PageHeading

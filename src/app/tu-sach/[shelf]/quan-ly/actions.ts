@@ -6,17 +6,29 @@ import { redirect } from "next/navigation";
 // imports this module and Vitest resolves no alias. The distinction these three
 // functions are built around — a refusal is a sentence, a fault still throws —
 // is only worth writing down if it is the *shipped* function a test can reach.
-import { RuleViolated } from "../../../../domain/kernel/errors";
+import { RuleViolated, ValidationFailed } from "../../../../domain/kernel/errors";
+import { createBook } from "../../../../domain/catalogue/commands/create-book";
+import { markCopyFound } from "../../../../domain/catalogue/commands/mark-copy-found";
 import { reportCopyLost } from "../../../../domain/catalogue/commands/report-copy-lost";
+import { retireCopy } from "../../../../domain/catalogue/commands/retire-copy";
 import { lendCopy } from "../../../../domain/circulation/commands/lend-copy";
 import { receiveReturn } from "../../../../domain/circulation/commands/receive-return";
+import { approveMembership } from "../../../../domain/members/commands/approve-membership";
+import { approveProfileChange } from "../../../../domain/members/commands/approve-profile-change";
+import { registerMemberOnBehalf } from "../../../../domain/members/commands/register-member-on-behalf";
+import { rejectMembership } from "../../../../domain/members/commands/reject-membership";
+import { rejectProfileChange } from "../../../../domain/members/commands/reject-profile-change";
 import type { CopyCondition } from "../../../../domain/catalogue/policy";
 import type { Command } from "../../../../domain/kernel/unit-of-work";
+import { decideAndDiscardAvatar } from "../../../../lib/avatar";
 import { submitCommand } from "../../../../lib/page-data";
 import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
 
 /**
- * The three confirm buttons of the circulation flows, as server actions.
+ * Every button on the manager's surface that writes something — the three
+ * confirm buttons of the circulation flows (U1), and U3 wave 2's eight: approve
+ * and reject a registration, approve and reject a profile change, create a
+ * book, register a reader on somebody's behalf, mark a copy found, retire one.
  *
  * **The one distinction worth the whole file: a `RuleViolated` is an answer, a
  * fault is a fault.**
@@ -38,6 +50,26 @@ import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
  * `NotWired` from a boot sequence that skipped a setter — every one of them
  * would be rendered to a volunteer as "your input was wrong". U1 §3.3 calls
  * this "the one worth a test", and `tests/lib/lending-actions.test.ts` is it.
+ *
+ * **The one exception, and it is one function rather than a wider `catch`.**
+ * `registerReaderOnBehalfAction` uses `attemptTyped` below, which also catches
+ * `ValidationFailed`. A registration form is the one screen here where a
+ * `ValidationFailed` is a *normal* outcome rather than a fault dressed as an
+ * answer: a volunteer typing a child's details can produce
+ * `required_fields_missing` or a date `::date` would misread, and both are
+ * things they did and can undo. `toi/ho-so/actions.ts` made the same call for
+ * the avatar upload and gives the long version. What it does **not** catch,
+ * where that file does, is `NotWired` — see `registerReaderOnBehalfAction`.
+ *
+ * **A rejection's missing reason is checked here, not caught from there.** Four
+ * commands in this file raise `ValidationFailed` for a blank reason
+ * (`reject_reason_required`, `retire_reason_required`), and `complete()` below
+ * already establishes that a field the surface left empty is the surface's own
+ * doing. So each of those actions checks its own reason and returns the
+ * command's own code, which keeps "anything that is not a `RuleViolated` keeps
+ * throwing" literally true for them — and means the command's `ValidationFailed`
+ * is unreachable from a form and stays loud if it ever fires anyway. The
+ * sentence is still the domain's; `messageFor` looks it up.
  *
  * A `NotFound` is the exception, and it never reaches this file: OPS §2 gives
  * "not found" its own shape and its own answer — a 404 page — and
@@ -87,8 +119,55 @@ async function attempt<I, O>(
   }
 }
 
+/**
+ * `attempt`, widened to `ValidationFailed` — for the one form where malformed
+ * input is a volunteer's ordinary mistake rather than a fault.
+ *
+ * Kept as a second function rather than as a flag on `attempt`, so that the
+ * narrow catch stays the default and a new action has to *choose* the wider one
+ * and say why. `toi/ho-so/actions.ts` reached the same shape from the other
+ * direction and its docstring holds the general argument.
+ */
+async function attemptTyped<I, O>(
+  shelfSlug: string,
+  command: Command<I, O>,
+  input: I,
+): Promise<{ ok: true; result: O } | { ok: false; code: string }> {
+  try {
+    return { ok: true, result: await submitCommand(shelfSlug, command, input) };
+  } catch (err) {
+    if (err instanceof RuleViolated || err instanceof ValidationFailed) {
+      return { ok: false, code: err.code };
+    }
+    throw err;
+  }
+}
+
 function field(form: FormData, name: string): string {
   return String(form.get(name) ?? "").trim();
+}
+
+/** An optional text field: what the person typed, or `null` for an empty box. */
+function optional(form: FormData, name: string): string | null {
+  const value = field(form, name);
+  return value === "" ? null : value;
+}
+
+/**
+ * A whole number typed into a `type="number"` box, or `null` for anything else.
+ *
+ * `Number.parseInt` alone answers `12` for `"12abc"` and `NaN` for `""`, and
+ * `NaN` reaching `createBook`'s `Number.isInteger` check comes back as
+ * `copy_count_invalid` — the right refusal by accident. This is the same guard
+ * `pageNumber` in `src/lib/search-params.ts` applies to `?trang=`, for the same
+ * reason: `Number.isSafeInteger` also refuses `1e21`, which would otherwise
+ * reach Postgres in exponential notation.
+ */
+function wholeNumber(form: FormData, name: string): number | null {
+  const raw = field(form, name);
+  if (raw === "") return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
 }
 
 /**
@@ -237,4 +316,289 @@ export async function reportCopyLostAction(form: FormData): Promise<void> {
   }
 
   redirect(base);
+}
+
+/**
+ * Where a decision on this queue lands, whichever way it went.
+ *
+ * Back to the queue, never to the dashboard: the manager is working through a
+ * stack of cards, and BR §16.3 describes exactly that ("a review card per
+ * application"). A refusal carries its code; a success carries nothing, and the
+ * card is simply gone from the list because the queue query only returns
+ * `pending` rows.
+ */
+function backToQueue(
+  base: string,
+  queue: string,
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  const suffix = outcome.ok ? "" : `?${ACTION_ERROR_PARAM}=${outcome.code}`;
+  redirect(`${base}/${queue}${suffix}`);
+}
+
+/**
+ * What a reject action returns when its reason box was left empty — the
+ * command's own code, so the sentence a volunteer reads is `errors.ts`'s
+ * ("Vui lòng ghi lý do từ chối.") rather than a second wording invented here.
+ *
+ * See this file's header for why the check is on this side of the call at all.
+ */
+const NO_REJECT_REASON = { ok: false, code: "reject_reason_required" } as const;
+
+/**
+ * OPS §4.3's `ApproveMembership` — `pending → active`, the **Duyệt đăng ký**
+ * button on BR §16.3's review card.
+ *
+ * BR §4's assumption 3 makes this the consent step for holding a minor's data,
+ * which is why `RegisterMemberOnBehalf` below deliberately cannot skip it.
+ */
+export async function approveMembershipAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["thanh-vien"])
+    ? await attempt(shelfSlug, approveMembership, {
+        membershipId: field(form, "thanh-vien"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "dang-ky-cho-duyet", outcome);
+}
+
+/**
+ * OPS §4.3's `RejectMembership` — `pending → rejected`, with the reason BR §2
+ * requires so the person may re-apply. Nothing is deleted (G10).
+ */
+export async function rejectMembershipAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["thanh-vien"])
+    ? INCOMPLETE
+    : reason === ""
+      ? NO_REJECT_REASON
+      : await attempt(shelfSlug, rejectMembership, {
+          membershipId: field(form, "thanh-vien"),
+          reason,
+        });
+
+  backToQueue(managerBase(shelfSlug), "dang-ky-cho-duyet", outcome);
+}
+
+/**
+ * OPS §4.3's `ApproveProfileChange` — the proposed values are written to the
+ * person in the same transaction as the audit record (BR §7.4's diagram).
+ *
+ * **Routed through `decideAndDiscardAvatar`, not `submitCommand`.** Approving a
+ * new photograph makes the old one unreferenced, and an unreferenced avatar goes
+ * on answering 200 from a public bucket until something deletes it — a retention
+ * problem rather than a storage one, because the readers here are children.
+ * `src/lib/avatar.ts` owns the ordering (delete strictly after the commit) and
+ * that is why the composition lives there rather than being spelled out here.
+ * All three decisions in this lifecycle return the same `avatarObject` field for
+ * exactly this reason.
+ *
+ * **No parish units are sent.** `ApproveProfileChange` accepts
+ * `parishUnitL1Id`/`parishUnitL2Id` so a manager may correct the placement in
+ * the same action, and *omitting* both is what leaves it alone (the command
+ * branches on `!== undefined`). Offering that control means a second form on the
+ * card and a second decision at the moment a manager is deciding something else;
+ * BR §16.3 asks this screen for "Approve and Reject" and nothing more, and
+ * `quan-ly/nguoi-doc/[id]` is where a placement is edited. Recorded because
+ * sending an empty string here instead would silently *clear* both units.
+ */
+export async function approveProfileChangeAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["yeu-cau"])
+    ? await attemptDiscardingAvatar(shelfSlug, approveProfileChange, {
+        profileChangeRequestId: field(form, "yeu-cau"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "doi-thong-tin", outcome);
+}
+
+/**
+ * OPS §4.3's `RejectProfileChange` — the existing values are untouched, because
+ * `ProposeProfileChange` never wrote them. The reason is required and the reader
+ * sees it (BR §16.3).
+ *
+ * Also through `decideAndDiscardAvatar`: here the orphan is the *proposed*
+ * image, which nothing points at once the request is refused. OPS §4.3 requires
+ * that "a rejected or cancelled proposal's image is deleted rather than left
+ * orphaned in storage".
+ */
+export async function rejectProfileChangeAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["yeu-cau"])
+    ? INCOMPLETE
+    : reason === ""
+      ? NO_REJECT_REASON
+      : await attemptDiscardingAvatar(shelfSlug, rejectProfileChange, {
+          profileChangeRequestId: field(form, "yeu-cau"),
+          reason,
+        });
+
+  backToQueue(managerBase(shelfSlug), "doi-thong-tin", outcome);
+}
+
+/**
+ * `attempt`, for the two commands whose result names a photograph to delete.
+ *
+ * The `try` still wraps one call and nothing else, and that call is
+ * `decideAndDiscardAvatar` rather than `submitCommand` — so the delete is inside
+ * the guarded region and a storage fault propagates as a fault, exactly like a
+ * `PostgresError`. It is not a refusal a volunteer can act on, and dressing it
+ * as one would tell them their decision failed when the decision committed.
+ */
+async function attemptDiscardingAvatar<I>(
+  shelfSlug: string,
+  command: Command<I, { avatarObject: string | null }>,
+  input: I,
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  try {
+    await decideAndDiscardAvatar(shelfSlug, command, input);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof RuleViolated) return { ok: false, code: err.code };
+    throw err;
+  }
+}
+
+/**
+ * OPS §4.1's `CreateBook` — the title and its first copies in one transaction,
+ * because OPS §1 is explicit that "a book with zero copies is not yet
+ * meaningfully catalogued".
+ *
+ * **Lands on the list rather than on the new book.** `createBook` returns
+ * `{ bookId, copyIds }` and not the slug it disambiguated, so this cannot build
+ * the book's own URL without a second read; the list's default sort is
+ * `created_at desc`, so the new title is the first row. Naming the shape of the
+ * gap rather than adding a lookup: widening the command's result is a domain
+ * change, and it is a small one that belongs to whoever next needs it.
+ *
+ * `so-ban` reaches the command as whatever whole number arrived, or `-1` for a
+ * box that held something else — `copy_count_invalid` ("Số bản phải lớn hơn 0.")
+ * is the command's own answer to both, and re-deriving that refusal here would
+ * be a second copy of a rule the command already owns.
+ */
+export async function createBookAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = await attemptTyped(shelfSlug, createBook, {
+    title: field(form, "ten-sach"),
+    author: field(form, "tac-gia"),
+    categorySlug: field(form, "the-loai"),
+    publisher: optional(form, "nxb"),
+    publishedYear: wholeNumber(form, "nam-xb"),
+    pageCount: wholeNumber(form, "so-trang"),
+    isbn: optional(form, "isbn"),
+    description: optional(form, "mo-ta"),
+    // An unchecked checkbox posts nothing at all, which is what makes this the
+    // right way round: "Hiện sách này cho bạn đọc" checked means published.
+    published: form.get("hien-thi") !== null,
+    copyCount: wholeNumber(form, "so-ban") ?? -1,
+    donorMembershipId: optional(form, "donorMembershipId"),
+    donorName: optional(form, "donorName"),
+    acquiredOn: optional(form, "acquiredOn"),
+  });
+
+  const base = managerBase(shelfSlug);
+  if (!outcome.ok) {
+    redirect(`${base}/sach/moi?${ACTION_ERROR_PARAM}=${outcome.code}`);
+  }
+  redirect(`${base}/sach`);
+}
+
+/**
+ * OPS §4.3's `RegisterMemberOnBehalf` — BR §16.1's "a manager can also complete
+ * this form on behalf of a child standing in front of them, which is the common
+ * case for the youngest readers."
+ *
+ * **`registerMemberOnBehalf`, not `managerRegisterReader`, and not
+ * `registerMembership`.** The plan named the third, which is the *guest's own*
+ * registration and carries no manager gate at all — posting a screen behind
+ * `requireManager` to it would have been posting to a command that has none. Of
+ * the two that remain, BR §16.1 settles which belongs here in one sentence:
+ * "Registering on behalf still creates a pending application rather than an
+ * active member, so the approval step and its audit record are never skipped."
+ * This page's own shipped copy already promises that — "Hồ sơ này vẫn vào hàng
+ * chờ duyệt, kể cả khi bạn là người điền", above a button reading "Tạo hồ sơ chờ
+ * duyệt". `managerRegisterReader` creates an `active` membership and is BR
+ * §16.3's quick-lend escape hatch, which lives on `quan-ly/cho-muon/nguoi-doc`
+ * and is a different screen for a different moment (mid-lend, with a book in
+ * hand). The two commands "disagree about `pending` on purpose", as their own
+ * docstrings put it.
+ *
+ * **Nothing the volunteer typed comes back on a refusal, and that is deliberate
+ * rather than lazy.** Every other form in this file carries its state in the
+ * query string so a refusal does not lose it. The fields here are a child's date
+ * of birth, their parents' names and a family telephone number — BR §5.3's
+ * manager-only facts — and a query string is written into browser history, into
+ * a proxy's access log and into the address bar of a shared parish phone. The
+ * form is re-typed instead. The alternative is a real cost, named here rather
+ * than left to be discovered.
+ *
+ * **It lands on the approval queue**, not on the readers list: the application
+ * this just created is `pending`, so the readers list's default view is exactly
+ * where it is not, and the queue is where a manager finishes the job.
+ */
+export async function registerReaderOnBehalfAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = await attemptTyped(shelfSlug, registerMemberOnBehalf, {
+    saintName: optional(form, "ten-thanh"),
+    fullName: field(form, "ho-ten"),
+    dateOfBirth: field(form, "ngay-sinh"),
+    fatherName: field(form, "ten-cha"),
+    motherName: field(form, "ten-me"),
+    phone: field(form, "dien-thoai"),
+    // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
+    parishUnitL1Id: optional(form, "parishUnitL1Id"),
+    parishUnitL2Id: optional(form, "parishUnitL2Id"),
+  });
+
+  const base = managerBase(shelfSlug);
+  if (!outcome.ok) {
+    redirect(`${base}/nguoi-doc/moi?${ACTION_ERROR_PARAM}=${outcome.code}`);
+  }
+  redirect(`${base}/dang-ky-cho-duyet`);
+}
+
+/**
+ * OPS §4.1's `MarkCopyFound` — BR §7.1's `lost → available`, and the whole
+ * reason the lost-copies screen exists: **"Báo mất" appears in three places in
+ * the built interface, and marking a copy found appears in none of them**
+ * (BR:559, quoted as written — `sach/mat/page.tsx:29` and
+ * `lost-copies.test.ts:121` quote the same sentence and this one used to
+ * paraphrase it inside quotation marks).
+ *
+ * The loan is not reopened; the command's own docstring gives BR §7.3's reason.
+ */
+export async function markCopyFoundAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["ban"])
+    ? await attempt(shelfSlug, markCopyFound, { copyId: field(form, "ban") })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "sach/mat", outcome);
+}
+
+/**
+ * OPS §4.1's `RetireCopy` — BR §7.1's other exit from `lost`, for a copy a shelf
+ * knows is not coming back. The reason is required by
+ * `book_copies_retired_has_reason` as well as by the catalogue.
+ */
+export async function retireCopyAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["ban"])
+    ? INCOMPLETE
+    : reason === ""
+      ? // The command's own code for this, which has its own sentence: *huỷ* in
+        // `reason_required` is cancelling something, not taking a book off the
+        // shelf for good.
+        ({ ok: false, code: "retire_reason_required" } as const)
+      : await attempt(shelfSlug, retireCopy, {
+          copyId: field(form, "ban"),
+          reason,
+        });
+
+  backToQueue(managerBase(shelfSlug), "sach/mat", outcome);
 }

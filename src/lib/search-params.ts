@@ -53,6 +53,58 @@ export function param(search: SearchParams, name: string): string | undefined {
 }
 
 /**
+ * `?trang=` as a page number, or 1.
+ *
+ * A query parameter is a string somebody can type, so every way of getting it
+ * wrong ends at page 1 rather than at an error: `?trang=abc` is `NaN`,
+ * `?trang=0` and `?trang=-3` are not pages, and `?trang=99999999999999999999`
+ * is not a safe integer and would otherwise be handed to Postgres as an
+ * `offset` in exponential notation. The paged queries clamp the low end too
+ * (`Math.max(1, …)`), but `Math.max(1, NaN)` is `NaN`, so the guard has to be
+ * on this side of the call.
+ *
+ * **Moved here from `danh-muc/page.tsx` rather than copied to a second page**
+ * (U3 wave 1, which wires the second paged screen). It is the same class of
+ * defect `param` above exists for, one type further along, and two private
+ * copies of a parse is how one of them later stops clamping.
+ */
+export function pageNumber(raw: string | undefined): number {
+  const n = Number.parseInt(raw ?? "", 10);
+  return Number.isSafeInteger(n) && n > 0 ? n : 1;
+}
+
+/**
+ * Whether a string is shaped like a `uuid`.
+ *
+ * **A parse, never a permission**, and the reason it exists at all is that this
+ * project's ids are `uuid` columns: a hand-edited or stale value that is not one
+ * reaches Postgres as a failed cast and comes back a raw `22P02` from inside the
+ * transaction — the unstructured exception OPS §2 forbids, rendered to a
+ * volunteer as a 500. Which rows a *well-formed* id may name is still RLS's
+ * answer and `requireManager`'s.
+ *
+ * **One copy, moved here from `src/lib/lending.ts`** (U3 wave 2, which needed
+ * the same check on a route segment rather than on a query parameter). Two
+ * private copies of a shape test is how one of them later stops matching — the
+ * same reason `pageNumber` above moved out of `danh-muc/page.tsx`.
+ *
+ * The two callers answer differently and deliberately so. `readerFromParam`
+ * returns `null`, because `?nguoi-doc=` is a *volunteer's* parameter and the
+ * page around it still exists; `quan-ly/nguoi-doc/[id]` calls `notFound()`,
+ * because the segment is the router's and a URL naming no reader is a mistyped
+ * address. `scripts/check-links.mjs` states the same distinction in its own
+ * words.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A type predicate rather than a plain `boolean`, so a caller that has narrowed
+// an `string | undefined` parameter does not then need a non-null assertion to
+// pass it on — which is the shape that quietly stops being checked.
+export function isUuid(value: string | undefined): value is string {
+  return value !== undefined && UUID.test(value);
+}
+
+/**
  * The query-string parameter a server action hands a refusal back through.
  *
  * A *code*, never a sentence: `loi=loan_limit_reached`, and the page looks the

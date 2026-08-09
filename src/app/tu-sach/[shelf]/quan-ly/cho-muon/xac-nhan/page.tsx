@@ -11,6 +11,7 @@ import type { Block } from "@/domain/kernel/block";
 import { type ErrorCode, messageFor } from "@/domain/kernel/errors";
 import { bookFromSlug, chooseCopyToLend, readerFromParam } from "@/lib/lending";
 import { formatDate, formatDueDate } from "@/lib/dates";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
@@ -85,9 +86,8 @@ export default async function ChoMuonXacNhanPage({
   const sach = param(query, "sach");
   const nguoiDoc = param(query, "nguoi-doc");
 
-  const { shelf, book, copy, copyBlock, reader, lentOn, dueOn } = await loadPage(
-    slug,
-    async (tx, ctx) => {
+  const { shelf, viewer, counts, book, copy, copyBlock, reader, lentOn, dueOn } =
+    await loadPage(slug, async (tx, ctx, viewer) => {
       requireManager(ctx);
 
       const shelf = await readShelf(tx, ctx);
@@ -96,6 +96,8 @@ export default async function ChoMuonXacNhanPage({
 
       return {
         shelf,
+        viewer,
+        counts: await getManagerBadgeCounts(tx, ctx),
         book,
         copy: chosen?.copy ?? null,
         copyBlock: chosen?.block ?? null,
@@ -109,8 +111,7 @@ export default async function ChoMuonXacNhanPage({
         lentOn: ctx.clock.today(),
         dueOn: dueDateFor(ctx.clock, shelf.loanDays),
       };
-    },
-  );
+    });
 
   const base = `/tu-sach/${slug}/quan-ly`;
   const backToReaders = `${base}/cho-muon/nguoi-doc?${new URLSearchParams(
@@ -147,7 +148,13 @@ export default async function ChoMuonXacNhanPage({
   const refused = refusalFrom(query);
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={slug} active="cho-muon">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="cho-muon"
+      viewer={viewer}
+      counts={counts}
+    >
       {/* The step actually reached, not the step this route is named after.
           Fixed at 3, the indicator drew ticks over "Tìm sách" and "Chọn người
           đọc" on a URL where neither had resolved — telling a volunteer who

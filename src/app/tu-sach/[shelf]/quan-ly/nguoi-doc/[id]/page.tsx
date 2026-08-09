@@ -1,197 +1,242 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  Clock,
-  HandCoins,
-  KeyRound,
-  LogOut,
-  Lock,
-  UserCheck,
-  type LucideIcon,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowLeft, KeyRound, Lock } from "lucide-react";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Pill } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import {
-  hasVisibleLevel2,
-  unitName,
-  unitOptions,
-} from "@/domain/members/parish-taxonomy";
-import {
-  READER_STATUS,
-  bookBySlug,
-  books,
-  loansByReader,
-  readers,
-  shelfBySlug,
-  shelves,
-  type Reader,
-} from "@/lib/fixtures";
+import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
+import { getParishUnits } from "@/domain/members/queries/get-parish-units";
+import { getReaderDetail } from "@/domain/members/queries/get-reader-detail";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
+import { formatDate, formatDueDate } from "@/lib/dates";
+import { MEMBERSHIP_STATUS } from "@/lib/membership-status";
+import { loadPage } from "@/lib/page-data";
+import { isUuid } from "@/lib/search-params";
+import { readShelf } from "@/lib/shelf";
 
-export function generateStaticParams() {
-  return shelves.flatMap((s) => readers.map((r) => ({ shelf: s.slug, id: r.id })));
-}
+/** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
+export const dynamic = "force-dynamic";
 
-const MEMBERSHIP_ICON: Record<Reader["membership"], LucideIcon> = {
-  active: UserCheck,
-  pending: Clock,
-  suspended: Lock,
-  left: LogOut,
-};
+const NUMBER = new Intl.NumberFormat("vi-VN");
 
-const MAX_HOLDING = 3;
-
+/**
+ * OPS §3.3's `GetReaderDetail` — "a reader's full profile", and **the most
+ * identifying read in this system**.
+ *
+ * BR §5.3 puts a child's date of birth, both parents' names and a family
+ * telephone number on the person, and BR §16.3 puts them on this page in as many
+ * words ("detail view shows the full profile — including the manager-only
+ * fields"). What makes that safe is not this page: `getReaderDetail` opens with
+ * `requireManager`, and `users` carries no row-level security at all
+ * (`0010_rls.sql` names it among the three global tables that get none), so the
+ * scoping is the `join memberships` inside that query and never the row. A
+ * reader who types this URL is refused by the domain, and `loadPage` turns the
+ * refusal into U1 §3.4's 404 before a byte of HTML exists.
+ *
+ * The manager-only fields carry the "Chỉ quản lý thấy" marker the fixture page
+ * already used, which is the screen saying out loud what BR:126 (§4, assumption
+ * 5) decided. **All four of them**, now: date of birth, parents' names, phone
+ * number *and* parish-unit placement. The last was unmarked, which made the
+ * marker itself misleading — an unmarked row on a page whose other rows are
+ * marked reads as a row that is not manager-only.
+ *
+ * ── What this page does *not* do, and each is a decision ─────────────────────
+ *
+ * **No loan history.** BR §16.3 asks for "complete history" and no query in this
+ * codebase answers it: `getBookDetailManager` has a full loan history *per
+ * book*, and there is nothing per reader. The fixture version filled the gap by
+ * slicing four titles out of `src/lib/fixtures.ts` and printing them under this
+ * reader's name with invented dates and return conditions — a table of loans
+ * that never happened, on a page that would otherwise be entirely real. Removed
+ * rather than replaced, for U3 §3.1's reason.
+ *
+ * **No administrative actions.** BR §16.3 asks for them and all five commands
+ * exist — `setReaderCredentials`, `suspendMembership`, `reactivateMembership`,
+ * `markMembershipLeft`, `updateReaderProfile`. The fixture page drew four
+ * `<button>`s with no form and no action behind any of them, which is the shape
+ * U2 removed from the reader header and for the same reason. They are not wired
+ * here because this wave's scope names this page's query and no command, and
+ * because one of them cannot work at all today: nothing in the running
+ * application calls `setPasswordHasher`, so any screen that sets a password
+ * reaches `NotWired`. Recorded rather than left to be discovered — the buttons
+ * are absent, not disabled.
+ *
+ * **"Cho mượn sách" is gone too.** It was a `<button>` that submitted nothing,
+ * and there is no URL that opens the lend flow with a reader already chosen:
+ * `cho-muon/nguoi-doc` takes `?sach=` and picks the reader, `cho-muon/xac-nhan`
+ * takes both. A link to the flow's first step would drop the reader on the way,
+ * which is a worse affordance than none.
+ */
 export default async function ManagerReaderDetailPage({
   params,
 }: {
   params: Promise<{ shelf: string; id: string }>;
 }) {
-  const { shelf: shelfSlug, id } = await params;
-  const shelf = shelfBySlug(shelfSlug);
-  const reader = readers.find((r) => r.id === id);
-  if (!shelf || !reader) notFound();
+  const { shelf: slug, id } = await params;
 
-  const { label, ink, fill } = READER_STATUS[reader.membership];
-  const MembershipIcon = MEMBERSHIP_ICON[reader.membership];
+  // **A 404 before any query, and this is the fix for a live 500.** `memberships
+  // .id` is a `uuid`, so a segment that is not one reaches Postgres as a failed
+  // cast and comes back a raw `22P02` — OPS §2's unstructured exception, shown
+  // to a volunteer as a server error. `bun run check:links` found it on the
+  // first crawl of this page, following the fixture-era URL
+  // `/quan-ly/nguoi-doc/minh`, which is exactly the stale bookmark shape a
+  // volunteer reaches after a slice like this one lands.
+  //
+  // `notFound()` and not an empty state, unlike `readerFromParam`'s `null` for
+  // the identical check: this is the *router's* segment rather than a
+  // volunteer's query parameter, and a URL naming no reader is a mistyped
+  // address. `scripts/check-links.mjs` draws the same line, and `search-params
+  // .ts` holds the one copy of the regex.
+  if (!isUuid(id)) notFound();
 
-  // INV-14: an account has either both a username and a password, or
-  // neither — and having neither is a perfectly normal state, not a gap in
-  // the data. Shown quietly, without implying anything is wrong.
-  const hasCredentials = Boolean(reader.username);
+  const { shelf, viewer, counts, parish, reader } = await loadPage(
+    slug,
+    async (tx, ctx, viewer) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      parish: await getParishUnits(tx, ctx),
+      // A membership id from the URL. `getReaderDetail` throws
+      // `NotFound("membership_not_found")` for one that names nothing *this
+      // shelf can see* — RLS filtered it, nobody compared two shelf ids — and
+      // `loadPage` renders that as a 404. A malformed id is a `22P02` and stays
+      // a fault, exactly as `lending.ts` records for the same shape.
+      reader: await getReaderDetail(tx, ctx, { membershipId: id }),
+    }),
+  );
 
-  // Rows for the shelf's own parish levels — only for a level that actually
-  // has units, so a shelf with one level (or none yet) doesn't show a row
-  // that could never have a value (design §6.1: the field, and its label,
-  // come from the shelf's taxonomy, not a fixed "Tổ"/"Giáo họ" pair).
-  const parishRows: { label: string; value: React.ReactNode }[] = [];
-  if (unitOptions(shelf.parishUnits, 1).length > 0) {
+  const base = `/tu-sach/${slug}/quan-ly`;
+  const state = MEMBERSHIP_STATUS[reader.status];
+  // The last word of a Vietnamese name is the given name — the same line the
+  // manager sidebar and the public header both carry.
+  const initial = reader.fullName.split(" ").at(-1)?.charAt(0) ?? "";
+
+  /**
+   * Rows for the shelf's own parish levels — only for a level that actually has
+   * units, so a shelf with one level (or none yet) does not show a row that
+   * could never have a value. BR §16.3: the label is the shelf's own, never the
+   * words "Tổ" or "Giáo họ" written into the screen.
+   */
+  const parishRows: {
+    label: string;
+    value: React.ReactNode;
+    private?: boolean;
+  }[] = [];
+  if (unitOptions(parish.units, 1).length > 0) {
     parishRows.push({
-      label: shelf.parishTaxonomy.level1Label,
-      value: unitName(shelf.parishUnits, reader.parishUnitL1Id),
+      label: parish.taxonomy.level1Label,
+      value: reader.parishUnitL1Name,
+      // BR:126 (§4, assumption 5) lists four manager-only fields, not three:
+      // "Date of birth, parents' names, phone number, and parish-unit placement
+      // (§5.6)". These two rows carried no marker while the other four did, so
+      // the screen was saying three of the four decisions out loud and keeping
+      // one to itself. Nothing leaked — this whole page is behind
+      // `requireManager` — but the marker is what tells a volunteer which lines
+      // she must not read out in a room, and an incomplete marker teaches her
+      // the unmarked ones are safe to.
+      private: true,
     });
   }
-  if (hasVisibleLevel2(shelf.parishTaxonomy, shelf.parishUnits)) {
+  if (hasVisibleLevel2(parish.taxonomy, parish.units)) {
     parishRows.push({
-      label: shelf.parishTaxonomy.level2Label,
-      value: unitName(shelf.parishUnits, reader.parishUnitL2Id),
+      label: parish.taxonomy.level2Label,
+      value: reader.parishUnitL2Name,
+      private: true,
     });
   }
 
   const info: { label: string; value: React.ReactNode; private?: boolean }[] = [
-    { label: "Tên thánh", value: reader.saintName },
-    { label: "Ngày sinh", value: `${reader.born} (${reader.age} tuổi)` },
-    ...parishRows,
-    { label: "Tên đăng nhập", value: reader.username },
-    { label: "Tên cha", value: reader.father, private: true },
-    { label: "Tên mẹ", value: reader.mother, private: true },
+    { label: "Tên thánh", value: reader.saintName ?? "Chưa có" },
     {
-      label: "Số điện thoại",
-      value: <PhoneLink phone={reader.phone} size="sm" />,
+      label: "Ngày sinh",
+      // Through the locale (SDD §6.6). `date_of_birth` is a `date` column, so
+      // `formatDate` — never `formatInstant`, which would read a calendar date
+      // as an instant and render it a day early west of UTC.
+      value: reader.dateOfBirth ? formatDate(reader.dateOfBirth) : "Chưa có",
       private: true,
     },
-  ];
-
-  /* Derived from the shared loans fixture, not invented here. Slicing the
-     catalogue used to hand this reader a copy of a book somebody else was
-     holding. */
-  const heldBooks = loansByReader(reader.id).flatMap((loan) => {
-    const book = bookBySlug(loan.bookSlug);
-    return book
-      ? [
-          {
-            book,
-            code: loan.code,
-            overdue: loan.status === "overdue",
-            due: loan.dueOn,
-            daysLeft: loan.daysLeft,
-          },
-        ]
-      : [];
-  });
-
-  const loanHistory = [
+    ...parishRows,
+    { label: "Tên cha", value: reader.fatherName, private: true },
+    { label: "Tên mẹ", value: reader.motherName, private: true },
     {
-      book: books[0],
-      borrower: reader.fullName,
-      from: "02/06",
-      to: "16/06",
-      condition: "Nguyên vẹn",
+      label: "Số điện thoại",
+      value: reader.phone ? (
+        <PhoneLink phone={reader.phone} size="sm" />
+      ) : (
+        "Chưa có"
+      ),
+      private: true,
     },
-    {
-      book: books[4],
-      borrower: reader.fullName,
-      from: "10/05",
-      to: "24/05",
-      condition: "Hơi cũ",
-    },
-    {
-      book: books[8],
-      borrower: reader.fullName,
-      from: "01/04",
-      to: "15/04",
-      condition: "Nguyên vẹn",
-    },
-    {
-      book: books[9],
-      borrower: reader.fullName,
-      from: "12/03",
-      to: "26/03",
-      condition: "Hơi cũ",
-    },
+    { label: "Email", value: reader.email ?? "Chưa có" },
   ];
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="nguoi-doc">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <span
-            aria-hidden
-            className="flex size-16 shrink-0 items-center justify-center rounded-full bg-paper text-[24px] font-semibold text-leather"
-          >
-            {reader.name.charAt(0)}
-          </span>
-          <div>
-            <h1 className="text-[28px] leading-tight font-semibold">
-              {reader.fullName}
-            </h1>
-            <p className="mt-1 text-[15px] text-meta">
-              Tên thánh {reader.saintName} · sinh {reader.born} ({reader.age} tuổi)
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span
-                className={
-                  "inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-[14px] font-medium " +
-                  fill +
-                  " " +
-                  ink
-                }
-              >
-                <MembershipIcon
-                  aria-hidden
-                  className="size-[18px]"
-                  strokeWidth={1.75}
-                />
-                {label}
-              </span>
-              <Pill
-                icon={hasCredentials ? KeyRound : Lock}
-                label={
-                  hasCredentials
-                    ? "Có tài khoản đăng nhập"
-                    : "Chưa có tài khoản đăng nhập"
-                }
-                tone="neutral"
-              />
-            </div>
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={slug}
+      active="nguoi-doc"
+      viewer={viewer}
+      counts={counts}
+    >
+      <Link
+        href={`${base}/nguoi-doc`}
+        className="inline-flex min-h-11 items-center gap-1.5 text-[15px] text-meta hover:text-ink"
+      >
+        <ArrowLeft aria-hidden className="size-4" strokeWidth={1.75} />
+        Quay lại danh sách bạn đọc
+      </Link>
+
+      <div className="mt-3 flex items-center gap-4">
+        <span
+          aria-hidden
+          className="flex size-16 shrink-0 items-center justify-center rounded-full bg-paper text-[24px] font-semibold text-leather"
+        >
+          {initial}
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-[28px] leading-tight font-semibold">
+            {reader.fullName}
+          </h1>
+          <p className="mt-1 text-[15px] text-meta">
+            {reader.parishLine || "Chưa có đơn vị"}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Pill icon={state.icon} label={state.label} tone={state.tone} />
+            {/* INV-14: an account has either both a username and a password or
+                neither, and having neither is a perfectly normal state — most
+                children never sign in. Shown quietly, never as a gap. Only the
+                boolean reaches this page; `getReaderDetail` returns
+                `hasCredentials` and never the hash. */}
+            <Pill
+              icon={reader.hasCredentials ? KeyRound : Lock}
+              label={
+                reader.hasCredentials
+                  ? "Có tài khoản đăng nhập"
+                  : "Chưa có tài khoản đăng nhập"
+              }
+              tone="neutral"
+            />
           </div>
         </div>
-        <Button variant="primary" size="lg">
-          <HandCoins aria-hidden className="size-5" strokeWidth={1.75} />
-          Cho mượn sách
-        </Button>
       </div>
+
+      {/* BR §2 keeps a rejected application and a suspension with their reasons,
+          and this is the only screen that can show them. The fixture page could
+          not: its `Reader` type had no such field. */}
+      {reader.rejectionReason ? (
+        <p className="mt-6 max-w-2xl rounded-card border border-hairline bg-paper px-4 py-3 text-[15px]">
+          <span className="text-meta">Lý do từ chối: </span>
+          {reader.rejectionReason}
+        </p>
+      ) : null}
+      {reader.suspensionReason ? (
+        <p className="mt-3 max-w-2xl rounded-card border border-hairline bg-paper px-4 py-3 text-[15px]">
+          <span className="text-meta">Lý do tạm khoá: </span>
+          {reader.suspensionReason}
+        </p>
+      ) : null}
 
       <section className="mt-10 max-w-2xl">
         <h2 className="text-xl font-semibold">Thông tin</h2>
@@ -215,113 +260,52 @@ export default async function ManagerReaderDetailPage({
         </dl>
       </section>
 
-      <section className="mt-10">
+      <section className="mt-10 max-w-2xl">
         <h2 className="text-xl font-semibold">
-          Đang mượn ({reader.holding} / tối đa {MAX_HOLDING})
+          Đang mượn ({NUMBER.format(reader.holdingCount)} / tối đa{" "}
+          {NUMBER.format(shelf.maxConcurrentLoans)})
         </h2>
-        {reader.holding >= MAX_HOLDING ? (
+        {/* BR §5.5's limit, read from this shelf's own settings rather than
+            written in as a constant — the fixture page hard-coded 3. */}
+        {reader.holdingCount >= shelf.maxConcurrentLoans ? (
           <p className="mt-1 text-[14px] text-meta">
             Bạn đọc này đã mượn tối đa, không thể mượn thêm.
           </p>
         ) : null}
 
-        {heldBooks.length === 0 ? (
+        {reader.currentLoans.length === 0 ? (
           <p className="mt-4 text-[15px] text-meta">Hiện không mượn cuốn nào.</p>
         ) : (
           <ul className="mt-4 space-y-3">
-            {heldBooks.map(({ book, code, overdue, due }) => (
+            {reader.currentLoans.map((loan) => (
               <li
-                key={code}
+                key={loan.loanId}
                 className="flex items-center gap-3 rounded-card border border-hairline bg-surface p-3"
               >
-                <BookCover title={book.title} className="w-12 text-[1rem]" />
+                <BookCover title={loan.title} className="w-12 text-[1rem]" />
                 <div className="min-w-0 flex-1">
                   <BookTitle className="block truncate text-[16px] leading-snug">
-                    {book.title}
+                    {loan.title}
                   </BookTitle>
-                  <p className="mt-0.5 text-[13px] text-meta">{code}</p>
+                  <p className="mt-0.5 text-[13px] text-meta">{loan.copyCode}</p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
-                  <StatusBadge status={overdue ? "overdue" : "onloan"} size="sm" />
-                  <span className="text-[13px] text-meta">Hạn {due}</span>
+                  {/* `isOverdue` is `loans_current`'s own derived column,
+                      following `ctx.clock` through the `olibra.now` GUC — never
+                      recomputed here, which would be a second definition of
+                      "overdue" in a second language (G5). */}
+                  <StatusBadge
+                    status={loan.isOverdue ? "overdue" : "onloan"}
+                    size="sm"
+                  />
+                  <span className="text-[13px] text-meta">
+                    Hạn {formatDueDate(loan.dueOn)}
+                  </span>
                 </div>
               </li>
             ))}
           </ul>
         )}
-      </section>
-
-      <section className="mt-10">
-        <h2 className="text-xl font-semibold">Lịch sử mượn</h2>
-
-        <div className="mt-4 hidden overflow-hidden rounded-card border border-hairline md:block">
-          <table className="w-full text-left">
-            <thead className="bg-paper">
-              <tr>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Sách
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Mượn ngày
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Trả ngày
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Tình trạng khi trả
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
-              {loanHistory.map((loan, i) => (
-                <tr key={loan.book.slug + i}>
-                  <td className="px-4 py-3">
-                    <BookTitle className="text-[15px]">{loan.book.title}</BookTitle>
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">{loan.from}</td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">{loan.to}</td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {loan.condition}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-4 space-y-3 md:hidden">
-          {loanHistory.map((loan, i) => (
-            <div
-              key={loan.book.slug + i}
-              className="rounded-card border border-hairline bg-surface p-4"
-            >
-              <BookTitle className="block text-[15px]">{loan.book.title}</BookTitle>
-              <p className="mt-1 text-[14px] text-meta">
-                {loan.from} – {loan.to} · {loan.condition}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-10 flex flex-wrap items-center gap-3 border-t border-hairline pt-6">
-        <Button variant="outline" size="md">
-          Đặt / đổi thông tin đăng nhập
-        </Button>
-        <Button variant="danger" size="md">
-          Tạm khoá tài khoản
-        </Button>
-        <Button variant="outline" size="md">
-          Đánh dấu đã rời
-        </Button>
-        <p className="w-full text-[14px] text-meta">
-          Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên.
-        </p>
-        <p className="w-full text-[14px] text-meta">
-          Không có email, nên đây là cách duy nhất để khôi phục mật khẩu. Thao tác
-          này cũng dùng để tạo tài khoản đăng nhập cho bạn đọc chưa có. Mỗi lần dùng
-          đều được ghi vào nhật ký, quản trị viên hệ thống xem được.
-        </p>
       </section>
     </ManagerShell>
   );

@@ -50,7 +50,13 @@ export default async function CommentsPage({
     }) || "Chưa có";
 
   return (
-    <ManagerShell shelfName={shelf.name} shelfSlug={shelf.slug} active="binh-luan">
+    <ManagerShell
+      shelfName={shelf.name}
+      shelfSlug={shelf.slug}
+      active="binh-luan"
+      viewer={null}
+      counts={null}
+    >
       <div className="space-y-8">
         <PageHeading
           title="Bình luận chờ duyệt"

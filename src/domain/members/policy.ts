@@ -10,9 +10,26 @@ import { atLeast, type TenantContext } from "../kernel/tenant";
  * §7.1's.
  */
 
-/** `membership_status` in the database, spelled exactly as the enum spells it. */
-export type MembershipStatus =
-  "pending" | "active" | "suspended" | "left" | "rejected";
+/**
+ * `membership_status` in the database, spelled exactly as the enum spells it.
+ *
+ * **An array, with the type derived from it** — the shape `COPY_CONDITIONS`
+ * already uses in `../catalogue/policy.ts`, and U3 wave 2 needed the runtime
+ * half of it. A bare union is invisible at runtime, so a surface that maps every
+ * status to a Vietnamese word (`src/lib/membership-status.ts`) had no way to
+ * assert it covered all five; a sixth status added to the union would simply not
+ * have been offered as a filter, silently. This costs nothing and makes that
+ * omission a red test.
+ */
+export const MEMBERSHIP_STATUSES = [
+  "pending",
+  "active",
+  "suspended",
+  "left",
+  "rejected",
+] as const;
+
+export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
 
 /** `membership_role`. Distinct from kernel `Role`, which also knows super_admin. */
 export type MembershipRole = "reader" | "manager" | "admin";

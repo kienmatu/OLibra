@@ -190,7 +190,8 @@ Every interactive component specifies six states: **default · hover · pressed 
 preflight rule that used to do this for `<button>`, so a plain button now
 renders with an arrow — visually indistinguishable from dead text. This is set
 once in `globals.css` at the base layer, covering `button`, `[role="button"]`,
-`summary`, `label[for]` and `select`, rather than as a class per component: a
+`summary`, `label[for]`, a `label` that wraps its own checkbox or radio, and
+`select`, rather than as a class per component: a
 rule that must be remembered on every new button is a rule that will be
 forgotten on the twentieth. Disabled controls are excluded, because a pointer
 over something that will not respond is a small lie.

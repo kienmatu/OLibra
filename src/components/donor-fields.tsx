@@ -1,5 +1,4 @@
 import { Field, Input, Select } from "@/components/ui/field";
-import { readers } from "@/lib/fixtures";
 import { systemClock } from "@/domain/kernel/clock";
 
 /**
@@ -20,10 +19,30 @@ import { systemClock } from "@/domain/kernel/clock";
  * `new Date().toISOString()`: the latter is UTC, so between 00:00 and 07:00
  * local time it silently defaults to yesterday — and 07:00 Sunday is exactly
  * when a volunteer is at the shelf cataloguing a donation.
+ *
+ * **`donors` is a parameter, and it used to be `readers` from
+ * `src/lib/fixtures.ts`** (U3 wave 1, found by this slice's extension of
+ * `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` to the chrome a
+ * wired page renders). This component is rendered by
+ * `quan-ly/sach/[id]`, which has been wired since C1 — so the "Thêm bản" form
+ * on a page of one parish's real books offered a donor list of eleven invented
+ * children from another parish, and would have written one of their ids into
+ * `book_copies.acquired_from_membership_id` the day that form was given an
+ * action. Nothing in either route file named the fixtures, which is why no
+ * check saw it.
+ *
+ * **An empty list renders no member picker at all**, rather than a `<select>`
+ * whose only option is "— Không chọn —". A control that cannot be chosen from
+ * is not the same control with less in it, and the outsider text field beside
+ * it already covers "a donor with no account" in its own hint. That is what the
+ * wired caller passes today: reading the shelf's members for this picker is the
+ * wave that wires the form itself, and offering a chooser before then would be
+ * offering it over nothing.
  */
 export function DonorFields({
   idPrefix,
   selectedMemberId,
+  donors,
 }: {
   /** Distinguishes ids between the two forms this renders on (e.g.
    *  "nguoi-tang" on Thêm sách, "them-nguoi-tang" on Thêm bản). */
@@ -31,14 +50,19 @@ export function DonorFields({
   /** Pre-selects a member — used when a manager arrives here from "Duyệt"
    *  on the donation queue, where the donor is already known (§3). */
   selectedMemberId?: string;
+  /**
+   * The members this shelf may attribute a gift to. Empty means "this page
+   * cannot say", and the picker is then absent — never a list from somewhere
+   * else.
+   *
+   * The caller decides who qualifies. The rule the fixture caller applies, and
+   * the one a wired caller should: only a member who could plausibly be
+   * standing at the shelf handing over a book — someone who has left has no
+   * ongoing relationship to link the gift to, and someone still `pending` is
+   * not yet a member at all.
+   */
+  donors: { id: string; fullName: string }[];
 }) {
-  // Only a member who could plausibly be standing at the shelf handing over
-  // a book counts as a donor: someone who has left has no ongoing
-  // relationship to the shelf to link the gift to, and someone still
-  // `pending` is not yet a member at all.
-  const donors = readers.filter(
-    (r) => r.membership !== "left" && r.membership !== "pending",
-  );
   const today = systemClock.today();
 
   const memberFieldId = `${idPrefix}-thanh-vien`;
@@ -58,24 +82,26 @@ export function DonorFields({
         </p>
       </div>
 
-      <Field
-        label="Chọn bạn đọc đã có tài khoản"
-        htmlFor={memberFieldId}
-        hint="Dùng khi người tặng là một bạn đọc của tủ sách."
-      >
-        <Select
-          id={memberFieldId}
-          name="donorMembershipId"
-          defaultValue={selectedMemberId ?? ""}
+      {donors.length > 0 ? (
+        <Field
+          label="Chọn bạn đọc đã có tài khoản"
+          htmlFor={memberFieldId}
+          hint="Dùng khi người tặng là một bạn đọc của tủ sách."
         >
-          <option value="">— Không chọn —</option>
-          {donors.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.fullName}
-            </option>
-          ))}
-        </Select>
-      </Field>
+          <Select
+            id={memberFieldId}
+            name="donorMembershipId"
+            defaultValue={selectedMemberId ?? ""}
+          >
+            <option value="">— Không chọn —</option>
+            {donors.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.fullName}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
 
       <Field
         label="Hoặc gõ tên người tặng chưa có tài khoản"

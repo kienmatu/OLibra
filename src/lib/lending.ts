@@ -12,6 +12,7 @@ import {
   getReaderDetail,
   type ReaderDetail,
 } from "../domain/members/queries/get-reader-detail";
+import { isUuid } from "./search-params";
 
 /**
  * The surface's half of the quick-lend flow: turning what a URL carries back
@@ -161,14 +162,16 @@ export function chooseCopyToLend(book: ManagerBookDetail): {
  * from `requireManager` above all, which `loadPage` turns into the 404 U1
  * §3.4 asks for rather than a confirm screen with a blank reader on it.
  */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export async function readerFromParam(
   tx: Tx,
   ctx: TenantContext,
   membershipId: string | undefined,
 ): Promise<ReaderDetail | null> {
-  if (!membershipId || !UUID.test(membershipId)) return null;
+  // The regex moved to `src/lib/search-params.ts` (U3 wave 2), which needed the
+  // same shape test for a route *segment*. Two private copies of it is how one
+  // of them later stops matching; that module's own docstring records why the
+  // two callers then answer differently — `null` here, `notFound()` there.
+  if (!isUuid(membershipId)) return null;
   try {
     return await getReaderDetail(tx, ctx, { membershipId });
   } catch (err) {
