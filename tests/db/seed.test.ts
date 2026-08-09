@@ -158,3 +158,33 @@ test("the seed is idempotent", async () => {
   `;
   expect(Number(count)).toBe(books.length);
 });
+
+test("a super administrator exists, signs in, and belongs to no parish", async () => {
+  // Before this the seed produced eleven readers and one manager, all with
+  // `is_super_admin = false` (`0003_identity.sql:25` defaults it so), which
+  // left `/quan-tri/*` unreachable by every account it created.
+  //
+  // The no-membership half is the part worth pinning rather than the flag:
+  // `membershipFor` (`src/auth/guards.ts`) left-joins `memberships`, so a
+  // person who belongs nowhere still resolves as `super_admin` — and giving
+  // this account a membership somewhere would quietly make that path
+  // untested while everything still appeared to work.
+  await seed(sql);
+
+  const [row] = await sql<{ id: string; is_super_admin: boolean }[]>`
+    select id, is_super_admin from users where username = 'admin'
+  `;
+  expect(row.is_super_admin).toBe(true);
+
+  const memberships = await sql`
+    select id from memberships where user_id = ${row.id}
+  `;
+  expect(memberships).toHaveLength(0);
+
+  const { token } = await signIn(sql, {
+    username: "admin",
+    password: SEED_DEV_PASSWORD,
+    clock: fixedClock("2026-08-08T10:00:00Z"),
+  });
+  expect(token).toBeTruthy();
+});

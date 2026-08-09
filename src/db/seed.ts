@@ -343,6 +343,49 @@ export async function seed(sql: Sql): Promise<void> {
        where user_id = ${lenderId} and bookshelf_id = ${dongThapId}
     `;
 
+    // ── 5b. The super administrator ───────────────────────────────────────
+    // Until this, `users.is_super_admin` was `false` on every seeded row
+    // (`0003_identity.sql:25` defaults it so and nothing here set it), which
+    // meant no account could reach `/quan-tri/*` at all.
+    //
+    // **No membership, deliberately.** Being a super administrator is a fact
+    // about a *person* — `is_super_admin` is a column on `users`, not a
+    // membership role — and `membershipFor` (`src/auth/guards.ts:52-77`) is
+    // built for exactly that: it left-joins `memberships`, so a user who
+    // belongs to no parish still resolves, and `contextFor` returns
+    // `role: "super_admin"` with a null `membershipId`. Giving this account a
+    // membership somewhere would conflate the two and make it impossible to
+    // test the property that actually matters — that cross-shelf access does
+    // not depend on belonging anywhere. `landingShelfFor` returns null for
+    // them, so they land on the portal rather than inside one parish, which
+    // is the right answer for somebody who keeps all of them.
+    //
+    // The password is `SEED_DEV_PASSWORD`, the same twelve characters the
+    // other eleven accounts use. Not a shorter one: `assertPasswordLength`
+    // (`src/domain/members/policy.ts`) refuses anything under eight with
+    // `password_too_short`, and a seed that creates an account the
+    // application itself would reject is a contradiction somebody loses an
+    // afternoon to later.
+    //
+    // **What this account can currently see is fixture data.** Every page
+    // under `src/app/quan-tri/` still renders from `@/lib/fixtures` — none of
+    // them calls `loadPage` or any query. Signing in as `admin` reaches those
+    // screens; the numbers on them are invented. That is the honest state
+    // today, and this block does not change it.
+    // `father_name` and `mother_name` are `not null` (`0003_identity.sql`)
+    // because BR §5.3 requires both of a *reader* — the table was modelled
+    // for children, and an administrator is the one row it did not anticipate.
+    // Empty rather than invented: no constraint forbids it, and a blank says
+    // "not recorded" where "Không có" would be a fact nobody established.
+    await tx`
+      insert into users (
+        username, password_hash, full_name, father_name, mother_name, is_super_admin
+      )
+      values ('admin', ${SEED_PASSWORD_HASH}, 'Quản trị viên', '', '', true)
+      on conflict ((lower(username))) where deleted_at is null and username is not null
+      do update set is_super_admin = true
+    `;
+
     // ── 6. Loans ─────────────────────────────────────────────────────────
     // `loans.status` is UI shorthand for "onloan" vs "overdue" — in the
     // database both are simply 'active' (DATABASE.md §6: overdue is
