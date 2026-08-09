@@ -132,7 +132,13 @@ test("INV-1: the index, not the predicate, is what refuses the loser", async () 
   const outcome = await withTwoConnections(async (a, b) => {
     const held = withDelayedQuery(
       a,
-      (chunk) => chunk.includes("select c.id, c.book_id, c.state"),
+      // Updated by P1, which added `b.title` to this select so `loan.created`
+      // could *store* the title BR §14's sentence names (plan §3.2a). That is
+      // the "edited on purpose" the paragraph above anticipates: the fragment
+      // did not match any more, the gate stopped firing, and the two commands
+      // ran sequentially — so the winner lost. A silent pass was never
+      // possible, which is what that paragraph was buying.
+      (chunk) => chunk.includes("select c.id, c.book_id, b.title, c.state"),
       gate,
     );
 

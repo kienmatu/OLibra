@@ -5,6 +5,7 @@ import { receiveReturn } from "../../../src/domain/circulation/commands/receive-
 import { voidLoan } from "../../../src/domain/circulation/commands/void-loan";
 import { fixedClock } from "../../../src/domain/kernel/clock";
 import { RuleViolated } from "../../../src/domain/kernel/errors";
+import { approveMembership } from "../../../src/domain/members/commands/approve-membership";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
 import {
@@ -69,6 +70,16 @@ test("a manager of one shelf exports nothing of another's", async () => {
     copyId: bookB.copyIds[0],
     membershipId: readerB.id,
   });
+
+  // The positive control, first and deliberately. Every assertion below this is
+  // that a list is *empty*, and an empty list is exactly what a fixture that
+  // wrote nothing also produces — U3 shipped two tiebreak tests that were green
+  // in the broken state, one of them on a degenerate fixture. So Vĩnh Long's own
+  // manager is asked for the same three files, and has to see the rows before
+  // Đồng Tháp's manager is asked not to.
+  expect(await runQuery(sql, b.ctx, exportBooks)).toHaveLength(3);
+  expect(await runQuery(sql, b.ctx, exportLoans)).toHaveLength(1);
+  expect(await runQuery(sql, b.ctx, exportReaders)).toHaveLength(2);
 
   expect(await runQuery(sql, a.ctx, exportBooks)).toEqual([]);
   expect(await runQuery(sql, a.ctx, exportLoans)).toEqual([]);
@@ -241,6 +252,78 @@ test("the loans export is history, voided loans and their reasons included", asy
   for (const raw of ["returned", "voided", "slightly_worn", "active"]) {
     expect(csv, raw).not.toContain(raw);
   }
+});
+
+test("a loan's instants are the shelf's own timezone, not UTC", async () => {
+  // Found by downloading the file, not by reading the writer. `l.lent_at::text`
+  // renders `2026-08-09 12:00:51.212+00` — UTC — so a book handed over at seven
+  // in the evening in Đồng Tháp read as noon, and anything lent after 5pm local
+  // read as the *previous day*. §4 of the requirements fixes
+  // `Asia/Ho_Chi_Minh` as the application timezone regardless of where the
+  // process runs.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  // 19:00 on the 9th in Ho Chi Minh City; 12:00 on the 9th in UTC.
+  const ctx = managerContextFor(shelf.id, manager, "2026-08-09T12:00:51.212Z");
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const reader = await makeMember(sql, shelf.id);
+  const { loanId } = await runCommand(sql, ctx, lendCopy, {
+    copyId: copyIds[0],
+    membershipId: reader.id,
+  });
+  // Half past midnight on the *tenth*, local — 17:30 on the ninth in UTC. The
+  // return column is the same expression as the lend column, so it is asserted
+  // separately rather than assumed: this is the instant where the two spellings
+  // disagree about the calendar day, not merely about the hour.
+  await runCommand(
+    sql,
+    managerContextFor(shelf.id, manager, "2026-08-09T17:30:00.000Z"),
+    receiveReturn,
+    { loanId, condition: "perfect" },
+  );
+
+  const [row] = await runQuery(sql, ctx, exportLoans);
+  expect(row.lentOn).toBe("2026-08-09 19:00:51");
+  expect(row.returnedOn).toBe("2026-08-10 00:30:00");
+  // No offset suffix and no fractional seconds: several spreadsheets stop
+  // recognising the cell as a datetime with either of them present.
+  for (const instant of [row.lentOn, row.returnedOn!]) {
+    expect(instant).not.toContain("+");
+    expect(instant).not.toContain(".");
+  }
+});
+
+test("a reader's joining day is the shelf's own, not the session's", async () => {
+  // The third instant in this file, and the same defect as the two above:
+  // `memberships.approved_at` is a `timestamptz` and a bare `::date` resolves it
+  // through the *session* TimeZone — UTC on this cluster only because that is
+  // Docker's default, since `compose.yaml` pins `datestyle` and no TimeZone at
+  // all. DATABASE.md §2.2: never rely on it for correctness. A reader
+  // approved at half past midnight on the tenth in Đồng Tháp is 17:30Z on the
+  // ninth, so the unqualified cast files them under the ninth — a whole day
+  // wrong, in a column headed "Ngày tham gia", on every approval made after 5pm
+  // local. Seven hours of every evening, which is when a parish shelf is open.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const applicant = await makeMember(sql, shelf.id, { status: "pending" });
+  await runCommand(
+    sql,
+    managerContextFor(shelf.id, manager, "2026-08-09T17:30:00.000Z"),
+    approveMembership,
+    { membershipId: applicant.id },
+  );
+
+  const rows = await runQuery(
+    sql,
+    managerContextFor(shelf.id, manager),
+    exportReaders,
+  );
+  // Exactly one row carries a joining day: `makeMember` inserts the manager
+  // directly, with no `approved_at`. Asserting the count first is what stops
+  // this passing against an export that lost the column altogether.
+  const joined = rows.filter((r) => r.joinedOn !== null);
+  expect(joined).toHaveLength(1);
+  expect(joined[0].joinedOn).toBe("2026-08-10");
 });
 
 test("a free-text reason with a comma, a quote and a newline survives", async () => {

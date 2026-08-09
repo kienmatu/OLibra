@@ -3,6 +3,9 @@ import { hashPassword } from "../../src/auth/password";
 import { signIn } from "../../src/auth/session";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import { NotFound } from "../../src/domain/kernel/errors";
+import type { TenantContext } from "../../src/domain/kernel/tenant";
+import type { Tx } from "../../src/domain/kernel/unit-of-work";
+import { exportReaders } from "../../src/domain/shelf/queries/exports";
 import { searchBooksForLending } from "../../src/domain/catalogue/queries/search-books-for-lending";
 import { migrate } from "../../src/db/migrate";
 import { REQUEST_PATH_HEADER, RETURN_TO_PARAM } from "../../src/lib/return-path";
@@ -63,7 +66,8 @@ vi.mock("next/headers", () => ({
 
 // Imported after the mock is declared; `vi.mock` is hoisted above it either
 // way, but the ordering keeps the dependency readable.
-const { loadPage, loadPublicPage } = await import("../../src/lib/page-data");
+const { loadFile, loadPage, loadPublicPage } =
+  await import("../../src/lib/page-data");
 const { pool } = await import("../../src/db/client");
 
 const clock = fixedClock("2026-08-07T10:00:00Z");
@@ -516,4 +520,56 @@ test("a plain thrown error from the read reaches the caller unchanged", async ()
       throw new TypeError("đọc nhầm trường");
     }),
   ).rejects.toThrow(TypeError);
+});
+
+/**
+ * `loadFile` — the seam the three CSV exports come back through (P1 §4 task 4).
+ *
+ * It exists because `loadPage` cannot serve a route handler: `notFound()` and
+ * `redirect()` throw a digest Next resolves *while rendering*, and a route
+ * handler has to answer with a `Response` and a status of its own. So the
+ * refusals become one `null`, and these are the three that must produce it —
+ * the same three `loadPage` turns into a 404 or a sign-in redirect, checked
+ * here because the file they guard holds every child's name, date of birth,
+ * parents' names and telephone number (§3.5).
+ */
+test("a reader gets no file, and neither does a stranger or a wrong slug", async () => {
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const read = async (tx: Tx, ctx: TenantContext) => exportReaders(tx, ctx);
+
+  // The positive control first, and it is the whole reason the three `null`s
+  // below mean anything: a `loadFile` that answered `null` unconditionally
+  // would satisfy every one of them.
+  await signInAs(shelf.id, "manager", "quanly");
+  const theirs = await loadFile("dong-thap", read);
+  expect(theirs).toHaveLength(1);
+
+  // A reader of this shelf. `requireManager` throws `not_permitted` inside the
+  // transaction and this seam is what turns it into the route's 404 — the
+  // same answer a mistyped slug gets, so the URL discloses nothing about
+  // whether an export exists.
+  session.token = null;
+  await signInAs(shelf.id, "reader", "bandoc");
+  expect(await loadFile("dong-thap", read)).toBeNull();
+
+  // Nobody at all.
+  session.token = null;
+  expect(await loadFile("dong-thap", read)).toBeNull();
+
+  // And a slug naming no shelf, which never reaches the read.
+  await signInAs(shelf.id, "manager", "quanly2");
+  expect(await loadFile("khong-co-tu-sach", read)).toBeNull();
+});
+
+test("a fault inside an export is a fault, not an empty file", async () => {
+  // The same rule `loadPage` holds two tests above, restated for the seam that
+  // answers with bytes: a `null` here becomes an HTTP 404, and a 404 for a
+  // broken query would tell a volunteer their link was wrong while the export
+  // they are keeping as insurance was silently unavailable.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "manager", "quanly");
+
+  await expect(
+    loadFile("dong-thap", (tx) => tx`select * from bang_khong_ton_tai`),
+  ).rejects.toThrow(/bang_khong_ton_tai/);
 });

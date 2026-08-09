@@ -72,6 +72,14 @@ test("a manager of one shelf sees nothing of another's", async () => {
     membershipId: readerB.id,
   });
 
+  // The positive control, before the two empty assertions below it. `lendCopy`
+  // writing no audit row at all would satisfy "Đồng Tháp sees nothing" perfectly
+  // — the degenerate-fixture shape U3 shipped — so Vĩnh Long's own manager is
+  // asked first and has to see the entry.
+  const theirs = await runQuery(sql, b.ctx, (tx, ctx) => getAuditLog(tx, ctx, {}));
+  expect(theirs.total).toBe(1);
+  expect(theirs.rows[0].action).toBe("loan.created");
+
   const page = await runQuery(sql, a.ctx, (tx, ctx) => getAuditLog(tx, ctx, {}));
   expect(page.rows).toEqual([]);
   expect(page.total).toBe(0);

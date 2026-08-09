@@ -60,6 +60,9 @@ import { requireManager } from "../../members/policy";
  * a volunteer cannot explain, and the key costs nothing.
  */
 
+/** §4 of the requirements. The same constant `kernel/clock.ts` fixes. */
+const TIMEZONE = "Asia/Ho_Chi_Minh";
+
 export interface BookExportRow {
   title: string;
   author: string | null;
@@ -205,7 +208,19 @@ export async function exportReaders(
            u.father_name, u.mother_name, u.phone, u.email,
            m.parish_unit_l1_id, m.parish_unit_l2_id,
            m.status, m.role, m.manager_notes,
-           m.approved_at::date::text as joined_on,
+           -- The **calendar day in the shelf's own timezone**, not the
+           -- session's. approved_at is a timestamptz (0003_identity.sql:97) and
+           -- a bare ::date resolves it through the session TimeZone. That is
+           -- UTC here, but only because it is Docker's default: compose.yaml
+           -- pins datestyle on both database services and pins no TimeZone at
+           -- all, which is DATABASE.md §6's own finding about olibra_now()::date
+           -- and §2.2's rule -- "never rely on the session TimeZone setting for
+           -- correctness". So a reader approved at half past midnight on the
+           -- 10th in Đồng Tháp is 17:30Z on the 9th, and the unqualified cast
+           -- files them under the ninth: a whole day wrong, in a column headed
+           -- "Ngày tham gia", on every approval made after 5pm local. The same
+           -- off-by-one, in the same direction, as the loan instants below.
+           (m.approved_at at time zone ${TIMEZONE})::date::text as joined_on,
            (u.username is not null) as has_credentials
     from memberships m
     join users u on u.id = m.user_id and u.deleted_at is null
@@ -293,9 +308,24 @@ export async function exportLoans(
   >`
     select b.title, c.code,
            borrower.full_name as borrower_name,
-           l.lent_at::text as lent_on,
+           -- The instant, **in the shelf's own timezone and with no offset
+           -- suffix**. A bare l.lent_at::text is what shipped first and a
+           -- browser download is what caught it: it renders
+           -- 2026-08-09 12:00:51.212+00, which is UTC, so a book handed over
+           -- at seven in the evening in Đồng Tháp is filed under 12:00 — and
+           -- on anything lent after 5pm local, under the *previous day*. §4 of
+           -- the requirements fixes Asia/Ho_Chi_Minh as the application
+           -- timezone regardless of where the process runs, and this is the
+           -- same conversion src/lib/dates.ts does for the screens.
+           --
+           -- timestamp(0) drops the fractional seconds, which no volunteer
+           -- reads and which stop several spreadsheets recognising the cell as
+           -- a datetime at all. What remains is YYYY-MM-DD HH:MM:SS, the one
+           -- form every spreadsheet parses identically — see
+           -- src/lib/exports.ts for why this file is ISO throughout.
+           (l.lent_at at time zone ${TIMEZONE})::timestamp(0)::text as lent_on,
            l.due_on::text as due_on,
-           l.returned_at::text as returned_on,
+           (l.returned_at at time zone ${TIMEZONE})::timestamp(0)::text as returned_on,
            l.status::text as status,
            l.return_condition,
            lender.full_name as lent_by,
