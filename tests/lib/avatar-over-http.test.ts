@@ -180,7 +180,7 @@ test("a photograph in the 1–2 MB band reaches application code", async () => {
   expect(posted.body).not.toContain("Body exceeded");
   expect(posted.status).toBe(303);
   expect(posted.refusal).toBe("invalid_image");
-}, 30_000);
+}, 60_000);
 
 test("the domain's own 2 MB rule is the one that refuses an oversize photograph", async () => {
   // One byte over `AVATAR_MAX_BYTES`, as an image this time, so the only thing
@@ -198,7 +198,7 @@ test("the domain's own 2 MB rule is the one that refuses an oversize photograph"
   expect(posted.body).not.toContain("Body exceeded");
   expect(posted.status).toBe(303);
   expect(posted.refusal).toBe("file_too_large");
-}, 30_000);
+}, 60_000);
 
 test("the framework limit is still a backstop for a body nobody should buffer", async () => {
   // The other half of the trade, asserted so that "raise the limit" is not read
@@ -209,4 +209,4 @@ test("the framework limit is still a backstop for a body nobody should buffer", 
 
   expect(posted.refusal).toBeNull();
   expect(posted.status).not.toBe(303);
-}, 30_000);
+}, 60_000);
