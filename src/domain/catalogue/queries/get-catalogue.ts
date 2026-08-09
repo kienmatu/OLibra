@@ -102,8 +102,29 @@ export interface CataloguePage {
  * function, so what the catalogue sorts by cannot drift from what search
  * matches on.
  *
- * `created_at desc` still breaks ties, as it did before, so two titles that
- * fold alike keep a stable order between renders.
+ * **`slug` is the last sort key, and without it this query loses rows**
+ * (IMPORTANT 5, fix-report, 2026-08-09-u2-shelf-and-portal). The order used to
+ * end at `created_at desc`, described here as breaking ties. It does not, and
+ * the case where it does not is the ordinary one: `created_at` defaults to
+ * `now()`, which is *transaction start* time, so every book written in one
+ * transaction shares one instant — all twelve `src/db/seed.ts` writes to
+ * `dong-thap`, and every bulk load a parish will ever do. Under
+ * `sort: "recent"` the `case` expression above is null for every row, so
+ * `created_at desc` is the entire sort key and every row is tied with every
+ * other; under `sort: "title"` two titles that fold alike are tied as well.
+ *
+ * A tie is not a stable order. `limit`/`offset` asks Postgres for a different
+ * top-N on each page, and a top-N selection over tied rows may order them
+ * differently every time — so a page boundary can show a row twice and skip
+ * another entirely. Measured over 300 rows sharing one `created_at`: 300 rows
+ * collected across the pages, **231 unique** at pageSize 7. A child paging
+ * through "Tên sách" sees some titles twice and never sees others. Latent at
+ * twelve books only because twelve books fit on one page.
+ *
+ * `slug` is the fix and is the same key `search-catalogue.ts` already ends on:
+ * unique per shelf (`0004_catalogue.sql`), immutable, and already selected. It
+ * makes the order total, which is what pagination requires and what
+ * "`created_at desc` breaks ties" was claiming.
  */
 export async function getCatalogue(
   tx: Tx,
@@ -180,9 +201,15 @@ export async function getCatalogue(
     from scoped
     -- olibra_fold(title), not title. See this function's docstring: the
     -- cluster's collation is C, and a plain sort by title puts Đ last.
+    --
+    -- slug last, and it is what makes this a total order rather than a
+    -- decorative one — see the docstring. Without it, a shelf whose books
+    -- share a created_at (every bulk load, and the seed) loses rows across
+    -- page boundaries.
     order by
       case when ${input.sort ?? "recent"} = 'title' then olibra_fold(title) end asc,
-      created_at desc
+      created_at desc,
+      slug
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;
 

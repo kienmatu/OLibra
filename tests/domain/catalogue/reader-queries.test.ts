@@ -480,3 +480,100 @@ test("a guest reaches none of the three", async () => {
     runQuery(sql, guestCtx, (tx) => searchCatalogue(tx, guestCtx, { q: "de men" })),
   ).rejects.toBeInstanceOf(RuleViolated);
 });
+
+/**
+ * IMPORTANT 5 (fix-report, 2026-08-09-u2-shelf-and-portal). Paging is only
+ * correct if the sort is a *total* order, and this one was not.
+ *
+ * `order by olibra_fold(title), created_at desc` was documented as having its
+ * ties broken by `created_at desc`. It does not when `created_at` collides —
+ * and it collides by default: every one of the twelve books `src/db/seed.ts`
+ * writes to `dong-thap` shares one `created_at`, because they were written in
+ * one transaction and the column defaults to `now()`, which is transaction
+ * start time. Under `sort: "recent"` the `case` expression is null for every
+ * row, so `created_at desc` is the *whole* sort key and every row is tied with
+ * every other.
+ *
+ * `limit`/`offset` then asks Postgres for a different top-N on every page, and
+ * a top-N selection over tied rows may order them differently each time. A
+ * child paging through the catalogue sees some titles twice and never sees
+ * others. Measured on 300 rows sharing one `created_at`: 300 rows collected,
+ * 231 unique at pageSize 7 — 69 lost. Latent at twelve books, because twelve
+ * books fit on one page.
+ *
+ * `searchCatalogue` already got this right (`order by olibra_fold(b.title),
+ * b.slug`) and already has the test above named for it; these are the two
+ * paginated queries that did not. `slug` is the right second key for the same
+ * reason it is there: it is unique per shelf, it is stable, and it is already
+ * in every row.
+ *
+ * Inserted with `sql` directly rather than through `createBook`: the point is
+ * three hundred rows sharing one instant, which is what a bulk load looks like
+ * and what `createBook` — one transaction per book — cannot produce.
+ */
+const PAGING_ROWS = 300;
+
+/** Three hundred books, distinct titles, three folded sort keys, one `created_at`. */
+async function shelfWithABulkLoad() {
+  const { readerCtx, shelf } = await shelfWithCatalogue();
+  const titles: string[] = [];
+  const slugs: string[] = [];
+  for (let i = 0; i < PAGING_ROWS; i++) {
+    // `olibra_fold` collapses and trims every run of non-[a-z0-9], so a
+    // different number of trailing dots is a different title with the same
+    // sort key — which is the collision `sort: "title"` has to survive.
+    const base = ["Dế Mèn", "Đất Rừng", "Kính Vạn"][i % 3];
+    titles.push(`${base}${".".repeat(Math.floor(i / 3) + 1)}`);
+    slugs.push(`bulk-${String(i).padStart(3, "0")}`);
+  }
+  await sql`
+    insert into books (bookshelf_id, title, author, slug, is_published, created_at)
+    select ${shelf.id}, t.title, 'Tô Hoài', t.slug, true, '2026-08-01T00:00:00Z'
+    from unnest(${titles}::text[], ${slugs}::text[]) as t(title, slug)
+  `;
+  return { readerCtx };
+}
+
+/**
+ * Every slug `getCatalogue` hands back when a reader pages all the way
+ * through, and the total it claims there are.
+ *
+ * The total comes from the query's own window count rather than from a
+ * constant here, so the four titles `shelfWithCatalogue` already seeded are
+ * included without this helper having to know about them.
+ */
+async function everySlugByPaging(
+  ctx: TenantContext,
+  input: Parameters<typeof getCatalogue>[2],
+  pageSize: number,
+) {
+  const first = await catalogue(ctx, { ...input, page: 1, pageSize });
+  const seen = first.rows.map((r) => r.slug);
+  for (let page = 2; (page - 1) * pageSize < first.total; page++) {
+    const result = await catalogue(ctx, { ...input, page, pageSize });
+    seen.push(...result.rows.map((r) => r.slug));
+  }
+  return { seen, total: first.total };
+}
+
+for (const sort of ["recent", "title"] as const) {
+  for (const pageSize of [7, 24]) {
+    test(`paging the catalogue by ${sort} at ${pageSize} a page loses no book and repeats none`, async () => {
+      const { readerCtx } = await shelfWithABulkLoad();
+
+      const { seen, total } = await everySlugByPaging(
+        readerCtx,
+        { scope: "all", sort },
+        pageSize,
+      );
+
+      // The bulk load plus the four titles the fixture shelf already carries.
+      expect(total).toBe(PAGING_ROWS + TITLES.length);
+      // Both halves, because they fail together and mean different things: the
+      // count says every page was full, and the set says the pages were slices
+      // of one order rather than of several.
+      expect(seen).toHaveLength(total);
+      expect(new Set(seen).size).toBe(total);
+    });
+  }
+}
