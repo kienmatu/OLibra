@@ -118,11 +118,23 @@ export interface UploadedFile {
  * bucket is protected by instead is that the key never carries the uploaded
  * name, never ends `.html`, and is served from a bucket whose only public grant
  * is `s3:GetObject` (`tests/architecture/compose-grants-only-get-object.test.ts`).
+ * The `nosniff` a browser also receives is **MinIO's**, not this application's,
+ * and AWS S3 does not send it — recorded on `ObjectStore` in
+ * `src/storage/s3.ts`, because a defence that moves with the provider must not
+ * be counted as one of ours.
  *
- * **The size is checked before the buffer is read**, so a hostile 4 GB upload is
- * refused without being pulled into memory first. `File.size` is the browser's
- * own count of the bytes it is about to send and `arrayBuffer()` is what
- * materialises them.
+ * **The size is checked before `arrayBuffer()`, which is not the same as before
+ * the bytes arrive.** This function refuses an oversize file without
+ * materialising a second copy of it in this process, and that is the whole of
+ * what the ordering buys. It does **not** stop a hostile upload being received:
+ * by the time a server action holds a `FormData`, the framework has already read
+ * the request body — an earlier version of this paragraph claimed "a hostile 4
+ * GB upload is refused without being pulled into memory first", which was true
+ * of `arrayBuffer()` and false of the request. What actually refuses a body
+ * nobody should buffer is `serverActions.bodySizeLimit` in `next.config.ts`,
+ * upstream of this file and of every line of application code, and it is set
+ * *above* `AVATAR_MAX_BYTES` so that the sentence below is the one a reader
+ * sees for anything in between.
  *
  * **No aspect-ratio check.** OPS §4.3 says "≤2 MB, square, per the profile
  * screen's own copy" and that copy does not exist: `2 MB`, `MB`, `vuông` and

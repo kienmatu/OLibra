@@ -1,7 +1,7 @@
 /**
  * ╔════════════════════════════════════════════════════════════════════════╗
  * ║  NEWLY AUTHORED VIETNAMESE — NOT QUOTED FROM OPERATIONS.md.            ║
- * ║  The product owner has not seen these three sentences. Every other     ║
+ * ║  The product owner has not seen these three strings. Every other       ║
  * ║  Vietnamese string this slice touches is either copied verbatim from   ║
  * ║  OPERATIONS.md §4.3 or already shipped in `kernel/errors.ts`.          ║
  * ║  These three are the exception, and this file exists so that the       ║
@@ -47,11 +47,29 @@ export const PROFILE_CORRECTED_COPY = {
    * that the edit is recorded, and what is recorded. A manager who does not
    * know the edit is logged will be surprised by the audit browser, and BR
    * §17.7's register is plain-spoken rather than legal.
+   *
+   * ── Rewritten on review, and what was wrong with the first draft ────────
+   *
+   * It read as translated from English, which AGENTS.md forbids in as many
+   * words — the register is *Cho mượn*, never *Giao dịch lưu thông*. Four
+   * specifics, from a Vietnamese reading:
+   *
+   * - *giá trị trước và sau* is a mathematical calque of "the values before and
+   *   after". A volunteer says **nội dung cũ và nội dung mới**.
+   * - *thời điểm sửa* leans "timestamp". **lúc nào** is what a person says.
+   * - *"kèm tên bạn, …, và …"* is an English serial-comma rhythm. A colon and a
+   *   short list is the Vietnamese one.
+   * - *tên **bạn*** sat two words from ***bạn** đọc*, using *bạn* in two senses
+   *   in one sentence. **ai sửa** removes the collision and is shorter.
+   *
+   * It was also long and administrative next to the shipped copy it appears
+   * with — "Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị." — so
+   * the rewrite is two short sentences rather than one long one. All three
+   * things it has to say are still said.
    */
   formIntro:
-    "Bạn đang sửa trực tiếp thông tin của bạn đọc này, không cần bước duyệt. " +
-    "Mỗi lần sửa đều được ghi vào nhật ký kèm tên bạn, thời điểm sửa, và giá " +
-    "trị trước và sau.",
+    "Sửa ở đây có hiệu lực ngay, không cần duyệt. " +
+    "Mỗi lần sửa đều được ghi lại: ai sửa, lúc nào, nội dung cũ và nội dung mới.",
 
   /**
    * NEWLY AUTHORED (2 of 3). The audit browser's filter label for
