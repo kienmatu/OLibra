@@ -21,6 +21,39 @@ Verify at minimum:
 - Whether `quan-ly/yeu-cau-muon` still renders fixtures, and that U3 **removed its nav entry and badge** because no query could answer them. This slice restores both.
 - `receiveReturn`'s queued-reader panel, which C1 removed rather than faked because `GetBorrowRequestQueue` did not exist. It returns here.
 
+## Reconciliation against shipped code
+
+Checked against `main` at `805e2ba`, and against the live test database
+(`information_schema.columns`, `pg_constraint`, `pg_indexes`, `pg_trigger`)
+rather than against the migration files alone — the migrations rewrite each
+other, and `20260808_04_composite_tenant_fks.sql` replaces four of
+`borrow_requests`' six foreign keys.
+
+Ordered by what each one would have cost had it gone unnoticed.
+
+| The plan (or the catalogue) says | Live code says | Consequence for this slice |
+|---|---|---|
+| `borrow_requests.member_id` holds a `users(id)` despite its name | Confirmed live: `FOREIGN KEY (member_id) REFERENCES users(id)`. So does `decided_by`. `book_id`, `copy_id` and `fulfilled_loan_id` are composite `(bookshelf_id, …)` keys into shelf-scoped tables; `bookshelf_id` is the shelf | Every id this slice writes into the table is a **user** id except the four shelf-scoped ones. `copyLendable`'s `heldForUserId`/`forUserId` naming is the guard, and `HandoverRequest` resolves `memberships.user_id` before it compares anything |
+| — (nothing says this anywhere) | **There is no uniqueness constraint of any kind on `(book_id, member_id)`.** The only indexes are `requests_queue`, `requests_holds`, the pkey and `(bookshelf_id, id)` | `duplicate_request` is an application check with a race window behind it, exactly the shape OPS §6 says an application check cannot close. Two taps in the same second put one child in the queue twice, ahead of the child behind them. Recorded in §7 below rather than fixed: closing it is a migration, and the master plan's file list for this slice has none |
+| — | `requested_at` is `not null default now()` — the **database host's** clock, like `lent_at` before C1 wrote it explicitly | `CreateBorrowRequest` writes `requested_at` from `ctx.clock`, or the queue's ordering key and `copies_borrowable`'s `olibra_now()` comparison follow two different clocks and no `fixedClock` can order a queue |
+| §1: "INV-2 is representable across two tables even though `DATABASE.md` §7 claims otherwise" | `DATABASE.md:1310` (the §7 table) **already says** the copy's own row is the database's half and the hold is "application, in a transaction", and §4.4 (`:757`) spells the two-table window out in full | C1 corrected the document as well as the code. Nothing to re-argue; the test is still missing |
+| §1: check whether `inv-02-not-held-and-on-loan.test.ts` exists | It does not. `tests/invariants/` has INV-1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14 | Written in this slice. Master §7.6 names it |
+| C1 built `lendCopy`'s hold collection | `lend-copy.ts:219-222` collects the hold only when `hold_request_id` is non-null **and** `held_for_user === member.user_id`; `:326-338` writes `status='fulfilled'` + `fulfilled_loan_id` and pushes `request.fulfilled` beside `loan.created`; `loans.request_id` points back | Not rebuilt. `HandoverRequest` is the request-shaped entry to the same two writes and must not restate either |
+| C1 built `receiveReturn`'s hold creation | `receive-return.ts:132-134,214-236` — `holdForRequestId` → `resolveHold` → `status='approved'`, `copy_id`, `hold_expires_at` from `ctx.clock`, `decided_by`, `decided_at`, plus a `request.approved` audit row; `:258-265` already returns `queuedRequestId` in `requested_at asc, id asc` order | `ApproveBorrowRequest` is the same effect from the queue screen. The `hold_days` read and the expiry arithmetic (`expiryFrom`) are already written and are lifted, not copied |
+| C1 built `copies_borrowable`'s hold clause | `20260808_14_olibra_now.sql:114-126` — `state = 'available'` **and** no `approved`, un-deleted request with `hold_expires_at > olibra_now()` | Both clauses matter, and this slice makes the first one live: `ApproveBorrowRequest` moves the copy `available → held`, which `catalogue/policy.ts`'s table permits. `inv-03-…test.ts:185-212` deliberately exercises both shapes so it survives that choice |
+| `errors.ts` names two collisions as C2's | Confirmed, and **no third**. A pass over every `` `code` — "sentence" `` pair in `OPERATIONS.md` finds nine colliding codes; of the nine, exactly `membership_not_active` (`:293`, `CreateBorrowRequest`) and `copy_lost_or_retired` (`:305`, `ApproveBorrowRequest`) belong to this slice's five commands. `request_not_pending` is used twice (`:306`, `:316`) with the identical sentence, so it is a reuse and not a collision | Two new codes. Seven of the nine codes these commands need are already in `ERROR_MESSAGES` (`hold_expired`, `no_copy_available`, `request_not_pending`, `duplicate_request`, `not_own_request`, `request_already_fulfilled`, `loan_limit_reached`) |
+| — | OPS gives `HandoverRequest` three failure modes and none of them covers **a request that names no live hold at all** (`pending`, `rejected`, `cancelled`, `fulfilled`) | One code with Vietnamese nobody wrote. Flagged in §8 below and in the report, not slipped in |
+| — | `audit-actions.ts` has `request.approved` and `request.fulfilled` (C1's) and nothing else in the family | `request.created`, `request.rejected`, `request.cancelled` are added — three new sentences. `request.skipped` is **not** added: P1 made the map the type, so the absent key is what makes `SkipRequest` unwriteable rather than merely unwritten |
+| §1: U3 removed the nav entry and the badge | `manager-shell.tsx:125-158` — no `yeu-cau-muon` entry; `ManagerNavKey` (`:77-92`) still carries the key, deliberately, "because their routes still exist". `ManagerBadgeCounts` (`get-manager-dashboard.ts:35-39`) has three fields | The entry and a fourth count come back. Two docstrings — that one and `getManagerDashboard`'s `:150-156` — assert that no query in this codebase could answer *Yêu cầu mượn*; both become false and are corrected in the same commit that makes them false |
+| §1: `quan-ly/yeu-cau-muon` still renders fixtures | `page.tsx` renders `bookBySlug`, `readers`, `shelfBySlug`, three hand-written dates (`02/08`, `03/08`, `04/08`, `30/07`), a hand-written expiry (`09/08`) and `viewer={null} counts={null}` | Rewritten against the query. `src/lib/fixtures.ts:979`'s `dashboardStats` entry is dead already — the dashboard reads `getManagerBadgeCounts` — so nothing else has to move |
+| §1: `receiveReturn`'s queued-reader panel returns | `nhan-tra/page.tsx:71-77` and `actions.ts`'s `receiveReturnAction` both say in prose that `holdForRequestId` is never sent because the query does not exist | Panel and action wire up; both paragraphs are rewritten rather than left describing a state that has ended |
+| OPS §3.3: `GetBorrowRequestQueue`, "requests grouped by book, in request-time order" | Does not exist. `src/domain/circulation/queries/` holds `get-overdue-loans.ts` and `search-loans-for-return.ts` | Written. `requests_queue` is partial on `status = 'pending'` and carries no `id`, so it cannot serve a query that also reads `approved` rows — the ordering tiebreak is the `order by`'s, never an index's |
+| — | `borrow_requests` has **no** `rejection_reason`; the column is `decision_note`, and `decided_by`/`decided_at`/`decision_note` are shared by approve and reject | Q2's optional reason lands in `decision_note`. No migration |
+| — | `borrow_requests` carries `borrow_requests_tenant` from `0010_rls.sql`'s loop, and `borrow_requests_set_updated_at` from `20260808_06` | Reads are scoped by RLS, not by a `where bookshelf_id`. Writes are `using`-filtered, so every UPDATE goes through the kernel's zero-row guard rather than trusting the filter |
+
+**Nothing here blocks the slice.** The two genuinely new facts are the missing
+uniqueness constraint (§7) and `HandoverRequest`'s unnamed refusal (§8).
+
 ## 2. Scope
 
 Five commands, all well specified:
@@ -81,3 +114,53 @@ A child who asked first and keeps being passed over experiences each of those ve
 ## 6. Out of scope
 
 `SkipRequest` (§4); renewals (C3); notifications (D1) — this slice writes no notification row, and the commands that will need to are named so D1 can find them.
+
+## 7. The duplicate-request race, named rather than closed
+
+`duplicate_request` ("Bạn đã có một yêu cầu đang chờ cho cuốn này.") is
+enforced by a `select` inside `CreateBorrowRequest`'s transaction and by
+nothing else. There is no partial unique index on
+`(book_id, member_id) where status in ('pending','approved')`, and OPS §6 is
+explicit that a read-then-write pattern "however careful, has a race window
+between the two steps".
+
+The window is small and the harm is bounded — a child appears twice in one
+title's queue, once ahead of somebody who asked later — but it is the same
+shape as INV-1's, and INV-1 got an index. The fix is one migration:
+
+```sql
+create unique index requests_one_open_per_member
+  on borrow_requests (book_id, member_id)
+  where status in ('pending', 'approved') and deleted_at is null;
+```
+
+It is not in this slice because master §7.6's file list contains no migration,
+because a partial unique index over a *soft-deleted* table is the shape
+`20260808_03` and `20260808_09` each had to correct once already, and because
+the command's `select` closes the ordinary case (a stale page, a second tap
+seconds later) that the queue screen actually produces. Recorded here so the
+next slice to open `src/db/migrations/` finds it written down.
+
+## 8. `HandoverRequest`'s fourth refusal, and the Vietnamese it needs
+
+OPS §4.2 gives `HandoverRequest` three failure modes — `hold_expired`,
+`membership_not_active`, `loan_limit_reached` — and none of them describes a
+`requestId` that names a row with **no live hold to hand over**: a `pending`
+request nobody has approved, or one already `rejected`, `cancelled` or
+`fulfilled`. The command must still answer, because a stale queue page posts
+exactly that.
+
+Nothing in the catalogue fits. `request_not_pending` ("Yêu cầu này đã được xử
+lý.") is a false statement about a *pending* request, which is the commonest of
+the four. `hold_expired` is a false statement about a request that never had a
+hold. `request_not_queued` is `ReceiveReturn`'s, about a different title.
+
+So this slice authors one sentence, and says so:
+
+> `request_not_held` — "Yêu cầu này không có bản sách nào đang được giữ chỗ."
+
+Factual rather than instructive, unlike most of `ERROR_MESSAGES`: BR §17.7 asks
+a refusal to name what to do instead, and what to do instead differs across the
+four states it covers (approve it; nothing, it was refused; nothing, it was
+withdrawn; nothing, the book already went out). The queue screen shows which,
+directly above the button. Listed in the fix report as new Vietnamese.
