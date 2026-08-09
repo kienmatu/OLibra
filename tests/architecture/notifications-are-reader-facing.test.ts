@@ -49,6 +49,7 @@ const OPS_SECTION_7: Record<string, string[]> = {
     "src/domain/circulation/commands/receive-return.ts",
   ],
   request_rejected: ["src/domain/circulation/commands/reject-borrow-request.ts"],
+  comment_approved: ["src/domain/community/commands/comment-moderation.ts"],
   // "Not written by any command in §4 — see below." The sweep is the exception
   // OPS §7 argues for at length, and it is not a command.
   loan_due_soon: ["src/domain/notifications/sweep.ts"],

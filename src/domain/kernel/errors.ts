@@ -195,6 +195,18 @@ export const ERROR_MESSAGES = {
   // _void`. This is the fourth, and B2a named it as B2b's before it was
   // reached.
   profile_change_not_pending: "Yêu cầu này đã được xử lý.",
+
+  // — community: B3 —
+  // OPS §4.4's own sentences. `comment_not_pending` is the **fifth** slice in a
+  // row to split a `not_pending` code: OPS gives it "Bình luận này đã được xử
+  // lý." here, which is a different sentence from `registration_not_pending`,
+  // `profile_change_not_pending` and `request_not_pending` alike — the noun
+  // changes, and a volunteer moderating comments should read about a comment.
+  // One code, one sentence, per the rule `messageFor` depends on.
+  comments_disabled: "Tủ sách hiện không nhận bình luận.",
+  empty_body: "Vui lòng nhập nội dung bình luận.",
+  comment_not_pending: "Bình luận này đã được xử lý.",
+  comment_not_approved: "Chỉ có thể ẩn bình luận đang hiển thị.",
   // OPS §4.3's two failure modes for ProposeAvatarChange (`:567`, `:568`),
   // quoted. Neither is raised by a command: both are facts about *bytes*, and
   // `tests/architecture/boundaries.test.ts` forbids `src/domain/` from touching
