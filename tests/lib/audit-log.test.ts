@@ -73,6 +73,36 @@ test("the time of day is the 00-23 cycle, so five past midnight is not 24:05", (
   });
 });
 
+test("Postgres's own spelling of an instant is one of the two this parses", () => {
+  // `getAuditLog` selects `a.occurred_at::text`, and what comes back is
+  // `2026-08-03 07:32:00+00` — a space where ISO 8601 puts `T`, and a
+  // two-digit `+00` where it wants `Z` or `+00:00`. Every other test in this
+  // file and in `tests/domain/shelf/audit-log.test.ts` used canonical ISO or
+  // hand-supplied parts, so the string the browser actually formats was
+  // exercised by nothing.
+  //
+  // `new Date("2026-08-03 07:32:00+00")` is outside the Date Time String
+  // Format the spec pins, which means it falls to each engine's legacy parser.
+  // Node and Bun both get it right and this application runs under Bun; that is
+  // a fact about two runtimes, not a guarantee, and an audit browser rendering
+  // "Invalid Date" on every row is what its absence looks like.
+  //
+  // The microsecond form is pinned beside it: `occurred_at` is a `timestamptz`
+  // stamped from `ctx.clock.now()`, so a row written at a non-round instant
+  // comes back with a fractional part, and Postgres omits it only when it is
+  // zero. `tests/domain/shelf/audit-log.test.ts` asserts the exact string the
+  // shipped query emits, which is what keeps these two fixtures honest.
+  for (const stored of [
+    "2026-08-03 07:32:00+00",
+    "2026-08-03 07:32:00.212345+00",
+  ]) {
+    expect(formatInstantParts(stored), stored).toEqual({
+      time: "14:32",
+      date: "03/08/2026",
+    });
+  }
+});
+
 test("the two halves of an instant are the shelf's own timezone, and carry the year", () => {
   // BR §14's example is "lúc 14:32 ngày 03/08". The year is added because an
   // audit trail is read months later and "03/08" is ambiguous the moment a

@@ -12,6 +12,7 @@ import {
   getAuditActors,
   getAuditLog,
 } from "../../../src/domain/shelf/queries/get-audit-log";
+import { formatInstantParts } from "../../../src/lib/dates";
 import { closeAll, resetDatabase, sql } from "../../support/db";
 import { makeBookWithCopies, makeMember, makeShelf } from "../../support/factories";
 import { managerContextFor } from "../../support/scenarios";
@@ -124,6 +125,56 @@ test("an entry renders BR §14's sentence out of what it stored", async () => {
   // The expansion shows the stored values, not a re-derivation.
   expect(page.rows[0].facts.before).toEqual({ copy_state: "available" });
   expect(page.rows[0].facts.after).toMatchObject({ copy_state: "on_loan" });
+});
+
+test("the instant the query emits is the one the page hands to the formatter", async () => {
+  // **The format production actually renders was fed to `formatInstantParts` by
+  // no test.** The one above supplies `{ time, date }` by hand and
+  // `tests/lib/audit-log.test.ts` uses canonical ISO — while `getAuditLog`
+  // selects `a.occurred_at::text`, which Postgres renders as
+  // `2026-08-03 07:32:00+00`: a space instead of `T`, and `+00` rather than
+  // `Z` or `+00:00`. That is **not** ISO 8601, so `new Date(…)` inside
+  // `formatInstantParts` is going through the implementation-defined legacy
+  // parser rather than the specified one.
+  //
+  // Both Node and Bun parse it correctly and this application runs under Bun,
+  // so this is not a defect — it is an unpinned dependency on a parser the spec
+  // does not describe, one runtime swap away from an audit browser whose every
+  // timestamp reads "Invalid Date". Pinned here with the real string, from the
+  // real query, rather than with a fixture somebody wrote by hand.
+  const { shelf, ctx, manager } = await shelfWithManager(
+    "dong-thap",
+    "2026-08-03T07:32:00Z", // 14:32 in Ho Chi Minh City
+  );
+  await sql`update users set full_name = 'Maria Lan' where id = ${manager.userId}`;
+  const { copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  const reader = await makeMember(sql, shelf.id);
+  await runCommand(sql, ctx, lendCopy, {
+    copyId: copyIds[0],
+    membershipId: reader.id,
+  });
+
+  const page = await runQuery(sql, ctx, (tx, c) => getAuditLog(tx, c, {}));
+  const occurredAt = page.rows[0].occurredAt;
+
+  // The shape assertion is what makes the paragraph above checkable rather than
+  // a claim: if a later migration or driver setting made this ISO, the pin
+  // below would still pass and would no longer be pinning anything.
+  expect(occurredAt).toBe("2026-08-03 07:32:00+00");
+  expect(occurredAt).not.toContain("T");
+
+  // And the whole chain, exactly as `quan-ly/nhat-ky/page.tsx` runs it.
+  expect(formatInstantParts(occurredAt)).toEqual({
+    time: "14:32",
+    date: "03/08/2026",
+  });
+  expect(
+    auditSentence(
+      page.rows[0].action,
+      page.rows[0].facts,
+      formatInstantParts(occurredAt),
+    ),
+  ).toContain("lúc 14:32 ngày 03/08/2026");
 });
 
 test("the sentence does not change when the book and the people are renamed", async () => {
