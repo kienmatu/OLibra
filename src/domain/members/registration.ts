@@ -246,9 +246,14 @@ export async function register(
   let userId: string;
   if (existingId !== null) {
     // BR §5.3: "their identity is reused and only the parish details are
-    // re-entered." Nothing on the person is touched — INV-13 makes an approved
-    // ProfileChangeRequest the only path by which a verified detail changes,
-    // and a registration form at a second parish is not that.
+    // re-entered." Nothing on the person is touched — INV-13 sanctions two
+    // paths by which a verified detail changes, an approved
+    // ProfileChangeRequest and a manager's audited direct correction
+    // (`./commands/update-reader-profile.ts`), and a registration form at a
+    // second parish is neither. (This comment used to say "the only path",
+    // which was true when it was written and stopped being true when BR §6's
+    // INV-13 was restated on 2026-08-09; the conclusion is unchanged, and it
+    // is the conclusion that is load-bearing here.)
     userId = existingId;
   } else {
     const [created] = await tx<{ id: string }[]>`

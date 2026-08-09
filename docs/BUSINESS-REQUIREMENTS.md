@@ -82,6 +82,8 @@ This hands a manager real power — whoever can set a password can sign in as th
 
 **Changing your own details is a request, not an edit.** A reader may propose a change to their profile; it takes effect only when a manager approves it. Until then the existing values stand — including the phone number, so a manager never loses the means of contacting a family mid-change. This exists because the manager personally knows each family and their approval is what makes the record trustworthy; letting a child silently rewrite their own name or date of birth would undo that.
 
+**A manager corrects a reader's details directly.** Most readers are children who never sign in (§2, above), so a proposal a reader cannot make is not a route to a corrected phone number — and the phone number is how books come back (§16.3). A manager edits the record, and the edit writes an audit entry naming the manager, the reader, the time and the values before and after. This is the same trade the previous two paragraphs make about credentials: the mitigation for a power a manager needs is visibility, not withholding.
+
 **Readers have a lifecycle.** Children move away, grow up, or simply stop coming. Membership needs *suspended* and *left* states. A reader who has ever borrowed a book must never be erased, because that would destroy the audit history the brief explicitly requires.
 
 **Managers can be offboarded.** Revocation changes a role; it never deletes a person, because their audit trail must survive them.
@@ -256,7 +258,7 @@ Each of these gets a named, dedicated test. They are the specification of correc
 | **INV-10** | Every query is scoped to a single bookshelf, except explicit super-admin cross-shelf views. |
 | **INV-11** | A loan is never deleted. Mistakes are recorded as *voided* with a reason. |
 | **INV-12** | Audit records are never changed or removed. |
-| **INV-13** | A person's verified details change only through an approved ProfileChangeRequest. At most one request per person is pending at a time. |
+| **INV-13** | At most one ProfileChangeRequest per person is pending at a time. A person's verified details never change silently: every change is either an approved ProfileChangeRequest or a manager's direct correction, and both write an audit record naming the actor, the time, and the values before and after. A **reader** changes their own verified details only by proposal. |
 | **INV-14** | A person has either both a username and a password, or neither. An account with no credentials cannot sign in, and that is a valid state. |
 
 Tenant isolation (INV-10) is the highest-consequence property in the system. It must be structural — impossible to forget — not a matter of anyone remembering to filter.

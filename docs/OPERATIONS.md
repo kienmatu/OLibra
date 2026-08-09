@@ -463,6 +463,26 @@ power but to make every use of it visible to the super administrator across ever
 bookshelf (§13.2, Oversight). `credentials.set` is therefore one of the audit
 actions the administration surface must be able to filter on by name.
 
+#### `UpdateReaderProfile`
+A manager corrects a reader's personal details directly, with no approval step. Named after `SetReaderCredentials` above, its closest sibling: a manager acting on a named reader's person record. `UpdateOwnProfile` (reader, own) and `UpdateReaderProfile` (manager, a reader's) then read as the pair they are.
+
+This is the product owner's answer to the hole master plan §5 Q8 named, recorded in BR §2 ("A manager corrects a reader's details directly") and in BR §6's restated INV-13. BR §2 makes credentials optional *because* most readers are children who will never sign in, so `ProposeProfileChange` below — whose caller is `reader` (self only) — is not a route to a corrected phone number for most of the shelf, and §16.3 calls the phone number the actual mechanism by which books come back.
+
+It is not a weakening of INV-13. Whoever can set a reader's password (`SetReaderCredentials` above) can already sign in as that reader and propose anything as that reader, and the audit trail would then say a *reader* proposed it. The direct edit is the more truthful record, and it is the same trade BR §2 already makes for credentials: the mitigation for a power a manager needs is visibility, not withholding.
+
+- **Inputs:** `bookshelfId`, `membershipId`, new values for any subset of: saint name, full name, DOB, father's name, mother's name, phone, email, avatar URL. **Never a `userId`** — `users` carries no row-level security, so a caller-supplied user id would let a manager of one parish rewrite any person in the system; the reader is reached by joining out of a `memberships` row RLS has already scoped, exactly as `SetReaderCredentials` does.
+- **Caller:** `manager`
+- **Invariants enforced:** INV-8; INV-13 as restated in BR §6 — this is the second sanctioned write path to a person's verified details, and it is audited with before and after
+- **Audit action:** `profile.corrected`, with `before`/`after` carrying only the fields that actually changed. Deliberately not `membership.updated` (which `UpdateOwnProfile` below already uses for the leaderboard toggle) and not `profile_change.approved` (a different act, by a manager who was shown a proposal). §14 wants a name the audit browser can filter on, and the thing a super administrator must be able to filter for is exactly "a manager changed someone's details without an approval step" — the same oversight need `credentials.set` serves (BR §2, §13.2).
+- **Failure modes:**
+  - `membership_not_found` — "Không tìm thấy bạn đọc này."
+  - `required_fields_missing` — "Vui lòng điền đầy đủ các trường bắt buộc." (full name, father's name and mother's name are `not null`, so blanking one is a named refusal rather than a constraint violation)
+  - `validation_failed` — "Vui lòng kiểm tra lại thông tin."
+  - `empty_proposal` — "Vui lòng thay đổi ít nhất một trường." (an edit that changes nothing must not write an audit entry claiming it did)
+  - `not_permitted` — "Bạn không có quyền thực hiện việc này."
+
+> **Open question — the Vietnamese this command needs that this document does not have.** Two sentences that exist nowhere: what a manager reads above the edit form, and how the audit browser renders `profile.corrected` (§14 requires a readable Vietnamese sentence per entry). Both were written by the implementing slice rather than left blank, and both are marked in the code as newly authored rather than quoted — `PROFILE_CORRECTED_COPY` in `src/domain/members/profile-copy.ts`. They are the product owner's to approve or replace; nothing else in that slice's Vietnamese is new.
+
 #### `UpdateOwnProfile`
 Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). A membership's parish-unit fields (BR §5.6) remain read-only from this command, as before — the profile screen tells the reader why with a sentence built from the shelf's own labels, not a fixed one: for Tủ sách Đồng Tháp's taxonomy (*giáo họ*, *tổ*) it renders as "Muốn đổi giáo họ hoặc tổ thì nhờ quản lý tủ sách giúp." (`src/app/tu-sach/[shelf]/toi/ho-so/page.tsx`), a UI sentence, not requirements text — a shelf with different labels, or only one level, gets a different sentence from the same component, never this one hard-coded. Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
 
@@ -494,7 +514,7 @@ A manager approves a pending change; the proposed values are written to the pers
 
 - **Inputs:** `bookshelfId`, `profileChangeRequestId`, `parishUnitL1Id?`, `parishUnitL2Id?`
 - **Caller:** `manager`
-- **Invariants enforced:** INV-13 (this is the *only* path by which a person's verified details change), INV-8; the parish-taxonomy selection rule (BR §5.6) when either unit id is supplied — `validateSelection` in `src/domain/members/parish-taxonomy.ts`, same as `RegisterMembership`
+- **Invariants enforced:** INV-13 (this is one of the two paths by which a person's verified details change — the other is `UpdateReaderProfile` above, and BR §6's restated INV-13 names both), INV-8; the parish-taxonomy selection rule (BR §5.6) when either unit id is supplied — `validateSelection` in `src/domain/members/parish-taxonomy.ts`, same as `RegisterMembership`
 - **Audit action:** `profile_change.approved`
 - **Failure modes:**
   - `not_pending` — "Yêu cầu này đã được xử lý."
@@ -528,7 +548,7 @@ The reader withdraws their own proposal before a decision is made (§7.4's diagr
 
 #### `ChangeOwnPassword`
 
-- **Inputs:** `userId`, current password, new password
+- **Inputs:** `membershipId`, current password, new password. **Not a `userId`,** which is what an earlier draft of this entry said: `users` carries no row-level security (DATABASE.md §3), so a caller-supplied user id is guarded only by whatever comparison the command remembers to make, whereas a membership id is compared against the one the session resolved and the `users` row is reached only by joining out of a row RLS already scoped. The shipped command has taken a `membershipId` since B2a; this entry is corrected to match it rather than the command being changed to match this entry.
 - **Caller:** `reader` (self only)
 - **Invariants enforced:** INV-8; password value never captured in the audit record (§14)
 - **Audit action:** `user.password_changed`
@@ -539,7 +559,7 @@ The reader withdraws their own proposal before a decision is made (§7.4's diagr
 #### `ProposeAvatarChange`
 A reader proposes a new photograph. Like every other personal field it takes effect only on approval — see `ProposeProfileChange` above, of which this is the file-carrying case rather than a separate lifecycle.
 
-- **Inputs:** `userId`, image file (≤2 MB, square, per the profile screen's own copy)
+- **Inputs:** `membershipId`, image file (≤2 MB, square, per the profile screen's own copy). **Not a `userId`,** for the reason `ChangeOwnPassword` above now records at length — `users` has no row-level security, and every command in this section reaches a person through a shelf-scoped `memberships` row instead.
 - **Caller:** `reader` (self only); a `manager` may also set a photograph directly when registering on behalf, since that value is being entered under their eye in the first place
 - **Invariants enforced:** INV-8, INV-13
 - **Audit action:** `profile_change.proposed` (with the changed field named in the payload)
