@@ -86,6 +86,7 @@ export type ManagerNavKey =
   | "tang-sach"
   | "qua-han"
   | "binh-luan"
+  | "nhat-ky"
   | "thong-bao"
   | "thong-ke"
   | "cai-dat";
@@ -145,6 +146,12 @@ const NAV: {
     badge: "pendingProfileChanges",
   },
   { key: "qua-han", label: "Quá hạn", icon: TriangleAlert, badge: "overdue" },
+  // P1. No badge: an audit log has no queue waiting on anybody, so there is no
+  // number to show and §3.1's rule about invented counts does not arise. The
+  // icon is `ScrollText`, the same one the super-admin nav already uses for its
+  // own (cross-shelf, Phase 3) Nhật ký, so the two read as the same thing at
+  // two scopes.
+  { key: "nhat-ky", label: "Nhật ký", icon: ScrollText },
   { key: "thong-bao", label: "Thông báo", icon: Megaphone },
   { key: "thong-ke", label: "Thống kê", icon: BarChart3 },
   { key: "cai-dat", label: "Cài đặt", icon: Cog },

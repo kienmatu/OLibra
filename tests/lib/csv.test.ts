@@ -142,7 +142,6 @@ test("the headers say UTF-8 twice, and the filename survives both ways", () => {
   // The plain parameter is ASCII: `Response` in Node throws on a header value
   // outside ISO-8859-1, so a raw Vietnamese name here is a 500, not a nicety.
   const plain = /filename="([^"]+)"/.exec(header)?.[1] ?? "";
-  // eslint-disable-next-line no-control-regex
   expect(/^[\x20-\x7e]+$/.test(plain)).toBe(true);
   // …and the real name is carried by RFC 6266's parameter, intact.
   const encoded = /filename\*=UTF-8''(\S+)$/.exec(header)?.[1] ?? "";

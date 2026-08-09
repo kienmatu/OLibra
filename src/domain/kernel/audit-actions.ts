@@ -403,6 +403,21 @@ export function actionsInGroup(group: AuditGroup): AuditAction[] {
   return AUDIT_ACTION_NAMES.filter((a) => AUDIT_ACTIONS[a].group === group);
 }
 
+/**
+ * The family an entry belongs to, or `null` for a stored action this build has
+ * no sentence for.
+ *
+ * `action` is a plain `string` for `auditSentence`'s reason: it comes off an
+ * append-only table whose rows were written by whichever build was deployed.
+ * A `null` here is what lets the browser mark such an entry without guessing a
+ * family for it.
+ */
+export function auditGroupOf(action: string): AuditGroup | null {
+  return Object.hasOwn(AUDIT_ACTIONS, action)
+    ? AUDIT_ACTIONS[action as AuditAction].group
+    : null;
+}
+
 /** `?viec=` → a family, or `undefined` for anything else somebody typed. */
 export function auditGroupFromParam(
   raw: string | undefined,
