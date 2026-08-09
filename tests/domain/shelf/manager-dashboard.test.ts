@@ -7,6 +7,7 @@ import {
   runQuery,
   type Tx,
 } from "../../../src/domain/kernel/unit-of-work";
+import { getOverdueLoans } from "../../../src/domain/circulation/queries/get-overdue-loans";
 import { proposeProfileChange } from "../../../src/domain/members/commands/propose-profile-change";
 import { getPendingProfileChanges } from "../../../src/domain/members/queries/get-pending-profile-changes";
 import { getPendingRegistrations } from "../../../src/domain/members/queries/get-pending-registrations";
@@ -167,6 +168,80 @@ test("a badge shows the number of rows the list it links to shows", async () => 
   expect(counts.pendingRegistrations).toBe(registrations.length);
   expect(counts.pendingProfileChanges).toBe(changes.length);
   expect(registrations.length).toBe(2);
+});
+
+test("the Quá hạn badge shows the number of rows qua-han shows", async () => {
+  // The third badge, and the one the two agreement tests above left out.
+  // `getManagerBadgeCounts.overdue` is `count(*) from loans_current where
+  // is_overdue` — `loans_current` alone. `getOverdueLoans` inner-joins
+  // `book_copies`, `books` and `users` to get a code, a title and a phone
+  // number. Two different populations, asserted to be the same one.
+  //
+  // No disagreement could be produced against the shipped pair, and that is why
+  // this is worth pinning rather than leaving: every join is one predicate away
+  // from narrowing the list below its own badge, and each of the four loans
+  // below is one of those predicates.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+
+  const overdue = async (
+    over: { deleteBook?: boolean; deleteCopy?: boolean; left?: boolean } = {},
+  ) => {
+    const who = await makeMember(sql, shelf.id);
+    const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+    await sql`
+      insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on, status)
+      values (${shelf.id}, ${copyIds[0]}, ${bookId}, ${who.userId},
+              ${manager.userId}, ${DUE_ON}::date, 'active')
+    `;
+    await sql`update book_copies set state = 'on_loan' where id = ${copyIds[0]}`;
+    if (over.deleteBook)
+      await sql`update books set deleted_at = now() where id = ${bookId}`;
+    if (over.deleteCopy)
+      await sql`update book_copies set deleted_at = now() where id = ${copyIds[0]}`;
+    // A book somebody still holds after leaving the shelf: the row
+    // `getOverdueLoans` joins `users` directly to keep, and the one a
+    // `join memberships … status = 'active'` in either query would drop from
+    // the list while leaving it in the badge.
+    if (over.left)
+      await sql`update memberships set status = 'left' where id = ${who.id}`;
+  };
+
+  await overdue();
+  await overdue({ left: true });
+  await overdue({ deleteBook: true });
+  await overdue({ deleteCopy: true });
+
+  // One loan that is not late, so "they agree" is not "they are both empty" and
+  // not "they both count every loan".
+  const onTimeBorrower = await makeMember(sql, shelf.id);
+  const future = await makeBookWithCopies(sql, shelf.id, 1);
+  await sql`
+    insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on, status)
+    values (${shelf.id}, ${future.copyIds[0]}, ${future.bookId},
+            ${onTimeBorrower.userId}, ${manager.userId}, date '2999-01-01', 'active')
+  `;
+
+  const lateCtx = contextFor(shelf.id, manager, "manager", LATE);
+  const { counts, list } = await runQuery(sql, lateCtx, async (tx) => ({
+    counts: await getManagerBadgeCounts(tx, lateCtx),
+    list: await getOverdueLoans(tx, lateCtx),
+  }));
+
+  expect(counts.overdue).toBe(4);
+  expect(list).toHaveLength(4);
+  expect(counts.overdue).toBe(list.length);
+
+  // And they turn over together: on time, both are empty. The badge and the
+  // list read the same derived column against the same injected clock, so a
+  // clock that moved one and not the other would be two definitions of late.
+  const onTimeCtx = contextFor(shelf.id, manager, "manager", ON_TIME);
+  const early = await runQuery(sql, onTimeCtx, async (tx) => ({
+    counts: await getManagerBadgeCounts(tx, onTimeCtx),
+    list: await getOverdueLoans(tx, onTimeCtx),
+  }));
+  expect(early.counts.overdue).toBe(0);
+  expect(early.list).toEqual([]);
 });
 
 test("a soft-deleted application leaves the badge, as it leaves the queue", async () => {

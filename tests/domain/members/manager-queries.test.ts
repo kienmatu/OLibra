@@ -328,6 +328,95 @@ test("days remaining and overdue are read from the view, never recomputed here",
   expect(Number(count)).toBe(0);
 });
 
+test("a current loan names the book and the copy, not just a uuid", async () => {
+  // U3 wave 2 added `title` and `copyCode` to `currentLoans`, and the plan flags
+  // that for what it is — "a shipped query's shape changing". Nothing asserted
+  // the new fields, so the two joins that produce them were unguarded: dropping
+  // either one, or joining the wrong column, still returned a row with a
+  // `bookId` and a due date and still rendered.
+  //
+  // OPS §3.3 says this query returns "current loans", and a current loan a
+  // screen can show is a *book*. The shipped shape was a `bookId`, a due date
+  // and two derived flags — a row a page can only render as a uuid or by
+  // performing a second lookup of its own.
+  const { ctx, shelf, manager } = await shelfWithReaders();
+  const r = await reader(shelf.id, { fullName: "Trần Minh" });
+
+  const [book] = await sql<{ id: string }[]>`
+    insert into books (bookshelf_id, title, author, slug, is_published)
+    values (${shelf.id}, 'Dế Mèn Phiêu Lưu Ký', 'Tô Hoài', 'de-men', true)
+    returning id
+  `;
+  // **Two copies of the one title, and the second is the one lent.** With a
+  // single copy this test passes against a join written `c.book_id = l.book_id`
+  // — planted, and it stayed green — because the only copy of the book is also
+  // the copy on loan. Two makes that join return both rows for one loan, and
+  // makes "which code" a question with a wrong answer available.
+  const [, lent] = await sql<{ id: string }[]>`
+    insert into book_copies (bookshelf_id, book_id, code, state, condition)
+    values
+      (${shelf.id}, ${book.id}, 'DT-0206', 'available', 'perfect'),
+      (${shelf.id}, ${book.id}, 'DT-0207', 'on_loan',   'perfect')
+    returning id
+  `;
+  await sql`
+    insert into loans (bookshelf_id, copy_id, book_id, borrower_id, lent_by, due_on)
+    values (${shelf.id}, ${lent.id}, ${book.id}, ${r.userId}, ${manager.userId},
+            date '2026-08-22')
+  `;
+
+  const detail = await runQuery(sql, ctx, (tx, c) =>
+    getReaderDetail(tx, c, { membershipId: r.id }),
+  );
+
+  expect(detail.currentLoans).toHaveLength(1);
+  expect(detail.currentLoans[0].title).toBe("Dế Mèn Phiêu Lưu Ký");
+  // The *copy's* code, not the book's anything — the join is on `l.copy_id`,
+  // and a join written on `l.book_id` would still find a copy of this title.
+  expect(detail.currentLoans[0].copyCode).toBe("DT-0207");
+  expect(detail.currentLoans[0].bookId).toBe(book.id);
+});
+
+test("a soft-deleted book or copy still leaves the loan on the reader's list", async () => {
+  // The two new joins are inner joins with no `deleted_at is null` predicate,
+  // and that is the correct choice rather than an omission — so it needs an
+  // assertion, because adding the filter is the obvious "tidy-up" and it is
+  // wrong. A reader is still holding this book. Dropping the row would tell a
+  // manager the child has nothing out, on the one screen she uses to find out
+  // what to ask for back, and the copy would be unreturnable from the only
+  // place that lists it.
+  //
+  // `getReadersList`'s join to `users` *does* carry `deleted_at is null`, and
+  // that difference is deliberate too: a deleted person is not a reader on the
+  // roster, but a deleted book is still a book somebody has.
+  const { ctx, shelf, manager } = await shelfWithReaders();
+
+  // `lend` makes the book and the copy it lends, so both are reached through
+  // the loan rather than through an id this test held on to.
+  const withDeletedBook = await reader(shelf.id, { fullName: "Sách đã xoá" });
+  await lend(shelf.id, withDeletedBook.userId, manager.userId, "2026-08-22");
+  await sql`
+    update books set deleted_at = now()
+     where id in (select book_id from loans where borrower_id = ${withDeletedBook.userId})
+  `;
+
+  const withDeletedCopy = await reader(shelf.id, { fullName: "Bản đã xoá" });
+  await lend(shelf.id, withDeletedCopy.userId, manager.userId, "2026-08-23");
+  await sql`
+    update book_copies set deleted_at = now()
+     where id in (select copy_id from loans where borrower_id = ${withDeletedCopy.userId})
+  `;
+
+  for (const who of [withDeletedBook, withDeletedCopy]) {
+    const detail = await runQuery(sql, ctx, (tx, c) =>
+      getReaderDetail(tx, c, { membershipId: who.id }),
+    );
+    expect(detail.currentLoans).toHaveLength(1);
+    expect(detail.currentLoans[0].title).not.toBe("");
+    expect(detail.currentLoans[0].copyCode).toMatch(/^DT-/);
+  }
+});
+
 test("the detail never carries a password hash", async () => {
   // BR §14's rule is about the audit log, but a screen is no better a place
   // for a hash. `hasCredentials` is the boolean a manager actually needs —
