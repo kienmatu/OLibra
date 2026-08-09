@@ -10,6 +10,7 @@ import {
   type MembershipStatus,
   membershipTransition,
 } from "./policy";
+import { assertStorableDate } from "./profile-fields";
 
 /**
  * Everything OPS §4.3's registration form posts.
@@ -207,7 +208,7 @@ async function findExistingPerson(
     select id from users
     where deleted_at is null
       and lower(full_name) = lower(${input.fullName.trim()})
-      and date_of_birth = ${input.dateOfBirth}::date
+      and date_of_birth = ${input.dateOfBirth.trim()}::date
       and phone = ${input.phone.trim()}
   `;
   return row?.id ?? null;
@@ -238,6 +239,22 @@ export async function register(
   ] as const) {
     if (blank(value)) throw new ValidationFailed("required_fields_missing", field);
   }
+
+  // **Before `findExistingPerson`, not merely before the insert.**
+  //
+  // This is the screen on which a child's date of birth is typed for the first
+  // time, by a volunteer, in Vietnamese — and until review found it, `blank()`
+  // above was the whole of the validation. `'02/04/2015'` (2 April, the way it
+  // is written here) was stored as `2015-02-03`, silently; `'2015-02-30'` rolled
+  // over into March; `'hôm qua'` came back as a `RangeError` out of the driver,
+  // which OPS §2 forbids. `assertStorableDate` holds the measurements.
+  //
+  // The ordering matters as much as the check. `findExistingPerson`'s no-username
+  // branch matches on `and date_of_birth = ${input.dateOfBirth}::date`, so a
+  // mis-read date does not merely store the wrong birthday — it asks the wrong
+  // question about *who this is*, and BR §5.3's whole argument for the exact
+  // triple is that identity must not be decided loosely.
+  assertStorableDate(input.dateOfBirth.trim(), "dateOfBirth");
 
   const credentials = await credentialsFrom(input);
 
@@ -274,7 +291,7 @@ export async function register(
         phone, email, avatar_url, username, password_hash
       ) values (
         ${trimmed(input.saintName)}, ${input.fullName.trim()},
-        ${input.dateOfBirth}::date, ${input.fatherName.trim()},
+        ${input.dateOfBirth.trim()}::date, ${input.fatherName.trim()},
         ${input.motherName.trim()}, ${input.phone.trim()},
         ${trimmed(input.email)}, ${trimmed(input.avatarUrl)},
         ${credentials.username}, ${credentials.passwordHash}

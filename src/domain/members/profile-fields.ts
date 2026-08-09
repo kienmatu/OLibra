@@ -92,8 +92,67 @@ export const REQUIRED_PROFILE_FIELDS: readonly ProfileField[] = [
 
 const PROFILE_FIELD_SET: ReadonlySet<string> = new Set(PROFILE_FIELDS);
 
-/** `YYYY-MM-DD`, the only shape `date_of_birth::date` may be handed. */
+/** `YYYY-MM-DD`, the only shape a date column may be handed. */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Refuses any date string this application must not hand to a `date` column,
+ * and it is **both** callers' guard — `normaliseProfilePatch` below and
+ * `register()` in `../registration.ts`, which is where a volunteer first types
+ * a child's date of birth.
+ *
+ * ── What actually happens without it, measured through this driver ────────
+ *
+ * `olibra_test`'s `DateStyle` is the Postgres default `ISO, MDY`, and it is
+ * pinned by `compose.yaml` rather than inherited from an image default — but
+ * pinning is defence in depth, not the rule, because a web request, a migration
+ * console and a background job may each carry a different session setting
+ * (DATABASE.md §2.2 makes the same argument about `TimeZone`). The rule is
+ * here, in the domain.
+ *
+ * The three cases, and the second is the reason this is a function rather than
+ * one regex:
+ *
+ *     '02/04/2015'  ->  stores 2015-02-03
+ *     '2015-02-30'  ->  stores 2015-03-02
+ *     'hôm qua'     ->  RangeError: Invalid Date, out of the driver
+ *
+ * A volunteer typing 2 April 2015 the way it is written in Vietnamese gets 3
+ * February 2015 on the record — the wrong month *and* the wrong day, because
+ * `postgres.js` turns the string into a JavaScript `Date` before it is ever
+ * sent, so `MDY` reads it as 4 February and the timezone offset then shifts it
+ * back one more. And `'2015-02-30'` is ISO-shaped, passes any regex, and rolls
+ * silently over into March. Both are a child's date of birth quietly wrong on a
+ * record BR §5.3 exists to make trustworthy, with nothing raised anywhere.
+ *
+ * (This paragraph used to describe these as SQL literals — `22007` for the
+ * third case, and `2015-02-04` for the first. Those are what a `psql` session
+ * does. They are not what this code path does, and the difference matters to
+ * the next person who tries to reproduce them: the driver never sends a string.)
+ *
+ * `validation_failed` — "Vui lòng kiểm tra lại thông tin." — is OPS §4.3's own
+ * sentence for input a command cannot act on, and OPS §2 forbids the
+ * alternative of a raw driver error reaching a caller.
+ */
+export function assertStorableDate(value: string, field: string): void {
+  if (!ISO_DATE_RE.test(value)) {
+    throw new ValidationFailed("validation_failed", field);
+  }
+  // The round trip is the check. `Date.UTC` normalises an impossible day into
+  // the next month rather than refusing it, exactly as `::date` does, so
+  // comparing the three components back out is what tells them apart — and
+  // `Date.UTC`, not the local constructor, because a date has no o'clock and a
+  // local midnight in `Asia/Ho_Chi_Minh` is the previous day in UTC.
+  const [year, month, day] = value.split("-").map(Number);
+  const at = new Date(Date.UTC(year, month - 1, day));
+  if (
+    at.getUTCFullYear() !== year ||
+    at.getUTCMonth() !== month - 1 ||
+    at.getUTCDate() !== day
+  ) {
+    throw new ValidationFailed("validation_failed", field);
+  }
+}
 
 /**
  * Whether a patch *names* a field, which is not the same question as whether
@@ -168,29 +227,12 @@ export function normaliseProfilePatch(patch: ProfilePatch): ProfilePatch {
     if (value === null && REQUIRED_PROFILE_FIELDS.includes(field)) {
       throw new ValidationFailed("required_fields_missing", field);
     }
-    if (field === "date_of_birth" && value !== null && !ISO_DATE_RE.test(value)) {
-      // Two different failures, and the second is the reason this check is not
-      // merely tidiness. Measured against `olibra_test`, whose `DateStyle` is
-      // the Postgres default `ISO, MDY`:
-      //
-      //   select 'hôm qua'::date   -> ERROR 22007, a raw driver error from
-      //                               inside the transaction, which OPS §2
-      //                               forbids
-      //   select '02/04/2015'::date -> 2015-02-04, silently
-      //
-      // The second is worse. A volunteer typing 2 April 2015 the way it is
-      // written in Vietnamese gets 4 February 2015 stored, no error anywhere,
-      // and a child's date of birth quietly wrong on a record BR §5.3 exists to
-      // make trustworthy. DATABASE.md §2.2 already warns that a session setting
-      // (there, `TimeZone`) must never be relied on for correctness, because a
-      // web request, a migration console and a background job may each carry a
-      // different one; `DateStyle` is the same hazard with a quieter failure.
-      // So the shape is fixed here, in the domain, rather than left to whatever
-      // the connection happens to be set to.
-      //
-      // OPS §4.3 gives this command `validation_failed`, and this is what it is
-      // for.
-      throw new ValidationFailed("validation_failed", "date_of_birth");
+    // The whole of the reasoning — and the three measured outcomes — is on
+    // `assertStorableDate` above, shared with `register()`, which is where a
+    // volunteer *first* types a child's date of birth and which was not covered
+    // by this check at all until review found it.
+    if (field === "date_of_birth" && value !== null) {
+      assertStorableDate(value, "date_of_birth");
     }
     out[field] = value;
   }
