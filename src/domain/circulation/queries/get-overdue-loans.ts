@@ -7,7 +7,15 @@ import type { Tx } from "../../kernel/unit-of-work";
 import { requireManager } from "../../catalogue/policy";
 
 /**
- * BR §16.3's three orderings for this screen, as the domain spells them.
+ * The three orderings this screen offers, as the domain spells them.
+ *
+ * **Not BR §16.3's three.** BR:573 specifies exactly one — "Sorted by how
+ * overdue, showing borrower and contact phone" — and says nothing about a
+ * choice. The three come from two other places: OPS:93 gives `GetOverdueLoans`
+ * a `sort` input, and the fixture page's `<select>` already carried three
+ * labels ("Trễ nhiều nhất trước", "Trễ ít nhất trước", "Tên bạn đọc"), inert.
+ * `qua-han/page.tsx:26-32` states this correctly and is where the labels live;
+ * this comment used to contradict it.
  *
  * The URL spells them in Vietnamese (`?sap-xep=tre-it`) and the page does that
  * translation, the same split `getBooksList` makes for `sort: "recent" |

@@ -12,8 +12,9 @@ import type { PillTone } from "@/components/ui/pill";
 /**
  * BR §7.5's five membership statuses, each with the Vietnamese word, an icon and
  * a tone — together, always, because status is never carried by colour alone
- * (BR §17.2, and the rule `src/lib/status.ts` enforces for the six copy states
- * by the same construction).
+ * (BR:604, §17.1's second principle — not §17.2, which is the colour palette
+ * itself; and the rule `src/lib/status.ts` enforces for the six copy states by
+ * the same construction).
  *
  * **A translation of the enum, and none of the five words is new.** This file is
  * where `membership_status` meets copy this project already shipped, rather than

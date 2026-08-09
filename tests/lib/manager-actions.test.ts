@@ -576,8 +576,9 @@ async function lostCopyOn(bookshelfId: string) {
 }
 
 test("marking a copy found puts it back on the shelf", async () => {
-  // BR §16.3's whole reason for this screen: "Báo mất" appears three times in
-  // the built interface and marking a copy found appeared in none of them.
+  // BR:559's whole reason for this screen, as written: "Báo mất" appears in
+  // three places in the built interface, and marking a copy found appears in
+  // none of them.
   const { shelf } = await shelfWithManager();
   const copyId = await lostCopyOn(shelf.id);
 

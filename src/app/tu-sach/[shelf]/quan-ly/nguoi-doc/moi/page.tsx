@@ -50,9 +50,10 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
  *
  * ── Two sections of the fixture form are gone ────────────────────────────────
  *
- * **The photograph.** BR §16.1 collects one at registration and gives the
- * reason (a volunteer meeting forty children on a Sunday recognises a face
- * faster than a name), and `RegistrationInput.avatarUrl` takes one. But it takes
+ * **The photograph.** BR:167 (§5.3, beside the rule that makes parents' names
+ * required) collects one at registration and gives the reason — a volunteer
+ * meeting forty children on a Sunday recognises a face faster than a name —
+ * and `RegistrationInput.avatarUrl` takes one. But it takes
  * a *URL to an object already in storage*, and the only thing in this codebase
  * that puts an object there is `proposeAvatarChange`, which needs a membership
  * that does not exist until this form succeeds. So the field would have been a

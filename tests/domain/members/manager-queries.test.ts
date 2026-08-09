@@ -269,7 +269,11 @@ test("paging the roster never loses a reader, however alike the names", async ()
 
 // — GetReaderDetail —
 
-test("the detail carries the manager-only fields BR §5.3 names", async () => {
+// BR:126 (§4, assumption 5) is the rule that makes these four manager-only:
+// "Date of birth, parents' names, phone number, and parish-unit placement
+// (§5.6) remain visible only to managers and administrators." §5.3 defines
+// where the fields live, which is a different claim.
+test("the detail carries the manager-only fields BR §4 names", async () => {
   const { ctx, shelf, ids } = await shelfWithReaders();
   const r = await reader(shelf.id, {
     fullName: "Trần Minh",

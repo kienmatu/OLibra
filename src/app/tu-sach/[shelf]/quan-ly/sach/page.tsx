@@ -70,9 +70,15 @@ const SORT_BY_TITLE = "ten";
  * a deliberate exception to the rule U2 applied to the reader header, on the
  * narrow ground that this same link already ships from `quan-ly/cho-muon`
  * ("Không thấy sách? Thêm sách mới") — removing it here while leaving it there
- * would make the two screens disagree about whether the affordance exists —
- * and that BR §16.3 makes it this list's primary action. A later wave wires the
- * form. Recorded here rather than left to be discovered.
+ * would make the two screens disagree about whether the affordance exists.
+ *
+ * The second ground this used to give — "and BR §16.3 makes it this list's
+ * primary action" — was not in the document. BR:555 specifies this screen as "a
+ * responsive list with search and filters; a table on desktop, stacked cards on
+ * mobile" and says nothing about an add button, on this list or anywhere. §17.1's
+ * first principle asks every screen to have one primary action, but which one
+ * this screen's is was a choice made here, not one BR made. A later wave wires
+ * the form. Recorded here rather than left to be discovered.
  */
 export default async function ManagerBooksPage({
   params,

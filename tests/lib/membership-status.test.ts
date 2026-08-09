@@ -21,7 +21,7 @@ test("every status the database can hold has a word, an icon and a tone", () => 
   for (const status of MEMBERSHIP_STATUSES) {
     const entry = MEMBERSHIP_STATUS[status];
     expect(entry.label, status).not.toBe("");
-    // BR §17.2: status is never carried by colour alone, so a pill cannot be
+    // BR:604 (§17.1, principle 2): status is never carried by colour alone, so a pill cannot be
     // written without all three. Asserted rather than trusted to the type,
     // because `icon` could be assigned `undefined as unknown as LucideIcon`.
     expect(typeof entry.icon, status).not.toBe("undefined");

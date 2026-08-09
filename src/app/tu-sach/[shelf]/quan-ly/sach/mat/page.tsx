@@ -40,13 +40,20 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * existed since B1.
  *
  * **"Ngừng dùng" asks for its reason in place**, because
- * `book_copies_retired_has_reason` requires one and OPS §4.1 names
- * `retire_reason_required` for it — "Vui lòng ghi lý do ngừng dùng bản sách
- * này.", distinct from `reason_required`'s *huỷ*, which is cancelling something
- * rather than taking a book off the shelf for good. "Đánh dấu tìm thấy" asks for
- * nothing: a copy that turned up needs no explanation, and `markCopyFound`'s
- * optional note has no column to live in anyway (BR §5.4 gives BookCopy a "time
- * reported lost" and no found-note).
+ * `book_copies_retired_has_reason` (`0004_catalogue.sql:75`) requires one, and
+ * `RetireCopy` lists `reason` among its inputs (OPS:214). The refusal it renders
+ * is `retire_reason_required` — "Vui lòng ghi lý do ngừng dùng bản sách này." —
+ * and that code and that sentence are **this codebase's own**
+ * (`src/domain/kernel/errors.ts:53`), not OPERATIONS.md's. OPS §4.1's
+ * `RetireCopy` (`:211-219`) names exactly one failure mode, `copy_on_loan`; B1
+ * added this second one because the shipped `reason_required` says "lý do huỷ",
+ * and *huỷ* is cancelling something rather than taking a book off the shelf for
+ * good. Attributed here rather than to the specification because a citation to a
+ * document that does not contain it is the failure mode this project keeps
+ * finding in its own comments. "Đánh dấu tìm thấy" asks for nothing: a copy that
+ * turned up needs no explanation, and `markCopyFound`'s optional note has no
+ * column to live in anyway (BR §5.4 gives BookCopy a "time reported lost" and no
+ * found-note).
  *
  * **Rows carry the borrower's name and no telephone number.** That is a
  * deliberate difference from `qua-han` one nav entry away: BR §16.3 asks for the

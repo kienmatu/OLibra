@@ -563,8 +563,11 @@ export async function registerReaderOnBehalfAction(form: FormData): Promise<void
 
 /**
  * OPS §4.1's `MarkCopyFound` — BR §7.1's `lost → available`, and the whole
- * reason the lost-copies screen exists: "Báo mất" appears three times in this
- * interface and marking a copy found appeared in none of them (BR §16.3).
+ * reason the lost-copies screen exists: **"Báo mất" appears in three places in
+ * the built interface, and marking a copy found appears in none of them**
+ * (BR:559, quoted as written — `sach/mat/page.tsx:29` and
+ * `lost-copies.test.ts:121` quote the same sentence and this one used to
+ * paraphrase it inside quotation marks).
  *
  * The loan is not reopened; the command's own docstring gives BR §7.3's reason.
  */

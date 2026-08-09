@@ -295,10 +295,12 @@ export default async function ManagerReadersPage({
                             {reader.fullName}
                           </p>
                           {/* The saint name, not a date of birth. The fixture
-                              row printed `reader.born` here, and BR §5.3 makes
-                              a date of birth a manager-only field a manager
-                              reaches on the detail page — not one this list
-                              puts beside a hundred names at once. */}
+                              row printed `reader.born` here, and BR:126 (§4,
+                              assumption 5) makes a date of birth a manager-only
+                              field a manager reaches on the detail page — not
+                              one this list puts beside a hundred names at once.
+                              §5.3 is where the field is *defined*; the
+                              manager-only rule is the assumption. */}
                           {reader.saintName ? (
                             <p className="mt-0.5 text-[13px] text-meta">
                               {reader.saintName}
