@@ -55,7 +55,17 @@ const DONOR_PAGE_SIZE = 100;
  * per-shelf advisory lock, precisely so two managers cataloguing at once cannot
  * both claim the same code — so a preview rendered before the form is submitted
  * is a guess this page has no way to make true. The hint keeps saying that codes
- * are generated; it no longer says which.
+ * are assigned; it no longer says which.
+ *
+ * That last sentence was not true when it was written. The hint still ended
+ * "ví dụ DT-0215" — the same code, minus two of the three, still named before
+ * anything had been allocated. It made a second claim as well, and a worse one:
+ * `copyCodePrefix` (`src/domain/catalogue/policy.ts:183`) derives the prefix
+ * from the shelf's slug, so `vinh-long` mints `VL-`, `can-tho` `CT-` and
+ * `ben-tre` `BT-`. On three of the four seeded shelves the form promised a
+ * prefix the system will not mint. It is a `hint=` attribute rather than a
+ * rendered record, so `a-wired-page-renders-no-fixtures` was never going to see
+ * it; it was a hand-typed factual claim about this shelf all the same.
  *
  * ── What is real ───────────────────────────────────────────────────────────
  *
@@ -214,15 +224,18 @@ export default async function NewBookPage({
           </Field>
         </div>
 
-        {/* The system generates a code per copy, inside the command's own
-            transaction. See this page's docstring for why no codes are
-            previewed here. */}
+        {/* A code is assigned per copy, inside the command's own transaction.
+            See this page's docstring for why no codes are previewed here — and
+            why the hint no longer names a prefix either: `copyCodePrefix`
+            derives it from the shelf slug, so `DT-` was true on one of the four
+            seeded shelves and a promise the system would break on `vinh-long`,
+            `can-tho` and `ben-tre`. */}
         <div className="space-y-3 rounded-card border border-hairline bg-surface p-5">
           <Field
             label="Số bản sách"
             required
             htmlFor="so-ban"
-            hint="Hệ thống sẽ tự sinh mã cho từng bản, ví dụ DT-0215."
+            hint="Tủ sách tự đặt mã cho từng bản, không cần điền."
           >
             <Input
               id="so-ban"

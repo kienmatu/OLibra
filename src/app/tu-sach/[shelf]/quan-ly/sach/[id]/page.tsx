@@ -61,6 +61,17 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * catalogue's buttons while I am here" is how a slice stops being reviewable.
  * What changed for them is only that they are now drawn from real copies
  * instead of a fixture array.
+ *
+ * **The "Thêm bản" hint no longer names a code.** It read "ví dụ DT-0143", and
+ * that was the sharpest surviving piece of the preview `sach/moi`'s docstring
+ * says was removed: a specific *next sequence number*, on a page that renders
+ * this title's actual copy codes a few lines below it, so the invented one sat
+ * beside the real ones. `allocateCopyCodes` assigns under a per-shelf advisory
+ * lock inside the command's transaction — the next number is not knowable here,
+ * and another manager cataloguing at the same moment is exactly why. The prefix
+ * was wrong independently: `copyCodePrefix`
+ * (`src/domain/catalogue/policy.ts:183`) derives it from the shelf slug, so
+ * `DT-` held on one of the four seeded shelves.
  */
 export default async function ManagerBookDetailPage({
   params,
@@ -195,7 +206,7 @@ export default async function ManagerBookDetailPage({
                 label="Số bản muốn thêm"
                 required
                 htmlFor="them-so-ban"
-                hint="Hệ thống sẽ tự sinh mã tiếp theo, ví dụ DT-0143."
+                hint="Tủ sách tự đặt mã cho bản mới, không cần điền."
               >
                 <Input
                   id="them-so-ban"
