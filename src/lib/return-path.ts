@@ -124,8 +124,9 @@ const MAX_LENGTH = 512;
  *   is handed to somebody else's.
  * - **A value that is not a path at all.** `redirect()` takes whatever it is
  *   given, and a malformed one surfaces as an exception from inside a render.
- *   OPS §2's "never a bare 500 or an unstructured exception" applies to a
- *   hand-edited URL exactly as it does to a hand-edited form field.
+ *   OPS §2's "a command never fails with a bare 500 or an unstructured
+ *   exception" applies to a hand-edited URL exactly as it does to a
+ *   hand-edited form field.
  *
  * The origin comparison is what actually decides it, rather than a list of
  * prefixes to forbid. A denylist of `//`, `/\`, `https:` and the rest is a
@@ -148,9 +149,33 @@ const MAX_LENGTH = 512;
  * rather than the input means what is validated is what is used. The fragment
  * is dropped because a browser never sends one to a server, so a `#` here
  * could only have been typed by hand.
+ *
+ * **That last invariant did not hold, and `safeReturnPath` below is where it is
+ * repaired** (IMPORTANT 6, fix-report, 2026-08-09-u2-shelf-and-portal). The
+ * origin check runs on the resolution of the *input*, and the string returned
+ * is the *post-normalisation* one — and normalisation can carry a value back
+ * across the boundary the check just cleared:
+ *
+ * ```
+ * resolveReturnPath("/..//evil.example")       -> "//evil.example"
+ * resolveReturnPath("/a/..//evil.example")     -> "//evil.example"
+ * resolveReturnPath("/..//user@evil.example/") -> "//user@evil.example/"
+ * ```
+ *
+ * `/..` pops nothing off the root and is dropped, leaving a leading `//`, which
+ * is protocol-relative: `new URL("//evil.example", "https://olibra.example
+ * /dang-nhap").href` is `https://evil.example/`. Each of those three is a value
+ * this function *returned* and would itself *refuse*, which is "what is
+ * validated is what is used" being false in the one direction that matters.
+ *
+ * Not exploitable as the app is wired. `dang-nhap/page.tsx` normalises before
+ * rendering the hidden field, so the form carries the already-refused form, and
+ * reaching `signInAction` with the raw value needs a cross-origin POST to a
+ * Server Action, which Next.js blocks. What was broken is the contract of the
+ * function whose whole job is to be the last line — and `actions.ts`'s comment
+ * calls its own second check redundant on the strength of that contract.
  */
-export function safeReturnPath(value: string | null | undefined): string | null {
-  if (typeof value !== "string") return null;
+function resolveReturnPath(value: string): string | null {
   if (value.length === 0 || value.length > MAX_LENGTH) return null;
   if (!value.startsWith("/")) return null;
   if (/[\u0000-\u001f\u007f]/.test(value)) return null;
@@ -164,6 +189,39 @@ export function safeReturnPath(value: string | null | undefined): string | null 
   if (url.origin !== PROBE_ORIGIN) return null;
 
   return `${url.pathname}${url.search}`;
+}
+
+/**
+ * A path this app is willing to send somebody to, or `null` — see
+ * `resolveReturnPath` above for the whole of what is refused and why.
+ *
+ * **The answer is put back through the check, and that is the whole of the
+ * addition.** `resolveReturnPath` decides on its input and returns the
+ * normalised form; those are not the same string, so deciding on one and
+ * returning the other is exactly the gap. Running it a second time on its own
+ * output and insisting the two agree is the invariant written as code instead
+ * of as a sentence: `/..//evil.example` normalises to `//evil.example`, the
+ * second pass refuses that outright, the two disagree, and the value is
+ * refused.
+ *
+ * A fixed-point check rather than one more rule ("refuse a pathname beginning
+ * `//`"), for the reason the origin comparison is already preferred to a
+ * denylist above: a rule is a guess about how many spellings of "somewhere
+ * else" survive normalisation, and this is the property itself. Whatever a
+ * future change to the URL parser makes normalisation do, what comes back is
+ * still something this function accepts — because it just asked it.
+ *
+ * Two passes, not a loop, and the loop would be theatre: every output begins
+ * with `/`, and re-normalising an already-normalised path is the identity
+ * unless it begins `//`, which the second pass rejects rather than rewrites.
+ * `tests/lib/return-path.test.ts` asserts the property directly over the whole
+ * attack corpus rather than trusting that argument.
+ */
+export function safeReturnPath(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const resolved = resolveReturnPath(value);
+  if (resolved === null) return null;
+  return resolveReturnPath(resolved) === resolved ? resolved : null;
 }
 
 /**

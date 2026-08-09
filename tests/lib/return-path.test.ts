@@ -162,3 +162,86 @@ test("every path safeReturnPath accepts is safe to ask for a slug", () => {
     expect(slug === null || /^[a-z0-9-]+$/.test(slug), hostile).toBe(true);
   }
 });
+
+/**
+ * IMPORTANT 6 (fix-report, 2026-08-09-u2-shelf-and-portal). The three values
+ * this function used to return and would itself refuse.
+ *
+ * `/..` pops nothing off the root and is dropped by the parser, leaving a
+ * leading `//` — protocol-relative, and therefore somebody else's origin:
+ * `new URL("//evil.example", "https://olibra.example/dang-nhap").href` is
+ * `https://evil.example/`. The origin check ran on the resolution of the
+ * *input*; the value returned was the *normalised* one, and normalisation
+ * carried it back over the line the check had just cleared.
+ */
+const NORMALISES_ACROSS_THE_ORIGIN = [
+  "/..//evil.example",
+  "/a/..//evil.example",
+  "/..//user@evil.example/",
+  "/a/b/../../..//evil.example",
+];
+
+for (const value of NORMALISES_ACROSS_THE_ORIGIN) {
+  test(`${value} is refused, because normalising it leaves this site`, () => {
+    expect(safeReturnPath(value)).toBeNull();
+  });
+}
+
+test("safeReturnPath is idempotent: whatever it returns, it accepts unchanged", () => {
+  // The invariant the docstring claims — "returning its answer rather than the
+  // input means what is validated is what is used" — stated as the property
+  // rather than as a sentence, and over the whole corpus this file already
+  // maintains rather than over a handful of chosen cases.
+  //
+  // This is the assertion that fails on the unfixed function: it returned
+  // `//evil.example` for `/..//evil.example`, and re-validating that answer
+  // gives `null`, so the value it handed out was not one it would take back.
+  const corpus = [
+    ...REFUSED.map(([, v]) => v),
+    ...NORMALISES_ACROSS_THE_ORIGIN,
+    "/",
+    "/tu-sach",
+    "/tu-sach/dong-thap/danh-muc",
+    "/tu-sach/dong-thap/tim-kiem?q=de%20men",
+    "/tu-sach/dong-thap/../can-tho",
+    "/tu-sach#gac-mai",
+    "/./tu-sach",
+    "//",
+    "///evil.example",
+    "/%2F%2Fevil.example",
+    "/..",
+    "/../..",
+  ];
+
+  for (const value of corpus) {
+    const once = safeReturnPath(value as string);
+    if (once === null) continue;
+    expect(safeReturnPath(once), `${String(value)} -> ${once}`).toBe(once);
+  }
+});
+
+test("the fixed point refuses rather than rewrites, so nothing is silently repaired", () => {
+  // A tempting alternative was to strip the leading slashes and return
+  // `/evil.example`. That would send a visitor to a page of this site they did
+  // not ask for, on the strength of a value this app decided was hostile —
+  // and it would make the function's answer depend on a repair rule nobody
+  // stated. Refusing hands them the bare sign-in form, which
+  // `signInPathFor`'s docstring already describes as the acceptable outcome.
+  expect(safeReturnPath("/..//evil.example")).toBeNull();
+  expect(signInPathFor("/..//evil.example")).toBe("/dang-nhap");
+});
+
+test("nothing that was already accepted became refused", () => {
+  // The other direction, because a fixed-point check is exactly the kind of
+  // change that could quietly narrow what the app accepts: an ordinary path,
+  // one carrying a search string, and one whose `..` genuinely resolves inside
+  // the site all still come back.
+  expect(safeReturnPath("/tu-sach/dong-thap/danh-muc")).toBe(
+    "/tu-sach/dong-thap/danh-muc",
+  );
+  expect(safeReturnPath("/tu-sach/dong-thap/tim-kiem?q=de%20men")).toBe(
+    "/tu-sach/dong-thap/tim-kiem?q=de%20men",
+  );
+  expect(safeReturnPath("/tu-sach/dong-thap/../can-tho")).toBe("/tu-sach/can-tho");
+  expect(safeReturnPath("/")).toBe("/");
+});
