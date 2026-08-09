@@ -121,6 +121,10 @@ export const AUDIT_GROUPS = {
   sach: "Sách",
   "nguoi-doc": "Bạn đọc",
   "cai-dat": "Cài đặt tủ sách",
+  // NEWLY AUTHORED (B3) — the group label. "Cộng đồng" is the ordinary word
+  // and the one the master plan uses for this slice; the four actions under it
+  // reuse "bình luận", which the moderation screen already says.
+  "cong-dong": "Cộng đồng",
 } as const;
 
 export type AuditGroup = keyof typeof AUDIT_GROUPS;
@@ -248,6 +252,78 @@ const ACTIONS = {
       const state = word ? `, tình trạng ${word}` : "";
       return `nhận trả ${which(str(f.after, "title"))}${from}${state}`;
     },
+  },
+  "comment.created": {
+    group: "cong-dong",
+    // The body is deliberately absent from the payload and so from the
+    // sentence: it is the reader's own words, and the row itself is where they
+    // live. See `comment-moderation.ts`.
+    phrase: () => "viết một bình luận",
+  },
+  "comment.approved": {
+    group: "cong-dong",
+    phrase: () => "duyệt một bình luận",
+  },
+  "comment.rejected": {
+    group: "cong-dong",
+    phrase: (f) => `từ chối một bình luận${because(str(f.after, "reason"))}`,
+  },
+  "comment.hidden": {
+    group: "cong-dong",
+    // Hiding takes an optional reason where rejecting requires one, so this is
+    // the one in the family whose sentence has to read on its own without.
+    phrase: (f) => `ẩn một bình luận${because(str(f.after, "reason"))}`,
+  },
+  "announcement.created": {
+    group: "cong-dong",
+    phrase: (f) => `soạn thông báo ${which(str(f.after, "title"))}`,
+  },
+  "announcement.updated": {
+    group: "cong-dong",
+    phrase: (f) => `sửa thông báo ${which(str(f.after, "title"))}`,
+  },
+  "announcement.published": {
+    group: "cong-dong",
+    phrase: (f) => `đăng thông báo ${which(str(f.after, "title"))}`,
+  },
+  "announcement.pinned": {
+    group: "cong-dong",
+    phrase: (f) => `ghim thông báo ${which(str(f.after, "title"))}`,
+  },
+  "announcement.unpinned": {
+    group: "cong-dong",
+    phrase: (f) => `bỏ ghim thông báo ${which(str(f.after, "title"))}`,
+  },
+  "announcement.hidden": {
+    group: "cong-dong",
+    phrase: (f) => `ẩn thông báo ${which(str(f.after, "title"))}`,
+  },
+  "feedback.submitted": {
+    group: "cong-dong",
+    // No name, deliberately: a guest submits this and the actor is null, so the
+    // frame already reads "Hệ thống đã…". The sender's name is on the row.
+    phrase: () => "nhận một góp ý",
+  },
+  "feedback.read": {
+    group: "cong-dong",
+    phrase: () => "đánh dấu đã đọc một góp ý",
+  },
+  "feedback.resolved": {
+    group: "cong-dong",
+    phrase: () => "xử lý xong một góp ý",
+  },
+  "donation.offered": {
+    group: "cong-dong",
+    phrase: () => "đề nghị tặng sách",
+  },
+  "donation.received": {
+    group: "cong-dong",
+    phrase: () => "nhận một đề nghị tặng sách",
+  },
+  "donation.declined": {
+    group: "cong-dong",
+    phrase: (f) =>
+      `từ chối một đề nghị tặng sách${because(str(f.after, "reason"))}`,
   },
   "loan.renewed": {
     group: "muon-tra",

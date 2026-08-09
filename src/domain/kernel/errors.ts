@@ -195,6 +195,32 @@ export const ERROR_MESSAGES = {
   // _void`. This is the fourth, and B2a named it as B2b's before it was
   // reached.
   profile_change_not_pending: "Yêu cầu này đã được xử lý.",
+
+  // — community: B3 —
+  // OPS §4.4's own sentences. `comment_not_pending` is the **fifth** slice in a
+  // row to split a `not_pending` code: OPS gives it "Bình luận này đã được xử
+  // lý." here, which is a different sentence from `registration_not_pending`,
+  // `profile_change_not_pending` and `request_not_pending` alike — the noun
+  // changes, and a volunteer moderating comments should read about a comment.
+  // One code, one sentence, per the rule `messageFor` depends on.
+  comments_disabled: "Tủ sách hiện không nhận bình luận.",
+  empty_body: "Vui lòng nhập nội dung bình luận.",
+  comment_not_pending: "Bình luận này đã được xử lý.",
+  comment_not_approved: "Chỉ có thể ẩn bình luận đang hiển thị.",
+  // Announcements. `announcement_fields_required` rather than reusing
+  // `validation_failed`: OPS §4.4 gives it its own sentence ("Vui lòng điền
+  // tiêu đề và nội dung."), which is the third distinct sentence that code
+  // carries across the catalogue — B1 split the first two.
+  announcement_fields_required: "Vui lòng điền tiêu đề và nội dung.",
+  already_published: "Thông báo này đã được đăng.",
+  // Feedback. The rate limit is OPS §8's, stated verbatim in the shipped form.
+  rate_limited: "Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác.",
+  feedback_fields_required: "Vui lòng điền đầy đủ các trường bắt buộc.",
+  // Donations. `donation_not_pending` is the **sixth** split of a `not_pending`
+  // code and OPS §4.4 again gives it its own noun — "Đề nghị tặng sách này đã
+  // được xử lý."
+  empty_description: "Vui lòng mô tả sách bạn muốn tặng.",
+  donation_not_pending: "Đề nghị tặng sách này đã được xử lý.",
   // OPS §4.3's two failure modes for ProposeAvatarChange (`:567`, `:568`),
   // quoted. Neither is raised by a command: both are facts about *bytes*, and
   // `tests/architecture/boundaries.test.ts` forbids `src/domain/` from touching

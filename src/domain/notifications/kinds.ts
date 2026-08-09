@@ -79,6 +79,10 @@ export const NOTIFICATIONS = {
     sentence: (p: Payload) =>
       `Yêu cầu mượn ${which(str(p, "title"))} chưa được duyệt${because(str(p, "reason"))}.`,
   },
+  comment_approved: {
+    /** OPS §7, written by `ApproveComment` — the only B3 command that notifies. */
+    sentence: () => "Bình luận của em đã được duyệt và hiện đã hiển thị.",
+  },
   loan_due_soon: {
     /** The scheduled sweep, not a command — see `./sweep.ts` and OPS §7. */
     sentence: (p: Payload) =>

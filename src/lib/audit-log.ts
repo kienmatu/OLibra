@@ -1,4 +1,11 @@
-import { BookOpen, Cog, Repeat, Users, type LucideIcon } from "lucide-react";
+import {
+  BookOpen,
+  MessageSquare,
+  Cog,
+  Repeat,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import type { AuditGroup } from "../domain/kernel/audit-actions";
 
 /**
@@ -24,10 +31,12 @@ import type { AuditGroup } from "../domain/kernel/audit-actions";
  * `AUDIT_GROUPS`. A volunteer who cannot tell terracotta from olive still reads
  * the sentence and sees the shape.
  *
- * The four colours are the palette's existing state tokens, reused for their
+ * The colours are the palette's existing state tokens, reused for their
  * nearest meaning rather than chosen: `onloan` for the family that is about
  * books moving, `available` for the shelf itself, `held` for people, `retired`
- * for settings. No new token.
+ * for settings. No new token — B3's community group reuses `held` too, since
+ * comments are people talking, and a fifth token would be a palette decision
+ * made to fill a slot.
  */
 export const AUDIT_GROUP_STYLE: Record<
   AuditGroup,
@@ -37,6 +46,11 @@ export const AUDIT_GROUP_STYLE: Record<
   sach: { icon: BookOpen, ink: "text-available", fill: "bg-available/10" },
   "nguoi-doc": { icon: Users, ink: "text-held", fill: "bg-held/10" },
   "cai-dat": { icon: Cog, ink: "text-retired", fill: "bg-retired/10" },
+  "cong-dong": {
+    icon: MessageSquare,
+    ink: "text-held",
+    fill: "bg-held/10",
+  },
 };
 
 /**
