@@ -35,8 +35,12 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * reader who types this URL is refused by the domain, and `loadPage` turns the
  * refusal into U1 §3.4's 404 before a byte of HTML exists.
  *
- * The three fields carry the "Chỉ quản lý thấy" marker the fixture page already
- * used, which is the screen saying out loud what BR §5.3 decided.
+ * The manager-only fields carry the "Chỉ quản lý thấy" marker the fixture page
+ * already used, which is the screen saying out loud what BR:126 (§4, assumption
+ * 5) decided. **All four of them**, now: date of birth, parents' names, phone
+ * number *and* parish-unit placement. The last was unmarked, which made the
+ * marker itself misleading — an unmarked row on a page whose other rows are
+ * marked reads as a row that is not manager-only.
  *
  * ── What this page does *not* do, and each is a decision ─────────────────────
  *
@@ -115,17 +119,31 @@ export default async function ManagerReaderDetailPage({
    * could never have a value. BR §16.3: the label is the shelf's own, never the
    * words "Tổ" or "Giáo họ" written into the screen.
    */
-  const parishRows: { label: string; value: React.ReactNode }[] = [];
+  const parishRows: {
+    label: string;
+    value: React.ReactNode;
+    private?: boolean;
+  }[] = [];
   if (unitOptions(parish.units, 1).length > 0) {
     parishRows.push({
       label: parish.taxonomy.level1Label,
       value: reader.parishUnitL1Name,
+      // BR:126 (§4, assumption 5) lists four manager-only fields, not three:
+      // "Date of birth, parents' names, phone number, and parish-unit placement
+      // (§5.6)". These two rows carried no marker while the other four did, so
+      // the screen was saying three of the four decisions out loud and keeping
+      // one to itself. Nothing leaked — this whole page is behind
+      // `requireManager` — but the marker is what tells a volunteer which lines
+      // she must not read out in a room, and an incomplete marker teaches her
+      // the unmarked ones are safe to.
+      private: true,
     });
   }
   if (hasVisibleLevel2(parish.taxonomy, parish.units)) {
     parishRows.push({
       label: parish.taxonomy.level2Label,
       value: reader.parishUnitL2Name,
+      private: true,
     });
   }
 

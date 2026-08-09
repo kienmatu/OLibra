@@ -258,12 +258,12 @@ export default async function ManagerReadersPage({
         ) : null}
       </div>
 
+      {/* The empty state's full stop is deliberate and matches `qua-han`'s
+          "Không có cuốn nào quá hạn." — the two empty states this slice actually
+          wrote. ("Không tìm thấy sách nào", a few files over, is a shipped
+          string reused verbatim rather than a new one, so it keeps its own
+          punctuation.) */}
       {page.rows.length === 0 ? (
-        {/* The full stop is deliberate and matches `qua-han`'s "Không có cuốn
-            nào quá hạn." — the two empty states this slice actually wrote.
-            ("Không tìm thấy sách nào", a few files over, is a shipped string
-            reused verbatim rather than a new one, so it keeps its own
-            punctuation.) */}
         <p className="mt-8 text-[15px] text-meta">Không tìm thấy bạn đọc nào.</p>
       ) : (
         <>

@@ -80,6 +80,19 @@
   [role="button"]:not([aria-disabled="true"]),
   summary,
   label[for],
+  /* Checkboxes and radios, and the labels that *wrap* one rather than pointing
+     at it with `for`. Three gaps in one place, all the same gap: the box itself
+     carries the UA stylesheet's `cursor: default`, and only the `label[for]`
+     form above was covered — so `sach/moi`'s "Hiện sách này cho bạn đọc", a
+     44px target a volunteer is meant to click, rendered with an arrow across
+     the whole control. Written here rather than as a `cursor-pointer` class on
+     that one label for this rule's own stated reason: a rule that has to be
+     remembered on each new checkbox is a rule that will be forgotten on the
+     twentieth. */
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)),
   select:not(:disabled) {
     cursor: pointer;
   }

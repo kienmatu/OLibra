@@ -8,6 +8,7 @@ import {
   Cog,
   KeyRound,
   LayoutDashboard,
+  LogOut,
   Menu,
   MessageSquare,
   Megaphone,
@@ -19,6 +20,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { signOutAction } from "@/app/dang-nhap/actions";
 import type { Role } from "@/domain/kernel/tenant";
 import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -179,6 +181,7 @@ function MobileBar({
   title,
   subtitle,
   items,
+  signOut,
 }: {
   title: string;
   subtitle: string;
@@ -189,6 +192,16 @@ function MobileBar({
     /** Already resolved by `badgeFor`: a real, positive count, or nothing. */
     count: number | null;
   }[];
+  /**
+   * Whether to close the menu with **Đăng xuất**.
+   *
+   * `false` on a shell with no viewer — an unwired page has no session to end
+   * and offering to end one would be the same invention `viewer={null}` exists
+   * to refuse. Below 768px the sidebar is hidden entirely, so this menu is the
+   * *only* place a sign-out can live on a phone, which is the device the
+   * argument for having one is about.
+   */
+  signOut: boolean;
 }) {
   return (
     <div className="sticky top-0 z-20 border-b border-hairline bg-paper md:hidden">
@@ -220,6 +233,21 @@ function MobileBar({
                 )}
               </Link>
             ))}
+            {signOut ? (
+              // The same mechanism and the same word as `public-header.tsx`'s
+              // `MobileMenu`: a `<form>` posting the shipped `signOutAction`,
+              // which ends the row in `sessions` rather than only clearing the
+              // cookie. No new Vietnamese — "Đăng xuất" is already the label
+              // there.
+              <form action={signOutAction}>
+                <button
+                  type="submit"
+                  className="mt-1 flex min-h-11 w-full items-center rounded-control border border-hairline px-3 text-left text-[16px] font-semibold hover:bg-paper"
+                >
+                  Đăng xuất
+                </button>
+              </form>
+            ) : null}
           </div>
         </details>
       </div>
@@ -228,9 +256,12 @@ function MobileBar({
 }
 
 /**
- * Manager chrome: a sidebar on desktop. Below 768px the sidebar becomes a
- * horizontal scroll strip; the five-item bottom tab bar belongs to the mobile
- * work, which is out of scope here (web only).
+ * Manager chrome: a sidebar on desktop. Below 768px the sidebar is hidden and
+ * `MobileBar` above takes over — a compact bar whose nav is a `<details>`
+ * hamburger, which is what it has actually been since that component was
+ * written. This paragraph said "the sidebar becomes a horizontal scroll strip",
+ * which was inherited and was never true of this file. The five-item bottom tab
+ * bar belongs to the mobile work, which is out of scope here (web only).
  *
  * **`viewer` and `counts` are required and nullable, rather than optional**
  * (U3 wave 1). Twenty-two pages render this shell and only some of them are
@@ -282,6 +313,7 @@ export function ManagerShell({
           icon: entry.icon,
           count: badgeFor(entry, counts),
         }))}
+        signOut={Boolean(viewer?.name)}
       />
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col self-start border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
@@ -354,6 +386,30 @@ export function ManagerShell({
                 <span className="block text-[13px] text-meta">{label}</span>
               ) : null}
             </span>
+            {/* **The way out.** Until this, there was no sign-out anywhere in
+                the manager chrome — across eleven pages that put a named
+                volunteer, a child's date of birth, both parents' names and a
+                family telephone number on screen, on what
+                `nguoi-doc/moi/page.tsx` and `actions.ts` both argue at length is
+                "the address bar of a shared parish phone". `public-header.tsx`
+                has had one since it was written; this side of the app did not,
+                and a session a volunteer cannot end is the whole threat those
+                two files describe, left standing.
+
+                Same mechanism, same copy: a `<form>` posting `signOutAction`,
+                an icon button with the `aria-label` the public header uses. It
+                sits inside the `viewer?.name` block on purpose — the button is
+                only correct when there is a session to end, and that condition
+                is already this block's condition. */}
+            <form action={signOutAction} className="ml-auto flex shrink-0">
+              <button
+                type="submit"
+                aria-label="Đăng xuất"
+                className="inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
+              >
+                <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
+              </button>
+            </form>
           </div>
         ) : null}
       </aside>
@@ -407,6 +463,10 @@ export function AdminShell({
           // renders fixtures.
           count: null,
         }))}
+        // `/quan-tri/*` is Phase 3 and renders fixtures throughout: it resolves
+        // no viewer, so there is no session for this menu to end. The manager
+        // shell one function up is the one this slice gave a way out.
+        signOut={false}
       />
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col self-start border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
