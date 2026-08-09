@@ -17,12 +17,21 @@ import { atLeast } from "@/domain/kernel/tenant";
 import { formatDueDate, formatYear } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
 import { readShelfIdentity } from "@/lib/shelf";
-import { statusForAvailability } from "@/lib/status";
+import { STATUS, statusForAvailability } from "@/lib/status";
 
 /** U1 §2. See `src/app/tu-sach/[shelf]/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
 
 const NUMBER = new Intl.NumberFormat("vi-VN");
+
+/**
+ * Ties the sentence under the dead "Xin mượn" button to the button itself
+ * (IMPORTANT 7). A module constant rather than a literal in two places, so the
+ * `aria-describedby` and the `id` cannot drift apart into an attribute that
+ * points at nothing — which is indistinguishable, to everyone who can see the
+ * page, from one that points at something.
+ */
+const BORROW_NOTE_ID = "xin-muon-chua-dung-duoc";
 
 /**
  * `books.description` is one `text` column; the seed writes paragraphs joined
@@ -81,7 +90,30 @@ export default async function BookDetailPage({
   );
 
   const base = `/tu-sach/${shelfSlug}`;
-  const status = statusForAvailability(book.availability);
+  /**
+   * Minor 9 (fix-report, 2026-08-09-u2-shelf-and-portal). A loan past its due
+   * date is a state of its own, and this page is one of the few that can say so
+   * honestly.
+   *
+   * `statusForAvailability` maps a *title's* aggregate copy state, and it
+   * cannot reach `overdue` — `src/lib/status.ts` spells that out and says why:
+   * "`overdue` is deliberately unreachable from here, because it is not a copy
+   * state at all… a screen showing an overdue badge must have a *loan* in hand
+   * — never a copy row alone." This page has the loan in hand. `daysRemaining`
+   * comes off `loans_current`, which derives it against `olibra_now()` on every
+   * read (BR §8), and it is negative exactly when the loan is late.
+   *
+   * So the badge becomes "Quá hạn" — red, `alert-triangle`, BR:628 — instead of
+   * "Đang mượn", which is true but says nothing a child could act on. Live, a
+   * book twenty-four days overdue carried the ordinary "Đang mượn" panel and a
+   * "Hạn trả" date in the past, and nothing else.
+   *
+   * It replaces the badge rather than adding a second one, because BR §17.2's
+   * whole point is that a copy has one state a reader is told about, and two
+   * badges on one panel is a question rather than an answer.
+   */
+  const isOverdue = (book.currentLoan?.daysRemaining ?? 0) < 0;
+  const status = isOverdue ? "overdue" : statusForAvailability(book.availability);
   const isAvailable = book.availability === "available";
 
   /* Author sits under the title and the category is already in the breadcrumb,
@@ -134,17 +166,31 @@ export default async function BookDetailPage({
               The panel's own heading already reads "Đang mượn", so the sentence
               is dropped rather than reworded around the missing name.
 
-              `daysRemaining` comes from `loans_current` and goes negative once a
-              loan is overdue. "còn -3 ngày" is not a sentence, and this query
-              returns no `is_overdue` to render the honest alternative with, so
-              the clause is simply omitted past the due date; "Hạn trả" below
-              still carries the fact. */}
+              **`daysRemaining` is signed, and past the due date it now says so**
+              (Minor 9, fix-report, 2026-08-09-u2-shelf-and-portal). This used to
+              read "this query returns no `is_overdue` to render the honest
+              alternative with, so the clause is simply omitted past the due
+              date" — and that was wrong twice over. `getBookDetail` returns
+              `daysRemaining` straight off `loans_current`, where it is negative
+              exactly when the loan is overdue, and the branch two lines below
+              was already reading its sign. DB §4.5 forbids an `is_overdue`
+              *column*; deriving overdue on read is what BR §8 asks for and what
+              `loans_current` exists to do.
+
+              Live, a book twenty-four days overdue showed only "Hạn trả Thứ Năm,
+              16/07/2026." — a date in the past and no cue at all, on a page read
+              by children who may have been reading fluently for only a few years
+              (BR:601). Now the badge above the panel reads "Quá hạn" and this
+              sentence carries the count.
+
+              "Quá hạn" is `STATUS.overdue.label` and the count is the shape
+              already used across the app ("Quá hạn 2 ngày"); no new wording. */}
           {book.currentLoan.holderName ? (
             <p className="text-[16px]">
               {book.currentLoan.holderName} đang giữ cuốn này
               {book.currentLoan.daysRemaining >= 0
                 ? ` · còn ${NUMBER.format(book.currentLoan.daysRemaining)} ngày`
-                : ""}
+                : ` · ${STATUS.overdue.label.toLowerCase()} ${NUMBER.format(-book.currentLoan.daysRemaining)} ngày`}
               .
             </p>
           ) : null}
@@ -253,24 +299,47 @@ export default async function BookDetailPage({
                 is drawn at 45% opacity (`disabled:opacity-45`), takes no
                 pointer cursor (globals.css excludes `:disabled` from that rule
                 deliberately — "a pointer over a control that will not respond
-                is a small lie"), and is not focusable or clickable at all. It
-                reads as "not now", and the sentence immediately under it is the
-                one that tells them what actually works: ring the keeper, which
-                is what the availability panel above already says and what
-                every child at this shelf does today.
+                is a small lie"), and is not focusable or clickable at all.
 
-                The alternatives were both worse. A live-looking button that
-                posts nowhere is the "told yes and then no" failure BR §16.3 is
-                written against. Removing it entirely would hide the one thing
-                BR:508 says this page is for, and would have to be re-designed
-                back in when C2 lands. The label stays the specified one so that
-                what C2 wires is a `disabled` attribute coming off, not a
-                button being invented.
+                **And that is not enough on its own, which is IMPORTANT 7**
+                (fix-report, 2026-08-09-u2-shelf-and-portal). This is the
+                page's dominant action — full-width terracotta, `size="lg"`,
+                `min-w-80`, exactly the "One primary action per screen, visually
+                dominant" BR:603 asks for — and it is dead. The two comments
+                that used to sit here contradicted each other inside one block:
+                this one said the button was acceptable because "the sentence
+                immediately under it is the one that tells them what actually
+                works", and the one below said "No sentence under it." Neither
+                matched the layout. The contact line is *above*, inside the
+                `StatusPanel`, and it answers "how do I collect this", not "why
+                did nothing happen when I pressed the big button".
+
+                Being natively `disabled` also takes it out of the tab order, so
+                a keyboard or switch user never lands on it and never hears why
+                — the audience BR:601 describes as "children who may have been
+                reading fluently for only a few years". The sentence below is in
+                the reading order regardless, and `aria-describedby` ties it to
+                the control for anyone who does reach it.
+
+                Plan §6 says the button "must not pretend to work". That forbids
+                submitting; it does not forbid explaining. The alternatives were
+                both worse: a live-looking button that posts nowhere is the
+                "told yes and then no" failure BR §16.3 is written against, and
+                removing it entirely would hide the one thing BR:508 says this
+                page is for. The label stays the specified one so that what C2
+                wires is a `disabled` attribute coming off, not a button being
+                invented.
 
                 The `Bookmark` variant — "Đăng ký chờ mượn" — is the same
                 situation: borrow requests are C2's. */}
             <div className="order-4 mt-6">
-              <Button variant="primary" size="lg" className="min-w-80" disabled>
+              <Button
+                variant="primary"
+                size="lg"
+                className="min-w-80"
+                disabled
+                aria-describedby={BORROW_NOTE_ID}
+              >
                 {isAvailable ? (
                   <>
                     <Hand aria-hidden className="size-5" strokeWidth={1.75} />
@@ -283,11 +352,40 @@ export default async function BookDetailPage({
                   </>
                 )}
               </Button>
-              {/* No sentence under it. The fixture's — "Quản lý sẽ xác nhận khi
-                  bạn đến nhận sách." — describes the C2 flow this button cannot
-                  start, and BR:511's contact line is already directly above,
-                  inside the panel where that section puts it. Repeating it here
-                  would be the same instruction twice in four centimetres. */}
+              {/* ### NEW COPY (IMPORTANT 7) — the only Vietnamese this fix
+                  wave writes. Everything else on these pages is BR's wording,
+                  `errors.ts`'s wording, or `status.ts`'s wording.
+
+                  "Nút này chưa dùng được. Em nhắn cho quản lý tủ sách ở trên để
+                  mượn sách."
+
+                  Two short sentences, present tense, no jargon, for a reader
+                  BR:601 describes as possibly "reading fluently for only a few
+                  years". The first says what happened when they pressed it —
+                  nothing, and that is the button's fault and not theirs. The
+                  second points at the thing on this page that does work, by
+                  position ("ở trên") rather than by repeating the keeper's name
+                  and number, which BR:511's line inside the panel already
+                  carries four centimetres up. "Em" is how BR §17 addresses a
+                  child throughout.
+
+                  It replaces the fixture's "Quản lý sẽ xác nhận khi bạn đến
+                  nhận sách.", which described the C2 flow this button cannot
+                  start — a promise, where this is a statement of fact.
+
+                  `aria-describedby` on the button above, so a screen-reader
+                  user who reaches the control hears it as its description; it
+                  is in the reading order regardless, which is what covers the
+                  case the `disabled` attribute creates by taking the button out
+                  of the tab order entirely. C2 deletes this element and the
+                  `disabled` attribute in one edit. */}
+              <p
+                id={BORROW_NOTE_ID}
+                className="mt-2 max-w-80 text-[14px] text-meta"
+              >
+                Nút này chưa dùng được. Em nhắn cho quản lý tủ sách ở trên để mượn
+                sách.
+              </p>
             </div>
 
             {isManager ? (
