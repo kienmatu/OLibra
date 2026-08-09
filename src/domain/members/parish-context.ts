@@ -71,12 +71,31 @@ export async function loadParishContext(
   tx: Tx,
   ctx: TenantContext,
 ): Promise<ParishContext> {
-  // `bookshelves_tenant` is `id = <the GUC>`, so this reads this shelf's own
-  // row and no other — the same scoping every other read in this slice gets,
-  // rather than a hand-written `where id = ctx.bookshelfId` that would be
-  // correct only for as long as somebody kept writing it.
+  // **`where id` is required here, and this used to say the opposite.**
+  //
+  // The claim it carried was that `bookshelves_tenant` is `id = <the GUC>`, so
+  // an unqualified select reads this shelf's row and no other, and a
+  // hand-written predicate would be a second copy of the scoping. That was true
+  // when it was written and is not true now:
+  // `20260808_12_bookshelves_public_read.sql` added a second **permissive**
+  // policy, `using (status = 'active' and deleted_at is null)`, and Postgres ORs
+  // permissive policies covering the same command. So a plain
+  // `select ... from bookshelves` as `olibra_app` returns **every active shelf
+  // in the system**, and `[shelf]` was whichever row the planner happened to
+  // return first.
+  //
+  // That is not a hypothetical: it was caught by a test in which two shelves,
+  // one nested and one flat, disagreed about whether `CreateParishUnit` may omit
+  // a parent — the flat shelf was refused on the nested one's taxonomy. Every
+  // caller is affected the same way, `ApproveProfileChange`'s `validateSelection`
+  // included, which would have been checking a reader's parish selection against
+  // another parish's nesting rule.
+  //
+  // The units query below needs no such predicate: `parish_units` carries only
+  // the tenant policy from `0010_rls.sql`, with no public read beside it.
   const [shelf] = await tx<{ parish_taxonomy: TaxonomyJson }[]>`
-    select settings->'parish_taxonomy' as parish_taxonomy from bookshelves
+    select settings->'parish_taxonomy' as parish_taxonomy
+      from bookshelves where id = ${ctx.bookshelfId}
   `;
 
   const rows = await tx<

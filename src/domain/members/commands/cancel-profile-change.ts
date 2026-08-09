@@ -1,6 +1,7 @@
 import { NotFound, RuleViolated } from "../../kernel/errors";
 import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
+import { avatarObjectOf } from "../pending-proposal";
 import { requireSelfOrManager } from "../policy";
 
 export interface CancelProfileChangeInput {
@@ -36,12 +37,19 @@ export interface CancelProfileChangeInput {
  * there would make "who decided this" answer with the person who asked. The
  * time is a real fact worth keeping, and who did it is in the audit row, where
  * INV-12 makes it permanent.
+ *
+ * **It returns the withdrawn photograph's storage key and does not delete it.**
+ * OPS §4.3 requires a cancelled proposal's image to be deleted rather than left
+ * orphaned; this command may not import the object store, and must not delete
+ * inside its own transaction, where a commit that then failed would leave a live
+ * request pointing at an image that no longer exists. The surface deletes it
+ * after the commit — `./reject-profile-change.ts` carries the same note, and
+ * `src/lib/avatar.ts` holds the ordering itself.
  */
-export const cancelProfileChange: Command<CancelProfileChangeInput, void> = async (
-  tx,
-  ctx,
-  input,
-) => {
+export const cancelProfileChange: Command<
+  CancelProfileChangeInput,
+  { avatarObject: string | null }
+> = async (tx, ctx, input) => {
   requireSelfOrManager(ctx, input.membershipId);
   requireIdentifiedActor(ctx);
 
@@ -55,8 +63,15 @@ export const cancelProfileChange: Command<CancelProfileChangeInput, void> = asyn
   // RLS scopes this to the shelf; a request of another shelf is zero rows and
   // therefore `write_target_not_found`, not `not_own_request` — telling a
   // caller "that is somebody else's" would confirm it exists.
-  const [request] = await tx<{ id: string; status: string; user_id: string }[]>`
-      select id, status, user_id from profile_change_requests
+  const [request] = await tx<
+    {
+      id: string;
+      status: string;
+      user_id: string;
+      proposed_values: unknown;
+    }[]
+  >`
+      select id, status, user_id, proposed_values from profile_change_requests
       where id = ${input.profileChangeRequestId}
     `;
   if (!request) throw new NotFound("write_target_not_found");
@@ -74,7 +89,7 @@ export const cancelProfileChange: Command<CancelProfileChangeInput, void> = asyn
     `;
 
   return {
-    result: undefined,
+    result: { avatarObject: avatarObjectOf(request.proposed_values) },
     audit: {
       action: "profile_change.cancelled",
       entityType: "profile_change_request",

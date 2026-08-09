@@ -1,19 +1,15 @@
-import { isUniqueViolation, NotFound, RuleViolated } from "../../kernel/errors";
+import { NotFound, RuleViolated } from "../../kernel/errors";
 import { requireIdentifiedActor } from "../../kernel/tenant";
-import type { Command, Tx } from "../../kernel/unit-of-work";
+import type { Command } from "../../kernel/unit-of-work";
+import { readPendingProposal, writePendingProposal } from "../pending-proposal";
 import { requireSelfOrManager } from "../policy";
 import {
   normaliseProfilePatch,
-  pickProfileFields,
   readProfileFields,
   type ProfileField,
   type ProfilePatch,
 } from "../profile-fields";
-import {
-  mergeProposal,
-  PROPOSABLE_FIELDS,
-  type ProposalContents,
-} from "../profile-proposals";
+import { mergeProposal, PROPOSABLE_FIELDS } from "../profile-proposals";
 
 export interface ProposeProfileChangeInput {
   membershipId: string;
@@ -38,23 +34,18 @@ export interface ProposeProfileChangeInput {
  * it in three steps whose order is forced by the schema rather than chosen:
  *
  * 1. **Look for a pending request.** RLS scopes the read to this shelf.
- * 2. **Merge and update, or insert.** `../profile-proposals.ts` holds the merge
- *    and the one constant that reverses it; see there for why "replace" taken
- *    literally would silently lose a reader's phone proposal the moment they
- *    also proposed a photograph.
- * 3. **Catch `23505` on the insert** and raise `change_already_pending`.
+ * 2. **Merge.** `../profile-proposals.ts` holds the merge and the one constant
+ *    that reverses it; see there for why "replace" taken literally would
+ *    silently lose a reader's phone proposal the moment they also proposed a
+ *    photograph.
+ * 3. **Update, or insert and catch `23505`.**
  *
- * Step 3 is not belt and braces, and it is the part an implementer following
- * OPS alone would leave out. `profile_change_requests_one_pending` is `unique
- * (user_id) where status = 'pending'` — **global across shelves**, while the
- * table is RLS-scoped per shelf. So a reader with memberships at two parishes
- * who has a pending request at the first and proposes at the second: step 1
- * cannot see the blocking row (RLS hides it), step 2 therefore inserts, and the
- * index rejects it. Without the catch that surfaces as a raw `PostgresError`
- * out of the driver, which OPS §2 forbids. `change_already_pending` — "Bạn
- * đang có một yêu cầu thay đổi chờ duyệt." — has been sitting in `errors.ts`
- * unreferenced since before this slice and is the honest sentence for it, so
- * no new Vietnamese is written for a case OPS never described.
+ * Steps 1 and 3 are `../pending-proposal.ts`, shared with `ProposeAvatarChange`
+ * — which OPS §4.3 calls "the file-carrying case rather than a separate
+ * lifecycle" of this command, and which would otherwise be a second copy of a
+ * lifecycle whose two subtleties (the cross-shelf `23505`, and carrying
+ * `avatar_object` through a proposal that is not about the photograph) are both
+ * silent when they are got wrong. That module carries the long version of both.
  *
  * ── Two smaller decisions ────────────────────────────────────────────────
  *
@@ -114,31 +105,22 @@ export const proposeProfileChange: Command<
     throw new RuleViolated("empty_proposal");
   }
 
-  const [pending] = await tx<
-    { id: string; proposed_values: unknown; previous_values: unknown }[]
-  >`
-    select id, proposed_values, previous_values
-    from profile_change_requests
-    where user_id = ${membership.user_id} and status = 'pending'
-  `;
+  const pending = await readPendingProposal(tx, membership.user_id);
+  const next = mergeProposal(pending?.contents ?? null, incoming, current);
 
-  const existing: ProposalContents | null = pending
-    ? {
-        proposed: pickProfileFields(pending.proposed_values),
-        previous: pickProfileFields(pending.previous_values),
-      }
-    : null;
-  const next = mergeProposal(existing, incoming, current);
-
-  const requestId = pending
-    ? await replacePending(tx, ctx.clock.now(), pending.id, next)
-    : await insertPending(
-        tx,
-        ctx.clock.now(),
-        ctx.bookshelfId,
-        membership.user_id,
-        next,
-      );
+  // The pending row's `avatar_object` is carried through unchanged. This
+  // command never proposes a photograph and never withdraws one, and
+  // `pickProfileFields` — which `readPendingProposal` runs the stored bag
+  // through — drops that key by design, so rebuilding `proposed_values` from
+  // the patch alone would erase the storage key of an image the same row still
+  // proposes by URL. Nothing would then be able to delete it on a reject.
+  // `../pending-proposal.ts` holds the whole of that reasoning.
+  const requestId = await writePendingProposal(tx, ctx, {
+    userId: membership.user_id,
+    pending,
+    next,
+    avatarObject: pending?.avatarObject ?? null,
+  });
 
   return {
     result: { profileChangeRequestId: requestId },
@@ -164,51 +146,4 @@ function onlyProposable(fields: ProfilePatch): ProfilePatch {
       fields[f],
     ]),
   ) as ProfilePatch;
-}
-
-async function replacePending(
-  tx: Tx,
-  now: Date,
-  id: string,
-  next: ProposalContents,
-): Promise<string> {
-  await tx`
-    update profile_change_requests
-       set proposed_values = ${tx.json(next.proposed)},
-           previous_values = ${tx.json(next.previous)},
-           requested_at    = ${now}
-     where id = ${id} and status = 'pending'
-  `;
-  return id;
-}
-
-async function insertPending(
-  tx: Tx,
-  now: Date,
-  // `0008:8` calls this column "whose manager decides", and the answer is
-  // always the shelf this call is scoped to — `ctx.bookshelfId`, never a value
-  // from input. RLS's `with check` rejects anything else outright rather than
-  // rescoping it, so this is belt as well as braces; taking it from input would
-  // still be a value somebody could later be tempted to trust.
-  bookshelfId: string,
-  userId: string,
-  next: ProposalContents,
-): Promise<string> {
-  try {
-    const [row] = await tx<{ id: string }[]>`
-      insert into profile_change_requests
-        (user_id, bookshelf_id, proposed_values, previous_values, status, requested_at)
-      values
-        (${userId}, ${bookshelfId},
-         ${tx.json(next.proposed)}, ${tx.json(next.previous)}, 'pending', ${now})
-      returning id
-    `;
-    return row.id;
-  } catch (e) {
-    // The cross-shelf pending row this transaction cannot see. See the note in
-    // this file's docstring: the index is global, the policy is per shelf, and
-    // this catch is the only thing between that combination and a raw 23505.
-    if (isUniqueViolation(e)) throw new RuleViolated("change_already_pending");
-    throw e;
-  }
 }

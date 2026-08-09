@@ -1,6 +1,7 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
+import { avatarObjectOf } from "../pending-proposal";
 import { blank, requireManager } from "../policy";
 
 export interface RejectProfileChangeInput {
@@ -32,12 +33,24 @@ export interface RejectProfileChangeInput {
  * all. The constraint catches null, which is the shape a caller with no field
  * at all produces, and says nothing about whitespace — the same split
  * `voidLoan` makes for `loans_voided_has_reason`.
+ *
+ * ── It returns the rejected photograph's storage key, and does not delete it ─
+ *
+ * OPS §4.3 requires that "a rejected or cancelled proposal's image is deleted
+ * rather than left orphaned in storage". This command cannot perform that
+ * deletion — the domain may not import the object store
+ * (`tests/architecture/boundaries.test.ts`) — and, more to the point, it must
+ * not: a delete issued inside this transaction destroys the image while the
+ * request that points at it is still live, for as long as the commit that
+ * follows might fail. So the key comes back to the surface, which deletes it
+ * **after** the commit. `src/lib/avatar.ts` holds that ordering and the residual
+ * failure it accepts. `null` when the pending request proposed no photograph,
+ * which is the ordinary case.
  */
-export const rejectProfileChange: Command<RejectProfileChangeInput, void> = async (
-  tx,
-  ctx,
-  input,
-) => {
+export const rejectProfileChange: Command<
+  RejectProfileChangeInput,
+  { avatarObject: string | null }
+> = async (tx, ctx, input) => {
   requireManager(ctx);
   requireIdentifiedActor(ctx);
 
@@ -50,8 +63,15 @@ export const rejectProfileChange: Command<RejectProfileChangeInput, void> = asyn
   // RLS scopes the request row to this shelf, and nothing structurally ties
   // that row to a membership of the same shelf. See the long version in
   // `./approve-profile-change.ts`.
-  const [request] = await tx<{ id: string; status: string; user_id: string }[]>`
-      select r.id, r.status, r.user_id
+  const [request] = await tx<
+    {
+      id: string;
+      status: string;
+      user_id: string;
+      proposed_values: unknown;
+    }[]
+  >`
+      select r.id, r.status, r.user_id, r.proposed_values
         from profile_change_requests r
         join memberships m on m.user_id = r.user_id and m.deleted_at is null
        where r.id = ${input.profileChangeRequestId}
@@ -71,7 +91,7 @@ export const rejectProfileChange: Command<RejectProfileChangeInput, void> = asyn
     `;
 
   return {
-    result: undefined,
+    result: { avatarObject: avatarObjectOf(request.proposed_values) },
     audit: {
       action: "profile_change.rejected",
       entityType: "profile_change_request",

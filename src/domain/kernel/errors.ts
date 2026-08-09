@@ -150,6 +150,24 @@ export const ERROR_MESSAGES = {
   // _void`. This is the fourth, and B2a named it as B2b's before it was
   // reached.
   profile_change_not_pending: "Yêu cầu này đã được xử lý.",
+  // OPS §4.3's two failure modes for ProposeAvatarChange (`:567`, `:568`),
+  // quoted. Neither is raised by a command: both are facts about *bytes*, and
+  // `tests/architecture/boundaries.test.ts` forbids `src/domain/` from touching
+  // any. They are raised by `src/lib/avatar.ts` before the command runs, with
+  // these codes, so the sentence a reader sees is the catalogue's rather than
+  // one the surface invented for itself — which is the whole reason
+  // `ERROR_MESSAGES` lives in the domain and not beside a screen.
+  //
+  // `file_too_large`'s sentence names the number, which is what makes the limit
+  // implementable: OPS attributes both "≤2 MB" and "square" to "the profile
+  // screen's own copy", and that copy does not exist — `2 MB`, `MB`, `vuông`
+  // and `square` appear nowhere under `src/app/` or `src/components/`. So the
+  // size is enforced from this sentence and **no aspect-ratio check exists
+  // anywhere**: "square" has no sentence, no code and no source, and B2b's plan
+  // §8 asks the product owner for it rather than inventing a refusal with
+  // Vietnamese nobody wrote.
+  file_too_large: "Ảnh vượt quá 2 MB.",
+  invalid_image: "Tệp này không phải là ảnh hợp lệ.",
 
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",

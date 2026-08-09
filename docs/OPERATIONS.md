@@ -559,13 +559,17 @@ The reader withdraws their own proposal before a decision is made (§7.4's diagr
 #### `ProposeAvatarChange`
 A reader proposes a new photograph. Like every other personal field it takes effect only on approval — see `ProposeProfileChange` above, of which this is the file-carrying case rather than a separate lifecycle.
 
-- **Inputs:** `membershipId`, image file (≤2 MB, square, per the profile screen's own copy). **Not a `userId`,** for the reason `ChangeOwnPassword` above now records at length — `users` has no row-level security, and every command in this section reaches a person through a shelf-scoped `memberships` row instead.
+- **Inputs:** `membershipId` (**optional — omitted means the caller's own**, taken from the membership the session already resolved, so a reader's own form posts no identity at all and there is nothing in the request to rewrite; a manager setting a photograph on behalf supplies it), image file (≤2 MB, per the profile screen's own copy). **Not a `userId`,** for the reason `ChangeOwnPassword` above now records at length — `users` has no row-level security, and every command in this section reaches a person through a shelf-scoped `memberships` row instead.
 - **Caller:** `reader` (self only); a `manager` may also set a photograph directly when registering on behalf, since that value is being entered under their eye in the first place
 - **Invariants enforced:** INV-8, INV-13
 - **Audit action:** `profile_change.proposed` (with the changed field named in the payload)
 - **Failure modes:**
   - `file_too_large` — "Ảnh vượt quá 2 MB."
-  - `invalid_image` — "Tệp này không phải là ảnh hợp lệ."
+  - `invalid_image` — "Tệp này không phải là ảnh hợp lệ." (the file is not one of the three image types the store will serve: JPEG, PNG or WebP)
+
+> **Open question — "square".** The word above used to appear beside "≤2 MB" and has been removed, because it cannot be implemented from anything. Both were attributed to "the profile screen's own copy"; that copy reads only "Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị.", and `2 MB`, `MB`, `vuông` and `square` appear nowhere under `src/app/` or `src/components/`. The size limit survives because `file_too_large`'s own sentence names the number, so the rule can be read off the sentence a reader is shown. An aspect-ratio rule has no sentence, no code and no source, and a refusal a reader cannot be told the reason for is worse than no refusal — so **no aspect-ratio check is enforced anywhere**. Whether one is wanted, and what it should say, is the product owner's.
+
+Both failure modes are raised at the surface (`src/lib/avatar.ts`) rather than by the command, because both are facts about bytes: the architecture forbids anything under `src/domain/` from importing the object store, so the proposed image is stored *before* the command runs and the command receives a URL and a storage key. The two orderings that follow are the interesting part, and are recorded in that module: the image is written before the transaction opens (§4.3 requires a manager to be able to look at it while deciding, and a rollback then leaves an object the command deletes on its way out), while a rejected or cancelled proposal's image is deleted *after* the transaction commits (a delete before a commit that then failed would destroy an image a live request still points at). The residual is one orphaned object when a commit succeeds and the delete fails — storage rather than correctness, and retryable.
 
 ### 4.4 Community
 
@@ -761,7 +765,9 @@ Adds one unit at a level (BR §5.6) — the "Thêm" row at the foot of each unit
 - **Audit action:** `parish_unit.created`
 - **Failure modes:**
   - `parish_unit_l1_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại." (`parentId` does not resolve to a live level-1 unit of this shelf)
-  - `validation_failed` — "Vui lòng kiểm tra lại thông tin." (empty `name`, `parentId` supplied for a level-1 unit, or `level` outside `{1, 2}`)
+  - `validation_failed` — "Vui lòng kiểm tra lại thông tin." (empty `name`, `parentId` supplied for a level-1 unit, `level` outside `{1, 2}`, or a `parentId` omitted when the shelf's taxonomy is nested and `level` is 2)
+
+> **Open question — a duplicate unit name.** `parish_units_name_unique_in_scope` is not the table constraint the taxonomy design shows: `20260808_03_soft_delete_aware_uniqueness.sql` replaced it with a partial unique index on `(bookshelf_id, level, parent_id, name) nulls not distinct where deleted_at is null`, so two live units of the same name in the same scope raise `23505` — and a soft-deleted unit frees its name for reuse, which is the point of the change. This entry lists no failure mode for that collision, and neither does `RenameParishUnit` below. Both shipped commands catch the unique violation and raise `validation_failed`, this command's own sentence: vague, but honest, and not the raw driver error §2 forbids. The specific sentence — something naming the unit that already exists — is the product owner's to write.
 
 #### `RenameParishUnit`
 Changes a unit's name — "Đổi tên" on its row. Never touches `sortOrder` or `parentId`: a rename is a label change only, and BR §5.6's whole point is that renaming stays cheap because every membership references the unit by id, not by its name.

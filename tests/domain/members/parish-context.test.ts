@@ -140,6 +140,54 @@ test("GetParishUnits refuses a guest — OPS §3.2 makes it reader-gated", async
   ).rejects.toBeInstanceOf(RuleViolated);
 });
 
+test("INV-10: the taxonomy is this shelf's, not whichever row came back first", async () => {
+  // A defect this slice found and fixed. `loadParishContext` selected from
+  // `bookshelves` with no `where`, on the reasoning that `bookshelves_tenant` is
+  // `id = <the GUC>` and a hand-written predicate would be a second copy of the
+  // scoping. `20260808_12_bookshelves_public_read.sql` then added a second
+  // **permissive** policy — `using (status = 'active' and deleted_at is null)`
+  // — and Postgres ORs permissive policies over the same command, so the
+  // unqualified select returned every active shelf and `[shelf]` was whichever
+  // one the planner listed first.
+  //
+  // Two shelves that disagree, and the assertion is that each sees its own.
+  // Without the `where id`, one of the two directions returns the other's
+  // taxonomy: `CreateParishUnit` refuses a flat shelf on a nested one's rule,
+  // and `ApproveProfileChange` validates a reader's parish selection against
+  // another parish's nesting.
+  const nested = await nestedShelf("dong-thap");
+
+  const flatShelf = await makeShelf(sql, { slug: "can-tho" });
+  const flatReader = await makeMember(sql, flatShelf.id);
+  await makeParishUnits(
+    sql,
+    flatShelf.id,
+    { levels: 1, nested: false, level1Label: "Khu", level2Label: "Khu" },
+    [],
+  );
+  const flatCtx: TenantContext = {
+    bookshelfId: flatShelf.id,
+    actor: {
+      userId: flatReader.userId,
+      membershipId: flatReader.id,
+      role: "reader",
+    },
+    clock,
+  };
+
+  expect(
+    (await runQuery(sql, nested.ctx, (tx, c) => loadParishContext(tx, c))).taxonomy,
+  ).toEqual(NESTED);
+  expect(
+    (await runQuery(sql, flatCtx, (tx, c) => loadParishContext(tx, c))).taxonomy,
+  ).toEqual({
+    levels: 1,
+    nested: false,
+    level1Label: "Khu",
+    level2Label: "Khu",
+  });
+});
+
 test("INV-10: another shelf's units are invisible, not merely unfiltered", async () => {
   const a = await nestedShelf("dong-thap");
   const b = await nestedShelf("can-tho");
