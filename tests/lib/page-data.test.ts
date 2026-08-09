@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { hashPassword } from "../../src/auth/password";
 import { signIn } from "../../src/auth/session";
 import { fixedClock } from "../../src/domain/kernel/clock";
+import { NotFound } from "../../src/domain/kernel/errors";
 import { searchBooksForLending } from "../../src/domain/catalogue/queries/search-books-for-lending";
 import { migrate } from "../../src/db/migrate";
 import { REQUEST_PATH_HEADER, RETURN_TO_PARAM } from "../../src/lib/return-path";
@@ -314,6 +315,99 @@ test("a request with no path header still redirects, to the bare sign-in form", 
   ).catch((e) => e);
 
   expect(redirectTarget(err)).toBe("/dang-nhap");
+});
+
+/**
+ * The `Viewer` the seam resolves and hands the page (U2 Task 5).
+ *
+ * A read that never touches the domain, on purpose: the interesting property
+ * is what the *seam* resolves, and running a gated query beside it would mean
+ * a broken `viewerFor` could still be masked by the refusal path.
+ */
+const viewerOf = (slug: string) =>
+  loadPage(slug, async (_tx, _ctx, viewer) => viewer);
+
+test("the header is handed the name of the person actually signed in", async () => {
+  // The defect this replaces: `ShelfHeader` had `reader = "Giuse Trần Minh"` as
+  // a *default*, so every shelf page in the app rendered real books under one
+  // fixture reader's name and looked entirely correct doing it. Asserted
+  // against a name written into this test rather than the fixture one, so a
+  // regression to a hardcoded default cannot pass by coincidence.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "reader", "bandoc");
+  await sql`update users set full_name = 'Maria Nguyễn Thị Lan' where username = 'bandoc'`;
+
+  expect(await viewerOf("dong-thap")).toEqual({ name: "Maria Nguyễn Thị Lan" });
+});
+
+test("a display name the reader chose wins over their full name", async () => {
+  // BR §5.4 lists `display_name` as a field of the person's own. This is the
+  // viewer looking at their own header, so it is not the
+  // `public_name_display` question `get-book-detail.ts` answers about *other*
+  // people — that setting is what a shelf discloses to third parties.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "reader", "bandoc");
+  await sql`update users set display_name = 'Lan' where username = 'bandoc'`;
+
+  expect(await viewerOf("dong-thap")).toEqual({ name: "Lan" });
+});
+
+test("an empty display name falls back to the full name rather than emptying the header", async () => {
+  // `users.display_name` is nullable and nothing stops a form writing ''. A
+  // bare `coalesce` would then render a header with an avatar circle, no
+  // letter in it and no name beside it — which reads as a bug rather than as a
+  // person, and `nullif` is one word.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "reader", "bandoc");
+  await sql`update users set display_name = '' where username = 'bandoc'`;
+
+  expect(await viewerOf("dong-thap")).toEqual({ name: "Giuse Trần Minh" });
+});
+
+test("a guest has no name, and the header renders signed-out from exactly that", async () => {
+  // `null` is the only thing that can mean "nobody is signed in", because
+  // `users.full_name` is `not null`. `ShelfHeader` keys its whole
+  // signed-in/signed-out branch on it, which is what makes /dang-nhap and
+  // /dang-ky — where this same header renders — honest.
+  await makeShelf(sql, { slug: "dong-thap" });
+
+  expect(await viewerOf("dong-thap")).toEqual({ name: null });
+});
+
+test("a NotFound from the read is a 404, not a bare 500", async () => {
+  // U2 Task 4. `getBookDetail` throws `NotFound("book_not_found")` for a slug
+  // naming no published book, and this seam translated only `shelf_not_found`
+  // — so /tu-sach/dong-thap/sach/khong-co rendered an HTTP 500 for a mistyped
+  // address. OPERATIONS.md:33 puts *not found* on a 404 page, and names a bare
+  // 500 as the outcome that sentence exists to forbid. `submitCommand` made the
+  // same correction on the write path.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "reader", "bandoc");
+
+  await expect(
+    loadPage("dong-thap", async () => {
+      throw new NotFound("book_not_found");
+    }),
+  ).rejects.toMatchObject({ digest: NOT_FOUND });
+});
+
+test("the kernel's zero-row write guard is still a fault, not a 404", async () => {
+  // The one `NotFound` code that must keep propagating, matched on the code
+  // exactly as `submitCommand` matches it: `write_target_not_found` is
+  // `unit-of-work.ts`'s own guard firing on an `update` that matched nothing,
+  // which is a bug inside a command, not a URL naming nothing. A read cannot
+  // raise it — `runQuery` opens a read-only transaction — so this pins the
+  // symmetry rather than a live case, and symmetry is the point when somebody
+  // copies one branch from the other.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "reader", "bandoc");
+
+  const failure = loadPage("dong-thap", async () => {
+    throw new NotFound("write_target_not_found");
+  });
+
+  await expect(failure).rejects.toBeInstanceOf(NotFound);
+  await expect(failure).rejects.not.toMatchObject({ digest: NOT_FOUND });
 });
 
 test("loadPublicPage reads with no shelf and no session, and sees nothing else", async () => {

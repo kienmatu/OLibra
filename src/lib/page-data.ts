@@ -38,6 +38,74 @@ async function contextForRequest(shelfSlug: string): Promise<TenantContext> {
 }
 
 /**
+ * Who the chrome says is signed in.
+ *
+ * One field today, and an object rather than a bare `string | null` because
+ * `ShelfHeader` already draws an avatar initial from the name and U3's manager
+ * shell will want an `avatarUrl` beside it (`users.avatar_url` exists). Adding
+ * that field then is one line here; widening a positional string parameter
+ * across forty-six pages is not.
+ */
+export interface Viewer {
+  /**
+   * `null` means **nobody is signed in**, and it is the only thing that can
+   * mean it: `users.full_name` is `not null`, so a resolved viewer always has
+   * a name. The header keys its whole signed-in/signed-out branch on this.
+   */
+  name: string | null;
+}
+
+/**
+ * The display name behind `ctx.actor`, resolved once in the seam.
+ *
+ * **Why here and not in each page** (U2 §3.4). `Actor`
+ * (`src/domain/kernel/tenant.ts`) carries `userId`, `membershipId` and `role`
+ * and deliberately no name — a name is a fact about a person, not a permission,
+ * and putting one in the context would mean every command carried a display
+ * string it must never branch on. So the name has to be read somewhere, and the
+ * two candidates are "each page that renders chrome" and "the seam that already
+ * resolved who is asking". `src/components/shell/public-header.tsx` shipped
+ * importing `src/lib/fixtures.ts` and rendering "Giuse Trần Minh" over every
+ * shelf page in the app, which is what one page forgetting looks like — a page
+ * of real books under a stranger's name reads as working. Resolving it here is
+ * the same rule `loadPage`'s own docstring states for the read itself: a caller
+ * cannot express a page that skipped the step.
+ *
+ * **U3 will want exactly this for the manager shell**, which today hardcodes a
+ * different name (`manager-shell.tsx`). It should take `Viewer` from this
+ * function rather than growing a second read of `users` — two resolutions of
+ * "who is signed in" is precisely the drift `contextForRequest` above exists to
+ * prevent between the read seam and the write seam.
+ *
+ * **No query at all when there is no session.** `ctx.actor.userId === null` is
+ * a guest, and there is nobody to look up; this is also the common case on the
+ * path that ends in a redirect, so the cheapest answer is the correct one.
+ *
+ * It runs on the `Tx` `loadPage` already has open, so it costs no extra
+ * transaction and sees the same instant as the page's own reads. `users` carries
+ * no RLS policy (`0010_rls.sql` names it among the three global tables that get
+ * none), so this row is reachable inside a shelf-scoped transaction — and it is
+ * the caller's *own* row, resolved from a session cookie this process verified,
+ * not a row named by a URL.
+ *
+ * `display_name` wins over `full_name` when the person set one — BR §5.4 lists
+ * it as a field of their own — with `nullif` so a row that stores an empty
+ * string rather than a null does not render a nameless header. This is the
+ * viewer looking at their own name, so it is not the `public_name_display`
+ * question `get-book-detail.ts` answers for *other* people's names; that
+ * setting is about what a shelf discloses to third parties.
+ */
+async function viewerFor(tx: Tx, ctx: TenantContext): Promise<Viewer> {
+  if (ctx.actor.userId === null) return { name: null };
+  const [row] = await tx<{ name: string }[]>`
+    select coalesce(nullif(display_name, ''), full_name) as name
+    from users
+    where id = ${ctx.actor.userId} and deleted_at is null
+  `;
+  return { name: row?.name ?? null };
+}
+
+/**
  * The sign-in URL for *this* request, carrying the page the visitor was trying
  * to reach.
  *
@@ -140,6 +208,25 @@ async function signInPathForRequest(): Promise<string> {
  * reader on a manager URL still gets U1 §3.4's 404, unchanged, which is the
  * case that reasoning was actually about.
  *
+ * **A `NotFound` from the read itself is also a 404**, and that is U2 Task 4's
+ * addition. This shipped translating `shelf_not_found` and nothing else, so a
+ * query that resolved a *thing on the shelf* by a URL segment left its refusal
+ * uncaught: `getBookDetail` throws `NotFound("book_not_found")` for a slug that
+ * names no published book, and `/tu-sach/dong-thap/sach/khong-co` was therefore
+ * an HTTP 500 — a mistyped address rendered as "the server is broken".
+ * OPERATIONS.md:33 names the three shapes and what each is for, and puts this
+ * one on **a 404 page**; a bare 500 is the outcome that sentence exists to
+ * forbid. `submitCommand` below already made exactly this correction on the
+ * write path, for the identical reason, and the two seams disagreeing about
+ * what `NotFound` means is worse than either answer.
+ *
+ * `write_target_not_found` is excluded, as it is there: it is the kernel's
+ * zero-row write guard, not a URL naming nothing, and rendering it as a 404
+ * would hide a bug behind a page that looks like a typo. A read cannot raise it
+ * — `runQuery` opens a read-only transaction — so this is symmetry rather than
+ * a live case, and symmetry is the point when the next person copies one branch
+ * from the other.
+ *
  * Everything else propagates. A `PostgresError`, a `ValidationFailed`, a
  * `NotWired` are faults, and a fault rendered as a friendly Vietnamese
  * sentence tells a volunteer their input was wrong when the database was
@@ -152,10 +239,17 @@ async function signInPathForRequest(): Promise<string> {
  * That one is caught by the server action, returned to the form as a code and
  * rendered through `messageFor` — a different path with a different answer,
  * and it belongs to U1 Task 4.
+ *
+ * **The third argument is `Viewer`** — see `viewerFor` above for why the
+ * display name is resolved here rather than by the pages that render chrome.
+ * It is passed rather than returned so that the six pages already using this
+ * seam keep compiling unchanged: a callback declaring two parameters is a
+ * perfectly good three-parameter function, whereas widening the *return* type
+ * would have been a change to every call site.
  */
 export async function loadPage<T>(
   shelfSlug: string,
-  read: (tx: Tx, ctx: TenantContext) => Promise<T>,
+  read: (tx: Tx, ctx: TenantContext, viewer: Viewer) => Promise<T>,
 ): Promise<T> {
   let ctx: TenantContext;
   try {
@@ -166,10 +260,15 @@ export async function loadPage<T>(
   }
 
   try {
-    return await runQuery(pool(), ctx, read);
+    return await runQuery(pool(), ctx, async (tx, scoped) =>
+      read(tx, scoped, await viewerFor(tx, scoped)),
+    );
   } catch (err) {
     if (err instanceof RuleViolated && err.code === "not_permitted") {
       if (ctx.actor.userId === null) redirect(await signInPathForRequest());
+      notFound();
+    }
+    if (err instanceof NotFound && err.code !== "write_target_not_found") {
       notFound();
     }
     throw err;
