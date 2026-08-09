@@ -50,3 +50,26 @@ export async function holdDaysFor(tx: Tx, bookshelfId: string): Promise<number> 
   if (!row) throw new NotFound("shelf_not_found");
   return row.hold_days;
 }
+
+/**
+ * BR §5.5's two renewal numbers, read together because INV-6 needs both in one
+ * breath: `max_renewals` (default 1) decides *whether* a loan may be renewed,
+ * `renewal_days` (default 7) decides *by how much*, and a command that read one
+ * without the other could only ever answer half the rule.
+ *
+ * One statement rather than two round trips, unlike the pair above — those two
+ * have callers that genuinely want one number each (`lendCopy` never asks about
+ * holds), and this pair has exactly one caller that always wants both.
+ */
+export async function renewalSettingsFor(
+  tx: Tx,
+  bookshelfId: string,
+): Promise<{ maxRenewals: number; renewalDays: number }> {
+  const [row] = await tx<{ max_renewals: number; renewal_days: number }[]>`
+    select coalesce((settings->>'max_renewals')::int, 1) as max_renewals,
+           coalesce((settings->>'renewal_days')::int, 7) as renewal_days
+      from bookshelves where id = ${bookshelfId}
+  `;
+  if (!row) throw new NotFound("shelf_not_found");
+  return { maxRenewals: row.max_renewals, renewalDays: row.renewal_days };
+}

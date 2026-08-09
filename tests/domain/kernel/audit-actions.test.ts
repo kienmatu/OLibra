@@ -159,8 +159,16 @@ test("an action with no sentence never renders its raw name", () => {
   // an older build with an action this one has retired is a real state and not a
   // programming error — the browser must still render the page, and must still
   // not print the token.
-  const sentence = auditSentence("loan.renewed", NOBODY, WHEN);
-  expect(sentence).not.toContain("loan.renewed");
+  //
+  // **The name here must be one no shipped command writes**, and keeping that
+  // true is not automatic: this test was written against `loan.renewed`, and C3
+  // then gave that action a sentence, which turned this assertion red. That is
+  // the guard working rather than a nuisance — the map is the type, so covering
+  // an action is exactly what should invalidate an example chosen for being
+  // uncovered. `loan.forgiven` is not in `ACTIONS` and nothing writes it; if a
+  // later slice adds it, replace it here rather than weakening the assertion.
+  const sentence = auditSentence("loan.forgiven", NOBODY, WHEN);
+  expect(sentence).not.toContain("loan.forgiven");
   expect(sentence).not.toContain("loan");
   expect(sentence).toBe(
     "Hệ thống đã thực hiện một thao tác hệ thống chưa được mô tả lúc 14:32 ngày 03/08/2026",

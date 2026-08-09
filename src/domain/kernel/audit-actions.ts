@@ -249,6 +249,15 @@ const ACTIONS = {
       return `nhận trả ${which(str(f.after, "title"))}${from}${state}`;
     },
   },
+  "loan.renewed": {
+    group: "muon-tra",
+    // NEWLY AUTHORED (C3) — the only new sentence in this slice. Same shape as
+    // the family around it: a bare verb phrase after "đã", no noun stacking.
+    // The new due date is deliberately not interpolated: it is a stored value,
+    // it is in `after` beside the old one, and BR §14 puts stored values behind
+    // the expansion rather than in the sentence.
+    phrase: () => "gia hạn một lượt mượn",
+  },
   "loan.voided": {
     group: "muon-tra",
     phrase: (f) => `huỷ một lượt mượn${because(str(f.after, "reason"))}`,
