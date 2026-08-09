@@ -135,9 +135,17 @@ export function ShelfHeader({
    * condition every one of the forty-one unwired pages in this app is in, it
    * is not something this slice introduced, and it is recorded in the U2 plan's
    * §6 rather than half-solved here.
+   *
+   * **U4 wired `toi/`, so "Trang của tôi" is back — and only that one.**
+   * `${base}/thong-bao` is still B3's announcements list rendered from
+   * fixtures, so its link stays out on exactly the reasoning above. The two
+   * halves of U2's decision were never one decision; they were one sentence
+   * about two pages, and they come back separately because they were wired
+   * separately.
    */
   const links = [
     { href: `${base}/danh-muc`, label: "Danh mục", key: "danh-muc", icon: false },
+    { href: `${base}/toi`, label: "Trang của tôi", key: "toi", icon: false },
     { href: `${base}/tim-kiem`, label: "Tìm kiếm", key: "tim-kiem", icon: true },
   ] as const;
 

@@ -2,6 +2,7 @@ import { RuleViolated } from "../../kernel/errors";
 import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
 import { requireReader } from "../../catalogue/policy";
+import { loanRenewable } from "../policy";
 import { renewalSettingsFor } from "../settings";
 
 export interface RenewLoanInput {
@@ -115,7 +116,16 @@ export const renewLoan: Command<RenewLoanInput, RenewLoanResult> = async (
        and deleted_at is null
      limit 1
   `;
-  if (queued) throw new RuleViolated("title_has_queue");
+
+  // Both refusals come from `loanRenewable` in `../policy.ts` rather than from
+  // two `if`s here, because U4's dashboard has to answer the same question to
+  // disable its button and say why. One predicate, two callers — the rule C1's
+  // review established after finding a query and a command disagreeing.
+  const block = loanRenewable(
+    { renewalsUsed: loan.renewals_used, titleHasQueue: queued != null },
+    maxRenewals,
+  );
+  if (block.blocked) throw new RuleViolated(block.reason);
 
   // `due_on + n`, in SQL, against the stored column. Not `ctx.clock.today()`
   // plus anything: see the docstring on why extending from today is the wrong
