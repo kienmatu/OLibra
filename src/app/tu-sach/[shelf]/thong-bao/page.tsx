@@ -4,7 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ShelfHeader } from "@/components/shell/public-header";
-import { announcements, shelfBySlug, shelves } from "@/lib/fixtures";
+import {
+  announcements,
+  fixtureViewerName,
+  shelfBySlug,
+  shelves,
+} from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -24,7 +29,12 @@ export default async function AnnouncementsPage({
 
   return (
     <>
-      <ShelfHeader shelf={shelf} active="thong-bao" />
+      <ShelfHeader
+        shelfName={shelf.name}
+        shelfSlug={shelf.slug}
+        active="thong-bao"
+        viewerName={fixtureViewerName}
+      />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
         <h1 className="text-[28px] leading-tight font-semibold">Thông báo</h1>

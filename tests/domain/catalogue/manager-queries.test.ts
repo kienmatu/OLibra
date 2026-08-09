@@ -57,6 +57,33 @@ async function lend(
   return loan.id;
 }
 
+test("the manager list sorts by title alphabetically in Vietnamese", async () => {
+  // U2 Task 4, extended to this query: the same `case when … then title end`
+  // expression the two reader-facing catalogue queries carried, and the same
+  // `C` collation underneath it, so "Đất Rừng Phương Nam" (`Đ` is `0xC4`)
+  // sorted after every unaccented title on the shelf. U3 wires the page that
+  // reads this.
+  const { ctx } = await shelf();
+  for (const title of ["Đất Rừng Phương Nam", "Kính Vạn Hoa tập 4"]) {
+    await runCommand(sql, ctx, createBook, {
+      title,
+      author: "Tô Hoài",
+      categorySlug: "van-hoc-thieu-nhi",
+      copyCount: 1,
+    });
+  }
+
+  const list = await runQuery(sql, ctx, (tx) =>
+    getBooksList(tx, ctx, { sort: "title" }),
+  );
+
+  expect(list.rows.map((r) => r.title)).toEqual([
+    "Đất Rừng Phương Nam",
+    "Dế Mèn Phiêu Lưu Ký",
+    "Kính Vạn Hoa tập 4",
+  ]);
+});
+
 test("the manager list shows a draft the reader catalogue hides", async () => {
   const { ctx, bookId } = await shelf();
   await sql`update books set is_published = false where id = ${bookId}`;
@@ -268,4 +295,70 @@ test("a reader reaches none of the three", async () => {
       searchBooksForLending(tx, readerCtx, { q: "de" }),
     ),
   ).rejects.toBeInstanceOf(RuleViolated);
+});
+
+/**
+ * IMPORTANT 5 (fix-report, 2026-08-09-u2-shelf-and-portal), the manager half.
+ *
+ * `getBooksList` carried the same `order by olibra_fold(title), created_at
+ * desc` as the two reader queries, and the same defect: `created_at` defaults
+ * to `now()`, which is transaction start time, so every book written in one
+ * transaction shares one instant and the sort is not a total order.
+ * `limit`/`offset` over a partial order shows some rows twice and skips
+ * others. See `get-catalogue.ts`'s docstring for the measurement and
+ * `reader-queries.test.ts` for the reader-facing version of this test.
+ *
+ * Worth having on this query separately rather than trusting the shared shape:
+ * a manager paging a bulk-loaded shelf looking for the draft they just created
+ * can page past it without it appearing at all, and it is a *different* query
+ * — no `is_published` filter, an extra `codes` aggregate — which is exactly
+ * how one of three copies of an expression comes to differ from the others.
+ */
+const MANAGER_PAGING_ROWS = 200;
+
+test("paging the manager list loses no book and repeats none", async () => {
+  const { s, ctx } = await shelf();
+
+  // Bulk, in one statement, sharing one created_at — which is what a bulk load
+  // looks like and what `createBook` (one transaction per book) cannot produce.
+  // Half of them drafts, since this list is the one place a draft appears and
+  // a page boundary must not be where one goes missing.
+  const titles: string[] = [];
+  const slugs: string[] = [];
+  const published: string[] = [];
+  for (let i = 0; i < MANAGER_PAGING_ROWS; i++) {
+    // olibra_fold collapses and trims runs of non-[a-z0-9], so a different
+    // number of trailing dots is a distinct title with an identical sort key.
+    titles.push(
+      `${["Dế Mèn", "Đất Rừng"][i % 2]}${".".repeat(Math.floor(i / 2) + 1)}`,
+    );
+    slugs.push(`bulk-${String(i).padStart(3, "0")}`);
+    published.push(i % 2 === 0 ? "true" : "false");
+  }
+  await sql`
+    insert into books (bookshelf_id, title, author, slug, is_published, created_at)
+    select ${s.id}, t.title, 'Tô Hoài', t.slug, t.published::boolean, '2026-08-01T00:00:00Z'
+    from unnest(${titles}::text[], ${slugs}::text[], ${published}::text[])
+      as t(title, slug, published)
+  `;
+
+  for (const sort of ["recent", "title"] as const) {
+    for (const pageSize of [7, 24]) {
+      const first = await runQuery(sql, ctx, (tx) =>
+        getBooksList(tx, ctx, { sort, page: 1, pageSize }),
+      );
+      const seen = first.rows.map((r) => r.slug);
+      for (let page = 2; (page - 1) * pageSize < first.total; page++) {
+        const result = await runQuery(sql, ctx, (tx) =>
+          getBooksList(tx, ctx, { sort, page, pageSize }),
+        );
+        seen.push(...result.rows.map((r) => r.slug));
+      }
+
+      const where = `sort=${sort} pageSize=${pageSize}`;
+      expect(first.total, where).toBe(MANAGER_PAGING_ROWS + 1);
+      expect(seen, where).toHaveLength(first.total);
+      expect(new Set(seen).size, where).toBe(first.total);
+    }
+  }
 });

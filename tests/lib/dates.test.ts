@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { formatDate, formatDueDate, formatInstant } from "../../src/lib/dates";
+import {
+  formatDate,
+  formatDueDate,
+  formatInstant,
+  formatYear,
+} from "../../src/lib/dates";
 import { filesUnder } from "../support/source-text";
 
 /**
@@ -39,6 +44,22 @@ test("an instant is read in the shelf's own timezone", () => {
   // 2026-08-20T18:30:00Z is 01:30 on the 21st in `Asia/Ho_Chi_Minh` (UTC+7),
   // which is the whole reason these two functions are not one function.
   expect(formatInstant("2026-08-20T18:30:00Z")).toBe("21/08/2026");
+});
+
+test("a year is not a quantity, so it carries no thousands separator", () => {
+  // Found in a browser, not by a type-checker, which is why U2's brief insists
+  // on the browser: the book page ran `books.published_year` through the same
+  // `Intl.NumberFormat("vi-VN")` it uses for copy counts, and `vi-VN` groups
+  // thousands with a full stop — so "Năm xuất bản 2.016" appeared under every
+  // title on the shelf. Every year a real book carries is four digits, so the
+  // defect is invisible in any locale that does not group, and unmissable in
+  // this one.
+  expect(formatYear(2016)).toBe("2016");
+  expect(formatYear(1998)).toBe("1998");
+  // Asserted as "not the grouped form" as well as "the right string", so a
+  // `formatYear` rewritten with a different separator cannot pass by accident.
+  expect(formatYear(2016)).not.toContain(".");
+  expect(formatYear(2016)).not.toContain(",");
 });
 
 test('only `dates.ts` knows the locale spells Sunday "Chủ Nhật"', () => {

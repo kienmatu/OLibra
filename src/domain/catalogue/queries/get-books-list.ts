@@ -30,6 +30,24 @@ export interface BooksListPage {
  * filter here — and each row carries the shelf-mark range (`codes`) a
  * volunteer reads off the spines, built from `min(code)`/`max(code)` over the
  * title's live copies.
+ *
+ * **`sort: "title"` orders by `olibra_fold(title)`**, for the reason
+ * `get-catalogue.ts`'s docstring spells out: this cluster's collation is `C`,
+ * so a plain `order by title` sorts every title beginning `Đ` after every
+ * unaccented one. U2 Task 4 was scoped to the two reader-facing queries; this
+ * third copy of the same expression is corrected with them because it is the
+ * same live defect on the same column, and U3 wires the manager list that reads
+ * it. Leaving one of three sorting differently is how a later reader concludes
+ * the difference was deliberate.
+ *
+ * **And `slug` ends the order**, for the reason `get-catalogue.ts`'s docstring
+ * now sets out at length (IMPORTANT 5, fix-report,
+ * 2026-08-09-u2-shelf-and-portal): `created_at` defaults to `now()`, which is
+ * transaction start time, so every book written in one transaction shares one
+ * instant — and a `limit`/`offset` page over a sort that is not a *total*
+ * order shows some rows twice and skips others. That is worse on this query
+ * than on the reader's: a manager paging a bulk-loaded shelf looking for the
+ * draft they just created can page past it without it ever appearing.
  */
 export async function getBooksList(
   tx: Tx,
@@ -122,9 +140,15 @@ export async function getBooksList(
     )
     select *, count(*) over ()::int as total_count
     from counted
+    -- olibra_fold(title), not title. See this function's docstring.
+    --
+    -- slug last, and it is what makes this a total order: without it a
+    -- shelf whose books share a created_at loses rows across page
+    -- boundaries. See get-catalogue.ts for the measurement.
     order by
-      case when ${input.sort ?? "recent"} = 'title' then title end asc,
-      created_at desc
+      case when ${input.sort ?? "recent"} = 'title' then olibra_fold(title) end asc,
+      created_at desc,
+      slug
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;
 

@@ -17,7 +17,14 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
 export default function RegisterPage() {
   return (
     <>
-      <ShelfHeader shelf={shelf} />
+      {/* Registration is the other genuinely public shelf page (§1.2): the
+          person filling it in has no membership yet, so there is no viewer to
+          name. */}
+      <ShelfHeader
+        shelfName={shelf.name}
+        shelfSlug={shelf.slug}
+        viewerName={null}
+      />
 
       <main className="mx-auto max-w-xl px-6 py-16">
         <h1 className="text-[28px] leading-tight font-semibold">

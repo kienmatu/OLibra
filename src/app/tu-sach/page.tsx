@@ -2,10 +2,29 @@ import Link from "next/link";
 import { ChevronRight, MapPin, Search } from "lucide-react";
 import { Input } from "@/components/ui/field";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
-import { shelves } from "@/lib/fixtures";
-import { matches } from "@/lib/search";
+import { listPublicShelves } from "@/domain/portal/queries/list-public-shelves";
+import { loadPublicPage } from "@/lib/page-data";
+import { SHELF_PARAM } from "@/lib/return-path";
+import { param, type SearchParams } from "@/lib/search-params";
 
 export const metadata = { title: "Tìm tủ sách — OLibra" };
+
+/**
+ * U1 §2, and it applies here for a reason the manager screens do not have.
+ *
+ * Those pages are dynamic because a cached render would serve one shelf's rows
+ * to another. This page's rows are the same for everybody, which is exactly
+ * what makes it the page Next.js would happily render once at build time and
+ * hand to every visitor from then on — with the directory frozen at whatever
+ * the shelves were on the day of the build, and a search box that searches it.
+ * A parish whose shelf was onboarded on Tuesday would be undiscoverable, which
+ * is the one thing this page has to do (§1.2).
+ *
+ * `tests/architecture/pages-reading-the-database-are-dynamic.test.ts` is the
+ * deliverable rather than this line: it walks imports and requires the marker
+ * on every route that reaches Postgres, this one included.
+ */
+export const dynamic = "force-dynamic";
 
 /**
  * The one public page about bookshelves, and it exists for one job: letting a
@@ -13,18 +32,41 @@ export const metadata = { title: "Tìm tủ sách — OLibra" };
  *
  * Name and address only. Book counts, reader counts and the keeper's phone
  * number were here before and should not have been — a person with no
- * membership has no business knowing them (§16.1).
+ * membership has no business knowing them (§16.1). Backed by a fixture array,
+ * that was a layout decision; backed by `listPublicShelves` it is a live
+ * disclosure boundary, and the column list in that query is the whole of what
+ * enforces it — see its docstring, and
+ * `tests/db/bookshelves-public-columns.test.ts`, which is the guard.
+ *
+ * **The search runs in Postgres, not here.** It used to be `matches()` from
+ * `@/lib/search` over the whole fixture array in this component. Three reasons
+ * it moved into the query, in the order they matter:
+ *
+ * 1. Filtering in the page means fetching every shelf in the deployment on
+ *    every keystroke-shaped request and discarding most of them. Four shelves
+ *    today; BR §1.4's Phase 3 is "the portal directory, multiple bookshelves",
+ *    which is the phase where this page stops being a list and starts being a
+ *    directory.
+ * 2. `olibra_fold()` in SQL is the folding rule `tests/db/folding.test.ts`
+ *    holds in agreement with `src/domain/kernel/fold.ts`. Folding in the page
+ *    is a second implementation of BR §12 that agrees today because both call
+ *    the same TypeScript function — and stops being obviously the same rule
+ *    the moment the directory grows an index on a folded column, which is
+ *    where the catalogue already is.
+ * 3. OPS §3.1 defines `SearchBookshelves` as an operation with a `q` input,
+ *    not as a client-side filter over `GetPortalDirectory`.
+ *
+ * `@/lib/search` keeps its other callers; nothing about `fold()` changed.
  */
 export default async function PortalPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  // Not `{ q?: string }`. `?q=de&q=men` arrives as an array, and a `.trim()`
+  // on it is a `TypeError` from inside a render — see `src/lib/search-params.ts`.
+  searchParams: Promise<SearchParams>;
 }) {
-  const { q } = await searchParams;
-  const query = (q ?? "").trim();
-  const results = query
-    ? shelves.filter((s) => matches(s.name, query) || matches(s.location, query))
-    : shelves;
+  const query = (param(await searchParams, "q") ?? "").trim();
+  const results = await loadPublicPage((tx) => listPublicShelves(tx, { q: query }));
 
   return (
     <>
@@ -53,22 +95,32 @@ export default async function PortalPage({
           <ul className="mt-8 divide-y divide-hairline border-y border-hairline">
             {results.map((shelf) => (
               <li key={shelf.slug}>
+                {/* Nit 14 / IMPORTANT 3: `?tu-sach=` was on every one of these
+                    links from the day the portal shipped and was read by
+                    nothing, while the sign-in page it points at took its
+                    heading from a fixture and named Đồng Tháp to everybody.
+                    `SHELF_PARAM` is now the one spelling both ends share. */}
                 <Link
-                  href={`/dang-nhap?tu-sach=${shelf.slug}`}
+                  href={`/dang-nhap?${SHELF_PARAM}=${encodeURIComponent(shelf.slug)}`}
                   className="group flex min-h-11 items-center gap-4 py-5"
                 >
                   <div className="min-w-0 flex-1">
                     <span className="block text-lg font-semibold group-hover:text-terracotta-ink">
                       {shelf.name}
                     </span>
-                    <span className="mt-1 flex items-start gap-2 text-[15px] text-meta">
-                      <MapPin
-                        aria-hidden
-                        className="mt-0.5 size-[18px] shrink-0"
-                        strokeWidth={1.75}
-                      />
-                      {shelf.location}
-                    </span>
+                    {/* A shelf onboarded without an address is a directory
+                        entry with a name and no address — a thinner row, not
+                        an error, and not a MapPin pointing at nothing. */}
+                    {shelf.location ? (
+                      <span className="mt-1 flex items-start gap-2 text-[15px] text-meta">
+                        <MapPin
+                          aria-hidden
+                          className="mt-0.5 size-[18px] shrink-0"
+                          strokeWidth={1.75}
+                        />
+                        {shelf.location}
+                      </span>
+                    ) : null}
                   </div>
                   <ChevronRight
                     aria-hidden

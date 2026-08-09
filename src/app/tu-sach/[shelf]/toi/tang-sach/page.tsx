@@ -6,7 +6,12 @@ import { PageHeading } from "@/components/ui/card";
 import { Pill, type PillTone } from "@/components/ui/pill";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
-import { donationsByReader, shelfBySlug, shelves } from "@/lib/fixtures";
+import {
+  donationsByReader,
+  fixtureViewerName,
+  shelfBySlug,
+  shelves,
+} from "@/lib/fixtures";
 import type { Donation } from "@/lib/fixtures";
 import type { LucideIcon } from "lucide-react";
 
@@ -47,7 +52,11 @@ export default async function MyDonationsPage({
 
   return (
     <>
-      <ShelfHeader shelf={shelf} />
+      <ShelfHeader
+        shelfName={shelf.name}
+        shelfSlug={shelf.slug}
+        viewerName={fixtureViewerName}
+      />
       <ReaderTabs shelfSlug={shelf.slug} active="tang-sach" />
 
       <main className="mx-auto max-w-3xl px-6 py-10">

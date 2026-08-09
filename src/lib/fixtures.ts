@@ -1144,6 +1144,25 @@ export function readerById(id: string) {
 }
 
 /**
+ * The name `ShelfHeader` shows on the shelf pages that are **not wired yet**.
+ *
+ * U2 Task 5 removed that component's `reader = "Giuse Trần Minh"` default,
+ * because a default is what let every page in the app render real books under
+ * a stranger's name without anybody deciding to. The eight reader pages that
+ * still draw their content from this file need *something*, and the honest
+ * something is a fixture named as one — sitting beside the fixture books and
+ * fixture loans those pages also render, rather than baked into a shared
+ * component where a wired page could pick it up by accident.
+ *
+ * It is `readers`' own "minh" rather than a fresh string, so the header agrees
+ * with the loans, comments and dashboard rows on the same pages; `minh.tran` is
+ * also the seeded reader account, so a developer signing in as that account and
+ * walking from a wired page to an unwired one does not appear to change person.
+ * Each of these call sites disappears as its page is wired to `Viewer`.
+ */
+export const fixtureViewerName = "Giuse Trần Minh";
+
+/**
  * A reader's offer to give books to the shelf (§3 of the refinements design;
  * BR §7.7, §16.2, §16.3). This is not provenance — provenance lives on
  * `book_copies` once a manager actually catalogues what was handed over.

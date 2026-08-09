@@ -281,6 +281,16 @@ test("the guard sees a page that reaches Postgres only through a helper", () => 
     expect(found, page).toContain(page);
   }
 
+  // U2 Task 2. The portal is the first *public* page to reach Postgres, and
+  // it reaches it through `loadPublicPage` rather than `loadPage` — a
+  // different export of the same module, so the walk finds it for the same
+  // reason. Worth naming individually rather than trusting the floor above:
+  // this is precisely the page a reader of the caching rule would assume is
+  // exempt, since its rows are identical for every visitor. That is what makes
+  // it the one Next.js would prerender at build time and serve with the
+  // directory frozen (U2's portal page carries the long version).
+  expect(found).toContain("src/app/tu-sach/page.tsx");
+
   // And the walk really is transitive: `src/lib/shelf.ts` names no page-data,
   // no client and no unit-of-work value import — it takes a `Tx` and runs SQL
   // on it — yet a page whose only reach is through it must still be caught.

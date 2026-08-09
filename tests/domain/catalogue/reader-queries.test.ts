@@ -220,6 +220,82 @@ test("the catalogue is paginated and reports its own total", async () => {
   expect(page.rows).toHaveLength(1);
 });
 
+/**
+ * The four `TITLES` above, in the order a Vietnamese reader expects, and in the
+ * order this cluster's `C` collation actually produces.
+ *
+ * Folded they are `dat rung phuong nam`, `de men phieu luu ky`,
+ * `kinh van hoa tap 4`, `totto chan ben cua so` — plain ASCII, so byte order
+ * and alphabetical order coincide. Under `order by title` the first byte
+ * decides: `D` is `0x44`, `K` is `0x4B`, `T` is `0x54`, and `Đ` is `0xC4`, so
+ * "Đất Rừng Phương Nam" sorts *last* rather than first. That one title moving
+ * from position 4 to position 1 is the whole assertion, and it is why the seed
+ * carries it.
+ */
+const ALPHABETICAL = [
+  "Đất Rừng Phương Nam",
+  "Dế Mèn Phiêu Lưu Ký",
+  "Kính Vạn Hoa tập 4",
+  "Totto-chan Bên Cửa Sổ",
+];
+
+test("sort=title is alphabetical in Vietnamese, not in byte order", async () => {
+  // U2 Task 4. The portal was fixed for the identical defect on `order by
+  // name` ("Tủ sách Đồng Tháp" after "Tủ sách Vĩnh Long"); this is the same
+  // defect on `order by title`, on the page a member actually browses.
+  //
+  // Asserted as the whole ordered list rather than "Đất comes before Dế",
+  // because a `order by` that had simply been reversed, or dropped, would
+  // satisfy a single pairwise check on some other run.
+  const { readerCtx } = await shelfWithCatalogue();
+
+  const page = await catalogue(readerCtx, { scope: "all", sort: "title" });
+
+  expect(page.rows.map((r) => r.title)).toEqual(ALPHABETICAL);
+});
+
+test("search results are alphabetical in Vietnamese too", async () => {
+  // Every title shares the author "Tô Hoài", so this one term returns all four
+  // and the order is the only thing being measured.
+  const { readerCtx } = await shelfWithCatalogue();
+
+  const rows = await runQuery(sql, readerCtx, (tx) =>
+    searchCatalogue(tx, readerCtx, { q: "to hoai" }),
+  );
+
+  expect(rows.map((r) => r.title)).toEqual(ALPHABETICAL);
+});
+
+test("two titles that fold alike keep a stable order between searches", async () => {
+  // The tiebreak `order by olibra_fold(b.title)` needed and `order by b.title`
+  // did not: folding is many-to-one, so "Dế Mèn Phiêu Lưu Ký" and a hand-typed
+  // "De Men Phieu Luu Ky" become the same sort key. With no second key Postgres
+  // may return them either way round, and a result list that reshuffles between
+  // two renders of the same search is one nobody can scan. `b.slug` decides.
+  const { managerCtx } = await shelfWithCatalogue();
+  await runCommand(sql, managerCtx, createBook, {
+    title: "De Men Phieu Luu Ky",
+    author: "Tô Hoài",
+    categorySlug: "van-hoc-thieu-nhi",
+    copyCount: 1,
+  });
+
+  const seen = new Set<string>();
+  for (let i = 0; i < 5; i++) {
+    const rows = await runQuery(sql, managerCtx, (tx) =>
+      searchCatalogue(tx, managerCtx, { q: "de men" }),
+    );
+    expect(rows).toHaveLength(2);
+    seen.add(rows.map((r) => r.slug).join(","));
+  }
+
+  expect(seen.size).toBe(1);
+  // And the tiebreak is the slug, so the order is predictable rather than
+  // merely repeatable: `de-men-phieu-luu-ky` before `de-men-phieu-luu-ky-2`,
+  // which `nextAvailableSlug` gave the second title.
+  expect([...seen][0]).toBe("de-men-phieu-luu-ky,de-men-phieu-luu-ky-2");
+});
+
 test("a category filter narrows by slug, not by name", async () => {
   const { readerCtx } = await shelfWithCatalogue();
   const all = await catalogue(readerCtx, {
@@ -404,3 +480,100 @@ test("a guest reaches none of the three", async () => {
     runQuery(sql, guestCtx, (tx) => searchCatalogue(tx, guestCtx, { q: "de men" })),
   ).rejects.toBeInstanceOf(RuleViolated);
 });
+
+/**
+ * IMPORTANT 5 (fix-report, 2026-08-09-u2-shelf-and-portal). Paging is only
+ * correct if the sort is a *total* order, and this one was not.
+ *
+ * `order by olibra_fold(title), created_at desc` was documented as having its
+ * ties broken by `created_at desc`. It does not when `created_at` collides —
+ * and it collides by default: every one of the twelve books `src/db/seed.ts`
+ * writes to `dong-thap` shares one `created_at`, because they were written in
+ * one transaction and the column defaults to `now()`, which is transaction
+ * start time. Under `sort: "recent"` the `case` expression is null for every
+ * row, so `created_at desc` is the *whole* sort key and every row is tied with
+ * every other.
+ *
+ * `limit`/`offset` then asks Postgres for a different top-N on every page, and
+ * a top-N selection over tied rows may order them differently each time. A
+ * child paging through the catalogue sees some titles twice and never sees
+ * others. Measured on 300 rows sharing one `created_at`: 300 rows collected,
+ * 231 unique at pageSize 7 — 69 lost. Latent at twelve books, because twelve
+ * books fit on one page.
+ *
+ * `searchCatalogue` already got this right (`order by olibra_fold(b.title),
+ * b.slug`) and already has the test above named for it; these are the two
+ * paginated queries that did not. `slug` is the right second key for the same
+ * reason it is there: it is unique per shelf, it is stable, and it is already
+ * in every row.
+ *
+ * Inserted with `sql` directly rather than through `createBook`: the point is
+ * three hundred rows sharing one instant, which is what a bulk load looks like
+ * and what `createBook` — one transaction per book — cannot produce.
+ */
+const PAGING_ROWS = 300;
+
+/** Three hundred books, distinct titles, three folded sort keys, one `created_at`. */
+async function shelfWithABulkLoad() {
+  const { readerCtx, shelf } = await shelfWithCatalogue();
+  const titles: string[] = [];
+  const slugs: string[] = [];
+  for (let i = 0; i < PAGING_ROWS; i++) {
+    // `olibra_fold` collapses and trims every run of non-[a-z0-9], so a
+    // different number of trailing dots is a different title with the same
+    // sort key — which is the collision `sort: "title"` has to survive.
+    const base = ["Dế Mèn", "Đất Rừng", "Kính Vạn"][i % 3];
+    titles.push(`${base}${".".repeat(Math.floor(i / 3) + 1)}`);
+    slugs.push(`bulk-${String(i).padStart(3, "0")}`);
+  }
+  await sql`
+    insert into books (bookshelf_id, title, author, slug, is_published, created_at)
+    select ${shelf.id}, t.title, 'Tô Hoài', t.slug, true, '2026-08-01T00:00:00Z'
+    from unnest(${titles}::text[], ${slugs}::text[]) as t(title, slug)
+  `;
+  return { readerCtx };
+}
+
+/**
+ * Every slug `getCatalogue` hands back when a reader pages all the way
+ * through, and the total it claims there are.
+ *
+ * The total comes from the query's own window count rather than from a
+ * constant here, so the four titles `shelfWithCatalogue` already seeded are
+ * included without this helper having to know about them.
+ */
+async function everySlugByPaging(
+  ctx: TenantContext,
+  input: Parameters<typeof getCatalogue>[2],
+  pageSize: number,
+) {
+  const first = await catalogue(ctx, { ...input, page: 1, pageSize });
+  const seen = first.rows.map((r) => r.slug);
+  for (let page = 2; (page - 1) * pageSize < first.total; page++) {
+    const result = await catalogue(ctx, { ...input, page, pageSize });
+    seen.push(...result.rows.map((r) => r.slug));
+  }
+  return { seen, total: first.total };
+}
+
+for (const sort of ["recent", "title"] as const) {
+  for (const pageSize of [7, 24]) {
+    test(`paging the catalogue by ${sort} at ${pageSize} a page loses no book and repeats none`, async () => {
+      const { readerCtx } = await shelfWithABulkLoad();
+
+      const { seen, total } = await everySlugByPaging(
+        readerCtx,
+        { scope: "all", sort },
+        pageSize,
+      );
+
+      // The bulk load plus the four titles the fixture shelf already carries.
+      expect(total).toBe(PAGING_ROWS + TITLES.length);
+      // Both halves, because they fail together and mean different things: the
+      // count says every page was full, and the set says the pages were slices
+      // of one order rather than of several.
+      expect(seen).toHaveLength(total);
+      expect(new Set(seen).size).toBe(total);
+    });
+  }
+}

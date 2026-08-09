@@ -4,7 +4,7 @@ import { Camera, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { ShelfHeader } from "@/components/shell/public-header";
-import { shelfBySlug, shelves } from "@/lib/fixtures";
+import { fixtureViewerName, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -30,7 +30,11 @@ export default async function TangSachPage({
 
   return (
     <>
-      <ShelfHeader shelf={shelf} />
+      <ShelfHeader
+        shelfName={shelf.name}
+        shelfSlug={shelf.slug}
+        viewerName={fixtureViewerName}
+      />
 
       <main className="mx-auto max-w-xl px-6 py-16">
         <h1 className="text-[28px] leading-tight font-semibold">Tặng sách</h1>

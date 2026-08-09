@@ -82,6 +82,49 @@ export interface CataloguePage {
  * `availability` is the title-level badge the card shows, aggregated from the
  * copy states rather than stored: available if anything is borrowable, then
  * whichever state the shelf's copies are actually in.
+ *
+ * **`sort: "title"` orders by the folded title, not by the title** (U2 Task 4).
+ * This cluster's collation is `C` — `datcollate = 'C'`, `datlocprovider = 'c'`,
+ * read off the running database — which orders by byte value. `Đ` is two bytes
+ * beginning `0xC4`, so under a plain `order by title` "Đất Rừng Phương Nam"
+ * sorts *after* "Tuổi Thơ Dữ Dội" and lands last on a shelf of twelve
+ * Vietnamese titles: alphabetical to nobody who will ever read it. The portal
+ * hit the identical defect on `order by name` and was fixed the same way
+ * (`domain/portal/queries/list-public-shelves.ts`, whose docstring carries the
+ * first telling); this is that fix on the two reader-facing catalogue queries,
+ * which are the ones U2's sort control actually reaches.
+ *
+ * `olibra_fold` maps `Đ` to `d` and strips every diacritic, leaving
+ * `[a-z0-9 ]`, on which byte order and alphabetical order are the same thing —
+ * so the sort key is a rule this schema already owns (BR §12,
+ * `0002_folding.sql`) rather than a collation every deployment would have to be
+ * created with. `books.title_folded` is a generated column over that same
+ * function, so what the catalogue sorts by cannot drift from what search
+ * matches on.
+ *
+ * **`slug` is the last sort key, and without it this query loses rows**
+ * (IMPORTANT 5, fix-report, 2026-08-09-u2-shelf-and-portal). The order used to
+ * end at `created_at desc`, described here as breaking ties. It does not, and
+ * the case where it does not is the ordinary one: `created_at` defaults to
+ * `now()`, which is *transaction start* time, so every book written in one
+ * transaction shares one instant — all twelve `src/db/seed.ts` writes to
+ * `dong-thap`, and every bulk load a parish will ever do. Under
+ * `sort: "recent"` the `case` expression above is null for every row, so
+ * `created_at desc` is the entire sort key and every row is tied with every
+ * other; under `sort: "title"` two titles that fold alike are tied as well.
+ *
+ * A tie is not a stable order. `limit`/`offset` asks Postgres for a different
+ * top-N on each page, and a top-N selection over tied rows may order them
+ * differently every time — so a page boundary can show a row twice and skip
+ * another entirely. Measured over 300 rows sharing one `created_at`: 300 rows
+ * collected across the pages, **231 unique** at pageSize 7. A child paging
+ * through "Tên sách" sees some titles twice and never sees others. Latent at
+ * twelve books only because twelve books fit on one page.
+ *
+ * `slug` is the fix and is the same key `search-catalogue.ts` already ends on:
+ * unique per shelf (`0004_catalogue.sql`), immutable, and already selected. It
+ * makes the order total, which is what pagination requires and what
+ * "`created_at desc` breaks ties" was claiming.
  */
 export async function getCatalogue(
   tx: Tx,
@@ -156,9 +199,17 @@ export async function getCatalogue(
     )
     select *, count(*) over ()::int as total_count
     from scoped
+    -- olibra_fold(title), not title. See this function's docstring: the
+    -- cluster's collation is C, and a plain sort by title puts Đ last.
+    --
+    -- slug last, and it is what makes this a total order rather than a
+    -- decorative one — see the docstring. Without it, a shelf whose books
+    -- share a created_at (every bulk load, and the seed) loses rows across
+    -- page boundaries.
     order by
-      case when ${input.sort ?? "recent"} = 'title' then title end asc,
-      created_at desc
+      case when ${input.sort ?? "recent"} = 'title' then olibra_fold(title) end asc,
+      created_at desc,
+      slug
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;
 
