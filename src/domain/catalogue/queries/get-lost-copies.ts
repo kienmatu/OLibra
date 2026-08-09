@@ -87,8 +87,26 @@ export interface LostCopyRow {
  * first under `desc` by default, which would have put the least informative rows
  * at the top.
  *
- * Not paged, for `getOverdueLoans`' recorded reason: the set is bounded by its
- * own state rather than by the size of the shelf.
+ * **Not paged — and the parity that used to justify that does not hold.** This
+ * claimed `getPendingRegistrations`' and `getPendingProfileChanges`' reason:
+ * "bounded by its own state rather than by the size of the shelf". The words are
+ * true of all three and the property they are standing in for is not. Those two
+ * queues *drain* — a manager works them down within days, and a shelf where they
+ * do not has a problem no pagination control addresses. A `lost` copy leaves this
+ * set only via an explicit `MarkCopyFound` or `RetireCopy`, and nobody is under
+ * any pressure to run either: a copy nobody expects back can sit here for years.
+ * So this set is **monotonically increasing until somebody acts**, which is the
+ * one query in this slice that grows without bound over the life of a shelf.
+ * `getOverdueLoans` is not in the same position either — a loan leaves it when
+ * the book comes back, which is the thing the screen exists to cause.
+ *
+ * Nothing breaks at a few hundred rows, which is why paging it is optional
+ * rather than owed. What gives first is not this query — it is `sach/mat`'s
+ * HTML: one `Card` and one `BookCover` per row, all of them rendered, on a
+ * volunteer's phone. If that screen ever needs a `limit`/`offset`, the order
+ * below is already total and adding one is two lines. The false parity is the
+ * part that had to go, because it is the kind of reasoning that gets copied into
+ * the next query without being re-checked.
  */
 export async function getLostCopies(
   tx: Tx,
