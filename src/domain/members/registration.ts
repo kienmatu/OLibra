@@ -44,6 +44,18 @@ export interface RegistrationInput {
    * already handles a multipart form. That separation is now enforced rather
    * than merely intended: `tests/architecture/boundaries.test.ts` fails if
    * anything under `src/domain/` imports the store.
+   *
+   * **A URL and no key, which means this photograph can never be deleted.**
+   * Every other avatar in the system arrives through `ProposeAvatarChange`,
+   * which carries `avatar_object` — the storage key — in the request's
+   * `proposed_values`, so rejecting, cancelling or superseding one removes the
+   * object (`src/lib/avatar.ts`). One set here has no key anywhere, so a family
+   * that asks the parish to take their child's photograph down cannot be
+   * obliged by any code path. That is a **retention** gap, not a storage one:
+   * `src/storage/s3.ts` records that the readers here are children and that
+   * name-plus-face is the most identifying pair of facts in the system.
+   * Closing it means a key column on `users` and a migration — master plan
+   * §7.14, **B6 · Avatar retention**, owns it.
    */
   avatarUrl?: string | null;
   parishUnitL1Id?: string | null;

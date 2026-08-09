@@ -47,12 +47,26 @@ import { submitCommand } from "./page-data";
  * strictly the better half of the trade, and it is the half this module chooses
  * deliberately.
  *
- * ── What is deliberately not cleaned up ─────────────────────────────────────
+ * ── The one photograph this application still cannot delete ────────────────
  *
- * *Approving* a change orphans the **previous** photograph. OPS §4.3 requires
- * deletion only on reject or cancel, and the previous image's key is not
- * recoverable in general: an avatar set at registration arrives as a URL with no
- * key at all (`src/domain/members/registration.ts`). Recorded, not solved.
+ * *Approving* a replacement used to orphan the previous photograph as well, and
+ * "orphaned storage" was the wrong name for it. `src/storage/s3.ts` argues that
+ * the readers here are children and that name-plus-face is the most identifying
+ * pair of facts in the system; a family who replaces their child's photograph,
+ * or asks the parish to take it down, must not leave every earlier version
+ * answering 200 from a public bucket forever. That is retention, not storage.
+ *
+ * `ApproveProfileChange` now returns the superseded object the same way the
+ * reject and cancel paths do, and `decideAndDiscardAvatar` below deletes it —
+ * it finds the key in the approved request that put the old photograph there.
+ *
+ * **What remains, and it is not a comment's worth.** A photograph set at
+ * *registration* arrives as a bare `avatarUrl` with no key anywhere
+ * (`src/domain/members/registration.ts`), so nothing in this codebase can remove
+ * it — not a replacement, not a request from the family. Closing that needs a
+ * key column on `users` and a migration, which is bigger than this module, so it
+ * is recorded as a slice with an owner: master plan §7.14, **B6 · Avatar
+ * retention**.
  */
 
 /**
@@ -206,13 +220,19 @@ export async function discardAvatarObject(key: string | null): Promise<void> {
  * Runs a command that decides a profile-change request, then deletes the
  * photograph it orphaned.
  *
- * `RejectProfileChange` and `CancelProfileChange` both return
- * `{ avatarObject }`, and both are called from screens a later slice builds.
- * Composing the two steps here rather than in each of those screens is what
- * makes the ordering structural: a caller of this function cannot delete before
+ * **All three decisions**, and the third is the one that matters most.
+ * `RejectProfileChange` and `CancelProfileChange` return the *proposed* image,
+ * which nothing points at once the request is refused; `ApproveProfileChange`
+ * returns the image it *replaced*, which nothing points at once the new one is
+ * in force. Three different objects, one field name, one call site — because
+ * the question a surface has to answer is the same in all three cases and
+ * getting it wrong is silent in all three.
+ *
+ * Composing the two steps here rather than in each of the screens a later slice
+ * builds is what makes the ordering structural: a caller cannot delete before
  * the commit, because `submitCommand` has already returned by the time the
  * delete is reachable, and cannot forget the delete, because there is no other
- * shipped way to call these two commands from a surface.
+ * shipped way to call these commands from a surface.
  */
 export async function decideAndDiscardAvatar<I>(
   shelfSlug: string,

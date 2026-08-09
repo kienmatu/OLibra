@@ -51,6 +51,11 @@ const s3 = testS3Config();
 const { proposeAvatarAction, cancelProfileChangeAction } =
   await import("../../src/app/tu-sach/[shelf]/toi/ho-so/actions");
 const { decideAndDiscardAvatar } = await import("../../src/lib/avatar");
+const { submitCommand } = await import("../../src/lib/page-data");
+const { approveProfileChange } =
+  await import("../../src/domain/members/commands/approve-profile-change");
+const { proposeProfileChange } =
+  await import("../../src/domain/members/commands/propose-profile-change");
 const { rejectProfileChange } =
   await import("../../src/domain/members/commands/reject-profile-change");
 const { pool } = await import("../../src/db/client");
@@ -151,6 +156,18 @@ async function signInAs(bookshelfId: string, role: string, username: string) {
   const { token } = await signIn(sql, { username, password: "x", clock });
   session.token = token;
   return { userId: user.id, membershipId: membership.id };
+}
+
+/**
+ * Signs in as somebody `signInAs` already created, without creating them again.
+ *
+ * The approval tests below hand the shelf back and forth between the reader and
+ * the manager several times, and `signInAs` inserts a `users` row every call —
+ * so re-using it for the second visit collides on `users_username_key`.
+ */
+async function switchTo(username: string): Promise<void> {
+  const { token } = await signIn(sql, { username, password: "x", clock });
+  session.token = token;
 }
 
 /**
@@ -295,6 +312,83 @@ test("a second photograph deletes the first", async () => {
   expect(second).not.toBe(first);
   expect(await statusOf(first)).toBe(404);
   expect(await statusOf(second)).toBe(200);
+});
+
+test("approving a replacement deletes the photograph it replaced", async () => {
+  // The retention half. `src/storage/s3.ts` argues that the readers here are
+  // children and that name-plus-face is the most identifying pair of facts in
+  // the system, so an earlier photograph left answering 200 from a public
+  // bucket forever is not a storage cost — it is a family's request the
+  // software cannot honour. Approving used to leave exactly that behind.
+  //
+  // The key is not on `users`, which holds a URL; `ApproveProfileChange` finds
+  // it in the approved request that put the old photograph there. So this test
+  // needs two full rounds — propose, approve, propose, approve — and the
+  // assertion is that the first URL, which answered 200 through both of them,
+  // answers 404 once the second is approved.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const reader = await signInAs(shelf.id, "reader", "minh.tran");
+  const fields = { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId };
+
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, png("mot.png"))));
+  const first = await proposedValues();
+  const firstUrl = first.proposed_values.avatar_url;
+
+  await signInAs(shelf.id, "manager", "lan.nguyen");
+  await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
+    profileChangeRequestId: first.id,
+  });
+  expect(await statusOf(firstUrl)).toBe(200);
+
+  await switchTo("minh.tran");
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, png("hai.png"))));
+  const second = await proposedValues();
+  const secondUrl = second.proposed_values.avatar_url;
+  expect(secondUrl).not.toBe(firstUrl);
+
+  await switchTo("lan.nguyen");
+  await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
+    profileChangeRequestId: second.id,
+  });
+
+  expect(await statusOf(firstUrl)).toBe(404);
+  expect(await statusOf(secondUrl)).toBe(200);
+});
+
+test("approving a change that is not about the photograph deletes nothing", async () => {
+  // The other side of the same decision, and the reason the superseded key is
+  // read off `applyProfileFields`' own before/after rather than out of
+  // `proposed_values`: a manager approving a phone number must not delete the
+  // person's photograph because the two proposals shared one pending row.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const reader = await signInAs(shelf.id, "reader", "minh.tran");
+  const fields = { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId };
+
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, png())));
+  const proposal = await proposedValues();
+  const url = proposal.proposed_values.avatar_url;
+
+  await signInAs(shelf.id, "manager", "lan.nguyen");
+  await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
+    profileChangeRequestId: proposal.id,
+  });
+  expect(await statusOf(url)).toBe(200);
+
+  // A second, photograph-free proposal, approved. Nothing about the avatar
+  // moves, so nothing about the avatar may be deleted.
+  await switchTo("minh.tran");
+  await submitCommand("dong-thap", proposeProfileChange, {
+    membershipId: reader.membershipId,
+    fields: { phone: "0912345678" },
+  });
+  const phoneRequest = await proposedValues();
+
+  await switchTo("lan.nguyen");
+  await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
+    profileChangeRequestId: phoneRequest.id,
+  });
+
+  expect(await statusOf(url)).toBe(200);
 });
 
 test("a file over 2 MB is refused, and nothing is stored", async () => {

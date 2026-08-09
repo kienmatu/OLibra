@@ -1,8 +1,9 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import { requireIdentifiedActor } from "../../kernel/tenant";
-import type { Command } from "../../kernel/unit-of-work";
+import type { Command, Tx } from "../../kernel/unit-of-work";
 import { loadParishContext } from "../parish-context";
 import { validateSelection } from "../parish-taxonomy";
+import { avatarObjectOf } from "../pending-proposal";
 import { requireManager } from "../policy";
 import {
   applyProfileFields,
@@ -55,10 +56,37 @@ export interface ApproveProfileChangeInput {
  * and it is also what a request belonging to *another shelf* produces, because
  * RLS filtered the select to zero rows rather than anyone comparing two shelf
  * ids. B2b's plan §8 asks the product owner for a specific sentence.
+ *
+ * ── `avatarObject`: the photograph this approval replaced ────────────────
+ *
+ * Approving a new photograph makes the old one unreferenced, and the old one
+ * goes on answering 200 from a public bucket for as long as nobody deletes it.
+ * That is a **retention** problem rather than a storage one: `src/storage/s3.ts`
+ * argues at length that the readers here are children and that name-plus-face is
+ * the most identifying pair of facts in the system, so a family who replaces
+ * their child's photograph — or asks the parish to take it down — must not leave
+ * every earlier version publicly fetchable.
+ *
+ * So this command returns the superseded object's key, and the surface deletes
+ * it after the commit, exactly as `./reject-profile-change.ts` and
+ * `./cancel-profile-change.ts` already do. Same field name, so
+ * `decideAndDiscardAvatar` in `src/lib/avatar.ts` takes all three without
+ * knowing which decision it is running.
+ *
+ * **What it recovers, and what it cannot.** The key is not on `users` — that
+ * column holds a URL — so it is read back out of the request that *put* the old
+ * photograph there, whose `proposed_values` still carries its `avatar_object`
+ * and which `audit_log` and the request table both keep forever. Every avatar
+ * that arrived through this lifecycle is therefore deletable. One does not:
+ * a photograph set at registration arrives as a bare `avatarUrl` with no key
+ * anywhere (`../registration.ts`), so no code path can remove it. That needs a
+ * key column on `users` and a migration, and it is recorded as its own slice —
+ * master plan §7.14, **B6 · Avatar retention** — rather than as a comment,
+ * because it is a promise to a family that the software cannot currently keep.
  */
 export const approveProfileChange: Command<
   ApproveProfileChangeInput,
-  { userId: string }
+  { userId: string; avatarObject: string | null }
 > = async (tx, ctx, input) => {
   requireManager(ctx);
   // `decided_by` is nullable and would take a null happily; INV-8 wants the
@@ -142,6 +170,16 @@ export const approveProfileChange: Command<
   const { before, after } = await applyProfileFields(tx, request.user_id, proposed);
   const diff = diffProfileFields(before, after);
 
+  // Read *after* the write, off the authoritative before/after, rather than
+  // from `proposed_values` — so an approval that did not actually move the
+  // photograph (the same URL re-proposed, a proposal about a phone number)
+  // hands back nothing to delete. The same reasoning as `empty_proposal` on
+  // `./update-reader-profile.ts`: one statement decides what changed.
+  const supersededAvatar =
+    before.avatar_url !== null && after.avatar_url !== before.avatar_url
+      ? await avatarObjectBehind(tx, request.id, request.user_id, before.avatar_url)
+      : null;
+
   await tx`
     update profile_change_requests
        set status     = 'approved',
@@ -151,7 +189,7 @@ export const approveProfileChange: Command<
   `;
 
   return {
-    result: { userId: request.user_id },
+    result: { userId: request.user_id, avatarObject: supersededAvatar },
     audit: {
       action: "profile_change.approved",
       // The **person**, unlike the other three commands in this lifecycle,
@@ -169,3 +207,42 @@ export const approveProfileChange: Command<
     },
   };
 };
+
+/**
+ * The storage key of the object a person's *current* `avatar_url` names, found
+ * in the request that put it there.
+ *
+ * `users` keeps only the URL — DATABASE.md §4.11's `jsonb` argument is what made
+ * a key column unnecessary for the *pending* image, and the price is that a
+ * *settled* one has no key beside it. It is recoverable anyway, because
+ * `profile_change_requests` is never deleted: the approved row that set this URL
+ * still carries the `avatar_object` the surface wrote. So this is a lookup, not
+ * a derivation — nothing here reconstructs a key out of a URL, which would be a
+ * guess that quietly stops matching the day `S3_PUBLIC_URL` changes and would
+ * happily hand back a key for a URL this application never issued.
+ *
+ * `null` is the ordinary answer for a photograph that arrived at registration as
+ * a bare URL (`../registration.ts`), for one set at another shelf (RLS scopes
+ * this select), and for an `avatar_url` pointing anywhere else at all. The
+ * caller treats "no key" as "nothing to delete", which is honest: what is
+ * missing is the ability to delete it, not the intention. Master plan §7.14,
+ * **B6 · Avatar retention**, owns closing that.
+ */
+async function avatarObjectBehind(
+  tx: Tx,
+  exceptRequestId: string,
+  userId: string,
+  avatarUrl: string,
+): Promise<string | null> {
+  const [row] = await tx<{ proposed_values: unknown }[]>`
+    select proposed_values
+      from profile_change_requests
+     where user_id = ${userId}
+       and id <> ${exceptRequestId}
+       and status = 'approved'
+       and proposed_values->>'avatar_url' = ${avatarUrl}
+     order by decided_at desc nulls last
+     limit 1
+  `;
+  return row ? avatarObjectOf(row.proposed_values) : null;
+}
