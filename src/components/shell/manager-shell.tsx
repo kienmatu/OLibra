@@ -4,6 +4,7 @@ import {
   BarChart3,
   BookDown,
   BookUp,
+  Bookmark,
   Library,
   Cog,
   KeyRound,
@@ -57,22 +58,29 @@ export interface ShellViewer {
 }
 
 /**
- * The three counts the sidebar can honestly show — `ManagerBadgeCounts` from
+ * The counts the sidebar can honestly show — `ManagerBadgeCounts` from
  * `src/domain/shelf/queries/get-manager-dashboard.ts`, restated structurally
  * for the reason `ShellViewer` above gives.
+ *
+ * Three when U3 wrote this, and `pendingRequests` since C2 shipped the query
+ * behind it. Adding a field here is safe in exactly one direction: a page still
+ * passing the three-field shape stops compiling, which is what forces the count
+ * to be *queried* rather than defaulted to zero.
  */
 export interface ShellCounts {
   pendingRegistrations: number;
   pendingProfileChanges: number;
+  pendingRequests: number;
   overdue: number;
 }
 
 /**
  * Which page is being rendered. **Wider than `NAV` below**, deliberately:
- * `yeu-cau-muon`, `tang-sach` and `binh-luan` no longer have a nav entry (see
- * `NAV`) but their routes still exist as fixture pages and still have to say
- * which page they are. Narrowing the union would be deleting three routes,
- * which is a different decision from removing three links.
+ * `tang-sach` and `binh-luan` no longer have a nav entry (see `NAV`) but their
+ * routes still exist as fixture pages and still have to say which page they
+ * are. Narrowing the union would be deleting two routes, which is a different
+ * decision from removing two links. `yeu-cau-muon` was the third until C2
+ * shipped the query behind it and put its entry back.
  */
 export type ManagerNavKey =
   | "trang-chinh"
@@ -92,23 +100,30 @@ export type ManagerNavKey =
   | "cai-dat";
 
 /**
- * The sidebar, and the three entries that left it (U3 §3.1).
+ * The sidebar, the three entries that left it (U3 §3.1), and the one that came
+ * back (C2).
  *
  * This shipped with six hard-coded badge counts — `Đăng ký chờ duyệt 5`,
  * `Đổi thông tin 2`, `Yêu cầu mượn 2`, `Tặng sách 3`, `Quá hạn 3`,
  * `Bình luận 1` — on manager pages six of which have shown real books, from a
- * real parish, since U1. Three of the six belong to slices that do not exist:
- * **Yêu cầu mượn** is C2's borrow-request queue, **Tặng sách** and
+ * real parish, since U1. Three of the six belonged to slices that did not
+ * exist: **Yêu cầu mượn** was C2's borrow-request queue, **Tặng sách** and
  * **Bình luận** are B3's donations and comments. No query in this codebase
- * could answer them and no page behind them does anything.
+ * could answer them and no page behind them did anything.
  *
- * **So the badge goes, and the nav entry with it.** Showing the fixture number
+ * **So the badge went, and the nav entry with it.** Showing the fixture number
  * is a lie. Showing `0` is a different lie, and a worse-shaped one: a volunteer
  * reads "no comments waiting" and stops checking, which is a false statement
  * about a queue nothing is reading. This is U2's answer to the same question
  * one page earlier — it removed the header's links to unwired reader pages —
  * and it is the same reason: mixed into chrome whose other half is real, an
  * invented number is indistinguishable from data.
+ *
+ * **And so the entry comes back when the query does.** C2 shipped
+ * `GetBorrowRequestQueue` and `countQueuedRequests`, so **Yêu cầu mượn** is a
+ * number somebody measured and a page that reads the database — which is the
+ * whole of what U3 §3.1 asked for. The other two wait for B3. The removal was
+ * never about the link; it was about the number beside it.
  *
  * **`badge` is a field of `ShellCounts`, not a number.** A nav entry cannot
  * carry a count that was written here, only the name of a count somebody
@@ -144,6 +159,12 @@ const NAV: {
     label: "Đổi thông tin",
     icon: UserPen,
     badge: "pendingProfileChanges",
+  },
+  {
+    key: "yeu-cau-muon",
+    label: "Yêu cầu mượn",
+    icon: Bookmark,
+    badge: "pendingRequests",
   },
   { key: "qua-han", label: "Quá hạn", icon: TriangleAlert, badge: "overdue" },
   // P1. No badge: an audit log has no queue waiting on anybody, so there is no

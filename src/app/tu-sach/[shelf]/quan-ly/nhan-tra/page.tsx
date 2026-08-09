@@ -19,8 +19,9 @@ import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { COPY_CONDITIONS, type CopyCondition } from "@/domain/catalogue/policy";
 import { messageFor } from "@/domain/kernel/errors";
+import { getBorrowRequestQueue } from "@/domain/circulation/queries/get-borrow-request-queue";
 import { searchLoansForReturn } from "@/domain/circulation/queries/search-loans-for-return";
-import { formatDueDate } from "@/lib/dates";
+import { formatDueDate, formatInstant } from "@/lib/dates";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -31,6 +32,9 @@ import { receiveReturnAction } from "../actions";
 
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
+
+/** SDD §6.6: every number on a screen goes through the locale. */
+const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /**
  * One icon per grade, keyed on the `copy_condition` enum rather than on the
@@ -68,13 +72,26 @@ const DEFAULT_CONDITION: CopyCondition = "perfect";
  * The cost is that `?q=` has to travel with `?muon=` everywhere, which is why
  * every link out of here is built from `carrying()` below.
  *
- * **The queued-reader panel is deliberately absent.** OPS §5 makes holding the
- * returned copy for the next reader a second, explicit decision — "the manager
- * decides, because the next reader may not be standing there" — and offering it
- * needs `GetBorrowRequestQueue` (OPS §3.3), which no slice has shipped.
- * `receiveReturn` takes `holdForRequestId` as an option and this screen never
- * sends one, so the copy goes back to `available` and nothing is decided on the
- * manager's behalf. The panel returns with C2, wired to that query.
+ * **The queued-reader panel is back** (C2). It was absent from U1 until now,
+ * and for a good reason: OPS §5 makes holding the returned copy for the next
+ * reader a second, explicit decision — "the manager decides, because the next
+ * reader may not be standing there" — and offering it needs
+ * `GetBorrowRequestQueue` (OPS §3.3), which no slice had shipped.
+ * `receiveReturn` has always taken `holdForRequestId`; this screen simply had
+ * nothing honest to put in it, so the copy went back to `available` and nothing
+ * was decided on the manager's behalf.
+ *
+ * Now the queue for *this title* is read alongside the loan, and the choice is
+ * offered as a radio group whose default is **not** holding. That default is the
+ * decision, not a shortcut: §5's whole point is that a queued reader who
+ * registered from home might not be at the shelf that Sunday, and only a human
+ * knows that. A pre-selected "hold for the first person" would make the common
+ * case a choice nobody made.
+ *
+ * The queue is read at page load and acted on at submit, so a reader who
+ * cancelled in between is a `request_not_queued` refusal from `resolveHold`
+ * rather than a hold written for somebody who left — which is exactly why that
+ * command re-reads rather than trusting the id.
  */
 export default async function NhanTraPage({
   params,
@@ -90,17 +107,33 @@ export default async function NhanTraPage({
   const query = param(search, "q") ?? "";
   const muon = param(search, "muon");
 
-  const { shelf, viewer, counts, loans } = await loadPage(
+  const { shelf, viewer, counts, loans, queues } = await loadPage(
     slug,
-    async (tx, ctx, viewer) => ({
-      shelf: await readShelf(tx, ctx),
-      viewer,
-      counts: await getManagerBadgeCounts(tx, ctx),
-      loans: await searchLoansForReturn(tx, ctx, { q: query }),
-    }),
+    async (tx, ctx, viewer) => {
+      const loans = await searchLoansForReturn(tx, ctx, { q: query });
+      const chosen = muon ? loans.find((l) => l.loanId === muon) : undefined;
+      return {
+        shelf: await readShelf(tx, ctx),
+        viewer,
+        counts: await getManagerBadgeCounts(tx, ctx),
+        loans,
+        // Only for the title actually being returned, and only once one has
+        // been chosen — OPS §5 step 3 asks this question about *this* book, at
+        // this point in the flow. Reading the whole shelf's queue to answer it
+        // would put every other title's children on a screen that is about one.
+        queues: chosen
+          ? await getBorrowRequestQueue(tx, ctx, { bookId: chosen.bookId })
+          : [],
+      };
+    },
   );
 
   const selected = muon ? (loans.find((l) => l.loanId === muon) ?? null) : null;
+  // The people still waiting for this title, in queue order. `pending` only:
+  // `receiveReturn`'s `resolveHold` will accept nothing else, because approving
+  // a second copy for somebody who already holds one is not a choice this screen
+  // is offering.
+  const waiting = (queues[0]?.requests ?? []).filter((r) => r.status === "pending");
   const refused = refusalFrom(search);
 
   const base = `/tu-sach/${slug}/quan-ly`;
@@ -289,9 +322,70 @@ export default async function NhanTraPage({
             </Field>
           </div>
 
+          {waiting.length > 0 ? (
+            <fieldset className="mt-6 rounded-card border border-hairline p-4">
+              {/* BR §16.3's own wording for this moment, and the reason the
+                  panel exists: "the confirmation says so immediately and offers
+                  to approve the first person in the queue." */}
+              <legend className="px-1 text-[15px] font-semibold">
+                {NUMBER.format(waiting.length)} bạn đọc đang chờ cuốn này
+              </legend>
+              <div className="space-y-2">
+                {/* First, and checked: not holding is the default, because
+                    OPS §5 says "nothing happens automatically: the manager
+                    decides, because the next reader may not be standing
+                    there." The empty value posts as no choice at all. */}
+                <label
+                  htmlFor="giu-cho-khong"
+                  className="flex min-h-11 items-center gap-2.5 text-[16px]"
+                >
+                  <input
+                    type="radio"
+                    id="giu-cho-khong"
+                    name="giu-cho"
+                    value=""
+                    defaultChecked
+                    className="size-5 accent-terracotta"
+                  />
+                  Không giữ chỗ, trả về kệ
+                </label>
+                {waiting.map((entry) => (
+                  <label
+                    key={entry.requestId}
+                    htmlFor={`giu-cho-${entry.requestId}`}
+                    className="flex min-h-11 items-center gap-2.5 text-[16px]"
+                  >
+                    <input
+                      type="radio"
+                      id={`giu-cho-${entry.requestId}`}
+                      name="giu-cho"
+                      value={entry.requestId}
+                      className="size-5 accent-terracotta"
+                    />
+                    <span>
+                      Giữ chỗ cho {entry.readerName}
+                      <span className="text-meta">
+                        {" "}
+                        · đăng ký {formatInstant(entry.requestedAt)}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-3 text-[14px] text-meta">
+                Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.
+              </p>
+            </fieldset>
+          ) : null}
+
+          {/* The state the copy ends in depends on the choice above, so this
+              sentence names the ordinary one and the panel names the other.
+              Writing it as a single claim would have been wrong for whichever
+              branch the manager took. */}
           <p className="mt-4 text-[15px] text-ink">
             Sau khi xác nhận, bản {selected.copyCode} sẽ chuyển sang trạng thái{" "}
             <StatusBadge status="available" size="sm" className="align-middle" />
+            {waiting.length > 0 ? ", hoặc được giữ chỗ nếu bạn chọn ở trên." : null}
           </p>
 
           <SubmitButton className="mt-6 w-full">Xác nhận nhận trả</SubmitButton>

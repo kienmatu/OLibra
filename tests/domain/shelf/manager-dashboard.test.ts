@@ -7,6 +7,7 @@ import {
   runQuery,
   type Tx,
 } from "../../../src/domain/kernel/unit-of-work";
+import { createBorrowRequest } from "../../../src/domain/circulation/commands/create-borrow-request";
 import { getOverdueLoans } from "../../../src/domain/circulation/queries/get-overdue-loans";
 import { proposeProfileChange } from "../../../src/domain/members/commands/propose-profile-change";
 import { getPendingProfileChanges } from "../../../src/domain/members/queries/get-pending-profile-changes";
@@ -45,12 +46,13 @@ function contextFor(
 
 /**
  * A shelf carrying one of each thing a badge counts: a pending application, a
- * pending profile change, and one loan that is due on `DUE_ON`.
+ * pending profile change, a queued borrow request, and one loan that is due on
+ * `DUE_ON`.
  *
- * Written through `proposeProfileChange` rather than by inserting a
- * `profile_change_requests` row, for `tests/support/scenarios.ts`'s stated
- * reason: a count of a queue should be counting a queue the product actually
- * produces, so a change that breaks the proposal cannot leave this green.
+ * Written through `proposeProfileChange` and `createBorrowRequest` rather than
+ * by inserting rows, for `tests/support/scenarios.ts`'s stated reason: a count
+ * of a queue should be counting a queue the product actually produces, so a
+ * change that breaks the proposal — or the request — cannot leave this green.
  */
 async function shelfWithOneOfEach(slug: string) {
   const shelf = await makeShelf(sql, { slug });
@@ -76,6 +78,16 @@ async function shelfWithOneOfEach(slug: string) {
   `;
   await sql`update book_copies set state = 'on_loan' where id = ${copyIds[0]}`;
 
+  // C2's badge. A reader queues for the title one of this shelf's copies is
+  // already out on, which is the ordinary reason anybody joins a queue at all.
+  const queuer = await makeMember(sql, shelf.id);
+  await runCommand(
+    sql,
+    contextFor(shelf.id, queuer, "reader"),
+    createBorrowRequest,
+    { bookId, membershipId: queuer.id },
+  );
+
   return { shelf, manager, ctx, bookId, copyIds };
 }
 
@@ -90,6 +102,7 @@ test("each badge counts this shelf and no other", async () => {
   expect(counts).toEqual({
     pendingRegistrations: 1,
     pendingProfileChanges: 1,
+    pendingRequests: 1,
     // On the due date itself, not yet.
     overdue: 0,
   });
@@ -125,8 +138,13 @@ test("it is RLS doing the scoping, not a where clause", async () => {
 
   expect(scoped.pendingRegistrations).toBe(1);
   expect(scoped.pendingProfileChanges).toBe(1);
+  // C2's fourth badge is a *second statement* rather than a fourth subquery,
+  // so it needs its own line here: the property is about the query naming no
+  // shelf, and `countQueuedRequests` is a different query.
+  expect(scoped.pendingRequests).toBe(1);
   expect(unpoliced.pendingRegistrations).toBe(2);
   expect(unpoliced.pendingProfileChanges).toBe(2);
+  expect(unpoliced.pendingRequests).toBe(2);
 });
 
 test("the shelf totals are scoped by RLS too", async () => {
@@ -141,10 +159,11 @@ test("the shelf totals are scoped by RLS too", async () => {
     return getManagerDashboard(tx as unknown as Tx, a.ctx);
   });
 
-  // One title, two copies, one active loan; four memberships of which three
-  // are active (manager, proposer, borrower) and one is the pending applicant.
-  expect(scoped.totals).toEqual({ titles: 1, copies: 2, onLoan: 1, readers: 3 });
-  expect(unpoliced.totals).toEqual({ titles: 2, copies: 4, onLoan: 2, readers: 6 });
+  // One title, two copies, one active loan; five memberships of which four are
+  // active (manager, proposer, borrower, and C2's queuer) and one is the
+  // pending applicant.
+  expect(scoped.totals).toEqual({ titles: 1, copies: 2, onLoan: 1, readers: 4 });
+  expect(unpoliced.totals).toEqual({ titles: 2, copies: 4, onLoan: 2, readers: 8 });
 });
 
 test("a badge shows the number of rows the list it links to shows", async () => {

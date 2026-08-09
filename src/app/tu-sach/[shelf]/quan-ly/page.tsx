@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, BookDown, BookUp, UserPlus } from "lucide-react";
+import { AlertTriangle, BookDown, BookUp, Bookmark, UserPlus } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { PageHeading, StatStrip } from "@/components/ui/card";
 import { BigActionLink } from "@/components/ui/button";
@@ -66,25 +66,28 @@ function StatCard({
  * Below them, two very large primary buttons… Then shelf totals and recent
  * activity."
  *
- * **Two cards, not four, and no activity feed** (U3 §3.1, applied to the
- * dashboard rather than only to the sidebar). BR:537 names the four: *Quá hạn*,
- * *Chờ duyệt tài khoản*, *Yêu cầu mượn*, *Bình luận chờ duyệt*. The last two
- * are C2's borrow-request queue and B3's comment moderation — there is no query
- * that could answer them and no page behind them that does anything, and the
- * fixture version of this page shipped `2` and `1` beside them. OPS:81's
- * "recent activity feed" is the audit log rendered as BR §14's readable
- * Vietnamese sentences, which is D2's audit browser and which U3 §6 puts out of
- * scope; the fixture version shipped six invented events with times on them.
+ * **Three cards, not four, and no activity feed** — two when U3 wrote this, and
+ * *Yêu cầu mượn* since C2. BR:537 names the four: *Quá hạn*, *Chờ duyệt tài
+ * khoản*, *Yêu cầu mượn*, *Bình luận chờ duyệt*. The last two were C2's
+ * borrow-request queue and B3's comment moderation — no query could answer
+ * either, no page behind them did anything, and the fixture version of this page
+ * shipped `2` and `1` beside them. C2 shipped `GetBorrowRequestQueue`, so the
+ * third card is a number somebody queried and links to a screen that reads the
+ * database; *Bình luận chờ duyệt* stays away until B3. OPS:81's "recent activity
+ * feed" is the audit log rendered as BR §14's readable Vietnamese sentences,
+ * which is D2's audit browser and which U3 §6 puts out of scope; the fixture
+ * version shipped six invented events with times on them.
  *
- * Showing `0` instead would be a different lie and a worse-shaped one: a
- * volunteer reads "no comments waiting" and stops checking a queue nothing is
- * reading. So the cards are absent, exactly as the badges are.
+ * Showing `0` for the missing one would be a different lie and a worse-shaped
+ * one: a volunteer reads "no comments waiting" and stops checking a queue
+ * nothing is reading. So that card is absent, exactly as its badge is.
  *
- * **And nothing is promoted into the empty slots.** BR:571 settles that in as
+ * **And nothing is promoted into the empty slot.** BR:571 settles that in as
  * many words, about the donation queue: the dashboard "specifies four large
  * tappable cards, and the fourth was already chosen for a reason; a fifth card
  * would be a change to that decision, not an addition to it." *Đổi thông tin*
- * therefore stays a sidebar badge, which is where BR:571 puts it.
+ * therefore stays a sidebar badge, which is where BR:571 puts it. The card added
+ * here is not a promotion — it is one of BR:537's own four, filled in.
  *
  * **The two big buttons and the shelf totals are unchanged**, because both were
  * always real: the buttons are links to two wired screens, and the totals are
@@ -150,6 +153,17 @@ export default async function ManagerHomePage({
           icon={UserPlus}
           ink="text-held"
           fill="bg-held/10"
+        />
+        {/* BR:537's third card, filled in by C2. `Bookmark` and the `held`
+            palette, the same pair the queue screen uses for a hold, so the two
+            read as the same thing at two sizes. */}
+        <StatCard
+          href={`${base}/yeu-cau-muon`}
+          label="Yêu cầu mượn"
+          value={dashboard.counts.pendingRequests}
+          icon={Bookmark}
+          ink="text-terracotta-ink"
+          fill="bg-terracotta/10"
         />
       </div>
 

@@ -45,6 +45,12 @@ export interface QueuedRequestRow {
   holdExpired: boolean;
 }
 
+/** A copy of this title that could be put aside right now. */
+export interface FreeCopy {
+  copyId: string;
+  code: string;
+}
+
 export interface BookQueue {
   bookId: string;
   title: string;
@@ -53,6 +59,21 @@ export interface BookQueue {
   /** `requests.length`, named so a screen does not have to explain itself. */
   waiting: number;
   requests: QueuedRequestRow[];
+  /**
+   * The copies of this title a manager may approve somebody onto, from
+   * `copies_borrowable` — so the list the screen offers and the predicate
+   * `ApproveBorrowRequest` applies (`copyHoldable`) are the same two clauses,
+   * `state = 'available'` and no live hold, rather than two readings of
+   * "free".
+   *
+   * BR §16.3 is why the choice exists at all rather than the command picking
+   * for itself: "blocking conditions surface as a clear message *before* the
+   * confirm step", and a shelf has copies in different conditions that a
+   * volunteer standing at it can tell apart. Empty is a real answer and the
+   * screen renders the button disabled — `no_copy_available` after the tap
+   * would be the refusal BR §16.3 asks to arrive first.
+   */
+  freeCopies: FreeCopy[];
 }
 
 /**
@@ -190,6 +211,34 @@ export async function getBorrowRequestQueue(
     order by olibra_fold(b.title) asc, b.id asc, r.requested_at asc, r.id asc
   `;
 
+  // The copies a manager may choose from, for the titles that have a queue.
+  // A second statement rather than a lateral on the row above, because it is
+  // per *book* and the rows are per request — a lateral would fetch the same
+  // list once for every child waiting.
+  //
+  // `copies_borrowable` rather than `book_copies where state = 'available'`:
+  // the view is where "free right now" is defined, hold clause and all
+  // (`20260808_14_olibra_now.sql:114-126`), and it is `security_invoker`, so
+  // `book_copies_tenant` is evaluated as the caller. Ordered by `code`, which
+  // is unique per shelf (`book_copies_code_unique`), so the list a manager
+  // reads is stable between two loads of the page.
+  const bookIds = [...new Set(rows.map((r) => r.book_id))];
+  const free =
+    bookIds.length === 0
+      ? []
+      : await tx<{ book_id: string; copy_id: string; code: string }[]>`
+          select book_id, id as copy_id, code
+            from copies_borrowable
+           where book_id = any(${bookIds}::uuid[])
+           order by code asc
+        `;
+  const freeByBook = new Map<string, FreeCopy[]>();
+  for (const c of free) {
+    const list = freeByBook.get(c.book_id) ?? [];
+    list.push({ copyId: c.copy_id, code: c.code });
+    freeByBook.set(c.book_id, list);
+  }
+
   const { taxonomy, units } = await loadParishContext(tx, ctx);
 
   // Grouped in TypeScript rather than with `json_agg`, because the rows arrive
@@ -207,6 +256,7 @@ export async function getBorrowRequestQueue(
         slug: r.slug,
         waiting: 0,
         requests: [],
+        freeCopies: freeByBook.get(r.book_id) ?? [],
       };
       queues.push(queue);
     }

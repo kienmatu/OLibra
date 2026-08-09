@@ -1,21 +1,25 @@
 import type { TenantContext } from "../../kernel/tenant";
 import type { Tx } from "../../kernel/unit-of-work";
 import { requireManager } from "../../members/policy";
+import { countQueuedRequests } from "../../circulation/queries/get-borrow-request-queue";
 
 /**
  * The numbers the manager sidebar puts beside a nav entry.
  *
- * **Three, not six.** `manager-shell.tsx` shipped six hard-coded counts, and
- * three of them belong to slices that do not exist: `Yêu cầu mượn` is C2's
- * borrow-request queue, `Tặng sách` and `Bình luận` are B3's donations and
- * comments. There is no query that could answer them, so U3 §3.1 removes the
- * badge and the nav entry with it rather than showing `0` — a volunteer reads
- * "no comments waiting" and stops checking, which is a worse lie than the
- * fixture number was, because it is a plausible one.
+ * **Four, not six** — three when U3 wrote this, and `pendingRequests` since C2.
+ * `manager-shell.tsx` shipped six hard-coded counts, and three of them belonged
+ * to slices that did not exist: `Yêu cầu mượn` was C2's borrow-request queue,
+ * `Tặng sách` and `Bình luận` are B3's donations and comments. There was no
+ * query that could answer any of them, so U3 §3.1 removed the badge and the nav
+ * entry with it rather than showing `0` — a volunteer reads "no comments
+ * waiting" and stops checking, which is a worse lie than the fixture number was,
+ * because it is a plausible one. C2 shipped the query for the first of the
+ * three, so that badge and that entry come back; `Tặng sách` and `Bình luận`
+ * stay away until B3.
  *
- * Each of the three that remain is the **count of a list that exists**, and
- * each is counted the way that list is selected, not a shorter way that happens
- * to give the same answer today:
+ * Each of the four is the **count of a list that exists**, and each is counted
+ * the way that list is selected, not a shorter way that happens to give the same
+ * answer today:
  *
  * - `pendingRegistrations` mirrors `getPendingRegistrations`
  *   (`../../members/queries/get-pending-registrations.ts`) — the same
@@ -27,6 +31,13 @@ import { requireManager } from "../../members/policy";
  * - `overdue` reads `loans_current.is_overdue`, which BR §8 derives on read
  *   against `olibra_now()` (`20260808_14_olibra_now.sql`) — never a stored
  *   flag, never a job.
+ * - `pendingRequests` is `countQueuedRequests`
+ *   (`../../circulation/queries/get-borrow-request-queue.ts`) **called**, not
+ *   mirrored — the strongest form of the same rule, since there is then only one
+ *   definition to be right. It is the one count whose list has a subtlety worth
+ *   not restating here: the queue is `pending` *and* `approved`, because a child
+ *   whose copy is on the shelf with their name on it is still waiting on
+ *   somebody.
  *
  * A badge that disagrees with the list it links to is worse than no badge: the
  * volunteer clicks "Đăng ký chờ duyệt 5", counts four cards, and now has to
@@ -35,6 +46,7 @@ import { requireManager } from "../../members/policy";
 export interface ManagerBadgeCounts {
   pendingRegistrations: number;
   pendingProfileChanges: number;
+  pendingRequests: number;
   overdue: number;
 }
 
@@ -69,12 +81,22 @@ export interface ManagerDashboard {
 /**
  * OPS:81's `GetManagerDashboard`, counting half.
  *
- * **One statement, not three.** This runs on every manager page render — the
- * sidebar is on all of them — so the cost that matters is round trips, not
- * rows: three scalar subqueries in one `select` is one network wait and one
- * planner invocation, and the counts are then all as of the same instant, which
- * three separate statements inside one transaction would also give but which
- * three separate *calls* would not.
+ * **One statement for three of the four.** This runs on every manager page
+ * render — the sidebar is on all of them — so the cost that matters is round
+ * trips, not rows: three scalar subqueries in one `select` is one network wait
+ * and one planner invocation, and the counts are then all as of the same
+ * instant, which three separate statements inside one transaction would also
+ * give but which three separate *calls* would not.
+ *
+ * **The fourth is a second statement, deliberately.** `countQueuedRequests` is
+ * called rather than pasted in as a fourth subquery, which costs one more round
+ * trip on every manager page. The trade is the one `getManagerDashboard` below
+ * already makes for these same counts, and for the same reason: the badge and
+ * the queue screen it links to sit one tap apart, and two definitions of that
+ * number is how they come to disagree. The queue's membership rule
+ * (`pending` *and* `approved`) is exactly the kind of subtlety a pasted copy
+ * loses. Both statements run inside the one transaction `loadPage` opened, so
+ * they still see one instant.
  *
  * **There is no `where bookshelf_id = …` in it, deliberately, and that is the
  * whole security argument.** `runQuery` (`../../kernel/unit-of-work.ts`) opens
@@ -138,6 +160,7 @@ export async function getManagerBadgeCounts(
   return {
     pendingRegistrations: row?.pending_registrations ?? 0,
     pendingProfileChanges: row?.pending_profile_changes ?? 0,
+    pendingRequests: await countQueuedRequests(tx, ctx),
     overdue: row?.overdue ?? 0,
   };
 }

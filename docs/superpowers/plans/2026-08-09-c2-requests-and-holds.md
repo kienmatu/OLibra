@@ -164,3 +164,54 @@ a refusal to name what to do instead, and what to do instead differs across the
 four states it covers (approve it; nothing, it was refused; nothing, it was
 withdrawn; nothing, the book already went out). The queue screen shows which,
 directly above the button. Listed in the fix report as new Vietnamese.
+
+## 9. Every Vietnamese string this slice authored
+
+The rule is `docs/OPERATIONS.md`, `ERROR_MESSAGES`, or what the page already
+says — and anything genuinely new is flagged rather than slipped in. Twelve
+strings are new. Everything else on the two screens is copy they already
+carried, OPERATIONS' own wording, or a sibling screen's.
+
+**In the domain (four):**
+
+| Where | String | Why it is new |
+|---|---|---|
+| `errors.ts` `request_not_held` | "Yêu cầu này không có bản sách nào đang được giữ chỗ." | §8. OPS gives `HandoverRequest` three failure modes and none covers a request with no hold |
+| `audit-actions.ts` `request.created` | "gửi yêu cầu mượn *&lt;title&gt;*" | Built from the screen's own noun (*Yêu cầu mượn*) and OPS `:293`'s verb ("gửi yêu cầu mượn") |
+| `audit-actions.ts` `request.rejected` | "từ chối yêu cầu mượn *&lt;title&gt;* của &lt;ai&gt;[ vì &lt;lý do&gt;]" | `membership.rejected`'s construction, with the queue's noun |
+| `audit-actions.ts` `request.cancelled` | "rút lại yêu cầu mượn *&lt;title&gt;*" | `profile_change.cancelled`'s "rút lại … của mình", with the queue's noun |
+
+The other two error codes are **not** new Vietnamese:
+`membership_not_active_cannot_request` is OPERATIONS.md:293 quoted, and
+`chosen_copy_lost_or_retired` is `:305` quoted. That is the whole reason they
+are separate codes.
+
+**On `quan-ly/yeu-cau-muon` (six):**
+
+| String | Note |
+|---|---|
+| "Chức năng bỏ qua chưa được mở." | The disabled *Bỏ qua* button's `title`. Names the state rather than inventing a reason |
+| "Hiện không có bạn đọc nào đang chờ mượn sách." | Empty state, modelled on `dang-ky-cho-duyet`'s "Hiện không có đơn đăng ký nào đang chờ duyệt." |
+| "Chưa có bản nào rảnh để giữ chỗ." | Shown under a title whose copies are all out — the *reason* the approve button is disabled |
+| "Thời gian giữ chỗ đã hết lúc &lt;giờ ngày&gt;" | The first six words are `hold_expired`'s sentence (OPS `:244`); " lúc …" is added so the banner says *when* |
+| "Bản sách" | The copy `<select>`'s label. The noun is `ERROR_MESSAGES`' own ("Bản sách này…"); as a bare field label it is new |
+| "Không bắt buộc." | The reject-reason hint. Q2 made the reason optional, and a volunteer should not have to discover that by submitting an empty box |
+
+Unchanged from the fixture page, now true of real rows: "Yêu cầu mượn",
+"… cuốn có người đang chờ · Xếp theo thứ tự đăng ký.", "… người đang chờ",
+"Đăng ký …", "Duyệt & giữ chỗ", "Từ chối", "Bỏ qua", "Xác nhận trao sách",
+"Giữ chỗ … ngày kể từ khi duyệt.", "Chỉ duyệt được khi tới lượt.",
+"Đang giữ chỗ cho bạn này · hết hạn giữ …", "Hệ thống không tự động giữ chỗ.
+Quản lý quyết định từng trường hợp." From `dang-ky-cho-duyet`: "Lý do từ chối",
+"Xác nhận từ chối".
+
+**On `quan-ly/nhan-tra` (two):**
+
+| String | Note |
+|---|---|
+| "… bạn đọc đang chờ cuốn này" | The panel's legend. BR §16.3 describes this moment ("the confirmation says so immediately") without giving words for it |
+| ", hoặc được giữ chỗ nếu bạn chọn ở trên." | Appended to the existing "Sau khi xác nhận, bản … sẽ chuyển sang trạng thái …" sentence, which is now true of only one of the two branches |
+
+"Giữ chỗ cho …" and "Không giữ chỗ, trả về kệ" are **OPS §5's own words**,
+quoted: "the manager is offered *Giữ chỗ cho [name]* or *Không giữ chỗ, trả về
+kệ* as part of the same form."
