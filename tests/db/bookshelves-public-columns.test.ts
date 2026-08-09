@@ -126,6 +126,28 @@ import { expect, test } from "vitest";
  * disagreement, in the direction that turns a child away from a book that is
  * actually there.
  *
+ * `src/domain/portal/queries/list-public-shelves.ts` (U2 Task 1) is the query
+ * this guard was written in anticipation of — the portal read that did not
+ * exist when the note above said "there is no portal query yet to route
+ * through one" — and it takes **no exemption at all**. That is the point
+ * rather than an omission: it selects `slug`, `name` and `location`, none of
+ * which is withheld, and it is the one code path in this project reachable by
+ * a caller with no session and no membership anywhere. Every other entry in
+ * the map below argues that its file is unreachable from an unauthenticated
+ * path, or that nothing derived from the column leaves the function; neither
+ * argument is available here, and neither is needed. An exemption on this file
+ * would be an exemption on exactly the query where the withheld columns
+ * matter.
+ *
+ * That has one consequence worth stating, because it looks like an evasion
+ * otherwise: the check below is a regex over the whole file, comments
+ * included, so that query's docstring discusses the keeper's contact details
+ * in prose rather than by column name. It could have named them and claimed an
+ * exemption for the mention — but the exemption is per column, not per
+ * mention, and it would then be silent about a `select` of the same column one
+ * edit later. Prose costs nothing and leaves the guard at full strength on the
+ * file that most needs it.
+ *
  * **IMPORTANT 4 (fix-report, 2026-08-08-b1-catalogue): the exemption below is
  * per-column, not per-file.** All three justifications above are for reading
  * `settings`, and only `settings`, out of these files — none of them are a

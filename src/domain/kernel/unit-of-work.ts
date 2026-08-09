@@ -538,3 +538,71 @@ export async function runQuery<O>(
     return query(guardWrites(tx as RawTx), ctx);
   }) as Promise<O>;
 }
+
+/**
+ * Runs a read that belongs to **no shelf**, as `olibra_app`, in a read-only
+ * transaction with the tenant scope deliberately empty.
+ *
+ * There is exactly one thing in this system a caller may read without naming a
+ * shelf, and OPS §3.1 is where it is enumerated: the portal directory
+ * (`GetPortalDirectory`, `SearchBookshelves`), both **Global**, both callable
+ * by `guest`. OPS §1 lists that alongside promote-to-super-admin and the
+ * cross-shelf administration views as the whole of INV-10's named exceptions.
+ * A stranger looking for their parish has no membership anywhere, so there is
+ * no shelf for `runQuery` to scope to — which is the situation, and not a
+ * shortcut around one.
+ *
+ * **What this is not: the `bypassrls` escalation.** `runGlobalCommand` reaches
+ * for `olibra_admin`, and its docstring is explicit that this should stay rare
+ * enough that a diff introducing a call to it is worth a second look. This
+ * function does the opposite: the role is `olibra_app`, exactly as in
+ * `runQuery`, so every policy in `0010_rls.sql` applies in full and the only
+ * rows a public read can reach are the ones a policy hands to a caller with no
+ * shelf. Today that is `bookshelves_public_read`
+ * (`20260808_12_bookshelves_public_read.sql`), a *permissive* `for select`
+ * policy over `status = 'active' and deleted_at is null` — Postgres ORs
+ * permissive policies together, so it widens `select` on `bookshelves` and
+ * touches nothing else. Every other table's `<table>_tenant` policy is
+ * `bookshelf_id = <the GUC>`, which under the empty scope below is `null` and
+ * therefore matches no row at all. A public read that wandered into `books` or
+ * `memberships` gets zero rows, not a leak — verified in
+ * `tests/domain/portal/list-public-shelves.test.ts`, in the same transaction,
+ * rather than reasoned about here.
+ *
+ * **The scope is set to the empty string, not left unset.** `''` is the
+ * sentinel `0010_rls.sql`'s `nullif(current_setting(...), '')` is built around
+ * and `assertValidBookshelfId` already accepts on the read path: it becomes
+ * `null::uuid`, and the policy comparison then fails closed to zero rows.
+ * Writing it explicitly rather than omitting the statement is what makes this
+ * transaction's scope a fact of this function instead of a fact about whatever
+ * ran on the pooled connection before it. `set_config(..., true)` is
+ * transaction-local, so a previous request's shelf could not survive into this
+ * one in any case — but "could not" there is a property of the *other*
+ * transaction, and a public read is precisely the transaction that must not
+ * depend on one.
+ *
+ * `olibra.now` is cleared for the same reason and to the same effect: there is
+ * no `TenantContext` here and therefore no injected clock, so `olibra_now()`
+ * falls back to the database's `now()` (`20260808_14_olibra_now.sql` —
+ * `nullif(..., '')` then `coalesce`, so an empty value is the documented
+ * fallback and never an error). Nothing public reads a clock-dependent view
+ * today; a query that grows one would be reading real time, which is the
+ * honest answer for a caller who has no clock to inject.
+ *
+ * The query receives no `ctx` — there is nothing truthful to put in one. That
+ * is the signature carrying the meaning: a read that took a `TenantContext`
+ * and ignored it would look like every other query in the codebase while
+ * behaving unlike any of them.
+ */
+export async function runPublicQuery<O>(
+  sql: Sql,
+  query: (tx: Tx) => Promise<O>,
+): Promise<O> {
+  return sql.begin(async (tx) => {
+    await tx`set transaction read only`;
+    await tx`select set_config('olibra.bookshelf_id', '', true)`;
+    await tx`select set_config('olibra.now', '', true)`;
+    await tx`set local role olibra_app`;
+    return query(guardWrites(tx as RawTx));
+  }) as Promise<O>;
+}

@@ -2,16 +2,23 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { pool } from "@/db/client";
-import { RuleViolated } from "@/domain/kernel/errors";
-import { systemClock } from "@/domain/kernel/clock";
-import { landingShelfFor } from "@/auth/guards";
-import { signIn, signOut } from "@/auth/session";
+// Relative specifiers, not the `@/` alias, for the reason
+// `src/app/tu-sach/[shelf]/quan-ly/actions.ts` and `src/lib/page-data.ts` both
+// record: `tests/lib/sign-in-return-path.test.ts` imports this module and
+// Vitest resolves no alias. U2 §3.1 makes this function the last thing between
+// a hand-edited `?tiep=` and a redirect off this site, and that refusal is only
+// worth writing down if it is the *shipped* function a test can reach.
+import { pool } from "../../db/client";
+import { RuleViolated } from "../../domain/kernel/errors";
+import { systemClock } from "../../domain/kernel/clock";
+import { landingShelfFor } from "../../auth/guards";
+import { signIn, signOut } from "../../auth/session";
+import { RETURN_TO_PARAM, safeReturnPath } from "../../lib/return-path";
 import {
   SESSION_COOKIE,
   SIGN_IN_FAILED,
   cookieOptions,
-} from "@/lib/session-cookie";
+} from "../../lib/session-cookie";
 
 // A "use server" file may only export async functions, so the `?loi=`
 // marker itself lives in session-cookie.ts and is only re-used here.
@@ -33,6 +40,20 @@ export async function signInAction(formData: FormData): Promise<void> {
   // `remember` parameter. A checkbox with no `name` is never submitted, which
   // is why the field carries one now.
   const remember = formData.get("remember") === "on";
+  /**
+   * Where `loadPage` was sending this person before it asked them to sign in
+   * (U2 §3.1), carried through the form by `dang-nhap/page.tsx`.
+   *
+   * Validated here even though the page validated it before rendering the
+   * field. A form field is input: `formData` is whatever was posted, and
+   * nothing about having been rendered by this app is checkable at this end.
+   * This is the call site that actually hands a value to `redirect`, so this
+   * is the one that has to be right — `safeReturnPath` refuses an absolute
+   * URL, a protocol-relative one and anything that is not a path at all, which
+   * is what stands between a sign-in form and being a redirector to somebody
+   * else's site (see `src/lib/return-path.ts`).
+   */
+  const returnTo = safeReturnPath(String(formData.get(RETURN_TO_PARAM) ?? ""));
 
   // M8: DATABASE.md §4.1 promises "who signed in from where" is answerable
   // from `sessions.user_agent`/`ip_address` — that was only true once these
@@ -80,6 +101,11 @@ export async function signInAction(formData: FormData): Promise<void> {
     // a reasonable ask, retyping a username too is not, for this audience.
     const params = new URLSearchParams({ loi: SIGN_IN_FAILED });
     if (username) params.set("ten", username);
+    // The destination survives a failed attempt too — otherwise a mistyped
+    // password quietly turns "back to where you were going" into "back to the
+    // front door", which reads as the link having been wrong rather than the
+    // password.
+    if (returnTo) params.set(RETURN_TO_PARAM, returnTo);
     redirect(`/dang-nhap?${params.toString()}`);
   }
 
@@ -89,6 +115,18 @@ export async function signInAction(formData: FormData): Promise<void> {
     outcome.token,
     cookieOptions(process.env.NODE_ENV, remember),
   );
+  /**
+   * The page they were trying to reach wins over `landingShelfFor`.
+   *
+   * Not a contradiction of IMPORTANT 6: that rule answers "where should a
+   * freshly-signed-in person land when nothing else says", and a return path
+   * is something else saying. It can perfectly well be a shelf they turn out
+   * not to belong to — someone who followed a portal link to the wrong parish
+   * — and `loadPage` answers that with a 404 rather than sending them back
+   * here, which is what keeps this from being a loop (see that function's
+   * docstring, and `tests/lib/page-data.test.ts`, which walks the round trip).
+   */
+  if (returnTo) redirect(returnTo);
   redirect(outcome.shelfSlug ? `/tu-sach/${outcome.shelfSlug}` : "/tu-sach");
 }
 

@@ -1,0 +1,143 @@
+/**
+ * Where a person was going before they were asked to sign in, and the rules
+ * for carrying it without turning the sign-in form into a redirector for
+ * whoever holds the address bar.
+ *
+ * U2 §3.1: a guest reaching a shelf page is sent to `/dang-nhap` and lands
+ * back where they were going. That round trip needs the path to survive a
+ * redirect, a form post and a second redirect — which means it spends most of
+ * its life in a query string, and a query string is input.
+ *
+ * The whole module is deliberately dependency-free: `src/middleware.ts` runs
+ * in the middleware runtime and imports `REQUEST_PATH_HEADER` from here, so
+ * anything this file reached for would be dragged in with it.
+ */
+
+/**
+ * The header `src/middleware.ts` stamps the requested path onto, and the only
+ * way a Server Component in the App Router can learn what URL it is rendering.
+ *
+ * A page knows its `params` and its `searchParams`; it does not know its own
+ * pathname, and there is no `usePathname` on the server. The alternative was to
+ * have every page pass its own path into `loadPage` — which makes the redirect
+ * correct exactly as often as forty-six pages remember to do it, and silently
+ * degrades (a guest lands on a bare sign-in form) when one of them does not.
+ * `loadPage`'s own docstring already states the standard this seam is held to:
+ * "a caller cannot express a read that skipped a step". Deriving the path in
+ * the seam keeps that true for the return path too.
+ *
+ * **A client can send this header, and that changes nothing.** The middleware
+ * `set`s it on every request it sees, overwriting whatever arrived; and for a
+ * request the matcher does not cover, `safeReturnPath` below still refuses
+ * anything that is not a same-origin path — so the worst an attacker can do by
+ * forging it is choose which page of this site they themselves are sent to
+ * after signing in. The validation is what makes the header's provenance
+ * uninteresting, which is the property to want, because provenance is the part
+ * that is easy to be wrong about.
+ *
+ * Prefixed `x-olibra-` rather than reusing a conventional name like
+ * `x-pathname`: a header a proxy or another library might also set is a header
+ * whose meaning is shared with something that does not know about this rule.
+ */
+export const REQUEST_PATH_HEADER = "x-olibra-path";
+
+/**
+ * The query parameter the return path travels in.
+ *
+ * Vietnamese, like every other parameter this app emits (`?loi=`, `?ten=`,
+ * `?tu-sach=`, `?sach=`). `tiep` is the word already in the sentence this
+ * redirect exists to act on — `not_authenticated`, "Bạn cần đăng nhập để tiếp
+ * tục." (`src/domain/kernel/errors.ts`) — rather than a new one invented for a
+ * URL.
+ */
+export const RETURN_TO_PARAM = "tiep";
+
+/**
+ * A base that no real deployment can ever be, used only to make the URL parser
+ * answer the question "does this value stay on this site?".
+ *
+ * `.invalid` is reserved by RFC 2606 precisely so it can never resolve.
+ * Nothing is ever fetched from it; it exists so `new URL(value, base).origin`
+ * has something to be compared against.
+ */
+const PROBE_ORIGIN = "http://olibra.invalid";
+
+/**
+ * Long enough for any real path in this app, short enough that a redirect
+ * cannot be used to push kilobytes through a `Location` header or a form
+ * field. Every route in `src/app/` is well under a hundred characters; the
+ * search string a catalogue page carries is the only variable part.
+ */
+const MAX_LENGTH = 512;
+
+/**
+ * A path this app is willing to send somebody to, or `null`.
+ *
+ * Two failures to refuse, and they fail differently:
+ *
+ * - **An open redirect.** `?tiep=https://evil.example` — or `//evil.example`,
+ *   which is protocol-relative and reads as an absolute URL to every browser
+ *   while looking like a path to a `startsWith("/")` check. A sign-in form
+ *   that honours either one is a credential-phishing primitive with this
+ *   project's domain in front of it: the victim signs in on the real site and
+ *   is handed to somebody else's.
+ * - **A value that is not a path at all.** `redirect()` takes whatever it is
+ *   given, and a malformed one surfaces as an exception from inside a render.
+ *   OPS §2's "never a bare 500 or an unstructured exception" applies to a
+ *   hand-edited URL exactly as it does to a hand-edited form field.
+ *
+ * The origin comparison is what actually decides it, rather than a list of
+ * prefixes to forbid. A denylist of `//`, `/\`, `https:` and the rest is a
+ * guess about how many spellings of "somewhere else" exist; the URL parser
+ * already knows all of them, including the ones this project has not thought
+ * of — `/\evil.example` resolves to `http://evil.example` under the WHATWG
+ * rules browsers implement, because a backslash is a path separator there, and
+ * a hand-written check that had not heard of that would pass it through.
+ *
+ * The checks in front of it are the cases where asking the parser is the wrong
+ * question rather than a redundant one: a value that does not begin with `/`
+ * is a *relative* path, which resolves against the probe origin perfectly well
+ * and then means something different depending on which page the redirect is
+ * issued from; and a control character is refused before it can reach a
+ * `Location` header, where a bare CR or LF is a response-splitting primitive
+ * regardless of what the path after it says.
+ *
+ * Returns `pathname + search`, not the caller's string: the parser has already
+ * normalised `..` segments and percent-encoding, and returning its answer
+ * rather than the input means what is validated is what is used. The fragment
+ * is dropped because a browser never sends one to a server, so a `#` here
+ * could only have been typed by hand.
+ */
+export function safeReturnPath(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  if (value.length === 0 || value.length > MAX_LENGTH) return null;
+  if (!value.startsWith("/")) return null;
+  if (/[\u0000-\u001f\u007f]/.test(value)) return null;
+
+  let url: URL;
+  try {
+    url = new URL(value, PROBE_ORIGIN);
+  } catch {
+    return null;
+  }
+  if (url.origin !== PROBE_ORIGIN) return null;
+
+  return `${url.pathname}${url.search}`;
+}
+
+/**
+ * The sign-in URL to send a guest to, carrying where they were going when it
+ * is somewhere this app is willing to send them back to.
+ *
+ * A refused return path is not an error the visitor should see: they are being
+ * sent to sign in either way, and the only difference is whether the form
+ * remembers their destination. Dropping it silently lands them on
+ * `/dang-nhap`, and `signInAction` then sends them to their own shelf if they
+ * belong to exactly one (`landingShelfFor`) — which for a member of one parish
+ * is where they were going anyway.
+ */
+export function signInPathFor(returnTo: string | null | undefined): string {
+  const safe = safeReturnPath(returnTo);
+  if (!safe) return "/dang-nhap";
+  return `/dang-nhap?${RETURN_TO_PARAM}=${encodeURIComponent(safe)}`;
+}
