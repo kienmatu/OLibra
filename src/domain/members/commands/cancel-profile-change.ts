@@ -3,6 +3,7 @@ import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
 import { avatarObjectOf } from "../pending-proposal";
 import { requireSelfOrManager } from "../policy";
+import { lockPerson } from "../profile-fields";
 
 export interface CancelProfileChangeInput {
   membershipId: string;
@@ -38,6 +39,12 @@ export interface CancelProfileChangeInput {
  * time is a real fact worth keeping, and who did it is in the audit row, where
  * INV-12 makes it permanent.
  *
+ * **It locks the person before it touches the request,** which is the order
+ * every command in this lifecycle now takes its two locks in. Reversed, this
+ * command deadlocked against `ApproveProfileChange` — a manager clicking *Duyệt*
+ * as the reader clicked *Huỷ* — and the loser's `40P01` is not a `DomainError`,
+ * so it reached the screen as a 500. See `../profile-fields.ts`'s `lockPerson`.
+ *
  * **It returns the withdrawn photograph's storage key and does not delete it.**
  * OPS §4.3 requires a cancelled proposal's image to be deleted rather than left
  * orphaned; this command may not import the object store, and must not delete
@@ -59,6 +66,19 @@ export const cancelProfileChange: Command<
       where m.id = ${input.membershipId} and m.deleted_at is null
     `;
   if (!membership) throw new NotFound("membership_not_found");
+
+  // The lifecycle's lock, before this command touches `profile_change_requests`
+  // at all. Without it this command reached the two rows in the *opposite*
+  // order from `ApproveProfileChange` — it took the request row, then needed
+  // `FOR KEY SHARE` on the reader's `users` row for its audit entry's
+  // `actor_id`, while approval held `for update` on that `users` row and wanted
+  // the request — and a manager clicking *Duyệt* as the reader clicked *Huỷ*
+  // deadlocked. `40P01` is not a `DomainError`, so the loser got a 500, which
+  // OPS §2 forbids. It also makes the select below current: every writer of
+  // that request row holds this same lock first, so nothing can decide the
+  // request between reading its status here and updating it below.
+  // `../profile-fields.ts` holds the whole rule.
+  await lockPerson(tx, membership.user_id);
 
   // RLS scopes this to the shelf; a request of another shelf is zero rows and
   // therefore `write_target_not_found`, not `not_own_request` — telling a

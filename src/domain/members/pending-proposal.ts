@@ -2,7 +2,7 @@ import type { JSONValue } from "postgres";
 import { isUniqueViolation, RuleViolated } from "../kernel/errors";
 import type { TenantContext } from "../kernel/tenant";
 import type { Tx } from "../kernel/unit-of-work";
-import { pickProfileFields, type ProfilePatch } from "./profile-fields";
+import { lockPerson, pickProfileFields, type ProfilePatch } from "./profile-fields";
 import type { ProposalContents } from "./profile-proposals";
 
 /**
@@ -38,6 +38,15 @@ import type { ProposalContents } from "./profile-proposals";
  * below is the answer, and it is one function rather than a rule two commands
  * have to remember.
  *
+ * **3. The same erasure, arrived at concurrently.** `carryAvatar` closed (2)
+ * for one command at a time and not for two, which review found and the suite
+ * did not: two proposals for one person read the same pending row, each merged
+ * onto that same stale copy, and the later `UPDATE` replaced `proposed_values`
+ * wholesale — losing whichever of the two got there first, photograph included,
+ * with both commands reporting success. `readPendingProposal` takes the
+ * lifecycle's locks for that reason; `../profile-fields.ts`'s `lockPerson`
+ * holds the ordering rule the whole lifecycle obeys.
+ *
  * Why not in `./profile-proposals.ts`, where the merge lives: that module is
  * pure, and its purity is the point — it holds the product reading about how two
  * proposals combine, testable without a database. This one takes a `Tx`.
@@ -65,22 +74,46 @@ export interface PendingProposal {
 }
 
 /**
- * The reader's pending request at *this* shelf, or null.
+ * The reader's pending request at *this* shelf, or null — read under the
+ * lifecycle's lock, so that what the caller merges into is what the caller
+ * later overwrites.
  *
  * RLS scopes this to `ctx.bookshelfId`, which is also why "or null" is not the
  * same claim as "this person has no pending request anywhere" — see the
  * cross-shelf note in this module's header.
+ *
+ * ── Both locks, in the one order, and why they are taken here ────────────
+ *
+ * `lockPerson` first (the subject's `users` row), then `for update` on the
+ * pending row itself. `../profile-fields.ts` holds the long version: the order
+ * is what stops this lifecycle deadlocking against `ApproveProfileChange`, which
+ * reaches the same two rows from the other end.
+ *
+ * The second lock is what makes the merge in `mergeProposal` mean anything
+ * under concurrency. Without it, two proposals for one person each read this
+ * row, each merged onto the same stale contents, and the later `UPDATE` in
+ * `writePendingProposal` discarded the earlier one wholesale — with both
+ * commands reporting success. Reproduced three times against the real commands
+ * before the lock existed; once what vanished was the **photograph**, which also
+ * orphaned its object in a public bucket with nothing left holding the key.
+ *
+ * They are taken *here*, rather than in each of the two proposal commands,
+ * because this module already exists for the reason that a lifecycle
+ * reimplemented twice is a lifecycle that disagrees with itself twice. A lock a
+ * caller has to remember is exactly that shape.
  */
 export async function readPendingProposal(
   tx: Tx,
   userId: string,
 ): Promise<PendingProposal | null> {
+  await lockPerson(tx, userId);
   const [row] = await tx<
     { id: string; proposed_values: unknown; previous_values: unknown }[]
   >`
     select id, proposed_values, previous_values
       from profile_change_requests
      where user_id = ${userId} and status = 'pending'
+       for update
   `;
   if (!row) return null;
   return {

@@ -3,6 +3,7 @@ import { requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
 import { avatarObjectOf } from "../pending-proposal";
 import { blank, requireManager } from "../policy";
+import { lockPerson } from "../profile-fields";
 
 export interface RejectProfileChangeInput {
   profileChangeRequestId: string;
@@ -58,6 +59,19 @@ export const rejectProfileChange: Command<
     throw new ValidationFailed("reject_reason_required", "reason");
   }
   const reason = input.reason.trim();
+
+  // Whose request this is, so the lifecycle's lock can be taken before
+  // anything a decision depends on is read. Same two-step as
+  // `./approve-profile-change.ts`, and for the same reason: every command that
+  // touches `profile_change_requests` locks the subject's `users` row first, so
+  // that the four of them cannot reach the same two rows in two orders.
+  // `../profile-fields.ts` holds the rule and the deadlock it closes.
+  const [subject] = await tx<{ user_id: string }[]>`
+      select user_id from profile_change_requests
+       where id = ${input.profileChangeRequestId}
+    `;
+  if (!subject) throw new NotFound("write_target_not_found");
+  await lockPerson(tx, subject.user_id);
 
   // The join through `memberships` is the security check, not a convenience:
   // RLS scopes the request row to this shelf, and nothing structurally ties

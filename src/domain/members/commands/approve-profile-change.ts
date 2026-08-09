@@ -7,6 +7,7 @@ import { requireManager } from "../policy";
 import {
   applyProfileFields,
   diffProfileFields,
+  lockPerson,
   normaliseProfilePatch,
   pickProfileFields,
 } from "../profile-fields";
@@ -64,6 +65,26 @@ export const approveProfileChange: Command<
   // actor by name, and a decision with nobody's name on it is exactly what
   // `voidLoan` shipped.
   requireIdentifiedActor(ctx);
+
+  // Whose request this is, and nothing else, so the lifecycle's lock can be
+  // taken **before** anything is read that a decision depends on. RLS scopes
+  // this select to the shelf exactly as the full one below is scoped.
+  const [subject] = await tx<{ user_id: string }[]>`
+    select user_id from profile_change_requests
+     where id = ${input.profileChangeRequestId}
+  `;
+  if (!subject) throw new NotFound("write_target_not_found");
+
+  // The order every command in this lifecycle takes its two locks in:
+  // the person, then the request. This command used to take them the other way
+  // round without meaning to — `applyProfileFields`' `for update` on `users`
+  // came first here, while `CancelProfileChange` took the request row first and
+  // then needed `FOR KEY SHARE` on the same `users` row for its audit entry —
+  // and *Duyệt* racing *Huỷ* deadlocked, 3/3, in both directions. Taking it here
+  // rather than leaving `applyProfileFields` to do it also makes the read below
+  // current: a proposal committed a moment ago cannot slip in between reading
+  // `proposed_values` and writing it. `../profile-fields.ts` holds the rule.
+  await lockPerson(tx, subject.user_id);
 
   const [request] = await tx<
     {

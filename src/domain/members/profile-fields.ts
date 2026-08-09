@@ -315,6 +315,65 @@ export async function applyProfileFields(
 }
 
 /**
+ * Takes the profile-change lifecycle's **one lock, in its one order**: the
+ * subject's `users` row, before that person's `profile_change_requests` row is
+ * read or written.
+ *
+ * ── The two defects this exists to close, which are the same defect ──────
+ *
+ * **A lost update.** `readPendingProposal` used to read the pending row with a
+ * plain `select`. Two proposals landing together — a parent uploading a
+ * photograph in one tab and correcting a phone number in another — each merged
+ * from the same stale read, and the later `UPDATE` overwrote `proposed_values`
+ * wholesale. Both commands reported success. Reproduced three times against the
+ * real commands: twice the phone proposal vanished, and once the **photograph**
+ * did, leaving `avatars/….png` in a public bucket referenced by nothing and
+ * deletable by no code path — which is a retention failure, not a storage one
+ * (`src/storage/s3.ts` on why name-plus-face is the most identifying pair here).
+ * That is precisely the failure `carryAvatar` was written to prevent; it
+ * prevented it sequentially and not concurrently.
+ *
+ * **A deadlock that escaped as a raw `PostgresError`.** `ApproveProfileChange`
+ * held `for update` on the reader's `users` row (via `applyProfileFields`) and
+ * then updated `profile_change_requests`; `CancelProfileChange` held the request
+ * row and then needed `FOR KEY SHARE` on the same `users` row, for its audit
+ * row's `actor_id` foreign key. Opposite orders, so a manager clicking *Duyệt*
+ * as the reader clicked *Huỷ* deadlocked — confirmed 3/3 in both directions —
+ * and `40P01` is not a `DomainError`, so the loser got a 500. OPS §2 forbids
+ * exactly that shape.
+ *
+ * The two are one problem: the lifecycle touches two tables and had no agreed
+ * order between them. This function is the order. **Every command that reads or
+ * writes a `profile_change_requests` row calls it first**, with the subject's
+ * user id, and there is no second sequence to keep in step. Retrying a deadlock
+ * was rejected deliberately: a deadlock that is retried is still a design that
+ * deadlocks, and the retry would hide the next one.
+ *
+ * ── Why `for no key update` and not `for update` ─────────────────────────
+ *
+ * It conflicts with `for update` and with itself, which is the whole of what
+ * the ordering needs — two commands in this lifecycle touching one person
+ * serialise, and one of them waits rather than both failing. It does **not**
+ * conflict with the `FOR KEY SHARE` an unrelated insert takes on the same row
+ * (a loan naming this borrower, an audit row naming this actor), so proposing a
+ * photograph does not briefly block lending that reader a book. `for update`
+ * would have been simpler to explain and strictly more blocking for no gain
+ * here, because nothing in this lifecycle changes a key of `users`.
+ *
+ * Deliberately **not** `.allowZero()`-shaped: this is a `select`, so the
+ * kernel's zero-row guard does not apply to it at all, and a person who is not
+ * there is a case every caller already answers with `membership_not_found` or
+ * `write_target_not_found` before or after reaching here.
+ */
+export async function lockPerson(tx: Tx, userId: string): Promise<void> {
+  await tx`
+    select id from users
+     where id = ${userId} and deleted_at is null
+       for no key update
+  `;
+}
+
+/**
  * The eight fields as they stand, without writing anything.
  *
  * `ProposeProfileChange` needs them for `previous_values` — BR §5.4's snapshot,
