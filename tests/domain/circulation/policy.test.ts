@@ -257,7 +257,7 @@ test("INV-5 is not consulted when joining a queue", () => {
   // the limit is checked again by HandoverRequest at the moment a book changes
   // hands, and a child who has three books today will not have three when their
   // turn comes. OPS §4.2 lists `loan_limit_reached` under HandoverRequest
-  // (`:247`) and not under CreateBorrowRequest, which is the same reading.
+  // (`:246`) and not under CreateBorrowRequest, which is the same reading.
   //
   // Structural rather than incidental: `memberMayRequest` takes no loan count
   // at all, so this is a statement about the signature. Written down because

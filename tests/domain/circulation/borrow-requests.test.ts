@@ -299,7 +299,7 @@ test("approving puts the copy aside and starts the hold clock", async () => {
   expect(row.decided_by).not.toBeNull();
 
   // BR §7.1's `available → held`. This settles the question C1 left open in
-  // `inv-03-only-available-or-own-hold.test.ts:185-212`: the hold shows up in
+  // `inv-03-only-available-or-own-hold.test.ts:188-215`: the hold shows up in
   // `book_copies.state` as well as in the request row.
   expect(await copyState(copyIds[0])).toBe("held");
 });

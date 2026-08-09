@@ -144,7 +144,7 @@ export function copyHoldable(copy: {
   }
   // `available` and free of a live hold, in one condition rather than two
   // branches, because it is one question: `copies_borrowable`
-  // (`20260808_14_olibra_now.sql:114-126`) is these same two clauses, and this
+  // (`20260808_14_olibra_now.sql:113-126`) is these same two clauses, and this
   // is the predicate form of that view for a caller that has already resolved a
   // single copy. Both are needed — the state alone would admit a copy sitting
   // `available` under a hold written by some other path, and the hold alone
@@ -218,7 +218,7 @@ export function memberMayBorrow(
  * queue: nothing goes out on a request, the limit is checked again by
  * `HandoverRequest` at the moment a book actually changes hands, and a child
  * who has three books today will not have three when their turn comes. OPS
- * §4.2 lists `loan_limit_reached` under `HandoverRequest` (`:247`) and not
+ * §4.2 lists `loan_limit_reached` under `HandoverRequest` (`:246`) and not
  * under `CreateBorrowRequest`, which is the same reading.
  */
 export function memberMayRequest(member: { status: MembershipStatus }): Block {

@@ -28,7 +28,7 @@ export interface ApproveBorrowRequestResult {
  * a visible expiry)".
  *
  * **This is the same effect `receiveReturn` already performs**, reached from the
- * queue screen instead of from the return form. `receive-return.ts:214-236`
+ * queue screen instead of from the return form. `receive-return.ts:216-237`
  * writes `status='approved'`, the copy id, `hold_expires_at`, `decided_by` and
  * `decided_at`, and pushes a `request.approved` audit row — and it does so
  * because OPS §5 makes holding a returned copy for the next reader a second,
@@ -38,7 +38,7 @@ export interface ApproveBorrowRequestResult {
  * the one just handed back and this one's is chosen from a list.
  *
  * **The copy moves `available → held`, and that settles a question C1 left
- * open.** `inv-03-only-available-or-own-hold.test.ts:185-212` exercises both
+ * open.** `inv-03-only-available-or-own-hold.test.ts:188-215` exercises both
  * shapes deliberately — a hold that shows up in `book_copies.state` and a hold
  * that shows up only as a `borrow_requests` row — precisely because which one
  * C2 would choose was not decided. It is the state, matching `receiveReturn`,
