@@ -483,6 +483,82 @@ test("a reorder that moves nothing writes no audit entry", async () => {
   ).toEqual([]);
 });
 
+test("a partial list is refused rather than left with duplicate sort_orders", async () => {
+  // The evasion the other refusals missed. Three level-1 units at 1/2/3
+  // reordered with `[C, A]` end at `C=1, A=2, B=2` — a tie — and `unitOptions`
+  // breaks ties by name, so the shelf silently falls back to "Tổ 10 before
+  // Tổ 2", which is the exact outcome this command's docstring exists to
+  // prevent. Both commands reported success, so nothing anywhere raised.
+  //
+  // The assertion is on the stored `sort_order`s and not merely on the throw:
+  // a refusal that had already written half the list would be worse than the
+  // bug it replaced.
+  const { bookshelf, ctx } = await shelf();
+  const a = await runCommand(sql, ctx, createParishUnit, {
+    level: 1,
+    name: "Giáo họ A",
+    sortOrder: 1,
+  });
+  const b = await runCommand(sql, ctx, createParishUnit, {
+    level: 1,
+    name: "Giáo họ B",
+    sortOrder: 2,
+  });
+  const c = await runCommand(sql, ctx, createParishUnit, {
+    level: 1,
+    name: "Giáo họ C",
+    sortOrder: 3,
+  });
+
+  await expect(
+    runCommand(sql, ctx, reorderParishUnits, {
+      unitIds: [c.parishUnitId, a.parishUnitId],
+    }),
+  ).rejects.toMatchObject({ code: "validation_failed" });
+
+  const written = await rows(bookshelf.id);
+  expect(written.map((r) => [r.name, Number(r.sort_order)]).sort()).toEqual([
+    ["Giáo họ A", 1],
+    ["Giáo họ B", 2],
+    ["Giáo họ C", 3],
+  ]);
+  expect([a.parishUnitId, b.parishUnitId, c.parishUnitId]).toHaveLength(3);
+});
+
+test("a soft-deleted sibling does not make a complete list look partial", async () => {
+  // The completeness count is over *live* units only. A screen that lists what
+  // it can see is posting a complete list; counting retired units too would
+  // refuse every reorder on a shelf that had ever deleted a unit, which is the
+  // way a guard like this usually goes wrong.
+  const { bookshelf, ctx } = await shelf();
+  const a = await runCommand(sql, ctx, createParishUnit, {
+    level: 1,
+    name: "Giáo họ A",
+    sortOrder: 1,
+  });
+  const b = await runCommand(sql, ctx, createParishUnit, {
+    level: 1,
+    name: "Giáo họ B",
+    sortOrder: 2,
+  });
+  const retired = await runCommand(sql, ctx, createParishUnit, {
+    level: 1,
+    name: "Giáo họ Cũ",
+    sortOrder: 3,
+  });
+  await runCommand(sql, ctx, deleteParishUnit, { unitId: retired.parishUnitId });
+
+  await runCommand(sql, ctx, reorderParishUnits, {
+    unitIds: [b.parishUnitId, a.parishUnitId],
+  });
+
+  const { units } = await context(bookshelf.id);
+  expect(unitOptions(units, 1).map((u) => u.name)).toEqual([
+    "Giáo họ B",
+    "Giáo họ A",
+  ]);
+});
+
 test("a mixed, duplicated, empty or unresolvable list is refused", async () => {
   const { bookshelf, ctx } = await shelf();
   const l1 = await runCommand(sql, ctx, createParishUnit, {

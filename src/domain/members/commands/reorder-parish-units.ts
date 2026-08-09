@@ -105,6 +105,42 @@ export const reorderParishUnits: Command<ReorderParishUnitsInput, void> = async 
     throw new ValidationFailed("validation_failed", "unitIds");
   }
 
+  // ── The list must be the *whole* group ───────────────────────────────────
+  //
+  // Mixed, duplicated, empty and unresolvable lists were all refused; a
+  // **partial** one was not, and it is the one that produces the outcome this
+  // command's docstring exists to prevent. Three level-1 units at 1/2/3
+  // reordered with `[C, A]` end at `C=1, A=2, B=2` — a tie — and `unitOptions`
+  // breaks ties by name, so the shelf silently falls back to "Tổ 10 before
+  // Tổ 2": exactly the ordering somebody added `sort_order` to escape, arrived
+  // at by a command that reported success.
+  //
+  // Refused rather than repaired, and the choice is deliberate. Appending the
+  // omitted units after the named ones would be inventing a placement nobody
+  // expressed — this command's whole argument is that position comes from the
+  // caller's array and is never computed here — and a caller that omitted a
+  // unit did not decide it should go last; it more likely never knew about it,
+  // because somebody else created one while the screen was open. That is a
+  // stale-list problem, and the honest answer to a stale list is to say so.
+  // `validation_failed` is OPS §4.5's own sentence for this command, "Vui lòng
+  // kiểm tra lại thông tin.", and a screen that re-reads and re-renders is the
+  // right recovery.
+  //
+  // Counted in the database rather than from the caller's array, and scoped by
+  // RLS to this shelf. `is not distinct from` because the shared parent is null
+  // for every level-1 unit and for every level-2 unit on a flat shelf, and
+  // `= null` is never true.
+  const [siblings] = await tx<{ n: number }[]>`
+    select count(*)::int as n
+      from parish_units
+     where level = ${level}
+       and parent_id is not distinct from ${parentId}
+       and deleted_at is null
+  `;
+  if (Number(siblings.n) !== unitIds.length) {
+    throw new ValidationFailed("validation_failed", "unitIds");
+  }
+
   await tx`
     with ordered as (
       select id, ord from unnest(${unitIds}::uuid[]) with ordinality as t(id, ord)
