@@ -10,6 +10,7 @@ import {
   type MembershipStatus,
   membershipTransition,
 } from "./policy";
+import { assertStorableDate } from "./profile-fields";
 
 /**
  * Everything OPS §4.3's registration form posts.
@@ -44,6 +45,18 @@ export interface RegistrationInput {
    * already handles a multipart form. That separation is now enforced rather
    * than merely intended: `tests/architecture/boundaries.test.ts` fails if
    * anything under `src/domain/` imports the store.
+   *
+   * **A URL and no key, which means this photograph can never be deleted.**
+   * Every other avatar in the system arrives through `ProposeAvatarChange`,
+   * which carries `avatar_object` — the storage key — in the request's
+   * `proposed_values`, so rejecting, cancelling or superseding one removes the
+   * object (`src/lib/avatar.ts`). One set here has no key anywhere, so a family
+   * that asks the parish to take their child's photograph down cannot be
+   * obliged by any code path. That is a **retention** gap, not a storage one:
+   * `src/storage/s3.ts` records that the readers here are children and that
+   * name-plus-face is the most identifying pair of facts in the system.
+   * Closing it means a key column on `users` and a migration — master plan
+   * §7.14, **B6 · Avatar retention**, owns it.
    */
   avatarUrl?: string | null;
   parishUnitL1Id?: string | null;
@@ -195,7 +208,7 @@ async function findExistingPerson(
     select id from users
     where deleted_at is null
       and lower(full_name) = lower(${input.fullName.trim()})
-      and date_of_birth = ${input.dateOfBirth}::date
+      and date_of_birth = ${input.dateOfBirth.trim()}::date
       and phone = ${input.phone.trim()}
   `;
   return row?.id ?? null;
@@ -227,6 +240,22 @@ export async function register(
     if (blank(value)) throw new ValidationFailed("required_fields_missing", field);
   }
 
+  // **Before `findExistingPerson`, not merely before the insert.**
+  //
+  // This is the screen on which a child's date of birth is typed for the first
+  // time, by a volunteer, in Vietnamese — and until review found it, `blank()`
+  // above was the whole of the validation. `'02/04/2015'` (2 April, the way it
+  // is written here) was stored as `2015-02-03`, silently; `'2015-02-30'` rolled
+  // over into March; `'hôm qua'` came back as a `RangeError` out of the driver,
+  // which OPS §2 forbids. `assertStorableDate` holds the measurements.
+  //
+  // The ordering matters as much as the check. `findExistingPerson`'s no-username
+  // branch matches on `and date_of_birth = ${input.dateOfBirth}::date`, so a
+  // mis-read date does not merely store the wrong birthday — it asks the wrong
+  // question about *who this is*, and BR §5.3's whole argument for the exact
+  // triple is that identity must not be decided loosely.
+  assertStorableDate(input.dateOfBirth.trim(), "dateOfBirth");
+
   const credentials = await credentialsFrom(input);
 
   // OPS §4.3's named invariant: the parish rule is checked here, in the same
@@ -246,9 +275,14 @@ export async function register(
   let userId: string;
   if (existingId !== null) {
     // BR §5.3: "their identity is reused and only the parish details are
-    // re-entered." Nothing on the person is touched — INV-13 makes an approved
-    // ProfileChangeRequest the only path by which a verified detail changes,
-    // and a registration form at a second parish is not that.
+    // re-entered." Nothing on the person is touched — INV-13 sanctions two
+    // paths by which a verified detail changes, an approved
+    // ProfileChangeRequest and a manager's audited direct correction
+    // (`./commands/update-reader-profile.ts`), and a registration form at a
+    // second parish is neither. (This comment used to say "the only path",
+    // which was true when it was written and stopped being true when BR §6's
+    // INV-13 was restated on 2026-08-09; the conclusion is unchanged, and it
+    // is the conclusion that is load-bearing here.)
     userId = existingId;
   } else {
     const [created] = await tx<{ id: string }[]>`
@@ -257,7 +291,7 @@ export async function register(
         phone, email, avatar_url, username, password_hash
       ) values (
         ${trimmed(input.saintName)}, ${input.fullName.trim()},
-        ${input.dateOfBirth}::date, ${input.fatherName.trim()},
+        ${input.dateOfBirth.trim()}::date, ${input.fatherName.trim()},
         ${input.motherName.trim()}, ${input.phone.trim()},
         ${trimmed(input.email)}, ${trimmed(input.avatarUrl)},
         ${credentials.username}, ${credentials.passwordHash}

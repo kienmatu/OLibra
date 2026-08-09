@@ -342,9 +342,9 @@ These are blocked on **you**, not on code. Each has a slice waiting on it. I hav
 | Q6 | **Is `RegisterMembership` rate-limited?** `SubmitFeedback` is (3/phone/day). Public registration is an open unauthenticated form that writes a row, and nothing says. | B2 | Not domain-limited; handled at the edge. | Low. |
 | Q7 | **Where does `DeleteBook` live in the UI?** Required by BR §13.2/§11; no screen among the 47 exposes it. (`AddCopies` was in this row and is now resolved — "Thêm bản" on the manager's book detail page.) | B1 | Implement the command; leave it unexposed until a delete-confirmation flow is designed. | Low. |
 
-| Q8 | **Who proposes a profile change for a reader who cannot sign in?** `ProposeProfileChange`'s caller is `reader` (self only), and BR §2 makes credentials optional precisely because most readers are children who will never sign in. No manager-edit command exists either, so a family that moves house has no path to a corrected phone number — the number BR §16.3 calls "the actual mechanism by which books come back". | B2 | A manager may propose on a member's behalf, producing a request another manager approves — keeping INV-13's audit trail intact rather than adding a silent edit. | **Medium, and it is Phase 1.** Unlike Q1–Q7 this is a hole in the flow rather than an ambiguity in it. |
+| Q8 | **Who proposes a profile change for a reader who cannot sign in?** `ProposeProfileChange`'s caller is `reader` (self only), and BR §2 makes credentials optional precisely because most readers are children who will never sign in. No manager-edit command exists either, so a family that moves house has no path to a corrected phone number — the number BR §16.3 calls "the actual mechanism by which books come back". | B2 | **Answered by the product owner, 2026-08-09: a manager edits a reader's details directly, with a full audit record and no approval step.** This is the *opposite* of the reading assumed here before it was asked — "a manager may propose on a member's behalf, producing a request another manager approves" — which is recorded because a plan written against the assumption would have built the wrong command. The decision is now written into BR §6's restated INV-13 and BR §2, with DATABASE.md §7/§4.11 and OPERATIONS.md §4.3 following; the command is `UpdateReaderProfile`, and B2b's plan §3 argues why the audit record, not the approval step, is what INV-13 was protecting. | **Medium, and it is Phase 1.** Unlike Q1–Q7 this is a hole in the flow rather than an ambiguity in it. |
 
-**Q1 is the only one of Q1–Q7 I would want answered before its slice starts — and it is Phase 2, so it is not urgent.** The rest can be implemented on the assumed reading and changed cheaply. **Q8 is the one that matters now:** it is Phase 1, and the assumed reading adds a command rather than changing one.
+**Q1 is the only one of Q1–Q7 I would want answered before its slice starts — and it is Phase 2, so it is not urgent.** The rest can be implemented on the assumed reading and changed cheaply. **Q8 was the one that mattered, and it has since been answered** (2026-08-09) — see the row above. It is worth noting that the answer went the *other way* from the assumption recorded here, which is the whole argument for asking rather than assuming: the assumed reading added a command, and the real one changed a numbered invariant.
 
 ---
 
@@ -369,6 +369,7 @@ Foundation slices have their own fully-scripted plan documents. Wave 1–3 slice
 | D1 · Notifications | §7.8 below | 2 cmd | E | B2, C2 |
 | D2 · Statistics & export | §7.9 below | 4 qry | E | C1, **Q5** |
 | D3 · Reader dashboard | §7.10 below | 5 qry | E | C1 |
+| B6 · Avatar retention | §7.14 below | — | — | B2b |
 | X1 · String catalogue | §7.11 below | — | E | — |
 | X2 · CI | §7.12 below | — | — | — |
 | E · UI wiring | §7.13 below | — | — | per surface |
@@ -529,6 +530,24 @@ INV-3's test needs the case that distinguishes `HandoverRequest` from `LendCopy`
 ### 7.13 E · UI wiring
 
 Per surface, per §3's Wave 3 table. **The acceptance criterion for the whole of E is that no screen's URL or visible behaviour changes** — G11 makes the seed reproduce the fixtures exactly so that swapping `src/lib/fixtures.ts` for real queries is invisible. `bun run check:links` must still report every internal link resolving, and the exported PDF must still match.
+
+### 7.14 B6 · Avatar retention
+
+**Files:** a migration adding `users.avatar_object`, `src/domain/members/registration.ts`, `src/domain/members/profile-fields.ts`, `src/lib/avatar.ts`.
+
+**Why this is a slice and not a cleanup.** `src/storage/s3.ts` records the reason the photograph is handled the way it is: the readers here are children, BR §5.3 collects the photograph precisely so a manager can tell two children apart, and that makes name-plus-face the most identifying pair of facts in the system. The obligation that follows is that a family who replaces their child's photograph — or asks the parish to take it down — is actually obliged. Today one case cannot be:
+
+- **A photograph set at registration is undeletable by any code path.** `RegistrationInput.avatarUrl` is a URL with no storage key beside it, `users.avatar_url` is a URL too, and every deletion this application performs is keyed. So the object goes on answering 200 from a public bucket indefinitely, and no screen, command or manual step in the shipped codebase can remove it.
+
+This was found by review of B2b (2026-08-09) and deliberately not fixed there. The two cases B2b *could* close are closed: a rejected or cancelled proposal's image is deleted, and approving a replacement deletes the photograph it superseded, whose key is recoverable from the approved request that set it.
+
+**What it needs.** A key column on `users` written wherever `avatar_url` is written — which is `applyProfileFields` and `register()` — so that "which object is this person's photograph" is answerable without a URL lookup, plus a backfill for rows that already carry a URL and no key. It is a migration, which is why it is not a comment in `src/lib/avatar.ts`.
+
+**Acceptance:** setting a photograph at registration and then replacing it leaves exactly one object in the bucket, asserted with a real `fetch` of the old URL returning 404 — the shape B5's own suite uses; and a person's photograph can be cleared entirely, with the object gone, however it arrived.
+
+**Blocked by:** B2b (merged). Blocks nothing, which is exactly why it needs a name — nothing else will force it.
+
+---
 
 ---
 

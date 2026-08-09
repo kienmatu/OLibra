@@ -173,16 +173,17 @@ flowchart TB
         I6["INV-6 · renewal blocked if anyone is queued"]
         I7["INV-7 · lost or retired cannot circulate"]
         I8["INV-8 · every transition writes an audit row"]
-        I13b["INV-13b · details change only via<br/>an approved profile request"]
+        I13b["INV-13b · details never change silently —<br/>an approved profile request, or a<br/>manager's audited direct correction"]
     end
     DB -.->|"holds regardless of<br/>which stack is chosen"| APP
 ```
 
 Eight boxes on the left, seven on the right — fourteen rules, with INV-13 appearing on both sides. It is split deliberately: a database
 constraint can guarantee there is *at most one pending request*, but nothing
-short of application code can guarantee that a value on `users` was only ever
-written by the approval path — that is a property of the code that writes it,
-not of any one row. The seven on the right are the ones that will break
+short of application code can guarantee that a value on `users` was written by
+one of the two sanctioned paths — an approved request, or a manager's audited
+direct correction (§7, §4.11) — rather than by a third one somebody added. That
+is a property of the code that writes it, not of any one row. The seven on the right are the ones that will break
 first, which is why §6 of the requirements asks for a named test per rule and
 why the concurrency test described in SDD.md §9 matters more than it looks.
 
@@ -1096,7 +1097,11 @@ create unique index profile_change_requests_one_pending
 
 A column-per-field design would have suited a small, fixed set of proposable fields. It does not suit "every field", which is what was decided here, so `jsonb` is the closer fit to the actual rule rather than merely the cheaper option.
 
-`profile_change_requests_one_pending` is INV-13's database half: a partial unique index makes "at most one pending request per person" structural, in the same spirit as `loans_one_active_per_copy` (§7.1). It cannot enforce the other half of INV-13 — that a value on `users` is only ever written by an approved request — because that is a property of which code path is allowed to write to `users`, not of any single row here. §7 marks that half as application discipline for exactly this reason.
+`profile_change_requests_one_pending` is INV-13's database half: a partial unique index makes "at most one pending request per person" structural, in the same spirit as `loans_one_active_per_copy` (§7.1). It cannot enforce the other half of INV-13 — that a value on `users` is never written silently — because that is a property of which code paths are allowed to write to `users`, not of any single row here. §7 marks that half as application discipline for exactly this reason.
+
+**The second half now sanctions two write paths, not one, and the count is the part that matters.** BR §6's INV-13 was restated (2026-08-09) after the product owner decided that a manager corrects a reader's details directly, with a full audit record and no approval step; BR §2 carries the argument. An approved `ProfileChangeRequest` and a manager's direct correction are both legitimate, and both write an audit entry naming the actor, the time, and the before and after values — which is what INV-13's second half was always protecting. It was never the approval step as such: a manager who wanted to change a child's phone number quietly could already do it by setting that child's credentials (§4.1) and proposing as them, and the audit trail would have named the *reader*. The direct edit is the more truthful record.
+
+That restatement was BR §6's to make, not this document's — the note in §7 above on the nested parish-unit rule says why, and the same reasoning applies in reverse here: a numbered invariant is BR §6's to change, and this document follows it rather than reinterpreting it. What changes structurally is nothing: no column, index or constraint here moves. What changes is the discipline's shape — "exactly one code path writes `users`" was never true even before the restatement (a password change writes `password_hash`), so the application-side check must **enumerate** the permitted writers with a reason each rather than count them.
 
 `profile_change_requests_rejected_has_reason` mirrors `memberships_rejected_has_reason` (§4.1): a rejection without a reason leaves the reader with no idea what to fix.
 
@@ -1304,7 +1309,7 @@ This is the table to read before writing any application code.
 | **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; a `before delete` trigger raises for every role, §7.3 |
 | **INV-12** | Audit records never change or disappear | **Database** | A `before update` / `before delete` trigger raises for every role, §7.3 |
 | **INV-14** | Either both username and password, or neither | **Database** | `users_credentials_paired` check, §4.1 |
-| **INV-13** | At most one pending profile change request per person; a person's details change only through an approved one | **Database** (the first half) + **Application** (the second) | Partial unique index for "at most one pending", §4.11; "only through an approved request" is which code path is allowed to write `users`, which no constraint can express |
+| **INV-13** | At most one pending profile change request per person; a person's details never change silently — every change is an approved request or a manager's audited direct correction | **Database** (the first half) + **Application** (the second) | Partial unique index for "at most one pending", §4.11; the second half is which code paths are allowed to write `users`, and how many there are, which no constraint can express. Two are sanctioned, not one — see §4.11 |
 
 Seven of the fourteen are wholly structural, INV-13 is split across the line, and six need application discipline **inside a transaction**. Each of the fourteen needs the named test §6 requires — including the structural ones, because a constraint that was never exercised is a constraint nobody has checked is there.
 

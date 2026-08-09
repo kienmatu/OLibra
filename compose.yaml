@@ -23,6 +23,23 @@ services:
       # Vietnamese text sorting is not something to leave to whatever the base
       # image picked. Changing it later means a dump and reload.
       POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    # `DateStyle` is pinned for the same reason the locale is, and with a
+    # sharper failure. Postgres inherits it from the image default — `ISO, MDY`
+    # in this one — and it decides how an ambiguous date *string* is read.
+    # Measured through this application's driver against an `ISO, MDY` server:
+    # `02/04/2015`, which is how 2 April 2015 is written in Vietnamese, is
+    # stored as `2015-02-03`. A child's date of birth, wrong, with nothing
+    # raised anywhere.
+    #
+    # `assertStorableDate` in `src/domain/members/profile-fields.ts` is the real
+    # rule and refuses anything that is not `YYYY-MM-DD` before it reaches the
+    # database — DATABASE.md §2.2's point about `TimeZone` applies unchanged: a
+    # session setting must never be what correctness rests on, because a web
+    # request, a migration console and a background job may each carry a
+    # different one. This is the other half: a `psql` session, a restore, or a
+    # future job that bypasses the domain now inherits an unambiguous ordering
+    # rather than the image's guess.
+    command: ["postgres", "-c", "datestyle=ISO, YMD"]
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     ports:
@@ -66,6 +83,10 @@ services:
       # differently from production is a suite that agrees with itself and not
       # with the thing it is testing.
       POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    # Same pin as `db` above, and for the reason the locale comment gives: a
+    # suite that reads dates differently from production is a suite that agrees
+    # with itself and not with the thing it is testing.
+    command: ["postgres", "-c", "datestyle=ISO, YMD"]
     tmpfs:
       - /var/lib/postgresql/data
     ports:

@@ -124,6 +124,51 @@ export const ERROR_MESSAGES = {
   member_has_active_loans: "Bạn đọc này còn sách chưa trả, hãy nhận trả trước.",
   reject_reason_required: "Vui lòng ghi lý do từ chối.",
 
+  // — members: B2b —
+  // OPS §4.3's own sentence, under ProposeProfileChange (`:484`), reused
+  // unchanged by UpdateReaderProfile: "nothing differs from the current
+  // values" is the same fact whichever of the two write paths BR §6's restated
+  // INV-13 sanctions is being asked to do nothing. A no-op that wrote an audit
+  // entry would be an entry claiming a change nobody made, which is worse than
+  // a refusal — BR §14's audit browser is read as a record of what happened.
+  //
+  // Checked for a collision before adding, the way B1, B2a and C1 each had to:
+  // there is no other sentence in this catalogue about an empty change, and
+  // `validation_failed` ("Vui lòng kiểm tra lại thông tin.") is the wrong one —
+  // nothing about the input is wrong.
+  empty_proposal: "Vui lòng thay đổi ít nhất một trường.",
+  // OPS §4.3 gives `not_pending` to ApproveProfileChange (`:500`),
+  // RejectProfileChange (`:514`) and CancelProfileChange (`:525`), all three
+  // reading "Yêu cầu này đã được xử lý." — and `request_not_pending` above
+  // (`:91`) already holds that sentence, character for character. It is a
+  // *borrow* request's code (OPS §4.2:306, `:316`), so this is a distinct code
+  // and not a reuse: two codes may share a sentence, but one code may not name
+  // two different things a later slice will want to tell apart. That is the
+  // rule B1 established for `validation_failed`, B2a for `registration_not
+  // _pending` ("Đơn đăng ký này đã được xử lý.", the same word `not_pending`
+  // under ApproveMembership at `:391`), and C1 for `loan_not_active_cannot
+  // _void`. This is the fourth, and B2a named it as B2b's before it was
+  // reached.
+  profile_change_not_pending: "Yêu cầu này đã được xử lý.",
+  // OPS §4.3's two failure modes for ProposeAvatarChange (`:567`, `:568`),
+  // quoted. Neither is raised by a command: both are facts about *bytes*, and
+  // `tests/architecture/boundaries.test.ts` forbids `src/domain/` from touching
+  // any. They are raised by `src/lib/avatar.ts` before the command runs, with
+  // these codes, so the sentence a reader sees is the catalogue's rather than
+  // one the surface invented for itself — which is the whole reason
+  // `ERROR_MESSAGES` lives in the domain and not beside a screen.
+  //
+  // `file_too_large`'s sentence names the number, which is what makes the limit
+  // implementable: OPS attributes both "≤2 MB" and "square" to "the profile
+  // screen's own copy", and that copy does not exist — `2 MB`, `MB`, `vuông`
+  // and `square` appear nowhere under `src/app/` or `src/components/`. So the
+  // size is enforced from this sentence and **no aspect-ratio check exists
+  // anywhere**: "square" has no sentence, no code and no source, and B2b's plan
+  // §8 asks the product owner for it rather than inventing a refusal with
+  // Vietnamese nobody wrote.
+  file_too_large: "Ảnh vượt quá 2 MB.",
+  invalid_image: "Tệp này không phải là ảnh hợp lệ.",
+
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",
   not_permitted: "Bạn không có quyền thực hiện việc này.",

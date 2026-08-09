@@ -12,6 +12,7 @@ import {
   unitOptions,
 } from "@/domain/members/parish-taxonomy";
 import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
+import { proposeAvatarAction } from "./actions";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -49,15 +50,53 @@ export default async function ReaderProfilePage({
           <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-paper text-[26px] font-semibold text-leather">
             {reader.name.charAt(0)}
           </div>
-          <div>
-            <Button variant="quiet" size="sm">
+          {/*
+            The one live control on this page, and the only part of this screen
+            B2b wires. Everything around it still renders from `@/lib/fixtures`;
+            the screens themselves are a later slice (B2b plan §7), which carves
+            out exactly one exception — "the server action Task 7 needs for the
+            avatar upload, which is not a screen and is the first `submitCommand`
+            caller that carries a file".
+
+            It is wired rather than left decorative for a reason beyond
+            completeness. B5's Docker smoke stage boots the standalone server and
+            fails the build unless it serves a page; Next traces
+            `.next/standalone` from what the **routes** import, and a
+            `"use server"` module that no route references is not compiled into
+            the build at all. Measured, on this branch: with the action file
+            present but unreferenced, `docker build --target smoke .` passed and
+            the image carried no `@aws-sdk` directory whatever. So the gate B5
+            recorded as vacuous "until B1 or B2b wires the store into a route"
+            stays vacuous until a route reaches it, and this `action={...}` is
+            that route.
+
+            The form posts no identity. `proposeAvatarChange` takes the
+            membership from `ctx.actor.membershipId`, which `contextFor` resolved
+            from the session cookie — see the action's own note on why an absent
+            field is a stronger position than a hidden one.
+          */}
+          <form action={proposeAvatarAction}>
+            <input type="hidden" name="tu-sach" value={shelf.slug} />
+            <label className="inline-flex cursor-pointer items-center gap-2 text-[15px] font-medium text-leather">
               <Camera aria-hidden className="size-[18px]" strokeWidth={1.75} />
               Đề nghị đổi ảnh
-            </Button>
+              <input
+                type="file"
+                name="anh"
+                // The three types `src/lib/avatar.ts` accepts, and therefore the
+                // three `objectKey` will build a key for. A hint to the file
+                // picker only — the policy that matters runs on the server.
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+              />
+            </label>
             <p className="mt-1.5 text-[13px] text-meta">
               Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị.
             </p>
-          </div>
+            <Button type="submit" variant="quiet" size="sm" className="mt-2">
+              Gửi ảnh
+            </Button>
+          </form>
         </div>
 
         <form className="mt-10 space-y-10">

@@ -71,6 +71,31 @@ import {
  * those — it is a 500, and putting it in that catalogue would sit an
  * infrastructure fault beside entries that all name something the user can do
  * instead. The SDK's own error propagates.
+ *
+ * ## What a stored object is served *with*, and who actually decides it
+ *
+ * This store sets a `Content-Type` and nothing else. Everything beyond that is
+ * the provider's, and one of those provider behaviours is currently doing more
+ * work than anyone here chose:
+ *
+ * **`X-Content-Type-Options: nosniff` comes from MinIO, not from this
+ * application.** It was measured — a file whose bytes are not a JPEG, uploaded
+ * as `image/jpeg`, is served by the compose `storage` service as `image/jpeg`
+ * with `nosniff` — and that header is a real part of why an upload whose
+ * content type this application allow-listed cannot be talked into executing in
+ * a browser. **AWS S3 does not send it.** Nor do R2 or B2 by default; each has
+ * its own way of attaching response headers, and none of them is a variable in
+ * `S3Config`.
+ *
+ * So SDD §6.8's portability claim — "changing provider is a change of
+ * environment variables and nothing else" — holds for *behaviour* and does not
+ * hold for this particular defence: pointing `S3_ENDPOINT` at AWS silently
+ * drops it. Nothing here is wrong today, and the content-type allow-list in
+ * `src/lib/avatar.ts` plus `objectKey`'s refusal to derive an extension from an
+ * uploaded filename are the defences this codebase actually owns and tests. But
+ * a reader who assumed `nosniff` was ours would be assuming a guarantee that
+ * moves with the provider, and that is exactly the kind of thing this module's
+ * docstrings exist to keep from being assumed.
  */
 export interface ObjectStore {
   put(key: string, body: Uint8Array, contentType: string): Promise<void>;

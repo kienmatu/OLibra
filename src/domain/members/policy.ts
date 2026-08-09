@@ -160,6 +160,31 @@ export function requireReader(ctx: TenantContext): void {
 }
 
 /**
+ * OPS §4.5's caller for every parish-unit and taxonomy command.
+ *
+ * **It is never enough on its own, and that is the point of this docstring.**
+ * `systemContext` (`../kernel/tenant.ts`) yields
+ * `{ userId: null, membershipId: null, role: "super_admin" }` — the highest rank
+ * in the table, with nobody behind it — so a command gated on rank alone
+ * *passes* under the seed's or a scheduled job's context and commits an audit
+ * row whose actor columns are all null. INV-8 wants the actor by name. That
+ * defect has already shipped once, in `voidLoan`, and `requireIdentifiedActor`
+ * exists to record it; every one of the five commands calls **both**.
+ *
+ * `atLeast` is used rather than `ctx.actor.role === "super_admin"` for
+ * consistency with the three gates above, even though `super_admin` is the top
+ * of `ROLE_RANK` and the two are equivalent today. An equality test would
+ * silently become the wrong check the day a rank is added above it, and would
+ * read as if it were deliberately excluding something rather than requiring a
+ * minimum.
+ */
+export function requireSuperAdmin(ctx: TenantContext): void {
+  if (!atLeast(ctx.actor.role, "super_admin")) {
+    throw new RuleViolated("not_permitted");
+  }
+}
+
+/**
  * OPS §4.3's "reader (self only)" caller, with a manager admitted on top.
  *
  * The self check compares `ctx.actor.membershipId`, which `contextFor`
