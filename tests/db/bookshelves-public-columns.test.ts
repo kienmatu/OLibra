@@ -12,7 +12,7 @@ import { expect, test } from "vitest";
  * protect it instead" — the column surface is now entirely the query's job.
  * BR §16.1 withholds keeper contact, and OPERATIONS.md §3.1 already forbids
  * the tempting shortcut of joining the full row in and trimming it
- * client-side, since that still puts it on the wire.
+ * client-side, "since that would put it on the wire" (`OPERATIONS.md:51`).
  *
  * Chosen over the reviewer's other suggestion (a `security_invoker`
  * directory view the portal query must go through): there is no portal

@@ -8,13 +8,14 @@
  * redirect, a form post and a second redirect — which means it spends most of
  * its life in a query string, and a query string is input.
  *
- * The whole module is deliberately dependency-free: `src/middleware.ts` runs
- * in the middleware runtime and imports `REQUEST_PATH_HEADER` from here, so
+ * The whole module is deliberately dependency-free: `src/proxy.ts` runs
+ * in the proxy runtime (Next.js 16.3's rename of the middleware convention —
+ * see that file) and imports `REQUEST_PATH_HEADER` from here, so
  * anything this file reached for would be dragged in with it.
  */
 
 /**
- * The header `src/middleware.ts` stamps the requested path onto, and the only
+ * The header `src/proxy.ts` stamps the requested path onto, and the only
  * way a Server Component in the App Router can learn what URL it is rendering.
  *
  * A page knows its `params` and its `searchParams`; it does not know its own
@@ -26,7 +27,7 @@
  * "a caller cannot express a read that skipped a step". Deriving the path in
  * the seam keeps that true for the return path too.
  *
- * **A client can send this header, and that changes nothing.** The middleware
+ * **A client can send this header, and that changes nothing.** The proxy
  * `set`s it on every request it sees, overwriting whatever arrived; and for a
  * request the matcher does not cover, `safeReturnPath` below still refuses
  * anything that is not a same-origin path — so the worst an attacker can do by

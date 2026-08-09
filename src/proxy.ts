@@ -5,7 +5,23 @@ import { REQUEST_PATH_HEADER } from "./lib/return-path";
  * Stamps the requested path onto the request, so the page-data seam can send a
  * guest to sign in and back again.
  *
- * **Why the app has middleware at all, when it had none.** U2 §3.1 requires
+ * **The file is `src/proxy.ts` and the export is `proxy`** (Minor 13,
+ * fix-report 2026-08-09-u2-shelf-and-portal). Next.js 16.3 — the version this
+ * project pins — prints on every start: "The `middleware` file convention is
+ * deprecated. Please use `proxy` instead." It is the same convention with a new
+ * name and nothing else changed: `next/dist/build/templates/middleware.js:77`
+ * resolves the handler as `(isProxy ? mod.proxy : mod.middleware) ||
+ * mod.default`, where `isProxy` is decided purely by whether the file is called
+ * `proxy`; the `config.matcher` export, the `NextRequest`/`NextResponse` types
+ * and the runtime are untouched. Having both files is an error, not a fallback
+ * (`build/index.js:724`), so this is a rename rather than an addition.
+ *
+ * Renamed now rather than later because this slice is what introduced the file:
+ * shipping a brand-new file under a convention the pinned version already asks
+ * you to stop using is a deprecation warning that outlives everybody who
+ * remembers why it is there.
+ *
+ * **Why the app has this at all, when it had none.** U2 §3.1 requires
  * that a guest reaching a shelf page lands on `/dang-nhap` and returns to where
  * they were going. A Server Component in the App Router is handed `params` and
  * `searchParams` and is not told its own URL; there is no server equivalent of
@@ -20,12 +36,12 @@ import { REQUEST_PATH_HEADER } from "./lib/return-path";
  * **It does nothing else, deliberately.** No session lookup, no redirect, no
  * authorisation. Every access decision in this project is made in Postgres by
  * RLS and in the domain by `requireReader`/`requireManager`, and BR §13.3 is
- * explicit that the interface is never the security control. Middleware that
+ * explicit that the interface is never the security control. A proxy that
  * started deciding who may see what would be a fourth answer to that question,
  * running before the database is consulted and with no transaction to be
  * consistent with. It also cannot reach the database: this runs in the
- * middleware runtime, where `postgres.js` does not, which is a good reason to
- * keep the responsibility exactly this small.
+ * proxy runtime, where `postgres.js` does not, which is a good reason to keep
+ * the responsibility exactly this small.
  *
  * `NextResponse.next({ request: { headers } })` rewrites the *request* headers
  * the route then sees; the header never reaches the browser. `set` overwrites,
@@ -39,7 +55,7 @@ import { REQUEST_PATH_HEADER } from "./lib/return-path";
  * going: a volunteer who typed a search and was asked to sign in should get
  * their results back, not an empty form.
  */
-export function middleware(request: NextRequest): NextResponse {
+export function proxy(request: NextRequest): NextResponse {
   const headers = new Headers(request.headers);
   headers.set(
     REQUEST_PATH_HEADER,

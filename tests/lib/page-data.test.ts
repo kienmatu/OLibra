@@ -36,7 +36,7 @@ import { testDatabaseUrl } from "../support/env";
 const session = vi.hoisted(() => ({
   token: null as string | null,
   /**
-   * What `src/middleware.ts` would have stamped on this request.
+   * What `src/proxy.ts` would have stamped on this request.
    *
    * Mocked for the same reason `cookies()` is — it has no meaning outside a
    * request — and answering only for `REQUEST_PATH_HEADER` for the same reason
@@ -279,7 +279,7 @@ test("a signed-in person with no membership anywhere also gets the 404, not the 
 
 test("a return path pointing off-site is dropped, not followed", async () => {
   // The seam builds the sign-in URL from a request header, and a header is
-  // input — `src/middleware.ts` overwrites it, but a route the matcher does
+  // input — `src/proxy.ts` overwrites it, but a route the matcher does
   // not cover would carry whatever the client sent. `safeReturnPath` is what
   // makes that uninteresting, and `tests/lib/return-path.test.ts` is where its
   // refusals are enumerated; this asserts the seam actually asks it.
@@ -301,7 +301,7 @@ test("a return path pointing off-site is dropped, not followed", async () => {
 });
 
 test("a request with no path header still redirects, to the bare sign-in form", async () => {
-  // The middleware's matcher does not cover everything, and a test does not
+  // The proxy's matcher does not cover everything, and a test does not
   // run one at all. A missing header must degrade to `/dang-nhap` — where
   // `landingShelfFor` still takes a member of one parish to that parish —
   // rather than to a crash inside a render, or to a 404 that would silently
@@ -341,7 +341,8 @@ test("the header is handed the name of the person actually signed in", async () 
 });
 
 test("a display name the reader chose wins over their full name", async () => {
-  // BR §5.4 lists `display_name` as a field of the person's own. This is the
+  // BR §5.3 (`BUSINESS-REQUIREMENTS.md:165`) lists `display_name` among the
+  // facts held on the person rather than on a membership. This is the
   // viewer looking at their own header, so it is not the
   // `public_name_display` question `get-book-detail.ts` answers about *other*
   // people — that setting is what a shelf discloses to third parties.

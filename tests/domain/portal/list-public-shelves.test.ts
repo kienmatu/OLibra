@@ -118,8 +118,8 @@ test("it returns the shelf's name, address and slug — and no other key", async
   // The query returns the driver's rows unmapped for exactly this reason: a
   // `.map` rebuilding three fields by hand would satisfy this assertion no
   // matter what the `select` asked Postgres for, and OPS §3.1 is explicit that
-  // joining the full row in and trimming it afterwards "still puts it on the
-  // wire".
+  // joining the full row in and trimming it client-side is forbidden "since
+  // that would put it on the wire" (`OPERATIONS.md:51`).
   //
   // The withheld facts are real on this row, so an over-selecting query has
   // something to leak: BR §16.1 names book counts, reader counts and keeper

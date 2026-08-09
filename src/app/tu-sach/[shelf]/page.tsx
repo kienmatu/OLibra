@@ -50,15 +50,26 @@ const RECENT_COVERS = 6;
  *   `comments` query in `src/domain/`, and the fixture card this page used to
  *   render ("Nghỉ hè — tủ sách mở thêm chiều thứ Bảy") is content from
  *   `src/lib/fixtures.ts`, not from any parish.
- * - **4, most-borrowed books** — nothing counts loans per title. OPS §3.1
- *   defines no such operation, and inventing one is a domain change this task
- *   is not making. What the row shows instead is the shelf's most recently
- *   added titles, under the heading the catalogue's own sort control already
- *   uses for that ordering ("Mới thêm"). A row of six covers under "Sách được
- *   mượn nhiều nhất" would have been the same six covers and a false claim.
- * - **5, most-active readers** — the same gap, with a privacy edge: BR §5.4
- *   makes the leaderboard opt-in per membership, so the query does not merely
- *   not exist, it has a rule attached that nothing in this slice implements.
+ * - **4, most-borrowed books** — nothing counts loans per title. **OPS §3.2's
+ *   `GetShelfHome` (`OPERATIONS.md:59`) does ask for it**, explicitly: it
+ *   returns "most-borrowed row, most-active readers, latest approved comments",
+ *   with "Most-borrowed ranking" listed as Derived on read. There is simply no
+ *   query, and writing one is a domain change this task is not making. What the
+ *   row shows instead is the shelf's most recently added titles, under the
+ *   heading the catalogue's own sort control already uses for that ordering
+ *   ("Mới thêm"). A row of six covers under "Sách được mượn nhiều nhất" would
+ *   have been the same six covers and a false claim.
+ *
+ *   (Minor 10, fix-report 2026-08-09-u2-shelf-and-portal: this used to cite
+ *   "OPS §3.1 defines no such operation". §3.1 is the *guest* section, so that
+ *   is true and says nothing — a reader would conclude BR never asked for the
+ *   row. The substitution stands; the citation was pointing at the wrong
+ *   section. The missing queries are recorded against their slice in
+ *   `docs/superpowers/plans/2026-08-07-olibra-backend-master.md`.)
+ * - **5, most-active readers** — the same gap, named in the same `GetShelfHome`
+ *   row, with a privacy edge on top: BR §5.4 makes the leaderboard opt-in per
+ *   membership, so the query does not merely not exist, it has a rule attached
+ *   that nothing in this slice implements.
  *
  * Item 1 (identity) and 3 (the two large buttons) are here and are real.
  *

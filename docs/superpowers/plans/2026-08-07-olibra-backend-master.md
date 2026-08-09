@@ -122,11 +122,34 @@ critical path entirely. `SkipRequest` is a Phase 2 problem.
 | Reader queries | `GetReadersList`, `GetReaderDetail`, `GetPendingRegistrations`, `GetPendingProfileChanges`, `GetMyDashboard`, `GetMyLoanHistory`, `GetMyProfile`, `GetMyProfileChangeRequest` | B2, D3 |
 | Lending and returning | `LendCopy`, `ReceiveReturn`, `VoidLoan` | C1 |
 | Lending queries | `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans` | C1 |
-| Manager dashboard | `GetManagerDashboard`, `GetShelfHome` (without the announcements and comments rows) | C1, B1 |
+| Manager dashboard | `GetManagerDashboard`, `GetShelfHome` (without the announcements and comments rows — but see the note below on the two rows nobody owns) | C1, B1 |
 | Audit log | the kernel's writer, plus `GetAuditLog` scoped to the one shelf | S2, B4 |
 | Export | `ExportBooksCSV`, `ExportReadersCSV`, `ExportLoansCSV` | D2 |
 | Shelf configuration | `GetShelfSettings`, `UpdateBookshelfSettings`; `CreateBookshelf` runs as seed rather than a screen | B4 |
 | Public front door | `GetSiteContact`, `UpdateSiteContact` — the contact page is the only route into the project for a parish with no shelf | B4 |
+
+**Two rows of `GetShelfHome` have no owner, and U2 shipped a substitution for
+them** (Minor 10, fix-report `2026-08-09-u2-shelf-and-portal`). OPS §3.2
+(`OPERATIONS.md:59`) specifies `GetShelfHome` as returning "most-borrowed row,
+most-active readers, latest approved comments", with "Most-borrowed ranking" as
+Derived on read. The announcements and comments halves are B3's and the table
+above already says so. The other two are not:
+
+- **Most-borrowed books.** Nothing counts loans per title anywhere in
+  `src/domain/`. A `count(*)` over `loans` grouped by `book_id`, scoped to the
+  shelf and to some window BR does not name — which is the design question, and
+  why this is a slice's work rather than a line of SQL.
+- **Most-active readers.** The same gap plus a rule: BR §5.4 makes the
+  leaderboard opt-in per membership, and OPS:73 adds that the shelf's
+  `public_name_display` setting governs the names on it. So the query has two
+  filters attached before it has a definition.
+
+`src/app/tu-sach/[shelf]/page.tsx` renders the shelf's most recently added
+titles under "Mới thêm" in place of the most-borrowed row, and omits the reader
+list entirely. That substitution is deliberate and should stand until a query
+exists — a row of six covers under "Sách được mượn nhiều nhất" would be the same
+six covers and a false claim. Whichever slice takes these on replaces the row
+and deletes that page's note, together.
 
 **This revision's refinements split the same way the table above already
 draws Phase 1 vs. Phase 2** (see `docs/superpowers/specs/2026-08-07-refinements-design.md`

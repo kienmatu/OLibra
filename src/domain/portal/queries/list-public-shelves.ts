@@ -88,8 +88,16 @@ export interface PublicShelf {
  * function, rather than by a second implementation that happens to agree
  * today. Unlike `books`, `bookshelves` has no generated folded columns — a few
  * dozen directory rows per deployment, so `olibra_fold()` is evaluated per row
- * rather than read off an index, the same trade-off DB §5 already accepts for
- * the catalogue's `like '%…%'`.
+ * rather than read off an index. DB §8 (`DATABASE.md:1417`) accepts exactly
+ * that trade at this size, in the same breath as the catalogue's own indexes:
+ * "At a few hundred books per shelf a sequential scan would honestly be fine;
+ * the indexes are cheap insurance for the shelf that grows to a few thousand."
+ * A directory is smaller than one shelf's catalogue and does not grow with use.
+ *
+ * (Minor 12, fix-report 2026-08-09-u2-shelf-and-portal: this used to cite DB §5
+ * as accepting the trade, which is backwards — §5 *prescribes* a generated
+ * folded column and a `gin_trgm_ops` index on it, and is the reason `books` has
+ * `title_folded` and this table does not.)
  *
  * **`searchCatalogue`'s garbage-query guard is deliberately absent, and the
  * absence is the interesting half.** That query carries an explicit
@@ -97,8 +105,10 @@ export interface PublicShelf {
  * matches every row, and revealing the whole shelf to a query made of
  * punctuation is not what a catalogue search should do. Here the whole
  * directory *is* the right answer for a term with nothing in it — it is what a
- * visitor sees before typing anything, and what BR §16.1 calls the portal
- * directory — and `'%' || '' || '%'` already produces exactly that. Writing
+ * visitor sees before typing anything, and what BR §16.1 calls simply
+ * "Portal." — "One row per bookshelf: **name and address, nothing else.**"
+ * ("portal directory" is BR:426's phrase, from the `guest` role's row in §13.1)
+ * — and `'%' || '' || '%'` already produces exactly that. Writing
  * the guard anyway would have been a condition no test could make fail, which
  * `20260808_15_olibra_now_strict.sql` names the cost of: "an unreachable guard
  * reads as a guarantee somebody is entitled to weaken the pattern against".
@@ -132,7 +142,8 @@ export interface PublicShelf {
  * exactly the columns the statement selected — verified — so returning it
  * unmapped is what lets the key assertion in the test cover the SQL as well as
  * the type, which is what OPS §3.1 asks for when it forbids joining the full
- * row in and trimming it afterwards: that "still puts it on the wire".
+ * row in and trimming it afterwards, "since that would put it on the wire"
+ * (`OPERATIONS.md:51`).
  */
 export async function listPublicShelves(
   tx: Tx,

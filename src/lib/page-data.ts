@@ -88,8 +88,10 @@ export interface Viewer {
  * the caller's *own* row, resolved from a session cookie this process verified,
  * not a row named by a URL.
  *
- * `display_name` wins over `full_name` when the person set one — BR §5.4 lists
- * it as a field of their own — with `nullif` so a row that stores an empty
+ * `display_name` wins over `full_name` when the person set one — BR §5.3
+ * (`BUSINESS-REQUIREMENTS.md:165`) lists it among the facts held "**On the
+ * person** — facts true everywhere", which is what makes it theirs rather than
+ * one shelf's — with `nullif` so a row that stores an empty
  * string rather than a null does not render a nameless header. This is the
  * viewer looking at their own name, so it is not the `public_name_display`
  * question `get-book-detail.ts` answers for *other* people's names; that
@@ -109,10 +111,10 @@ async function viewerFor(tx: Tx, ctx: TenantContext): Promise<Viewer> {
  * The sign-in URL for *this* request, carrying the page the visitor was trying
  * to reach.
  *
- * The path comes from `REQUEST_PATH_HEADER`, which `src/middleware.ts` stamps
+ * The path comes from `REQUEST_PATH_HEADER`, which `src/proxy.ts` stamps
  * on every request — see `src/lib/return-path.ts` for why the request carries
  * it rather than each page passing its own, and for why the value is validated
- * even though the middleware is the only thing that should have written it.
+ * even though the proxy is the only thing that should have written it.
  *
  * A missing header is not an error: it is what a unit test, or a route the
  * matcher does not cover, looks like. `signInPathFor(null)` is `/dang-nhap`,
@@ -212,8 +214,17 @@ async function signInPathForRequest(): Promise<string> {
  * addition. This shipped translating `shelf_not_found` and nothing else, so a
  * query that resolved a *thing on the shelf* by a URL segment left its refusal
  * uncaught: `getBookDetail` throws `NotFound("book_not_found")` for a slug that
- * names no published book, and `/tu-sach/dong-thap/sach/khong-co` was therefore
- * an HTTP 500 — a mistyped address rendered as "the server is broken".
+ * names no published book, so `/tu-sach/dong-thap/sach/khong-co` reaches this
+ * seam with a refusal nothing translates and renders an HTTP 500 — a mistyped
+ * address shown as "the server is broken".
+ *
+ * **That is the state of this branch without the branch below, not a history of
+ * the page** (Minor 8, fix-report 2026-08-09-u2-shelf-and-portal). It used to
+ * read "was therefore an HTTP 500", which describes `main` and is wrong about
+ * it: on `main` that page was fixture-backed and called `notFound()` itself, so
+ * it was a 404. The 500 is what wiring the page to `getBookDetail` produces
+ * *without* this translation — confirmed in both directions, by removing the
+ * branch and requesting the URL. The fix is load-bearing; the tense was not.
  * OPERATIONS.md:33 names the three shapes and what each is for, and puts this
  * one on **a 404 page**; a bare 500 is the outcome that sentence exists to
  * forbid. `submitCommand` below already made exactly this correction on the
