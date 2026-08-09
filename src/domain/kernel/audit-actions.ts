@@ -255,7 +255,13 @@ const ACTIONS = {
   },
   "loan.lost": {
     group: "muon-tra",
-    phrase: () => "ghi nhận một lượt mượn là sách đã mất",
+    // `reportCopyLost` writes this one *after* `copy.lost_reported`, so the two
+    // read as a pair: the copy was reported missing, and the loan it was out on
+    // ended because of it. "kết thúc … vì" is what `loans.status` actually did
+    // — the earlier wording ("ghi nhận một lượt mượn là sách đã mất") stacked
+    // two nouns on one verb and read as a translation rather than as a
+    // sentence.
+    phrase: () => "kết thúc một lượt mượn vì sách bị mất",
   },
   "request.approved": {
     group: "muon-tra",
@@ -318,7 +324,16 @@ const ACTIONS = {
     // changed the sign-in details of this reader, at this time". The entry
     // carries no `before` and no `after` on purpose (`set-reader-credentials
     // .ts:138`), so the sentence carries no more than the act either.
-    phrase: (f) => `đặt tài khoản đăng nhập cho ${who(f.subject)}`,
+    //
+    // **"đặt hoặc đổi", both halves.** `setReaderCredentials` is the only
+    // writer and it serves both cases — a child given a way in for the first
+    // time, and a password reset for one who already had one — and the entry
+    // deliberately stores nothing that could tell them apart. A sentence saying
+    // only "đặt" would read as the first, which is the milder of the two: BR §2
+    // makes visibility the entire mitigation for this power, and a log that
+    // understates the act on the row a manager is being held to is the one
+    // place understatement is not a style choice.
+    phrase: (f) => `đặt hoặc đổi tài khoản đăng nhập cho ${who(f.subject)}`,
   },
   "user.password_changed": {
     group: "nguoi-doc",
