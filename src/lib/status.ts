@@ -7,8 +7,8 @@ import {
   HelpCircle,
   type LucideIcon,
 } from "lucide-react";
-import type { CopyCondition, CopyState } from "@/domain/catalogue/policy";
-import type { Availability } from "@/domain/catalogue/queries/get-catalogue";
+import type { CopyCondition, CopyState } from "../domain/catalogue/policy";
+import type { Availability } from "../domain/catalogue/queries/get-catalogue";
 
 /**
  * The six copy states from BUSINESS-REQUIREMENTS §17.2.
@@ -116,37 +116,24 @@ export function statusForAvailability(
   return availability === "none" ? null : COPY_STATE_STATUS[availability];
 }
 
-/** The six condition grades from §9. A flat list, deliberately not a scale. */
-export const CONDITIONS = [
-  "Nguyên vẹn",
-  "Hơi cũ",
-  "Cũ",
-  "Rách",
-  "Mất trang",
-  "Bị vẽ vào",
-] as const;
-
-export type Condition = (typeof CONDITIONS)[number];
-
 /**
- * The Vietnamese word for each value of the `copy_condition` enum.
+ * BR §9's six condition grades, and the Vietnamese word for each.
  *
- * Written out as a `Record<CopyCondition, Condition>` rather than zipped
- * against `CONDITIONS` by index, which is the version that looks tidier and
- * silently mislabels every copy on the shelf the day somebody reorders either
- * list. Typed on `CopyCondition`, so adding a seventh grade to
- * `COPY_CONDITIONS` (`domain/catalogue/policy.ts`) is a compile error here
- * rather than a picker that quietly cannot offer it.
+ * **Both now live in `domain/catalogue/policy.ts` and are re-exported here**
+ * (P1). They shipped in this file, which was right while the only reader was a
+ * screen; BR §14's audit sentence for a return names the condition
+ * ("…tình trạng Nguyên vẹn…") and that sentence is the domain's, so the word
+ * had to move to where the enum is. The domain cannot reach back into this
+ * file — it imports `lucide-react` and this module's own source — so a copy
+ * here would have been a second set of words, which is exactly what the
+ * moved-to docstring argues against.
  *
- * The words themselves are not new: they are `CONDITIONS` above, which came
- * from BR §9. The enum's spellings are the database's, from
- * `0004_catalogue.sql`. This is the only place the two meet.
+ * Re-exported rather than deleted so the screens already importing
+ * `CONDITION_LABELS` and `CONDITIONS` from here keep compiling: this is a move,
+ * and a move should not be a change to six call sites.
  */
-export const CONDITION_LABELS: Record<CopyCondition, Condition> = {
-  perfect: "Nguyên vẹn",
-  slightly_worn: "Hơi cũ",
-  worn: "Cũ",
-  torn: "Rách",
-  missing_pages: "Mất trang",
-  written_on: "Bị vẽ vào",
-};
+export {
+  CONDITION_LABELS,
+  CONDITION_WORDS as CONDITIONS,
+  type ConditionWord as Condition,
+} from "../domain/catalogue/policy";

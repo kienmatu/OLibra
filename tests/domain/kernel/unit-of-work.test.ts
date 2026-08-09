@@ -93,7 +93,11 @@ test("the RLS session variable is set for the whole transaction", async () => {
     `;
       return {
         result: row.v,
-        audit: { action: "probe", entityType: "x", entityId: ctx.bookshelfId },
+        audit: {
+          action: "book.created",
+          entityType: "x",
+          entityId: ctx.bookshelfId,
+        },
       };
     },
     {},
@@ -147,7 +151,7 @@ test("the actor and the shelf are recorded on every entry", async () => {
     ctx,
     async () => ({
       result: null,
-      audit: { action: "probe.done", entityType: "x", entityId: shelf.id },
+      audit: { action: "book.deleted", entityType: "x", entityId: shelf.id },
     }),
     {},
   );

@@ -102,10 +102,24 @@ const DATABASE_REACHING_IMPORTS = [
   "domain/kernel/unit-of-work",
 ];
 
-/** The route files Next.js renders, and therefore the ones it can cache. */
+/**
+ * The route files Next.js renders, and therefore the ones it can cache.
+ *
+ * **`route` and the other two were added by P1**, which introduced the first
+ * `route.ts` in this application — the CSV exports. This glob was
+ * `/(page|layout)\.tsx?$/`, so a route handler that reached Postgres was
+ * invisible to every rule in this file, and the one being added holds every
+ * child's name, date of birth, parents' names and telephone number. A `GET`
+ * route handler is exactly the shape Next.js is happiest to serve from a cache.
+ *
+ * The wider set is not invented here: `compose-supplies-storage-env.test.ts`
+ * already enumerates `page|layout|route|template|default`, which is Next.js's
+ * own list of the files that make a route. Two globs for one concept is how one
+ * of them stops matching.
+ */
 function routeFiles(): string[] {
   return filesUnder("src/app").filter((f) =>
-    /\/(page|layout)\.tsx?$/.test(f.replace(/\\/g, "/")),
+    /\/(page|layout|route|template|default)\.tsx?$/.test(f.replace(/\\/g, "/")),
   );
 }
 
@@ -290,6 +304,13 @@ test("the guard sees a page that reaches Postgres only through a helper", () => 
   // it the one Next.js would prerender at build time and serve with the
   // directory frozen (U2's portal page carries the long version).
   expect(found).toContain("src/app/tu-sach/page.tsx");
+
+  // P1's export route: the first `route.ts` in this application, and the reason
+  // the glob above widened. Named individually rather than left to the floor,
+  // because a glob that silently stopped matching it would take this whole file
+  // back to where it was — green, and blind to the one response that carries a
+  // hundred children's records.
+  expect(found).toContain("src/app/tu-sach/[shelf]/quan-ly/xuat/[loai]/route.ts");
 
   // And the walk really is transitive: `src/lib/shelf.ts` names no page-data,
   // no client and no unit-of-work value import — it takes a `Tx` and runs SQL

@@ -110,6 +110,56 @@ export function formatInstant(instant: string | Date): string {
 }
 
 /**
+ * The clock time of an instant — "14:32" — in the application timezone.
+ *
+ * `hourCycle: "h23"` states the 00–23 cycle rather than leaving it to be
+ * inferred from `hour12: false`. **The two agree for `vi-VN` today** — measured,
+ * by swapping one for the other and finding `tests/lib/audit-log.test.ts` still
+ * green — so this is a pin rather than a fix, and it is written down as a pin so
+ * nobody reads it as one.
+ *
+ * What it pins: `hour12: false` does not name a cycle, it declines one, and the
+ * cycle that results is the locale's default. Several locales resolve that to
+ * `h24`, which renders midnight as **24:00** and five past as **24:05** — an
+ * audit entry that would then read "lúc 24:05 ngày 03/08" while belonging to the
+ * fourth. This project has one locale today and SDD §6.6 exists because it
+ * expects a second; naming the cycle is what stops that second locale from
+ * changing what an hour means. The test asserts 00:05 for midnight either way,
+ * which documents the intended rendering even though it cannot tell the two
+ * spellings apart.
+ */
+const TIME = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: TIMEZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * An instant as its two halves — `{ time: "14:32", date: "03/08/2026" }`.
+ *
+ * **Two parts rather than one string, and that is the whole reason this exists**
+ * (P1 §3.1). BR §14's sentence is "…lúc 14:32 ngày 03/08", and every word of
+ * that sentence — "lúc", "ngày" — belongs to `domain/kernel/audit-actions.ts`,
+ * where the rest of the audit wording lives for the reason `errors.ts:11-16`
+ * gives. Every *number* in it belongs to `Intl`, here, for SDD §6.6's. Returning
+ * a pre-glued "14:32 ngày 03/08/2026" would have put a Vietnamese word in this
+ * file; taking a `Date` in the domain would have put a formatter there. The pair
+ * is what lets both rules hold at once.
+ *
+ * The year is included where BR §14's example omits it. An audit trail is read
+ * months and years after the fact — that is what it is *for* — and "03/08" is
+ * ambiguous the moment a shelf has two Augusts of history.
+ */
+export function formatInstantParts(instant: string | Date): {
+  time: string;
+  date: string;
+} {
+  const at = new Date(instant);
+  return { time: TIME.format(at), date: INSTANT.format(at) };
+}
+
+/**
  * A year, which is a number and is not a quantity.
  *
  * `books.published_year` is an `integer`, so the obvious thing is the page's

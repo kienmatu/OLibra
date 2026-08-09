@@ -1,3 +1,4 @@
+import type { AuditAction } from "./audit-actions";
 import { RuleViolated } from "./errors";
 import type { TenantContext } from "./tenant";
 
@@ -9,8 +10,23 @@ import type { TenantContext } from "./tenant";
  * registration", not "update"), and the before/after values.
  */
 export interface AuditEntry {
-  /** `noun.verb` — `loan.created`, `credentials.set`. */
-  action: string;
+  /**
+   * `noun.verb` — `loan.created`, `credentials.set`.
+   *
+   * **A closed union, not a `string`** (P1 §3.1). `AuditAction` is
+   * `keyof typeof ACTIONS` in `./audit-actions.ts`, and that object is the same
+   * one holding each action's Vietnamese sentence — so a command cannot name an
+   * action the audit browser has no sentence for, because the name it would
+   * have to write does not exist as a type. There is deliberately no second
+   * list: §3.1 asks for a totality *test* as a floor, and "a hand-maintained
+   * list beside a transition graph" is what let a suspended reader clear their
+   * own suspension in B2a. The map is the list.
+   *
+   * This shipped as `string`. Widening it back — or reaching for
+   * `as AuditAction` at a call site — puts a raw `loan.created` in front of a
+   * volunteer, which §3.1 calls a failure rather than a fallback.
+   */
+  action: AuditAction;
   entityType: string;
   entityId: string;
   before?: Record<string, unknown> | null;

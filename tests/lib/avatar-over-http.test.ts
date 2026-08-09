@@ -69,15 +69,79 @@ const TSCONFIG = "tsconfig.json";
 let tsconfigBefore: string;
 
 /**
+ * Everything the child said, capped.
+ *
+ * **This test used to spawn with `stdio: "ignore"`, and that one word cost an
+ * afternoon.** Next 16.3 refuses to start a second dev server for the same
+ * project directory *even on a different port* — a developer with `bun run dev`
+ * already up gets
+ *
+ * ```
+ * ⨯ Another next dev server is already running.
+ * - Local:        http://localhost:3000
+ * - PID:          28918
+ * ```
+ *
+ * …and with the child's output discarded, that sentence went nowhere. The
+ * failure surfaced sixty seconds later as `the dev server never came up on
+ * 3097`, which is true, is useless, and points at the port rather than at the
+ * reason. The child's own words are the diagnosis, so they are kept and put in
+ * the thrown error.
+ *
+ * Capped because a dev server that *does* come up logs every compile for the
+ * rest of the run into an array nobody reads. The tail is what matters: the
+ * refusal is the last thing a child that refuses ever says.
+ */
+const MAX_OUTPUT = 8_000;
+let said = "";
+
+function remember(chunk: unknown): void {
+  said = (said + String(chunk)).slice(-MAX_OUTPUT);
+}
+
+/** The failure, with the child's own explanation attached. */
+function noServer(why: string): never {
+  const printed = said.trim();
+  throw new Error(
+    `${why}\n\n` +
+      `── what \`next dev -p ${PORT}\` printed ──\n` +
+      (printed || "(nothing at all — the binary produced no output)") +
+      "\n──\n" +
+      "If that says another dev server is already running: Next refuses a " +
+      "second one for the same project directory whatever port it is given. " +
+      "Stop the other one and re-run, or run this file alone in CI, where " +
+      "nothing else is serving this project.",
+  );
+}
+
+/**
  * Spawned from `node_modules/.bin/next` rather than through `bun run dev`, so
  * the port is an argument rather than an environment variable and so killing
  * the child kills the server rather than a shell that owns it.
+ *
+ * Both pipes are drained by `remember`; leaving a pipe undrained is what makes
+ * a chatty child block on a full buffer, which would be a *new* sixty-second
+ * mystery in place of the one this replaces.
  */
 beforeAll(async () => {
   tsconfigBefore = readFileSync(TSCONFIG, "utf8");
   server = spawn("node_modules/.bin/next", ["dev", "-p", String(PORT)], {
     cwd: process.cwd(),
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  server.stdout?.on("data", remember);
+  server.stderr?.on("data", remember);
+
+  // Three ways this ends badly, and each is now reported the moment it is
+  // known rather than at the deadline. A child that refuses to start exits
+  // within a second or two; waiting out the full minute to say so was the
+  // whole of the original misdiagnosis.
+  let exit: string | null = null;
+  server.on("exit", (code, signal) => {
+    exit = signal ? `killed by ${signal}` : `exited with code ${code}`;
+  });
+  server.on("error", (error) => {
+    exit = `could not be spawned: ${error.message}`;
   });
 
   const deadline = Date.now() + 60_000;
@@ -91,8 +155,12 @@ beforeAll(async () => {
     } catch {
       // Not listening yet.
     }
+    // Read through a local: `exit` is assigned from a callback, which TypeScript
+    // cannot see, so narrowing it in place would leave it typed `never` here.
+    const ended: string | null = exit;
+    if (ended) noServer(`\`next dev\` ${ended} before ${PORT} answered.`);
     if (Date.now() > deadline) {
-      throw new Error(`the dev server never came up on ${PORT}`);
+      noServer(`the dev server never came up on ${PORT} within 60s.`);
     }
     await new Promise((r) => setTimeout(r, 250));
   }

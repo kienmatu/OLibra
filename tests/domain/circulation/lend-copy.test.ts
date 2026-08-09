@@ -206,3 +206,30 @@ test("INV-8: the lend writes one audit record naming both ids", async () => {
   // as one instant rather than two.
   expect(rows[0].occurred_at.toISOString()).toBe("2026-08-07T23:30:00.000Z");
 });
+
+test("the entry stores the title, so the sentence never re-reads books", async () => {
+  // P1 §3.2a. BR §14's own example names the title -- "...đã cho Giuse Minh
+  // mượn Dế Mèn Phiêu Lưu Ký..." -- and the audit browser may only print a
+  // value the entry *holds*, never one it joins for at render time.
+  //
+  // The proof is the second half: the title is corrected after the loan, and
+  // the stored entry keeps saying what was true when the book was handed over.
+  // A browser that joined `books` would restate history here, silently, and
+  // only for the shelves where somebody had fixed a typo.
+  const { shelf, ctx } = await shelfWithManager("ca-mau");
+  const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
+  await sql`update books set title = 'Dế Mèn Phiêu Lưu Ký' where id = ${bookId}`;
+  const reader = await makeMember(sql, shelf.id);
+
+  await runCommand(sql, ctx, lendCopy, {
+    copyId: copyIds[0],
+    membershipId: reader.id,
+  });
+
+  await sql`update books set title = 'Dế Mèn phiêu lưu ký (bản mới)' where id = ${bookId}`;
+
+  const [row] = await sql<{ after: Record<string, unknown> }[]>`
+    select after from audit_log where action = 'loan.created'
+  `;
+  expect(row.after.title).toBe("Dế Mèn Phiêu Lưu Ký");
+});

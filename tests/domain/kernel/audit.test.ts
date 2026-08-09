@@ -58,7 +58,7 @@ test.each([
 ])("a bare %o is caught", (after) => {
   expect(() =>
     assertNoSecrets({
-      action: "x.y",
+      action: "book.created",
       entityType: "x",
       entityId: "x",
       after,
@@ -71,7 +71,7 @@ test.each(["password_changed_at", "has_password", "session_count", "tokens_read"
   (field) => {
     expect(() =>
       assertNoSecrets({
-        action: "x.y",
+        action: "book.created",
         entityType: "x",
         entityId: "x",
         after: { [field]: "whatever" },
@@ -86,7 +86,7 @@ test("the failure is a named DomainError, not a bare exception", () => {
   // sentence.
   try {
     assertNoSecrets({
-      action: "x.y",
+      action: "book.created",
       entityType: "x",
       entityId: "x",
       after: { password: "abc" },
@@ -102,7 +102,7 @@ test("the failure is a named DomainError, not a bare exception", () => {
 test("before is walked too, not only after", () => {
   expect(() =>
     assertNoSecrets({
-      action: "x.y",
+      action: "book.created",
       entityType: "x",
       entityId: "x",
       before: { password: "abc" },
@@ -133,7 +133,7 @@ test("a cyclic payload is a named RuleViolated, not a bare RangeError", () => {
 
   expect(() =>
     assertNoSecrets({
-      action: "x.y",
+      action: "book.created",
       entityType: "x",
       entityId: "x",
       after: cyclic,
@@ -142,7 +142,7 @@ test("a cyclic payload is a named RuleViolated, not a bare RangeError", () => {
 
   try {
     assertNoSecrets({
-      action: "x.y",
+      action: "book.created",
       entityType: "x",
       entityId: "x",
       after: cyclic,
@@ -160,7 +160,7 @@ test("a pathologically deep (but non-cyclic) payload is also a named RuleViolate
 
   expect(() =>
     assertNoSecrets({
-      action: "x.y",
+      action: "book.created",
       entityType: "x",
       entityId: "x",
       after: deep,
@@ -171,7 +171,7 @@ test("a pathologically deep (but non-cyclic) payload is also a named RuleViolate
 test("ordinary nesting well under the depth cap still passes", () => {
   expect(() =>
     assertNoSecrets({
-      action: "x.y",
+      action: "book.created",
       entityType: "x",
       entityId: "x",
       after: { a: { b: { c: { d: "fine" } } } },
