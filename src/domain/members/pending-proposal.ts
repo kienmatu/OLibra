@@ -4,6 +4,7 @@ import type { TenantContext } from "../kernel/tenant";
 import type { Tx } from "../kernel/unit-of-work";
 import { lockPerson, pickProfileFields, type ProfilePatch } from "./profile-fields";
 import type { ProposalContents } from "./profile-proposals";
+import type { ScopedUserId } from "./scoped-user";
 
 /**
  * The one place a *pending* `profile_change_requests` row is read and written.
@@ -104,7 +105,7 @@ export interface PendingProposal {
  */
 export async function readPendingProposal(
   tx: Tx,
-  userId: string,
+  userId: ScopedUserId,
 ): Promise<PendingProposal | null> {
   await lockPerson(tx, userId);
   const [row] = await tx<
@@ -169,7 +170,7 @@ export async function writePendingProposal(
   tx: Tx,
   ctx: TenantContext,
   args: {
-    userId: string;
+    userId: ScopedUserId;
     pending: PendingProposal | null;
     next: ProposalContents;
     avatarObject: string | null;

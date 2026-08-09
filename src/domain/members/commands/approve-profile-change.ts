@@ -12,6 +12,7 @@ import {
   normaliseProfilePatch,
   pickProfileFields,
 } from "../profile-fields";
+import { subjectOfProfileChange } from "../scoped-user";
 
 export interface ApproveProfileChangeInput {
   profileChangeRequestId: string;
@@ -95,13 +96,15 @@ export const approveProfileChange: Command<
   requireIdentifiedActor(ctx);
 
   // Whose request this is, and nothing else, so the lifecycle's lock can be
-  // taken **before** anything is read that a decision depends on. RLS scopes
-  // this select to the shelf exactly as the full one below is scoped.
-  const [subject] = await tx<{ user_id: string }[]>`
-    select user_id from profile_change_requests
-     where id = ${input.profileChangeRequestId}
-  `;
-  if (!subject) throw new NotFound("write_target_not_found");
+  // taken **before** anything is read that a decision depends on.
+  //
+  // `subjectOfProfileChange` is also the only thing that can produce the
+  // `ScopedUserId` `applyProfileFields` accepts, and it produces it by joining
+  // `memberships` — the join *is* the security check here, not a convenience,
+  // for the reason this file's docstring gives at length. See
+  // `../scoped-user.ts`.
+  const subject = await subjectOfProfileChange(tx, input.profileChangeRequestId);
+  if (subject === null) throw new NotFound("write_target_not_found");
 
   // The order every command in this lifecycle takes its two locks in:
   // the person, then the request. This command used to take them the other way
@@ -112,24 +115,33 @@ export const approveProfileChange: Command<
   // rather than leaving `applyProfileFields` to do it also makes the read below
   // current: a proposal committed a moment ago cannot slip in between reading
   // `proposed_values` and writing it. `../profile-fields.ts` holds the rule.
-  await lockPerson(tx, subject.user_id);
+  await lockPerson(tx, subject.userId);
 
+  // Read again, now that the lock is held — this is what makes the decision
+  // below a decision about the row as it *is*. Between the resolve above and
+  // the lock, a `CancelProfileChange` on the other connection may have decided
+  // this request; it holds the same lock first, so by the time this returns its
+  // outcome is committed and visible here. Without the re-read the losing side
+  // got `write_target_not_found` from the kernel's zero-row guard instead of
+  // "Yêu cầu này đã được xử lý.", which is a different sentence about a
+  // different thing.
+  //
+  // No `join memberships` this time: `subjectOfProfileChange` already made that
+  // check, and a second copy of a tenant predicate is correct only for as long
+  // as somebody keeps writing it.
   const [request] = await tx<
     {
       id: string;
-      user_id: string;
-      membership_id: string;
       status: string;
       proposed_values: unknown;
       parish_unit_l1_id: string | null;
       parish_unit_l2_id: string | null;
     }[]
   >`
-    select r.id, r.user_id, r.status, r.proposed_values,
-           m.id as membership_id, m.parish_unit_l1_id, m.parish_unit_l2_id
+    select r.id, r.status, r.proposed_values,
+           m.parish_unit_l1_id, m.parish_unit_l2_id
       from profile_change_requests r
-      join memberships m on m.user_id = r.user_id and m.deleted_at is null
-      join users u       on u.id = r.user_id and u.deleted_at is null
+      join memberships m on m.id = ${subject.membershipId}
      where r.id = ${input.profileChangeRequestId}
   `;
   if (!request) throw new NotFound("write_target_not_found");
@@ -154,7 +166,7 @@ export const approveProfileChange: Command<
     await tx`
       update memberships
          set parish_unit_l1_id = ${l1}, parish_unit_l2_id = ${l2}
-       where id = ${request.membership_id}
+       where id = ${subject.membershipId}
     `;
   }
 
@@ -167,7 +179,7 @@ export const approveProfileChange: Command<
   const proposed = normaliseProfilePatch(
     pickProfileFields(request.proposed_values),
   );
-  const { before, after } = await applyProfileFields(tx, request.user_id, proposed);
+  const { before, after } = await applyProfileFields(tx, subject.userId, proposed);
   const diff = diffProfileFields(before, after);
 
   // Read *after* the write, off the authoritative before/after, rather than
@@ -177,7 +189,7 @@ export const approveProfileChange: Command<
   // `./update-reader-profile.ts`: one statement decides what changed.
   const supersededAvatar =
     before.avatar_url !== null && after.avatar_url !== before.avatar_url
-      ? await avatarObjectBehind(tx, request.id, request.user_id, before.avatar_url)
+      ? await avatarObjectBehind(tx, request.id, subject.userId, before.avatar_url)
       : null;
 
   await tx`
@@ -189,7 +201,7 @@ export const approveProfileChange: Command<
   `;
 
   return {
-    result: { userId: request.user_id, avatarObject: supersededAvatar },
+    result: { userId: subject.userId, avatarObject: supersededAvatar },
     audit: {
       action: "profile_change.approved",
       // The **person**, unlike the other three commands in this lifecycle,
@@ -201,7 +213,7 @@ export const approveProfileChange: Command<
       // `audit_log.entity_id` is a bare `uuid` with no foreign key, so each
       // command states which id it writes.
       entityType: "user",
-      entityId: request.user_id,
+      entityId: subject.userId,
       before: diff.before,
       after: diff.after,
     },

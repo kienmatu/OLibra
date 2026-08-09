@@ -8,6 +8,7 @@ import {
   normaliseProfilePatch,
   type ProfilePatch,
 } from "../profile-fields";
+import { userOfMembership } from "../scoped-user";
 
 export interface UpdateReaderProfileInput {
   /**
@@ -53,10 +54,20 @@ export interface UpdateReaderProfileInput {
  * id = <any user>` succeeds from any scoped session. A command here taking a
  * `userId` would let a manager of one parish rewrite every person in the
  * system, guarded by nothing but a comparison somebody remembered to write.
- * The membership select below is filtered by RLS to `ctx.bookshelfId`, so a
- * cross-shelf id yields zero rows and the sentence is "Không tìm thấy bạn đọc
- * này." — which is also the honest one. Same rule and same reason as
- * `./set-reader-credentials.ts`.
+ * `userOfMembership` (`../scoped-user.ts`) is filtered by RLS to
+ * `ctx.bookshelfId`, so a cross-shelf id yields zero rows and the sentence is
+ * "Không tìm thấy bạn đọc này." — which is also the honest one. Same rule and
+ * same reason as `./set-reader-credentials.ts`.
+ *
+ * That used to be a promise this file made and nothing checked. It is now in
+ * the type: `applyProfileFields` takes a `ScopedUserId`, a branded string only
+ * `../scoped-user.ts` can mint, and it mints one only by joining
+ * `memberships`. Review found the evasion that made the change worth making —
+ * a *new* command calling `applyProfileFields(tx, userIdFromInput, patch)`
+ * writes no `update users` of its own, so the INV-13b grep test stays green
+ * while the shelf-scoped join is skipped entirely. The grep catches a fourth
+ * file writing the table; the type catches a second caller reaching the wrong
+ * person, and neither alone is enough.
  *
  * **2. Both gates, not one.** `requireManager` ranks a role, and
  * `systemContext` (`kernel/tenant.ts`) yields the *highest* rank with nobody
@@ -119,17 +130,14 @@ export const updateReaderProfile: Command<UpdateReaderProfileInput, void> = asyn
     throw new RuleViolated("empty_proposal");
   }
 
-  // RLS scopes this to `ctx.bookshelfId`; the join adds the other half of
-  // the same sentence — a soft-deleted identity is "no such reader" too
-  // (IMPORTANT 4, fix-report 2026-08-08-b2-members, on the sibling command).
-  const [membership] = await tx<{ user_id: string }[]>`
-      select m.user_id from memberships m
-      join users u on u.id = m.user_id and u.deleted_at is null
-      where m.id = ${input.membershipId} and m.deleted_at is null
-    `;
-  if (!membership) throw new NotFound("membership_not_found");
+  // `userOfMembership` is the *only* way to obtain the `ScopedUserId` that
+  // `applyProfileFields` will accept, and that is the whole point: it performs
+  // the shelf-scoped join itself, so a command cannot reach a person any other
+  // way without the compiler saying so. See `../scoped-user.ts`.
+  const userId = await userOfMembership(tx, input.membershipId);
+  if (userId === null) throw new NotFound("membership_not_found");
 
-  const { before, after } = await applyProfileFields(tx, membership.user_id, patch);
+  const { before, after } = await applyProfileFields(tx, userId, patch);
   const diff = diffProfileFields(before, after);
 
   // Note 3 above. Nothing has committed yet; this rolls back the `UPDATE`
@@ -149,7 +157,7 @@ export const updateReaderProfile: Command<UpdateReaderProfileInput, void> = asyn
       // key (`0007:28`), so which of the two ids goes in it is a decision
       // each command states rather than one the schema makes.
       entityType: "user",
-      entityId: membership.user_id,
+      entityId: userId,
       before: diff.before,
       after: diff.after,
     },

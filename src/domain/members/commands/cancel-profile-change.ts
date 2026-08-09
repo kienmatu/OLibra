@@ -4,6 +4,7 @@ import type { Command } from "../../kernel/unit-of-work";
 import { avatarObjectOf } from "../pending-proposal";
 import { requireSelfOrManager } from "../policy";
 import { lockPerson } from "../profile-fields";
+import { userOfMembership } from "../scoped-user";
 
 export interface CancelProfileChangeInput {
   membershipId: string;
@@ -60,12 +61,8 @@ export const cancelProfileChange: Command<
   requireSelfOrManager(ctx, input.membershipId);
   requireIdentifiedActor(ctx);
 
-  const [membership] = await tx<{ user_id: string }[]>`
-      select m.user_id from memberships m
-      join users u on u.id = m.user_id and u.deleted_at is null
-      where m.id = ${input.membershipId} and m.deleted_at is null
-    `;
-  if (!membership) throw new NotFound("membership_not_found");
+  const userId = await userOfMembership(tx, input.membershipId);
+  if (userId === null) throw new NotFound("membership_not_found");
 
   // The lifecycle's lock, before this command touches `profile_change_requests`
   // at all. Without it this command reached the two rows in the *opposite*
@@ -78,7 +75,7 @@ export const cancelProfileChange: Command<
   // that request row holds this same lock first, so nothing can decide the
   // request between reading its status here and updating it below.
   // `../profile-fields.ts` holds the whole rule.
-  await lockPerson(tx, membership.user_id);
+  await lockPerson(tx, userId);
 
   // RLS scopes this to the shelf; a request of another shelf is zero rows and
   // therefore `write_target_not_found`, not `not_own_request` — telling a
@@ -95,7 +92,7 @@ export const cancelProfileChange: Command<
       where id = ${input.profileChangeRequestId}
     `;
   if (!request) throw new NotFound("write_target_not_found");
-  if (request.user_id !== membership.user_id) {
+  if (request.user_id !== userId) {
     throw new RuleViolated("not_own_request");
   }
   if (request.status !== "pending") {

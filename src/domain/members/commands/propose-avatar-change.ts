@@ -8,6 +8,7 @@ import {
 } from "../pending-proposal";
 import { blank, requireSelfOrManager } from "../policy";
 import { readProfileFields } from "../profile-fields";
+import { userOfMembership } from "../scoped-user";
 import { mergeProposal } from "../profile-proposals";
 
 export interface ProposeAvatarChangeInput {
@@ -121,20 +122,18 @@ export const proposeAvatarChange: Command<
     throw new ValidationFailed("validation_failed", AVATAR_OBJECT);
   }
 
-  // RLS scopes this to `ctx.bookshelfId`; `users` has none, so this join is the
-  // whole of what stands between a caller and any person in the system. OPS
-  // §4.3:562 lists `membershipId` for this command for exactly that reason.
-  const [membership] = await tx<{ user_id: string }[]>`
-    select m.user_id from memberships m
-    join users u on u.id = m.user_id and u.deleted_at is null
-    where m.id = ${membershipId} and m.deleted_at is null
-  `;
-  if (!membership) throw new NotFound("membership_not_found");
+  // RLS scopes this to `ctx.bookshelfId`; `users` has none, so the join
+  // `userOfMembership` performs is the whole of what stands between a caller and
+  // any person in the system. OPS §4.3:562 lists `membershipId` for this command
+  // for exactly that reason, and `../scoped-user.ts` makes it the only way to
+  // name a person here.
+  const userId = await userOfMembership(tx, membershipId);
+  if (userId === null) throw new NotFound("membership_not_found");
 
-  const current = await readProfileFields(tx, membership.user_id);
+  const current = await readProfileFields(tx, userId);
   if (!current) throw new NotFound("membership_not_found");
 
-  const pending = await readPendingProposal(tx, membership.user_id);
+  const pending = await readPendingProposal(tx, userId);
   const next = mergeProposal(
     pending?.contents ?? null,
     { avatar_url: input.avatarUrl.trim() },
@@ -142,7 +141,7 @@ export const proposeAvatarChange: Command<
   );
 
   const requestId = await writePendingProposal(tx, ctx, {
-    userId: membership.user_id,
+    userId,
     pending,
     next,
     avatarObject: input.avatarObject.trim(),

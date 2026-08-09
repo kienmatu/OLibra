@@ -16,6 +16,23 @@ import {
 } from "../../../src/domain/members/profile-fields";
 import { closeAll, resetDatabase, sql } from "../../support/db";
 import { makeShelf, makeUser } from "../../support/factories";
+import type { ScopedUserId } from "../../../src/domain/members/scoped-user";
+
+/**
+ * A raw `users.id`, branded, for the two functions in this file that are driven
+ * *below* the commands which normally mint one.
+ *
+ * `applyProfileFields` and `readProfileFields` take a `ScopedUserId`
+ * (`src/domain/members/scoped-user.ts`), a string only that module can produce
+ * and only by joining a shelf-scoped `memberships` row — which is what stops a
+ * future command reaching any person in the system through a sanctioned writer.
+ * These tests call the writer itself, so the guarantee is being *assumed* here
+ * rather than earned, and the double cast is deliberately the ugliest available
+ * spelling: it is exactly the shape a bypass in `src/` would have to take, and
+ * `tests/invariants/inv-13-one-pending-profile-change.test.ts` fails if one
+ * appears there.
+ */
+const asScoped = (id: string) => id as unknown as ScopedUserId;
 
 /**
  * `src/domain/members/profile-fields.ts` — INV-13b's application half — on its
@@ -44,7 +61,7 @@ async function apply(bookshelfId: string, userId: string, patch: ProfilePatch) {
     sql,
     ctx,
     async (tx) => ({
-      result: await applyProfileFields(tx, userId, patch),
+      result: await applyProfileFields(tx, asScoped(userId), patch),
       audit: { action: "test.applied", entityType: "user", entityId: userId },
     }),
     undefined,
@@ -268,7 +285,7 @@ test("readProfileFields returns the same eight, and null for a soft-deleted pers
     sql,
     ctx,
     async (tx) => ({
-      result: await readProfileFields(tx, user.id),
+      result: await readProfileFields(tx, asScoped(user.id)),
       audit: { action: "test.read", entityType: "user", entityId: user.id },
     }),
     undefined,
@@ -280,7 +297,7 @@ test("readProfileFields returns the same eight, and null for a soft-deleted pers
     sql,
     ctx,
     async (tx) => ({
-      result: await readProfileFields(tx, user.id),
+      result: await readProfileFields(tx, asScoped(user.id)),
       audit: { action: "test.read", entityType: "user", entityId: user.id },
     }),
     undefined,

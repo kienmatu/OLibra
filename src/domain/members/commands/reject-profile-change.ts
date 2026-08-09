@@ -4,6 +4,7 @@ import type { Command } from "../../kernel/unit-of-work";
 import { avatarObjectOf } from "../pending-proposal";
 import { blank, requireManager } from "../policy";
 import { lockPerson } from "../profile-fields";
+import { subjectOfProfileChange } from "../scoped-user";
 
 export interface RejectProfileChangeInput {
   profileChangeRequestId: string;
@@ -66,29 +67,21 @@ export const rejectProfileChange: Command<
   // touches `profile_change_requests` locks the subject's `users` row first, so
   // that the four of them cannot reach the same two rows in two orders.
   // `../profile-fields.ts` holds the rule and the deadlock it closes.
-  const [subject] = await tx<{ user_id: string }[]>`
-      select user_id from profile_change_requests
-       where id = ${input.profileChangeRequestId}
-    `;
-  if (!subject) throw new NotFound("write_target_not_found");
-  await lockPerson(tx, subject.user_id);
+  const subject = await subjectOfProfileChange(tx, input.profileChangeRequestId);
+  if (subject === null) throw new NotFound("write_target_not_found");
+  await lockPerson(tx, subject.userId);
 
-  // The join through `memberships` is the security check, not a convenience:
-  // RLS scopes the request row to this shelf, and nothing structurally ties
-  // that row to a membership of the same shelf. See the long version in
-  // `./approve-profile-change.ts`.
+  // Read again under the lock, so the status this decision turns on is the
+  // status as it is rather than as it was a moment ago — the same re-read
+  // `./approve-profile-change.ts` performs, and for the same reason. The
+  // `join memberships` that used to be here is gone: `subjectOfProfileChange`
+  // already made that check, and a second copy of a tenant predicate is correct
+  // only for as long as somebody keeps writing it.
   const [request] = await tx<
-    {
-      id: string;
-      status: string;
-      user_id: string;
-      proposed_values: unknown;
-    }[]
+    { id: string; status: string; proposed_values: unknown }[]
   >`
-      select r.id, r.status, r.user_id, r.proposed_values
-        from profile_change_requests r
-        join memberships m on m.user_id = r.user_id and m.deleted_at is null
-       where r.id = ${input.profileChangeRequestId}
+      select id, status, proposed_values from profile_change_requests
+       where id = ${input.profileChangeRequestId}
     `;
   if (!request) throw new NotFound("write_target_not_found");
   if (request.status !== "pending") {

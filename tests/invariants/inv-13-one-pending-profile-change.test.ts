@@ -155,6 +155,35 @@ test("INV-13b: exactly three files in src/domain/ write `users`, each for a stat
   ]);
 });
 
+test("INV-13b: nothing in src/ brands a user id outside the module that resolves one", () => {
+  // The half the grep above cannot see, and the reason `ScopedUserId` exists.
+  //
+  // Review probed the `update users` guard and found three ways past it. Two
+  // were cosmetic (`update "users"`, an interpolated table name). The third was
+  // not: **a new command calling `applyProfileFields(tx, userIdFromInput,
+  // patch)`** writes no `update users` of its own, so the guard above stays
+  // green, while skipping the shelf-scoped `memberships` join that is the whole
+  // protection against a manager of one parish rewriting a person in another —
+  // `users` carries no RLS at all (`0010_rls.sql`).
+  //
+  // `src/domain/members/scoped-user.ts` closes that in the type: the four
+  // functions that take a person's id take a branded string, and the brand is a
+  // `unique symbol` no value carries by accident. The compiler is therefore the
+  // mechanism, not this test — but a brand is only as good as the absence of a
+  // cast, and a cast is textual, so this is the textual half.
+  //
+  // `tests/` is deliberately exempt and `profile-fields.test.ts` uses exactly
+  // this spelling: it drives the writer directly, below the commands that mint
+  // an id, and says so.
+  const brandingFiles = filesUnder("src")
+    .filter((file) =>
+      /\bas\s+(unknown\s+as\s+)?ScopedUserId\b/.test(readFileSync(file, "utf8")),
+    )
+    .map((file) => file.replace(process.cwd() + "/", ""));
+
+  expect(brandingFiles).toEqual(["src/domain/members/scoped-user.ts"]);
+});
+
 test("INV-13b: a manager's direct correction writes the value and an audit record, together", async () => {
   // The second sanctioned write path. Both halves in one assertion on purpose:
   // "the details changed" and "an audit entry names who changed them" are one

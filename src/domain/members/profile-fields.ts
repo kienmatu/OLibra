@@ -1,5 +1,6 @@
 import { ValidationFailed } from "../kernel/errors";
 import type { Tx } from "../kernel/unit-of-work";
+import type { ScopedUserId } from "./scoped-user";
 
 /**
  * INV-13b's application half: the one place in `src/domain/` that writes a
@@ -292,15 +293,25 @@ export function diffProfileFields(
  * failure mode that guard exists for.
  *
  * **`users` has no row-level security** (`0010_rls.sql:38-41`, by design — it
- * is a global table). This function therefore takes a `userId` that its callers
- * must have resolved through a shelf-scoped `memberships` row, and it is the
- * one place in this domain where that obligation is not visible in the type.
- * Neither command has a `userId` parameter for exactly that reason; see
- * `commands/update-reader-profile.ts`.
+ * is a global table). So this function's `userId` must have been resolved
+ * through a shelf-scoped `memberships` row, and **that obligation is now in the
+ * type**: `ScopedUserId` (`./scoped-user.ts`) is a branded string only that
+ * module can mint, and it mints one only by performing the join.
+ *
+ * This paragraph used to end "and it is the one place in this domain where that
+ * obligation is not visible in the type". Review showed what that cost. The
+ * mechanism holding it was the `update users` grep in
+ * `tests/invariants/inv-13-one-pending-profile-change.test.ts`, and the evasion
+ * that matters is not a clever one: **a new command calling
+ * `applyProfileFields(tx, userIdFromInput, patch)` stays green** — it writes no
+ * `update users` of its own, re-uses a sanctioned writer unsanctioned, and
+ * skips the shelf-scoped join that is the whole protection against a manager of
+ * one parish rewriting a person in another. The grep and the brand catch
+ * different things and both are kept.
  */
 export async function applyProfileFields(
   tx: Tx,
-  userId: string,
+  userId: ScopedUserId,
   patch: ProfilePatch,
 ): Promise<{ before: ProfileFields; after: ProfileFields }> {
   const has = (f: ProfileField): boolean => named(patch, f);
@@ -407,7 +418,7 @@ export async function applyProfileFields(
  * there is a case every caller already answers with `membership_not_found` or
  * `write_target_not_found` before or after reaching here.
  */
-export async function lockPerson(tx: Tx, userId: string): Promise<void> {
+export async function lockPerson(tx: Tx, userId: ScopedUserId): Promise<void> {
   await tx`
     select id from users
      where id = ${userId} and deleted_at is null
@@ -425,7 +436,7 @@ export async function lockPerson(tx: Tx, userId: string): Promise<void> {
  */
 export async function readProfileFields(
   tx: Tx,
-  userId: string,
+  userId: ScopedUserId,
 ): Promise<ProfileFields | null> {
   const [row] = await tx<ProfileFields[]>`
     select saint_name, full_name, date_of_birth::text as date_of_birth,

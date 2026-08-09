@@ -9,6 +9,7 @@ import {
   type ProfileField,
   type ProfilePatch,
 } from "../profile-fields";
+import { userOfMembership } from "../scoped-user";
 import { mergeProposal, PROPOSABLE_FIELDS } from "../profile-proposals";
 
 export interface ProposeProfileChangeInput {
@@ -84,16 +85,14 @@ export const proposeProfileChange: Command<
     throw new RuleViolated("empty_proposal");
   }
 
-  // RLS scopes this to `ctx.bookshelfId`; `users` has none, so this join is
-  // the whole of what stands between a caller and any person in the system.
-  const [membership] = await tx<{ user_id: string }[]>`
-    select m.user_id from memberships m
-    join users u on u.id = m.user_id and u.deleted_at is null
-    where m.id = ${input.membershipId} and m.deleted_at is null
-  `;
-  if (!membership) throw new NotFound("membership_not_found");
+  // RLS scopes this to `ctx.bookshelfId`; `users` has none, so the join
+  // `userOfMembership` performs is the whole of what stands between a caller
+  // and any person in the system — and it is the only source of the
+  // `ScopedUserId` the three functions below will accept (`../scoped-user.ts`).
+  const userId = await userOfMembership(tx, input.membershipId);
+  if (userId === null) throw new NotFound("membership_not_found");
 
-  const current = await readProfileFields(tx, membership.user_id);
+  const current = await readProfileFields(tx, userId);
   if (!current) throw new NotFound("membership_not_found");
 
   const incoming = Object.fromEntries(
@@ -105,7 +104,7 @@ export const proposeProfileChange: Command<
     throw new RuleViolated("empty_proposal");
   }
 
-  const pending = await readPendingProposal(tx, membership.user_id);
+  const pending = await readPendingProposal(tx, userId);
   const next = mergeProposal(pending?.contents ?? null, incoming, current);
 
   // The pending row's `avatar_object` is carried through unchanged. This
@@ -116,7 +115,7 @@ export const proposeProfileChange: Command<
   // proposes by URL. Nothing would then be able to delete it on a reject.
   // `../pending-proposal.ts` holds the whole of that reasoning.
   const requestId = await writePendingProposal(tx, ctx, {
-    userId: membership.user_id,
+    userId,
     pending,
     next,
     avatarObject: pending?.avatarObject ?? null,
