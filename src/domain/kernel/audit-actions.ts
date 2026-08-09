@@ -263,9 +263,49 @@ const ACTIONS = {
     // sentence.
     phrase: () => "kết thúc một lượt mượn vì sách bị mất",
   },
+  // ── the request family ────────────────────────────────────────────────────
+  //
+  // Five of BR §7.2's six transitions have an entry here; `expired` has none,
+  // because nothing performs it — a hold lapses by the clock passing
+  // `hold_expires_at`, with no row written and no job run (BR §8, and
+  // `copies_borrowable`'s own comparison). An audit entry for it would name an
+  // actor for something nobody did.
+  //
+  // **`request.skipped` is deliberately absent**, and its absence is the
+  // mechanism rather than an omission. `AuditAction` is `keyof typeof ACTIONS`,
+  // so a `SkipRequest` written before the product decides what skip *does*
+  // (C2 plan §4) would not compile. A sentence added here speculatively would
+  // remove that guard and describe an end state nobody has chosen.
+  "request.created": {
+    group: "muon-tra",
+    // The actor is the reader themselves, so the sentence names no subject —
+    // `user.password_changed` above takes the same line for the same reason.
+    // "gửi yêu cầu mượn" is the queue screen's own vocabulary (`Yêu cầu mượn`)
+    // and OPS §4.2's ("gửi yêu cầu mượn", `:293`), not a new phrase.
+    phrase: (f) => `gửi yêu cầu mượn ${which(str(f.after, "title"))}`,
+  },
   "request.approved": {
     group: "muon-tra",
     phrase: () => "giữ chỗ một cuốn sách cho bạn đọc đang chờ",
+  },
+  "request.rejected": {
+    group: "muon-tra",
+    // The one of the three where actor and subject are different people, so
+    // this is the one that names the subject. It resolves because the entry
+    // stores `userId` — `get-audit-log.ts`'s subject join reads `entity_id` for
+    // a `user`/`membership` entity and then `after->>'borrower_id'` and
+    // `after->>'userId'` from the payload, and a request's entity is the
+    // request.
+    phrase: (f) =>
+      `từ chối yêu cầu mượn ${which(str(f.after, "title"))} của ${who(f.subject)}` +
+      because(str(f.after, "reason")),
+  },
+  "request.cancelled": {
+    group: "muon-tra",
+    // "rút lại … của mình" is `profile_change.cancelled`'s construction above,
+    // and for the identical reason: the actor withdrew their own request, and
+    // naming them twice would read as though somebody withdrew somebody else's.
+    phrase: (f) => `rút lại yêu cầu mượn ${which(str(f.after, "title"))}`,
   },
   "request.fulfilled": {
     group: "muon-tra",

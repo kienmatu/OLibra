@@ -76,12 +76,13 @@ export const ERROR_MESSAGES = {
   // `reason_required` above looks like a candidate — OPS uses it at five sites
   // — but its shipped sentence, "Vui lòng ghi lý do huỷ.", is VoidLoan's own
   // (`:283`), and the four sites saying "lý do từ chối" were already split off
-  // into `reject_reason_required` by B2a. Two collisions *are* still open, and
-  // both belong to C2 rather than to this slice: `membership_not_active` reads
-  // "không thể mượn thêm" here and "không thể gửi yêu cầu mượn" under
-  // CreateBorrowRequest (`:293`), and `copy_lost_or_retired` gains "Bản sách đã
-  // chọn…" under ApproveBorrowRequest (`:305`). Whichever slice writes those
-  // two commands has the same split to make.
+  // into `reject_reason_required` by B2a. Two collisions were still open when
+  // this paragraph was written, and both belonged to C2 rather than to C1:
+  // `membership_not_active` reads "không thể mượn thêm" here and "không thể gửi
+  // yêu cầu mượn" under CreateBorrowRequest (`:293`), and `copy_lost_or_retired`
+  // gains "Bản sách đã chọn…" under ApproveBorrowRequest (`:305`). C2 made both
+  // splits — see `membership_not_active_cannot_request` and
+  // `chosen_copy_lost_or_retired` in its own block below.
   loan_not_active_cannot_void: "Chỉ có thể huỷ lượt mượn đang diễn ra.",
   no_renewals_remaining: "Bạn đã dùng hết số lần gia hạn cho lượt mượn này.",
   title_has_queue: "Có bạn khác đang chờ mượn cuốn này, không thể gia hạn.",
@@ -93,6 +94,50 @@ export const ERROR_MESSAGES = {
   duplicate_request: "Bạn đã có một yêu cầu đang chờ cho cuốn này.",
   not_own_request: "Bạn không thể huỷ yêu cầu của người khác.",
   request_already_fulfilled: "Yêu cầu này đã được trao sách, không thể huỷ.",
+
+  // — circulation: C2 —
+  // The two collisions C1's note above named as this slice's, split rather than
+  // reused. Checked for a third before adding them, the way B1, B2a, B2b and C1
+  // each had to: every `code — "sentence"` pair in OPERATIONS.md was read off
+  // and grouped, nine codes collide across the whole catalogue, and exactly
+  // these two fall inside C2's five commands. `request_not_pending` above is
+  // used twice by this slice (`:306` under ApproveBorrowRequest, `:316` under
+  // RejectBorrowRequest) with the identical sentence, which is a reuse and not
+  // a collision — one code still names one thing.
+  //
+  // `membership_not_active` above says "không thể mượn thêm", which is
+  // LendCopy's and HandoverRequest's (`:233`, `:245`) — both of them are about
+  // a book going into a child's hands right now. Joining a queue is not that:
+  // OPS `:293` says "không thể gửi yêu cầu mượn", and a suspended reader told
+  // they cannot borrow *more* would reasonably conclude the queue is open to
+  // them.
+  membership_not_active_cannot_request:
+    "Tài khoản đang tạm khoá, không thể gửi yêu cầu mượn.",
+  // `copy_lost_or_retired` above is LendCopy's (`:232`), about the copy a
+  // manager is holding. ApproveBorrowRequest's (`:305`) is about a copy the
+  // manager *picked from a list* a moment ago, which is why OPS words it "Bản
+  // sách đã chọn" — the extra word is the whole difference between "this book
+  // is gone" and "the one you just chose is gone, choose another".
+  chosen_copy_lost_or_retired: "Bản sách đã chọn đã mất hoặc ngừng dùng.",
+  // **New Vietnamese, and the only sentence this slice authors.** OPS §4.2
+  // gives HandoverRequest three failure modes (`:244-246`) and none of them
+  // describes a `requestId` naming a row with no live hold to hand over — a
+  // `pending` request nobody has approved, or one already `rejected`,
+  // `cancelled` or `fulfilled`. A stale queue page posts exactly that, so the
+  // command has to answer something.
+  //
+  // Nothing in the catalogue fits. `request_not_pending` ("Yêu cầu này đã được
+  // xử lý.") is a false statement about a *pending* request, which is the
+  // commonest of the four; `hold_expired` is a false statement about a request
+  // that never had a hold; `request_not_queued` is ReceiveReturn's and is about
+  // a different title.
+  //
+  // Factual rather than instructive, unlike most of this map. BR §17.7 asks a
+  // refusal to name what to do instead, and what to do instead differs across
+  // the four states this covers — approve it; nothing, it was refused; nothing,
+  // it was withdrawn; nothing, the book already went out. The queue screen
+  // shows which, on the row the button sits in.
+  request_not_held: "Yêu cầu này không có bản sách nào đang được giữ chỗ.",
 
   // — members —
   membership_not_found: "Không tìm thấy bạn đọc này.",

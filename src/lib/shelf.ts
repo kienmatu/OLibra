@@ -25,6 +25,18 @@ export interface ShelfPageData {
    * being the same `coalesce` over the same column.
    */
   loanDays: number;
+  /**
+   * BR §5.5's `hold_days`, defaulting to 3.
+   *
+   * Read for one screen only, the same way `loanDays` above is: the borrow
+   * queue tells a manager how long the hold they are about to create will
+   * stand ("Giữ chỗ 3 ngày kể từ khi duyệt", the sentence that screen already
+   * carried with the number written into it). `approveBorrowRequest` reads the
+   * value again for itself, through `holdDaysFor`, and that read is the one
+   * that decides the row; this one only has to agree with it, which it does by
+   * being the same `coalesce` over the same column.
+   */
+  holdDays: number;
 }
 
 /**
@@ -73,12 +85,18 @@ export async function readShelf(
   ctx: TenantContext,
 ): Promise<ShelfPageData> {
   const [row] = await tx<
-    { name: string; max_concurrent_loans: number; loan_days: number }[]
+    {
+      name: string;
+      max_concurrent_loans: number;
+      loan_days: number;
+      hold_days: number;
+    }[]
   >`
     select
       name,
       coalesce((settings->>'max_concurrent_loans')::int, 3) as max_concurrent_loans,
-      coalesce((settings->>'loan_days')::int, 14)           as loan_days
+      coalesce((settings->>'loan_days')::int, 14)           as loan_days,
+      coalesce((settings->>'hold_days')::int, 3)            as hold_days
     from bookshelves
     where id = ${ctx.bookshelfId}
   `;
@@ -87,6 +105,7 @@ export async function readShelf(
     name: row.name,
     maxConcurrentLoans: row.max_concurrent_loans,
     loanDays: row.loan_days,
+    holdDays: row.hold_days,
   };
 }
 

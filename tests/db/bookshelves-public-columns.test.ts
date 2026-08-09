@@ -217,7 +217,13 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   "src/domain/catalogue/queries/get-book-detail.ts": ["settings"],
   "src/domain/members/parish-context.ts": ["settings"],
   "src/domain/circulation/commands/lend-copy.ts": ["settings"],
-  "src/domain/circulation/commands/receive-return.ts": ["settings"],
+  // BR §5.5's `loan_days` and `hold_days`, read from the shelf row by the four
+  // circulation commands that need them. C2 moved both reads here out of
+  // `lend-copy.ts` and `receive-return.ts`, which is why the latter no longer
+  // appears in this map: it stopped naming `bookshelves` at all, and an
+  // exemption for a file that no longer needs one is the kind of entry that
+  // quietly blesses a query somebody adds later.
+  "src/domain/circulation/settings.ts": ["settings"],
   "src/lib/shelf.ts": ["settings", "keeper_name", "keeper_phone"],
 };
 

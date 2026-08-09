@@ -11,8 +11,11 @@ import { createBook } from "../../../../domain/catalogue/commands/create-book";
 import { markCopyFound } from "../../../../domain/catalogue/commands/mark-copy-found";
 import { reportCopyLost } from "../../../../domain/catalogue/commands/report-copy-lost";
 import { retireCopy } from "../../../../domain/catalogue/commands/retire-copy";
+import { approveBorrowRequest } from "../../../../domain/circulation/commands/approve-borrow-request";
+import { handoverRequest } from "../../../../domain/circulation/commands/handover-request";
 import { lendCopy } from "../../../../domain/circulation/commands/lend-copy";
 import { receiveReturn } from "../../../../domain/circulation/commands/receive-return";
+import { rejectBorrowRequest } from "../../../../domain/circulation/commands/reject-borrow-request";
 import { approveMembership } from "../../../../domain/members/commands/approve-membership";
 import { approveProfileChange } from "../../../../domain/members/commands/approve-profile-change";
 import { registerMemberOnBehalf } from "../../../../domain/members/commands/register-member-on-behalf";
@@ -245,11 +248,21 @@ export async function lendCopyAction(form: FormData): Promise<void> {
 /**
  * OPS §4.2's `ReceiveReturn` — the return flow's terminal step.
  *
- * `holdForRequestId` is deliberately never sent. OPS §5 makes the queued-reader
- * decision a second, explicit choice by the manager, and the panel offering it
- * needs `GetBorrowRequestQueue` (OPS §3.3), which no slice has shipped. An
- * un-offered choice is honest; a choice made silently on the manager's behalf
- * is the thing §5 says must never happen.
+ * **`holdForRequestId` is sent only when the manager chose to send it** (C2).
+ * It was never sent at all until this slice, because the panel offering the
+ * choice needs `GetBorrowRequestQueue` (OPS §3.3) and no slice had shipped it.
+ * Now the return screen shows who is waiting and offers "Giữ chỗ cho …" beside
+ * "Không giữ chỗ, trả về kệ" — a radio group whose default is *not* holding, so
+ * a manager who taps straight through makes the choice §5 describes rather than
+ * having one made for them. An empty value becomes `undefined` rather than
+ * `""` — belt-and-braces, and said to be that rather than presented as the
+ * guard: `receiveReturn` branches on the truthiness of `holdForRequestId`, so
+ * an empty string never reaches `resolveHold` either way. Measured, by swapping
+ * `optional` for `field` and watching the suite stay green.
+ *
+ * The `complete()` guard below deliberately does not list it. It is optional by
+ * design — "no hold" is a real answer — so its absence is not an incomplete
+ * form.
  *
  * `condition` is passed through as it arrives. `receiveReturn` validates it
  * against the `copy_condition` enum itself and throws `ValidationFailed` for
@@ -267,6 +280,9 @@ export async function receiveReturnAction(form: FormData): Promise<void> {
         // `condition_assessments.note` is nullable and a blank string would
         // read, a year later, as a manager who wrote something illegible.
         note: note === "" ? null : note,
+        // "Không giữ chỗ, trả về kệ" posts the empty string, which is the
+        // absence of a choice to hold and not a request id of zero length.
+        holdForRequestId: optional(form, "giu-cho") ?? undefined,
       })
     : INCOMPLETE;
 
@@ -601,4 +617,73 @@ export async function retireCopyAction(form: FormData): Promise<void> {
         });
 
   backToQueue(managerBase(shelfSlug), "sach/mat", outcome);
+}
+
+/**
+ * OPS §4.2's `ApproveBorrowRequest` — **Duyệt & giữ chỗ** on the queue screen,
+ * BR §16.3's "Approve (creating a hold with a visible expiry)".
+ *
+ * Two ids, both hidden fields the queue page put there from rows it had just
+ * read through a manager-gated query, and neither trusted on that account: the
+ * command re-reads both inside its transaction, re-applies `copyHoldable`, and
+ * locks the copy row so that two managers deciding at once cannot both win.
+ *
+ * The copy is chosen by the page, from that title's available copies, because
+ * OPS §4.2 makes `copyId` an input and BR §16.3 gives the manager the choice —
+ * a shelf has copies in different conditions and a volunteer standing at it
+ * knows which one to put aside.
+ */
+export async function approveBorrowRequestAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["yeu-cau", "ban"])
+    ? await attempt(shelfSlug, approveBorrowRequest, {
+        requestId: field(form, "yeu-cau"),
+        copyId: field(form, "ban"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "yeu-cau-muon", outcome);
+}
+
+/**
+ * OPS §4.2's `RejectBorrowRequest` — **Từ chối**, `pending → rejected`.
+ *
+ * **No `NO_REJECT_REASON` guard, unlike the two rejections above it**, and that
+ * is Q2 rather than an oversight. `RejectMembership` and `RejectProfileChange`
+ * both require a reason and both screens say so ("Từ chối cần ghi lý do"); the
+ * borrow queue's button carries no such statement and OPS §4.2 lists no
+ * `reason_required` among this command's failure modes. The C2 plan §3.4 records
+ * the reading and what reversing it costs: this guard, and a field in D1's
+ * notification.
+ */
+export async function rejectBorrowRequestAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["yeu-cau"])
+    ? await attempt(shelfSlug, rejectBorrowRequest, {
+        requestId: field(form, "yeu-cau"),
+        reason: optional(form, "ly-do"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "yeu-cau-muon", outcome);
+}
+
+/**
+ * OPS §4.2's `HandoverRequest` — **Xác nhận trao sách**, the moment the book
+ * changes hands.
+ *
+ * One id, because the request already names the copy and the reader. This is
+ * the whole difference between it and `lendCopyAction` above, which takes both:
+ * there the manager picked a book and then a reader, and here a hold made both
+ * choices days ago.
+ */
+export async function handoverRequestAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["yeu-cau"])
+    ? await attempt(shelfSlug, handoverRequest, {
+        requestId: field(form, "yeu-cau"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "yeu-cau-muon", outcome);
 }
