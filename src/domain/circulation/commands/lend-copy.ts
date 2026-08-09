@@ -110,14 +110,24 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
     {
       id: string;
       book_id: string;
+      title: string;
       state: CopyState;
       held_for_user: string | null;
       hold_request_id: string | null;
     }[]
   >`
-    select c.id, c.book_id, c.state, h.member_id as held_for_user,
+    select c.id, c.book_id, b.title, c.state, h.member_id as held_for_user,
            h.id as hold_request_id
       from book_copies c
+      -- The title, read here so the audit entry can *store* it (P1 §3.2a).
+      -- An audit sentence that re-read books.title at render time would
+      -- restate history the moment UpdateBook corrects a title -- and that
+      -- command audits exactly such a correction, so it is not hypothetical.
+      -- An inner join: book_copies.book_id is not null and carries a
+      -- composite tenant FK (20260808_04_composite_tenant_fks.sql), so a copy
+      -- with no book is not a state this schema admits, and a left join here
+      -- would only make the title nullable for a row that cannot exist.
+      join books b on b.id = c.book_id
       -- The live hold on this copy, if there is one. member_id, not
       -- requester_id (0005_circulation.sql:63), and it holds a users(id).
       -- Compared against olibra_now() rather than a bound ctx.clock.now() for
@@ -286,6 +296,12 @@ export const lendCopy: Command<LendCopyInput, LendCopyResult> = async (
         borrower_id: member.user_id,
         membership_id: member.id,
         due_on: dueOn,
+        // The title **as it is now**, stored rather than joined at read time.
+        // BR §14's own example sentence names it ("...đã cho Giuse Minh mượn
+        // Dế Mèn Phiêu Lưu Ký..."), and P1 §3.2a is the argument for why it
+        // has to be a stored value: the audit trail says what was recorded at
+        // the time, and a title is a value a manager can change.
+        title: copy.title,
         // Null for the ordinary direct lend, so an auditor can tell the two
         // apart without joining anything: this loan either came out of a
         // queue or it did not.

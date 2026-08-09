@@ -87,15 +87,27 @@ export const receiveReturn: Command<
       id: string;
       copy_id: string;
       book_id: string;
+      borrower_id: string;
+      title: string;
       status: string;
       copy_state: CopyState;
       copy_condition: CopyCondition;
     }[]
   >`
-      select l.id, l.copy_id, l.book_id, l.status,
+      select l.id, l.copy_id, l.book_id, l.borrower_id, l.status,
+             b.title,
              c.state as copy_state, c.condition as copy_condition
         from loans l
         join book_copies c on c.id = l.copy_id
+        -- The title and the borrower, read here so the audit entry can *store*
+        -- them (P1 §3.2a). BR §14 wants "Quản lý Maria Lan đã nhận trả Hoàng
+        -- Tử Bé từ Têrêsa Lê Ngọc Ánh", and a sentence that re-read either at
+        -- render time would restate history: UpdateBook audits title
+        -- corrections and UpdateReaderProfile audits name corrections, so
+        -- both values move. Inner join: loans.book_id is not null with a
+        -- composite tenant FK, so a loan of no book is not a state this schema
+        -- admits.
+        join books b on b.id = l.book_id
        where l.id = ${input.loanId}
     `;
   // One code for two situations, deliberately. OPS §4.2 gives ReceiveReturn
@@ -189,6 +201,12 @@ export const receiveReturn: Command<
         status: "returned",
         copy_state: copyState,
         condition: input.condition,
+        // Stored, not joined at read time — see the select above and P1 §3.2a.
+        title: loan.title,
+        // `borrower_id`, matching the name `loan.created` already stores it
+        // under (`lend-copy.ts`), so one resolution rule covers both ends of a
+        // loan rather than two spellings of the same fact.
+        borrower_id: loan.borrower_id,
       },
     },
   ];

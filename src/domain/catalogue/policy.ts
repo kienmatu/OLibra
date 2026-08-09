@@ -30,6 +30,47 @@ export function isCopyCondition(value: unknown): value is CopyCondition {
 }
 
 /**
+ * The Vietnamese word for each `copy_condition`.
+ *
+ * **Moved here from `src/lib/status.ts`, not copied** (P1). It shipped in
+ * `src/lib/`, which was the right place while the only reader was a screen —
+ * and stopped being the right place the moment the *domain* needed the word:
+ * BR §14's audit sentence for a return is "…tình trạng Nguyên vẹn…", and that
+ * sentence is owned by the domain for the reason `kernel/errors.ts:11-16`
+ * gives about `ERROR_MESSAGES`. A domain module cannot import `src/lib/status
+ * .ts` — that file imports `lucide-react` and re-imports this one, so the reach
+ * would put a component library inside the domain and close a cycle.
+ *
+ * `src/lib/status.ts` re-exports both names, so every screen that already used
+ * them is untouched. The words themselves are unchanged and are not new: they
+ * are BR §9's, by way of that file.
+ *
+ * `Record<CopyCondition, …>` rather than a list zipped by index, which is the
+ * version that silently mislabels every copy on the shelf the day somebody
+ * reorders either side. A seventh grade added to `COPY_CONDITIONS` is a compile
+ * error here.
+ */
+export const CONDITION_WORDS = [
+  "Nguyên vẹn",
+  "Hơi cũ",
+  "Cũ",
+  "Rách",
+  "Mất trang",
+  "Bị vẽ vào",
+] as const;
+
+export type ConditionWord = (typeof CONDITION_WORDS)[number];
+
+export const CONDITION_LABELS: Record<CopyCondition, ConditionWord> = {
+  perfect: "Nguyên vẹn",
+  slightly_worn: "Hơi cũ",
+  worn: "Cũ",
+  torn: "Rách",
+  missing_pages: "Mất trang",
+  written_on: "Bị vẽ vào",
+};
+
+/**
  * BR §7.1's transition table, arrow for arrow.
  *
  * Written as data rather than as a chain of `if`s so that the table in the

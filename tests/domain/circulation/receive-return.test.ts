@@ -187,7 +187,7 @@ test("nothing is held automatically when the manager does not ask", async () => 
   // The rule that matters most in this command. OPS §5: "Nothing happens
   // automatically: the manager decides, because the next reader may not be
   // standing there." A queued request must still be pending afterwards.
-  const { ctx, bookId, copyId, loanId } = await lentOut(sql);
+  const { ctx, bookId, copyId, loanId, reader } = await lentOut(sql);
   const { requestId } = await queueReader(ctx.bookshelfId, bookId);
 
   const result = await runCommand(sql, ctx, receiveReturn, {
@@ -218,6 +218,27 @@ test("nothing is held automatically when the manager does not ask", async () => 
     select action from audit_log order by action
   `;
   expect(actions.map((a) => a.action)).toEqual(["loan.created", "loan.returned"]);
+
+  // P1 §3.2a: the entry stores the title and the borrower rather than leaving
+  // the browser to join for them. BR §14's return sentence names both -- "đã
+  // nhận trả Hoàng Tử Bé từ Têrêsa Lê Ngọc Ánh" -- and both are values a
+  // manager can change afterwards (`UpdateBook` and `UpdateReaderProfile` each
+  // audit exactly such a correction), so re-reading either at render time
+  // would rewrite what the log says happened.
+  //
+  // The title is corrected *after* the return, and the entry keeps saying what
+  // it said: that is the assertion, not the equality with a fixture string.
+  const [{ title }] = await sql<{ title: string }[]>`
+    select title from books where id = ${bookId}
+  `;
+  await sql`update books set title = 'Một tên khác hẳn' where id = ${bookId}`;
+
+  const [entry] = await sql<{ after: Record<string, unknown> }[]>`
+    select after from audit_log where action = 'loan.returned'
+  `;
+  expect(entry.after.title).toBe(title);
+  expect(entry.after.title).not.toBe("Một tên khác hẳn");
+  expect(entry.after.borrower_id).toBe(reader.userId);
 });
 
 test("the queue is reported in requested_at order, not insertion order", async () => {

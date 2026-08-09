@@ -69,7 +69,7 @@ test("the global path can write a null-shelf audit entry, and the ordinary path 
     async () => ({
       result: null,
       audit: {
-        action: "system.migration",
+        action: "parish_taxonomy.updated",
         entityType: "system",
         entityId: a.id,
         global: true,
@@ -79,7 +79,7 @@ test("the global path can write a null-shelf audit entry, and the ordinary path 
   );
 
   const [globalEntry] = await sql<{ bookshelf_id: string | null }[]>`
-    select bookshelf_id from audit_log where action = 'system.migration'
+    select bookshelf_id from audit_log where action = 'parish_taxonomy.updated'
   `;
   expect(globalEntry.bookshelf_id).toBeNull();
 
@@ -90,7 +90,7 @@ test("the global path can write a null-shelf audit entry, and the ordinary path 
       async () => ({
         result: null,
         audit: {
-          action: "system.migration",
+          action: "parish_taxonomy.updated",
           entityType: "system",
           entityId: a.id,
           global: true,
@@ -232,7 +232,7 @@ test("a runGlobalCommand body still cannot write to another shelf", async () => 
         return {
           result: null,
           audit: {
-            action: "system.migration",
+            action: "parish_taxonomy.updated",
             entityType: "system",
             entityId: b.id,
             global: true,
@@ -262,7 +262,7 @@ test("a runGlobalCommand's null-shelf audit entry still commits", async () => {
     async () => ({
       result: null,
       audit: {
-        action: "system.still-works",
+        action: "parish_unit.reordered",
         entityType: "system",
         entityId: a.id,
         global: true,
@@ -272,7 +272,7 @@ test("a runGlobalCommand's null-shelf audit entry still commits", async () => {
   );
 
   const [entry] = await sql<{ bookshelf_id: string | null }[]>`
-    select bookshelf_id from audit_log where action = 'system.still-works'
+    select bookshelf_id from audit_log where action = 'parish_unit.reordered'
   `;
   expect(entry.bookshelf_id).toBeNull();
 });
@@ -295,7 +295,7 @@ test("a malformed bookshelfId is a named ValidationFailed, not a raw driver erro
       ctx,
       async () => ({
         result: null,
-        audit: { action: "x.y", entityType: "x", entityId: "x" },
+        audit: { action: "book.created", entityType: "x", entityId: "x" },
       }),
       {},
     ),
@@ -369,7 +369,7 @@ describe("a Clock that cannot produce a sendable instant is a named ValidationFa
           { ...ctx, bookshelfId: (await makeShelf(sql)).id },
           async () => ({
             result: null,
-            audit: { action: "x.y", entityType: "x", entityId: "x" },
+            audit: { action: "book.created", entityType: "x", entityId: "x" },
           }),
           {},
         ),
@@ -436,7 +436,7 @@ test("an empty-string bookshelfId on the command path is also a named Validation
       ctx,
       async () => ({
         result: null,
-        audit: { action: "x.y", entityType: "x", entityId: "x" },
+        audit: { action: "book.created", entityType: "x", entityId: "x" },
       }),
       {},
     ),
@@ -588,7 +588,7 @@ describe("the guarded Tx a Command receives (fail-safe zero-row writes)", () => 
         expect(rows).toHaveLength(1);
         return {
           result: null,
-          audit: { action: "probe.done", entityType: "x", entityId: shelf.id },
+          audit: { action: "book.deleted", entityType: "x", entityId: shelf.id },
         };
       },
       {},

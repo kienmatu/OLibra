@@ -110,6 +110,47 @@ export function formatInstant(instant: string | Date): string {
 }
 
 /**
+ * The clock time of an instant — "14:32" — in the application timezone.
+ *
+ * `hourCycle: "h23"` rather than `hour12: false`: the two are not the same, and
+ * the difference shows up once a day. `hour12: false` selects the `h24` cycle in
+ * several locales, which renders midnight as **24:00** and the hour after it as
+ * 24:05 — so an audit entry written at five past midnight would read "lúc 24:05
+ * ngày 03/08" while belonging to the fourth. `h23` is the 00–23 cycle a
+ * Vietnamese reader expects.
+ */
+const TIME = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: TIMEZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * An instant as its two halves — `{ time: "14:32", date: "03/08/2026" }`.
+ *
+ * **Two parts rather than one string, and that is the whole reason this exists**
+ * (P1 §3.1). BR §14's sentence is "…lúc 14:32 ngày 03/08", and every word of
+ * that sentence — "lúc", "ngày" — belongs to `domain/kernel/audit-actions.ts`,
+ * where the rest of the audit wording lives for the reason `errors.ts:11-16`
+ * gives. Every *number* in it belongs to `Intl`, here, for SDD §6.6's. Returning
+ * a pre-glued "14:32 ngày 03/08/2026" would have put a Vietnamese word in this
+ * file; taking a `Date` in the domain would have put a formatter there. The pair
+ * is what lets both rules hold at once.
+ *
+ * The year is included where BR §14's example omits it. An audit trail is read
+ * months and years after the fact — that is what it is *for* — and "03/08" is
+ * ambiguous the moment a shelf has two Augusts of history.
+ */
+export function formatInstantParts(instant: string | Date): {
+  time: string;
+  date: string;
+} {
+  const at = new Date(instant);
+  return { time: TIME.format(at), date: INSTANT.format(at) };
+}
+
+/**
  * A year, which is a number and is not a quantity.
  *
  * `books.published_year` is an `integer`, so the obvious thing is the page's

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { migrate } from "../../../src/db/migrate";
+import type { AuditEntry } from "../../../src/domain/kernel/audit";
 import { assertNoSecrets } from "../../../src/domain/kernel/audit";
 import { fixedClock } from "../../../src/domain/kernel/clock";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
@@ -62,7 +63,7 @@ async function apply(bookshelfId: string, userId: string, patch: ProfilePatch) {
     ctx,
     async (tx) => ({
       result: await applyProfileFields(tx, asScoped(userId), patch),
-      audit: { action: "test.applied", entityType: "user", entityId: userId },
+      audit: { action: "profile.corrected", entityType: "user", entityId: userId },
     }),
     undefined,
   );
@@ -120,7 +121,7 @@ test("`avatar_object` is auditable and `avatar_key` is not — the naming landmi
   // for a reason that has nothing to do with what it was doing. The avatar
   // wave is a later slice; the name is fixed here so that slice inherits it
   // rather than rediscovering it in a red test.
-  const entry = (payload: Record<string, unknown>) => ({
+  const entry = (payload: Record<string, unknown>): AuditEntry => ({
     action: "profile_change.proposed",
     entityType: "profile_change_request",
     entityId: "irrelevant",
@@ -286,7 +287,7 @@ test("readProfileFields returns the same eight, and null for a soft-deleted pers
     ctx,
     async (tx) => ({
       result: await readProfileFields(tx, asScoped(user.id)),
-      audit: { action: "test.read", entityType: "user", entityId: user.id },
+      audit: { action: "profile.corrected", entityType: "user", entityId: user.id },
     }),
     undefined,
   );
@@ -298,7 +299,7 @@ test("readProfileFields returns the same eight, and null for a soft-deleted pers
     ctx,
     async (tx) => ({
       result: await readProfileFields(tx, asScoped(user.id)),
-      audit: { action: "test.read", entityType: "user", entityId: user.id },
+      audit: { action: "profile.corrected", entityType: "user", entityId: user.id },
     }),
     undefined,
   );
