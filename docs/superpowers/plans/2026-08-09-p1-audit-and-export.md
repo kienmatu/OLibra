@@ -16,6 +16,70 @@ Verify at least:
 - Whether any query reads `audit_log` today.
 - `src/lib/page-data.ts`'s seam, U3's `src/lib/roles.ts` / `membership-status.ts` / `profile-labels.ts` — label maps already exist and must not be duplicated.
 
+## Reconciliation against shipped code
+
+Checked against `main` at `f000c19`. Every row was verified at the file and line
+it names; nothing here is inferred from another document.
+
+| The plan says | Live code says | Consequence |
+|---|---|---|
+| §1: "the set is enumerable — find where, and how reliably" | `AuditEntry.action` is a bare **`string`** (`src/domain/kernel/audit.ts:13`). Nothing constrains it, in either direction | The set is enumerable only by grepping source text. §3.1's preferred compile-time guarantee is *achievable but not present* — it has to be built. See the row below for the shape chosen. |
+| §3.1: "the mapping is exhaustive over the action names discovered from the shipped commands" | 34 literal `action: "…"` sites under `src/domain`, **33 distinct** names. One of them is **not under any `commands/` directory**: `registrationAudit` at `src/domain/members/registration.ts:402` writes `membership.registered` for all three registration commands | A discovery rule globbing `*/commands/*.ts` misses the only action a *reader-facing* registration writes. Discovery must be over `src/domain` entire. |
+| §1: "`audit_log`'s real columns (`before`/`after`, **not** `*_values`)" | `before jsonb, after jsonb` (`src/db/migrations/0007_audit_notifications.sql:29-30`) | Correct as written. C1's correction holds. |
+| — | `audit_log` also has **`context jsonb not null default '{}'`** (`0007:31`, commented "address, device, screen"), and `runAs`'s insert never names it (`src/domain/kernel/unit-of-work.ts:424-432`) | Every row in the system has `context = {}`. The browser must not offer an address/device/screen column: there is nothing behind it. Not a defect — nothing claims to write it — but it is the one `audit_log` column a reader of §3.2 would expect to render. |
+| §3.2: "Nothing in the payload is secret — `audit.ts` throws `audit_forbidden_field` rather than trusting the caller. Verify that guard actually covers what this screen will render" | `assertNoSecrets` walks **`entry.before` and `entry.after` only** (`audit.ts:173`). `action`, `entityType` and `entityId` are never inspected | The guard covers exactly the two bags the `<details>` renders, so §3.2's claim holds — but for a narrower reason than "audit.ts guards the entry". The other three fields are an enum, an enum and a uuid, none of them caller free text, which is why they need no guard rather than why they have one. |
+| — | `FORBIDDEN` (`audit.ts:66-77`) matches whole tokens, and `propose-avatar-change.ts:178` deliberately stores an **object storage key** under `avatar_object` (`src/domain/members/pending-proposal.ts:67`), which no token matches | The expansion will render a bucket key to any manager of the shelf. That is intended (`propose-avatar-change.ts:171-175` argues for it as the only durable record of a superseded image) and it is not a credential — the object is served through `src/lib/object-store.ts`, not by knowing its key. Recorded so it is not discovered on screen and mistaken for a leak. |
+| §1: "Whether any query reads `audit_log` today" | **Nothing does.** No `select … from audit_log` exists anywhere in `src/`. `get-manager-dashboard.ts:151-155` declines to build the activity feed and says why | `GetAuditLog` is the first reader. There is no shipped query to copy, and no existing behaviour to preserve. |
+| §2: the browser is "filterable by actor, action type and date range" | `audit_log_actor on (actor_id, occurred_at desc)` and `audit_log_shelf on (bookshelf_id, occurred_at desc)` exist (`0007:35-36`). There is **no index on `action`** and none on `(bookshelf_id, actor_id, occurred_at)` | BR §14's headline — "what has manager A been doing" — is served by `audit_log_actor`, and that is what makes it fast. The action and date filters ride on top of whichever of the two indexes drives; neither gets its own. Stated rather than measured-and-forgotten. |
+| §2: a paged browser ordered by time | `audit_log.id` is `bigint generated always as identity` (`0007:23`); `occurred_at` carries **no unique constraint**, and `toRow` stamps `ctx.clock.now()` per entry (`audit.ts:192`) while `runAs` inserts a command's entries in a loop (`unit-of-work.ts:422`). `addCopies` emits one entry per copy (`add-copies.ts:58`), `deleteParishUnit` one per cascaded child (`delete-parish-unit.ts:101-104`) | **The `Đ`-trap's second half, on a new query.** `order by occurred_at desc` with `limit`/`offset` is not a total order, and a multi-entry command guarantees the ties rather than merely allowing them. `id desc` is the tiebreak and it is free — the identity column cannot tie. This is U2's measured 304→229 defect in a query the plan did not warn about. |
+| §1: "label maps already exist and must not be duplicated" | `src/lib/roles.ts:42` (`ROLE_LABELS`), `src/lib/membership-status.ts:38` (`MEMBERSHIP_STATUS`), `src/lib/profile-labels.ts:38` (`PROFILE_FIELD_LABELS`) — all three total `Record`s, all three with `Object.hasOwn` lookups | Reused, not rewritten. The role word in the sentence's "Quản lý …" prefix is `roleLabel`'s. |
+| §3.1 quotes BR §14's example sentence, "…lúc **14:32** ngày 03/08" | `src/lib/dates.ts` exports `formatDate`, `formatDueDate`, `formatInstant`, `formatYear`. `INSTANT` (`dates.ts:66-71`) has **no `hour`/`minute`** — `formatInstant` renders a date and no time | The example sentence is unrenderable with what ships. A time-of-day formatter is needed, and SDD §6.6 puts it through the locale in `dates.ts` rather than in the page. |
+| §3.1: the sentence "is owned by the domain", citing `errors.ts:11-16` | `ERROR_MESSAGES` (`errors.ts:28`) is a closed union of **fixed, complete sentences**. Nothing in this codebase interpolates a domain-owned string | The precedent settles *where* the copy lives, not *what shape* it takes. An audit sentence has to carry a name, a title and a time, so this slice introduces the first parameterised domain copy. Called out because "follow `ERROR_MESSAGES`" would otherwise read as "a flat `Record<string, string>`", which cannot express BR §14's example. |
+| §3.1's example: "Quản lý Maria Lan đã cho Giuse Minh mượn *Dế Mèn Phiêu Lưu Ký*" | `loan.created`'s payload is `{ copy_state, borrower_id, membership_id, due_on, request_id }` (`lend-copy.ts:280-293`) — **no title**. `loan.returned`'s is `{ status, copy_state, condition }` (`receive-return.ts:188-192`) — no title and no borrower | BR §14's own example cannot be assembled from a stored payload, and re-deriving the title from `books` today is exactly the rewrite §3.2 forbids (`update-book.ts:170` audits a title *change*, so titles do move). Resolved by widening those two payloads — see §3.2a below. No action name changes. |
+| §3.5(c): "not put it in a URL a shared parish phone keeps in its address bar" | There is **no `route.ts` anywhere in `src/app`** — this slice adds the first one | Nothing to copy, and one guard gap: `pages-reading-the-database-are-dynamic.test.ts:108` and `a-wired-page-renders-no-fixtures.test.ts:84` both glob `/(page\|layout)\.tsx?$/`, so a route handler that reaches Postgres is invisible to both. `compose-supplies-storage-env.test.ts:162` already globs the wider set, so the wider glob is this repo's own precedent. Widened here. |
+| §4 task 4: "the download route or action they come back through" | `loadPage` calls `notFound()` and `redirect()` from `next/navigation` (`page-data.ts:290, 300-301`) | The page seam cannot serve a route handler, which must answer with a `Response` and a status. The export needs its own short seam beside `loadPage`, not a fourth branch inside it. |
+| §3.5: "`ExportReadersCSV` puts every child's name, date of birth, parents' names and phone number into a file" | `getReaderDetail` already returns exactly those, plus `email`, `manager_notes`, `approved_at` and `has_credentials` (`get-reader-detail.ts:106-118`), all of them rendered on `quan-ly/nguoi-doc/[id]` | §3.5(b)'s bound — "nothing BR §16.1 does not already show a manager on screen" — is satisfiable with a generous column set. `password_hash` and `username` are not among them: `has_credentials` is the boolean the detail query already substitutes, and INV-14 is why. |
+| §3.4: "Three exports over a few hundred books are small" | The seed writes 4 shelves; the largest catalogue in `src/db/seed.ts` is two orders of magnitude below anything that streams | Correct. The exports are unpaged and buffered, and §3.4's instruction is to *say so* rather than discover it — the limit and where it bites are stated in `src/lib/csv.ts`. |
+
+### 3.2a — what the sentence resolves, and why it is not a re-derivation
+
+An entry stores two different kinds of thing, and they must be read
+differently:
+
+- **References** — `actor_id` (`0007:25`) and `entity_id` (`0007:28`), plus any
+  id a command chose to put in its payload. An id is not readable. Resolving one
+  to a person's name at read time is what a reference is *for*, and it stays
+  true when that person's name changes: "this person did it" is the fact, and
+  `Maria Nguyễn Thị Lan` is how a volunteer recognises them **today**, which is
+  the only way BR §14's "who has been touching whose account" can be answered.
+- **Values** — everything inside `before`/`after`. These are printed exactly as
+  stored and never looked up. A title in `book.created`'s `after.title`
+  (`create-book.ts:149`) is the title as it was typed that day; re-reading
+  `books.title` instead would silently restate history the moment
+  `UpdateBook` corrects it (`update-book.ts:170` audits precisely that change).
+
+So the rule is: **people are resolved by id, values are printed as stored, and
+a value the payload does not hold is not rendered at all.** No category name, no
+unit name and no book title is ever read from today's rows.
+
+The price of that rule is the row above: BR §14's own headline example needs a
+book title as a *value*, and neither circulation command stores one. Two
+choices, both honest, and the second is taken:
+
+1. Leave the payloads alone and drop the title from the loan sentences. BR §14
+   names the title in the one example it gives, so this is refusing the
+   requirement rather than meeting it.
+2. **Widen the payloads.** `lend-copy.ts` and `receive-return.ts` record
+   `title` (and, for a return, `borrower_id`) alongside what they already
+   record. No action name changes, no entry moves entity, nothing is removed.
+   This is the same argument `void-loan.ts:112-115` already makes for putting
+   the void reason in the payload as well as on the row: the audit is
+   append-only and the column is not.
+
+Entries written **before** this widening carry no title, and the sentence for
+them renders without one rather than reaching for `books`. That asymmetry is
+the honest shape of an append-only log whose writers improved.
+
 ## 2. What this slice is
 
 Two surfaces, both about *looking at what happened*:
