@@ -30,6 +30,15 @@ export interface BooksListPage {
  * filter here — and each row carries the shelf-mark range (`codes`) a
  * volunteer reads off the spines, built from `min(code)`/`max(code)` over the
  * title's live copies.
+ *
+ * **`sort: "title"` orders by `olibra_fold(title)`**, for the reason
+ * `get-catalogue.ts`'s docstring spells out: this cluster's collation is `C`,
+ * so a plain `order by title` sorts every title beginning `Đ` after every
+ * unaccented one. U2 Task 4 was scoped to the two reader-facing queries; this
+ * third copy of the same expression is corrected with them because it is the
+ * same live defect on the same column, and U3 wires the manager list that reads
+ * it. Leaving one of three sorting differently is how a later reader concludes
+ * the difference was deliberate.
  */
 export async function getBooksList(
   tx: Tx,
@@ -122,8 +131,9 @@ export async function getBooksList(
     )
     select *, count(*) over ()::int as total_count
     from counted
+    -- olibra_fold(title), not title. See this function's docstring.
     order by
-      case when ${input.sort ?? "recent"} = 'title' then title end asc,
+      case when ${input.sort ?? "recent"} = 'title' then olibra_fold(title) end asc,
       created_at desc
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;

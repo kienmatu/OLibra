@@ -82,6 +82,28 @@ export interface CataloguePage {
  * `availability` is the title-level badge the card shows, aggregated from the
  * copy states rather than stored: available if anything is borrowable, then
  * whichever state the shelf's copies are actually in.
+ *
+ * **`sort: "title"` orders by the folded title, not by the title** (U2 Task 4).
+ * This cluster's collation is `C` — `datcollate = 'C'`, `datlocprovider = 'c'`,
+ * read off the running database — which orders by byte value. `Đ` is two bytes
+ * beginning `0xC4`, so under a plain `order by title` "Đất Rừng Phương Nam"
+ * sorts *after* "Tuổi Thơ Dữ Dội" and lands last on a shelf of twelve
+ * Vietnamese titles: alphabetical to nobody who will ever read it. The portal
+ * hit the identical defect on `order by name` and was fixed the same way
+ * (`domain/portal/queries/list-public-shelves.ts`, whose docstring carries the
+ * first telling); this is that fix on the two reader-facing catalogue queries,
+ * which are the ones U2's sort control actually reaches.
+ *
+ * `olibra_fold` maps `Đ` to `d` and strips every diacritic, leaving
+ * `[a-z0-9 ]`, on which byte order and alphabetical order are the same thing —
+ * so the sort key is a rule this schema already owns (BR §12,
+ * `0002_folding.sql`) rather than a collation every deployment would have to be
+ * created with. `books.title_folded` is a generated column over that same
+ * function, so what the catalogue sorts by cannot drift from what search
+ * matches on.
+ *
+ * `created_at desc` still breaks ties, as it did before, so two titles that
+ * fold alike keep a stable order between renders.
  */
 export async function getCatalogue(
   tx: Tx,
@@ -156,8 +178,10 @@ export async function getCatalogue(
     )
     select *, count(*) over ()::int as total_count
     from scoped
+    -- olibra_fold(title), not title. See this function's docstring: the
+    -- cluster's collation is C, and a plain sort by title puts Đ last.
     order by
-      case when ${input.sort ?? "recent"} = 'title' then title end asc,
+      case when ${input.sort ?? "recent"} = 'title' then olibra_fold(title) end asc,
       created_at desc
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;

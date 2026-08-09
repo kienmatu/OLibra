@@ -19,6 +19,19 @@ import { deriveAvailability, type CatalogueRow } from "./get-catalogue";
  * that at a few hundred books per shelf "nothing more elaborate is warranted".
  * The `gin_trgm_ops` indexes on both folded columns are there if a shelf ever
  * outgrows that.
+ *
+ * **Results are ordered by the folded title, not the title** (U2 Task 4) —
+ * `get-catalogue.ts`'s docstring carries the full argument. Short version: this
+ * cluster's collation is `C`, `Đ` is two bytes beginning `0xC4`, and a plain
+ * `order by b.title` sorted "Đất Rừng Phương Nam" after every unaccented title
+ * on the shelf. `olibra_fold` maps it to `d`, and on `[a-z0-9 ]` byte order is
+ * alphabetical order.
+ *
+ * `b.slug` breaks ties, which the previous `order by b.title` had nothing to
+ * do: two titles can fold to the same string ("Dế Mèn" and "De Men"), and a
+ * result list that reordered them between two renders of the same search is a
+ * list nobody can scan. The portal's directory takes the same tiebreak for the
+ * same reason.
  */
 export async function searchCatalogue(
   tx: Tx,
@@ -85,7 +98,9 @@ export async function searchCatalogue(
         or b.author_folded like '%' || olibra_fold(${input.q}) || '%'
       )
     group by b.id, c.name
-    order by b.title
+    -- olibra_fold(b.title), not b.title, with b.slug breaking ties. See this
+    -- function's docstring, and getCatalogue's, for why.
+    order by olibra_fold(b.title), b.slug
   `;
 
   return rows.map((r) => ({

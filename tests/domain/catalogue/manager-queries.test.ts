@@ -57,6 +57,33 @@ async function lend(
   return loan.id;
 }
 
+test("the manager list sorts by title alphabetically in Vietnamese", async () => {
+  // U2 Task 4, extended to this query: the same `case when … then title end`
+  // expression the two reader-facing catalogue queries carried, and the same
+  // `C` collation underneath it, so "Đất Rừng Phương Nam" (`Đ` is `0xC4`)
+  // sorted after every unaccented title on the shelf. U3 wires the page that
+  // reads this.
+  const { ctx } = await shelf();
+  for (const title of ["Đất Rừng Phương Nam", "Kính Vạn Hoa tập 4"]) {
+    await runCommand(sql, ctx, createBook, {
+      title,
+      author: "Tô Hoài",
+      categorySlug: "van-hoc-thieu-nhi",
+      copyCount: 1,
+    });
+  }
+
+  const list = await runQuery(sql, ctx, (tx) =>
+    getBooksList(tx, ctx, { sort: "title" }),
+  );
+
+  expect(list.rows.map((r) => r.title)).toEqual([
+    "Đất Rừng Phương Nam",
+    "Dế Mèn Phiêu Lưu Ký",
+    "Kính Vạn Hoa tập 4",
+  ]);
+});
+
 test("the manager list shows a draft the reader catalogue hides", async () => {
   const { ctx, bookId } = await shelf();
   await sql`update books set is_published = false where id = ${bookId}`;

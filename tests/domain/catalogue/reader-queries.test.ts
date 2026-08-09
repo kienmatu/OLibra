@@ -220,6 +220,82 @@ test("the catalogue is paginated and reports its own total", async () => {
   expect(page.rows).toHaveLength(1);
 });
 
+/**
+ * The four `TITLES` above, in the order a Vietnamese reader expects, and in the
+ * order this cluster's `C` collation actually produces.
+ *
+ * Folded they are `dat rung phuong nam`, `de men phieu luu ky`,
+ * `kinh van hoa tap 4`, `totto chan ben cua so` — plain ASCII, so byte order
+ * and alphabetical order coincide. Under `order by title` the first byte
+ * decides: `D` is `0x44`, `K` is `0x4B`, `T` is `0x54`, and `Đ` is `0xC4`, so
+ * "Đất Rừng Phương Nam" sorts *last* rather than first. That one title moving
+ * from position 4 to position 1 is the whole assertion, and it is why the seed
+ * carries it.
+ */
+const ALPHABETICAL = [
+  "Đất Rừng Phương Nam",
+  "Dế Mèn Phiêu Lưu Ký",
+  "Kính Vạn Hoa tập 4",
+  "Totto-chan Bên Cửa Sổ",
+];
+
+test("sort=title is alphabetical in Vietnamese, not in byte order", async () => {
+  // U2 Task 4. The portal was fixed for the identical defect on `order by
+  // name` ("Tủ sách Đồng Tháp" after "Tủ sách Vĩnh Long"); this is the same
+  // defect on `order by title`, on the page a member actually browses.
+  //
+  // Asserted as the whole ordered list rather than "Đất comes before Dế",
+  // because a `order by` that had simply been reversed, or dropped, would
+  // satisfy a single pairwise check on some other run.
+  const { readerCtx } = await shelfWithCatalogue();
+
+  const page = await catalogue(readerCtx, { scope: "all", sort: "title" });
+
+  expect(page.rows.map((r) => r.title)).toEqual(ALPHABETICAL);
+});
+
+test("search results are alphabetical in Vietnamese too", async () => {
+  // Every title shares the author "Tô Hoài", so this one term returns all four
+  // and the order is the only thing being measured.
+  const { readerCtx } = await shelfWithCatalogue();
+
+  const rows = await runQuery(sql, readerCtx, (tx) =>
+    searchCatalogue(tx, readerCtx, { q: "to hoai" }),
+  );
+
+  expect(rows.map((r) => r.title)).toEqual(ALPHABETICAL);
+});
+
+test("two titles that fold alike keep a stable order between searches", async () => {
+  // The tiebreak `order by olibra_fold(b.title)` needed and `order by b.title`
+  // did not: folding is many-to-one, so "Dế Mèn Phiêu Lưu Ký" and a hand-typed
+  // "De Men Phieu Luu Ky" become the same sort key. With no second key Postgres
+  // may return them either way round, and a result list that reshuffles between
+  // two renders of the same search is one nobody can scan. `b.slug` decides.
+  const { managerCtx } = await shelfWithCatalogue();
+  await runCommand(sql, managerCtx, createBook, {
+    title: "De Men Phieu Luu Ky",
+    author: "Tô Hoài",
+    categorySlug: "van-hoc-thieu-nhi",
+    copyCount: 1,
+  });
+
+  const seen = new Set<string>();
+  for (let i = 0; i < 5; i++) {
+    const rows = await runQuery(sql, managerCtx, (tx) =>
+      searchCatalogue(tx, managerCtx, { q: "de men" }),
+    );
+    expect(rows).toHaveLength(2);
+    seen.add(rows.map((r) => r.slug).join(","));
+  }
+
+  expect(seen.size).toBe(1);
+  // And the tiebreak is the slug, so the order is predictable rather than
+  // merely repeatable: `de-men-phieu-luu-ky` before `de-men-phieu-luu-ky-2`,
+  // which `nextAvailableSlug` gave the second title.
+  expect([...seen][0]).toBe("de-men-phieu-luu-ky,de-men-phieu-luu-ky-2");
+});
+
 test("a category filter narrows by slug, not by name", async () => {
   const { readerCtx } = await shelfWithCatalogue();
   const all = await catalogue(readerCtx, {
