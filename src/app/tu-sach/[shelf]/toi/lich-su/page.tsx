@@ -7,7 +7,7 @@ import { PageHeading, StatStrip } from "@/components/ui/card";
 import { Pill as ConditionPill } from "@/components/ui/pill";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
-import { shelfBySlug, shelves } from "@/lib/fixtures";
+import { fixtureViewerName, shelfBySlug, shelves } from "@/lib/fixtures";
 
 export function generateStaticParams() {
   return shelves.map((s) => ({ shelf: s.slug }));
@@ -96,7 +96,11 @@ export default async function ReaderHistoryPage({
 
   return (
     <>
-      <ShelfHeader shelf={shelf} />
+      <ShelfHeader
+        shelfName={shelf.name}
+        shelfSlug={shelf.slug}
+        viewerName={fixtureViewerName}
+      />
       <ReaderTabs shelfSlug={shelf.slug} active="lich-su" />
 
       <main className="mx-auto max-w-5xl px-6 py-10">

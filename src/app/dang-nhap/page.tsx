@@ -43,7 +43,15 @@ export default async function LoginPage({
 
   return (
     <>
-      <ShelfHeader shelf={shelf} />
+      {/* No viewer, by definition: this is the form somebody fills in because
+          they are not signed in. The header then shows the shelf's name and a
+          "Đăng nhập" button instead of member navigation — see `ShelfHeader`
+          for why the member links are withheld rather than merely inert. */}
+      <ShelfHeader
+        shelfName={shelf.name}
+        shelfSlug={shelf.slug}
+        viewerName={null}
+      />
 
       <main className="mx-auto flex max-w-3xl flex-col items-center px-6 py-20">
         <div className="w-full max-w-[440px] rounded-card border border-hairline bg-surface p-8">

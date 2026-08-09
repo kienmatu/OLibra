@@ -11,7 +11,7 @@ import {
   unitName,
   unitOptions,
 } from "@/domain/members/parish-taxonomy";
-import { readers, shelfBySlug, shelves } from "@/lib/fixtures";
+import { readers, fixtureViewerName, shelfBySlug, shelves } from "@/lib/fixtures";
 import { proposeAvatarAction } from "./actions";
 
 export function generateStaticParams() {
@@ -37,7 +37,11 @@ export default async function ReaderProfilePage({
 
   return (
     <>
-      <ShelfHeader shelf={shelf} />
+      <ShelfHeader
+        shelfName={shelf.name}
+        shelfSlug={shelf.slug}
+        viewerName={fixtureViewerName}
+      />
       <ReaderTabs shelfSlug={shelf.slug} active="ho-so" />
 
       <main className="mx-auto max-w-xl px-6 py-10">
