@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/field";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
 import { listPublicShelves } from "@/domain/portal/queries/list-public-shelves";
 import { loadPublicPage } from "@/lib/page-data";
+import { SHELF_PARAM } from "@/lib/return-path";
 import { param, type SearchParams } from "@/lib/search-params";
 
 export const metadata = { title: "Tìm tủ sách — OLibra" };
@@ -94,8 +95,13 @@ export default async function PortalPage({
           <ul className="mt-8 divide-y divide-hairline border-y border-hairline">
             {results.map((shelf) => (
               <li key={shelf.slug}>
+                {/* Nit 14 / IMPORTANT 3: `?tu-sach=` was on every one of these
+                    links from the day the portal shipped and was read by
+                    nothing, while the sign-in page it points at took its
+                    heading from a fixture and named Đồng Tháp to everybody.
+                    `SHELF_PARAM` is now the one spelling both ends share. */}
                 <Link
-                  href={`/dang-nhap?tu-sach=${shelf.slug}`}
+                  href={`/dang-nhap?${SHELF_PARAM}=${encodeURIComponent(shelf.slug)}`}
                   className="group flex min-h-11 items-center gap-4 py-5"
                 >
                   <div className="min-w-0 flex-1">

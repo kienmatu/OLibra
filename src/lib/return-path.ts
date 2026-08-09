@@ -53,6 +53,47 @@ export const REQUEST_PATH_HEADER = "x-olibra-path";
 export const RETURN_TO_PARAM = "tiep";
 
 /**
+ * The query parameter naming which shelf a front-door page is about.
+ *
+ * The portal has put this on every directory link since U2 (`/dang-nhap
+ * ?tu-sach=<slug>`) and, until IMPORTANT 3 (fix-report,
+ * 2026-08-09-u2-shelf-and-portal), **nothing read it** — the sign-in page took
+ * its heading from `src/lib/fixtures.ts` instead and told every visitor, from
+ * every parish, that they were signing in to Đồng Tháp. A parameter no reader
+ * has is a parameter that is wrong without anybody noticing, which is why this
+ * is a shared constant now rather than a string literal in the one page that
+ * emits it and another in the one page that consumes it.
+ */
+export const SHELF_PARAM = "tu-sach";
+
+/**
+ * The shelf slug a return path is inside, or `null`.
+ *
+ * The other half of `SHELF_PARAM`: a visitor who followed a portal link carries
+ * the slug in the query string, and a visitor `loadPage` redirected off a shelf
+ * page carries it inside `?tiep=/tu-sach/<slug>/…` instead. Both know which
+ * parish they are going to, so the sign-in form can name it in both cases —
+ * and the redirect case is the one the finding was reproduced on
+ * (`curl -L /tu-sach/vinh-long/danh-muc`).
+ *
+ * Takes a path that `safeReturnPath` has already accepted; every route of a
+ * shelf is `/tu-sach/<slug>/…` (`src/app/tu-sach/[shelf]/`), and `/tu-sach`
+ * itself is the portal, which is about no single shelf and correctly yields
+ * `null` here. The slug shape is `bookshelves.slug`'s: BR:179 fixes it after
+ * creation and `src/domain/kernel/fold.ts` derives it, so it is lower-case
+ * alphanumerics and hyphens. Anything else is refused rather than passed to a
+ * query — not because the query is unsafe (it is parameterised), but because a
+ * value that cannot be a slug should not become one lookup's worth of doubt.
+ */
+export function shelfSlugFromReturnPath(
+  returnTo: string | null | undefined,
+): string | null {
+  if (typeof returnTo !== "string") return null;
+  const match = /^\/tu-sach\/([a-z0-9-]+)(?:\/|$)/.exec(returnTo);
+  return match?.[1] ?? null;
+}
+
+/**
  * A base that no real deployment can ever be, used only to make the URL parser
  * answer the question "does this value stay on this site?".
  *

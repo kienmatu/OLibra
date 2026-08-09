@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   RETURN_TO_PARAM,
   safeReturnPath,
+  shelfSlugFromReturnPath,
   signInPathFor,
 } from "../../src/lib/return-path";
 
@@ -105,4 +106,59 @@ test("the path is encoded, so its own query string cannot become the sign-in URL
   expect(parsed.searchParams.get(RETURN_TO_PARAM)).toBe(
     "/tu-sach/dong-thap/tim-kiem?q=de&loi=sai",
   );
+});
+
+test("shelfSlugFromReturnPath names the parish a redirect came off", () => {
+  // IMPORTANT 3. `curl -L /tu-sach/vinh-long/danh-muc` follows U2's redirect
+  // and lands on the sign-in form; before this the form said "Tủ sách Đồng
+  // Tháp", because it read a fixture. Every shelf route is `/tu-sach/<slug>/…`,
+  // so the return path the redirect already carries knows the answer — this is
+  // the half of it that does not need a portal link's `?tu-sach=`.
+  expect(shelfSlugFromReturnPath("/tu-sach/vinh-long/danh-muc")).toBe("vinh-long");
+  expect(shelfSlugFromReturnPath("/tu-sach/ben-tre/sach/gac-mai")).toBe("ben-tre");
+  expect(shelfSlugFromReturnPath("/tu-sach/can-tho")).toBe("can-tho");
+  expect(shelfSlugFromReturnPath("/tu-sach/can-tho/tim-kiem?q=de")).toBe("can-tho");
+});
+
+test("shelfSlugFromReturnPath is null wherever there is no parish to name", () => {
+  // `/tu-sach` is the portal, which is about every shelf and therefore none —
+  // a visitor who reached the sign-in form from there picked no parish yet,
+  // and the honest header is the front door's.
+  expect(shelfSlugFromReturnPath("/tu-sach")).toBeNull();
+  expect(shelfSlugFromReturnPath("/tu-sach/")).toBeNull();
+  expect(shelfSlugFromReturnPath("/")).toBeNull();
+  expect(shelfSlugFromReturnPath("/lien-he")).toBeNull();
+  expect(shelfSlugFromReturnPath("/quan-tri/tu-sach")).toBeNull();
+  expect(shelfSlugFromReturnPath(null)).toBeNull();
+  expect(shelfSlugFromReturnPath(undefined)).toBeNull();
+
+  // Anything that is not slug-shaped is refused rather than passed to a
+  // lookup. `bookshelves.slug` is derived by `fold()` and fixed after creation
+  // (BR:179), so it is lower-case alphanumerics and hyphens; a value carrying
+  // anything else was not produced by this system.
+  expect(shelfSlugFromReturnPath("/tu-sach/Đồng Tháp/danh-muc")).toBeNull();
+  expect(shelfSlugFromReturnPath("/tu-sach/dong_thap")).toBeNull();
+  expect(shelfSlugFromReturnPath("/TU-SACH/dong-thap")).toBeNull();
+
+  // Not a prefix match on the segment: a route that merely *starts* with the
+  // same letters is a different route.
+  expect(shelfSlugFromReturnPath("/tu-sachs/dong-thap")).toBeNull();
+});
+
+test("every path safeReturnPath accepts is safe to ask for a slug", () => {
+  // The two functions meet on the sign-in page — the slug is derived from the
+  // *validated* path — so the interesting property is that the composition has
+  // no gap: nothing safeReturnPath refuses can produce a slug, since the page
+  // never asks about a refused value, and nothing it accepts produces one that
+  // is not slug-shaped.
+  for (const hostile of [
+    "https://evil.example",
+    "//evil.example",
+    "/\\evil.example",
+    "/tu-sach/../../evil.example",
+  ]) {
+    const safe = safeReturnPath(hostile);
+    const slug = shelfSlugFromReturnPath(safe);
+    expect(slug === null || /^[a-z0-9-]+$/.test(slug), hostile).toBe(true);
+  }
 });
