@@ -4,7 +4,10 @@ import { migrate } from "../../src/db/migrate";
 import { fixedClock } from "../../src/domain/kernel/clock";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runCommand } from "../../src/domain/kernel/unit-of-work";
+import { approveProfileChange } from "../../src/domain/members/commands/approve-profile-change";
+import { proposeProfileChange } from "../../src/domain/members/commands/propose-profile-change";
 import { updateReaderProfile } from "../../src/domain/members/commands/update-reader-profile";
+import { PROFILE_FIELDS } from "../../src/domain/members/profile-fields";
 import { makeMember, makeShelf, makeUser } from "../support/factories";
 import { filesUnder } from "../support/source-text";
 import { closeAll, resetDatabase, sql } from "../support/db";
@@ -190,4 +193,122 @@ test("INV-13b: a manager's direct correction writes the value and an audit recor
   expect(entry.entity_id).toBe(reader.userId);
   expect(entry.before).toEqual({ phone: "0900000000" });
   expect(entry.after).toEqual({ phone: "0912345678" });
+});
+
+test("INV-13b: an approved request writes the value and an audit record, together", async () => {
+  // The first sanctioned write path, through the command rather than through
+  // raw SQL. The three tests at the top of this file prove the *index*; none of
+  // them proves that anything in `src/domain/` behaves correctly when it fires.
+  const shelf = await makeShelf(sql);
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const reader = await makeMember(sql, shelf.id, { status: "active" });
+  const readerCtx: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: reader.userId, membershipId: reader.id, role: "reader" },
+    clock,
+  };
+  const managerCtx: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock,
+  };
+
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: "0912345678" },
+  });
+  const [request] = await sql<
+    { id: string }[]
+  >`select id from profile_change_requests where user_id = ${reader.userId}`;
+
+  // INV-13b's other half, and master plan §7.2's acceptance clause: the
+  // proposal on its own left the existing number in force.
+  const [duringProposal] = await sql<
+    { phone: string | null }[]
+  >`select phone from users where id = ${reader.userId}`;
+  expect(duringProposal.phone).toBe("0900000000");
+
+  await runCommand(sql, managerCtx, approveProfileChange, {
+    profileChangeRequestId: request.id,
+  });
+
+  const [person] = await sql<
+    { phone: string | null }[]
+  >`select phone from users where id = ${reader.userId}`;
+  expect(person.phone).toBe("0912345678");
+
+  const [entry] = await sql<
+    { action: string; actor_id: string; entity_id: string }[]
+  >`select action, actor_id, entity_id from audit_log where action = 'profile_change.approved'`;
+  expect(entry.actor_id).toBe(manager.userId);
+  expect(entry.entity_id).toBe(reader.userId);
+});
+
+test("INV-13b: every field is writable through BOTH sanctioned paths, asserted per field", async () => {
+  // Drift 1 in the plan, and the reason `PROFILE_FIELDS` is data rather than
+  // two hand-written lists. Two write paths are two field lists that can
+  // disagree, and the failure is silent: a field added to one path is simply
+  // not writable through the other and nothing raises. Driven per field rather
+  // than per path, so the assertion that fails names the field.
+  const values: Record<string, string> = {
+    saint_name: "Maria",
+    full_name: "Nguyễn Thị Mai",
+    date_of_birth: "2014-01-31",
+    father_name: "Giuse Nguyễn Văn C",
+    mother_name: "Anna Lê Thị D",
+    phone: "0987654321",
+    email: "mai@vd.vn",
+    avatar_url: "https://vd.vn/anh.jpg",
+  };
+
+  const shelf = await makeShelf(sql);
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const ctx = (userId: string, membershipId: string): TenantContext => ({
+    bookshelfId: shelf.id,
+    actor: { userId, membershipId, role: "manager" },
+    clock,
+  });
+  const managerCtx = ctx(manager.userId, manager.id);
+
+  for (const field of PROFILE_FIELDS) {
+    const value = values[field];
+
+    // Path 1 — the manager's direct correction.
+    const viaEdit = await makeMember(sql, shelf.id, { status: "active" });
+    await runCommand(sql, managerCtx, updateReaderProfile, {
+      membershipId: viaEdit.id,
+      fields: { [field]: value },
+    });
+
+    // Path 2 — an approved request. Inserted directly rather than proposed,
+    // because `avatar_url` deliberately does not go through
+    // `ProposeProfileChange` (it is `ProposeAvatarChange`'s, a later wave) —
+    // and it is `ApproveProfileChange`'s handling of `proposed_values` that is
+    // under test here, not the reader's route into it.
+    const viaApproval = await makeMember(sql, shelf.id, { status: "active" });
+    await sql`
+      insert into profile_change_requests
+        (user_id, bookshelf_id, proposed_values, previous_values, status)
+      values (${viaApproval.userId}, ${shelf.id},
+              ${sql.json({ [field]: value })}, ${sql.json({ [field]: null })},
+              'pending')
+    `;
+    const [request] = await sql<
+      { id: string }[]
+    >`select id from profile_change_requests where user_id = ${viaApproval.userId}`;
+    await runCommand(sql, managerCtx, approveProfileChange, {
+      profileChangeRequestId: request.id,
+    });
+
+    const [[edited], [approved]] = await Promise.all([
+      sql.unsafe(`select ${field}::text as v from users where id = $1`, [
+        viaEdit.userId,
+      ]) as unknown as Promise<{ v: string | null }[]>,
+      sql.unsafe(`select ${field}::text as v from users where id = $1`, [
+        viaApproval.userId,
+      ]) as unknown as Promise<{ v: string | null }[]>,
+    ]);
+    expect(edited.v, `${field} via UpdateReaderProfile`).toBe(value);
+    expect(approved.v, `${field} via ApproveProfileChange`).toBe(value);
+  }
 });
