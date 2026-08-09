@@ -7,8 +7,8 @@ import {
   HelpCircle,
   type LucideIcon,
 } from "lucide-react";
-import type { CopyCondition, CopyState } from "@/domain/catalogue/policy";
-import type { Availability } from "@/domain/catalogue/queries/get-catalogue";
+import type { CopyCondition, CopyState } from "../domain/catalogue/policy";
+import type { Availability } from "../domain/catalogue/queries/get-catalogue";
 
 /**
  * The six copy states from BUSINESS-REQUIREMENTS §17.2.
@@ -124,7 +124,7 @@ export function statusForAvailability(
  * screen; BR §14's audit sentence for a return names the condition
  * ("…tình trạng Nguyên vẹn…") and that sentence is the domain's, so the word
  * had to move to where the enum is. The domain cannot reach back into this
- * file — it imports `lucide-react` and `@/domain/catalogue/policy` — so a copy
+ * file — it imports `lucide-react` and this module's own source — so a copy
  * here would have been a second set of words, which is exactly what the
  * moved-to docstring argues against.
  *
@@ -136,4 +136,4 @@ export {
   CONDITION_LABELS,
   CONDITION_WORDS as CONDITIONS,
   type ConditionWord as Condition,
-} from "@/domain/catalogue/policy";
+} from "../domain/catalogue/policy";

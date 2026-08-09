@@ -79,9 +79,16 @@ function specifiersIn(source: string): string[] {
   ].map((m) => m[1]);
 }
 
+/**
+ * Every file that makes a route, including `route.ts` — widened by P1 for the
+ * reason `pages-reading-the-database-are-dynamic.test.ts` records at its own
+ * copy of this function. A route handler is as capable of returning fixture
+ * rows as a page is of rendering them, and until this slice there was no route
+ * handler in the repository for the narrower glob to be wrong about.
+ */
 function routeFiles(): string[] {
   return filesUnder("src/app").filter((f) =>
-    /\/(page|layout)\.tsx?$/.test(f.replace(/\\/g, "/")),
+    /\/(page|layout|route|template|default)\.tsx?$/.test(f.replace(/\\/g, "/")),
   );
 }
 

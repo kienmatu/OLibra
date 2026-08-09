@@ -347,6 +347,63 @@ export async function loadPublicPage<T>(read: (tx: Tx) => Promise<T>): Promise<T
 }
 
 /**
+ * How a **route handler** reads from the database — `loadPage`'s third form,
+ * and the one that cannot call `notFound()`.
+ *
+ * P1 adds the first `route.ts` in this application: the CSV exports come back
+ * through one, because §3.5(c) forbids putting a file of children's names,
+ * dates of birth and family telephone numbers behind a URL "a shared parish
+ * phone keeps in its address bar". A `POST` from a form leaves no history entry
+ * and no bookmarkable link; a page cannot answer with
+ * `Content-Disposition: attachment` at all.
+ *
+ * **Why not a fourth branch inside `loadPage`.** `loadPage` answers a refusal
+ * with `notFound()` and `redirect()`, both of which are `next/navigation`
+ * primitives that work by throwing a value the *page* renderer understands. A
+ * route handler owes the caller a `Response` with a status, and one that
+ * throws those instead produces a framework error page where a download was
+ * expected. So this returns `null` and lets the handler write the refusal.
+ *
+ * **Every refusal is the same `null`, and that is the point**, not a shortcut.
+ * The three cases `loadPage` distinguishes — no such shelf, no session, a
+ * session with no manager membership here — are told apart there because a
+ * *person* is looking at a page and a redirect to sign in is useful to them.
+ * Nobody is looking at this: the caller is a form post that expects bytes. U1
+ * §3.4's original argument then applies undiluted — an answer that varied
+ * would tell an unauthenticated caller which shelves exist and which of them
+ * they are almost allowed into, in a response with no UI to justify the leak.
+ *
+ * The same three codes are translated as in `loadPage`, and
+ * `write_target_not_found` is excluded for the same reason: it is the kernel's
+ * zero-row write guard, a fault rather than a URL naming nothing, and a read
+ * cannot raise it anyway because `runQuery` opens a read-only transaction.
+ * Everything else propagates, so a `PostgresError` is still a 500 and not a
+ * silently empty spreadsheet.
+ */
+export async function loadFile<T>(
+  shelfSlug: string,
+  read: (tx: Tx, ctx: TenantContext) => Promise<T>,
+): Promise<T | null> {
+  let ctx: TenantContext;
+  try {
+    ctx = await contextForRequest(shelfSlug);
+  } catch (err) {
+    if (err instanceof NotFound && err.code === "shelf_not_found") return null;
+    throw err;
+  }
+
+  try {
+    return await runQuery(pool(), ctx, read);
+  } catch (err) {
+    if (err instanceof RuleViolated && err.code === "not_permitted") return null;
+    if (err instanceof NotFound && err.code !== "write_target_not_found") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
  * How a server action writes to the database — `loadPage`'s twin, and
  * deliberately not its mirror image.
  *
