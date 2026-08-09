@@ -183,6 +183,33 @@ import { expect, test } from "vitest";
  * `get-book-detail.ts` to select `keeper_phone`, `keeper_name` and
  * `created_by` alongside `settings` left the guard green — verified live.
  * `select *` is never exempt, for any file, regardless of this map.
+ *
+ * **IMPORTANT 2 (fix-report, 2026-08-09-u2-shelf-and-portal): the sentence
+ * above was true and the check under it was not.** The regex read
+ * `/select\s+\*\s+from\s+bookshelves\b/i`, which requires the wildcard and the
+ * `from` clause to be adjacent and the table to be unaliased — and *every*
+ * real query in this codebase aliases the table (`from bookshelves b`) and
+ * writes its column list across several lines. So the one spelling a person
+ * actually types was the one spelling the guard could not see. Verified live:
+ * adding `loadPublicPage((tx) => tx`select b.* from bookshelves b`)` to the
+ * portal page — a guest-callable read of `keeper_name`, `keeper_phone`,
+ * `settings` and `created_by` on the front door — left this test green.
+ *
+ * `selectsWildcardFromBookshelves` below replaces it, and it looks at the
+ * select *list* rather than at a fixed string: for each `from bookshelves`,
+ * the text back to the nearest preceding `select` is the list, and a list
+ * containing a bare `*` or an `alias.*` as one of its items is a wildcard
+ * select however it is spaced or aliased. Every named-column form the old
+ * regex caught is still caught, because that half was never the gap.
+ *
+ * The database now refuses the same thing independently:
+ * `20260809_01_public_role.sql` grants `olibra_public` a *column-level*
+ * `select` on five columns of `bookshelves`, so `select b.*` through
+ * `runPublicQuery` raises `42501` at runtime whatever this file matches
+ * (`tests/db/public-role-privileges.test.ts`). That is the stronger guarantee
+ * and it does not make this one redundant: this fails when somebody types the
+ * query, on *every* path including the tenant-scoped ones the public role
+ * never touches, and it names the file in the failure.
  */
 
 const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -199,6 +226,45 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 // ones the finding's own live reproduction named — but that is the same
 // "known-dangerous shape" scope boundaries.test.ts already accepts.
 const WITHHELD_COLUMNS = ["keeper_phone", "keeper_name", "settings", "created_by"];
+
+/**
+ * One item of a select list that is a wildcard: `*`, or `b.*`.
+ *
+ * Anchored on a comma or the start of the list on one side and a comma or the
+ * end of it on the other, so `count(*)` — where the `*` is inside a call and
+ * neither anchor holds — is not a wildcard select. That distinction is the
+ * whole reason this looks at list *items* rather than for a `*` anywhere.
+ */
+const WILDCARD_ITEM = /(^|,)\s*(?:[a-z_][a-z0-9_$]*\s*\.\s*)?\*\s*(,|$)/i;
+
+/**
+ * Whether `source` contains a `select` whose list is (or includes) a wildcard
+ * and whose `from` names `bookshelves`.
+ *
+ * Not a SQL parser, and the same trade-off `stripCommentsAndStrings` states
+ * for itself in `boundaries.test.ts`: the select list is taken to be the text
+ * between a `from bookshelves` and the nearest `select` before it. A subquery
+ * between the two would make that the wrong span — there is none in this
+ * codebase today, and the failure direction is a false positive (a wildcard in
+ * the *outer* list counted against an inner `from bookshelves`), which is a
+ * test somebody has to look at rather than a leak nobody sees.
+ *
+ * Comments are deliberately not stripped, exactly as the per-column check
+ * below leaves them in: a docstring that spells out a wildcard select against
+ * this table should trip the guard, and prose can always say it another way.
+ * `list-public-shelves.ts`'s docstring already discusses the keeper's contact
+ * details without naming the columns, for this same reason.
+ */
+function selectsWildcardFromBookshelves(source: string): boolean {
+  const lower = source.toLowerCase();
+  for (const match of lower.matchAll(/\bfrom\s+bookshelves\b/g)) {
+    const before = lower.slice(0, match.index);
+    const select = before.lastIndexOf("select");
+    if (select === -1) continue;
+    if (WILDCARD_ITEM.test(before.slice(select + "select".length))) return true;
+  }
+  return false;
+}
 
 function filesUnder(dir: string): string[] {
   let out: string[] = [];
@@ -219,11 +285,12 @@ test("no code path selects every column, or a withheld one it is not individuall
     const source = readFileSync(file, "utf8");
     if (!/from\s+bookshelves\b/i.test(source)) continue;
 
-    // IMPORTANT 4: "select *" is never exempt, for any file — unlike the
-    // per-column check below, there is no column list that could make a
-    // wildcard select safe.
-    if (/select\s+\*\s+from\s+bookshelves\b/i.test(source)) {
-      offenders.push(`${relative}: "select *" against bookshelves`);
+    // IMPORTANT 4: a wildcard select is never exempt, for any file — unlike
+    // the per-column check below, there is no column list that could make one
+    // safe. IMPORTANT 2: `b.*` counts, and it is the spelling every query in
+    // this codebase actually uses.
+    if (selectsWildcardFromBookshelves(source)) {
+      offenders.push(`${relative}: wildcard select against bookshelves`);
       continue;
     }
 
@@ -248,4 +315,51 @@ test("no code path selects every column, or a withheld one it is not individuall
   }
 
   expect(offenders).toEqual([]);
+});
+
+/**
+ * IMPORTANT 2's own regression test.
+ *
+ * The sweep above is `toEqual([])` over a tree that currently contains no
+ * wildcard select, so it passes identically against a detector that recognises
+ * nothing at all — which is exactly the state this file shipped in, and how
+ * `select b.*` on the front door went unnoticed. These cases are the detector's
+ * two halves stated directly: the shapes it must catch, and the shapes it must
+ * not, including the real column lists this codebase actually contains.
+ */
+test("the wildcard detector sees every spelling of a wildcard, and no false ones", () => {
+  const caught = [
+    "tx`select * from bookshelves`",
+    // The live reproduction: aliased, and invisible to the old regex.
+    "tx`select b.* from bookshelves b`",
+    "tx`select b .* from bookshelves b`",
+    // Across lines, which is how every query in this codebase is written.
+    "tx`\n  select b.*\n  from bookshelves b\n  where b.slug = ${slug}\n`",
+    // A wildcard mixed into a named list is still a wildcard.
+    "tx`select b.*, c.name from bookshelves b join categories c on true`",
+    "tx`select c.name, b.* from bookshelves b join categories c on true`",
+    // Upper case, and irregular spacing.
+    "tx`SELECT   B.*   FROM   BOOKSHELVES B`",
+  ];
+  for (const source of caught) {
+    expect(selectsWildcardFromBookshelves(source), source).toBe(true);
+  }
+
+  const passed = [
+    // `list-public-shelves.ts`, verbatim in shape.
+    "tx`select b.slug, b.name, b.location from bookshelves b, term where b.status = 'active'`",
+    // `readShelf`, verbatim in shape — a `*` nowhere, across lines.
+    "tx`\n  select\n    name,\n    coalesce((settings->>'loan_days')::int, 14) as loan_days\n  from bookshelves\n  where id = ${id}\n`",
+    // `count(*)` is not a wildcard select: the `*` is inside a call, so
+    // neither of the detector's list-item anchors holds.
+    "tx`select count(*) from bookshelves`",
+    "tx`select count(*) as n, b.name from bookshelves b group by b.name`",
+    // A wildcard over something that is not this table.
+    "tx`select * from counted`",
+    // Arithmetic, not a select list.
+    "tx`select b.name from bookshelves b where b.id = ${a * b}`",
+  ];
+  for (const source of passed) {
+    expect(selectsWildcardFromBookshelves(source), source).toBe(false);
+  }
 });
