@@ -1,0 +1,282 @@
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { migrate } from "../../../src/db/migrate";
+import { fixedClock } from "../../../src/domain/kernel/clock";
+import { NotFound, RuleViolated } from "../../../src/domain/kernel/errors";
+import type { TenantContext } from "../../../src/domain/kernel/tenant";
+import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
+import { proposeProfileChange } from "../../../src/domain/members/commands/propose-profile-change";
+import { updateOwnProfile } from "../../../src/domain/members/commands/update-own-profile";
+import { updateReaderProfile } from "../../../src/domain/members/commands/update-reader-profile";
+import { getMyProfile } from "../../../src/domain/members/queries/get-my-profile";
+import { getPendingProfileChanges } from "../../../src/domain/members/queries/get-pending-profile-changes";
+import { closeAll, resetDatabase, sql } from "../../support/db";
+import { makeMember, makeParishUnits, makeShelf } from "../../support/factories";
+
+/**
+ * The three units B2b declared and did not build — `UpdateOwnProfile`,
+ * `GetMyProfile` and `GetPendingProfileChanges` (plan §1, §3.5, §5 tasks 4–5).
+ *
+ * The third is the one that mattered most and is the reason this file exists at
+ * all: **§3.5's entire protection against `UpdateReaderProfile` making a pending
+ * request's `previous_values` lie was `GetPendingProfileChanges` rendering the
+ * current column live from `users`.** With no query there was no mechanism, and
+ * the plan's own acceptance criterion was unmeetable. The last test here is that
+ * criterion, word for word.
+ */
+
+beforeAll(() => migrate(sql));
+beforeEach(resetDatabase);
+afterAll(closeAll);
+
+const clock = fixedClock("2026-08-09T02:00:00Z");
+
+async function shelfWithReader(slug = "dong-thap") {
+  const shelf = await makeShelf(sql, { slug });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const reader = await makeMember(sql, shelf.id, { status: "active" });
+  const managerCtx: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock,
+  };
+  const readerCtx: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: reader.userId, membershipId: reader.id, role: "reader" },
+    clock,
+  };
+  return { shelf, manager, reader, managerCtx, readerCtx };
+}
+
+const auditRows = () =>
+  sql<{ action: string; entity_id: string; before: unknown; after: unknown }[]>`
+    select action, entity_id, before, after from audit_log order by occurred_at
+  `;
+
+const optInOf = (membershipId: string) =>
+  sql<{ leaderboard_opt_in: boolean }[]>`
+    select leaderboard_opt_in from memberships where id = ${membershipId}
+  `.then((r) => r[0].leaderboard_opt_in);
+
+// — UpdateOwnProfile —
+
+test("a reader turns their own leaderboard entry off, and the audit says who", async () => {
+  // BR §16.2's one immediate change: "neither is a fact about the person that a
+  // manager verified". `leaderboard_opt_in` defaults to true.
+  const { reader, readerCtx } = await shelfWithReader();
+  expect(await optInOf(reader.id)).toBe(true);
+
+  await runCommand(sql, readerCtx, updateOwnProfile, {
+    membershipId: reader.id,
+    leaderboardOptIn: false,
+  });
+
+  expect(await optInOf(reader.id)).toBe(false);
+  const [entry] = await auditRows();
+  expect(entry.action).toBe("membership.updated");
+  expect(entry.entity_id).toBe(reader.id);
+  expect(entry.before).toEqual({ leaderboard_opt_in: true });
+  expect(entry.after).toEqual({ leaderboard_opt_in: false });
+});
+
+test("setting the toggle to the value it already has writes no audit entry", async () => {
+  // OPS §4.3 lists no failure mode here beyond not-found, so this must not
+  // *refuse* — a reader tapping a switch twice has done nothing wrong. But an
+  // audit entry claiming a change nobody made is what `empty_proposal` exists
+  // to prevent elsewhere in this slice, and BR §14 renders every entry as a
+  // sentence somebody reads.
+  const { reader, readerCtx } = await shelfWithReader();
+
+  await runCommand(sql, readerCtx, updateOwnProfile, {
+    membershipId: reader.id,
+    leaderboardOptIn: true,
+  });
+
+  expect(await optInOf(reader.id)).toBe(true);
+  expect(await auditRows()).toHaveLength(0);
+});
+
+test("a reader may not toggle somebody else's leaderboard entry", async () => {
+  // `requireSelfOrManager` compares `ctx.actor.membershipId`, resolved from the
+  // session by `contextFor` and never supplied by a caller — so a rewritten
+  // form posting a neighbour's membership id is refused rather than obeyed.
+  const { shelf, readerCtx } = await shelfWithReader();
+  const other = await makeMember(sql, shelf.id, { status: "active" });
+
+  await expect(
+    runCommand(sql, readerCtx, updateOwnProfile, {
+      membershipId: other.id,
+      leaderboardOptIn: false,
+    }),
+  ).rejects.toThrow(RuleViolated);
+  expect(await optInOf(other.id)).toBe(true);
+});
+
+test("a manager of another shelf sees membership_not_found, not somebody else's toggle", async () => {
+  // Because RLS filtered the select to zero rows, not because anyone compared
+  // two shelf ids — the plan's acceptance wording.
+  const { reader } = await shelfWithReader();
+  const otherShelf = await makeShelf(sql, { slug: "cao-lanh" });
+  const otherManager = await makeMember(sql, otherShelf.id, { role: "manager" });
+
+  await expect(
+    runCommand(
+      sql,
+      {
+        bookshelfId: otherShelf.id,
+        actor: {
+          userId: otherManager.userId,
+          membershipId: otherManager.id,
+          role: "manager",
+        },
+        clock,
+      },
+      updateOwnProfile,
+      { membershipId: reader.id, leaderboardOptIn: false },
+    ),
+  ).rejects.toThrow(NotFound);
+});
+
+// — GetMyProfile —
+
+test("a reader's own profile carries the eight fields, the parish line and the toggle", async () => {
+  // OPS §3.2's return list. The parish line is rendered with *this shelf's*
+  // labels rather than a hard-coded word — the same `describeSelection` the
+  // manager's reader page uses, so the two cannot describe one child two ways.
+  const { shelf, reader, readerCtx } = await shelfWithReader();
+  const units = await makeParishUnits(
+    sql,
+    shelf.id,
+    { levels: 2, nested: true, level1Label: "Giáo họ", level2Label: "Tổ" },
+    [
+      { level: 1, name: "Giáo họ Thánh Tâm" },
+      { level: 2, name: "Tổ 2", parentName: "Giáo họ Thánh Tâm" },
+    ],
+  );
+  await sql`
+    update memberships
+       set parish_unit_l1_id = ${units.get("Giáo họ Thánh Tâm")!},
+           parish_unit_l2_id = ${units.get("Tổ 2")!}
+     where id = ${reader.id}
+  `;
+  await sql`update users set saint_name = 'Maria' where id = ${reader.userId}`;
+
+  const profile = await runQuery(sql, readerCtx, (tx, ctx) =>
+    getMyProfile(tx, ctx, { membershipId: reader.id }),
+  );
+
+  expect(profile.fields.saint_name).toBe("Maria");
+  expect(profile.fields.phone).toBe("0900000000");
+  expect(Object.keys(profile.fields)).toHaveLength(8);
+  expect(profile.parishUnitL1Name).toBe("Giáo họ Thánh Tâm");
+  expect(profile.parishUnitL2Name).toBe("Tổ 2");
+  expect(profile.parishLine).toContain("Tổ 2");
+  expect(profile.leaderboardOptIn).toBe(true);
+  expect(profile.pendingChange).toBeNull();
+});
+
+test("a reader's own profile shows the pending proposal beside the values still in force", async () => {
+  // BR §16.2: "the page shows the current value with the pending one beside it,
+  // and says plainly that it is waiting". Both halves in one assertion, because
+  // the failure this guards is that one of them starts showing the other.
+  const { reader, readerCtx } = await shelfWithReader();
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: "0912345678" },
+  });
+
+  const profile = await runQuery(sql, readerCtx, (tx, ctx) =>
+    getMyProfile(tx, ctx, { membershipId: reader.id }),
+  );
+
+  expect(profile.fields.phone).toBe("0900000000");
+  expect(profile.pendingChange?.status).toBe("pending");
+  expect(profile.pendingChange?.proposedValues).toEqual({ phone: "0912345678" });
+});
+
+// — GetPendingProfileChanges —
+
+test("the queue lists this shelf's pending proposals and nobody else's", async () => {
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: "0912345678" },
+  });
+
+  // A second shelf with its own pending proposal, which must not appear.
+  const other = await shelfWithReader("cao-lanh");
+  await runCommand(sql, other.readerCtx, proposeProfileChange, {
+    membershipId: other.reader.id,
+    fields: { phone: "0977777777" },
+  });
+
+  const queue = await runQuery(sql, managerCtx, getPendingProfileChanges);
+
+  expect(queue).toHaveLength(1);
+  expect(queue[0].membershipId).toBe(reader.id);
+  expect(queue[0].proposedValues).toEqual({ phone: "0912345678" });
+});
+
+test("a decided proposal leaves the queue", async () => {
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: "0912345678" },
+  });
+  await sql`update profile_change_requests set status = 'rejected', rejection_reason = 'x'`;
+
+  expect(await runQuery(sql, managerCtx, getPendingProfileChanges)).toHaveLength(0);
+});
+
+test("the queue's storage keys never reach a screen", async () => {
+  // `proposed_values` also carries `avatar_object`, and a query handing back raw
+  // `jsonb` is the place that would leak it. Filtered through the same allowlist
+  // on the way out as on the way in.
+  const { reader, managerCtx } = await shelfWithReader();
+  await sql`
+    insert into profile_change_requests
+      (user_id, bookshelf_id, proposed_values, previous_values, status)
+    values (${reader.userId}, ${managerCtx.bookshelfId},
+            ${sql.json({ avatar_url: "http://s/a.png", avatar_object: "avatars/a.png" })},
+            ${sql.json({ avatar_url: null })}, 'pending')
+  `;
+
+  const [row] = await runQuery(sql, managerCtx, getPendingProfileChanges);
+  expect(row.proposedValues).toEqual({ avatar_url: "http://s/a.png" });
+  expect(JSON.stringify(row)).not.toContain("avatars/a.png");
+});
+
+test("a phone corrected by UpdateReaderProfile shows as current, and previous_values is untouched", async () => {
+  // Plan §6's acceptance criterion, and §3.5's Drift 3 in full. A proposal is
+  // made on Monday against phone A; a manager corrects the number to B on
+  // Tuesday with `UpdateReaderProfile`, which deliberately does not touch the
+  // pending request. On Wednesday the queue must show B as current — the value
+  // approving would actually replace — while the row's own snapshot still says
+  // A, because DATABASE.md §4.11 calls that a historical record.
+  //
+  // Rendering `previous_values` as "current" is the tidier-looking wrong version
+  // a future reader will otherwise write: it needs no extra join and is right
+  // until the day somebody uses the command this slice exists for.
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: "0912345678" },
+  });
+
+  await runCommand(sql, managerCtx, updateReaderProfile, {
+    membershipId: reader.id,
+    fields: { phone: "0933333333" },
+  });
+
+  const [row] = await runQuery(sql, managerCtx, getPendingProfileChanges);
+
+  expect(row.currentValues.phone).toBe("0933333333");
+  expect(row.proposedValues).toEqual({ phone: "0912345678" });
+  expect(row.previousValues.phone).toBe("0900000000");
+
+  // And the request itself is still pending and still says what it always said.
+  const [stored] = await sql<
+    { status: string; previous_values: Record<string, string> }[]
+  >`select status, previous_values from profile_change_requests`;
+  expect(stored.status).toBe("pending");
+  expect(stored.previous_values.phone).toBe("0900000000");
+});

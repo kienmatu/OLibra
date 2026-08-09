@@ -85,7 +85,7 @@ export interface UpdateReaderProfileInput {
  * ── The action name ──────────────────────────────────────────────────────
  *
  * `profile.corrected`, and deliberately neither of the two names already in
- * use. Not `membership.updated`, which `UpdateOwnProfile` uses for the
+ * use. Not `membership.updated`, which `./update-own-profile.ts` uses for the
  * leaderboard toggle — a reader flipping their own visibility and a manager
  * rewriting a child's date of birth are not the same event and BR §13.2's
  * Oversight view must be able to tell them apart. Not

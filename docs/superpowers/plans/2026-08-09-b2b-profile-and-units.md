@@ -671,9 +671,14 @@ test goes red. Tests are falsified, not merely written.
 
 ## 6. Acceptance
 
-- [ ] BR §6's INV-13 names both write paths; DATABASE.md and OPERATIONS.md
-      follow it and nothing in `docs/` still says "only through an approved
-      request"
+- [ ] BR §6's INV-13 names both write paths, and **the three normative
+      documents** — BR, DATABASE.md, OPERATIONS.md — agree with it: none of
+      them still says "only through an approved request". Deliberately not
+      "nothing in `docs/`": the plan documents under `docs/superpowers/plans/`
+      are dated records of what each slice was written against, and B2a's
+      §Rule 4 quotes the pre-2026-08-09 wording because that is the wording it
+      was written against. It carries a dated note saying so; rewriting it
+      would make the archive lie about its own date
 - [ ] `grep -rn "update users" src/domain/` returns exactly the three files
       §3.5 enumerates, and a test in `tests/invariants/` fails if a fourth
       appears
@@ -776,6 +781,55 @@ shows one pending card. **This plan merges instead:** each command replaces
 only the portion it names, re-snapshots `previous_values` for the fields it
 touches, and returns any superseded avatar object for deletion. One predicate
 and one test to reverse if the product owner reads `:480` strictly.
+
+---
+
+## 9. What review found after the slice was built, and what changed
+
+Written on 2026-08-09, after the slice was reviewed against a running
+application rather than against itself. Recorded here because §2 exists on the
+argument that every plan in this project goes stale before it is executed — and
+this one went stale *during* execution, in ways the suite could not see.
+
+**Three declared units were not built.** `UpdateOwnProfile`, `GetMyProfile` and
+`GetPendingProfileChanges` (§1, §5 Tasks 4–5) existed nowhere in `src/` or
+`tests/`, and two shipped comments named `UpdateOwnProfile` as though it did.
+The third was the expensive one: **§3.5's entire protection against
+`UpdateReaderProfile` making a pending request's `previous_values` lie was
+`GetPendingProfileChanges` rendering the current column live from `users`** —
+so the mechanism was a paragraph and the acceptance criterion below it was
+unmeetable. All three are now built, and §3.5's criterion is asserted in
+`tests/domain/members/own-profile-and-queue.test.ts`.
+
+**The avatar's real limit was 1 MB, not 2 MB.** Next applies its own body limit
+to a server action before any application code runs, and nothing configured it,
+so the entire 1–2 MB band — where a phone photograph of a child lands — returned
+an untranslated 500 and never reached `file_too_large`. The suite could not see
+it because every avatar test called the action as a function.
+`next.config.ts` now sets the framework limit above the domain's, and
+`tests/lib/avatar-over-http.test.ts` is the one test in this project that goes
+through Next's own handler.
+
+**The lifecycle had no lock order.** Two proposals landing together each merged
+from the same stale read and the later write erased the other — including, once,
+a photograph's storage key, orphaning the object. And approve racing cancel
+deadlocked in both directions, escaping `attempt()` as a 500.
+`profile-fields.ts`'s `lockPerson` is the order now.
+
+**The avatar retention gap was two gaps, not one.** Approving a replacement left
+the previous image publicly fetchable forever; that is closed here. A photograph
+set at *registration* still cannot be deleted by any code path, because
+`RegistrationInput` carries a URL and no key. That needs a migration and is
+recorded as **B6 · Avatar retention** (master plan §7.14) rather than as a
+comment — it is a retention promise to a family, not a storage cost.
+
+**Two smaller ones.** `ReorderParishUnits` accepted a *partial* list and left
+duplicate `sort_order`s, which is the "Tổ 10 before Tổ 2" outcome its own
+docstring exists to prevent. And the DateStyle guard closed three commands but
+not `register()`, which is where a volunteer first types a child's date of
+birth — `"02/04/2015"` stored as `2015-02-03`, silently, with the same string
+mis-keying `findExistingPerson`'s identity match. `DateStyle` is now pinned in
+`compose.yaml` as well, so the class stops depending on an image default.
 
 ---
 
