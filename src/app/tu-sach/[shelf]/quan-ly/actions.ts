@@ -37,12 +37,17 @@ import { approveMembership } from "../../../../domain/members/commands/approve-m
 import { approveProfileChange } from "../../../../domain/members/commands/approve-profile-change";
 import { createParishUnit } from "../../../../domain/members/commands/create-parish-unit";
 import { deleteParishUnit } from "../../../../domain/members/commands/delete-parish-unit";
+import { markMembershipLeft } from "../../../../domain/members/commands/mark-membership-left";
+import { reactivateMembership } from "../../../../domain/members/commands/reactivate-membership";
 import { registerMemberOnBehalf } from "../../../../domain/members/commands/register-member-on-behalf";
 import { rejectMembership } from "../../../../domain/members/commands/reject-membership";
 import { rejectProfileChange } from "../../../../domain/members/commands/reject-profile-change";
 import { renameParishUnit } from "../../../../domain/members/commands/rename-parish-unit";
 import { reorderParishUnits } from "../../../../domain/members/commands/reorder-parish-units";
+import { setReaderCredentials } from "../../../../domain/members/commands/set-reader-credentials";
+import { suspendMembership } from "../../../../domain/members/commands/suspend-membership";
 import { updateParishTaxonomy } from "../../../../domain/members/commands/update-parish-taxonomy";
+import { updateReaderProfile } from "../../../../domain/members/commands/update-reader-profile";
 import type { CopyCondition } from "../../../../domain/catalogue/policy";
 import type { Command } from "../../../../domain/kernel/unit-of-work";
 import { decideAndDiscardAvatar } from "../../../../lib/avatar";
@@ -1094,4 +1099,214 @@ export async function reorderUnitsAction(form: FormData): Promise<void> {
         });
 
   backToCoCau(shelfSlug, outcome);
+}
+
+// ── Reader administration — `quan-ly/nguoi-doc/[id]`, wired by Task 4 ─────
+//
+// OPS §4.3's other five: give a reader a login, reset one, suspend, reactivate,
+// mark left, correct a profile directly. All fully implemented and fully
+// tested since B2a/B2b and, like the parish-unit family Task 3 wired, called
+// from nowhere until now — the reader-detail screen showed the badge "Chưa có
+// tài khoản đăng nhập" and no control of any kind behind it.
+//
+// **Every one of the five opens with `requireManager`, unlike the parish-unit
+// family.** Checked before writing a single form: `co-cau/page.tsx`'s
+// `canEdit` split exists because those five commands are `super_admin`-only
+// while the *page* only raises the read floor to `manager` — a plain manager
+// could see the tree but not touch it. Here there is no such gap to close:
+// `getReaderDetail` (the query this screen already runs) opens with the same
+// `requireManager` every one of these five commands opens with, so a viewer
+// who can reach this page at all — `manager`, `admin`, `super_admin` alike —
+// can use every control on it. Nothing here renders a form that only some of
+// those roles could submit, which is what Task 3 shipped once and a review
+// rated Critical for. The state that gates each disclosure below is the
+// *reader's*, never the viewer's role.
+//
+// **One terracotta primary, and it is conditional on the reader, not fixed.**
+// "Cấp tài khoản đăng nhập" is the only `primary` `SubmitButton` on this
+// screen, and only when `!reader.hasCredentials` — a reader who already has
+// one sees no primary at all, by the same "at most one terracotta" rule every
+// other manager screen in this codebase follows.
+
+/**
+ * `/tu-sach/<slug>/quan-ly/nguoi-doc/<id>`, with or without a refusal code —
+ * where every one of the five actions below lands, on the same reader they
+ * just acted on. `backToQueue` above cannot serve this: its target is one
+ * fixed sub-route shared by every card on a list, and these five each return
+ * to the *one* reader the manager was already looking at.
+ */
+function backToReader(
+  shelfSlug: string,
+  membershipId: string,
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  const base = `${managerBase(shelfSlug)}/nguoi-doc/${encodeURIComponent(membershipId)}`;
+  redirect(outcome.ok ? base : `${base}?${ACTION_ERROR_PARAM}=${outcome.code}`);
+}
+
+/**
+ * OPS §4.3's `SetReaderCredentials` — serving both of the reader-detail
+ * screen's credential disclosures, because the command itself is one act from
+ * either side of it: "Cấp tài khoản đăng nhập" (a first login) and "Đặt lại
+ * mật khẩu" (a forgotten one) both end here, exactly as `set-reader-
+ * credentials.ts`'s own docstring argues for building one command instead of
+ * two.
+ *
+ * **The reset form posts a username too, invisibly.** `setReaderCredentials`
+ * always writes a username *and* a password (INV-14) — there is no
+ * password-only variant — so "Đặt lại mật khẩu", which shows the manager only
+ * a password box, still has to submit the reader's existing username. The
+ * page renders it as a hidden field carrying `reader.username`, and this
+ * action does not know or care which of the two forms posted to it; both
+ * arrive with all three fields present.
+ *
+ * `attemptTyped`, not `attempt`: a blank username or a password under eight
+ * characters is a manager's ordinary typo, correctable on the very form they
+ * are looking at — the same `ValidationFailed` reasoning
+ * `registerReaderOnBehalfAction` above already gives for its own form.
+ * `username_in_use` — the one refusal a *business rule* raises, when the
+ * chosen name collides with somebody else's — still arrives as
+ * `RuleViolated` and is caught the same way: the command itself translates
+ * Postgres's `23505` into that code (`set-reader-credentials.ts`'s own
+ * docstring, note 2), so what reaches this file is already the catalogue's
+ * Vietnamese sentence and never a raw constraint violation.
+ */
+export async function setReaderCredentialsAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+  const outcome = complete(form, ["thanh-vien", "ten-dang-nhap"])
+    ? await attemptTyped(shelfSlug, setReaderCredentials, {
+        membershipId,
+        username: field(form, "ten-dang-nhap"),
+        // Not trimmed, like every other password field in this codebase
+        // (`toi/ho-so/actions.ts`'s `changeOwnPasswordAction` carries the
+        // reasoning): a password is bytes a person chose, and trimming one
+        // silently changes the secret. `field()` above trims, so this reads
+        // the form directly.
+        password: String(form.get("mat-khau") ?? ""),
+      })
+    : INCOMPLETE;
+
+  backToReader(shelfSlug, membershipId, outcome);
+}
+
+/**
+ * What the "Tạm khoá" disclosure returns when its reason box was left empty —
+ * this screen's own decision and not `suspendMembership`'s: the command's
+ * `reason` is optional (OPS §4.3, "a manager may suspend without typing
+ * one"), but a suspension with no explanation is a decision nobody standing
+ * at this shelf next month can act on, so the screen asks before the command
+ * ever sees the request. See the code's own comment in `errors.ts` for why it
+ * is a distinct code from `reject_reason_required`.
+ */
+const NO_SUSPENSION_REASON = {
+  ok: false,
+  code: "suspension_reason_required",
+} as const;
+
+/**
+ * OPS §4.3's `SuspendMembership` — "Tạm khoá", `active → suspended`.
+ *
+ * `attempt`, not `attemptTyped`: past the reason check above, the only
+ * refusal `suspendMembership` itself can raise is `not_active_cannot_suspend`
+ * (`RuleViolated`) — a stale page re-posting against a reader some other
+ * manager already suspended a moment earlier. There is no `ValidationFailed`
+ * this form could ever trigger.
+ */
+export async function suspendMembershipAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["thanh-vien"])
+    ? INCOMPLETE
+    : reason === ""
+      ? NO_SUSPENSION_REASON
+      : await attempt(shelfSlug, suspendMembership, { membershipId, reason });
+
+  backToReader(shelfSlug, membershipId, outcome);
+}
+
+/**
+ * OPS §4.3's `ReactivateMembership` — "Mở khoá lại", `suspended → active`.
+ * Takes no reason: clearing `suspension_reason` is the command's own job, not
+ * a fact this form collects (`reactivate-membership.ts`'s own docstring).
+ */
+export async function reactivateMembershipAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+  const outcome = complete(form, ["thanh-vien"])
+    ? await attempt(shelfSlug, reactivateMembership, { membershipId })
+    : INCOMPLETE;
+
+  backToReader(shelfSlug, membershipId, outcome);
+}
+
+/**
+ * OPS §4.3's `MarkMembershipLeft` — "Đánh dấu đã rời", any status `→ left`.
+ * No reason field: OPS §4.3 does not ask this command for one, unlike
+ * suspension above — a decision Task 4 read as deliberate rather than an
+ * oversight to correct, since the brief for this screen names a reason only
+ * for "Tạm khoá".
+ *
+ * The one refusal a stale page can reach is `member_has_active_loans` — a
+ * reader whose "Đang mượn" count this same screen shows above zero — which
+ * arrives as `RuleViolated` and needs no `ValidationFailed` handling.
+ */
+export async function markMembershipLeftAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+  const outcome = complete(form, ["thanh-vien"])
+    ? await attempt(shelfSlug, markMembershipLeft, { membershipId })
+    : INCOMPLETE;
+
+  backToReader(shelfSlug, membershipId, outcome);
+}
+
+/**
+ * OPS §4.3's `UpdateReaderProfile` — "Sửa hồ sơ", the manager's direct
+ * correction path INV-13b's restatement opened up, wrapping the identical
+ * seven fields `proposeProfileChangeAction` above collects for the reader's
+ * own proposal (`toi/ho-so/actions.ts`). Not the eighth, `avatar_url`: that
+ * one has its own proposal-and-approve lifecycle
+ * (`ProposeAvatarChange`/`ApproveProfileChange`) and no direct-write
+ * counterpart exists for a manager to reach through this command — sending it
+ * here would ask `updateReaderProfile` to write a field nothing uploaded.
+ *
+ * **Every field is sent, always, never `optional()`.** Same choice
+ * `proposeProfileChangeAction` makes and for the same reason: the command
+ * itself decides what counts as a change (`normaliseProfilePatch`,
+ * `diffProfileFields`), so sending all seven and changing none comes back as
+ * `empty_proposal` — the sentence a manager who submitted without editing
+ * anything should read.
+ *
+ * `attemptTyped`: an emptied `full_name`/`father_name`/`mother_name` is
+ * `required_fields_missing`, a malformed date is `validation_failed`, and an
+ * unchanged submission is `empty_proposal` — three ordinary mistakes a
+ * manager corrects on the same form, not faults.
+ */
+export async function updateReaderProfileAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+
+  const value = (name: string): string | null => {
+    const v = field(form, name);
+    return v === "" ? null : v;
+  };
+
+  const outcome = complete(form, ["thanh-vien"])
+    ? await attemptTyped(shelfSlug, updateReaderProfile, {
+        membershipId,
+        fields: {
+          saint_name: value("ten-thanh"),
+          full_name: value("ho-ten"),
+          date_of_birth: value("ngay-sinh"),
+          father_name: value("ten-cha"),
+          mother_name: value("ten-me"),
+          phone: value("dien-thoai"),
+          email: value("email"),
+        },
+      })
+    : INCOMPLETE;
+
+  backToReader(shelfSlug, membershipId, outcome);
 }

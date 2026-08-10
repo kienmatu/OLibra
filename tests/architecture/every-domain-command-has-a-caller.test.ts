@@ -42,15 +42,11 @@ const EXEMPT = new Set<string>([
   // the import graph rather than grepping a bare word and so does not share
   // this file's `phoneHash`-shaped blind spot.
 
-  // Task 4 (QA remediation) gives the reader-detail screen its five missing
-  // buttons — set credentials, suspend, reactivate, mark left, edit profile.
-  // Each entry here is that command's own file; Task 4 deletes its own row
-  // once its screen calls the command.
-  "src/domain/members/commands/set-reader-credentials.ts", // TODO(Task 4): remove — reader admin actions get their UI there.
-  "src/domain/members/commands/suspend-membership.ts", // TODO(Task 4): remove — reader admin actions get their UI there.
-  "src/domain/members/commands/reactivate-membership.ts", // TODO(Task 4): remove — reader admin actions get their UI there.
-  "src/domain/members/commands/mark-membership-left.ts", // TODO(Task 4): remove — reader admin actions get their UI there.
-  "src/domain/members/commands/update-reader-profile.ts", // TODO(Task 4): remove — reader admin actions get their UI there.
+  // Task 4 (QA remediation) gave the reader-detail screen its five missing
+  // buttons — set credentials, suspend, reactivate, mark left, edit profile —
+  // in `src/app/tu-sach/[shelf]/quan-ly/nguoi-doc/[id]/page.tsx` and
+  // `.../quan-ly/actions.ts`. All five are called from there now, so this
+  // block, unlike Task 5's below, is empty rather than pending.
 
   // Task 5 (QA remediation) wires `assignManager` into the managers screen.
   // `managers.ts` also exports `revokeManager` and `promoteSuperAdmin`, both

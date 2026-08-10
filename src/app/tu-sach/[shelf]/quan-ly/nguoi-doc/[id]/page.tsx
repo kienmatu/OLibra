@@ -1,20 +1,43 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, KeyRound, Lock } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  KeyRound,
+  Lock,
+  LogOut,
+  Pencil,
+  ShieldAlert,
+  Unlock,
+} from "lucide-react";
+import { buttonClasses } from "@/components/ui/button";
 import { BookCover, BookTitle } from "@/components/ui/book";
+import { Field, Input, Textarea } from "@/components/ui/field";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { Pill } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { messageFor } from "@/domain/kernel/errors";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
-import { getReaderDetail } from "@/domain/members/queries/get-reader-detail";
+import {
+  getReaderDetail,
+  type ReaderDetail,
+} from "@/domain/members/queries/get-reader-detail";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { formatDate, formatDueDate, formatInstant } from "@/lib/dates";
 import { MEMBERSHIP_STATUS } from "@/lib/membership-status";
 import { loadPage } from "@/lib/page-data";
-import { isUuid } from "@/lib/search-params";
+import { isUuid, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
+import {
+  markMembershipLeftAction,
+  reactivateMembershipAction,
+  setReaderCredentialsAction,
+  suspendMembershipAction,
+  updateReaderProfileAction,
+} from "../../actions";
 
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
@@ -52,16 +75,13 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * that never happened, on a page that would otherwise be entirely real. Removed
  * rather than replaced, for U3 §3.1's reason.
  *
- * **No administrative actions.** BR §16.3 asks for them and all five commands
- * exist — `setReaderCredentials`, `suspendMembership`, `reactivateMembership`,
- * `markMembershipLeft`, `updateReaderProfile`. The fixture page drew four
- * `<button>`s with no form and no action behind any of them, which is the shape
- * U2 removed from the reader header and for the same reason. They are not wired
- * here because this wave's scope names this page's query and no command, and
- * because one of them cannot work at all today: nothing in the running
- * application calls `setPasswordHasher`, so any screen that sets a password
- * reaches `NotWired`. Recorded rather than left to be discovered — the buttons
- * are absent, not disabled.
+ * **Administrative actions are wired, as of Task 4.** The paragraph this one
+ * replaces blamed an unwired `setPasswordHasher` — stale twice over even when
+ * it was written, since `src/instrumentation.ts:45` already called it, and
+ * doubly so now that Task 1 rebuilt the mechanism entirely (`ensureCrypto
+ * Wired()`, `src/lib/crypto-wiring.ts`, called from every one of `page-data
+ * .ts`'s four entry points). See the "Cấp tài khoản đăng nhập" section below
+ * for what actually renders and why each control is state-gated.
  *
  * **"Cho mượn sách" is gone too.** It was a `<button>` that submitted nothing,
  * and there is no URL that opens the lend flow with a reader already chosen:
@@ -69,12 +89,393 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * takes both. A link to the flow's first step would drop the reader on the way,
  * which is a worse affordance than none.
  */
+
+/**
+ * Task 4's five controls, gated on the *reader's* state — never on the
+ * viewer's role, which `../../actions.ts`'s own header explains is already
+ * equal to this page's own floor (every one of the five commands, like the
+ * query that reads this page, opens with `requireManager` and nothing
+ * higher). "Cấp tài khoản đăng nhập"/"Đặt lại mật khẩu" are mutually
+ * exclusive on `hasCredentials`; "Tạm khoá"/"Đánh dấu đã rời" show only
+ * `active`, "Mở khoá lại" only `suspended`; "Sửa hồ sơ" always shows.
+ *
+ * One `<ul>` of bordered rows, the same list shape `co-cau/page.tsx` uses for
+ * its own per-unit action rows, rather than five separately-styled blocks —
+ * five different visual treatments for five buttons that all do the same
+ * *kind* of thing (open a small form, submit, land back here) would be five
+ * decisions to keep in step for no reader-facing benefit.
+ */
+function ReaderActions({
+  shelfSlug,
+  reader,
+}: {
+  shelfSlug: string;
+  reader: ReaderDetail;
+}) {
+  return (
+    <section className="mt-10 max-w-2xl space-y-4">
+      <h2 className="text-xl font-semibold">Quản lý tài khoản</h2>
+      <ul className="divide-y divide-hairline rounded-card border border-hairline">
+        <li className="p-4">
+          <CredentialsDisclosure shelfSlug={shelfSlug} reader={reader} />
+        </li>
+        {reader.status === "active" ? (
+          <li className="p-4">
+            <SuspendDisclosure shelfSlug={shelfSlug} reader={reader} />
+          </li>
+        ) : null}
+        {reader.status === "active" ? (
+          <li className="p-4">
+            <MarkLeftDisclosure shelfSlug={shelfSlug} reader={reader} />
+          </li>
+        ) : null}
+        {reader.status === "suspended" ? (
+          <li className="p-4">
+            <ReactivateDisclosure shelfSlug={shelfSlug} reader={reader} />
+          </li>
+        ) : null}
+        <li className="p-4">
+          <EditProfileDisclosure shelfSlug={shelfSlug} reader={reader} />
+        </li>
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * "Cấp tài khoản đăng nhập" when the reader has none, "Đặt lại mật khẩu" when
+ * they do — one command, `setReaderCredentialsAction`, behind both branches
+ * (`set-reader-credentials.ts`'s own docstring argues for one command over
+ * two, "because they are the same act from the volunteer's side"). The
+ * brief's one terracotta primary for this screen lives in the first branch
+ * only; the second is `quiet`, matching every other non-primary submit here.
+ */
+function CredentialsDisclosure({
+  shelfSlug,
+  reader,
+}: {
+  shelfSlug: string;
+  reader: ReaderDetail;
+}) {
+  if (!reader.hasCredentials) {
+    return (
+      <details>
+        <summary
+          className={buttonClasses(
+            "outline",
+            "sm",
+            "cursor-pointer list-none [&::-webkit-details-marker]:hidden",
+          )}
+        >
+          <KeyRound aria-hidden className="size-4" strokeWidth={1.75} />
+          Cấp tài khoản đăng nhập
+        </summary>
+        <form
+          action={setReaderCredentialsAction}
+          className="mt-4 max-w-sm space-y-4"
+        >
+          <input type="hidden" name="tu-sach" value={shelfSlug} />
+          <input type="hidden" name="thanh-vien" value={reader.membershipId} />
+          <Field label="Tên đăng nhập" required htmlFor="ten-dang-nhap">
+            <Input id="ten-dang-nhap" name="ten-dang-nhap" required />
+          </Field>
+          <Field
+            label="Mật khẩu"
+            required
+            htmlFor="mat-khau"
+            hint="Ít nhất 8 ký tự."
+          >
+            <Input
+              id="mat-khau"
+              name="mat-khau"
+              type="password"
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </Field>
+          <p className="text-[14px] text-meta">
+            Ghi lại giúp em rồi đưa tận tay. Hệ thống không gửi tin nhắn.
+          </p>
+          <SubmitButton
+            variant="primary"
+            icon={<KeyRound aria-hidden className="size-5" strokeWidth={1.75} />}
+          >
+            Cấp tài khoản đăng nhập
+          </SubmitButton>
+        </form>
+      </details>
+    );
+  }
+
+  return (
+    <details>
+      <summary className="cursor-pointer list-none text-[14px] underline [&::-webkit-details-marker]:hidden">
+        Đặt lại mật khẩu
+      </summary>
+      <form action={setReaderCredentialsAction} className="mt-3 max-w-sm space-y-4">
+        <input type="hidden" name="tu-sach" value={shelfSlug} />
+        <input type="hidden" name="thanh-vien" value={reader.membershipId} />
+        {/* The username the reader already has, resubmitted unchanged.
+            `setReaderCredentials` always writes a username and a password
+            together (INV-14) — there is no password-only variant — and
+            `reader.username` is never null here, since `hasCredentials` is
+            true. Not an editable box: the brief for this disclosure is
+            "with `mat-khau` only". */}
+        <input type="hidden" name="ten-dang-nhap" value={reader.username ?? ""} />
+        <Field
+          label="Mật khẩu mới"
+          required
+          htmlFor="mat-khau"
+          hint="Ít nhất 8 ký tự."
+        >
+          <Input
+            id="mat-khau"
+            name="mat-khau"
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+          />
+        </Field>
+        <SubmitButton
+          variant="quiet"
+          size="sm"
+          icon={<KeyRound aria-hidden className="size-4" strokeWidth={1.75} />}
+        >
+          Đặt lại mật khẩu
+        </SubmitButton>
+      </form>
+    </details>
+  );
+}
+
+/**
+ * "Tạm khoá" — `active → suspended`. The reason box is required here even
+ * though `suspendMembership` itself treats it as optional; see
+ * `NO_SUSPENSION_REASON` in `../../actions.ts` for why that is this screen's
+ * decision and not a stricter reading of the command. The helper sentence is
+ * `docs/OPERATIONS.md`'s own quoted wording for this exact screen ("Tạm khoá
+ * chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên."), not reinvented here.
+ */
+function SuspendDisclosure({
+  shelfSlug,
+  reader,
+}: {
+  shelfSlug: string;
+  reader: ReaderDetail;
+}) {
+  const fieldId = `ly-do-tam-khoa-${reader.membershipId}`;
+  return (
+    <details>
+      <summary className="cursor-pointer list-none text-[14px] text-brick underline [&::-webkit-details-marker]:hidden">
+        Tạm khoá
+      </summary>
+      <form action={suspendMembershipAction} className="mt-3 max-w-sm space-y-3">
+        <input type="hidden" name="tu-sach" value={shelfSlug} />
+        <input type="hidden" name="thanh-vien" value={reader.membershipId} />
+        <p className="text-[14px] text-meta">
+          Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên.
+        </p>
+        <Field label="Lý do tạm khoá" required htmlFor={fieldId}>
+          <Textarea id={fieldId} name="ly-do" required rows={2} />
+        </Field>
+        <SubmitButton
+          variant="danger"
+          size="sm"
+          icon={<ShieldAlert aria-hidden className="size-4" strokeWidth={1.75} />}
+        >
+          Xác nhận tạm khoá
+        </SubmitButton>
+      </form>
+    </details>
+  );
+}
+
+/**
+ * "Mở khoá lại" — `suspended → active`. No reason field: clearing
+ * `suspension_reason` on the way out is `reactivateMembership`'s own job
+ * (see that command's docstring), not a fact this form collects.
+ */
+function ReactivateDisclosure({
+  shelfSlug,
+  reader,
+}: {
+  shelfSlug: string;
+  reader: ReaderDetail;
+}) {
+  return (
+    <details>
+      <summary className="cursor-pointer list-none text-[14px] underline [&::-webkit-details-marker]:hidden">
+        Mở khoá lại
+      </summary>
+      <form action={reactivateMembershipAction} className="mt-3 max-w-sm space-y-3">
+        <input type="hidden" name="tu-sach" value={shelfSlug} />
+        <input type="hidden" name="thanh-vien" value={reader.membershipId} />
+        <p className="text-[14px] text-meta">
+          Bạn đọc có thể mượn sách trở lại ngay sau khi mở khoá.
+        </p>
+        <SubmitButton
+          variant="quiet"
+          size="sm"
+          icon={<Unlock aria-hidden className="size-4" strokeWidth={1.75} />}
+        >
+          Xác nhận mở khoá
+        </SubmitButton>
+      </form>
+    </details>
+  );
+}
+
+/**
+ * "Đánh dấu đã rời" — any status `→ left`. `markMembershipLeft` itself
+ * refuses while `reader.holdingCount` is above zero (`member_has_active_
+ * loans`) — the same count this page's own "Đang mượn" section (below this
+ * one) already shows — so the form submits and lets the domain answer rather
+ * than this component re-deriving "has an active loan" a second time (G5).
+ */
+function MarkLeftDisclosure({
+  shelfSlug,
+  reader,
+}: {
+  shelfSlug: string;
+  reader: ReaderDetail;
+}) {
+  return (
+    <details>
+      <summary className="cursor-pointer list-none text-[14px] text-brick underline [&::-webkit-details-marker]:hidden">
+        Đánh dấu đã rời
+      </summary>
+      <form action={markMembershipLeftAction} className="mt-3 max-w-sm space-y-3">
+        <input type="hidden" name="tu-sach" value={shelfSlug} />
+        <input type="hidden" name="thanh-vien" value={reader.membershipId} />
+        <p className="text-[14px] text-meta">
+          Dùng khi gia đình không còn sinh hoạt ở giáo xứ nữa. Bạn đọc đang mượn
+          sách cần được nhận trả trước.
+        </p>
+        <SubmitButton
+          variant="danger"
+          size="sm"
+          icon={<LogOut aria-hidden className="size-4" strokeWidth={1.75} />}
+        >
+          Xác nhận đã rời
+        </SubmitButton>
+      </form>
+    </details>
+  );
+}
+
+/**
+ * "Sửa hồ sơ" — `updateReaderProfile`'s direct-write path, wrapping the same
+ * seven fields the reader's own profile form proposes
+ * (`toi/ho-so/page.tsx`'s "Thông tin cá nhân" section), pre-filled with what
+ * is on file rather than blank. Field-for-field the same set, including which
+ * three carry `required`: full name is, saint name/DOB/father's/mother's
+ * names/phone/email are not, matching that sibling form exactly — a manager
+ * blanking father's or mother's name still meets `updateReaderProfile`'s own
+ * `required_fields_missing` refusal, same as a reader would proposing it.
+ *
+ * Always rendered, in every status: nothing about this command reads
+ * `status`, so a manager can correct a suspended or departed reader's phone
+ * number exactly as freely as an active one's.
+ */
+function EditProfileDisclosure({
+  shelfSlug,
+  reader,
+}: {
+  shelfSlug: string;
+  reader: ReaderDetail;
+}) {
+  const idFor = (name: string) => `${name}-${reader.membershipId}`;
+  return (
+    <details>
+      <summary className="cursor-pointer list-none text-[14px] underline [&::-webkit-details-marker]:hidden">
+        Sửa hồ sơ
+      </summary>
+      <form action={updateReaderProfileAction} className="mt-3 max-w-sm space-y-4">
+        <input type="hidden" name="tu-sach" value={shelfSlug} />
+        <input type="hidden" name="thanh-vien" value={reader.membershipId} />
+
+        <Field label="Tên thánh" htmlFor={idFor("ten-thanh")}>
+          <Input
+            id={idFor("ten-thanh")}
+            name="ten-thanh"
+            defaultValue={reader.saintName ?? ""}
+          />
+        </Field>
+
+        <Field label="Họ và tên" required htmlFor={idFor("ho-ten")}>
+          <Input
+            id={idFor("ho-ten")}
+            name="ho-ten"
+            required
+            defaultValue={reader.fullName}
+          />
+        </Field>
+
+        <Field label="Ngày sinh" htmlFor={idFor("ngay-sinh")}>
+          <Input
+            id={idFor("ngay-sinh")}
+            name="ngay-sinh"
+            type="date"
+            defaultValue={reader.dateOfBirth ?? ""}
+          />
+        </Field>
+
+        <Field label="Tên cha" htmlFor={idFor("ten-cha")}>
+          <Input
+            id={idFor("ten-cha")}
+            name="ten-cha"
+            defaultValue={reader.fatherName}
+          />
+        </Field>
+
+        <Field label="Tên mẹ" htmlFor={idFor("ten-me")}>
+          <Input
+            id={idFor("ten-me")}
+            name="ten-me"
+            defaultValue={reader.motherName}
+          />
+        </Field>
+
+        <Field label="Số điện thoại" htmlFor={idFor("dien-thoai")}>
+          <Input
+            id={idFor("dien-thoai")}
+            name="dien-thoai"
+            inputMode="tel"
+            defaultValue={reader.phone ?? ""}
+          />
+        </Field>
+
+        <Field label="Email" htmlFor={idFor("email")}>
+          <Input
+            id={idFor("email")}
+            name="email"
+            type="email"
+            defaultValue={reader.email ?? ""}
+          />
+        </Field>
+
+        <SubmitButton
+          variant="quiet"
+          icon={<Pencil aria-hidden className="size-4" strokeWidth={1.75} />}
+        >
+          Lưu thay đổi
+        </SubmitButton>
+      </form>
+    </details>
+  );
+}
+
 export default async function ManagerReaderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string; id: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug, id } = await params;
+  const refused = refusalFrom(await searchParams);
 
   // **A 404 before any query, and this is the fix for a live 500.** `memberships
   // .id` is a `uuid`, so a segment that is not one reaches Postgres as a failed
@@ -211,6 +612,20 @@ export default async function ManagerReaderDetailPage({
         Quay lại danh sách bạn đọc
       </Link>
 
+      {/* Where every one of Task 4's five actions lands on a refusal —
+          `backToReader` in `../../actions.ts` carries the code back as
+          `?loi=`, same shape as every other manager screen's own refusal
+          banner (`dang-ky-cho-duyet/page.tsx`, `co-cau/page.tsx`). */}
+      {refused ? (
+        <p
+          role="alert"
+          className="mt-5 flex max-w-2xl items-center gap-2 rounded-card border border-brick bg-brick/8 px-4 py-3 text-[15px] text-brick"
+        >
+          <AlertCircle aria-hidden className="size-5 shrink-0" strokeWidth={1.75} />
+          {messageFor(refused)}
+        </p>
+      ) : null}
+
       <div className="mt-3 flex items-center gap-4">
         <span
           aria-hidden
@@ -229,9 +644,10 @@ export default async function ManagerReaderDetailPage({
             <Pill icon={state.icon} label={state.label} tone={state.tone} />
             {/* INV-14: an account has either both a username and a password or
                 neither, and having neither is a perfectly normal state — most
-                children never sign in. Shown quietly, never as a gap. Only the
-                boolean reaches this page; `getReaderDetail` returns
-                `hasCredentials` and never the hash. */}
+                children never sign in. Shown quietly, never as a gap.
+                `getReaderDetail` also returns the username itself now (Task 4,
+                for the "Đặt lại mật khẩu" form below to resubmit unchanged) —
+                never the hash, on this pill or anywhere else on the page. */}
             <Pill
               icon={reader.hasCredentials ? KeyRound : Lock}
               label={
@@ -282,6 +698,8 @@ export default async function ManagerReaderDetailPage({
           ))}
         </dl>
       </section>
+
+      <ReaderActions shelfSlug={slug} reader={reader} />
 
       <section className="mt-10 max-w-2xl">
         <h2 className="text-xl font-semibold">

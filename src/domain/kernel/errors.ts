@@ -205,6 +205,21 @@ export const ERROR_MESSAGES = {
   // reached.
   profile_change_not_pending: "Yêu cầu này đã được xử lý.",
 
+  // — members: Task 4 (QA remediation) —
+  // `suspendMembership`'s own `reason` is optional (a manager may suspend with
+  // none, per OPS §4.3) — this is not that command refusing anything. It is
+  // the reader-detail screen's own decision, the same shape `NO_REJECT_REASON`
+  // already gives `RejectMembership`/`RejectProfileChange`/`RejectComment`/
+  // `DeclineDonation`: those four commands each require a reason at the
+  // database or the domain; this one does not, but a suspension a volunteer
+  // typed with no explanation is a decision nobody, including that volunteer
+  // a month later, can act on — so the screen asks before the command ever
+  // sees the request. Checked for a collision first: `reject_reason_required`
+  // ("Vui lòng ghi lý do từ chối.") is a rejection's word, not a suspension's,
+  // and every other `_reason_required` code in this file is similarly one
+  // command's own noun.
+  suspension_reason_required: "Vui lòng ghi lý do tạm khoá.",
+
   // — community: B3 —
   // OPS §4.4's own sentences. `comment_not_pending` is the **fifth** slice in a
   // row to split a `not_pending` code: OPS gives it "Bình luận này đã được xử
