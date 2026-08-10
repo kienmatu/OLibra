@@ -132,7 +132,7 @@ function DiffColumn({
 
 export default function AdminAuditLogPage() {
   return (
-    <AdminShell active="nhat-ky">
+    <AdminShell active="nhat-ky" viewer={null} unreadFeedback={null}>
       <PageHeading
         title="Nhật ký hoạt động"
         subtitle="1.248 bản ghi · Nhật ký không bao giờ bị sửa hoặc xoá."

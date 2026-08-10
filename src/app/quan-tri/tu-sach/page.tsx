@@ -62,7 +62,7 @@ function NumberField({
 export default function AdminShelfSettingsPage() {
   const { parishTaxonomy, parishUnits } = shelf;
   return (
-    <AdminShell active="tu-sach">
+    <AdminShell active="tu-sach" viewer={null} unreadFeedback={null}>
       <Link
         href="/quan-tri"
         className="inline-flex min-h-11 items-center gap-1.5 text-[15px] text-meta hover:text-ink"

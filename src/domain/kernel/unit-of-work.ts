@@ -2,7 +2,8 @@ import type { JSONValue, PendingQuery, Row, Sql, TransactionSql } from "postgres
 import type { AuditEntry } from "./audit";
 import { toRow } from "./audit";
 import type { ErrorCode } from "./errors";
-import { NotFound, ValidationFailed } from "./errors";
+import { NotFound, RuleViolated, ValidationFailed } from "./errors";
+import { atLeast } from "./tenant";
 import type { TenantContext } from "./tenant";
 
 /** The driver's own transaction handle, before the zero-row write guard (below) wraps it. */
@@ -633,5 +634,181 @@ export async function runPublicQuery<O>(
     await tx`select set_config('olibra.now', '', true)`;
     await tx`set local role olibra_public`;
     return query(guardWrites(tx as RawTx));
+  }) as Promise<O>;
+}
+
+/**
+ * Refuses a caller who is not a `super_admin`, **in the kernel**, before either
+ * admin runner below opens a transaction.
+ *
+ * Every other runner in this file leaves the role check to the query or command
+ * it runs — `requireManager`, `requireReader`, `requireSuperAdmin` all live in
+ * the domain, and `loadPage`'s docstring gives the reason: permission is a
+ * domain decision and the page must not become the security control. That
+ * division works because forgetting it is *bounded*. A query under `runQuery`
+ * that forgets `requireManager` leaks a manager's view of one shelf to a reader
+ * of that shelf; RLS is still underneath, and INV-10 still holds.
+ *
+ * The two functions below have no such floor. They run as `olibra_admin`, which
+ * holds `bypassrls`, so the thing that would have caught the mistake is exactly
+ * the thing they turn off. A query that forgot its check would hand a reader of
+ * one parish every other parish's records — the failure INV-10 is named for.
+ *
+ * So the check also lives where it cannot be forgotten. The queries under
+ * `src/domain/admin/` call `requireSuperAdmin` as well, and the two are not
+ * redundant — they answer different questions:
+ *
+ * - **Here**: no *runner* may reach `olibra_admin` for a caller who is not one.
+ *   This is what protects a query somebody adds next month and forgets to guard.
+ * - **In the query**: the query is safe whichever runner reaches it. An admin
+ *   query invoked through `runQuery` — by a page, by a test, by a later author
+ *   who copied the wrong seam — gets no bypass from the kernel check, because
+ *   the kernel check is on a code path it did not take.
+ *
+ * Two copies of an authorisation rule is normally how one of them drifts. It is
+ * not a hazard here because neither is a *rule*: both are the same single floor,
+ * `super_admin`, the top of `ROLE_RANK` with nothing above it to drift toward.
+ *
+ * `atLeast` from `./tenant`, not `requireSuperAdmin` from `../members/policy`:
+ * `tests/architecture/boundaries.test.ts` keeps the kernel from importing its
+ * own domains, and `super_admin` is the top of `ROLE_RANK`, which is a kernel
+ * property already.
+ *
+ */
+function requireSuperAdminActor(ctx: TenantContext): void {
+  if (!atLeast(ctx.actor.role, "super_admin")) {
+    throw new RuleViolated("not_permitted");
+  }
+}
+
+/**
+ * Runs a **cross-shelf** read as `olibra_admin`, in a read-only transaction
+ * with the tenant scope deliberately empty.
+ *
+ * This is the escalation `runPublicQuery`'s docstring contrasts itself against,
+ * and it is the read counterpart of `runGlobalCommand`. Everything that
+ * docstring says about staying rare applies here word for word: a diff
+ * introducing a call to it is worth a second look, and the reason it exists at
+ * all is that OPS §2 (`OPERATIONS.md:25`) names the cross-shelf administration
+ * views as one of INV-10's three enumerated exceptions, alongside the portal
+ * directory and promote-to-super-admin.
+ *
+ * **What it is for, precisely.** OPS §3.4 lists ten queries whose whole content
+ * is "every shelf at once" — `GetAdminOverview` is one row per shelf,
+ * `GetFeedbackInbox` spans every parish's messages plus the site-wide ones,
+ * `GetManagersList` is every manager across every shelf. None of them can be
+ * expressed under `runQuery`: its scope is one shelf by construction, and a
+ * caller that looped over shelves would be doing the same bypass one
+ * transaction at a time, with no single place to check the role.
+ *
+ * **The role check is in `requireSuperAdminActor` above *as well as* in each
+ * query**, and that function's docstring is where the argument for both lives.
+ *
+ * **The scope is empty, and every query here must therefore name its own
+ * shelf filter.** `set_config('olibra.bookshelf_id', '')` is the same sentinel
+ * `runPublicQuery` uses, so a query that *did* rely on RLS would see nothing
+ * rather than everything — an empty page rather than a leak, if `olibra_admin`
+ * did not bypass. It does bypass, so the sentinel proves nothing on its own; it
+ * is written explicitly so this transaction's scope is a fact of this function
+ * rather than of whatever ran on the pooled connection before it.
+ *
+ * **`olibra.now` is set from `ctx.clock`, unlike `runPublicQuery`.** There is a
+ * `TenantContext` here and therefore a real injected clock, and the admin views
+ * are exactly the ones that count overdue loans across every shelf — a figure
+ * `loans_current` computes from `olibra_now()`. A cross-shelf overdue count
+ * that ignored the injected clock would be the one number on the administrator's
+ * dashboard no test could move.
+ */
+export async function runAdminQuery<O>(
+  sql: Sql,
+  ctx: TenantContext,
+  query: (tx: Tx, ctx: TenantContext) => Promise<O>,
+): Promise<O> {
+  requireSuperAdminActor(ctx);
+  const nowIso = assertValidClockInstant(ctx.clock);
+  return sql.begin(async (tx) => {
+    await tx`set transaction read only`;
+    await tx`select set_config('olibra.bookshelf_id', '', true)`;
+    await tx`select set_config('olibra.now', ${nowIso}, true)`;
+    await tx`set local role olibra_admin`;
+    return query(guardWrites(tx as RawTx), ctx);
+  }) as Promise<O>;
+}
+
+/**
+ * Runs a **cross-shelf** command as `olibra_admin` — body and audit insert
+ * alike — for the handful of operations OPS §4.5 gives exclusively to
+ * `super_admin`.
+ *
+ * **This is a wider escalation than `runGlobalCommand`, and the difference is
+ * the point.** `runGlobalCommand` runs the command *body* as `olibra_app` and
+ * escalates only the audit insert; `runAs`'s docstring records why (an earlier
+ * version escalated the whole transaction, and a command run through it could
+ * write a book into another shelf). That split works because every command it
+ * serves acts within one shelf and only its audit row belongs to none.
+ *
+ * The commands here are the opposite case. `CreateBookshelf` inserts the row
+ * that *makes* a shelf, and `20260808_08_revoke_bookshelves_insert_from_app.sql`
+ * revoked that insert from `olibra_app` outright, deliberately, so it is
+ * unavailable under any scoping. `AssignManager` writes a `memberships` row for
+ * a shelf the caller holds no membership of. `UpdateBookshelfSettings` edits a
+ * shelf named by the URL rather than by the session. Each of them is
+ * "act on a shelf that is not mine", which is what INV-10 forbids and what OPS
+ * §2 exempts this surface from by name.
+ *
+ * So the body runs escalated, and the compensating control is that
+ * `requireSuperAdminActor` (above) refuses before `sql.begin` — no transaction
+ * opens at all for a caller who is not a super_admin.
+ *
+ * **`ctx.bookshelfId` may be empty here, and what that means is checked rather
+ * than assumed.** `runAs` rejects an empty shelf on the write path because its
+ * audit insert binds `bookshelfId` straight into a `uuid` column. That hazard is
+ * the same here and the situation is not: a genuinely global command
+ * (`UpdateSystemDefaults`, `PromoteSuperAdmin`) has no shelf to name, and its
+ * entry sets `global: true`, which `toRow` turns into a null `bookshelf_id`. So
+ * an empty scope is allowed, and each *entry* is then checked after `toRow` has
+ * decided: a non-global entry under an empty scope would bind `''` into that
+ * `uuid` column and raise a raw `PostgresError` from inside the transaction —
+ * the exact shape, in the exact place, `assertValidBookshelfId` exists to
+ * prevent. It becomes a named `ValidationFailed` instead.
+ *
+ * A *non*-empty `ctx.bookshelfId` is validated as a uuid exactly as everywhere
+ * else, so an admin command acting on one named shelf writes an ordinary
+ * shelf-scoped audit row that the shelf's own manager can read.
+ */
+export async function runAdminCommand<I, O>(
+  sql: Sql,
+  ctx: TenantContext,
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  requireSuperAdminActor(ctx);
+  assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: true });
+  const nowIso = assertValidClockInstant(ctx.clock);
+  return sql.begin(async (tx) => {
+    await setSessionScope(tx as RawTx, ctx, nowIso);
+    await tx`set local role olibra_admin`;
+
+    const { result, audit } = await command(guardWrites(tx as RawTx), ctx, input);
+
+    for (const entry of Array.isArray(audit) ? audit : [audit]) {
+      const row = toRow(entry, ctx);
+      // The check this runner adds over `runAs`: an entry that names a shelf,
+      // written under a context that has none. See the docstring above.
+      if (row.bookshelfId === "") {
+        throw new ValidationFailed("invalid_bookshelf_id", "bookshelfId");
+      }
+      await tx`
+        insert into audit_log
+          (bookshelf_id, actor_id, action, entity_type, entity_id,
+           before, after, occurred_at)
+        values
+          (${row.bookshelfId}, ${row.actorId}, ${row.action}, ${row.entityType},
+           ${row.entityId}, ${tx.json((row.before ?? null) as JSONValue)},
+           ${tx.json((row.after ?? null) as JSONValue)}, ${row.occurredAt})
+      `;
+    }
+
+    return result;
   }) as Promise<O>;
 }

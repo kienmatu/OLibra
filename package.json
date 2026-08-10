@@ -17,7 +17,8 @@
     "check:diagrams": "bun run scripts/check-mermaid.mjs",
     "check:links": "bun run scripts/check-links.mjs",
     "db:migrate": "bun run src/db/migrate-cli.ts",
-    "db:seed": "bun run src/db/seed-cli.ts"
+    "db:seed": "bun run src/db/seed-cli.ts",
+    "db:sweep": "bun run src/db/sweep-cli.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1106.0",

@@ -258,6 +258,16 @@ The build uses `output: "standalone"`, which traces the server down to the files
 
 **Migrations run before the new application version serves traffic**, and must be backwards-compatible with the version still running during a rolling deploy. DATABASE.md §9 covers the discipline.
 
+**One scheduled job has to be scheduled, and until B4a nothing scheduled it.** `bun run db:sweep` runs `sweepDueNotifications` — the reminder a reader gets three days before a book is due, and the one when it lapses (BR §15). It is the only job OPS §7 permits, it is idempotent, and a sensible cadence is once a day in the morning:
+
+```
+0 7 * * *  cd /srv/olibra && bun run db:sweep
+```
+
+It needs `MIGRATION_DATABASE_URL`, not `DATABASE_URL`: the sweep spans every shelf and assumes `olibra_admin`, which `olibra_pool` may deliberately not do.
+
+The bullet above — "a missed run is not an incident" — is true and was load-bearing in the wrong direction for a while. D1 shipped the sweep with no caller at all, and because every overdue badge, dashboard count and manager's overdue list is computed live from `olibra_now()`, a job that had never run once looked exactly like a working system. Only the *telling* was missing, and nothing observable was wrong. `tests/architecture/the-scheduled-job-has-a-caller.test.ts` now checks the wiring rather than the behaviour, because every test of the sweep calls the sweep.
+
 ---
 
 ## 9. Testing

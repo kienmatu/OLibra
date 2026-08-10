@@ -202,7 +202,9 @@ const HOSTILE = [
  * anonymous crawl would report every manager page as a dead link and blame the
  * links.
  */
-async function signInForCrawl() {
+async function signInForCrawl(
+  username = process.env.CHECK_LINKS_USER ?? "lan.nguyen",
+) {
   const url = process.env.MIGRATION_DATABASE_URL;
   if (!url) {
     console.error(
@@ -214,7 +216,6 @@ async function signInForCrawl() {
     process.exit(2);
   }
 
-  const username = process.env.CHECK_LINKS_USER ?? "lan.nguyen";
   const sql = connect(url);
   try {
     const { token } = await signIn(sql, {
@@ -239,12 +240,34 @@ async function signInForCrawl() {
 
 const token = await signInForCrawl();
 
+/**
+ * A second session, for `/quan-tri/*` only.
+ *
+ * B4a wired the administration surface to `loadAdminPage`, which refuses
+ * everyone whose `users.is_super_admin` is false — including `lan.nguyen`, the
+ * seeded *manager* the rest of this crawl uses. The seven admin pages therefore
+ * answer 404 to the manager token, which is the correct answer and made the
+ * crawl fail with `404 /quan-tri/gop-y` the first time it ran.
+ *
+ * Two tokens rather than crawling everything as the administrator: a
+ * super_admin passes every role check in the application, so one admin session
+ * would render all fifty pages and prove nothing about what a *manager* can
+ * reach. The manager stays the default and the administrator is used for
+ * exactly the prefix that needs them.
+ */
+const adminToken = await signInForCrawl("admin");
+
+/** Which session a path is crawled with. `/quan-tri` is the administrator's. */
+function tokenFor(path) {
+  return path.startsWith("/quan-tri") ? adminToken : token;
+}
+
 /** `signedIn: false` sends no cookie at all — a stranger, not a bad session. */
 async function get(path, { signedIn = true } = {}) {
   try {
     const res = await fetch(BASE + path, {
       redirect: "manual",
-      headers: signedIn ? { cookie: `${SESSION_COOKIE}=${token}` } : {},
+      headers: signedIn ? { cookie: `${SESSION_COOKIE}=${tokenFor(path)}` } : {},
     });
     return { status: res.status, html: res.ok ? await res.text() : "" };
   } catch (e) {

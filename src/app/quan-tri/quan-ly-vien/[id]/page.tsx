@@ -645,7 +645,7 @@ export default async function AdminManagerDetailPage({
   const { label: roleLabel, icon: RoleIcon, ink, fill } = ROLE[manager.role];
 
   return (
-    <AdminShell active="quan-ly-vien">
+    <AdminShell active="quan-ly-vien" viewer={null} unreadFeedback={null}>
       <Link
         href="/quan-tri/quan-ly-vien"
         className="inline-flex min-h-11 items-center gap-1.5 text-[15px] text-meta hover:text-ink"

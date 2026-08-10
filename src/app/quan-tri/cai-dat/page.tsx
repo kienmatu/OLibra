@@ -37,7 +37,7 @@ function DefaultField({
 
 export default function AdminSystemSettingsPage() {
   return (
-    <AdminShell active="cai-dat">
+    <AdminShell active="cai-dat" viewer={null} unreadFeedback={null}>
       <PageHeading title="Cài đặt hệ thống" />
 
       <form className="mt-8 max-w-2xl space-y-12">

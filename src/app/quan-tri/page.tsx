@@ -165,7 +165,7 @@ const ATTENTION = [
 
 export default function AdminOverviewPage() {
   return (
-    <AdminShell active="tong-quan">
+    <AdminShell active="tong-quan" viewer={null} unreadFeedback={null}>
       <PageHeading
         title="Tổng quan hệ thống"
         subtitle="4 tủ sách đang hoạt động · cập nhật lúc 09:12 hôm nay."

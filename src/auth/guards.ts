@@ -134,6 +134,76 @@ export async function contextFor(
 }
 
 /**
+ * Builds the context the **administration** surface runs under — from a cookie
+ * and nothing else, because there is no shelf in the URL to resolve.
+ *
+ * `contextFor` above cannot serve `/quan-tri/*` and the missing parameter is
+ * not the reason: its whole first act is `resolveShelfId(slug)`, and the
+ * administrator's own pages are the ones that span every shelf at once. There
+ * is no slug, in the same way and for the same reason `loadPublicPage` has
+ * none — a fact about the state of affairs rather than a gap in the seam.
+ *
+ * **`bookshelfId` is the empty string, and that is a real value here.** It is
+ * the sentinel `0010_rls.sql`'s `nullif(current_setting(...), '')` is built
+ * around, which `runAdminQuery` sets explicitly and `runAdminCommand` accepts
+ * on the write path (see both docstrings). An admin command that acts on *one*
+ * named shelf — `UpdateBookshelfSettings`, `ArchiveBookshelf` — gets that
+ * shelf's id put in a context of its own by the action that calls it, so its
+ * audit row lands where the shelf's own manager can read it. This function
+ * answers "who is asking", not "about what".
+ *
+ * **The role is read from `users.is_super_admin` alone**, deliberately, and not
+ * from any membership: a super_admin need hold none (the seeded `admin` account
+ * holds none), and a membership's `role` column tops out at `admin`, which is a
+ * *shelf* role and grants nothing here. `membershipFor` above already reads the
+ * flag, but it reads it through a shelf-scoped join this caller has no shelf
+ * for.
+ *
+ * **Returns `null` rather than a `guest` context.** `contextFor` returns a guest
+ * because a shelf has public pages and a stranger is an ordinary visitor to
+ * them; nothing under `/quan-tri` has a guest reading, so there is no context
+ * worth building for one. `loadAdminPage` (`src/lib/page-data.ts`) turns that
+ * null into the same 404 a signed-in non-member gets from a manager page — the
+ * administration surface does not confirm its own existence to somebody who may
+ * not use it.
+ *
+ * Runs as `olibra_admin` for the one-row lookup, for the reason
+ * `landingShelfFor` below gives for the same escalation: `users` carries no
+ * tenant column to scope by, and this is the caller's own row, resolved from a
+ * session this process verified rather than from anything the caller sent.
+ */
+export async function adminContextFor(
+  sql: Sql,
+  input: { token: string | null; clock: Clock },
+): Promise<TenantContext | null> {
+  if (!input.token) return null;
+
+  const session = await resolveSession(sql, input.token, input.clock);
+  if (!session) return null;
+
+  const [row] = await sql.begin(async (tx) => {
+    await tx`set local role olibra_admin`;
+    return tx<{ is_super_admin: boolean }[]>`
+      select is_super_admin from users
+      where id = ${session.userId} and deleted_at is null
+    `;
+  });
+  if (!row?.is_super_admin) return null;
+
+  return {
+    bookshelfId: "",
+    actor: {
+      userId: session.userId,
+      // No shelf, so no membership of one. `Actor.membershipId` is documented
+      // as null for exactly this caller.
+      membershipId: null,
+      role: "super_admin",
+    },
+    clock: input.clock,
+  };
+}
+
+/**
  * Where a freshly-signed-in person should land (IMPORTANT 6).
  *
  * A member of exactly one active shelf goes straight there — no reason to
