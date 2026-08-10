@@ -1,109 +1,32 @@
-import { notFound } from "next/navigation";
-import {
-  AlertTriangle,
-  BookUp,
-  Bookmark,
-  Clock,
-  Info,
-  MessageSquare,
-  UserCheck,
-  type LucideIcon,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { BookTitle } from "@/components/ui/book";
+import Link from "next/link";
 import { PageHeading } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
-import { fixtureViewerName, shelfBySlug, shelves } from "@/lib/fixtures";
-import { cn } from "@/lib/utils";
+import { getMyNotifications } from "@/domain/notifications/queries/get-my-notifications";
+import { readShelf } from "@/lib/shelf";
+import { loadPage } from "@/lib/page-data";
+import { formatInstant } from "@/lib/dates";
+import {
+  markAllNotificationsReadAction,
+  markNotificationReadAction,
+} from "../actions";
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
-
-type Tone = "overdue" | "available" | "onloan" | "sage";
-
-const TONE_FILL: Record<Tone, string> = {
-  overdue: "bg-overdue/10 text-overdue",
-  available: "bg-available/10 text-available",
-  onloan: "bg-onloan/10 text-onloan",
-  sage: "bg-sage/10 text-sage",
-};
-
-const notifications: {
-  icon: LucideIcon;
-  tone: Tone;
-  text: React.ReactNode;
-  time: string;
-  read: boolean;
-}[] = [
-  {
-    icon: AlertTriangle,
-    tone: "overdue",
-    text: (
-      <>
-        Cuốn <BookTitle>Kính Vạn Hoa tập 4</BookTitle> đã quá hạn 2 ngày. Em mang
-        trả giúp tủ sách nhé.
-      </>
-    ),
-    time: "2 giờ trước",
-    read: false,
-  },
-  {
-    icon: Bookmark,
-    tone: "available",
-    text: (
-      <>
-        Cuốn <BookTitle>Những Tấm Lòng Cao Cả</BookTitle> đang được giữ chỗ cho em.
-        Em đến nhận trước ngày 09/08.
-      </>
-    ),
-    time: "5 giờ trước",
-    read: false,
-  },
-  {
-    icon: Clock,
-    tone: "onloan",
-    text: (
-      <>
-        Cuốn <BookTitle>Totto-chan Bên Cửa Sổ</BookTitle> sắp đến hạn trả, còn 2
-        ngày.
-      </>
-    ),
-    time: "hôm qua",
-    read: false,
-  },
-  {
-    icon: MessageSquare,
-    tone: "sage",
-    text: (
-      <>
-        Bình luận của em về <BookTitle>Hoàng Tử Bé</BookTitle> đã được duyệt.
-      </>
-    ),
-    time: "3 ngày trước",
-    read: true,
-  },
-  {
-    icon: BookUp,
-    tone: "sage",
-    text: (
-      <>
-        Quản lý đã cho em mượn <BookTitle>Dế Mèn Phiêu Lưu Ký</BookTitle>. Hạn trả
-        Chúa nhật 20/08.
-      </>
-    ),
-    time: "06/08",
-    read: true,
-  },
-  {
-    icon: UserCheck,
-    tone: "sage",
-    text: "Tài khoản của em đã được duyệt. Chào mừng em đến với tủ sách.",
-    time: "14/03",
-    read: true,
-  },
-];
+/**
+ * The bell's own page. BR §15: in-app only, no email, an unread count.
+ *
+ * **The Vietnamese comes from the domain**, through `notificationSentence` in
+ * `getMyNotifications` — never assembled here. Same rule `messageFor` and
+ * `auditSentence` follow: a screen does not write its own wording for an event
+ * it did not define, and `request_approved` on a child's screen would be a
+ * failure rather than a fallback.
+ *
+ * **Read, never deleted.** Marking one read leaves the row, because the row is
+ * the record that they were told — which is the whole reason a notification is
+ * state rather than something computed on read (`sweep.ts` carries the long
+ * version of that argument).
+ */
+export const dynamic = "force-dynamic";
 
 export default async function ReaderNotificationsPage({
   params,
@@ -111,72 +34,99 @@ export default async function ReaderNotificationsPage({
   params: Promise<{ shelf: string }>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const { shelf, viewer, mine } = await loadPage(slug, async (tx, ctx, v) => ({
+    shelf: await readShelf(tx, ctx),
+    viewer: v,
+    mine: await getMyNotifications(tx, ctx, { limit: 50 }),
+  }));
+
+  const base = `/tu-sach/${slug}`;
 
   return (
     <>
       <ShelfHeader
         shelfName={shelf.name}
-        shelfSlug={shelf.slug}
-        viewerName={fixtureViewerName}
+        shelfSlug={slug}
+        active="thong-bao"
+        viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={shelf.slug} active="thong-bao" />
+      <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
-        <PageHeading
-          title="Thông báo"
-          subtitle={`${unreadCount} thông báo chưa đọc`}
-          action={
-            <Button variant="quiet" size="sm">
-              Đánh dấu đã đọc tất cả
-            </Button>
-          }
-        />
-
-        <ul className="mt-8 space-y-2">
-          {notifications.map((item, i) => (
-            <li
-              key={i}
-              className={cn(
-                "relative flex gap-3 rounded-card p-4",
-                item.read ? "opacity-70" : "bg-paper",
-              )}
-            >
-              {!item.read ? (
-                <span
-                  aria-hidden
-                  className="absolute top-4 left-1.5 size-2 rounded-full bg-terracotta"
-                />
-              ) : null}
-              <span
-                className={cn(
-                  "flex size-10 shrink-0 items-center justify-center rounded-full",
-                  TONE_FILL[item.tone],
-                )}
-              >
-                <item.icon aria-hidden className="size-5" strokeWidth={1.75} />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[15px] leading-snug">{item.text}</p>
-                <p className="mt-1 text-[13px] text-meta">{item.time}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-8 flex gap-3 rounded-card border border-hairline bg-paper p-4">
-          <Info
-            aria-hidden
-            className="mt-0.5 size-5 shrink-0 text-leather"
-            strokeWidth={1.75}
+        <div className="flex items-start justify-between gap-4">
+          <PageHeading
+            title="Thông báo"
+            subtitle={
+              mine.unread === 0
+                ? "Em đã đọc hết rồi."
+                : `Em có ${mine.unread} thông báo chưa đọc.`
+            }
           />
-          <p className="text-[14px] text-meta">
-            Tủ sách chỉ báo tin trong ứng dụng, không gửi email hay tin nhắn.
-          </p>
+          {mine.unread > 0 ? (
+            <form action={markAllNotificationsReadAction} className="mt-2 shrink-0">
+              <input type="hidden" name="tu-sach" value={slug} />
+              <SubmitButton variant="outline" size="sm">
+                Đánh dấu đã đọc hết
+              </SubmitButton>
+            </form>
+          ) : null}
         </div>
+
+        {mine.rows.length === 0 ? (
+          <p className="mt-8 text-[14px] text-meta">
+            Chưa có thông báo nào. Khi đơn đăng ký hoặc yêu cầu mượn của em được
+            duyệt, em sẽ thấy ở đây.
+          </p>
+        ) : (
+          <ul className="mt-8 divide-y divide-hairline rounded-card border border-hairline bg-surface">
+            {mine.rows.map((n) => (
+              <li
+                key={n.id}
+                className={
+                  n.readAt
+                    ? "px-4 py-4"
+                    : // Unread carries a tint *and* a marker word, never colour
+                      // alone — BR §17.1's second principle.
+                      "bg-held/5 px-4 py-4"
+                }
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 flex-1 text-[15px] leading-snug">
+                    {n.sentence}
+                  </p>
+                  {!n.readAt ? (
+                    <span className="shrink-0 text-[12px] font-semibold text-held">
+                      Mới
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-meta">
+                    {formatInstant(n.createdAt)}
+                  </span>
+                  {!n.readAt ? (
+                    <form action={markNotificationReadAction}>
+                      <input type="hidden" name="tu-sach" value={slug} />
+                      <input type="hidden" name="thong-bao" value={n.id} />
+                      <SubmitButton variant="quiet" size="sm">
+                        Đánh dấu đã đọc
+                      </SubmitButton>
+                    </form>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <Link
+          href={`${base}/toi`}
+          className="mt-8 inline-block text-[14px] underline"
+        >
+          Về trang của tôi
+        </Link>
       </main>
     </>
   );

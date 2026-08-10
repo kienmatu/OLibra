@@ -235,6 +235,7 @@ export default async function BookDetailPage({
         shelfName={shelf.name}
         shelfSlug={shelfSlug}
         viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
 
       <main className="mx-auto max-w-5xl px-6 py-10">

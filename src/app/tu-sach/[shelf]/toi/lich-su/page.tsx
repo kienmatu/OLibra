@@ -51,6 +51,7 @@ export default async function ReaderHistoryPage({
         shelfSlug={slug}
         active="toi"
         viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
       <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
 

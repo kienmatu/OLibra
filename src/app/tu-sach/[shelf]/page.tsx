@@ -119,6 +119,7 @@ export default async function ShelfHomePage({
         shelfName={shelf.name}
         shelfSlug={slug}
         viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
 
       <main className="mx-auto max-w-5xl px-6 py-10">

@@ -93,11 +93,21 @@ export function ShelfHeader({
   shelfSlug,
   active,
   viewerName,
+  unreadNotifications = 0,
 }: {
   shelfName: string;
   shelfSlug: string;
   active?: "danh-muc" | "thong-bao" | "tim-kiem" | "toi";
   viewerName: string | null;
+  /**
+   * BR §15's bell count, from the `Viewer` the seam resolves. Defaulting to 0
+   * rather than making it required is deliberate: every unwired page still
+   * renders this header, and a required prop would force each of them to pass
+   * a number it has no way to know — which is how a fixture number gets
+   * invented. Absent means no badge, which is the honest rendering for a page
+   * that has not asked.
+   */
+  unreadNotifications?: number;
 }) {
   const base = `/tu-sach/${shelfSlug}`;
   /**
@@ -146,6 +156,18 @@ export function ShelfHeader({
   const links = [
     { href: `${base}/danh-muc`, label: "Danh mục", key: "danh-muc", icon: false },
     { href: `${base}/toi`, label: "Trang của tôi", key: "toi", icon: false },
+    {
+      href: `${base}/toi/thong-bao`,
+      // BR §15: "surfaced as a bell with an unread count". The count is in the
+      // label rather than in a superscript badge because this nav is text at
+      // every width, and a number a child can read beats a dot they cannot.
+      label:
+        unreadNotifications > 0
+          ? `Thông báo (${unreadNotifications})`
+          : "Thông báo",
+      key: "thong-bao",
+      icon: false,
+    },
     { href: `${base}/tim-kiem`, label: "Tìm kiếm", key: "tim-kiem", icon: true },
   ] as const;
 
