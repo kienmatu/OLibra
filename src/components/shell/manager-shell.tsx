@@ -16,6 +16,7 @@ import {
   Megaphone,
   ScrollText,
   ShieldCheck,
+  Tags,
   TriangleAlert,
   UserPen,
   UserPlus,
@@ -473,11 +474,20 @@ export function ManagerShell({
 }
 
 export type AdminNavKey =
-  "tong-quan" | "tu-sach" | "quan-ly-vien" | "nhat-ky" | "gop-y" | "cai-dat";
+  | "tong-quan"
+  | "tu-sach"
+  | "the-loai"
+  | "quan-ly-vien"
+  | "nhat-ky"
+  | "gop-y"
+  | "cai-dat";
 
 const ADMIN_NAV: { key: AdminNavKey; label: string; icon: LucideIcon }[] = [
   { key: "tong-quan", label: "Tổng quan", icon: LayoutDashboard },
   { key: "tu-sach", label: "Tủ sách", icon: Archive },
+  // Task 2 (QA remediation). Global reference data, so it sits with the other
+  // cross-shelf administration screens rather than under any one shelf.
+  { key: "the-loai", label: "Thể loại", icon: Tags },
   { key: "quan-ly-vien", label: "Quản lý viên", icon: KeyRound },
   { key: "nhat-ky", label: "Nhật ký", icon: ScrollText },
   { key: "gop-y", label: "Góp ý", icon: MessageSquare },

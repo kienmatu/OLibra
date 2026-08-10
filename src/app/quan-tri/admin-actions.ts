@@ -16,6 +16,9 @@ import {
   updateSiteContact,
   updateSystemDefaults,
 } from "@/domain/admin/commands/system-settings";
+import { archiveCategory } from "@/domain/catalogue/commands/archive-category";
+import { createCategory } from "@/domain/catalogue/commands/create-category";
+import { renameCategory } from "@/domain/catalogue/commands/rename-category";
 import { submitAdminCommand } from "@/lib/page-data";
 import { ACTION_ERROR_PARAM } from "@/lib/search-params";
 
@@ -131,6 +134,36 @@ export async function archiveBookshelfAction(form: FormData): Promise<void> {
     }),
   );
   back("/quan-tri/tu-sach", code);
+}
+
+// ── Categories ─────────────────────────────────────────────────────────────
+//
+// Task 2 (QA remediation). All three are global — `categories` has no
+// `bookshelf_id` — so `submitAdminCommand` is called with no `bookshelfId`,
+// exactly as `createBookshelfAction` and `promoteSuperAdminAction` are above.
+
+export async function createCategoryAction(form: FormData): Promise<void> {
+  const code = await attempt(() =>
+    submitAdminCommand(createCategory, { name: field(form, "ten") }),
+  );
+  back("/quan-tri/the-loai", code);
+}
+
+export async function renameCategoryAction(form: FormData): Promise<void> {
+  const code = await attempt(() =>
+    submitAdminCommand(renameCategory, {
+      id: field(form, "the-loai"),
+      name: field(form, "ten"),
+    }),
+  );
+  back("/quan-tri/the-loai", code);
+}
+
+export async function archiveCategoryAction(form: FormData): Promise<void> {
+  const code = await attempt(() =>
+    submitAdminCommand(archiveCategory, { id: field(form, "the-loai") }),
+  );
+  back("/quan-tri/the-loai", code);
 }
 
 // ── Managers ───────────────────────────────────────────────────────────────

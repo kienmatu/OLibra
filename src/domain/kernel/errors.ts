@@ -45,6 +45,15 @@ export const ERROR_MESSAGES = {
   required_fields_missing: "Vui lòng điền đầy đủ các trường bắt buộc.",
   copy_count_invalid: "Số bản phải lớn hơn 0.",
   category_not_found: "Không tìm thấy thể loại này.",
+  // QA remediation Task 2: `categories` had a table (`0004_catalogue.sql`) and
+  // a seed script (`src/db/seed.ts:103`) but no command and no screen, so a
+  // fresh install — one that never ran the seed — could never satisfy the
+  // required "Thể loại" field on "Thêm sách mới" and could never catalogue a
+  // single book. `src/domain/catalogue/commands/create-category.ts` and its
+  // siblings are the fix; these two codes are the refusals that family adds.
+  duplicate_category: "Thể loại này đã có rồi.",
+  category_in_use:
+    "Còn sách thuộc thể loại này, không xoá được. Đổi thể loại cho những cuốn đó trước.",
   // Q3, decided in the B1 plan: BR §7.1 draws only on_loan → lost. The
   // sentence names what is allowed instead, per BR §17.7.
   copy_not_on_loan: "Chỉ có thể báo mất bản sách đang được mượn.",
