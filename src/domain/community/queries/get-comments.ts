@@ -109,25 +109,36 @@ export async function getPendingComments(
 }
 
 /**
- * The moderation screen's second half — **what was already let through**, most
- * recent first, so a manager who approved something by mistake can find it and
- * hide it.
+ * The moderation screen's other three tabs — every comment already decided,
+ * most recent first. Was `getRecentlyApprovedComments`, one status baked in;
+ * Task 14 (2026-08-10 QA remediation) gave `/quan-ly/binh-luan`'s "Đã từ chối"
+ * and "Đã ẩn" chips something to read from, and a second and third
+ * near-identical copy of this statement — the same columns, the same joins,
+ * the same order by, one literal different — is exactly the shape this
+ * codebase's own architecture tests elsewhere exist to catch (`isUuid`,
+ * `pageNumber`, `statusFromParam` were each pulled to one copy for the same
+ * reason). `status` is a parameter instead.
  *
- * `hideComment` has existed since B3 with nothing that could name a comment to
- * pass it: the queue above returns `pending` rows only, and once one is approved
- * it leaves that list forever. This is the query that makes the *Ẩn* button on
- * the shipped screen reach a real comment instead of an invented one.
+ * `hideComment` reaches an `approved` row this returns; `rejected` and
+ * `hidden` rows are read-only here — neither has a command that moves it
+ * anywhere else, so the two tabs that show them render no action at all.
  *
- * Capped rather than paged. This is a "recently" list beside a queue, not a
- * browsable archive — a shelf of a few hundred books does not accumulate enough
- * comments for a second page to be the missing feature, and a manager looking
- * for one specific old comment is looking at the book's own page. The cap is a
- * parameter so the caller states it rather than inheriting a number from here.
+ * Capped rather than paged, for all three statuses alike. This is a
+ * "recently" list beside a queue, not a browsable archive — a shelf of a few
+ * hundred books does not accumulate enough comments for a second page to be
+ * the missing feature, and a manager looking for one specific old comment is
+ * looking at the book's own page. The cap is a parameter so the caller states
+ * it rather than inheriting a number from here.
+ *
+ * `getPendingComments` above stays its own function rather than folding in as
+ * a fourth `status`: it is unbounded and ascending (oldest first, because a
+ * queue is worked rather than browsed), where this is capped and descending —
+ * a different shape, not the same one with a different literal.
  */
-export async function getRecentlyApprovedComments(
+export async function getRecentComments(
   tx: Tx,
   ctx: TenantContext,
-  input: { limit?: number } = {},
+  input: { status: "approved" | "rejected" | "hidden"; limit?: number },
 ): Promise<PendingCommentRow[]> {
   requireManager(ctx);
 
@@ -146,7 +157,7 @@ export async function getRecentlyApprovedComments(
       from comments c
       join users u on u.id = c.author_id
       join books b on b.id = c.book_id
-     where c.status = 'approved'
+     where c.status = ${input.status}::comment_status
        and c.deleted_at is null
      -- id beside created_at for the reason getPendingComments above records:
      -- created_at carries no unique constraint, and an ordering without a
