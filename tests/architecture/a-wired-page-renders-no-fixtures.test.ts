@@ -145,9 +145,12 @@ test("the check can see both halves of what it compares", () => {
   // **The other half is now empty, and that is the end of this slice's work.**
   //
   // Every route file in the application reads the database or has nothing to
-  // read. `src/lib/fixtures.ts` still exists and is still imported by
-  // components — `coverForTitle`, exempted by name in the chrome rule below —
-  // but no *page* renders a parish's content from it.
+  // read. `src/lib/fixtures.ts` still exists, but Task 12 (2026-08-10 QA
+  // remediation) deleted its last component import — `coverForTitle`, from
+  // `book.tsx` — and emptied `FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE` below with
+  // it (see this file's opening docstring for the full account). No component
+  // reaches into the module any more either; `boundaries.test.ts` is the
+  // permanent version of that rule.
   //
   // Kept as `toEqual([])` rather than deleted, because the rule it guards is
   // permanent: a page added next month that starts from the fixtures, as every
