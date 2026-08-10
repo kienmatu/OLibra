@@ -281,8 +281,13 @@ export default async function StatsPage({
                     <span className="w-6 shrink-0 text-[16px] font-semibold text-meta">
                       {i + 1}
                     </span>
+                    {/* The slug, not the id. `quan-ly/sach/[id]` is a *slug*
+                        route — "every book URL in this app already carries
+                        one" — and linking the uuid 404s. The query returns
+                        both, which is why this was one character from being
+                        right and looked right until the crawler followed it. */}
                     <Link
-                      href={`/tu-sach/${slug}/quan-ly/sach/${row.bookId}`}
+                      href={`/tu-sach/${slug}/quan-ly/sach/${row.slug}`}
                       className="min-w-0 flex-1"
                     >
                       <BookTitle className="block text-[15px] leading-snug">
