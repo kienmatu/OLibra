@@ -333,3 +333,33 @@ test("an empty URL or key is refused before anything is written", async () => {
   ).rejects.toMatchObject({ code: "validation_failed" });
   expect(await requestOf(reader.userId)).toBeUndefined();
 });
+
+test("B6: approving a photograph keeps its storage key, so it can be deleted", async () => {
+  // The defect this closes: `users` held only a URL, so no code path knew the
+  // key `src/storage/s3.ts`'s `delete` takes, and a family asking for their
+  // child's photograph to be removed had no answer. `proposed_values` carried
+  // the key all along and approval threw it away — the one moment it was in
+  // hand.
+  //
+  // It also un-bakes `S3_PUBLIC_URL` from the row. SDD §6.8 claims changing
+  // provider is "a change of environment variables and nothing else"; a stored
+  // absolute URL made that false for every avatar already written.
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+
+  await runCommand(sql, readerCtx, proposeAvatarChange, upload(7));
+
+  const [request] = await sql<{ id: string }[]>`
+    select id from profile_change_requests where status = 'pending'
+  `;
+  await runCommand(sql, managerCtx, approveProfileChange, {
+    profileChangeRequestId: request.id,
+  });
+
+  const [person] = await sql<
+    { avatar_url: string | null; avatar_object: string | null }[]
+  >`select avatar_url, avatar_object from users where id = ${reader.userId}`;
+
+  expect(person.avatar_url).toBe(upload(7).avatarUrl);
+  // The half that was missing, and the half that makes deletion possible.
+  expect(person.avatar_object).toBe(upload(7).avatarObject);
+});

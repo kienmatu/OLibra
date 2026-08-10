@@ -316,6 +316,13 @@ export async function applyProfileFields(
 ): Promise<{ before: ProfileFields; after: ProfileFields }> {
   const has = (f: ProfileField): boolean => named(patch, f);
   const val = (f: ProfileField): string | null => patch[f] ?? null;
+  /**
+   * B6's companion column. Not a `ProfileField` — nothing proposes a storage
+   * key — so it is read off the patch directly, and only ever written in the
+   * same arm as `avatar_url`.
+   */
+  const avatarObject =
+    (patch as { avatar_object?: string | null }).avatar_object ?? null;
 
   // The eight arms below are the only place `PROFILE_FIELDS` is spelled a
   // second time — the driver takes a tagged template, so a column list cannot
@@ -329,7 +336,8 @@ export async function applyProfileFields(
   >`
     with prev as (
       select id, saint_name, full_name, date_of_birth::text as date_of_birth,
-             father_name, mother_name, phone, email, avatar_url
+             father_name, mother_name, phone, email, avatar_url,
+             avatar_object
         from users
        where id = ${userId} and deleted_at is null
          for update
@@ -342,7 +350,16 @@ export async function applyProfileFields(
       mother_name   = case when ${has("mother_name")}   then ${val("mother_name")}           else prev.mother_name end,
       phone         = case when ${has("phone")}         then ${val("phone")}                 else prev.phone end,
       email         = case when ${has("email")}         then ${val("email")}                 else prev.email end,
-      avatar_url    = case when ${has("avatar_url")}    then ${val("avatar_url")}            else prev.avatar_url end
+      avatar_url    = case when ${has("avatar_url")}    then ${val("avatar_url")}            else prev.avatar_url end,
+      -- B6. The storage key travels with the URL and is NOT a ProfileField:
+      -- nothing proposes a key, and giving it an entry in PROFILE_FIELDS would
+      -- demand a Vietnamese label for a storage identifier no reader ever sees
+      -- -- which profile-labels.ts refused to compile, correctly. So it moves
+      -- exactly when avatar_url moves, from the same patch, and a row can never
+      -- hold a URL and a key naming different objects. (No backticks in a SQL
+      -- comment here: this is inside a tagged template and one would end the
+      -- literal.)
+      avatar_object = case when ${has("avatar_url")}    then ${avatarObject}                     else prev.avatar_object end
       from prev
      where u.id = prev.id
     returning
@@ -353,7 +370,8 @@ export async function applyProfileFields(
       prev.mother_name   as before_mother_name,   u.mother_name   as after_mother_name,
       prev.phone         as before_phone,         u.phone         as after_phone,
       prev.email         as before_email,         u.email         as after_email,
-      prev.avatar_url    as before_avatar_url,    u.avatar_url    as after_avatar_url
+      prev.avatar_url    as before_avatar_url,    u.avatar_url    as after_avatar_url,
+      prev.avatar_object as before_avatar_object, u.avatar_object as after_avatar_object
   `;
 
   const side = (prefix: "before" | "after"): ProfileFields =>

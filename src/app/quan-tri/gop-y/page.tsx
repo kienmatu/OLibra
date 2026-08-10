@@ -156,9 +156,15 @@ export default function AdminFeedbackPage() {
             <Button variant="quiet" size="md">
               Đánh dấu đã đọc
             </Button>
-            <Button variant="ghost" size="md">
-              Lưu trữ
-            </Button>
+            {/* *Lưu trữ* removed by the product owner (2026-08-09).
+                `feedback_status` has exactly three values and the table has no
+                `deleted_at`, so the button needed a migration either way — and
+                a fourth *status* ("the administrator finished with it") and a
+                *soft delete* ("stop showing it at all") are different products
+                that nothing in the requirements chose between. `Đã xử lý` is
+                the end of the line, and a resolved message drops out of the
+                default list. OPS §4.4 listed the command provisionally and can
+                now drop it. */}
           </div>
         </main>
       </div>
