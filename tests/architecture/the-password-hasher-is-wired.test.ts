@@ -34,7 +34,18 @@ import {
  * The regression guard for *that* — an actual request, through Next's own
  * handler — is `tests/lib/registration-over-http.test.ts`, which this file
  * cannot replace: an in-process test, however it calls `hashFor`, never
- * crosses the layer boundary. What this file can and does check:
+ * crosses the layer boundary.
+ *
+ * **Why a gap like this survives in the product long enough for a QA sweep
+ * to find it, rather than the first reader who tries it**, is recorded in
+ * `src/domain/kernel/crypto.ts`'s own docstring: registration without
+ * credentials never reaches `hashFor`, and sign-in verifies through
+ * `src/auth/session.ts` directly rather than through this port, so the only
+ * path that ever needed the port wired is somebody typing a *new*
+ * password — which is exactly the path this bug, and the wiring gap before
+ * it, both went untried on.
+ *
+ * What this file can and does check:
  *
  * 1. The unwired default still throws (`NotWired`), so wiring is not
  *    decoration — the floor everything else stands on.

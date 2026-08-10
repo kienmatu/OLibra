@@ -34,6 +34,15 @@
  * other request. It is no longer the mechanism the request path depends on
  * being correct.
  *
+ * **Why a gap here goes unnoticed for so long in the product** — this bug
+ * and the one before it (`grep -rn setPasswordHasher src` once returned
+ * three comments *about* wiring and no call at all) — is recorded in
+ * `src/domain/kernel/crypto.ts`'s own docstring, not repeated here: in
+ * short, registration without credentials never reaches `hashFor`, and
+ * sign-in verifies through `src/auth/session.ts` directly rather than
+ * through this port, so the one path that ever needed it wired was
+ * "somebody types a password" — the path nobody had tried.
+ *
  * The `nodejs` guard is Next's documented shape: this file is also loaded in
  * the edge runtime, where `@node-rs/argon2` is a native addon that cannot
  * load. No route in this application runs on edge, so the guard is about the

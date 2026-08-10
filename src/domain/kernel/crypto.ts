@@ -36,6 +36,26 @@ export type PasswordVerifier = (plain: string, hash: string) => Promise<boolean>
  * domain side of that line: types, the two throwing defaults, the setters,
  * and `hashFor`/`verifyFor`, which read the current binding at call time so a
  * later wiring call sticks. Only `./errors` is imported.
+ *
+ * **Why an unwired port goes unnoticed in the product, and has twice.**
+ * `credentialsFrom` (`src/domain/members/registration.ts`) returns before
+ * `hashFor` is ever called whenever `username` and `password` are both
+ * blank — the ordinary case, since most children never supply a username —
+ * so the commonest path through registration never reaches this port at
+ * all. Sign-in does not reach it either: `src/auth/session.ts`'s `signIn`
+ * calls `verifyPassword` directly, not through `verifyFor` — deliberately,
+ * see that file's own note on why — so a seeded account with a password
+ * already set can always sign in, whether or not this port happens to be
+ * wired. Between the two, the only path that ever calls `hashFor`/
+ * `verifyFor` for real is somebody typing a *new* password: registering
+ * with one, or a manager or reader setting or changing one afterwards. That
+ * is why both wiring gaps this project has had went untried for as long as
+ * they did — the original one (before U5, nothing in the running
+ * application called either setter at all: `grep -rn setPasswordHasher src`
+ * returned three comments *about* wiring and no call) and this one (wired,
+ * but only in the `node` layer's copy). Seeded accounts signed in, a link
+ * crawl passed, and nobody had exercised the one path that actually needed
+ * this port until a QA sweep did.
  */
 let hasher: PasswordHasher = () => {
   throw new NotWired("password_hasher_not_wired");
