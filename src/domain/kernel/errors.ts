@@ -60,6 +60,12 @@ export const ERROR_MESSAGES = {
   // Distinct from `reason_required`, whose shipped sentence says "lý do
   // huỷ" — a cancellation. Withdrawing a copy from the shelf is not that.
   retire_reason_required: "Vui lòng ghi lý do ngừng dùng bản sách này.",
+  // QA remediation Task 19: `DonorFields`' own copy says "chọn đúng MỘT
+  // trong hai cách" and, until this task, `CreateBook`/`AddCopies` accepted
+  // both a chosen member and a typed name at once — measured live, writing
+  // both `acquired_from` and `acquired_from_membership_id` onto every copy.
+  // `assertSingleDonor` (`./policy.ts`) is the rule; this is its sentence.
+  donor_ambiguous: "Chọn bạn đọc hoặc gõ tên người tặng, không chọn cả hai.",
 
   // — circulation —
   copy_not_available: "Bản sách này đang được mượn hoặc đang giữ chỗ.",

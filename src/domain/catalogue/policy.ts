@@ -269,3 +269,38 @@ export function requireManager(ctx: TenantContext): void {
 export function requireReader(ctx: TenantContext): void {
   if (!atLeast(ctx.actor.role, "reader")) throw new RuleViolated("not_permitted");
 }
+
+/**
+ * QA remediation Task 19. `DonorFields` (`src/components/donor-fields.tsx`)
+ * has said "chọn đúng MỘT trong hai cách" — choose exactly ONE of the two
+ * ways — since it was written, and nothing enforced it: filling the donor
+ * `<select>` **and** the free-text box together used to write
+ * `acquired_from = 'bác Hoà'` *and* `acquired_from_membership_id = <that
+ * member's id>` onto every copy `CreateBook`/`AddCopies` produced — two
+ * contradicting attributions on one row. The CSV export
+ * (`../queries/exports.ts`) reports the free text, so the membership link a
+ * manager thought they had just recorded was silently discarded from every
+ * screen that reads `acquired_from_membership_id` while surviving, wrongly,
+ * in the export.
+ *
+ * A function that throws, not a `Block`. `CreateBook` and `AddCopies` are
+ * both already throwing inline the moment their own field checks fail
+ * (`required_fields_missing`, `copy_count_invalid`), and this is that same
+ * shape, factored out so the one rule reads identically in both callers
+ * rather than as two hand-written `if`s that could drift — the same
+ * reasoning `checkPolicyBound` (`../admin/policy.ts`) gives for itself.
+ *
+ * **Both blank is not ambiguous.** OPS §4.1 and the form's own copy call the
+ * donor optional — "nhiều sách là mua, không phải tặng" — so the ordinary
+ * case of a purchased book with no donor at all must keep working, and does:
+ * this only fires when *both* are non-blank.
+ */
+export function assertSingleDonor(
+  donorMembershipId: string | null | undefined,
+  donorName: string | null | undefined,
+): void {
+  const blank = (v: string | null | undefined) => !v || v.trim() === "";
+  if (!blank(donorMembershipId) && !blank(donorName)) {
+    throw new RuleViolated("donor_ambiguous");
+  }
+}

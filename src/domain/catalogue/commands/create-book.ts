@@ -2,7 +2,12 @@ import type { AuditEntry } from "../../kernel/audit";
 import { RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { allocateCopyCodes } from "../copy-codes";
-import { nextAvailableSlug, requireManager, slugifyTitle } from "../policy";
+import {
+  assertSingleDonor,
+  nextAvailableSlug,
+  requireManager,
+  slugifyTitle,
+} from "../policy";
 
 export interface DonorInput {
   /** A member of this shelf, chosen from a search (DB §4.4). */
@@ -56,6 +61,8 @@ export const createBook: Command<
   if (!Number.isInteger(input.copyCount) || input.copyCount < 1) {
     throw new ValidationFailed("copy_count_invalid", "copyCount");
   }
+  // QA remediation Task 19: see `assertSingleDonor`'s own docstring.
+  assertSingleDonor(input.donorMembershipId, input.donorName);
 
   const [category] = await tx<{ id: string }[]>`
     select id from categories
