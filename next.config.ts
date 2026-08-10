@@ -44,8 +44,10 @@ const nextConfig: NextConfig = {
        * where it can raise `file_too_large`; this only stops a body so large
        * that buffering it is itself the attack.
        * `tests/lib/avatar-over-http.test.ts` posts across the band and asserts
-       * which of the two decided — it is the only test in the suite that goes
-       * through Next's own handler rather than calling the action function.
+       * which of the two decided — one of two tests in the suite that go
+       * through Next's own handler rather than calling the action function
+       * (`tests/lib/registration-over-http.test.ts` is the other, sharing the
+       * same harness, `tests/support/http.ts`).
        */
       bodySizeLimit: "4mb",
     },

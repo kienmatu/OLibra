@@ -17,6 +17,7 @@ import {
   runQuery,
   type Tx,
 } from "../domain/kernel/unit-of-work";
+import { ensureCryptoWired } from "./crypto-wiring";
 import { REQUEST_PATH_HEADER, signInPathFor } from "./return-path";
 import { SESSION_COOKIE } from "./session-cookie";
 
@@ -302,11 +303,25 @@ async function signInPathForRequest(): Promise<string> {
  * seam keep compiling unchanged: a callback declaring two parameters is a
  * perfectly good three-parameter function, whereas widening the *return* type
  * would have been a change to every call site.
+ *
+ * **`ensureCryptoWired()` first, even though a read rarely needs a hasher.**
+ * `src/domain/kernel/crypto.ts` records the measurement: Turbopack bundles a
+ * module imported by both `src/instrumentation.ts` and a server action as two
+ * separate instances, so `instrumentation.ts` wiring its own copy at startup
+ * never reaches whichever copy actually serves a given request. The fix is
+ * that every seam a request can enter through wires its own instance on first
+ * use — this one and the other three `src/lib/crypto-wiring.ts` names,
+ * because a reader who *loads* `/dang-ky` and a reader who *submits* it are
+ * as likely to be the first request either layer's copy of this module ever
+ * serves. The call is idempotent after the first one, so calling it here too
+ * costs one boolean check.
  */
 export async function loadPage<T>(
   shelfSlug: string,
   read: (tx: Tx, ctx: TenantContext, viewer: Viewer) => Promise<T>,
 ): Promise<T> {
+  await ensureCryptoWired();
+
   let ctx: TenantContext;
   try {
     ctx = await contextForRequest(shelfSlug);
@@ -367,6 +382,8 @@ export async function loadPage<T>(
  * whatever the shelves were on the day of the build.
  */
 export async function loadPublicPage<T>(read: (tx: Tx) => Promise<T>): Promise<T> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
   return runPublicQuery(pool(), read);
 }
 
@@ -458,6 +475,9 @@ export async function submitAdminCommand<I, O>(
   input: I,
   bookshelfId = "",
 ): Promise<O> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
+
   const jar = await cookies();
   const ctx = await adminContextFor(pool(), {
     token: jar.get(SESSION_COOKIE)?.value ?? null,
@@ -587,6 +607,12 @@ export async function submitCommand<I, O>(
   command: Command<I, O>,
   input: I,
 ): Promise<O> {
+  // See `loadPage`'s docstring for why every seam calls this first. This is
+  // the seam `registerMembershipAction`, `SetReaderCredentials` and
+  // `ChangeOwnPassword` all write through — the one this task's defect was
+  // reached from.
+  await ensureCryptoWired();
+
   try {
     const ctx = await contextForRequest(shelfSlug);
     return await runCommand(pool(), ctx, command, input);

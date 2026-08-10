@@ -1,5 +1,6 @@
 import type { AuditEntry } from "../kernel/audit";
-import { NotWired, RuleViolated, ValidationFailed } from "../kernel/errors";
+import { hashFor, verifyFor } from "../kernel/crypto";
+import { RuleViolated, ValidationFailed } from "../kernel/errors";
 import type { TenantContext } from "../kernel/tenant";
 import type { Tx } from "../kernel/unit-of-work";
 import { loadParishContext } from "./parish-context";
@@ -68,40 +69,22 @@ export interface RegistrationResult {
   membershipId: string;
 }
 
-export type PasswordHasher = (plain: string) => Promise<string>;
-
 /**
- * Argon2id lives in `src/auth/password.ts`, which `src/domain` may not import
- * (`tests/architecture/boundaries.test.ts`). Injected once at module scope
- * rather than threaded through `RegistrationInput`, which would put a function
- * into the same object a command's inputs are logged and validated from.
- *
- * The default throws. An unwired hasher must fail loudly rather than write a
- * plausible-looking string into `password_hash`, where nobody would notice
- * until someone tried to sign in.
- *
- * `NotWired`, not `RuleViolated("not_permitted")` (M7, fix-report,
- * 2026-08-08-b2-members): the latter reads to a real caller as an ordinary
- * permission refusal — "Bạn không có quyền thực hiện việc này." — which is
- * exactly the wrong sentence for a boot-time wiring bug, and registration
- * *without* credentials keeps working regardless (most children never supply
- * a username), so the bug would otherwise surface far downstream, at the
- * first password anyone typed, dressed up as a business rule. See
- * `NotWired`'s own docstring for the rest of the reasoning, shared with
- * `verifier` below.
+ * The hasher and verifier used to live here as module-level `let`s, each
+ * injected once through its own setter. They moved to
+ * `../kernel/crypto` (M-QA1, 2026-08-10): Turbopack bundles a module
+ * imported by both `src/instrumentation.ts` (the `node` layer) and a server
+ * action (the `react-server` layer) as two separate instances, each with its
+ * own copy of every module-level binding — so wiring performed in one was
+ * invisible to the other, and `POST /dang-ky` 500'd for every reader who
+ * supplied a username and password. `crypto.ts` is not a new idea, only a
+ * new address: the same throwing defaults, the same reasoning for why they
+ * throw `NotWired` rather than fail silently or masquerade as a business
+ * refusal, now reached from a module every layer wires on its own — see that
+ * file's docstring for the rest of the argument, and
+ * `src/lib/crypto-wiring.ts` for where the wiring call itself lives and why.
  */
-let hasher: PasswordHasher = () => {
-  throw new NotWired("password_hasher_not_wired");
-};
-
-export function setPasswordHasher(next: PasswordHasher): void {
-  hasher = next;
-}
-
-/** The injected hasher, read at call time so a later `setPasswordHasher` sticks. */
-export function hashFor(plain: string): Promise<string> {
-  return hasher(plain);
-}
+export { hashFor, verifyFor } from "../kernel/crypto";
 
 const trimmed = (v: string | null | undefined) => (blank(v) ? null : v!.trim());
 
@@ -126,38 +109,7 @@ async function credentialsFrom(
   if (input.passwordConfirm !== undefined && input.passwordConfirm !== password) {
     throw new ValidationFailed("passwords_dont_match", "passwordConfirm");
   }
-  return { username, passwordHash: await hasher(password) };
-}
-
-/**
- * A password verifier, injected for the same reason the hasher is.
- *
- * M7 (fix-report, 2026-08-08-b2-members): an unwired verifier must still
- * never turn rule 2 into a back door, so it does not start *approving*
- * matches just because nobody wired it — but silently returning `false` was
- * the wrong way to stay safe. From outside, "no match" is indistinguishable
- * from a correctly wired verifier rejecting a genuinely wrong password: every
- * username-reuse attempt (BR §5.3) would fail closed to `username_taken`
- * forever, with nothing telling anyone the feature never worked. `NotWired`
- * keeps the same safe outcome — a caller still never gets treated as a match
- * — while making the cause impossible to miss: this only throws on the path
- * that would otherwise have compared a supplied password against a real
- * stored hash, i.e. exactly when the verifier would actually have had
- * something to do.
- */
-let verifier: (plain: string, stored: string) => Promise<boolean> = async () => {
-  throw new NotWired("password_verifier_not_wired");
-};
-
-export function setPasswordVerifier(
-  next: (plain: string, stored: string) => Promise<boolean>,
-): void {
-  verifier = next;
-}
-
-/** The injected verifier, same reason. Fails closed when unwired. */
-export function verifyFor(plain: string, stored: string): Promise<boolean> {
-  return verifier(plain, stored);
+  return { username, passwordHash: await hashFor(password) };
 }
 
 /**
@@ -270,7 +222,7 @@ export async function register(
     if (check.blocked) throw new ValidationFailed(check.reason!, "parishUnitL1Id");
   }
 
-  const existingId = await findExistingPerson(tx, input, verifier);
+  const existingId = await findExistingPerson(tx, input, verifyFor);
 
   let userId: string;
   if (existingId !== null) {

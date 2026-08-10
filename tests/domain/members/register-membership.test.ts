@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { hashPassword, verifyPassword } from "../../../src/auth/password";
 import { fixedClock } from "../../../src/domain/kernel/clock";
+import {
+  setPasswordHasher,
+  setPasswordVerifier,
+} from "../../../src/domain/kernel/crypto";
 import { RuleViolated, ValidationFailed } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runCommand } from "../../../src/domain/kernel/unit-of-work";
 import { registerMembership } from "../../../src/domain/members/commands/register-membership";
-import {
-  type RegistrationInput,
-  setPasswordHasher,
-  setPasswordVerifier,
-} from "../../../src/domain/members/registration";
+import { type RegistrationInput } from "../../../src/domain/members/registration";
 import { migrate } from "../../../src/db/migrate";
 import { makeParishUnits, makePerson, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";

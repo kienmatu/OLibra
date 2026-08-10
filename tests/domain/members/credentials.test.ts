@@ -2,15 +2,15 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { hashPassword, verifyPassword } from "../../../src/auth/password";
 import { resolveSession } from "../../../src/auth/session";
 import { fixedClock } from "../../../src/domain/kernel/clock";
+import {
+  setPasswordHasher,
+  setPasswordVerifier,
+} from "../../../src/domain/kernel/crypto";
 import { NotFound, RuleViolated } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runCommand } from "../../../src/domain/kernel/unit-of-work";
 import { changeOwnPassword } from "../../../src/domain/members/commands/change-own-password";
 import { setReaderCredentials } from "../../../src/domain/members/commands/set-reader-credentials";
-import {
-  setPasswordHasher,
-  setPasswordVerifier,
-} from "../../../src/domain/members/registration";
 import { migrate } from "../../../src/db/migrate";
 import { makeMember, makePerson, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";

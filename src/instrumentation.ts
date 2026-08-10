@@ -1,47 +1,47 @@
 /**
- * The application's composition root — the one place the domain's injected
- * setters are actually set.
+ * The application's startup hook — a `node`-layer warm-up, not the wiring
+ * itself.
  *
- * `src/domain/members/registration.ts` takes a `PasswordHasher` and a verifier
- * through `setPasswordHasher` / `setPasswordVerifier`, because Argon2id lives in
- * `src/auth/password.ts` and `tests/architecture/boundaries.test.ts` forbids
- * `src/domain` importing it. Both default to throwing `NotWired`, deliberately:
- * "an unwired hasher must fail loudly rather than write a plausible-looking
- * string into `password_hash`, where nobody would notice until someone tried to
- * sign in."
+ * This used to be the one place `src/domain/members/registration.ts`'s
+ * injected setters were actually set, on the theory that `register()` runs
+ * once per server process, before any request, which is what a composition
+ * root has to be. **It was not**, and the reason is Turbopack layering rather
+ * than anything wrong with that reasoning in isolation: Next builds this file
+ * into the `node` layer and every server action into the `react-server`
+ * layer, and a module imported by both — `src/domain/kernel/crypto.ts`
+ * (formerly the setters living directly in `registration.ts`) — is bundled
+ * into both, as two separate instances with two separate copies of every
+ * module-level binding. Calling `setPasswordHasher` here wired only the
+ * `node` layer's copy; `registerMembershipAction` ran in the `react-server`
+ * layer's copy, which stayed at its throwing default for the life of the
+ * process. Confirmed live by a QA sweep on 10/08/2026: this file's own
+ * startup log reported the hasher wired while `POST /dang-ky` 500'd for
+ * every reader who supplied a username and password, `NotWired` all the way
+ * up the stack from `hasher` in `registration.ts`.
  *
- * **Until U5, nothing in the running application called either setter.** The
- * test suite calls them in its own setup, so every command that hashes a
- * password was green; `grep -rn setPasswordHasher src` returned three comments
- * *about* the wiring and no call. `SetReaderCredentials` and `ChangeOwnPassword`
- * would both have thrown `password_hasher_not_wired` the first time a volunteer
- * used them in production.
+ * **The fix is `src/lib/page-data.ts`.** Its four entry points —
+ * `loadPage`, `loadPublicPage`, `submitCommand`, `submitAdminCommand` — each
+ * call `ensureCryptoWired()` as their first statement, which is what
+ * guarantees the request path: whichever layer's copy of `crypto.ts` a given
+ * request actually runs in, that copy wires itself on its own first call,
+ * rather than depending on a different layer having already done it.
  *
- * It stayed hidden because the two paths that look like they exercise it do not.
- * Registration without credentials is the ordinary case — most children never
- * supply a username — and takes the `username === null && password === null`
- * branch before the hasher is reached. Sign-in verifies through
- * `src/auth/session.ts`, which calls `verifyPassword` directly rather than
- * through the injected `verifyFor`. So the seeded accounts signed in, the crawl
- * passed, and the one thing nobody had done yet was change a password.
+ * This file still calls the same function, belt-and-braces: it warms the
+ * `node` layer before the first request arrives, which is a real (if small)
+ * saving of one `import()` on a cold start, and it is harmless — the port
+ * being wired earlier via this function does not stop `page-data.ts` also
+ * getting to check the idempotent flag on `wired` the way it does for every
+ * other request. It is no longer the mechanism the request path depends on
+ * being correct.
  *
- * **`instrumentation.ts` is Next's own startup hook**, run once per server
- * process before any request is served, which is what a composition root has to
- * be. The alternative — calling the setters from each action that needs them —
- * makes the wiring a property of whichever route happens to run first.
- *
- * The `nodejs` guard is Next's documented shape: this file is also loaded in the
- * edge runtime, where `@node-rs/argon2` is a native addon that cannot load. No
- * route in this application runs on edge, so the guard is about the bundler
- * rather than about behaviour.
+ * The `nodejs` guard is Next's documented shape: this file is also loaded in
+ * the edge runtime, where `@node-rs/argon2` is a native addon that cannot
+ * load. No route in this application runs on edge, so the guard is about the
+ * bundler rather than about behaviour.
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
-  const { hashPassword, verifyPassword } = await import("./auth/password");
-  const { setPasswordHasher, setPasswordVerifier } =
-    await import("./domain/members/registration");
-
-  setPasswordHasher(hashPassword);
-  setPasswordVerifier(verifyPassword);
+  const { ensureCryptoWired } = await import("./lib/crypto-wiring");
+  await ensureCryptoWired();
 }
