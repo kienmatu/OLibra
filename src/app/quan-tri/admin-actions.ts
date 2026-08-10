@@ -1,26 +1,33 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
+// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`,
+// `src/app/dang-nhap/actions.ts` and `src/app/tu-sach/[shelf]/quan-ly/actions.ts`
+// all already record: Vitest resolves no alias, and `tests/lib/admin-actions
+// .test.ts` (added in the Task 5 QA-remediation review round that found the
+// `back()` defect below) imports this module directly. This file was the one
+// action file in the app still on `@/`, which is exactly why no test had ever
+// been able to reach it.
+import { RuleViolated, ValidationFailed } from "../../domain/kernel/errors";
 import {
   archiveBookshelf,
   createBookshelf,
   updateBookshelfSettings,
-} from "@/domain/admin/commands/bookshelves";
+} from "../../domain/admin/commands/bookshelves";
 import {
   assignManager,
   promoteSuperAdmin,
   revokeManager,
-} from "@/domain/admin/commands/managers";
+} from "../../domain/admin/commands/managers";
 import {
   updateSiteContact,
   updateSystemDefaults,
-} from "@/domain/admin/commands/system-settings";
-import { archiveCategory } from "@/domain/catalogue/commands/archive-category";
-import { createCategory } from "@/domain/catalogue/commands/create-category";
-import { renameCategory } from "@/domain/catalogue/commands/rename-category";
-import { submitAdminCommand } from "@/lib/page-data";
-import { ACTION_ERROR_PARAM } from "@/lib/search-params";
+} from "../../domain/admin/commands/system-settings";
+import { archiveCategory } from "../../domain/catalogue/commands/archive-category";
+import { createCategory } from "../../domain/catalogue/commands/create-category";
+import { renameCategory } from "../../domain/catalogue/commands/rename-category";
+import { submitAdminCommand } from "../../lib/page-data";
+import { ACTION_ERROR_PARAM } from "../../lib/search-params";
 
 /**
  * OPS §4.5's writes — the administration surface's own commands.
@@ -75,8 +82,34 @@ function count(form: FormData, name: string): number | undefined {
   return Number.isSafeInteger(n) ? n : undefined;
 }
 
+/**
+ * `path`, plus `?loi=<code>` when there is one to report.
+ *
+ * **`&`, not always `?`, when `path` already carries a query string.**
+ * `updateBookshelfSettingsAction` below has redirected to
+ * `` `/quan-tri/tu-sach?tu-sach=${bookshelfId}` `` since this file was
+ * written, and a refusal from that action — `updateBookshelfSettings` throws
+ * `validation_failed` for a negative policy number, among others — used to
+ * reach this function with a `path` that already had a `?` in it, producing
+ * `/quan-tri/tu-sach?tu-sach=<id>?loi=<code>`. Nothing downstream parses that
+ * as two parameters: everything after the *first* `?` is one query string, so
+ * `?loi=` there is not a delimiter, it is four literal characters inside the
+ * value of `tu-sach` — `param(search, "tu-sach")` returns
+ * `"<id>?loi=<code>"`, which matches no real shelf, and `refusalFrom` finds no
+ * `loi` key at all. The refusal banner silently never rendered; the page
+ * silently fell back to the shelf list. Caught in review of Task 5 (QA
+ * remediation, 2026-08-10) while giving `assignManagerAction` below the
+ * identical shape (a target carrying `?tu-sach=`) rather than one more
+ * caller inheriting the same defect. `path.includes("?")` is the same test
+ * `URL` would apply; a template literal is used rather than the `URL`/
+ * `URLSearchParams` classes because every path here is already a known-good
+ * relative string and `redirect()` wants that string back, not a parsed
+ * object.
+ */
 function back(path: string, code: string | null): never {
-  redirect(code === null ? path : `${path}?${ACTION_ERROR_PARAM}=${code}`);
+  if (code === null) redirect(path);
+  const join = path.includes("?") ? "&" : "?";
+  redirect(`${path}${join}${ACTION_ERROR_PARAM}=${code}`);
 }
 
 // ── Shelves ────────────────────────────────────────────────────────────────
@@ -178,7 +211,14 @@ export async function assignManagerAction(form: FormData): Promise<void> {
       bookshelfId,
     ),
   );
-  back("/quan-tri/quan-ly-vien", code);
+  // Carries `?tu-sach=` back either way — success or refusal — so appointing
+  // several readers of the same parish in a row (the realistic fresh-install
+  // case `getManagerCandidates`' own docstring is about) does not make the
+  // administrator re-pick the shelf after every single one. The same shape
+  // `updateBookshelfSettingsAction` above already uses for its own target;
+  // `back`'s docstring is where the `?`-collision this could have repeated is
+  // recorded and fixed.
+  back(`/quan-tri/quan-ly-vien?tu-sach=${bookshelfId}`, code);
 }
 
 export async function revokeManagerAction(form: FormData): Promise<void> {

@@ -60,6 +60,25 @@ import {
  * view from `?tu-sach=` — a `GET` form re-requesting this same page — and using
  * it here rather than inventing a second one is what the controller notes for
  * this task asked for by name.
+ *
+ * **The shelf `<select>` offers only `status === "active"` shelves — an
+ * archived one is never a choice, not merely a labelled one.** Caught in
+ * review of this task's first pass, which listed every shelf and annotated an
+ * archived one "(đã lưu trữ)" rather than removing it — transparency where
+ * exclusion was needed. `archiveBookshelf`'s own docstring (`../../../domain
+ * /admin/commands/bookshelves.ts`) is explicit that `status`, not
+ * `deleted_at`, "is what makes an archived shelf unreachable by slug for
+ * everybody including its own admin", and there is no unarchive command
+ * anywhere in this codebase to undo that. `assignManager` itself does not
+ * check `status` at all — it only checks `deleted_at is null` — so appointing
+ * someone to an archived shelf would silently mint a membership that can
+ * never be exercised by anyone, ever: a redirect that looks exactly like every
+ * other success on this page, over a grant that is void on arrival. The
+ * manager list below still shows archived shelves' managers unfiltered
+ * (`getManagersList` carries the same `deleted_at is null`-only join it
+ * always has), because that list exists so a super_admin can still see and
+ * revoke what is already there — a different question from "should a *new*
+ * grant be offered here", which this picker answers no to.
  */
 export const dynamic = "force-dynamic";
 
@@ -82,28 +101,44 @@ export default async function AdminManagersPage({
   // for why a reload, not a script, is what narrows the second `<select>`.
   const chosenShelfId = param(search, "tu-sach") ?? null;
 
-  const { viewer, unreadFeedback, managers, shelves, candidates, chosenShelf } =
-    await loadAdminPage(async (tx, ctx, v) => {
-      const shelves = await getAdminOverview(tx, ctx);
-      // Read only when the id names a shelf this administrator just listed —
-      // the same guard `tu-sach/page.tsx` applies to its own `?tu-sach=`, so a
-      // stale or hand-edited value renders the picker rather than a 404 or an
-      // empty form.
-      const chosenShelf =
-        shelves.find((s) => s.bookshelfId === chosenShelfId) ?? null;
-      return {
-        viewer: v,
-        unreadFeedback: await countUnreadFeedback(tx, ctx),
-        managers: await getManagersList(tx, ctx),
-        // For the shelf id each revoke has to be scoped to — `auditScopeFor`'s
-        // sibling rule, and the reason `submitAdminCommand` takes one.
-        shelves,
-        chosenShelf,
-        candidates: chosenShelf
-          ? await getManagerCandidates(tx, ctx, chosenShelf.bookshelfId)
-          : null,
-      };
-    });
+  const {
+    viewer,
+    unreadFeedback,
+    managers,
+    shelves,
+    appointableShelves,
+    candidates,
+    chosenShelf,
+  } = await loadAdminPage(async (tx, ctx, v) => {
+    const shelves = await getAdminOverview(tx, ctx);
+    // Archived shelves are never offered here — see this page's docstring
+    // above for why a picker is a stricter question than the manager list's
+    // "what already exists". A hand-edited `?tu-sach=` naming an archived
+    // shelf is refused the identical way a `?tu-sach=` naming nothing is:
+    // `chosenShelf` stays null and the picker renders with nothing selected,
+    // never a silently-accepted grant.
+    const appointableShelves = shelves.filter((s) => s.status === "active");
+    // Read only when the id names an appointable shelf this administrator
+    // just listed — the same guard `tu-sach/page.tsx` applies to its own
+    // `?tu-sach=`, so a stale or hand-edited value renders the picker rather
+    // than a 404 or an empty form.
+    const chosenShelf =
+      appointableShelves.find((s) => s.bookshelfId === chosenShelfId) ?? null;
+    return {
+      viewer: v,
+      unreadFeedback: await countUnreadFeedback(tx, ctx),
+      managers: await getManagersList(tx, ctx),
+      // For the shelf id each revoke has to be scoped to — `auditScopeFor`'s
+      // sibling rule, and the reason `submitAdminCommand` takes one. The full
+      // list, archived included — see `shelfIdBySlug` below.
+      shelves,
+      appointableShelves,
+      chosenShelf,
+      candidates: chosenShelf
+        ? await getManagerCandidates(tx, ctx, chosenShelf.bookshelfId)
+        : null,
+    };
+  });
 
   const shelfIdBySlug = new Map(shelves.map((s) => [s.slug, s.bookshelfId]));
 
@@ -131,14 +166,16 @@ export default async function AdminManagersPage({
       <section className="mt-8 max-w-2xl space-y-6 rounded-card border border-hairline bg-surface p-5">
         <h2 className="text-[18px] font-semibold">Giao quyền quản lý</h2>
 
-        {shelves.length === 0 ? (
+        {appointableShelves.length === 0 ? (
           <p className="text-[15px] text-meta">Chưa có tủ sách nào.</p>
         ) : (
           <>
             {/* The GET companion this page's docstring explains: choosing a
                 shelf here is a full reload, carrying `?tu-sach=` back to this
                 same route, which is what lets the reader `<select>` below be
-                server-rendered rather than filtered by a script. */}
+                server-rendered rather than filtered by a script.
+                `appointableShelves`, not `shelves` — an archived shelf is
+                never a choice here, see this page's docstring. */}
             <form method="get" className="flex flex-wrap items-end gap-3">
               <div className="min-w-56 flex-1">
                 <Field label="Tủ sách" htmlFor="chon-tu-sach">
@@ -150,10 +187,9 @@ export default async function AdminManagersPage({
                     <option value="" disabled>
                       Chọn tủ sách
                     </option>
-                    {shelves.map((s) => (
+                    {appointableShelves.map((s) => (
                       <option key={s.bookshelfId} value={s.bookshelfId}>
                         {s.name}
-                        {s.status === "active" ? "" : " (đã lưu trữ)"}
                       </option>
                     ))}
                   </Select>
