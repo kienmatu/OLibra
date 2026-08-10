@@ -103,8 +103,8 @@ export function verifyFor(plain: string, hash: string): Promise<boolean> {
  *
  * Resets only this module's bindings. `src/lib/crypto-wiring.ts` keeps its
  * own `wired` flag and its own `resetCryptoWiringForTests()` — a test that
- * wants `ensureCryptoWired()` to actually re-run its `import()` and re-call
- * these setters has to reset both, which
+ * wants `ensureCryptoWired()` to actually re-call these setters, rather than
+ * return immediately because it already ran once, has to reset both, which
  * `tests/architecture/the-password-hasher-is-wired.test.ts` does.
  */
 export function resetCryptoForTests(): void {
