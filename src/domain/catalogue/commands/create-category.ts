@@ -19,13 +19,21 @@ export interface CreateCategoryInput {
  * `20260810_02_seed_default_categories.sql` is the other half, so nobody has
  * to find this screen before they can add their first book.
  *
- * **Global, like `createBookshelf`, and for the identical reason.**
- * `categories` carries no `bookshelf_id` (DATABASE.md §4.3) — it is reference
- * data every shelf shares — so this runs through `runGlobalCommand`, and the
- * check that stands in for the kernel escalation `runAdminCommand` would
- * otherwise supply is `requireSuperAdmin` below, the same call
- * `markFeedbackRead`/`resolveFeedback` make for the identical reason
- * (`../../community/commands/feedback.ts`).
+ * **Global, like `createBookshelf`, and run the identical way: through
+ * `runAdminCommand`, not `runGlobalCommand`.** `categories` carries no
+ * `bookshelf_id` (DATABASE.md §4.3) — reference data every shelf shares — and
+ * `submitAdminCommand` (`src/lib/page-data.ts`) always calls `runAdminCommand`,
+ * which is also the only one of the two runners that tolerates the empty
+ * `bookshelfId` a real super_admin context carries (`adminContextFor`).
+ * `runGlobalCommand` requires a non-empty, valid shelf id — correct for the
+ * shelf-scoped commands it actually serves (`markFeedbackRead`/
+ * `resolveFeedback`, still invoked through `runAdminCommand` in
+ * `feedback-inbox.test.ts` despite the name) but not satisfiable by a command
+ * with no shelf to be inside of at all, which this is. `requireSuperAdmin`
+ * below is not redundant with `runAdminCommand`'s own kernel-level check — see
+ * `requireSuperAdminActor` in `unit-of-work.ts` for why the two answer
+ * different questions — and it is the same call `markFeedbackRead`/
+ * `resolveFeedback` make for the identical reason.
  *
  * **The slug is folded once, from the name, with no override.** Unlike a
  * bookshelf's slug — which a founding administrator may want to hand-pick for
