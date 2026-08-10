@@ -317,10 +317,16 @@ test("the guard sees a page that reaches Postgres only through a helper", () => 
   // on it — yet a page whose only reach is through it must still be caught.
   expect(reachesTheDatabase("src/lib/shelf.ts")).toBe(true);
   expect(reachesTheDatabase("src/lib/lending.ts")).toBe(true);
-  // A page that still renders from fixtures is not swept up by it. Without
-  // this, "flag everything" would pass every test in the file.
+  // A page that reads nothing is not swept up by it. Without this, "flag
+  // everything" would pass every test in the file.
+  //
+  // D2 wired `thong-ke`, which used to be the second half of this pair. The
+  // landing page is the durable one — it is marketing copy and has nothing to
+  // read — and `quan-ly/cai-dat` stands in beside it until `GetShelfSettings`
+  // exists. When that lands, the negative half needs another page or this test
+  // has stopped comparing anything.
   expect(found).not.toContain("src/app/page.tsx");
-  expect(found).not.toContain(`${base}/thong-ke/page.tsx`);
+  expect(found).not.toContain(`${base}/cai-dat/page.tsx`);
 });
 
 test("every page that reaches the database is explicitly dynamic", () => {
