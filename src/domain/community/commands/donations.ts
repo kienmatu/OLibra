@@ -17,6 +17,23 @@ import { requireManager, requireReader } from "../../catalogue/policy";
  * **Deliberately thin.** OPS §4.4 says why: free text, an optional photograph, a
  * rough count, "because a child does not know a publisher or an ISBN, and book
  * data is only worth recording once a volunteer has the book in hand".
+ *
+ * **This table is for the *offer*, never for a copy's provenance — checked
+ * explicitly for QA remediation Task 20, not assumed.** DB §4.8
+ * (`docs/DATABASE.md`) draws the line: "`BookDonation` records a reader's
+ * offer to give books to the shelf, and a manager's decision on it — it is
+ * not the provenance of any physical object." Once `receiveDonation` below
+ * turns an offer into copies on the shelf, the physical object's own history
+ * lives on `book_copies.acquired_from` / `acquired_from_membership_id`
+ * instead (DB §4.4, `../../catalogue/commands/create-book.ts`'s `DonorInput`)
+ * — a *different* table, written by a *different* command
+ * (`CreateBook`/`AddCopies`, which `receiveDonation`'s own docstring says the
+ * manager runs separately). The only link between the two is the donor's
+ * membership id, carried by hand from this queue into that form's pre-fill;
+ * there is no foreign key from one table to the other, because a donation
+ * offer and a catalogued copy are not the same row wearing two names — a
+ * bag of ten books offered here can become three catalogued copies there,
+ * discovered to be duplicates, or never catalogued at all.
  */
 
 export interface OfferDonationInput {

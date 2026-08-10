@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ManagerCopyRow } from "@/domain/catalogue/queries/get-book-detail-manager";
 import {
@@ -354,6 +355,9 @@ export default async function ManagerBookDetailPage({
                   Đang ở đâu
                 </th>
                 <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                  Người tặng
+                </th>
+                <th className="px-4 py-3 text-[14px] font-medium text-meta">
                   Thao tác
                 </th>
               </tr>
@@ -380,6 +384,9 @@ export default async function ManagerBookDetailPage({
                   </td>
                   <td className="px-4 py-3 text-[15px] text-ink/85">
                     <CopyLocation copy={copy} />
+                  </td>
+                  <td className="px-4 py-3 text-[15px] text-ink/85">
+                    <DonorCell copy={copy} slug={slug} />
                   </td>
                   <td className="px-4 py-3">
                     <CopyActions
@@ -413,6 +420,9 @@ export default async function ManagerBookDetailPage({
               </div>
               <p className="mt-1.5 text-[14px] text-meta">
                 {CONDITION_LABELS[copy.condition]} · <CopyLocation copy={copy} />
+              </p>
+              <p className="mt-1 text-[14px] text-meta">
+                Người tặng: <DonorCell copy={copy} slug={slug} />
               </p>
               <div className="mt-3">
                 <CopyActions
@@ -738,6 +748,37 @@ function CopyLocation({ copy }: { copy: ManagerCopyRow }) {
   if (copy.state === "retired" && copy.retiredReason)
     return <>{copy.retiredReason}</>;
   if (copy.state === "available") return <>Trong tủ</>;
+  return <>—</>;
+}
+
+/**
+ * "Người tặng" — QA remediation Task 20. `acquiredFrom` and
+ * `acquiredFromMembershipId` have been written by `CreateBook`/`AddCopies`
+ * since B1 and read by `getBookDetailManager` since the same wave; this is
+ * the first screen either has ever been rendered on.
+ *
+ * A member donor links to their reader profile — the same
+ * `nguoi-doc/[id]` route the approval card and the readers list already
+ * link to, keyed by the membership id `acquiredFromMembershipId` carries —
+ * so a manager reading a copy's history years later can open an actual
+ * person's record rather than stare at a name. A free-text donor has no
+ * profile to link to and renders as typed. Neither present is the ordinary
+ * case (BR §16.3: "most copies still arrive with no donor recorded at
+ * all"), rendered as "—" rather than an empty cell so the column reads as
+ * answered rather than broken.
+ */
+function DonorCell({ copy, slug }: { copy: ManagerCopyRow; slug: string }) {
+  if (copy.acquiredFromMembershipId && copy.acquiredFromMembershipName) {
+    return (
+      <Link
+        href={`/tu-sach/${slug}/quan-ly/nguoi-doc/${copy.acquiredFromMembershipId}`}
+        className="text-sage hover:underline"
+      >
+        {copy.acquiredFromMembershipName}
+      </Link>
+    );
+  }
+  if (copy.acquiredFrom) return <>{copy.acquiredFrom}</>;
   return <>—</>;
 }
 

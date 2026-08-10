@@ -14,6 +14,15 @@ export interface ManagerCopyRow {
   acquiredOn: string | null;
   acquiredFrom: string | null;
   acquiredFromMembershipId: string | null;
+  /**
+   * The donor's own name, resolved from `acquiredFromMembershipId` — `null`
+   * whenever that id is `null`, and never `null` when it is set (a
+   * membership is never hard-deleted, DB §11, so the join cannot silently
+   * come up empty). QA remediation Task 20: this is the field the copies
+   * table did not render at all before this task — see this file's own
+   * docstring.
+   */
+  acquiredFromMembershipName: string | null;
   /** "Đang ở đâu" — the holder and due date when out, null when on the shelf. */
   holderName: string | null;
   dueOn: string | null;
@@ -51,6 +60,18 @@ export interface ManagerBookDetail {
  * (BR §11: never deleted) and the loan history (kept by `loans.book_id`
  * rather than by joining through the copy, precisely so it survives the copy
  * being retired — DB §4.5).
+ *
+ * **QA remediation Task 20.** `acquired_from` and `acquired_from_membership_id`
+ * have been selected here since B1 and rendered by no screen — a donor could
+ * be recorded on a copy and nobody could ever read it back. The fix is on the
+ * read side, this file and `sach/[id]/page.tsx`'s own new "Người tặng" column:
+ * a member donor is resolved to their name (below) so the column can link to
+ * their reader profile, a free-text donor renders as typed, and neither means
+ * this table should instead read from `book_donations` — DB §4.4 and §4.8 are
+ * explicit that the two record different moments (a donor's offer, before
+ * anything is catalogued, versus a copy's own provenance once it is), and
+ * `../commands/create-book.ts`'s `DonorInput` docstring restates the same
+ * boundary from the write side.
  */
 export async function getBookDetailManager(
   tx: Tx,
@@ -124,6 +145,7 @@ export async function getBookDetailManager(
       acquired_on: string | null;
       acquired_from: string | null;
       acquired_from_membership_id: string | null;
+      acquired_from_membership_name: string | null;
       lost_reported_at: string | null;
       retired_at: string | null;
       retired_reason: string | null;
@@ -136,6 +158,7 @@ export async function getBookDetailManager(
       cp.id, cp.code, cp.state, cp.condition, cp.condition_note,
       cp.acquired_on::text as acquired_on, cp.acquired_from,
       cp.acquired_from_membership_id,
+      du.full_name as acquired_from_membership_name,
       cp.lost_reported_at, cp.retired_at, cp.retired_reason,
       u.full_name as holder_name,
       l.due_on::text as due_on,
@@ -143,6 +166,13 @@ export async function getBookDetailManager(
     from book_copies cp
     left join loans_current l on l.copy_id = cp.id and l.status = 'active'
     left join users u on u.id = l.borrower_id
+    -- QA remediation Task 20's own join: the donor's membership, and the
+    -- user behind it — the same two-step reach search-readers-for-lending.ts
+    -- and get-readers-list.ts already use, because a membership carries no
+    -- name of its own (DB §4.1). No backticks in this comment: it sits
+    -- inside a tagged template and one would end the literal early.
+    left join memberships dm on dm.id = cp.acquired_from_membership_id
+    left join users du on du.id = dm.user_id
     where cp.book_id = ${input.bookId} and cp.deleted_at is null
     order by cp.code
   `;
@@ -218,6 +248,7 @@ export async function getBookDetailManager(
       acquiredOn: c.acquired_on,
       acquiredFrom: c.acquired_from,
       acquiredFromMembershipId: c.acquired_from_membership_id,
+      acquiredFromMembershipName: c.acquired_from_membership_name,
       holderName: c.holder_name,
       dueOn: c.due_on,
       isOverdue: c.is_overdue,
