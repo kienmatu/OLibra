@@ -1288,22 +1288,23 @@ export async function updateReaderProfileAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
   const membershipId = field(form, "thanh-vien");
 
-  const value = (name: string): string | null => {
-    const v = field(form, name);
-    return v === "" ? null : v;
-  };
-
   const outcome = complete(form, ["thanh-vien"])
     ? await attemptTyped(shelfSlug, updateReaderProfile, {
         membershipId,
         fields: {
-          saint_name: value("ten-thanh"),
-          full_name: value("ho-ten"),
-          date_of_birth: value("ngay-sinh"),
-          father_name: value("ten-cha"),
-          mother_name: value("ten-me"),
-          phone: value("dien-thoai"),
-          email: value("email"),
+          // `optional()` (this file's own helper, above): an empty box reads
+          // as `null`, "clear this field", never the empty string. All seven
+          // keys are still always present in the object below — only the
+          // *value* of each is optional, never the field itself. See this
+          // function's own docstring for why every field is sent regardless
+          // of what changed.
+          saint_name: optional(form, "ten-thanh"),
+          full_name: optional(form, "ho-ten"),
+          date_of_birth: optional(form, "ngay-sinh"),
+          father_name: optional(form, "ten-cha"),
+          mother_name: optional(form, "ten-me"),
+          phone: optional(form, "dien-thoai"),
+          email: optional(form, "email"),
         },
       })
     : INCOMPLETE;
