@@ -83,39 +83,24 @@ function QueueRow({
 }
 
 /**
- * *Bỏ qua*, disabled.
+ * ***Bỏ qua* is gone, and this note is what remains of it.**
  *
- * **The one control on this page that does nothing, and it is deliberate.**
- * OPS §4.2 calls `SkipRequest` "the least well-specified command in the
- * catalogue": the queue screen shows *Bỏ qua* and *Từ chối* as separate buttons
- * on the same pending row, and neither BR §7.2 nor the UI says what different
- * end state skip produces. The master plan's assumed reading is that skip
- * deprioritises rather than terminates — and that cannot be built without
- * storing a skip count, a `skipped_at` or a synthetic ordering key, which *is*
- * the "separate reservation concept" BR §7.2 says there is not. The three
- * readings (a no-op that only records; back of the queue; suppressed for one
- * turn) are materially different products to a child who asked first and keeps
- * being passed over, and choosing between them is not a technical call. The C2
- * plan §4 is the long version.
+ * OPS §4.2 called `SkipRequest` "the least well-specified command in the
+ * catalogue": the queue screen showed *Bỏ qua* and *Từ chối* side by side and
+ * neither BR §7.2 nor the UI said what different end state skip produced. The
+ * three readings — record only, back of the queue, suppressed for one turn —
+ * are materially different to a child who asked first and keeps being passed
+ * over, and two of the three need an ordering column that BR §7.2's "no
+ * separate reservation concept" argues against.
  *
- * So it renders the way *Xin mượn* did before U2 wired it: visible, because
- * removing it would be deciding the question by omission, and disabled, because
- * a button that quietly does nothing is worse than one that says it cannot.
- * `title` carries the reason to a pointer; the text beside each row carries it
- * to everyone else.
+ * **The product owner answered it by removing the button** (2026-08-09).
+ * *Từ chối*, which takes a reason the reader sees, is the only decision a
+ * manager makes about a queued request now. That is one concept for a
+ * volunteer to hold rather than two that differ in a way nobody could state.
+ *
+ * Recorded here rather than only in the plan because this file is where
+ * somebody will wonder where the button went.
  */
-function SkipButton() {
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      disabled
-      title="Chức năng bỏ qua chưa được mở."
-    >
-      Bỏ qua
-    </Button>
-  );
-}
 
 /**
  * What the held row says beneath itself: which copy is put aside, until when,
@@ -373,7 +358,6 @@ export default async function BorrowRequestsPage({
                         Xác nhận trao sách
                       </SubmitButton>
                     </form>
-                    <SkipButton />
                   </QueueRow>
                 ) : (
                   <QueueRow
@@ -396,9 +380,7 @@ export default async function BorrowRequestsPage({
                         queue={queue}
                         requestId={entry.requestId}
                       />
-                    ) : (
-                      <SkipButton />
-                    )}
+                    ) : null}
                     <RejectForm slug={slug} requestId={entry.requestId} />
                   </QueueRow>
                 ),

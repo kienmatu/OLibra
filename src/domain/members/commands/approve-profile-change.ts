@@ -174,11 +174,26 @@ export const approveProfileChange: Command<
   // check constraint behind it (DATABASE.md §4.11 names that as the price of
   // the design), and a row written by an older version of this application —
   // or by hand — could hold a blanked `full_name` or a date in a shape
-  // `::date` will misread. `pickProfileFields` also drops `avatar_object`,
-  // which the avatar wave stores here and which is never copied to `users`.
-  const proposed = normaliseProfilePatch(
+  // `::date` will misread.
+  //
+  // **`avatar_object` is carried across explicitly, and B6 is why.**
+  // `pickProfileFields` drops it — correctly, since it is not a `ProfileField`
+  // and nothing proposes a storage key on its own — but `users.avatar_object`
+  // is now the stored fact a photograph is addressed and *deleted* by, with the
+  // URL derived from it (`20260809_02_avatar_object.sql`). Before this it was
+  // written into `proposed_values` and then thrown away at approval, which is
+  // exactly how a child's photograph became undeletable: the row kept a URL and
+  // the key was lost at the one moment it was in hand. It rides beside
+  // `avatar_url` and `applyProfileFields` writes the two in the same arm, so a
+  // row can never hold a URL and a key naming different objects.
+  const proposed: Record<string, string | null> = normaliseProfilePatch(
     pickProfileFields(request.proposed_values),
   );
+  if (proposed.avatar_url !== undefined) {
+    const key = (request.proposed_values as { avatar_object?: unknown })
+      .avatar_object;
+    proposed.avatar_object = typeof key === "string" && key ? key : null;
+  }
   const { before, after } = await applyProfileFields(tx, subject.userId, proposed);
   const diff = diffProfileFields(before, after);
 
