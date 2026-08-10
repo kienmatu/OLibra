@@ -56,6 +56,10 @@ export interface BookQueue {
   title: string;
   author: string;
   slug: string;
+  /** `books.cover_url` — Task 12 (2026-08-10 QA remediation); see
+   *  `LoanForReturnRow` (`search-loans-for-return.ts`) for why this now
+   *  travels with the row rather than being matched from the title. */
+  coverUrl: string | null;
   /** `requests.length`, named so a screen does not have to explain itself. */
   waiting: number;
   requests: QueuedRequestRow[];
@@ -163,6 +167,7 @@ export async function getBorrowRequestQueue(
       title: string;
       author: string;
       slug: string;
+      cover_url: string | null;
       membership_id: string | null;
       parish_unit_l1_id: string | null;
       parish_unit_l2_id: string | null;
@@ -184,7 +189,7 @@ export async function getBorrowRequestQueue(
       row_number() over (
         partition by r.book_id order by r.requested_at asc, r.id asc
       )::int as position,
-      r.book_id, b.title, b.author, b.slug,
+      r.book_id, b.title, b.author, b.slug, b.cover_url,
       m.id as membership_id, m.parish_unit_l1_id, m.parish_unit_l2_id,
       r.member_id as reader_user_id,
       u.full_name as reader_name,
@@ -254,6 +259,7 @@ export async function getBorrowRequestQueue(
         title: r.title,
         author: r.author,
         slug: r.slug,
+        coverUrl: r.cover_url,
         waiting: 0,
         requests: [],
         freeCopies: freeByBook.get(r.book_id) ?? [],

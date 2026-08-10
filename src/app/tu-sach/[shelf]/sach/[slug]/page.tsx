@@ -247,7 +247,11 @@ export default async function BookDetailPage({
             desktop is unaffected by the mobile `order-*` values. */}
         <div className="flex flex-col md:grid md:grid-cols-[300px_1fr] md:gap-10">
           <div className="contents md:block">
-            <BookCover title={book.title} className="order-1 w-full text-[3rem]" />
+            <BookCover
+              title={book.title}
+              coverUrl={book.coverUrl}
+              className="order-1 w-full text-[3rem]"
+            />
 
             {detail.length > 0 ? (
               <dl className="order-8 mt-6 divide-y divide-hairline border-y border-hairline">

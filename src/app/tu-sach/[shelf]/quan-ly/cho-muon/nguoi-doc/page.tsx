@@ -114,7 +114,11 @@ export default async function ChoMuonNguoiDocPage({
       <div className="mt-6 flex max-w-xl items-center gap-3 rounded-card border border-hairline bg-paper p-4">
         {book ? (
           <>
-            <BookCover title={book.book.title} className="w-12 text-[1rem]" />
+            <BookCover
+              title={book.book.title}
+              coverUrl={book.book.coverUrl}
+              className="w-12 text-[1rem]"
+            />
             <div className="min-w-0 flex-1">
               <p className="text-[13px] text-meta">Sách đã chọn</p>
               <BookTitle className="block truncate text-base leading-snug">

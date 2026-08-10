@@ -67,6 +67,36 @@ test("the domain does not import the object store", () => {
   expect(offenders).toEqual([]);
 });
 
+test("no component reaches into the fixtures module", () => {
+  // Task 12 (2026-08-10 QA remediation). `src/components/ui/book.tsx` called
+  // `coverForTitle(title)` from `@/lib/fixtures` on every render, including on
+  // pages that read `books.cover_url` from the database — so a title's
+  // *artwork* was chosen by matching its *name* against eleven invented
+  // fixture books, on every page, database-backed or not. A brand-new parish,
+  // Giáo xứ Thánh Tâm, catalogued a book called "Dế Mèn Phiêu Lưu Ký" — the
+  // exact title one of the eleven fixtures carries — and the public book page
+  // served `public/covers/de-men-phieu-luu-ky.svg`, whose caption line read
+  // "Tủ sách Đồng Tháp": a different parish's name, printed on the artwork, on
+  // a public page. `books.cover_url` existed in the schema the whole time and
+  // was never read.
+  //
+  // Same detection approach as the three domain-boundary checks above: every
+  // specifier shape (static, side-effect, dynamic `import()`, `require`, and a
+  // relative reach-up out of wherever a file happens to sit under
+  // `src/components/`) is forbidden, not just the `@/lib/fixtures` alias form
+  // a straightforward import would use. A file two directories deep writing
+  // `../../lib/fixtures` is the same reach by a different spelling, and an
+  // editor's autocomplete produces exactly that spelling as readily as the
+  // alias.
+  const forbidden =
+    /\b(?:from|import|require)\s*\(?\s*["'](?:@\/lib\/fixtures|\.\.\/(?:\.\.\/)*lib\/fixtures)["']/;
+  const offenders = filesUnder("src/components")
+    .filter((f) => forbidden.test(readFileSync(f, "utf8")))
+    .map((f) => f.replace(process.cwd() + "/", ""));
+
+  expect(offenders).toEqual([]);
+});
+
 test("the domain does not use Bun-specific APIs", () => {
   // G9. The runtime is Bun, but the build and the tests run on Node, and the
   // domain must stay runnable under both. Comments and strings are stripped

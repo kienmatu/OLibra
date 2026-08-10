@@ -221,6 +221,7 @@ export default async function ShelfHomePage({
                     title={book.title}
                     author={book.author}
                     status={statusForAvailability(book.availability)}
+                    coverUrl={book.coverUrl}
                   />
                 </div>
               ))}

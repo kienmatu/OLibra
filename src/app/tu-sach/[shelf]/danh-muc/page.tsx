@@ -207,6 +207,7 @@ export default async function CataloguePage({
                 title={book.title}
                 author={book.author}
                 status={statusForAvailability(book.availability)}
+                coverUrl={book.coverUrl}
               />
             ))}
           </div>

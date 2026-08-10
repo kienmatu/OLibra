@@ -141,6 +141,7 @@ export default async function ReaderDashboardPage({
                 >
                   <BookCover
                     title={loan.title}
+                    coverUrl={loan.coverUrl}
                     className="w-20 shrink-0 text-lg sm:w-full sm:text-[1.5rem]"
                   />
                   <div className="min-w-0 flex-1 sm:mt-3">

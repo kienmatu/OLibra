@@ -118,7 +118,11 @@ export default async function ChoMuonTimSachPage({
                     below sm — `sm:contents` folds this wrapper away at sm and
                     up so its children rejoin the row as plain flex items. */}
                 <div className="flex items-center gap-4 sm:contents">
-                  <BookCover title={book.title} className="w-12 text-[1rem]" />
+                  <BookCover
+                    title={book.title}
+                    coverUrl={book.coverUrl}
+                    className="w-12 text-[1rem]"
+                  />
                   <div className="min-w-0 flex-1">
                     <BookTitle className="line-clamp-2 text-base leading-snug">
                       {book.title}

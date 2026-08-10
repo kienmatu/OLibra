@@ -317,7 +317,11 @@ export default async function BorrowRequestsPage({
         {queues.map((queue) => (
           <Card key={queue.bookId} className="space-y-1">
             <div className="flex flex-wrap items-center gap-4">
-              <BookCover title={queue.title} className="w-14 shrink-0" />
+              <BookCover
+                title={queue.title}
+                coverUrl={queue.coverUrl}
+                className="w-14 shrink-0"
+              />
               <div className="min-w-0 flex-1">
                 <BookTitle as="p" className="text-[19px] leading-snug">
                   {queue.title}

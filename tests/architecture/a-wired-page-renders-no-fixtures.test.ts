@@ -23,18 +23,30 @@ import { filesUnder } from "../support/source-text";
  *
  * **The rule below reads the route file only; the chrome rule further down
  * reads the components it renders.** This split is not tidiness, it is what
- * the first version got wrong: `src/components/ui/book.tsx` calls
+ * the first version got wrong: `src/components/ui/book.tsx` used to call
  * `coverForTitle` from the fixtures for its cover art, so *every* page showing
- * a book cover reaches the module, and a blanket transitive rule would flag all
- * of them. The original answer was to look at route files and nothing else,
- * which meant the check could not see the very shape its own opening paragraph
- * describes — chrome. U3 wave 1 found two live instances of it (the manager
- * sidebar's fixture badge, and a donor picker listing eleven invented children
- * on a wired page) and added `"no chrome rendered by a wired page renders
- * fixtures either"` below, exempting `coverForTitle` **by name** rather than
- * `book.tsx` by file. Moving the artwork map out of `fixtures.ts` is still the
- * honest end state and still nobody's slice; it is now one entry rather than a
- * blind spot.
+ * a book cover reached the module, and a blanket transitive rule would have
+ * flagged all of them. The original answer was to look at route files and
+ * nothing else, which meant the check could not see the very shape its own
+ * opening paragraph describes — chrome. U3 wave 1 found two live instances of
+ * it (the manager sidebar's fixture badge, and a donor picker listing eleven
+ * invented children on a wired page) and added `"no chrome rendered by a
+ * wired page renders fixtures either"` below, exempting `coverForTitle` **by
+ * name** rather than `book.tsx` by file.
+ *
+ * **That exemption is gone, and it is gone because the defect it was standing
+ * next to actually happened.** `coverForTitle` matched a book by *title*
+ * against eleven invented fixtures, so a real parish cataloguing a book with
+ * the same title as one of them — Giáo xứ Thánh Tâm's "Dế Mèn Phiêu Lưu Ký" —
+ * served `public/covers/de-men-phieu-luu-ky.svg`, captioned "Tủ sách Đồng
+ * Tháp", on its own public page. Task 12 (2026-08-10 QA remediation) gave
+ * `BookCover` a `coverUrl` prop read from `books.cover_url` and deleted the
+ * import; `tests/architecture/boundaries.test.ts` ("no component reaches into
+ * the fixtures module") is the permanent version of the rule this file could
+ * only state as a one-name exemption. `FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE`
+ * below is empty now rather than deleted — the mechanism stays for the next
+ * fixture the domain has not yet given a column to, which is exactly the
+ * shape this one was.
  *
  * Same reading strategy as the sibling tests in this directory — source text,
  * with comments removed and string literals *kept*, since the thing being
@@ -392,18 +404,27 @@ const FIXTURE_TARGETS_THAT_MAY_STILL_BE_LINKED = [
  * (the thing being looked for is in the chrome).
  *
  * **Exempted by symbol, not by file.** The top of this file records why the
- * original rule stopped at direct imports: `src/components/ui/book.tsx` calls
- * `coverForTitle` from the fixtures for its cover artwork, so every page
- * showing a book cover reaches the module. That is still true and still the
- * honest thing to fix elsewhere — moving the artwork map out of `fixtures.ts`
- * is a component change no slice has made. What has changed is that "so the
- * rule cannot look at components at all" was too big a concession: one named
- * export is exempt, everything else in that module is not, and a file that
- * imports `coverForTitle` *and* something else is reported for the something
- * else. A whole-file pass would have waved `donationQueue` through the moment
- * `book.tsx` grew a second import.
+ * original rule stopped at direct imports: `src/components/ui/book.tsx` used
+ * to call `coverForTitle` from the fixtures for its cover artwork, so every
+ * page showing a book cover reached the module. One named export was exempt
+ * rather than the whole file, so a file importing `coverForTitle` *and*
+ * something else was still reported for the something else — a whole-file
+ * pass would have waved `donationQueue` through the moment `book.tsx` grew a
+ * second import.
+ *
+ * **The component change arrived, and the list is empty because of it.**
+ * Task 12 (2026-08-10 QA remediation) gave `BookCover` a `coverUrl` prop read
+ * from `books.cover_url` and deleted the `coverForTitle` import — the finding
+ * that forced the move was a fixture cover captioned "Tủ sách Đồng Tháp"
+ * served on a different parish's public book page (this file's own top
+ * docstring has the full account). `coverForTitle` is gone from
+ * `fixtures.ts` too, so there is no symbol left to name here. The list stays
+ * rather than the mechanism being deleted with it: the next fixture the
+ * domain has not yet given a column to is exactly this shape again, and the
+ * escape hatch should still be one name wide when it is needed, not
+ * reinvented.
  */
-const FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE = ["coverForTitle"];
+const FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE: string[] = [];
 
 /**
  * The names a file imports from `src/lib/fixtures.ts`.
@@ -453,7 +474,7 @@ test("no chrome rendered by a wired page renders fixtures either", () => {
   expect([...new Set(offenders)].sort()).toEqual([]);
 });
 
-test("the chrome check reads the chrome, and the exemption is one name wide", () => {
+test("the chrome check reads the chrome, and book.tsx needs no exemption any more", () => {
   // Its own guard, for the reason every `toEqual([])` in this file has one: a
   // `fixtureSymbolsIn` that found nothing satisfies the rule above perfectly.
   //
@@ -463,14 +484,18 @@ test("the chrome check reads the chrome, and the exemption is one name wide", ()
     "src/components/shell/manager-shell.tsx",
   );
 
-  // The shape U3 removed, and the shape that must stay allowed.
+  // `fixtureSymbolsIn` still has to parse these shapes correctly even though
+  // `FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE` is empty today — nothing below
+  // asserts that either name is currently *exempt*, only that the parser
+  // extracts what a real import of each shape would name, so the mechanism
+  // still works the moment a future fixture needs it.
   expect(
     fixtureSymbolsIn('import { donationQueue } from "@/lib/fixtures";'),
   ).toEqual(["donationQueue"]);
   expect(
     fixtureSymbolsIn('import { coverForTitle } from "@/lib/fixtures";'),
   ).toEqual(["coverForTitle"]);
-  // A file that earns the exemption for one name does not earn it for another.
+  // Two named imports both come back, not just the first.
   expect(
     fixtureSymbolsIn(
       'import { coverForTitle, donationQueue } from "@/lib/fixtures";',
@@ -481,12 +506,14 @@ test("the chrome check reads the chrome, and the exemption is one name wide", ()
   // And an unrelated module is not the fixtures.
   expect(fixtureSymbolsIn('import { cn } from "@/lib/utils";')).toEqual([]);
 
-  // `book.tsx` really is the file the exemption is for, and really does import
-  // only that one name — so the exemption is not quietly covering something
-  // else today.
+  // `book.tsx` no longer imports anything from the fixtures at all — Task 12
+  // deleted the one import this exemption existed for, and `coverForTitle`
+  // itself is gone from `fixtures.ts`. This is the assertion that would have
+  // caught the defect staying fixed: if a future edit reached back into the
+  // fixtures module from this file, this line is what turns red.
   expect(
     fixtureSymbolsIn(readFileSync("src/components/ui/book.tsx", "utf8")),
-  ).toEqual(["coverForTitle"]);
+  ).toEqual([]);
 });
 
 test("no page that reads the database links to a page that renders fixtures", () => {

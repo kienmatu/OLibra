@@ -135,6 +135,7 @@ export default async function SearchPage({
                       <div className="flex items-center gap-4 sm:contents">
                         <BookCover
                           title={book.title}
+                          coverUrl={book.coverUrl}
                           className="w-13 text-[1.2rem]"
                         />
                         <div className="min-w-0 flex-1">
@@ -202,6 +203,7 @@ export default async function SearchPage({
                     >
                       <BookCover
                         title={book.title}
+                        coverUrl={book.coverUrl}
                         className="w-full text-[1.4rem]"
                       />
                       <BookTitle className="mt-2 line-clamp-2 block text-[14px] leading-snug group-hover:text-terracotta-ink">

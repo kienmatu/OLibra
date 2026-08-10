@@ -153,7 +153,11 @@ export default async function NhanTraPage({
             const isSelected = loan.loanId === selected?.loanId;
             const card = (
               <div className="flex items-start gap-4">
-                <BookCover title={loan.title} className="w-16 text-[1.2rem]" />
+                <BookCover
+                  title={loan.title}
+                  coverUrl={loan.coverUrl}
+                  className="w-16 text-[1.2rem]"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">

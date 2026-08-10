@@ -1246,15 +1246,15 @@ export function donationsByReader(readerId: string) {
   return donations.filter((d) => d.readerId === readerId);
 }
 
-/**
- * Cover artwork path for a title, or undefined if we have none and the kraft
- * placeholder should stand in.
- *
- * Looked up by title so existing `BookCover title={...}` call sites pick the
- * artwork up without every page having to thread a slug through. Once a real
- * data layer exists the cover should simply be a field on the book.
- */
-export function coverForTitle(title: string) {
-  const book = books.find((b) => b.title === title);
-  return book ? `/covers/${book.slug}.svg` : undefined;
-}
+// `coverForTitle` used to live here — cover artwork looked up by matching a
+// book's *title* against these eleven fixtures, which is what let a real
+// parish's book named the same as a fixture ("Dế Mèn Phiêu Lưu Ký") serve
+// `public/covers/de-men-phieu-luu-ky.svg`, captioned "Tủ sách Đồng Tháp", on
+// its own public page. Task 12 (2026-08-10 QA remediation) gave `BookCover`
+// a `coverUrl` prop read from `books.cover_url` instead and deleted this
+// function along with its one caller — the "once a real data layer exists"
+// this docstring used to defer to has arrived. The SVGs under
+// `public/covers/` are unchanged otherwise and still exist for a future
+// caller that wants to seed real artwork from them; only the caption line
+// naming Đồng Tháp was removed from each, so a fixture cover that does get
+// served again carries no other parish's name.

@@ -184,7 +184,11 @@ export default async function ChoMuonXacNhanPage({
         <Row label="Sách">
           {book ? (
             <div className="flex items-center gap-3">
-              <BookCover title={book.book.title} className="w-12 text-[1rem]" />
+              <BookCover
+                title={book.book.title}
+                coverUrl={book.book.coverUrl}
+                className="w-12 text-[1rem]"
+              />
               <div className="min-w-0">
                 <BookTitle className="block truncate text-base leading-snug">
                   {book.book.title}

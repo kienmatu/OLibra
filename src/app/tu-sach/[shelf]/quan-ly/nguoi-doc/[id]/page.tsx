@@ -723,7 +723,11 @@ export default async function ManagerReaderDetailPage({
                 key={loan.loanId}
                 className="flex items-center gap-3 rounded-card border border-hairline bg-surface p-3"
               >
-                <BookCover title={loan.title} className="w-12 text-[1rem]" />
+                <BookCover
+                  title={loan.title}
+                  coverUrl={loan.coverUrl}
+                  className="w-12 text-[1rem]"
+                />
                 <div className="min-w-0 flex-1">
                   <BookTitle className="block truncate text-[16px] leading-snug">
                     {loan.title}

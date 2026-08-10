@@ -127,7 +127,11 @@ export default async function NhanTraBaoMatPage({
           <dl className="mt-6 max-w-xl rounded-card border border-hairline bg-surface">
             <Row label="Sách">
               <div className="flex items-center gap-3">
-                <BookCover title={loan.title} className="w-12 text-[1rem]" />
+                <BookCover
+                  title={loan.title}
+                  coverUrl={loan.coverUrl}
+                  className="w-12 text-[1rem]"
+                />
                 <div className="min-w-0">
                   <BookTitle className="block truncate text-base leading-snug">
                     {loan.title}

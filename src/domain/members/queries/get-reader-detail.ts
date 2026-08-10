@@ -53,6 +53,10 @@ export interface ReaderDetail extends ReaderRow {
      * to either can only narrow what `loans` already returned.
      */
     title: string;
+    /** `books.cover_url` — Task 12 (2026-08-10 QA remediation); see
+     *  `search-loans-for-return.ts`'s `LoanForReturnRow` for why this now
+     *  travels with the row rather than being matched from the title. */
+    coverUrl: string | null;
     copyCode: string;
     dueOn: string;
     isOverdue: boolean;
@@ -153,13 +157,14 @@ export async function getReaderDetail(
       id: string;
       book_id: string;
       title: string;
+      cover_url: string | null;
       copy_code: string;
       due_on: string;
       is_overdue: boolean;
       days_remaining: number;
     }[]
   >`
-    select l.id, l.book_id, b.title, c.code as copy_code,
+    select l.id, l.book_id, b.title, b.cover_url, c.code as copy_code,
            l.due_on::text as due_on, l.is_overdue, l.days_remaining
     from loans_current l
     join books       b on b.id = l.book_id
@@ -212,6 +217,7 @@ export async function getReaderDetail(
       loanId: l.id,
       bookId: l.book_id,
       title: l.title,
+      coverUrl: l.cover_url,
       copyCode: l.copy_code,
       dueOn: l.due_on,
       isOverdue: l.is_overdue,

@@ -185,7 +185,11 @@ export default async function ManagerBookDetailPage({
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex gap-4">
-          <BookCover title={book.book.title} className="w-24 text-[1.6rem]" />
+          <BookCover
+            title={book.book.title}
+            coverUrl={book.book.coverUrl}
+            className="w-24 text-[1.6rem]"
+          />
           <div>
             <BookTitle as="h1" className="block text-[28px] leading-tight">
               {book.book.title}

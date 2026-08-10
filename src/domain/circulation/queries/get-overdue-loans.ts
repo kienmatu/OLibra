@@ -29,6 +29,10 @@ export interface OverdueLoanRow {
   copyCode: string;
   bookId: string;
   title: string;
+  /** `books.cover_url` — Task 12 (2026-08-10 QA remediation); see
+   *  `LoanForReturnRow`'s identical field for why this travels with the row
+   *  now rather than being matched from the title. */
+  coverUrl: string | null;
   /**
    * `loans.borrower_id` — a `users(id)`, not a `memberships(id)`
    * (`0005_circulation.sql:20`). Named for the id it actually carries, the same
@@ -135,6 +139,7 @@ export async function getOverdueLoans(
       copy_code: string;
       book_id: string;
       title: string;
+      cover_url: string | null;
       borrower_user_id: string;
       borrower_name: string;
       borrower_phone: string | null;
@@ -145,7 +150,7 @@ export async function getOverdueLoans(
     select
       l.id as loan_id,
       l.copy_id, c.code as copy_code,
-      l.book_id, b.title,
+      l.book_id, b.title, b.cover_url,
       l.borrower_id as borrower_user_id,
       u.full_name   as borrower_name,
       u.phone       as borrower_phone,
@@ -178,6 +183,7 @@ export async function getOverdueLoans(
     copyCode: r.copy_code,
     bookId: r.book_id,
     title: r.title,
+    coverUrl: r.cover_url,
     borrowerUserId: r.borrower_user_id,
     borrowerName: r.borrower_name,
     borrowerPhone: r.borrower_phone,
