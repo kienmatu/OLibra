@@ -3,7 +3,9 @@ import { PageHeading } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
+import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { getMyNotifications } from "@/domain/notifications/queries/get-my-notifications";
+import { isMemberlessSuperAdmin } from "@/lib/reader-area";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
@@ -35,15 +37,29 @@ export default async function ReaderNotificationsPage({
 }) {
   const { shelf: slug } = await params;
 
-  const { shelf, viewer, mine } = await loadPage(slug, async (tx, ctx, v) => ({
-    shelf: await readShelf(tx, ctx),
-    viewer: v,
-    mine: await getMyNotifications(tx, ctx, { limit: 50 }),
-  }));
-
   const base = `/tu-sach/${slug}`;
 
-  return (
+  const result = await loadPage(slug, async (tx, ctx, v) => {
+    const shelf = await readShelf(tx, ctx);
+    // See `src/lib/reader-area.ts`'s `isMemberlessSuperAdmin` — task 10,
+    // 2026-08-10 QA remediation. `getMyNotifications` scopes by
+    // `ctx.actor.userId`, which a super admin always has, so this branch is
+    // for consistency with the other four `/ho-so/*` pages, not to stop a
+    // crash: without it a super admin sees "Em đã đọc hết rồi." as if they
+    // were a reader with nothing unread.
+    if (isMemberlessSuperAdmin(ctx)) {
+      return { shelf, viewer: v, member: false as const };
+    }
+    return {
+      shelf,
+      viewer: v,
+      member: true as const,
+      mine: await getMyNotifications(tx, ctx, { limit: 50 }),
+    };
+  });
+
+  const { shelf, viewer } = result;
+  const chrome = (
     <>
       <ShelfHeader
         shelfName={shelf.name}
@@ -53,6 +69,23 @@ export default async function ReaderNotificationsPage({
         unreadNotifications={viewer.unreadNotifications}
       />
       <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/thong-bao`} />
+    </>
+  );
+
+  if (!result.member) {
+    return (
+      <>
+        {chrome}
+        <NotAReaderNotice />
+      </>
+    );
+  }
+
+  const { mine } = result;
+
+  return (
+    <>
+      {chrome}
 
       <main className="mx-auto max-w-3xl px-6 py-10">
         <div className="flex items-start justify-between gap-4">

@@ -4,15 +4,15 @@ import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
+import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { messageFor } from "@/domain/kernel/errors";
-import { getMyProfile } from "@/domain/members/queries/get-my-profile";
-import { loadParishContext } from "@/domain/members/parish-context";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
 import { formatDate } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
+import { loadReaderProfile } from "./load-profile";
 import {
   cancelProfileChangeAction,
   changeOwnPasswordAction,
@@ -70,31 +70,19 @@ export default async function ReaderProfilePage({
   const { shelf: slug } = await params;
   const refusal = refusalFrom(await searchParams);
 
-  const { shelf, viewer, profile, taxonomy, units } = await loadPage(
-    slug,
-    async (tx, ctx, v) => {
-      const parish = await loadParishContext(tx, ctx);
-      return {
-        shelf: await readShelf(tx, ctx),
-        viewer: v,
-        // `membershipId` comes from the session, never from the URL: a reader
-        // cannot ask for somebody else's profile by editing an address.
-        // `requireSelfOrManager` inside the query would refuse it anyway.
-        profile: await getMyProfile(tx, ctx, {
-          membershipId: ctx.actor.membershipId ?? "",
-        }),
-        taxonomy: parish.taxonomy,
-        units: parish.units,
-      };
-    },
-  );
+  const { shelf, viewer, load } = await loadPage(slug, async (tx, ctx, v) => ({
+    shelf: await readShelf(tx, ctx),
+    viewer: v,
+    // `membershipId` comes from the session, never from the URL: a reader
+    // cannot ask for somebody else's profile by editing an address.
+    // `requireSelfOrManager` inside the query would refuse it anyway.
+    // `loadReaderProfile` (`./load-profile.ts`) is where the branch this
+    // page used to skip lives now — see that module's own docstring for the
+    // 500 a super admin hit here before it existed.
+    load: await loadReaderProfile(tx, ctx),
+  }));
 
-  const showL1 = unitOptions(units, 1).length > 0;
-  const showL2 = hasVisibleLevel2(taxonomy, units);
-  const pending = profile.pendingChange;
-  const fields = profile.fields;
-
-  return (
+  const chrome = (
     <>
       <ShelfHeader
         shelfName={shelf.name}
@@ -104,6 +92,27 @@ export default async function ReaderProfilePage({
         unreadNotifications={viewer.unreadNotifications}
       />
       <ReaderTabs shelfSlug={slug} pathname={`/tu-sach/${slug}/ho-so`} />
+    </>
+  );
+
+  if (!load.member) {
+    return (
+      <>
+        {chrome}
+        <NotAReaderNotice />
+      </>
+    );
+  }
+
+  const { profile, taxonomy, units } = load;
+  const showL1 = unitOptions(units, 1).length > 0;
+  const showL2 = hasVisibleLevel2(taxonomy, units);
+  const pending = profile.pendingChange;
+  const fields = profile.fields;
+
+  return (
+    <>
+      {chrome}
 
       <main className="mx-auto max-w-xl px-6 py-10">
         <PageHeading

@@ -5,9 +5,11 @@ import { PageHeading } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
+import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { getMyLoanHistory } from "@/domain/circulation/queries/get-my-dashboard";
 import { CONDITION_LABELS } from "@/lib/status";
 import { isCopyCondition } from "@/domain/catalogue/policy";
+import { isMemberlessSuperAdmin } from "@/lib/reader-area";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
@@ -36,15 +38,29 @@ export default async function ReaderHistoryPage({
 }) {
   const { shelf: slug } = await params;
 
-  const { shelf, viewer, history } = await loadPage(slug, async (tx, ctx, v) => ({
-    shelf: await readShelf(tx, ctx),
-    viewer: v,
-    history: await getMyLoanHistory(tx, ctx, { limit: 200 }),
-  }));
-
   const base = `/tu-sach/${slug}`;
 
-  return (
+  const result = await loadPage(slug, async (tx, ctx, v) => {
+    const shelf = await readShelf(tx, ctx);
+    // See `src/lib/reader-area.ts`'s `isMemberlessSuperAdmin` — task 10,
+    // 2026-08-10 QA remediation. `getMyLoanHistory` scopes by
+    // `ctx.actor.userId`, which a super admin always has, so this branch is
+    // for consistency with the other four `/ho-so/*` pages, not to stop a
+    // crash: without it a super admin sees "Khi em mượn sách, lượt mượn sẽ
+    // hiện ở đây." as if they were a reader with an empty history.
+    if (isMemberlessSuperAdmin(ctx)) {
+      return { shelf, viewer: v, member: false as const };
+    }
+    return {
+      shelf,
+      viewer: v,
+      member: true as const,
+      history: await getMyLoanHistory(tx, ctx, { limit: 200 }),
+    };
+  });
+
+  const { shelf, viewer } = result;
+  const chrome = (
     <>
       <ShelfHeader
         shelfName={shelf.name}
@@ -54,6 +70,23 @@ export default async function ReaderHistoryPage({
         unreadNotifications={viewer.unreadNotifications}
       />
       <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/lich-su`} />
+    </>
+  );
+
+  if (!result.member) {
+    return (
+      <>
+        {chrome}
+        <NotAReaderNotice />
+      </>
+    );
+  }
+
+  const { history } = result;
+
+  return (
+    <>
+      {chrome}
 
       <main className="mx-auto max-w-3xl px-6 py-10">
         <PageHeading
