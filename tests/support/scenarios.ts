@@ -3,7 +3,7 @@ import { fixedClock } from "../../src/domain/kernel/clock";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runCommand } from "../../src/domain/kernel/unit-of-work";
 import { lendCopy } from "../../src/domain/circulation/commands/lend-copy";
-import { makeBookWithCopies, makeMember, makeShelf } from "./factories";
+import { makeBookWithCopies, makeMember, makeShelf, makeUser } from "./factories";
 
 /**
  * Multi-row starting positions, built out of `./factories.ts`'s single-row
@@ -50,6 +50,33 @@ export async function managerContext(
     manager,
     ctx: managerContextFor(shelf.id, manager, over.instant),
   };
+}
+
+/**
+ * A super_admin and the context the administration surface runs under.
+ *
+ * `bookshelfId` is the empty string and `membershipId` is null, which is what
+ * `adminContextFor` (`src/auth/guards.ts`) builds and what `Actor.membershipId`
+ * is documented as meaning: this person oversees every shelf and belongs to
+ * none. A test that gives them a shelf id here is testing a context the
+ * application never produces.
+ *
+ * The `is_super_admin` flag is set on the user row rather than only in the
+ * context, so a test that goes through `adminContextFor` and one that builds
+ * the context directly are talking about the same person.
+ */
+export async function superAdminContext(
+  sql: Sql,
+  instant: string = SCENARIO_CLOCK,
+) {
+  const user = await makeUser(sql, { fullName: "Quản trị viên hệ thống" });
+  await sql`update users set is_super_admin = true where id = ${user.id}`;
+  const ctx: TenantContext = {
+    bookshelfId: "",
+    actor: { userId: user.id, membershipId: null, role: "super_admin" },
+    clock: fixedClock(instant),
+  };
+  return { user, ctx };
 }
 
 /**

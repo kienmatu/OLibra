@@ -66,7 +66,7 @@ vi.mock("next/headers", () => ({
 
 // Imported after the mock is declared; `vi.mock` is hoisted above it either
 // way, but the ordering keeps the dependency readable.
-const { loadFile, loadPage, loadPublicPage } =
+const { loadAdminPage, loadFile, loadPage, loadPublicPage } =
   await import("../../src/lib/page-data");
 const { pool } = await import("../../src/db/client");
 
@@ -611,4 +611,89 @@ test("the header is handed the reader's own unread count, and only theirs", asyn
 
   const viewer = await viewerOf("dong-thap");
   expect(viewer.unreadNotifications).toBe(2);
+});
+
+// ── `loadAdminPage` — the seam with no shelf and no guest reading ───────────
+
+/**
+ * B4a. Three ways in and one way out: everything that is not a super_admin gets
+ * the same 404, and none of them gets a redirect.
+ *
+ * The redirect matters as much as the refusal. `loadPage` learned to send a
+ * signed-out visitor to `/dang-nhap` because a shelf's existence is already
+ * public and a 404 from a portal link is a dead end. Nothing links to
+ * `/quan-tri`, so U1 §3.4's original argument applies undiluted — a redirect
+ * would confirm the administration surface exists to whoever guessed the URL.
+ */
+async function adminRefusal(): Promise<{ notFound: boolean; redirect: string | null }> {
+  try {
+    await loadAdminPage(async () => "reached");
+    return { notFound: false, redirect: null };
+  } catch (err) {
+    return {
+      notFound: (err as { digest?: string }).digest === NOT_FOUND,
+      redirect: redirectTarget(err),
+    };
+  }
+}
+
+test("a visitor with no session gets a 404 from the admin seam, never a sign-in redirect", async () => {
+  session.path = "/quan-tri/gop-y";
+  expect(await adminRefusal()).toEqual({ notFound: true, redirect: null });
+});
+
+test("a signed-in reader gets the same 404, and so does a shelf manager", async () => {
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+
+  await signInAs(shelf.id, "reader", "bandoc");
+  expect(await adminRefusal()).toEqual({ notFound: true, redirect: null });
+
+  await signInAs(shelf.id, "manager", "quanly");
+  expect(await adminRefusal()).toEqual({ notFound: true, redirect: null });
+
+  // Even a shelf `admin` — the top of the *shelf* hierarchy — is not a
+  // super_admin. `memberships.role` tops out at `admin` and grants nothing
+  // here; the flag is on the user row.
+  await signInAs(shelf.id, "admin", "quantritusach");
+  expect(await adminRefusal()).toEqual({ notFound: true, redirect: null });
+});
+
+test("a super_admin reaches it, holding no membership of any shelf", async () => {
+  // The falsification for all three refusals above: if nobody could get in,
+  // they would pass against a seam that always threw.
+  await signInAs(null, "reader", "quantri");
+  await sql`update users set is_super_admin = true where username = 'quantri'`;
+
+  const ctx = await loadAdminPage(async (_tx, c) => c);
+  expect(ctx.actor.role).toBe("super_admin");
+  // No shelf, and no membership of one — the two facts `runAdminQuery` and
+  // `runAdminCommand` both depend on.
+  expect(ctx.bookshelfId).toBe("");
+  expect(ctx.actor.membershipId).toBeNull();
+});
+
+test("the admin seam reads across every shelf, which the shelf seam cannot", async () => {
+  const a = await makeShelf(sql, { slug: "dong-thap" });
+  const b = await makeShelf(sql, { slug: "vinh-long" });
+  await signInAs(null, "reader", "quantri");
+  await sql`update users set is_super_admin = true where username = 'quantri'`;
+
+  const slugs = await loadAdminPage(
+    (tx) => tx<{ slug: string }[]>`select slug from bookshelves order by slug`,
+  );
+
+  expect(slugs.map((r) => r.slug)).toEqual(["dong-thap", "vinh-long"]);
+  expect(a.id).not.toBe(b.id);
+});
+
+test("the admin seam's chrome names the person signed in", async () => {
+  // The same failure `viewerFor` exists to prevent, on the surface where it had
+  // no seam at all: `AdminShell` printed the constant "Giuse Trần Quốc Anh"
+  // over all seven administration pages.
+  await signInAs(null, "reader", "quantri");
+  await sql`update users set is_super_admin = true where username = 'quantri'`;
+
+  const viewer = await loadAdminPage(async (_tx, _ctx, v) => v);
+  expect(viewer.name).toBe("Giuse Trần Minh");
+  expect(viewer.role).toBe("super_admin");
 });

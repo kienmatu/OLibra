@@ -464,14 +464,38 @@ const ADMIN_NAV: { key: AdminNavKey; label: string; icon: LucideIcon }[] = [
   { key: "cai-dat", label: "Cài đặt", icon: Cog },
 ];
 
-/** Super-admin chrome — the whole network, not one shelf. */
+/**
+ * Super-admin chrome — the whole network, not one shelf.
+ *
+ * **`viewer` and `unreadFeedback` are `null` on a page that has not been wired**,
+ * exactly as `ManagerShell`'s two are, and for the reason its `ShellViewer`
+ * docstring gives: an unwired page must not be able to invent either. B4a wires
+ * `gop-y` and leaves the other six as they are, so both shapes have to admit
+ * "this page knows nothing" as a value rather than as a default.
+ *
+ * The badge is `unreadFeedback` alone rather than a `ShellCounts`-shaped bag.
+ * `ADMIN_NAV` has six entries and exactly one of them has a queue that can be
+ * behind — every other administration page is a list of things that exist, not
+ * of things waiting. A record keyed by nav key would be five nulls and a number.
+ */
 export function AdminShell({
   active,
+  viewer,
+  unreadFeedback,
   children,
 }: {
   active: AdminNavKey;
+  /** `null` on a page that has not been wired to `loadAdminPage` yet. */
+  viewer: ShellViewer | null;
+  /** `null` on a page that has not counted them. Never a written-in number. */
+  unreadFeedback: number | null;
   children: React.ReactNode;
 }) {
+  // Same rule as `ManagerShell`: the last word of a Vietnamese name is the
+  // given name, and a badge is absent rather than `0` when the queue is empty.
+  const initial = viewer?.name?.split(" ").at(-1)?.charAt(0) ?? null;
+  const badge = unreadFeedback && unreadFeedback > 0 ? unreadFeedback : null;
+
   return (
     // The sidebar is sticky and the document scrolls normally. The previous
     // shell locked the wrapper to the viewport and let main scroll inside it,
@@ -486,15 +510,13 @@ export function AdminShell({
           href: key === "tong-quan" ? "/quan-tri" : `/quan-tri/${key}`,
           label,
           icon,
-          // No badge anywhere in the super-admin nav, and never one written
-          // here: `/quan-tri/*` is Phase 3 and every one of its pages still
-          // renders fixtures.
-          count: null,
+          count: key === "gop-y" ? badge : null,
         }))}
-        // `/quan-tri/*` is Phase 3 and renders fixtures throughout: it resolves
-        // no viewer, so there is no session for this menu to end. The manager
-        // shell one function up is the one this slice gave a way out.
-        signOut={false}
+        // Only where there is a session to end — the same condition the
+        // manager shell uses, and the reason it is a condition rather than a
+        // constant: six of these seven pages are still unwired and resolve no
+        // viewer at all.
+        signOut={Boolean(viewer?.name)}
       />
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col self-start border-r border-hairline bg-paper md:flex">
         <div className="px-5 py-5">
@@ -527,26 +549,49 @@ export function AdminShell({
                   />
                 ) : null}
                 <Icon aria-hidden className="size-5 shrink-0" strokeWidth={1.75} />
-                {label}
+                <span className="flex-1 truncate">{label}</span>
+                {key === "gop-y" && badge !== null ? (
+                  <span className="rounded-control bg-surface px-1.5 text-[13px] font-semibold text-leather">
+                    {NUMBER.format(badge)}
+                  </span>
+                ) : null}
               </Link>
             );
           })}
         </nav>
 
-        <div className="mt-auto flex shrink-0 items-center gap-2.5 border-t border-hairline px-5 py-4">
-          <span
-            aria-hidden
-            className="flex size-9 items-center justify-center rounded-full bg-surface text-[15px] font-semibold text-leather"
-          >
-            A
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[15px] font-medium">
-              Giuse Trần Quốc Anh
+        {/* The person actually signed in, and until B4a this was the constants
+            "A", "Giuse Trần Quốc Anh" and "Quản trị viên" — the same defect
+            `ManagerShell` carried above, one shell over, on the seven pages
+            with the widest reach in the application. `roleLabel` is not used
+            here: every viewer who can render this shell is a `super_admin` by
+            construction (`loadAdminPage` refuses everyone else), so the word
+            is a fact about the surface rather than a lookup. */}
+        {viewer?.name ? (
+          <div className="mt-auto flex shrink-0 items-center gap-2.5 border-t border-hairline px-5 py-4">
+            <span
+              aria-hidden
+              className="flex size-9 items-center justify-center rounded-full bg-surface text-[15px] font-semibold text-leather"
+            >
+              {initial}
             </span>
-            <span className="block text-[13px] text-meta">Quản trị viên</span>
-          </span>
-        </div>
+            <span className="min-w-0">
+              <span className="block truncate text-[15px] font-medium">
+                {viewer.name}
+              </span>
+              <span className="block text-[13px] text-meta">Quản trị viên</span>
+            </span>
+            <form action={signOutAction} className="ml-auto flex shrink-0">
+              <button
+                type="submit"
+                aria-label="Đăng xuất"
+                className="inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
+              >
+                <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
+              </button>
+            </form>
+          </div>
+        ) : null}
       </aside>
 
       <main className="min-w-0 flex-1 px-6 py-8 md:px-10 md:py-10">

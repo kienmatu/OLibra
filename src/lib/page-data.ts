@@ -3,13 +3,15 @@ import { notFound, redirect } from "next/navigation";
 // Relative specifiers, not the `@/` alias: `tests/lib/page-data.test.ts`
 // imports this module, and Vitest resolves no alias (see any file under
 // `src/auth/`, which the suite has always imported the same way).
-import { contextFor } from "../auth/guards";
+import { adminContextFor, contextFor } from "../auth/guards";
 import { pool } from "../db/client";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
 import type { Role, TenantContext } from "../domain/kernel/tenant";
 import {
   type Command,
+  runAdminCommand,
+  runAdminQuery,
   runCommand,
   runPublicQuery,
   runQuery,
@@ -366,6 +368,111 @@ export async function loadPage<T>(
  */
 export async function loadPublicPage<T>(read: (tx: Tx) => Promise<T>): Promise<T> {
   return runPublicQuery(pool(), read);
+}
+
+/**
+ * How an **administration** page reads from the database — `loadPage`'s form
+ * for the one surface that belongs to no shelf and is not public.
+ *
+ * `loadPage` resolves a slug; `loadPublicPage` resolves nobody. `/quan-tri/*`
+ * is neither: it has no slug (its content is every shelf at once) and it is the
+ * least public surface in the application. So it gets its own seam rather than
+ * a parameter on one of the others — the same argument `loadPublicPage`'s
+ * docstring makes for being a *shorter* seam, run in the other direction.
+ *
+ * **Every refusal is `notFound()`, and there are two of them.**
+ *
+ * - `adminContextFor` returns `null` — no session, an expired one, or a signed-in
+ *   person whose `users.is_super_admin` is false.
+ * - `runAdminQuery` throws `RuleViolated("not_permitted")` from its own kernel
+ *   check.
+ *
+ * The second cannot fire while the first is doing its job, and it is caught
+ * anyway: the two answers must not be able to disagree, because a surface that
+ * 404s on one path and 500s on the other tells a probing caller which of the two
+ * checks it got past.
+ *
+ * **No redirect to sign in, unlike `loadPage`.** U2 §3.1 added that branch
+ * because a shelf's existence is already public — the portal links to it, so a
+ * 404 from a link the portal just displayed is a dead end for a member who
+ * simply is not signed in yet. Nothing links to `/quan-tri`. U1 §3.4's original
+ * argument therefore applies here undiluted: a redirect would confirm the
+ * administration surface exists and that the caller is one step from it, to
+ * every caller who guessed the URL.
+ *
+ * A `Viewer` is resolved exactly as `loadPage` does it, on the transaction that
+ * is already open, so the administration chrome names the person signed in
+ * rather than a fixture — which is the whole failure
+ * `a-wired-page-renders-no-fixtures.test.ts` exists for, and `/quan-tri`'s seven
+ * pages are where it currently has a blind spot.
+ */
+export async function loadAdminPage<T>(
+  read: (tx: Tx, ctx: TenantContext, viewer: Viewer) => Promise<T>,
+): Promise<T> {
+  const jar = await cookies();
+  const ctx = await adminContextFor(pool(), {
+    token: jar.get(SESSION_COOKIE)?.value ?? null,
+    clock: systemClock,
+  });
+  if (!ctx) notFound();
+
+  try {
+    return await runAdminQuery(pool(), ctx, async (tx, scoped) =>
+      read(tx, scoped, await viewerFor(tx, scoped)),
+    );
+  } catch (err) {
+    if (err instanceof RuleViolated && err.code === "not_permitted") notFound();
+    if (err instanceof NotFound && err.code !== "write_target_not_found") {
+      notFound();
+    }
+    throw err;
+  }
+}
+
+/**
+ * How an administration server action writes — `loadAdminPage`'s twin, and
+ * `submitCommand`'s counterpart.
+ *
+ * It keeps `submitCommand`'s division of labour exactly, so the two write seams
+ * cannot drift about what an error means: a `NotFound` other than the kernel's
+ * own `write_target_not_found` is a 404, and every `RuleViolated` propagates to
+ * the action, which renders it through `messageFor` beside the button that
+ * caused it (U1 §3.3).
+ *
+ * **`bookshelfId` is a parameter, and it is the one difference that matters.**
+ * `submitCommand` derives the shelf from the URL the form was posted from,
+ * which is what makes a manager's write unable to name another parish. An
+ * administrator's write is *about* a shelf they hold no membership of, so the
+ * shelf has to be nameable — `UpdateBookshelfSettings` on the shelf the form
+ * names, `AssignManager` into it. Passing it explicitly is what keeps its audit
+ * row landing on that shelf, where the shelf's own manager reads the log, rather
+ * than in the site-wide stream only the administrator can see.
+ *
+ * Omit it for a command that genuinely belongs to no shelf
+ * (`UpdateSystemDefaults`, `PromoteSuperAdmin`); `runAdminCommand` then requires
+ * every audit entry to declare `global: true` and refuses by name if one does
+ * not, rather than binding an empty string into a `uuid` column.
+ */
+export async function submitAdminCommand<I, O>(
+  command: Command<I, O>,
+  input: I,
+  bookshelfId = "",
+): Promise<O> {
+  const jar = await cookies();
+  const ctx = await adminContextFor(pool(), {
+    token: jar.get(SESSION_COOKIE)?.value ?? null,
+    clock: systemClock,
+  });
+  if (!ctx) notFound();
+
+  try {
+    return await runAdminCommand(pool(), { ...ctx, bookshelfId }, command, input);
+  } catch (err) {
+    if (err instanceof NotFound && err.code !== "write_target_not_found") {
+      notFound();
+    }
+    throw err;
+  }
 }
 
 /**

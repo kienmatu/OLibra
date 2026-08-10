@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
-import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
+import {
+  runAdminCommand,
+  runCommand,
+  runQuery,
+} from "../../../src/domain/kernel/unit-of-work";
 import {
   createAnnouncement,
   hideAnnouncement,
@@ -350,13 +354,32 @@ test("site-wide feedback carries no shelf, and only a super admin handles it", a
     runCommand(sql, ctx, markFeedbackRead, { feedbackId }),
   ).rejects.toMatchObject({ code: "not_permitted" });
 
+  // **And a super_admin still may not resolve it from inside a shelf.** This
+  // test used to pass a shelf-scoped super_admin context and assert only the
+  // status, so the audit row for a decision about the whole deployment landed
+  // in one parish's log — where that parish's manager reads it and no other
+  // parish sees anything. `auditScopeFor` (`feedback.ts`) now refuses; B4's
+  // `runAdminCommand` is the path with no shelf scope to mis-file into.
   const admin: TenantContext = {
     ...ctx,
     actor: { ...ctx.actor, role: "super_admin" },
   };
-  await runCommand(sql, admin, resolveFeedback, { feedbackId });
+  await expect(
+    runCommand(sql, admin, resolveFeedback, { feedbackId }),
+  ).rejects.toMatchObject({ code: "not_permitted" });
+
+  await runAdminCommand(
+    sql,
+    { ...admin, bookshelfId: "" },
+    resolveFeedback,
+    { feedbackId },
+  );
   const [after] = await sql<{ status: string }[]>`select status from feedback`;
   expect(after.status).toBe("resolved");
+  const [entry] = await sql<{ bookshelf_id: string | null }[]>`
+    select bookshelf_id from audit_log where action = 'feedback.resolved'
+  `;
+  expect(entry.bookshelf_id).toBeNull();
   expect(shelf.id).toBeTruthy();
 });
 

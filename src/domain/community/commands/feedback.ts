@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { RuleViolated, ValidationFailed } from "../../kernel/errors";
+import type { TenantContext } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
 import { requireSuperAdmin } from "../../members/policy";
 
@@ -129,13 +130,61 @@ export const submitFeedback: Command<
  */
 async function handled(
   tx: Parameters<typeof submitFeedback>[0],
+  ctx: TenantContext,
   feedbackId: string,
-): Promise<{ id: string; status: string }> {
-  const [row] = await tx<{ id: string; status: string }[]>`
-    select id, status from feedback where id = ${feedbackId}
+): Promise<{ id: string; status: string; global: boolean }> {
+  const [row] = await tx<
+    { id: string; status: string; bookshelf_id: string | null }[]
+  >`
+    select id, status, bookshelf_id from feedback where id = ${feedbackId}
   `;
   if (!row) throw new RuleViolated("write_target_not_found");
-  return row;
+  return {
+    id: row.id,
+    status: row.status,
+    global: auditScopeFor(ctx, row.bookshelf_id),
+  };
+}
+
+/**
+ * Where the audit row for a feedback action lands, decided from the **message**
+ * rather than from the caller — and refused outright when the two disagree.
+ *
+ * `feedback.bookshelf_id` is the schema's one nullable tenant column, so these
+ * two commands are the only ones in the catalogue whose target may belong to a
+ * shelf *or* to none. `toRow` (`../../kernel/audit.ts`) can only take the shelf
+ * from `ctx.bookshelfId`, which a command cannot set — so without this check the
+ * shelf on the audit row is whatever the *caller* happened to be scoped to, and
+ * nothing anywhere compares it to the message.
+ *
+ * Both ways that goes wrong are silent. An administrator resolving Vĩnh Long's
+ * message while scoped to Đồng Tháp writes "quản trị viên đã xử lý góp ý" into
+ * Đồng Tháp's audit log, where its own manager reads it and Vĩnh Long's manager
+ * never sees that anything happened. A site-wide message resolved under any
+ * shelf scope files a decision about the whole deployment into one parish's
+ * record. B3 shipped able to do both — `tests/domain/community/…` had the second
+ * one green, resolving a `bookshelf_id is null` message under a shelf context.
+ *
+ * So the message decides and the context must agree:
+ *
+ * - **Site-wide message** (`bookshelf_id is null`) → a global audit entry, which
+ *   only `runGlobalCommand`/`runAdminCommand` can write, and which requires the
+ *   caller to hold no shelf scope. A caller who is scoped to one is refused.
+ * - **A shelf's message** → an ordinary shelf-scoped entry, and the caller must
+ *   be scoped to *that* shelf, so the parish whose message it is gets the trace.
+ *
+ * `not_permitted` rather than a new code: the caller is a super_admin either
+ * way and no reader ever sees this. It is a wiring mistake, and the sentence a
+ * volunteer would read is not the point — `submitAdminCommand`'s `bookshelfId`
+ * parameter is what a correct caller passes.
+ */
+function auditScopeFor(ctx: TenantContext, messageShelf: string | null): boolean {
+  if (messageShelf === null) {
+    if (ctx.bookshelfId !== "") throw new RuleViolated("not_permitted");
+    return true;
+  }
+  if (ctx.bookshelfId !== messageShelf) throw new RuleViolated("not_permitted");
+  return false;
 }
 
 export const markFeedbackRead: Command<{ feedbackId: string }, void> = async (
@@ -144,7 +193,7 @@ export const markFeedbackRead: Command<{ feedbackId: string }, void> = async (
   input,
 ) => {
   requireSuperAdmin(ctx);
-  const row = await handled(tx, input.feedbackId);
+  const row = await handled(tx, ctx, input.feedbackId);
 
   await tx`
     update feedback
@@ -162,6 +211,7 @@ export const markFeedbackRead: Command<{ feedbackId: string }, void> = async (
       entityId: row.id,
       before: { status: row.status },
       after: { status: "read" },
+      global: row.global,
     },
   };
 };
@@ -172,7 +222,7 @@ export const resolveFeedback: Command<{ feedbackId: string }, void> = async (
   input,
 ) => {
   requireSuperAdmin(ctx);
-  const row = await handled(tx, input.feedbackId);
+  const row = await handled(tx, ctx, input.feedbackId);
 
   await tx`
     update feedback
@@ -190,6 +240,7 @@ export const resolveFeedback: Command<{ feedbackId: string }, void> = async (
       entityId: row.id,
       before: { status: row.status },
       after: { status: "resolved" },
+      global: row.global,
     },
   };
 };

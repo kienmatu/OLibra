@@ -152,6 +152,77 @@ test("no page that reads the database also renders fixtures", () => {
 });
 
 /**
+ * B4a, and the blind spot every rule in this file shared: **`src/lib/fixtures.ts`
+ * is not the only place invented content comes from**, so counting the pages
+ * still to be wired by grepping for that module undercounts.
+ *
+ * It reported twelve. All seven `/quan-tri/*` pages were missing from it,
+ * because each holds its invented rows *inline* — `const MESSAGES: Message[] =
+ * [{ sender: "Chị Nguyễn Thu Trang", … }]` in the feedback inbox, `const LOG` in
+ * the audit browser, `const MANAGERS` in the managers list. None names the
+ * fixtures module, so every rule above was green for the whole administration
+ * surface: the surface with the widest reach in the application was the one
+ * nothing in this file could see.
+ *
+ * **A heuristic was tried first and is not what this is.** The shape looks
+ * detectable — a module-level array of object literals — and measuring it
+ * against the real files is what showed it is not. `SORTS` on the overdue page
+ * (three fields, all literals) is a sort-order menu; `info` on the reader detail
+ * page (three fields) is built from real query results; and `ATTENTION` on the
+ * admin overview is two fields of pure fabrication ("Tủ sách Cần Thơ có 7 cuốn
+ * quá hạn"). No threshold separates them, because what distinguishes invented
+ * content from UI structure is what the strings *mean*.
+ *
+ * So this is an inventory instead: **the exact set of route files that do not
+ * read the database, pinned.** It is not clever and it cannot be fooled. Wiring
+ * a page fails this test until the page is struck off the list, which is the
+ * moment every rule above starts applying to it — and the moment the author is
+ * looking at this file, which is where the leftover-fixture rules are. Deleting
+ * a page fails it too.
+ *
+ * The list shrinks, slice by slice, to nothing. When it is empty this test and
+ * the fixture rules above have all done their job and should go together.
+ */
+const PAGES_NOT_YET_WIRED = [
+  // The two that are **finished** rather than pending, and belong on this list
+  // for the same reason the rest do: the list is "reads nothing", not "is
+  // unfinished", and a list that quietly excluded a category would be a list
+  // somebody could add to. `/` is the marketing landing page and `/loi` renders
+  // whatever error was thrown; neither has anything to read, and if either ever
+  // does, this line is where that gets noticed.
+  "src/app/loi/page.tsx",
+  "src/app/page.tsx",
+
+  "src/app/dang-ky/page.tsx",
+  "src/app/lien-he/page.tsx",
+  "src/app/quan-tri/cai-dat/page.tsx",
+  "src/app/quan-tri/nhat-ky/page.tsx",
+  "src/app/quan-tri/page.tsx",
+  "src/app/quan-tri/quan-ly-vien/[id]/page.tsx",
+  "src/app/quan-tri/quan-ly-vien/page.tsx",
+  "src/app/quan-tri/tu-sach/page.tsx",
+  "src/app/tu-sach/[shelf]/quan-ly/binh-luan/page.tsx",
+  "src/app/tu-sach/[shelf]/quan-ly/cai-dat/page.tsx",
+  "src/app/tu-sach/[shelf]/quan-ly/tang-sach/page.tsx",
+  "src/app/tu-sach/[shelf]/quan-ly/thong-bao/page.tsx",
+  "src/app/tu-sach/[shelf]/quan-ly/thong-ke/page.tsx",
+  "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
+  "src/app/tu-sach/[shelf]/toi/ho-so/page.tsx",
+];
+
+test("the set of unwired pages is exactly what this file says it is", () => {
+  const unwired = routes()
+    .filter((r) => !r.readsTheDatabase)
+    // `layout.tsx`, `route.ts` and the error/loading files are not pages that
+    // *should* read anything; the rule is about pages with content.
+    .filter((r) => r.path.endsWith("/page.tsx"))
+    .map((r) => r.path)
+    .sort();
+
+  expect(unwired).toEqual([...PAGES_NOT_YET_WIRED].sort());
+});
+
+/**
  * IMPORTANT 4 (fix-report, 2026-08-09-u2-shelf-and-portal), and the half the
  * rule above cannot see.
  *

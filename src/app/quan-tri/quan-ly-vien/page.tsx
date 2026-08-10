@@ -188,7 +188,7 @@ function ManagerCard({ m }: { m: ManagerRow }) {
 
 export default function AdminManagersPage() {
   return (
-    <AdminShell active="quan-ly-vien">
+    <AdminShell active="quan-ly-vien" viewer={null} unreadFeedback={null}>
       <PageHeading
         title="Quản lý viên"
         subtitle="9 người · 4 tủ sách"
