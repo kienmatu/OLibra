@@ -32,6 +32,19 @@ export const dynamic = "force-dynamic";
 const DONOR_PAGE_SIZE = 100;
 
 /**
+ * `?nam-xb=`/`?so-trang=` back to a number for `BookFields`' `defaultValues`,
+ * or `null` for anything that is not one — including "not present at all",
+ * which is the ordinary case (Task 13, 2026-08-10 QA remediation). Not
+ * `wholeNumber` from `../../actions.ts`: that helper reads a `FormData` field
+ * by name, and this reads a query-string value already in hand.
+ */
+function numberOrNull(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * BR §16.3's create form: "the create and edit form is single-column with the
  * cover uploader first, since a photograph is the strongest recognition cue."
  *
@@ -81,11 +94,22 @@ const DONOR_PAGE_SIZE = 100;
  *
  * Refusals come back through `?loi=` and render as `ERROR_MESSAGES`' own
  * sentences — `duplicate_isbn`, `category_not_found`, `copy_count_invalid`,
- * `required_fields_missing`. What the form does **not** do is repopulate itself,
- * which is a real cost and a small one here: unlike the registration form beside
- * it, none of these fields is a fact about a child, so the reason is simply that
- * a title and an author are quick to retype and a query string carrying a
- * description is not.
+ * `required_fields_missing`.
+ *
+ * **`BookFields` now repopulates itself on a refusal** (Task 13, 2026-08-10 QA
+ * remediation), which this docstring used to say was not worth doing: "a title
+ * and an author are quick to retype and a query string carrying a description is
+ * not." The second half is still true and is why this page is more conservative
+ * than `dang-ky`'s — no field here is a fact about a child, so there was never a
+ * privacy cost to weigh, only a convenience one, and a 300-character "Mô tả" does
+ * travel in the query string now. What changed is that `createBookAction` reuses
+ * `BookFields`' own `defaultValues` prop, the same one `sach/[id]/sua` already
+ * fills from `getBookForEdit` — wiring it from `?ten-sach=` and its seven
+ * siblings instead of from a row is a few lines, not a new mechanism, once the
+ * identical fix was already going into `dang-ky` and `nguoi-doc/moi` for their
+ * own, heavier reasons. `so-ban`, the donor picker and "Hiện sách này" stay out
+ * of it: each already defaults to something reasonable, and none of the four
+ * refusal codes above is caused by any of the three.
  */
 export default async function NewBookPage({
   params,
@@ -101,6 +125,26 @@ export default async function NewBookPage({
   // B3 owns that queue; the parameter is read now so the two halves agree when
   // it arrives, and it is a membership id the picker either has or ignores.
   const donorParam = param(search, "nguoi-tang");
+
+  // Task 13 (2026-08-10 QA remediation): what a manager typed, read back after
+  // a refusal — `createBookAction` writes these seven, and only these seven,
+  // in its own `?ten-sach=…` query string. `BookFields`' `defaultValues` prop
+  // already exists for `sach/[id]/sua`'s edit form; this is the same shape from
+  // a different source, not a new one. `Number(...)` rather than `wholeNumber`
+  // (which lives in `../../actions.ts` and reads a `FormData`, not a query
+  // string): a box the manager left blank reads back `undefined` here, and
+  // `Number(undefined)` is `NaN`, so an absent field renders empty rather than
+  // as the literal text "NaN".
+  const bookDefaults = {
+    title: param(search, "ten-sach") ?? "",
+    author: param(search, "tac-gia") ?? null,
+    categorySlug: param(search, "the-loai") ?? null,
+    publisher: param(search, "nxb") ?? null,
+    publishedYear: numberOrNull(param(search, "nam-xb")),
+    pageCount: numberOrNull(param(search, "so-trang")),
+    isbn: param(search, "isbn") ?? null,
+    description: param(search, "mo-ta") ?? null,
+  };
 
   const { shelf, viewer, counts, categories, donors } = await loadPage(
     slug,
@@ -155,7 +199,7 @@ export default async function NewBookPage({
       <form action={createBookAction} className="mt-8 max-w-2xl space-y-10">
         <input type="hidden" name="tu-sach" value={slug} />
 
-        <BookFields categories={categories} />
+        <BookFields categories={categories} defaultValues={bookDefaults} />
 
         {/* A code is assigned per copy, inside the command's own transaction.
             See this page's docstring for why no codes are previewed here — and

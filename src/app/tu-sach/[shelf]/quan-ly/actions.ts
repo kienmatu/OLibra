@@ -525,18 +525,48 @@ async function attemptDiscardingAvatar<I>(
  * box that held something else — `copy_count_invalid` ("Số bản phải lớn hơn 0.")
  * is the command's own answer to both, and re-deriving that refusal here would
  * be a second copy of a rule the command already owns.
+ *
+ * **The title, author and the rest of `BookFields` now come back on a refusal**
+ * (Task 13, 2026-08-10 QA remediation) — `sach/moi/page.tsx` used to say a
+ * title and an author are quick enough to retype that losing them was a small
+ * cost, and that stood while this was the only long form in `quan-ly/` that lost
+ * everything on a refusal. It no longer is: the identical fix went into
+ * `dang-ky` and `nguoi-doc/moi` for the same reason a shorter list, a category
+ * `<select>` and a description textarea are still nine fields to redo over one
+ * bad ISBN. The copy-count box, the donor picker and "Hiện sách này" stay out of
+ * it — each already defaults to something sensible (`so-ban` to 1, the checkbox
+ * to checked), and none of `createBook`'s refusal codes
+ * (`duplicate_isbn`, `category_not_found`, `copy_count_invalid`,
+ * `required_fields_missing`) is caused by any of the three, so losing them back
+ * to their defaults costs a manager nothing a refusal itself did not already
+ * ask them to reconsider.
  */
 export async function createBookAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
+
+  // Read once, used both as `createBook`'s input and — on a refusal — as what
+  // rides back in the query string. The raw, untrimmed-of-meaning strings for
+  // `nam-xb`/`so-trang`, not `wholeNumber`'s parse of them: a box that held
+  // "199x" should show "199x" again, not an empty one, even though `createBook`
+  // itself only ever sees the parsed number or `null`.
+  const title = field(form, "ten-sach");
+  const author = field(form, "tac-gia");
+  const categorySlug = field(form, "the-loai");
+  const publisher = optional(form, "nxb");
+  const publishedYearRaw = field(form, "nam-xb");
+  const pageCountRaw = field(form, "so-trang");
+  const isbn = optional(form, "isbn");
+  const description = optional(form, "mo-ta");
+
   const outcome = await attemptTyped(shelfSlug, createBook, {
-    title: field(form, "ten-sach"),
-    author: field(form, "tac-gia"),
-    categorySlug: field(form, "the-loai"),
-    publisher: optional(form, "nxb"),
+    title,
+    author,
+    categorySlug,
+    publisher,
     publishedYear: wholeNumber(form, "nam-xb"),
     pageCount: wholeNumber(form, "so-trang"),
-    isbn: optional(form, "isbn"),
-    description: optional(form, "mo-ta"),
+    isbn,
+    description,
     // An unchecked checkbox posts nothing at all, which is what makes this the
     // right way round: "Hiện sách này cho bạn đọc" checked means published.
     published: form.get("hien-thi") !== null,
@@ -548,7 +578,20 @@ export async function createBookAction(form: FormData): Promise<void> {
 
   const base = managerBase(shelfSlug);
   if (!outcome.ok) {
-    redirect(`${base}/sach/moi?${ACTION_ERROR_PARAM}=${outcome.code}`);
+    const params = new URLSearchParams({ [ACTION_ERROR_PARAM]: outcome.code });
+    for (const [name, value] of Object.entries({
+      "ten-sach": title,
+      "tac-gia": author,
+      "the-loai": categorySlug,
+      nxb: publisher,
+      "nam-xb": publishedYearRaw,
+      "so-trang": pageCountRaw,
+      isbn,
+      "mo-ta": description,
+    })) {
+      if (value) params.set(name, value);
+    }
+    redirect(`${base}/sach/moi?${params.toString()}`);
   }
   redirect(`${base}/sach`);
 }
@@ -573,14 +616,20 @@ export async function createBookAction(form: FormData): Promise<void> {
  * hand). The two commands "disagree about `pending` on purpose", as their own
  * docstrings put it.
  *
- * **Nothing the volunteer typed comes back on a refusal, and that is deliberate
- * rather than lazy.** Every other form in this file carries its state in the
- * query string so a refusal does not lose it. The fields here are a child's date
- * of birth, their parents' names and a family telephone number — BR §5.3's
- * manager-only facts — and a query string is written into browser history, into
- * a proxy's access log and into the address bar of a shared parish phone. The
- * form is re-typed instead. The alternative is a real cost, named here rather
- * than left to be discovered.
+ * **What the volunteer typed now comes back on a refusal** (Task 13, 2026-08-10
+ * QA remediation) — every field above except nothing, since this form, unlike
+ * `dang-ky`'s, has no password to withhold. This reverses what this action used
+ * to do, and the reversal is worth recording rather than quietly overwriting: a
+ * child's date of birth, their parents' names and a family telephone number are
+ * BR §5.3's manager-only facts, and a query string is written into browser
+ * history, into a proxy's access log and into the address bar of a shared parish
+ * phone — a real cost, and one this docstring used to accept in exchange for
+ * never carrying anything at all. What changed is the other side of the scale:
+ * a volunteer at the shelf, mid-conversation with a family, who mistypes a date
+ * of birth and gets every other field wiped along with it is not "a form
+ * re-typed", it is the conversation restarted. `registerMembership`'s own
+ * action (`dang-ky/actions.ts`) makes the identical call and gives the longer
+ * version of the argument.
  *
  * **It lands on the approval queue**, not on the readers list: the application
  * this just created is `pending`, so the readers list's default view is exactly
@@ -588,21 +637,46 @@ export async function createBookAction(form: FormData): Promise<void> {
  */
 export async function registerReaderOnBehalfAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
+
+  // Read once, used both as `registerMemberOnBehalf`'s input and — on a
+  // refusal — as what rides back in the query string.
+  const saintName = optional(form, "ten-thanh");
+  const fullName = field(form, "ho-ten");
+  const dateOfBirth = field(form, "ngay-sinh");
+  const fatherName = field(form, "ten-cha");
+  const motherName = field(form, "ten-me");
+  const phone = field(form, "dien-thoai");
+  // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
+  const parishUnitL1Id = optional(form, "parishUnitL1Id");
+  const parishUnitL2Id = optional(form, "parishUnitL2Id");
+
   const outcome = await attemptTyped(shelfSlug, registerMemberOnBehalf, {
-    saintName: optional(form, "ten-thanh"),
-    fullName: field(form, "ho-ten"),
-    dateOfBirth: field(form, "ngay-sinh"),
-    fatherName: field(form, "ten-cha"),
-    motherName: field(form, "ten-me"),
-    phone: field(form, "dien-thoai"),
-    // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
-    parishUnitL1Id: optional(form, "parishUnitL1Id"),
-    parishUnitL2Id: optional(form, "parishUnitL2Id"),
+    saintName,
+    fullName,
+    dateOfBirth,
+    fatherName,
+    motherName,
+    phone,
+    parishUnitL1Id,
+    parishUnitL2Id,
   });
 
   const base = managerBase(shelfSlug);
   if (!outcome.ok) {
-    redirect(`${base}/nguoi-doc/moi?${ACTION_ERROR_PARAM}=${outcome.code}`);
+    const params = new URLSearchParams({ [ACTION_ERROR_PARAM]: outcome.code });
+    for (const [name, value] of Object.entries({
+      "ten-thanh": saintName,
+      "ho-ten": fullName,
+      "ngay-sinh": dateOfBirth,
+      "ten-cha": fatherName,
+      "ten-me": motherName,
+      "dien-thoai": phone,
+      parishUnitL1Id,
+      parishUnitL2Id,
+    })) {
+      if (value) params.set(name, value);
+    }
+    redirect(`${base}/nguoi-doc/moi?${params.toString()}`);
   }
   redirect(`${base}/dang-ky-cho-duyet`);
 }

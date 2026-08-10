@@ -30,43 +30,92 @@ import { ACTION_ERROR_PARAM } from "../../lib/search-params";
  * surface sent something impossible. Same widening `attemptTyped` makes in
  * `../tu-sach/[shelf]/quan-ly/actions.ts`, for the same reason.
  *
- * **Nothing typed comes back on a refusal.** These are a child's date of birth,
- * both parents' names, a family telephone number and possibly a password — and
- * a query string is written into browser history, into a proxy's access log and
- * into the address bar of a shared parish phone. The form is re-typed instead.
- * The same call U3 recorded for the on-behalf form, and the cost is the same
- * and real.
+ * **Only the two password fields never come back.** Every other field the
+ * blocks below post — `ten-dang-nhap`, `ten-thanh`, `ho-ten`, `ngay-sinh`,
+ * `ten-cha`, `ten-me`, `dien-thoai`, and the two parish-unit selects — rides
+ * back in the query string on a refusal, the same trick `dang-nhap/actions.ts`
+ * already uses for `ten` on a failed sign-in.
+ *
+ * This reverses what this function used to do, on purpose and by name (Task 13,
+ * 2026-08-10 QA remediation), and the reversal is worth recording rather than
+ * quietly overwriting: the earlier version carried nothing back at all, on the
+ * reasoning that a child's date of birth, both parents' names and a family
+ * telephone number are sensitive enough that a query string — written into
+ * browser history, into a proxy's access log, into the address bar of a shared
+ * parish phone — is a real cost. That cost has not gone away and is still why
+ * the two password fields stay out of it unconditionally; a password is
+ * different in *kind*, not degree, from the rest of the form. What changed is
+ * the other side of the scale: measured on 2026-08-10, submitting a 3-character
+ * password came back with all nine fields empty, one of them the actual cause
+ * and eight of them collateral, and a parent or a child retyping a date of
+ * birth, two parents' names and a phone number over a mistyped password is the
+ * kind of friction that ends a registration rather than completing it. Between
+ * the two costs, this task chose the query string for everything but the
+ * secret.
  */
 export async function registerMembershipAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
   if (shelfSlug === "") redirect("/tu-sach");
+
+  // Read once, used both as `registerMembership`'s input and — on a refusal —
+  // as what rides back in the query string. Keeping one set of variables
+  // rather than reading the form twice is what keeps the two from silently
+  // drifting apart the day a field is renamed.
+  const username = optional(form, "ten-dang-nhap");
+  const saintName = optional(form, "ten-thanh");
+  const fullName = field(form, "ho-ten");
+  const dateOfBirth = field(form, "ngay-sinh");
+  const fatherName = field(form, "ten-cha");
+  const motherName = field(form, "ten-me");
+  const phone = field(form, "dien-thoai");
+  const email = optional(form, "email");
+  const parishUnitL1Id = optional(form, "parishUnitL1Id");
+  const parishUnitL2Id = optional(form, "parishUnitL2Id");
 
   try {
     await submitCommand(shelfSlug, registerMembership, {
       // Credentials are optional: OPS §4.3 and the form both say so, because
       // most children never supply one and a manager can set them later.
       // `credentialsFrom` refuses one without the other by name.
-      username: optional(form, "ten-dang-nhap"),
+      username,
       // Not trimmed — a password is bytes a person chose, and trimming one
       // silently changes the secret.
       password: raw(form, "mat-khau"),
       passwordConfirm: raw(form, "nhap-lai-mat-khau"),
-      saintName: optional(form, "ten-thanh"),
-      fullName: field(form, "ho-ten"),
-      dateOfBirth: field(form, "ngay-sinh"),
-      fatherName: field(form, "ten-cha"),
-      motherName: field(form, "ten-me"),
-      phone: field(form, "dien-thoai"),
-      email: optional(form, "email"),
-      // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
-      parishUnitL1Id: optional(form, "parishUnitL1Id"),
-      parishUnitL2Id: optional(form, "parishUnitL2Id"),
+      saintName,
+      fullName,
+      dateOfBirth,
+      fatherName,
+      motherName,
+      phone,
+      email,
+      parishUnitL1Id,
+      parishUnitL2Id,
     });
   } catch (err) {
     if (err instanceof RuleViolated || err instanceof ValidationFailed) {
-      redirect(
-        `/dang-ky?tu-sach=${encodeURIComponent(shelfSlug)}&${ACTION_ERROR_PARAM}=${err.code}`,
-      );
+      // `URLSearchParams`, not a hand-built template — `ho-ten`/`ten-cha`/
+      // `ten-me` are Vietnamese text a person typed, free to contain `&`, `=`
+      // or `%` as well as diacritics, and only `URLSearchParams` encodes all
+      // of that correctly. `dang-nhap/actions.ts` made the same call for `ten`.
+      const params = new URLSearchParams({
+        "tu-sach": shelfSlug,
+        [ACTION_ERROR_PARAM]: err.code,
+      });
+      for (const [name, value] of Object.entries({
+        "ten-dang-nhap": username,
+        "ten-thanh": saintName,
+        "ho-ten": fullName,
+        "ngay-sinh": dateOfBirth,
+        "ten-cha": fatherName,
+        "ten-me": motherName,
+        "dien-thoai": phone,
+        parishUnitL1Id,
+        parishUnitL2Id,
+      })) {
+        if (value) params.set(name, value);
+      }
+      redirect(`/dang-ky?${params.toString()}`);
     }
     throw err;
   }

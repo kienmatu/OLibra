@@ -8,7 +8,7 @@ import { messageFor } from "@/domain/kernel/errors";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
-import { refusalFrom, type SearchParams } from "@/lib/search-params";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 import { registerReaderOnBehalfAction } from "../../actions";
 
@@ -75,14 +75,19 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
  * page. Wiring the hasher belongs to the slice that wires registration itself,
  * which `a-wired-page-renders-no-fixtures.test.ts` already names as an open one.
  *
- * ── And nothing typed comes back on a refusal ────────────────────────────────
+ * ── And now something typed does come back on a refusal ─────────────────────
  *
- * Every other form in this slice carries its state in the query string. These
- * fields are a child's date of birth, their parents' names and a family
- * telephone number, and a query string is written into browser history, a
- * proxy's log and the address bar of a shared parish phone. The action's own
- * docstring holds the decision; the cost — a re-typed form after a refusal — is
- * real and is the one being chosen.
+ * Every field below rides back in the query string on a refusal (Task 13,
+ * 2026-08-10 QA remediation), reversing what this page and
+ * `registerReaderOnBehalfAction` used to do on purpose. What used to be recorded
+ * here — a child's date of birth, their parents' names and a family telephone
+ * number, and a query string written into browser history, a proxy's log and
+ * the address bar of a shared parish phone — has not stopped being true, and it
+ * is still why `dang-ky/actions.ts` withholds its own form's two password
+ * fields unconditionally. What changed is the other side of the scale, measured
+ * on 2026-08-10: a volunteer at the shelf who mistypes one field loses all six
+ * rather than the one, mid-conversation with the family standing there. The
+ * action's own docstring holds the fuller argument.
  */
 export default async function RegisterReaderOnBehalfPage({
   params,
@@ -94,6 +99,16 @@ export default async function RegisterReaderOnBehalfPage({
   const { shelf: slug } = await params;
   const search = await searchParams;
   const refused = refusalFrom(search);
+  // Task 13 (2026-08-10 QA remediation): what a volunteer typed, read back
+  // after a refusal. See this page's own docstring for why every field here
+  // — unlike `dang-ky`'s — is safe to carry, and `registerReaderOnBehalfAction`
+  // for where these are written.
+  const tenThanh = param(search, "ten-thanh");
+  const hoTen = param(search, "ho-ten");
+  const ngaySinh = param(search, "ngay-sinh");
+  const tenCha = param(search, "ten-cha");
+  const tenMe = param(search, "ten-me");
+  const dienThoai = param(search, "dien-thoai");
 
   const { shelf, viewer, counts, parish } = await loadPage(
     slug,
@@ -151,7 +166,12 @@ export default async function RegisterReaderOnBehalfPage({
           <GroupHeading>Bản thân</GroupHeading>
 
           <Field label="Tên thánh" htmlFor="ten-thanh">
-            <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
+            <Input
+              id="ten-thanh"
+              name="ten-thanh"
+              placeholder="vd: Maria"
+              defaultValue={tenThanh}
+            />
           </Field>
 
           <Field
@@ -165,6 +185,7 @@ export default async function RegisterReaderOnBehalfPage({
               name="ho-ten"
               required
               placeholder="vd: Nguyễn Thị Lan"
+              defaultValue={hoTen}
             />
           </Field>
 
@@ -173,7 +194,13 @@ export default async function RegisterReaderOnBehalfPage({
               "02/04/2015" gets stored as 3 February — measured, in
               `domain/members/profile-fields.ts`. */}
           <Field label="Ngày sinh" required htmlFor="ngay-sinh">
-            <Input id="ngay-sinh" name="ngay-sinh" type="date" required />
+            <Input
+              id="ngay-sinh"
+              name="ngay-sinh"
+              type="date"
+              required
+              defaultValue={ngaySinh}
+            />
           </Field>
         </div>
 
@@ -195,6 +222,7 @@ export default async function RegisterReaderOnBehalfPage({
               name="ten-cha"
               required
               placeholder="vd: Nguyễn Văn Hoà"
+              defaultValue={tenCha}
             />
           </Field>
 
@@ -204,6 +232,7 @@ export default async function RegisterReaderOnBehalfPage({
               name="ten-me"
               required
               placeholder="vd: Trần Thị Mai"
+              defaultValue={tenMe}
             />
           </Field>
 
@@ -219,6 +248,7 @@ export default async function RegisterReaderOnBehalfPage({
               required
               inputMode="tel"
               placeholder="vd: 09xx xxx xxx"
+              defaultValue={dienThoai}
             />
           </Field>
         </div>
@@ -239,6 +269,8 @@ export default async function RegisterReaderOnBehalfPage({
             taxonomy={parish.taxonomy}
             units={parish.units}
             manageHref={`${base}/co-cau`}
+            defaultL1={param(search, "parishUnitL1Id") ?? ""}
+            defaultL2={param(search, "parishUnitL2Id") ?? ""}
           />
         </div>
 
