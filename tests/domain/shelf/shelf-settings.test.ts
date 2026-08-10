@@ -87,7 +87,17 @@ test("a shelf that overrides one value reads the override, not the default", asy
   const { shelf, ctx } = await managerOf();
   await sql`
     update bookshelves
-       set settings = settings || ${sql.json({ loan_days: 21, max_renewals: 0 })}
+       set settings = settings || ${sql.json({
+         loan_days: 21,
+         max_renewals: 0,
+         // QA remediation Task 23: until this task `due_soon_days` was
+         // reported from a bare constant regardless of what `settings` held
+         // — this key did nothing. Included here for the same reason
+         // `max_renewals` is: a `coalesce((settings->>'due_soon_days')::int,
+         // 3)` that quietly stayed a hard-coded `3` would pass every other
+         // assertion in this file and only this line would catch it.
+         due_soon_days: 10,
+       })}
      where id = ${shelf.id}
   `;
 
@@ -106,6 +116,7 @@ test("a shelf that overrides one value reads the override, not the default", asy
   // `0` is a real value and not an absent one — a `coalesce` on the *JavaScript*
   // side would turn "no renewals allowed" into the default of one.
   expect(settings.policy.maxRenewals).toBe(0);
+  expect(settings.policy.dueSoonDays).toBe(10);
   // Untouched keys keep their defaults.
   expect(settings.policy.holdDays).toBe(3);
 });

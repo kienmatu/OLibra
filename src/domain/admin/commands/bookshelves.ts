@@ -78,10 +78,15 @@ export const createBookshelf: Command<
     {
       default_loan_days: number;
       default_max_concurrent_loans: number;
+      default_max_renewals: number;
+      default_renewal_days: number;
       default_hold_days: number;
+      default_due_soon_days: number;
     }[]
   >`
-    select default_loan_days, default_max_concurrent_loans, default_hold_days
+    select default_loan_days, default_max_concurrent_loans,
+           default_max_renewals, default_renewal_days, default_hold_days,
+           default_due_soon_days
       from system_settings where id
   `;
 
@@ -96,7 +101,19 @@ export const createBookshelf: Command<
        ${tx.json({
          loan_days: defaults?.default_loan_days ?? 14,
          max_concurrent_loans: defaults?.default_max_concurrent_loans ?? 3,
+         // QA remediation Task 23: these three used to be absent from
+         // `system_settings` entirely, so a new shelf's `max_renewals` and
+         // `renewal_days` came only from the `coalesce` fallbacks
+         // `renewalSettingsFor` (`../../circulation/settings.ts`) applies at
+         // read time (1, 7), and `due_soon_days` from `get-shelf-settings.ts`'s
+         // own fallback (3) — never from a decision an administrator could see
+         // or change on `/quan-tri/cai-dat`. The literals here are the same
+         // numbers those fallbacks already used, so a shelf created before this
+         // migration and one created after it start identically.
+         max_renewals: defaults?.default_max_renewals ?? 1,
+         renewal_days: defaults?.default_renewal_days ?? 7,
          hold_days: defaults?.default_hold_days ?? 3,
+         due_soon_days: defaults?.default_due_soon_days ?? 3,
        })})
     returning id
   `;
@@ -135,6 +152,13 @@ export interface UpdateBookshelfSettingsInput {
   maxRenewals?: number;
   renewalDays?: number;
   holdDays?: number;
+  /**
+   * QA remediation Task 23: joined the other five fields this command already
+   * wrote field-by-field. `checkPolicyBound`'s loop below needed no change to
+   * pick it up — see `../policy.ts`'s own docstring on why this was designed
+   * as one table a third caller could join rather than a decision to make.
+   */
+  dueSoonDays?: number;
   commentsEnabled?: boolean;
   commentsRequireApproval?: boolean;
 }
@@ -197,6 +221,7 @@ export const updateBookshelfSettings: Command<
   put("max_renewals", input.maxRenewals);
   put("renewal_days", input.renewalDays);
   put("hold_days", input.holdDays);
+  put("due_soon_days", input.dueSoonDays);
   put("comments_enabled", input.commentsEnabled);
   put("comments_require_approval", input.commentsRequireApproval);
 

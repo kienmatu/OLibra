@@ -22,11 +22,20 @@ import { requireManager } from "../../members/policy";
  * six numbers, and because a wrong number here is silent while a failing test
  * is not.
  *
- * **`dueSoonDays` is the sweep's window and is not in `settings` at all.**
- * `sweepDueNotifications` takes it as a parameter defaulting to 3, and nothing
- * writes a shelf-level value yet — so it is reported as the constant it is,
- * rather than read from a key that does not exist and rendered as a default
- * indistinguishable from a configured one.
+ * **`dueSoonDays` joined the other five as a real per-shelf column in QA
+ * remediation Task 23.** Until then it was reported as a bare constant —
+ * `sweepDueNotifications` takes it as a parameter defaulting to 3 and nothing
+ * wrote a shelf-level override — which was the shape of a second defect this
+ * task closed alongside it: `/quan-ly/cai-dat` showed "Báo sắp đến hạn trước —
+ * 3 ngày" as if it were a policy like the other five, and no admin form had
+ * the field to change it. It is now `coalesce((settings->>'due_soon_days')
+ * ::int, 3)`, the identical shape the other five already use, writable
+ * through `updateBookshelfSettings`. **`sweepDueNotifications` itself is
+ * unchanged** — it still takes `dueInDays` as a parameter and still defaults
+ * to 3 system-wide; wiring the nightly sweep to read this per shelf is a
+ * separate piece of work this task does not do. What Task 23 fixes is
+ * narrower and prior to that: that a number a screen already claims to be a
+ * shelf's own policy is now actually one.
  */
 
 export interface ShelfProfile {
@@ -62,7 +71,10 @@ export interface LendingPolicy {
   maxRenewals: number;
   renewalDays: number;
   holdDays: number;
-  /** The sweep's reminder window. A constant today — see the module note. */
+  /**
+   * The sweep's reminder window, defaulting to 3 — see the module note on
+   * why `sweepDueNotifications` itself does not read this per shelf yet.
+   */
   dueSoonDays: number;
   commentsEnabled: boolean;
   commentsRequireApproval: boolean;
@@ -72,9 +84,6 @@ export interface ShelfSettings {
   profile: ShelfProfile;
   policy: LendingPolicy;
 }
-
-/** The window `sweepDueNotifications` uses when nobody passes one. */
-export const DEFAULT_DUE_SOON_DAYS = 3;
 
 export async function getShelfSettings(
   tx: Tx,
@@ -96,6 +105,7 @@ export async function getShelfSettings(
       max_renewals: number;
       renewal_days: number;
       hold_days: number;
+      due_soon_days: number;
       comments_enabled: boolean;
       comments_require_approval: boolean;
     }[]
@@ -108,6 +118,7 @@ export async function getShelfSettings(
       coalesce((settings->>'max_renewals')::int, 1) as max_renewals,
       coalesce((settings->>'renewal_days')::int, 7) as renewal_days,
       coalesce((settings->>'hold_days')::int, 3) as hold_days,
+      coalesce((settings->>'due_soon_days')::int, 3) as due_soon_days,
       coalesce((settings->>'comments_enabled')::boolean, true)
         as comments_enabled,
       coalesce((settings->>'comments_require_approval')::boolean, true)
@@ -135,7 +146,7 @@ export async function getShelfSettings(
       maxRenewals: row.max_renewals,
       renewalDays: row.renewal_days,
       holdDays: row.hold_days,
-      dueSoonDays: DEFAULT_DUE_SOON_DAYS,
+      dueSoonDays: row.due_soon_days,
       commentsEnabled: row.comments_enabled,
       commentsRequireApproval: row.comments_require_approval,
     },

@@ -180,6 +180,8 @@ export async function updateBookshelfSettingsAction(form: FormData): Promise<voi
         maxRenewals: count(form, "so-lan-gia-han"),
         renewalDays: count(form, "so-ngay-gia-han"),
         holdDays: count(form, "so-ngay-giu-cho"),
+        // QA remediation Task 23.
+        dueSoonDays: count(form, "so-ngay-bao-truoc"),
         commentsEnabled: form.has("cho-binh-luan"),
         commentsRequireApproval: form.has("binh-luan-can-duyet"),
       },
@@ -304,7 +306,17 @@ export async function updateSystemDefaultsAction(form: FormData): Promise<void> 
       // Substituting 14 here would silently accept a form nobody filled in.
       loanDays: count(form, "so-ngay-muon") ?? 0,
       maxConcurrentLoans: count(form, "so-sach-cung-luc") ?? 0,
+      // QA remediation Task 23: the three fields below joined the three
+      // above — `/quan-tri/cai-dat` used to offer only three of the six
+      // per-shelf policy numbers a new shelf inherits. Same `?? 0` reasoning:
+      // `max_renewals`'s own floor is 0 (`checkPolicyBound`), so an empty box
+      // there reaches the command as a legitimate "no renewals", but every
+      // other field's floor is 1 or higher, so an empty box for any of them
+      // is refused by name rather than silently accepted.
+      maxRenewals: count(form, "so-lan-gia-han") ?? 0,
+      renewalDays: count(form, "so-ngay-gia-han") ?? 0,
       holdDays: count(form, "so-ngay-giu-cho") ?? 0,
+      dueSoonDays: count(form, "so-ngay-bao-truoc") ?? 0,
     }),
   );
   back("/quan-tri/cai-dat", code, "mac-dinh");

@@ -860,12 +860,12 @@ These are configuration rather than page content for one reason: a parish with n
 #### `UpdateSystemDefaults`
 Default lending-policy values applied to newly created shelves (§16.4's system settings screen). Changing this never retroactively touches an existing shelf's own settings.
 
-- **Inputs:** default `loan_days`, `max_concurrent_loans`, `hold_days`
+- **Inputs:** default `loan_days`, `max_concurrent_loans`, `max_renewals`, `renewal_days`, `hold_days`, `due_soon_days` (QA remediation Task 23 added the last three — see `docs/DATABASE.md` §4.12's own note on why they were missing until then)
 - **Caller:** `super_admin`
 - **Invariants enforced:** INV-8
 - **Audit action:** `system_settings.updated`
 - **Failure modes:**
-  - `validation_failed` — "Giá trị phải lớn hơn 0."
+  - `loan_days_out_of_range` / `max_concurrent_loans_out_of_range` / `max_renewals_out_of_range` / `renewal_days_out_of_range` / `hold_days_out_of_range` / `due_soon_days_out_of_range` — each field's own range, by name, via `checkPolicyBound` (`src/domain/admin/policy.ts`) — QA remediation Task 15's fix for the generic `validation_failed` this row used to name for all three original fields
 
 ### 4.6 Notifications (cross-cutting)
 

@@ -249,7 +249,14 @@ test("saving the system defaults redirects with its own done-value, distinct fro
       form({
         "so-ngay-muon": "14",
         "so-sach-cung-luc": "3",
+        // QA remediation Task 23: these three joined the three above — see
+        // `updateSystemDefaultsAction`'s own comment on why an empty box for
+        // any of them (unlike `so-lan-gia-han`, whose floor is 0) now reaches
+        // a real refusal rather than a silent default.
+        "so-lan-gia-han": "1",
+        "so-ngay-gia-han": "7",
         "so-ngay-giu-cho": "2",
+        "so-ngay-bao-truoc": "3",
       }),
     ),
   );

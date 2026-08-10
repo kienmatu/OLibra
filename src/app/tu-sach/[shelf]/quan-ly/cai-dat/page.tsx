@@ -3,10 +3,15 @@ import { ManagerShell } from "@/components/shell/manager-shell";
 import { PageHeading } from "@/components/ui/card";
 import { buttonClasses } from "@/components/ui/button";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { getShelfSettings } from "@/domain/shelf/queries/get-shelf-settings";
+import type { PolicyField } from "@/domain/admin/policy";
+import {
+  getShelfSettings,
+  type LendingPolicy,
+} from "@/domain/shelf/queries/get-shelf-settings";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { readShelf } from "@/lib/shelf";
+import { DISPLAYED_POLICY_FIELDS } from "./policy-fields";
 
 /**
  * OPS §3.4's `GetShelfSettings` — "view this shelf's profile and lending
@@ -76,6 +81,54 @@ function PolicyRow({
   );
 }
 
+/**
+ * Label, hint sentence and formatted value for each of
+ * `DISPLAYED_POLICY_FIELDS` — QA remediation Task 23, the same pairing
+ * `POLICY_FIELD_META` gives `/quan-tri/tu-sach`'s editor. `Record<PolicyField,
+ * …>` rather than a bare array so TypeScript refuses a build that adds a
+ * field to `PolicyField` without also giving it a row here.
+ */
+function policyRowMeta(
+  format: (n: number) => string,
+): Record<
+  PolicyField,
+  { label: string; hint: string; read: (policy: LendingPolicy) => string }
+> {
+  const days = (n: number) => `${format(n)} ngày`;
+  return {
+    loan_days: {
+      label: "Số ngày cho mượn",
+      hint: "Số ngày bạn đọc được giữ sách trong một lượt mượn.",
+      read: (p) => days(p.loanDays),
+    },
+    max_concurrent_loans: {
+      label: "Số sách mượn cùng lúc",
+      hint: "Số cuốn tối đa một bạn đọc được giữ cùng lúc.",
+      read: (p) => `${format(p.maxConcurrentLoans)} cuốn`,
+    },
+    max_renewals: {
+      label: "Số lần gia hạn",
+      hint: "Số lần bạn đọc được xin gia hạn cho một lượt mượn.",
+      read: (p) => `${format(p.maxRenewals)} lần`,
+    },
+    renewal_days: {
+      label: "Số ngày mỗi lần gia hạn",
+      hint: "Số ngày được cộng thêm mỗi lần gia hạn.",
+      read: (p) => days(p.renewalDays),
+    },
+    hold_days: {
+      label: "Số ngày giữ chỗ",
+      hint: "Số ngày tủ sách giữ sách cho bạn đọc đã đăng ký chờ mượn.",
+      read: (p) => days(p.holdDays),
+    },
+    due_soon_days: {
+      label: "Báo sắp đến hạn trước",
+      hint: "Số ngày trước hạn trả mà hệ thống nhắc bạn đọc.",
+      read: (p) => days(p.dueSoonDays),
+    },
+  };
+}
+
 export default async function ManagerSettingsPage({
   params,
 }: {
@@ -95,7 +148,7 @@ export default async function ManagerSettingsPage({
 
   const { profile, policy } = settings;
   const base = `/tu-sach/${slug}/quan-ly`;
-  const days = (n: number) => `${NUMBER.format(n)} ngày`;
+  const policyMeta = policyRowMeta((n) => NUMBER.format(n));
 
   return (
     <ManagerShell
@@ -147,37 +200,25 @@ export default async function ManagerSettingsPage({
 
         <section>
           <h2 className="text-xl font-semibold">Quy định cho mượn</h2>
+          {/* Mapped from `DISPLAYED_POLICY_FIELDS` (`./policy-fields.ts`)
+              rather than six literal `<PolicyRow>` calls here (QA
+              remediation Task 23): that file is what `tests/architecture/
+              every-shown-policy-is-editable.test.ts` compares against
+              `/quan-tri/tu-sach`'s own field list, and the comparison is
+              only honest if this is the array actually driving what a
+              manager sees. */}
           <div className="mt-4">
-            <PolicyRow
-              label="Số ngày cho mượn"
-              hint="Số ngày bạn đọc được giữ sách trong một lượt mượn."
-              value={days(policy.loanDays)}
-            />
-            <PolicyRow
-              label="Số sách mượn cùng lúc"
-              hint="Số cuốn tối đa một bạn đọc được giữ cùng lúc."
-              value={`${NUMBER.format(policy.maxConcurrentLoans)} cuốn`}
-            />
-            <PolicyRow
-              label="Số lần gia hạn"
-              hint="Số lần bạn đọc được xin gia hạn cho một lượt mượn."
-              value={`${NUMBER.format(policy.maxRenewals)} lần`}
-            />
-            <PolicyRow
-              label="Số ngày mỗi lần gia hạn"
-              hint="Số ngày được cộng thêm mỗi lần gia hạn."
-              value={days(policy.renewalDays)}
-            />
-            <PolicyRow
-              label="Số ngày giữ chỗ"
-              hint="Số ngày tủ sách giữ sách cho bạn đọc đã đăng ký chờ mượn."
-              value={days(policy.holdDays)}
-            />
-            <PolicyRow
-              label="Báo sắp đến hạn trước"
-              hint="Số ngày trước hạn trả mà hệ thống nhắc bạn đọc."
-              value={days(policy.dueSoonDays)}
-            />
+            {DISPLAYED_POLICY_FIELDS.map((field) => {
+              const meta = policyMeta[field];
+              return (
+                <PolicyRow
+                  key={field}
+                  label={meta.label}
+                  hint={meta.hint}
+                  value={meta.read(policy)}
+                />
+              );
+            })}
           </div>
           <p className="mt-3 text-[14px] text-meta">
             Chỉ quản trị viên mới đổi được các mục này.

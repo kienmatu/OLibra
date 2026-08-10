@@ -220,6 +220,18 @@ test("updateBookshelfSettings refuses each field above its own ceiling, by its o
       }),
     ),
   ).toBe("hold_days_out_of_range");
+
+  // QA remediation Task 23: `dueSoonDays` joined the other five fields this
+  // command already wrote — the field the QA brief measured as displayed at
+  // `/quan-ly/cai-dat` ("Báo sắp đến hạn trước") with no editor anywhere.
+  expect(
+    await codeThrownBy(() =>
+      runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+        bookshelfId: shelf.id,
+        dueSoonDays: 31,
+      }),
+    ),
+  ).toBe("due_soon_days_out_of_range");
 });
 
 test("updateBookshelfSettings accepts the ceiling of every field it writes, and saves it", async () => {
@@ -234,6 +246,7 @@ test("updateBookshelfSettings accepts the ceiling of every field it writes, and 
     maxRenewals: 10,
     renewalDays: 365,
     holdDays: 30,
+    dueSoonDays: 30,
   });
 
   const settings = await runQuery(sql, shelfCtx, (tx, c) =>
@@ -244,6 +257,7 @@ test("updateBookshelfSettings accepts the ceiling of every field it writes, and 
   expect(settings.policy.maxRenewals).toBe(10);
   expect(settings.policy.renewalDays).toBe(365);
   expect(settings.policy.holdDays).toBe(30);
+  expect(settings.policy.dueSoonDays).toBe(30);
 });
 
 test("updateBookshelfSettings keeps max_renewals at zero as a real save, not a refusal", async () => {
@@ -262,6 +276,25 @@ test("updateBookshelfSettings keeps max_renewals at zero as a real save, not a r
   expect(settings.policy.maxRenewals).toBe(0);
 });
 
+test("updateBookshelfSettings keeps due_soon_days at zero as a real save, not a refusal", async () => {
+  // The same shape as `max_renewals` above — both fields sit at `min: 0` in
+  // `checkPolicyBound`'s table, and a `coalesce` that could not distinguish
+  // "explicitly zero" from "never set" would turn this into 3, silently.
+  const ctx = await admin();
+  const shelf = await makeShelf(sql);
+  const shelfCtx = { ...ctx, bookshelfId: shelf.id };
+
+  await runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+    bookshelfId: shelf.id,
+    dueSoonDays: 0,
+  });
+
+  const settings = await runQuery(sql, shelfCtx, (tx, c) =>
+    getShelfSettings(tx, c),
+  );
+  expect(settings.policy.dueSoonDays).toBe(0);
+});
+
 test("updateSystemDefaults refuses maxConcurrentLoans at zero, by name — not the generic validation_failed", async () => {
   // Pins the QA-remediation controller's own instruction: "validation_failed
   // alone is not enough for six different numbers." Before this task,
@@ -273,7 +306,10 @@ test("updateSystemDefaults refuses maxConcurrentLoans at zero, by name — not t
       runAdminCommand(sql, ctx, updateSystemDefaults, {
         loanDays: 14,
         maxConcurrentLoans: 0,
+        maxRenewals: 1,
+        renewalDays: 7,
         holdDays: 3,
+        dueSoonDays: 3,
       }),
     ),
   ).toBe("max_concurrent_loans_out_of_range");
@@ -286,10 +322,82 @@ test("updateSystemDefaults refuses holdDays above its ceiling", async () => {
       runAdminCommand(sql, ctx, updateSystemDefaults, {
         loanDays: 14,
         maxConcurrentLoans: 3,
+        maxRenewals: 1,
+        renewalDays: 7,
         holdDays: 31,
+        dueSoonDays: 3,
       }),
     ),
   ).toBe("hold_days_out_of_range");
+});
+
+// QA remediation Task 23: the three fields below joined the three above —
+// same wiring proof, for the three fields that used to have nowhere in
+// `system_settings` to be checked against at all.
+
+test("updateSystemDefaults refuses maxRenewals above its ceiling, by name", async () => {
+  const ctx = await admin();
+  expect(
+    await codeThrownBy(() =>
+      runAdminCommand(sql, ctx, updateSystemDefaults, {
+        loanDays: 14,
+        maxConcurrentLoans: 3,
+        maxRenewals: 11,
+        renewalDays: 7,
+        holdDays: 3,
+        dueSoonDays: 3,
+      }),
+    ),
+  ).toBe("max_renewals_out_of_range");
+});
+
+test("updateSystemDefaults refuses renewalDays at zero — its floor is 1, unlike maxRenewals and dueSoonDays", async () => {
+  const ctx = await admin();
+  expect(
+    await codeThrownBy(() =>
+      runAdminCommand(sql, ctx, updateSystemDefaults, {
+        loanDays: 14,
+        maxConcurrentLoans: 3,
+        maxRenewals: 1,
+        renewalDays: 0,
+        holdDays: 3,
+        dueSoonDays: 3,
+      }),
+    ),
+  ).toBe("renewal_days_out_of_range");
+});
+
+test("updateSystemDefaults refuses dueSoonDays above its ceiling", async () => {
+  const ctx = await admin();
+  expect(
+    await codeThrownBy(() =>
+      runAdminCommand(sql, ctx, updateSystemDefaults, {
+        loanDays: 14,
+        maxConcurrentLoans: 3,
+        maxRenewals: 1,
+        renewalDays: 7,
+        holdDays: 3,
+        dueSoonDays: 31,
+      }),
+    ),
+  ).toBe("due_soon_days_out_of_range");
+});
+
+test("updateSystemDefaults accepts dueSoonDays at zero — real policy, not a refusal", async () => {
+  const ctx = await admin();
+  await runAdminCommand(sql, ctx, updateSystemDefaults, {
+    loanDays: 14,
+    maxConcurrentLoans: 3,
+    maxRenewals: 1,
+    renewalDays: 7,
+    holdDays: 3,
+    dueSoonDays: 0,
+  });
+
+  const settings = await runAdminQuery(sql, ctx, (tx, c) =>
+    getSystemSettings(tx, c),
+  );
+  expect(settings.defaultDueSoonDays).toBe(0);
 });
 
 test("updateSystemDefaults accepts the ceiling of every field it writes, and saves it", async () => {
@@ -297,7 +405,10 @@ test("updateSystemDefaults accepts the ceiling of every field it writes, and sav
   await runAdminCommand(sql, ctx, updateSystemDefaults, {
     loanDays: 365,
     maxConcurrentLoans: 50,
+    maxRenewals: 10,
+    renewalDays: 365,
     holdDays: 30,
+    dueSoonDays: 30,
   });
 
   const settings = await runAdminQuery(sql, ctx, (tx, c) =>
@@ -305,5 +416,8 @@ test("updateSystemDefaults accepts the ceiling of every field it writes, and sav
   );
   expect(settings.defaultLoanDays).toBe(365);
   expect(settings.defaultMaxConcurrentLoans).toBe(50);
+  expect(settings.defaultMaxRenewals).toBe(10);
+  expect(settings.defaultRenewalDays).toBe(365);
   expect(settings.defaultHoldDays).toBe(30);
+  expect(settings.defaultDueSoonDays).toBe(30);
 });

@@ -166,6 +166,38 @@ export default async function AdminSettingsPage({
               defaultValue={settings.defaultMaxConcurrentLoans}
             />
           </Field>
+          {/* QA remediation Task 23: this form carried only three of the six
+              per-shelf policy numbers a new shelf inherits — measured live,
+              a new shelf's "Số lần gia hạn" and "Số ngày mỗi lần gia hạn"
+              came only from `renewalSettingsFor`'s own read-time fallback
+              (1, 7), never from a decision visible on this page. Same
+              `min`/`max` mirroring as the three fields above, from the
+              identical table. */}
+          <Field label="Số lần gia hạn" required htmlFor="so-lan-gia-han">
+            <Input
+              id="so-lan-gia-han"
+              name="so-lan-gia-han"
+              type="number"
+              // The one field whose floor is 0, not 1 — "no renewals" is a
+              // real policy (BR §5.5), the same exception `/quan-tri/tu-sach`
+              // gives it.
+              min={0}
+              max={10}
+              required
+              defaultValue={settings.defaultMaxRenewals}
+            />
+          </Field>
+          <Field label="Số ngày mỗi lần gia hạn" required htmlFor="so-ngay-gia-han">
+            <Input
+              id="so-ngay-gia-han"
+              name="so-ngay-gia-han"
+              type="number"
+              min={1}
+              max={365}
+              required
+              defaultValue={settings.defaultRenewalDays}
+            />
+          </Field>
           <Field label="Số ngày giữ chỗ" required htmlFor="so-ngay-giu-cho">
             <Input
               id="so-ngay-giu-cho"
@@ -175,6 +207,22 @@ export default async function AdminSettingsPage({
               max={30}
               required
               defaultValue={settings.defaultHoldDays}
+            />
+          </Field>
+          {/* QA remediation Task 23's other half: `/quan-ly/cai-dat` showed
+              "Báo sắp đến hạn trước" as if it were a policy like the other
+              five, with no admin form anywhere that could change it — not
+              even this one, the screen that decides what a *new* shelf
+              starts with. */}
+          <Field label="Báo sắp đến hạn trước" required htmlFor="so-ngay-bao-truoc">
+            <Input
+              id="so-ngay-bao-truoc"
+              name="so-ngay-bao-truoc"
+              type="number"
+              min={0}
+              max={30}
+              required
+              defaultValue={settings.defaultDueSoonDays}
             />
           </Field>
 

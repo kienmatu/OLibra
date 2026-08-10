@@ -263,7 +263,19 @@ export interface SystemSettings {
   contactHours: string | null;
   defaultLoanDays: number;
   defaultMaxConcurrentLoans: number;
+  /**
+   * QA remediation Task 23. `20260811_01_system_settings_lending_defaults
+   * .sql` added this alongside `defaultRenewalDays` and `defaultDueSoonDays`
+   * — `/quan-tri/cai-dat` carried only three of the six per-shelf policy
+   * numbers a new shelf inherits, and these three are the ones it was
+   * missing. Same shape as the three above: `createBookshelf` copies it into
+   * the jsonb bag a new shelf's own row carries, at creation, and nothing
+   * else ever reads it.
+   */
+  defaultMaxRenewals: number;
+  defaultRenewalDays: number;
   defaultHoldDays: number;
+  defaultDueSoonDays: number;
   /** Read-only facts OPS §3.4 asks this screen to state. */
   timezone: string;
   locale: string;
@@ -283,11 +295,16 @@ export async function getSystemSettings(
       contact_hours: string | null;
       default_loan_days: number;
       default_max_concurrent_loans: number;
+      default_max_renewals: number;
+      default_renewal_days: number;
       default_hold_days: number;
+      default_due_soon_days: number;
     }[]
   >`
     select contact_name, contact_phone, contact_hours,
-           default_loan_days, default_max_concurrent_loans, default_hold_days
+           default_loan_days, default_max_concurrent_loans,
+           default_max_renewals, default_renewal_days, default_hold_days,
+           default_due_soon_days
       from system_settings where id
   `;
 
@@ -297,7 +314,10 @@ export async function getSystemSettings(
     contactHours: row.contact_hours,
     defaultLoanDays: row.default_loan_days,
     defaultMaxConcurrentLoans: row.default_max_concurrent_loans,
+    defaultMaxRenewals: row.default_max_renewals,
+    defaultRenewalDays: row.default_renewal_days,
     defaultHoldDays: row.default_hold_days,
+    defaultDueSoonDays: row.default_due_soon_days,
     // Constants, and stated as such: `bookshelves.timezone` and `.locale` carry
     // per-shelf defaults nothing in this application varies, and OPS §3.4 lists
     // the timezone as read-only in as many words.

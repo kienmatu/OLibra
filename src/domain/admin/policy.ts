@@ -72,6 +72,23 @@ const BOUNDS: Record<PolicyField, { min: number; max: number; code: ErrorCode }>
 };
 
 /**
+ * Every field the table above bounds, in declaration order.
+ *
+ * QA remediation Task 23. `EDITABLE_POLICY_FIELDS`
+ * (`src/app/quan-tri/tu-sach/policy-fields.ts`) and `DISPLAYED_POLICY_FIELDS`
+ * (its sibling next to `/quan-ly/cai-dat`) are each their own, independently
+ * declared list — that independence is what lets
+ * `tests/architecture/every-shown-policy-is-editable.test.ts` catch one
+ * drifting from the other. This export is the third leg: both of those lists
+ * are also checked against this one, so a field bounded here and shown or
+ * edited on neither screen — or the two screens coincidentally agreeing on
+ * the same *wrong* subset — is caught too, not only disagreement between them.
+ */
+export const ALL_POLICY_FIELDS: readonly PolicyField[] = Object.keys(
+  BOUNDS,
+) as PolicyField[];
+
+/**
  * Refuses `value` unless it is a whole number inside `field`'s own range —
  * the code named is `field`'s own, per the docstring above, so a manager
  * reads which of six numbers was wrong and what range would have been

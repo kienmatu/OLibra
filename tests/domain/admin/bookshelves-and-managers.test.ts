@@ -72,7 +72,14 @@ test("a new shelf inherits the system defaults, by value and not by reference", 
   await runAdminCommand(sql, ctx, updateSystemDefaults, {
     loanDays: 21,
     maxConcurrentLoans: 5,
+    // QA remediation Task 23: these three joined the three above — all six
+    // are exercised here, not just `loanDays`, since this test's own point
+    // ("by value, not by reference") is exactly the property `createBookshelf`
+    // could get wrong for a field it had just learned to copy.
+    maxRenewals: 2,
+    renewalDays: 10,
     holdDays: 4,
+    dueSoonDays: 5,
   });
 
   const { bookshelfId, slug } = await runAdminCommand(sql, ctx, createBookshelf, {
@@ -84,16 +91,38 @@ test("a new shelf inherits the system defaults, by value and not by reference", 
   expect(await runQuery(sql, shelfCtx, (tx) => loanDaysFor(tx, bookshelfId))).toBe(
     21,
   );
+  const inherited = await runQuery(sql, shelfCtx, (tx, c) =>
+    getShelfSettings(tx, c),
+  );
+  expect(inherited.policy).toMatchObject({
+    loanDays: 21,
+    maxConcurrentLoans: 5,
+    maxRenewals: 2,
+    renewalDays: 10,
+    holdDays: 4,
+    dueSoonDays: 5,
+  });
 
   // Now move the default again. The shelf that already exists does not follow.
   await runAdminCommand(sql, ctx, updateSystemDefaults, {
     loanDays: 7,
     maxConcurrentLoans: 5,
+    maxRenewals: 9,
+    renewalDays: 20,
     holdDays: 4,
+    dueSoonDays: 15,
   });
   expect(await runQuery(sql, shelfCtx, (tx) => loanDaysFor(tx, bookshelfId))).toBe(
     21,
   );
+  const unchanged = await runQuery(sql, shelfCtx, (tx, c) =>
+    getShelfSettings(tx, c),
+  );
+  expect(unchanged.policy).toMatchObject({
+    maxRenewals: 2,
+    renewalDays: 10,
+    dueSoonDays: 5,
+  });
 });
 
 test("a slug already in use is refused by name, not by a raw 23505", async () => {
@@ -536,7 +565,10 @@ test("a defaults value below one is refused, by loan_days's own code", async () 
       runAdminCommand(sql, ctx, updateSystemDefaults, {
         loanDays: 0,
         maxConcurrentLoans: 3,
+        maxRenewals: 1,
+        renewalDays: 7,
         holdDays: 3,
+        dueSoonDays: 3,
       }),
     ),
   ).toBe("loan_days_out_of_range");

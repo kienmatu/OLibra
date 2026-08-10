@@ -8,9 +8,13 @@ import { SavedNotice } from "@/components/ui/saved-notice";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { messageFor } from "@/domain/kernel/errors";
 import { PHONE_PATTERN } from "@/domain/members/policy";
+import type { PolicyField } from "@/domain/admin/policy";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getAdminOverview } from "@/domain/admin/queries/get-admin-overview";
-import { getShelfSettings } from "@/domain/shelf/queries/get-shelf-settings";
+import {
+  getShelfSettings,
+  type LendingPolicy,
+} from "@/domain/shelf/queries/get-shelf-settings";
 import { loadAdminPage } from "@/lib/page-data";
 import {
   ACTION_DONE_PARAM,
@@ -23,6 +27,77 @@ import {
   createBookshelfAction,
   updateBookshelfSettingsAction,
 } from "../admin-actions";
+import { EDITABLE_POLICY_FIELDS } from "./policy-fields";
+
+/**
+ * Label, form-field id, and bound for each of `EDITABLE_POLICY_FIELDS` —
+ * paired with `PolicyField` rather than declared as a bare array so that
+ * TypeScript itself refuses a build missing an entry for any field
+ * `src/domain/admin/policy.ts`'s `BOUNDS` table adds later.
+ *
+ * The `min`/`max` pair mirrors `checkPolicyBound`'s table exactly, per QA
+ * remediation Task 15's own note further down — this is the "browser refuses
+ * first" half, never the only check.
+ */
+const POLICY_FIELD_META: Record<
+  PolicyField,
+  {
+    id: string;
+    label: string;
+    min: number;
+    max: number;
+    read: (policy: LendingPolicy) => number;
+  }
+> = {
+  loan_days: {
+    id: "so-ngay-muon",
+    label: "Số ngày cho mượn",
+    min: 1,
+    max: 365,
+    read: (p) => p.loanDays,
+  },
+  max_concurrent_loans: {
+    id: "so-sach-cung-luc",
+    label: "Số sách mượn cùng lúc",
+    min: 1,
+    max: 50,
+    read: (p) => p.maxConcurrentLoans,
+  },
+  max_renewals: {
+    id: "so-lan-gia-han",
+    label: "Số lần gia hạn",
+    // The one field whose floor is 0, not 1 — "no renewals" is a real policy
+    // (BR §5.5), not the defect QA remediation Task 15 closed.
+    min: 0,
+    max: 10,
+    read: (p) => p.maxRenewals,
+  },
+  renewal_days: {
+    id: "so-ngay-gia-han",
+    label: "Số ngày mỗi lần gia hạn",
+    min: 1,
+    max: 365,
+    read: (p) => p.renewalDays,
+  },
+  hold_days: {
+    id: "so-ngay-giu-cho",
+    label: "Số ngày giữ chỗ",
+    min: 1,
+    max: 30,
+    read: (p) => p.holdDays,
+  },
+  // QA remediation Task 23: `due_soon_days` was displayed on `/quan-ly/cai-dat`
+  // ("Báo sắp đến hạn trước") with no form anywhere that could change it. Its
+  // floor is 0, the same exception `max_renewals` gets above — warning on the
+  // due date itself is a real policy, not the shape of Task 15's defect.
+  due_soon_days: {
+    id: "so-ngay-bao-truoc",
+    label: "Báo sắp đến hạn trước",
+    min: 0,
+    max: 30,
+    read: (p) => p.dueSoonDays,
+  },
+};
 
 /**
  * OPS §3.4's `GetBookshelvesList` and `GetBookshelfSettings`, with §4.5's three
@@ -281,63 +356,37 @@ export default async function AdminBookshelvesPage({
               {/* QA remediation Task 15: `min={0}` and no `max` at all is what
                   let "Số ngày cho mượn" take `0` and save silently — every
                   loan from that shelf would then fall due the day it was
-                  made. Each field's own `min`/`max` here mirrors
-                  `checkPolicyBound`'s table (`src/domain/admin/policy.ts`)
-                  exactly, so the browser refuses first and the domain is the
-                  backstop it was already meant to be — never the only
-                  check, since a number box's `min`/`max` is trivially
-                  bypassed by anyone editing the request by hand. */}
-              {[
-                {
-                  id: "so-ngay-muon",
-                  label: "Số ngày cho mượn",
-                  value: selected.settings.policy.loanDays,
-                  min: 1,
-                  max: 365,
-                },
-                {
-                  id: "so-sach-cung-luc",
-                  label: "Số sách mượn cùng lúc",
-                  value: selected.settings.policy.maxConcurrentLoans,
-                  min: 1,
-                  max: 50,
-                },
-                {
-                  id: "so-lan-gia-han",
-                  label: "Số lần gia hạn",
-                  value: selected.settings.policy.maxRenewals,
-                  // The one field whose floor is 0, not 1 — "no renewals" is
-                  // a real policy (BR §5.5), not the defect this task closes.
-                  min: 0,
-                  max: 10,
-                },
-                {
-                  id: "so-ngay-gia-han",
-                  label: "Số ngày mỗi lần gia hạn",
-                  value: selected.settings.policy.renewalDays,
-                  min: 1,
-                  max: 365,
-                },
-                {
-                  id: "so-ngay-giu-cho",
-                  label: "Số ngày giữ chỗ",
-                  value: selected.settings.policy.holdDays,
-                  min: 1,
-                  max: 30,
-                },
-              ].map((f) => (
-                <Field key={f.id} label={f.label} required htmlFor={f.id}>
-                  <Input
-                    id={f.id}
-                    name={f.id}
-                    type="number"
-                    min={f.min}
-                    max={f.max}
-                    required
-                    defaultValue={f.value}
-                  />
-                </Field>
-              ))}
+                  made. Each field's own `min`/`max` (in `POLICY_FIELD_META`
+                  above) mirrors `checkPolicyBound`'s table
+                  (`src/domain/admin/policy.ts`) exactly, so the browser
+                  refuses first and the domain is the backstop it was already
+                  meant to be — never the only check, since a number box's
+                  `min`/`max` is trivially bypassed by anyone editing the
+                  request by hand.
+
+                  Mapped from `EDITABLE_POLICY_FIELDS` (`./policy-fields.ts`)
+                  rather than a literal array here (QA remediation Task 23):
+                  that file is what `tests/architecture/
+                  every-shown-policy-is-editable.test.ts` compares against
+                  `/quan-ly/cai-dat`'s own field list, and the comparison is
+                  only honest if this is the array actually driving the
+                  form. */}
+              {EDITABLE_POLICY_FIELDS.map((field) => {
+                const meta = POLICY_FIELD_META[field];
+                return (
+                  <Field key={field} label={meta.label} required htmlFor={meta.id}>
+                    <Input
+                      id={meta.id}
+                      name={meta.id}
+                      type="number"
+                      min={meta.min}
+                      max={meta.max}
+                      required
+                      defaultValue={meta.read(selected.settings.policy)}
+                    />
+                  </Field>
+                );
+              })}
             </section>
 
             <section className="space-y-4 border-t border-hairline pt-10">
