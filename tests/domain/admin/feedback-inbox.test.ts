@@ -244,7 +244,10 @@ test("the typed name wins over the signed-in account's own name, which survives 
 
 test("a genuine guest, signed into nothing, carries no account name at all", async () => {
   const a = await managerContext(sql);
-  const guest = { ...a.ctx, actor: { userId: null, membershipId: null, role: "guest" as const } };
+  const guest = {
+    ...a.ctx,
+    actor: { userId: null, membershipId: null, role: "guest" as const },
+  };
 
   const sent = await runCommand(sql, guest, submitFeedback, {
     senderName: "Một người khách",

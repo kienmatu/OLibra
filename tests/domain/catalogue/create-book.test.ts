@@ -199,9 +199,9 @@ test("neither donor control is filled: the ordinary case, not an error", async (
   // Restated from "a copy with no donor recorded is the ordinary case" below,
   // for the guard specifically: absence of both is not ambiguity.
   const { ctx } = await shelfWithManager();
-  await expect(
-    runCommand(sql, ctx, createBook, BOOK),
-  ).resolves.toMatchObject({ bookId: expect.any(String) });
+  await expect(runCommand(sql, ctx, createBook, BOOK)).resolves.toMatchObject({
+    bookId: expect.any(String),
+  });
 });
 
 test("AddCopies refuses both donor controls at once too", async () => {
