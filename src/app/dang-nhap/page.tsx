@@ -185,7 +185,19 @@ export default async function LoginPage({
 
           <div className="mt-8 border-t border-hairline pt-6 text-center text-[15px]">
             <span className="text-meta">Chưa có tài khoản? </span>
-            <Link href="/dang-ky" className="font-medium text-sage hover:underline">
+            {/* The shelf travels with the link when this page knows one, so a
+                visitor who followed a portal link into their own parish's
+                sign-in lands on their own parish's form. Without it `/dang-ky`
+                asks them to choose, which is the honest answer when nothing on
+                this request names a shelf. */}
+            <Link
+              href={
+                shelf
+                  ? `/dang-ky?tu-sach=${encodeURIComponent(shelf.slug)}`
+                  : "/dang-ky"
+              }
+              className="font-medium text-sage hover:underline"
+            >
               Đăng ký tài khoản mới
             </Link>
           </div>

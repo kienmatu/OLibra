@@ -1,7 +1,17 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { hashPassword } from "../../src/auth/password";
+import { setPasswordVerifier } from "../../src/domain/members/registration";
+import { signIn } from "../../src/auth/session";
+import { verifyPassword } from "../../src/auth/password";
+import { systemClock } from "../../src/domain/kernel/clock";
+import { migrate } from "../../src/db/migrate";
 import { AVATAR_MAX_BYTES } from "../../src/lib/avatar";
+import { SESSION_COOKIE } from "../../src/lib/session-cookie";
+import { makeShelf, makeUser } from "../support/factories";
+import { closeAll, resetDatabase, sql } from "../support/db";
+import { testDatabaseUrl, testPoolDatabaseUrl } from "../support/env";
 
 /**
  * The avatar upload through **Next's own request handler**, over real HTTP.
@@ -34,12 +44,25 @@ import { AVATAR_MAX_BYTES } from "../../src/lib/avatar";
  *
  * ── What it does not need ───────────────────────────────────────────────────
  *
- * No database and no object store. Both refusals below are raised by
- * `storeProposedAvatar` before it touches either — the content-type check and
- * the size check are the first two statements — so the only thing under test is
- * the path from the socket to those two lines. The page itself still renders
- * from `@/lib/fixtures` (plan §7), so the GET that scrapes the action id needs
- * nothing either.
+ * No object store, and — until U5 — no database. Both refusals below are raised
+ * by `storeProposedAvatar` before it touches either: the content-type check and
+ * the size check are the first two statements, so the only thing under test is
+ * the path from the socket to those two lines.
+ *
+ * **The GET that scrapes the action id is a different matter now.** This file
+ * used to say it needed nothing, because the profile page rendered from
+ * `@/lib/fixtures` and served anybody. U5 wired it to `loadPage` and
+ * `getMyProfile`, so a request with no session is redirected to sign in and
+ * carries no form at all — which is how this test failed, with `no avatar form
+ * with a server-action id on the page`, on a change that had nothing to do with
+ * body limits.
+ *
+ * So it signs in, the same way `scripts/check-links.mjs` does: a shelf and a
+ * member written directly, then `signIn` against the real `sessions` table, and
+ * the cookie on both the GET and the POST. That is a cost this test did not have
+ * and now does. It is the honest one — the alternative is scraping the id from
+ * some other page, which would mean this test's subject drifts to whatever page
+ * happens to still be public.
  */
 
 /**
@@ -52,6 +75,8 @@ const ORIGIN = `http://127.0.0.1:${PORT}`;
 const PROFILE = "/tu-sach/dong-thap/toi/ho-so";
 
 let server: ChildProcess;
+/** The signed-in reader's session cookie, for every request below. */
+let cookie: string;
 
 /**
  * `tsconfig.json`, as it stands before the dev server touches it.
@@ -124,10 +149,44 @@ function noServer(why: string): never {
  * mystery in place of the one this replaces.
  */
 beforeAll(async () => {
+  // A shelf at the slug `PROFILE` names, and one reader of it who can sign in.
+  // Written directly rather than through `registerMembership`, because what is
+  // under test is a body limit and not a registration — and because the seeded
+  // demo data would be a much larger dependency for one session.
+  await migrate(sql);
+  await resetDatabase();
+  setPasswordVerifier(verifyPassword);
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const user = await makeUser(sql, { fullName: "Giuse Trần Minh" });
+  await sql`
+    update users
+       set username = 'anh-doc', password_hash = ${await hashPassword("olibra-dev")}
+     where id = ${user.id}
+  `;
+  await sql`
+    insert into memberships (bookshelf_id, user_id, role, status)
+    values (${shelf.id}, ${user.id}, 'reader', 'active')
+  `;
+  const { token } = await signIn(sql, {
+    username: "anh-doc",
+    password: "olibra-dev",
+    clock: systemClock,
+  });
+  cookie = `${SESSION_COOKIE}=${token}`;
+
   tsconfigBefore = readFileSync(TSCONFIG, "utf8");
   server = spawn("node_modules/.bin/next", ["dev", "-p", String(PORT)], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
+    // The dev server is a separate process and reads its own environment. The
+    // suite's own `sql` handle points at the test database; without these two
+    // the server would reach for a `DATABASE_URL` the `check` job does not set,
+    // and the page would fault instead of rendering.
+    env: {
+      ...process.env,
+      DATABASE_URL: testPoolDatabaseUrl(),
+      MIGRATION_DATABASE_URL: testDatabaseUrl(),
+    },
   });
   server.stdout?.on("data", remember);
   server.stderr?.on("data", remember);
@@ -166,7 +225,8 @@ beforeAll(async () => {
   }
 }, 70_000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeAll();
   server?.kill("SIGTERM");
   if (readFileSync(TSCONFIG, "utf8") !== tsconfigBefore) {
     writeFileSync(TSCONFIG, tsconfigBefore);
@@ -184,7 +244,9 @@ afterAll(() => {
  * sign-out form the day the header changes.
  */
 async function avatarActionId(): Promise<string> {
-  const html = await fetch(`${ORIGIN}${PROFILE}`).then((r) => r.text());
+  const html = await fetch(`${ORIGIN}${PROFILE}`, {
+    headers: { cookie },
+  }).then((r) => r.text());
   const form = html
     .split("<form")
     .find((chunk) => chunk.includes('name="anh"') && chunk.includes("$ACTION_ID_"));
@@ -218,7 +280,7 @@ async function postPhotograph(bytes: number, type: string): Promise<Posted> {
   const res = await fetch(`${ORIGIN}${PROFILE}`, {
     method: "POST",
     body: form,
-    headers: { origin: ORIGIN },
+    headers: { origin: ORIGIN, cookie },
     redirect: "manual",
   });
   const location = res.headers.get("location");

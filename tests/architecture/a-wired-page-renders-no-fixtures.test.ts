@@ -134,13 +134,26 @@ test("the check can see both halves of what it compares", () => {
   // `src/lib/fixtures.ts`, and are correctly seen doing it. When a later slice
   // wires them this list shrinks; it is a floor for the detector, not a claim
   // that these pages should stay as they are.
-  // U4 wired `toi/` and `toi/lich-su`, so the floor moved to a page that is
-  // still fixture-backed. It shrinks each time a slice wires one; the day it
-  // cannot name a fixture page at all, this half of the check has nothing left
-  // to prove and should go rather than be pointed at a wired page.
-  expect(all.filter((r) => r.importsFixtures).map((r) => r.path)).toContain(
-    `${base}/toi/ho-so/page.tsx`,
-  );
+  // U5 wired every reader page, so the floor moved again — and it is now
+  // asserted as an exact set rather than a `toContain`, because the remaining
+  // five are a list somebody should have to shorten deliberately. Each needs a
+  // query no slice has written: `GetSiteContact`, `GetShelfSettings`,
+  // `GetStatistics`, and B4's two administration reads. The day this list is
+  // empty, this half of the check has nothing left to prove and should go
+  // rather than be pointed at a wired page.
+  expect(
+    all
+      .filter((r) => r.importsFixtures)
+      .map((r) => r.path)
+      .sort(),
+  ).toEqual([
+    "src/app/lien-he/page.tsx",
+    "src/app/quan-tri/cai-dat/page.tsx",
+    "src/app/quan-tri/page.tsx",
+    "src/app/quan-tri/tu-sach/page.tsx",
+    `${base}/quan-ly/cai-dat/page.tsx`,
+    `${base}/quan-ly/thong-ke/page.tsx`,
+  ]);
 });
 
 test("no page that reads the database also renders fixtures", () => {
@@ -193,7 +206,6 @@ const PAGES_NOT_YET_WIRED = [
   "src/app/loi/page.tsx",
   "src/app/page.tsx",
 
-  "src/app/dang-ky/page.tsx",
   "src/app/lien-he/page.tsx",
   "src/app/quan-tri/cai-dat/page.tsx",
   "src/app/quan-tri/nhat-ky/page.tsx",
@@ -201,13 +213,13 @@ const PAGES_NOT_YET_WIRED = [
   "src/app/quan-tri/quan-ly-vien/[id]/page.tsx",
   "src/app/quan-tri/quan-ly-vien/page.tsx",
   "src/app/quan-tri/tu-sach/page.tsx",
-  "src/app/tu-sach/[shelf]/quan-ly/binh-luan/page.tsx",
   "src/app/tu-sach/[shelf]/quan-ly/cai-dat/page.tsx",
-  "src/app/tu-sach/[shelf]/quan-ly/tang-sach/page.tsx",
-  "src/app/tu-sach/[shelf]/quan-ly/thong-bao/page.tsx",
   "src/app/tu-sach/[shelf]/quan-ly/thong-ke/page.tsx",
+
+  // Reads nothing because it *is* nothing: U5 replaced the second donation
+  // screen with a redirect to `toi/tang-sach`, the one the reader's own
+  // queries live behind. A route that only redirects has nothing to read.
   "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
-  "src/app/tu-sach/[shelf]/toi/ho-so/page.tsx",
 ];
 
 test("the set of unwired pages is exactly what this file says it is", () => {
@@ -581,10 +593,7 @@ test("the link check resolves the routes it claims to", () => {
   // …and they are still fixture pages, so relinking one fails rather than
   // passing because the page quietly got wired in the meantime.
   const byPath = new Map(routes().map((r) => [r.path, r]));
-  for (const page of [
-    "src/app/tu-sach/[shelf]/toi/ho-so/page.tsx",
-    "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
-  ]) {
+  for (const page of []) {
     expect(byPath.get(page)?.importsFixtures, page).toBe(true);
   }
 });

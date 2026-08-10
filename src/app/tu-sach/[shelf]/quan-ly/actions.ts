@@ -7,6 +7,23 @@ import { redirect } from "next/navigation";
 // functions are built around — a refusal is a sentence, a fault still throws —
 // is only worth writing down if it is the *shipped* function a test can reach.
 import { RuleViolated, ValidationFailed } from "../../../../domain/kernel/errors";
+import {
+  createAnnouncement,
+  hideAnnouncement,
+  pinAnnouncement,
+  publishAnnouncement,
+  unpinAnnouncement,
+  updateAnnouncement,
+} from "../../../../domain/community/commands/announcements";
+import {
+  approveComment,
+  hideComment,
+  rejectComment,
+} from "../../../../domain/community/commands/comment-moderation";
+import {
+  declineDonation,
+  receiveDonation,
+} from "../../../../domain/community/commands/donations";
 import { createBook } from "../../../../domain/catalogue/commands/create-book";
 import { markCopyFound } from "../../../../domain/catalogue/commands/mark-copy-found";
 import { reportCopyLost } from "../../../../domain/catalogue/commands/report-copy-lost";
@@ -686,4 +703,218 @@ export async function handoverRequestAction(form: FormData): Promise<void> {
     : INCOMPLETE;
 
   backToQueue(managerBase(shelfSlug), "yeu-cau-muon", outcome);
+}
+
+// ── B3's community moderation, wired by U5 ─────────────────────────────────
+
+/**
+ * OPS §4.4's `ApproveComment` — INV-9's `pending → approved`, and the moment a
+ * child's words become visible to the parish.
+ */
+export async function approveCommentAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["binh-luan"])
+    ? await attempt(shelfSlug, approveComment, {
+        commentId: field(form, "binh-luan"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "binh-luan", outcome);
+}
+
+/**
+ * `RejectComment`, with the reason the reader is shown.
+ *
+ * The empty-box check is on this side for the reason this file's header gives
+ * for the other two rejects: the command's own `reject_reason_required` is what
+ * a volunteer reads, so there is no second wording invented here.
+ */
+export async function rejectCommentAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["binh-luan"])
+    ? INCOMPLETE
+    : reason === ""
+      ? NO_REJECT_REASON
+      : await attempt(shelfSlug, rejectComment, {
+          commentId: field(form, "binh-luan"),
+          reason,
+        });
+
+  backToQueue(managerBase(shelfSlug), "binh-luan", outcome);
+}
+
+/**
+ * `HideComment` — for something already approved that should not have been.
+ *
+ * This is the button that had no way to name a comment until U5: the moderation
+ * queue returns `pending` rows only, so an approved one left that list forever
+ * and `hideComment` had existed since B3 with nothing able to call it.
+ */
+export async function hideCommentAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["binh-luan"])
+    ? await attempt(shelfSlug, hideComment, {
+        commentId: field(form, "binh-luan"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "binh-luan", outcome);
+}
+
+/**
+ * OPS §4.4's `ReceiveDonation` — **Duyệt**.
+ *
+ * **It writes no book, and BR §16.3 is why the screen then goes somewhere.**
+ * `receiveDonation` records that the shelf accepted the offer and stops:
+ * cataloguing is a separate, manager-typed `CreateBook` with **Người tặng**
+ * pre-filled, "because a bag of books is not a catalogue entry and only a person
+ * holding them knows what they are". So this redirects to the add-book form
+ * carrying the donor, rather than to the queue — the hand-off the command
+ * deliberately does not perform itself.
+ */
+export async function receiveDonationAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const donor = field(form, "nguoi-tang");
+  const outcome = complete(form, ["loi-tang"])
+    ? await attempt(shelfSlug, receiveDonation, {
+        donationId: field(form, "loi-tang"),
+      })
+    : INCOMPLETE;
+
+  if (!outcome.ok) backToQueue(managerBase(shelfSlug), "tang-sach", outcome);
+
+  const base = managerBase(shelfSlug);
+  // `nguoi-tang` is a `memberships(id)` — `book_donations.donor_membership_id`,
+  // the reverse of this codebase's usual actor column, and the form field is
+  // named for what it carries rather than for the person.
+  redirect(donor ? `${base}/sach/moi?nguoi-tang=${donor}` : `${base}/sach/moi`);
+}
+
+/** `DeclineDonation`, with the reason the reader reads on their own page. */
+export async function declineDonationAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["loi-tang"])
+    ? INCOMPLETE
+    : reason === ""
+      ? NO_REJECT_REASON
+      : await attempt(shelfSlug, declineDonation, {
+          donationId: field(form, "loi-tang"),
+          reason,
+        });
+
+  backToQueue(managerBase(shelfSlug), "tang-sach", outcome);
+}
+
+/**
+ * The five buttons on the announcements screen, and one form.
+ *
+ * `PublishAnnouncement` serves both **Đăng ngay** and **Đăng lại**: the command
+ * refuses a second publication only when no new expiry is supplied, precisely so
+ * republishing a lapsed notice goes through the same door. That is why the
+ * republish form carries a `het-han` field and the first publish does not need
+ * one.
+ */
+export async function createAnnouncementAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = await attemptTyped(shelfSlug, createAnnouncement, {
+    title: field(form, "tieu-de"),
+    body: field(form, "noi-dung"),
+  });
+
+  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+}
+
+export async function publishAnnouncementAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const expiresAt = expiryDate(form, "het-han");
+  const outcome = complete(form, ["thong-bao"])
+    ? await attemptTyped(shelfSlug, publishAnnouncement, {
+        announcementId: field(form, "thong-bao"),
+        // Absent leaves `already_published` in force; present is the republish
+        // path. `null` from an empty box means "no expiry", which is a
+        // legitimate answer and distinct from not asking.
+        ...(form.has("het-han") ? { expiresAt } : {}),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+}
+
+export async function hideAnnouncementAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["thong-bao"])
+    ? await attempt(shelfSlug, hideAnnouncement, {
+        announcementId: field(form, "thong-bao"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+}
+
+export async function pinAnnouncementAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["thong-bao"])
+    ? await attempt(shelfSlug, pinAnnouncement, {
+        announcementId: field(form, "thong-bao"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+}
+
+export async function unpinAnnouncementAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["thong-bao"])
+    ? await attempt(shelfSlug, unpinAnnouncement, {
+        announcementId: field(form, "thong-bao"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+}
+
+/**
+ * OPS §4.4's `UpdateAnnouncement` — **Sửa**, in place on the card.
+ *
+ * Every field is optional in the command ("a field that is present must be
+ * valid; a field that is absent is untouched"), and this form always sends both,
+ * so an empty title is a refusal rather than a silent no-op. The expiry keeps
+ * its three cases: the box is always posted, so an empty one clears the expiry
+ * deliberately rather than by omission.
+ */
+export async function updateAnnouncementAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["thong-bao"])
+    ? await attemptTyped(shelfSlug, updateAnnouncement, {
+        announcementId: field(form, "thong-bao"),
+        title: field(form, "tieu-de"),
+        body: field(form, "noi-dung"),
+        expiresAt: expiryDate(form, "het-han"),
+      })
+    : INCOMPLETE;
+
+  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+}
+
+/**
+ * A `type="date"` box read as an expiry instant, or `null` for an empty one.
+ *
+ * **End of that day, not the start of it.** `2026-08-14` from a date input is
+ * midnight, so an announcement set to expire "on the 14th" would vanish as the
+ * 13th ended — a manager writes a date meaning "up to and including". The
+ * shift is a whole day added to the parsed instant.
+ *
+ * An unparseable value is `null` rather than an `Invalid Date`: the latter
+ * reaches `assertValidClockInstant`-shaped territory inside the kernel and
+ * raises a `RangeError` from inside a transaction, which is the shape OPS §2
+ * forbids. A browser's date input cannot produce one; a hand-written POST can.
+ */
+function expiryDate(form: FormData, name: string): Date | null {
+  const raw = field(form, name);
+  if (raw === "") return null;
+  const at = new Date(`${raw}T00:00:00Z`);
+  if (!Number.isFinite(at.getTime())) return null;
+  return new Date(at.getTime() + 24 * 60 * 60 * 1000);
 }

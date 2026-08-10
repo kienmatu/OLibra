@@ -8,6 +8,8 @@ import {
   type Tx,
 } from "../../../src/domain/kernel/unit-of-work";
 import { createBorrowRequest } from "../../../src/domain/circulation/commands/create-borrow-request";
+import { createComment } from "../../../src/domain/community/commands/comment-moderation";
+import { offerDonation } from "../../../src/domain/community/commands/donations";
 import { getOverdueLoans } from "../../../src/domain/circulation/queries/get-overdue-loans";
 import { proposeProfileChange } from "../../../src/domain/members/commands/propose-profile-change";
 import { getPendingProfileChanges } from "../../../src/domain/members/queries/get-pending-profile-changes";
@@ -46,8 +48,8 @@ function contextFor(
 
 /**
  * A shelf carrying one of each thing a badge counts: a pending application, a
- * pending profile change, a queued borrow request, and one loan that is due on
- * `DUE_ON`.
+ * pending profile change, a queued borrow request, a pending donation, a
+ * comment awaiting moderation, and one loan that is due on `DUE_ON`.
  *
  * Written through `proposeProfileChange` and `createBorrowRequest` rather than
  * by inserting rows, for `tests/support/scenarios.ts`'s stated reason: a count
@@ -88,6 +90,23 @@ async function shelfWithOneOfEach(slug: string) {
     { bookId, membershipId: queuer.id },
   );
 
+  // U5's two badges. Both go through their real commands for the reason above:
+  // `offerDonation` writes `donor_membership_id`, a `memberships(id)`, and
+  // `createComment` lands in `pending` because INV-9 makes that the default —
+  // neither fact would survive an insert written here.
+  const donor = await makeMember(sql, shelf.id);
+  await runCommand(sql, contextFor(shelf.id, donor, "reader"), offerDonation, {
+    membershipId: donor.id,
+    description: "Khoảng mười cuốn truyện tranh",
+  });
+
+  const commenter = await makeMember(sql, shelf.id);
+  await runCommand(sql, contextFor(shelf.id, commenter, "reader"), createComment, {
+    membershipId: commenter.id,
+    bookId,
+    body: "Sách hay lắm ạ.",
+  });
+
   return { shelf, manager, ctx, bookId, copyIds };
 }
 
@@ -103,6 +122,8 @@ test("each badge counts this shelf and no other", async () => {
     pendingRegistrations: 1,
     pendingProfileChanges: 1,
     pendingRequests: 1,
+    pendingDonations: 1,
+    pendingComments: 1,
     // On the due date itself, not yet.
     overdue: 0,
   });
@@ -142,9 +163,13 @@ test("it is RLS doing the scoping, not a where clause", async () => {
   // so it needs its own line here: the property is about the query naming no
   // shelf, and `countQueuedRequests` is a different query.
   expect(scoped.pendingRequests).toBe(1);
+  expect(scoped.pendingDonations).toBe(1);
+  expect(scoped.pendingComments).toBe(1);
   expect(unpoliced.pendingRegistrations).toBe(2);
   expect(unpoliced.pendingProfileChanges).toBe(2);
   expect(unpoliced.pendingRequests).toBe(2);
+  expect(unpoliced.pendingDonations).toBe(2);
+  expect(unpoliced.pendingComments).toBe(2);
 });
 
 test("the shelf totals are scoped by RLS too", async () => {
@@ -159,11 +184,16 @@ test("the shelf totals are scoped by RLS too", async () => {
     return getManagerDashboard(tx as unknown as Tx, a.ctx);
   });
 
-  // One title, two copies, one active loan; five memberships of which four are
-  // active (manager, proposer, borrower, and C2's queuer) and one is the
-  // pending applicant.
-  expect(scoped.totals).toEqual({ titles: 1, copies: 2, onLoan: 1, readers: 4 });
-  expect(unpoliced.totals).toEqual({ titles: 2, copies: 4, onLoan: 2, readers: 8 });
+  // One title, two copies, one active loan; seven memberships of which six are
+  // active (manager, proposer, borrower, C2's queuer, U5's donor and its
+  // commenter) and one is the pending applicant.
+  expect(scoped.totals).toEqual({ titles: 1, copies: 2, onLoan: 1, readers: 6 });
+  expect(unpoliced.totals).toEqual({
+    titles: 2,
+    copies: 4,
+    onLoan: 2,
+    readers: 12,
+  });
 });
 
 test("a badge shows the number of rows the list it links to shows", async () => {

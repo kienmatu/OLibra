@@ -75,7 +75,6 @@ const SEEDS = [
   `${S}/tim-kiem`,
   `${S}/thong-bao`,
   `${S}/gop-y`,
-  `${S}/tang-sach`,
   `${S}/sach/de-men-phieu-luu-ky`,
   `${S}/toi`,
   `${S}/toi/lich-su`,
@@ -366,6 +365,31 @@ for (const [path, { status, from }] of reached) {
   else dead.push({ path, status, from: [...from] });
 }
 
+// ── Redirects: a URL this app published must keep working ─────────────────
+/**
+ * Paths that answer 3xx by design, and where each must point.
+ *
+ * `${S}/tang-sach` was a second donation screen until U5 replaced it with a
+ * redirect to `toi/tang-sach`, the one the reader's own queries live behind.
+ * It cannot be a *seed* — the rule for those is "must render 200" — and simply
+ * deleting it from the list would stop anything checking that a URL this
+ * application itself published still works.
+ */
+const REDIRECTS = [[`${S}/tang-sach`, `${S}/toi/tang-sach`]];
+
+const misdirected = [];
+for (const [from, to] of REDIRECTS) {
+  const res = await fetch(BASE + from, {
+    redirect: "manual",
+    headers: { cookie: `${SESSION_COOKIE}=${tokenFor(from)}` },
+  });
+  const location = res.headers.get("location");
+  const landed = location && new URL(location, BASE).pathname;
+  if (res.status < 300 || res.status >= 400 || landed !== to) {
+    misdirected.push({ from, to, status: res.status, landed });
+  }
+}
+
 // ── Pass 2: anonymous. Nothing may fault. ──────────────────────────────────
 // A 404 is expected and correct here for every manager and admin URL (U1
 // §3.4), so this asserts only the absence of a fault. That is the check the
@@ -389,7 +413,21 @@ if (seedBad.length) {
   console.log();
 }
 
-if (dead.length === 0 && seedBad.length === 0 && faults.length === 0) {
+if (misdirected.length) {
+  console.log("REDIRECTS THAT DID NOT LAND WHERE THEY SHOULD:");
+  for (const m of misdirected) {
+    console.log(`  ${m.status}  ${m.from} → ${m.landed ?? "(no Location)"}`);
+    console.log(`         expected ${m.to}`);
+  }
+  console.log();
+}
+
+if (
+  dead.length === 0 &&
+  seedBad.length === 0 &&
+  faults.length === 0 &&
+  misdirected.length === 0
+) {
   console.log("every internal link resolves, and nothing faults for a stranger");
   process.exit(0);
 }

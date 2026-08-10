@@ -107,3 +107,97 @@ export async function getPendingComments(
     title: r.title,
   }));
 }
+
+/**
+ * The moderation screen's second half — **what was already let through**, most
+ * recent first, so a manager who approved something by mistake can find it and
+ * hide it.
+ *
+ * `hideComment` has existed since B3 with nothing that could name a comment to
+ * pass it: the queue above returns `pending` rows only, and once one is approved
+ * it leaves that list forever. This is the query that makes the *Ẩn* button on
+ * the shipped screen reach a real comment instead of an invented one.
+ *
+ * Capped rather than paged. This is a "recently" list beside a queue, not a
+ * browsable archive — a shelf of a few hundred books does not accumulate enough
+ * comments for a second page to be the missing feature, and a manager looking
+ * for one specific old comment is looking at the book's own page. The cap is a
+ * parameter so the caller states it rather than inheriting a number from here.
+ */
+export async function getRecentlyApprovedComments(
+  tx: Tx,
+  ctx: TenantContext,
+  input: { limit?: number } = {},
+): Promise<PendingCommentRow[]> {
+  requireManager(ctx);
+
+  const rows = await tx<
+    {
+      id: string;
+      body: string;
+      author_name: string;
+      created_at: Date;
+      book_id: string;
+      title: string;
+    }[]
+  >`
+    select c.id, c.body, u.full_name as author_name, c.created_at,
+           c.book_id, b.title
+      from comments c
+      join users u on u.id = c.author_id
+      join books b on b.id = c.book_id
+     where c.status = 'approved'
+       and c.deleted_at is null
+     -- id beside created_at for the reason getPendingComments above records:
+     -- created_at carries no unique constraint, and an ordering without a
+     -- unique tiebreak repeats and drops rows across pages. (No backticks in
+     -- SQL comments: inside a tagged template they end the literal.)
+     order by c.created_at desc, c.id desc
+     limit ${input.limit ?? 10}
+  `;
+
+  return rows.map((r) => ({
+    id: r.id,
+    body: r.body,
+    authorName: r.author_name,
+    createdAt: r.created_at,
+    bookId: r.book_id,
+    title: r.title,
+  }));
+}
+
+/**
+ * How many comments are in each state — the four numbers on the moderation
+ * screen's chips.
+ *
+ * **One statement over the enum, not four `count(*)` queries.** `comment_status`
+ * has exactly four values (`0006_community.sql:7`), and a `group by` returns
+ * only the ones with rows — so the zeroes have to be filled in here, from the
+ * same literal list the type is built from. A `Record<CommentStatus, number>`
+ * whose keys came from the database would silently lose a chip the day a status
+ * had no rows, which is the state a well-moderated shelf is *usually* in.
+ */
+export type CommentStatus = "pending" | "approved" | "rejected" | "hidden";
+
+export async function countCommentsByStatus(
+  tx: Tx,
+  ctx: TenantContext,
+): Promise<Record<CommentStatus, number>> {
+  requireManager(ctx);
+
+  const rows = await tx<{ status: CommentStatus; n: string }[]>`
+    select status, count(*) as n
+      from comments
+     where deleted_at is null
+     group by status
+  `;
+
+  const counts: Record<CommentStatus, number> = {
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    hidden: 0,
+  };
+  for (const row of rows) counts[row.status] = Number(row.n);
+  return counts;
+}

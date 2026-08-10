@@ -1,10 +1,40 @@
 import Link from "next/link";
-import { Camera, Info } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CheckCircle2, Info } from "lucide-react";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
-import { shelf } from "@/lib/fixtures";
+import { messageFor } from "@/domain/kernel/errors";
+import { findPublicShelf } from "@/domain/portal/queries/find-public-shelf";
+import { loadPage, loadPublicPage } from "@/lib/page-data";
+import { loadParishContext } from "@/domain/members/parish-context";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
+import { registerMembershipAction } from "./actions";
+
+/**
+ * BR §1.2's registration form — "someone who has no account yet must be able to
+ * find their parish's shelf in order to register for it."
+ *
+ * **The shelf comes from `?tu-sach=`, and until U5 it came from
+ * `src/lib/fixtures.ts`.** Every visitor, from every parish, saw a form headed
+ * *Tủ sách Đồng Tháp* offering Đồng Tháp's parish units — the exact defect
+ * `a-wired-page-renders-no-fixtures.test.ts` exists for, on the one page a
+ * stranger reaches first. It was exempted there by name, with the reason
+ * recorded ("what makes removing the link the worse option is that it is the
+ * *only* way to register"), and this is the slice that entry named.
+ *
+ * **No shelf named means no form.** A visitor who arrives at a bare `/dang-ky`
+ * is sent to choose a parish rather than shown a form that cannot be submitted
+ * — the portal is one tap away and is where they came from.
+ *
+ * **Two seams on one page, and the split is what each is entitled to.** The
+ * shelf's name comes through `loadPublicPage`, which reads five columns of
+ * `bookshelves` as `olibra_public` and can reach nothing else. The parish units
+ * come through `loadPage`, because `parish_units` carries an ordinary tenant
+ * policy and is not public — a person filling in this form is a guest of that
+ * shelf, which is precisely the reading `contextFor` gives them.
+ */
+export const dynamic = "force-dynamic";
 
 function GroupHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -14,12 +44,50 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function RegisterPage() {
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const search = await searchParams;
+  const slug = param(search, "tu-sach") ?? null;
+  const refusal = refusalFrom(search);
+  const sent = param(search, "da-gui") === "1";
+
+  const shelf = slug
+    ? await loadPublicPage((tx) => findPublicShelf(tx, { slug }))
+    : null;
+
+  if (!shelf) {
+    return (
+      <>
+        <ShelfHeader shelfName="OLibra" shelfSlug="" viewerName={null} />
+        <main className="mx-auto max-w-xl px-6 py-16">
+          <h1 className="text-[28px] leading-tight font-semibold">
+            Đăng ký làm bạn đọc
+          </h1>
+          <p className="mt-1.5 text-meta">
+            Trước hết, em chọn tủ sách của giáo xứ mình nhé.
+          </p>
+          <Link
+            href="/tu-sach"
+            className="mt-6 inline-flex min-h-11 items-center text-[16px] font-medium text-sage hover:underline"
+          >
+            Xem danh sách tủ sách
+          </Link>
+        </main>
+      </>
+    );
+  }
+
+  const { taxonomy, units } = await loadPage(shelf.slug, (tx, ctx) =>
+    loadParishContext(tx, ctx),
+  );
+
   return (
     <>
-      {/* Registration is the other genuinely public shelf page (§1.2): the
-          person filling it in has no membership yet, so there is no viewer to
-          name. */}
+      {/* The person filling this in has no membership yet, so there is no
+          viewer to name. */}
       <ShelfHeader
         shelfName={shelf.name}
         shelfSlug={shelf.slug}
@@ -35,7 +103,25 @@ export default function RegisterPage() {
           sau lễ Chúa nhật.
         </p>
 
-        <form className="mt-10 space-y-10">
+        {sent ? (
+          <p className="mt-6 flex items-start gap-2 rounded-card border border-hairline bg-surface px-4 py-3 text-[15px]">
+            <CheckCircle2
+              className="mt-0.5 size-5 shrink-0 text-available"
+              aria-hidden
+            />
+            Đã gửi đăng ký. Quản lý sẽ gặp em ở nhà xứ để xác nhận.
+          </p>
+        ) : null}
+
+        {refusal ? (
+          <p className="mt-6 rounded-card border border-hairline bg-surface px-4 py-3 text-[15px] text-ink">
+            {messageFor(refusal)}
+          </p>
+        ) : null}
+
+        <form action={registerMembershipAction} className="mt-10 space-y-10">
+          <input type="hidden" name="tu-sach" value={shelf.slug} />
+
           <section className="space-y-3">
             <Field label="Đăng ký cho tủ sách">
               <ReadOnlyValue>{shelf.name}</ReadOnlyValue>
@@ -61,7 +147,12 @@ export default function RegisterPage() {
               htmlFor="ten-dang-nhap"
               hint="Dùng để đăng nhập, nên chọn tên dễ nhớ."
             >
-              <Input id="ten-dang-nhap" placeholder="vd: lan.nguyen" />
+              <Input
+                id="ten-dang-nhap"
+                name="ten-dang-nhap"
+                placeholder="vd: lan.nguyen"
+                autoComplete="username"
+              />
             </Field>
 
             <Field
@@ -69,37 +160,43 @@ export default function RegisterPage() {
               htmlFor="mat-khau"
               hint="Ít nhất 8 ký tự. Nếu quên, quản lý sẽ đặt lại giúp."
             >
-              <Input id="mat-khau" type="password" />
+              <Input
+                id="mat-khau"
+                name="mat-khau"
+                type="password"
+                autoComplete="new-password"
+              />
             </Field>
 
             <Field label="Nhập lại mật khẩu" htmlFor="nhap-lai-mat-khau">
-              <Input id="nhap-lai-mat-khau" type="password" />
+              <Input
+                id="nhap-lai-mat-khau"
+                name="nhap-lai-mat-khau"
+                type="password"
+                autoComplete="new-password"
+              />
             </Field>
           </section>
 
           <section className="space-y-6">
             <GroupHeading>Bản thân</GroupHeading>
 
-            <Field
-              label="Ảnh của em"
-              hint="Chụp bằng điện thoại cũng được. Quản lý dùng ảnh này để nhận ra em ở nhà xứ."
-            >
-              <div className="flex aspect-[2/3] w-36 flex-col items-center justify-center gap-2 rounded-card border border-dashed border-hairline bg-paper text-center">
-                <Camera
-                  aria-hidden
-                  className="size-7 text-leather"
-                  strokeWidth={1.75}
-                />
-                <span className="px-2 text-[13px] text-meta">Chạm để chọn ảnh</span>
-              </div>
-            </Field>
+            {/* **No photograph here, and that is B6's gap surfacing.** The
+                fixture showed a "Chạm để chọn ảnh" tile. `RegistrationInput`
+                takes an `avatarUrl` and no storage key, so a photograph set at
+                registration can never be deleted by any code path — the
+                retention gap `registration.ts` records at length. A face is the
+                most identifying fact this system can hold about a child, and
+                offering to store one the parish cannot later remove is not a
+                feature. `ProposeAvatarChange`, on the profile page, carries the
+                key and is the way in until B6 closes this. */}
 
             <Field
               label="Tên thánh"
               htmlFor="ten-thanh"
               hint="Ghi nếu có, để quản lý dễ nhận ra em."
             >
-              <Input id="ten-thanh" placeholder="vd: Maria" />
+              <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
             </Field>
 
             <Field
@@ -108,7 +205,12 @@ export default function RegisterPage() {
               htmlFor="ho-ten"
               hint="Ghi đầy đủ như trong sổ giáo xứ."
             >
-              <Input id="ho-ten" placeholder="vd: Nguyễn Thị Lan" />
+              <Input
+                id="ho-ten"
+                name="ho-ten"
+                required
+                placeholder="vd: Nguyễn Thị Lan"
+              />
             </Field>
 
             <Field
@@ -117,7 +219,7 @@ export default function RegisterPage() {
               htmlFor="ngay-sinh"
               hint="Để tủ sách gợi ý sách hợp tuổi."
             >
-              <Input id="ngay-sinh" type="date" />
+              <Input id="ngay-sinh" name="ngay-sinh" type="date" required />
             </Field>
           </section>
 
@@ -130,7 +232,12 @@ export default function RegisterPage() {
               htmlFor="ten-cha"
               hint="Giúp quản lý phân biệt các em trùng tên."
             >
-              <Input id="ten-cha" placeholder="vd: Nguyễn Văn Hoà" />
+              <Input
+                id="ten-cha"
+                name="ten-cha"
+                required
+                placeholder="vd: Nguyễn Văn Hoà"
+              />
             </Field>
 
             <Field
@@ -139,7 +246,12 @@ export default function RegisterPage() {
               htmlFor="ten-me"
               hint="Giúp quản lý phân biệt các em trùng tên."
             >
-              <Input id="ten-me" placeholder="vd: Trần Thị Mai" />
+              <Input
+                id="ten-me"
+                name="ten-me"
+                required
+                placeholder="vd: Trần Thị Mai"
+              />
             </Field>
 
             <Field
@@ -150,7 +262,9 @@ export default function RegisterPage() {
             >
               <Input
                 id="dien-thoai"
+                name="dien-thoai"
                 inputMode="tel"
+                required
                 placeholder="vd: 09xx xxx xxx"
               />
             </Field>
@@ -164,10 +278,11 @@ export default function RegisterPage() {
               sau khi gặp em.
             </p>
 
+            {/* This shelf's own labels and units, never Đồng Tháp's. */}
             <ParishUnitFields
               idPrefix="dang-ky"
-              taxonomy={shelf.parishTaxonomy}
-              units={shelf.parishUnits}
+              taxonomy={taxonomy}
+              units={units}
             />
           </section>
 
@@ -181,15 +296,14 @@ export default function RegisterPage() {
               <p className="text-[16px] font-semibold">Sau khi gửi thì sao?</p>
               <p className="mt-1.5 text-[15px] text-meta">
                 Tài khoản chưa dùng được ngay. Quản lý sẽ gặp em ở nhà xứ để xác
-                nhận, thường trong vòng một tuần. Khi được duyệt, em có thể mượn tối
-                đa 3 cuốn cùng lúc.
+                nhận, thường trong vòng một tuần.
               </p>
             </div>
           </div>
 
-          <Button type="submit" variant="primary" size="lg" className="w-full">
+          <SubmitButton variant="primary" size="lg" className="w-full">
             Gửi đăng ký
-          </Button>
+          </SubmitButton>
 
           <p className="text-center text-[15px]">
             <Link
