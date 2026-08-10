@@ -46,15 +46,14 @@ const EXEMPT = new Set<string>([
   // buttons — set credentials, suspend, reactivate, mark left, edit profile —
   // in `src/app/tu-sach/[shelf]/quan-ly/nguoi-doc/[id]/page.tsx` and
   // `.../quan-ly/actions.ts`. All five are called from there now, so this
-  // block, unlike Task 5's below, is empty rather than pending.
-
-  // Task 5 (QA remediation) wires `assignManager` into the managers screen.
-  // `managers.ts` also exports `revokeManager` and `promoteSuperAdmin`, both
-  // already called from `src/app/quan-tri/admin-actions.ts` — this test only
-  // ever checks a file's *first* exported command (`head -1`, matching the
-  // plan's own design), which is `assignManager` here, so the file-level
-  // exemption is exactly as wide as it needs to be.
-  "src/domain/admin/commands/managers.ts", // TODO(Task 5): remove — assignManager gets its UI there.
+  // block is empty rather than pending.
+  //
+  // Task 5 (QA remediation) wired `assignManager` into the appoint form at
+  // `/quan-tri/quan-ly-vien` (`src/app/quan-tri/quan-ly-vien/page.tsx`, via
+  // `assignManagerAction`). It briefly held a file-level exemption here —
+  // `src/domain/admin/commands/managers.ts`, this test's first-export rule
+  // matching `assignManager` — which is removed now that a real form posts
+  // to it.
 
   // Pre-existing gaps, unrelated to parish units and outside Task 3's brief.
   // Found while fixing this test's extraction pattern above: with the

@@ -23,6 +23,7 @@ import {
 } from "../../../src/domain/admin/commands/system-settings";
 import {
   getAdminOverview,
+  getManagerCandidates,
   getManagersList,
   getSiteContact,
   getSystemSettings,
@@ -338,6 +339,64 @@ test("promoting is idempotent by refusal, and is a global fact", async () => {
     where action = 'user.promoted_super_admin'
   `;
   expect(entry.bookshelf_id).toBeNull();
+});
+
+// ── Task 5: the appoint form's candidate list ─────────────────────────────
+
+test("a candidate is an active reader of this shelf, and only that", async () => {
+  const ctx = await admin();
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const other = await makeShelf(sql, { slug: "can-tho" });
+
+  const active = await makeMember(sql, shelf.id);
+  await makeMember(sql, shelf.id, { role: "manager" }); // already running it
+  await makeMember(sql, shelf.id, { status: "pending" }); // not yet a member
+  await makeMember(sql, shelf.id, { status: "suspended" });
+  await makeMember(sql, shelf.id, { status: "left" });
+  await makeMember(sql, other.id); // a reader, but of the other shelf
+
+  const rows = await runAdminQuery(sql, ctx, (tx, c) =>
+    getManagerCandidates(tx, c, shelf.id),
+  );
+
+  expect(rows.map((r) => r.userId)).toEqual([active.userId]);
+});
+
+test("a shelf with no active reader has no candidates", async () => {
+  const ctx = await admin();
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await makeMember(sql, shelf.id, { role: "manager" });
+
+  const rows = await runAdminQuery(sql, ctx, (tx, c) =>
+    getManagerCandidates(tx, c, shelf.id),
+  );
+  expect(rows).toEqual([]);
+});
+
+test("assigning a listed candidate the manager role removes them from the list", async () => {
+  // The round trip Task 5 exists for: `getManagerCandidates` names who
+  // `assignManager` may act on, and appointing one is what takes them off
+  // the picker again — the same "already running it" exclusion the first
+  // test above checks from the other direction.
+  const ctx = await admin();
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const reader = await makeMember(sql, shelf.id);
+
+  let rows = await runAdminQuery(sql, ctx, (tx, c) =>
+    getManagerCandidates(tx, c, shelf.id),
+  );
+  expect(rows.map((r) => r.userId)).toEqual([reader.userId]);
+
+  await runAdminCommand(sql, { ...ctx, bookshelfId: shelf.id }, assignManager, {
+    userId: reader.userId,
+    bookshelfId: shelf.id,
+    role: "manager",
+  });
+
+  rows = await runAdminQuery(sql, ctx, (tx, c) =>
+    getManagerCandidates(tx, c, shelf.id),
+  );
+  expect(rows).toEqual([]);
 });
 
 // ── The cross-shelf reads ──────────────────────────────────────────────────
