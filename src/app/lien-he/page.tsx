@@ -4,7 +4,7 @@ import { PageHeading } from "@/components/ui/card";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
 import { getSiteContact } from "@/domain/admin/queries/get-admin-overview";
-import { loadPublicPage } from "@/lib/page-data";
+import { loadFrontDoorViewer, loadPublicPage } from "@/lib/page-data";
 
 /**
  * OPS §3.1's `GetSiteContact` — guest-callable and Global, and the last page in
@@ -36,10 +36,18 @@ export const metadata = { title: "Liên hệ — OLibra" };
 export default async function ContactPage() {
   const contact = await loadPublicPage((tx) => getSiteContact(tx));
   const hasContact = Boolean(contact.name || contact.phone);
+  // Task 6 (2026-08-10 QA remediation), same reason as the portal directory:
+  // the header needs to know who is asking, `getSiteContact` above does not,
+  // and `loadFrontDoorViewer` is the seam that answers the first without
+  // widening the second.
+  const viewer = await loadFrontDoorViewer();
 
   return (
     <>
-      <FrontDoorHeader />
+      <FrontDoorHeader
+        viewerName={viewer?.name ?? null}
+        isSuperAdmin={viewer?.isSuperAdmin ?? false}
+      />
 
       <main className="mx-auto max-w-2xl px-6 py-16">
         <PageHeading

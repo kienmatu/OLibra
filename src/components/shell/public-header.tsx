@@ -51,6 +51,50 @@ function MobileMenu({
 }
 
 /**
+ * The signed-in cluster this file's two headers both end with: an avatar
+ * initial, the visitor's name, and the way out.
+ *
+ * `ShelfHeader` had all three first (U2 §3.1); `FrontDoorHeader` needs the
+ * identical three for the identical reason (Task 6, 2026-08-10 QA
+ * remediation) rather than a second header that merely looks the same — a
+ * reworded "Đăng xuất" `aria-label` or a changed avatar rule would otherwise
+ * have two call sites to find, and a diff that updated only one would compile
+ * and look inconsistent nowhere in the type system.
+ *
+ * Posts through `signOutAction`, the same form `ManagerShell` posts through
+ * on the manager and admin shells: one mechanism ends a session everywhere it
+ * can be ended, rather than three headers each trusting their own copy to
+ * agree with the other two.
+ */
+function SignedInIdentity({ name }: { name: string }) {
+  return (
+    <>
+      <span className="flex items-center gap-2 text-[15px]">
+        <span
+          aria-hidden
+          className="flex size-8 items-center justify-center rounded-full bg-surface text-[14px] font-semibold text-leather"
+        >
+          {/* The last word of a Vietnamese name is the given name —
+              "Maria Nguyễn Thị Lan" initials as L, not M. Kept from the
+              fixture-era header, which had it right. */}
+          {name.split(" ").at(-1)?.charAt(0)}
+        </span>
+        <span className="max-w-40 truncate">{name}</span>
+      </span>
+      <form action={signOutAction} className="ml-1 flex">
+        <button
+          type="submit"
+          aria-label="Đăng xuất"
+          className="inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
+        >
+          <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
+        </button>
+      </form>
+    </>
+  );
+}
+
+/**
  * The header for a shelf.
  *
  * A bookshelf is no longer public (§1.2) — everything behind this header
@@ -226,27 +270,7 @@ export function ShelfHeader({
 
               <span aria-hidden className="mx-2 h-6 w-px bg-hairline" />
 
-              <span className="flex items-center gap-2 text-[15px]">
-                <span
-                  aria-hidden
-                  className="flex size-8 items-center justify-center rounded-full bg-surface text-[14px] font-semibold text-leather"
-                >
-                  {/* The last word of a Vietnamese name is the given name —
-                      "Maria Nguyễn Thị Lan" initials as L, not M. Kept from the
-                      fixture-era header, which had it right. */}
-                  {viewerName.split(" ").at(-1)?.charAt(0)}
-                </span>
-                <span className="max-w-40 truncate">{viewerName}</span>
-              </span>
-              <form action={signOutAction} className="ml-1 flex">
-                <button
-                  type="submit"
-                  aria-label="Đăng xuất"
-                  className="inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
-                >
-                  <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
-                </button>
-              </form>
+              <SignedInIdentity name={viewerName} />
             </nav>
 
             <MobileMenu
@@ -263,25 +287,90 @@ export function ShelfHeader({
 /**
  * The front door. Landing, portal, contact and the two auth screens — the
  * only pages a person with no account can reach (§1.2).
+ *
+ * **`viewerName` and `isSuperAdmin`, required rather than optional** (Task 6,
+ * 2026-08-10 QA remediation) — `ShelfHeader`'s own docstring above already
+ * made this argument once and it applies here unchanged: a default lets a
+ * caller that never thought about identity render a plausible one anyway,
+ * which is exactly what let "Đăng nhập" sit on `/tu-sach` and `/lien-he`
+ * under a signed-in super admin's own session and read as correct. A QA
+ * sweep walking a fresh install as that admin found no name, no sign-out, and
+ * no route into `/quan-tri` short of typing the URL by hand. `null`/`false`
+ * is what a page that genuinely does not know writes about itself —
+ * `/dang-nhap` and `/loi` pass it explicitly, by definition and by design
+ * respectively — never a value nobody chose.
+ *
+ * **The admin link is the reason this changed.** A super admin belongs to no
+ * shelf (`landingShelfFor`'s own docstring, `src/auth/guards.ts`), so
+ * `/quan-tri` — where every one of a fresh install's first tasks lives — had
+ * no link anywhere in the application. It renders as a plain nav link beside
+ * "Tìm tủ sách", not a `ButtonLink`: this header's signed-in state stays free
+ * of a second terracotta accent competing with whatever primary action the
+ * page itself carries (`Button`'s own docstring — "one primary action per
+ * screen"), the same restraint `ShelfHeader`'s member nav already keeps.
  */
-export function FrontDoorHeader() {
+export function FrontDoorHeader({
+  viewerName,
+  isSuperAdmin,
+}: {
+  viewerName: string | null;
+  isSuperAdmin: boolean;
+}) {
+  // Shared by the desktop `<nav>` below and by `MobileMenu` — the same
+  // doubling `ShelfHeader`'s own `links` relies on. `/quan-tri` is in it only
+  // for a super admin; an ordinary signed-in reader sees exactly what this
+  // header showed a stranger before Task 6, plus their own name and a way to
+  // sign out.
+  const links = [
+    { href: "/tu-sach", label: "Tìm tủ sách", key: "tu-sach" },
+    ...(isSuperAdmin
+      ? [{ href: "/quan-tri", label: "Quản trị hệ thống", key: "quan-tri" }]
+      : []),
+  ];
+
   return (
     <header className="border-b border-hairline bg-paper">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-6 px-6">
         <Link href="/" className="text-xl font-semibold">
           OLibra
         </Link>
-        <nav className="flex items-center gap-1">
-          <Link
-            href="/tu-sach"
-            className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] hover:text-terracotta-ink"
-          >
-            Tìm tủ sách
-          </Link>
-          <ButtonLink href="/dang-nhap" size="sm" className="ml-1">
-            Đăng nhập
-          </ButtonLink>
-        </nav>
+
+        {viewerName === null ? (
+          <nav className="flex items-center gap-1">
+            <Link
+              href="/tu-sach"
+              className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] hover:text-terracotta-ink"
+            >
+              Tìm tủ sách
+            </Link>
+            <ButtonLink href="/dang-nhap" size="sm" className="ml-1">
+              Đăng nhập
+            </ButtonLink>
+          </nav>
+        ) : (
+          <>
+            <nav className="hidden items-center gap-1 md:flex">
+              {links.map((link) => (
+                <Link
+                  key={link.key}
+                  href={link.href}
+                  className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] hover:text-terracotta-ink"
+                >
+                  {link.label}
+                </Link>
+              ))}
+
+              <span aria-hidden className="mx-2 h-6 w-px bg-hairline" />
+
+              <SignedInIdentity name={viewerName} />
+            </nav>
+
+            <MobileMenu
+              links={links}
+              trailing={{ action: signOutAction, label: "Đăng xuất" }}
+            />
+          </>
+        )}
       </div>
     </header>
   );

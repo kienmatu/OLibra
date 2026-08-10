@@ -182,10 +182,16 @@ test("no page that reads the database also renders fixtures", () => {
  * looking at this file, which is where the leftover-fixture rules are. Deleting
  * a page fails it too.
  *
- * **The list is now three pages, and none of them is unfinished.** B4 wired the
- * last of the pending ones. What remains reads nothing because it *has* nothing
- * to read: `/` is the marketing landing page, `/loi` renders whatever error was
- * thrown, and `[shelf]/tang-sach` is a redirect to the donation page U4 wired.
+ * **The list was three pages, and it is two now.** B4 wired the last of the
+ * pending ones, and Task 6 (2026-08-10 QA remediation) wired `/`: it reads
+ * `loadFrontDoorViewer()` so its header can greet a signed-in visitor, the
+ * same way `/tu-sach` and `/lien-he` already do — see that function's
+ * docstring (`src/lib/page-data.ts`) for the QA finding that prompted it.
+ * That is what the previous paragraph's own comment said would happen —
+ * "if either ever does, this line is where that gets noticed" — and this is
+ * that line, noticing it. `/loi` renders whatever error was thrown and
+ * `[shelf]/tang-sach` is a redirect to the donation page U4 wired; neither
+ * has anything to read.
  *
  * So the test has changed meaning without changing shape: it was a shrinking
  * to-do list, and it is now the closed set of pages that legitimately touch no
@@ -193,14 +199,11 @@ test("no page that reads the database also renders fixtures", () => {
  * a page leaving it is a page that got wired.
  */
 const PAGES_NOT_YET_WIRED = [
-  // The two that are **finished** rather than pending, and belong on this list
-  // for the same reason the rest do: the list is "reads nothing", not "is
-  // unfinished", and a list that quietly excluded a category would be a list
-  // somebody could add to. `/` is the marketing landing page and `/loi` renders
-  // whatever error was thrown; neither has anything to read, and if either ever
-  // does, this line is where that gets noticed.
+  // Finished rather than pending, and on this list for the same reason the
+  // other one is: the list is "reads nothing", not "is unfinished", and a
+  // list that quietly excluded a category would be a list somebody could add
+  // to. `/loi` renders whatever error was thrown and has nothing to read.
   "src/app/loi/page.tsx",
-  "src/app/page.tsx",
 
   // Reads nothing because it *is* nothing: U5 replaced the second donation
   // screen with a redirect to `toi/tang-sach`, the one the reader's own

@@ -15,7 +15,10 @@ const PANELS = ERROR_STATES;
 export default function ErrorStatesSheetPage() {
   return (
     <>
-      <FrontDoorHeader />
+      {/* No viewer: this page renders nothing from a session (Task 6,
+          2026-08-10 QA remediation) — it is a reference sheet of error
+          states, not a page anybody is signed in to look at. */}
+      <FrontDoorHeader viewerName={null} isSuperAdmin={false} />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         {/* This is a reference sheet of error states, so the caption below is

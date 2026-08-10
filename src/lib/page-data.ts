@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 // Relative specifiers, not the `@/` alias: `tests/lib/page-data.test.ts`
 // imports this module, and Vitest resolves no alias (see any file under
 // `src/auth/`, which the suite has always imported the same way).
-import { adminContextFor, contextFor } from "../auth/guards";
+import { adminContextFor, contextFor, frontDoorViewerFor } from "../auth/guards";
 import { pool } from "../db/client";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
@@ -385,6 +385,42 @@ export async function loadPublicPage<T>(read: (tx: Tx) => Promise<T>): Promise<T
   // See `loadPage`'s docstring for why every seam calls this first.
   await ensureCryptoWired();
   return runPublicQuery(pool(), read);
+}
+
+/**
+ * Who the front door's chrome should greet — `loadPublicPage`'s neighbour
+ * for the one thing that page deliberately does not read.
+ *
+ * Task 6 (2026-08-10 QA remediation). `/`, `/tu-sach` and `/lien-he` all
+ * render `FrontDoorHeader` (`src/components/shell/public-header.tsx`), which
+ * used to offer "Đăng nhập" to everybody, signed in or not — see
+ * `frontDoorViewerFor`'s own docstring (`src/auth/guards.ts`) for the full
+ * argument and for why this cannot be `viewerFor` or folded into
+ * `loadPublicPage` itself.
+ *
+ * **A second, separate transaction from whatever the page's own content
+ * read.** `runPublicQuery` runs as `olibra_public`, which holds no grant on
+ * `users` at all — see that function's docstring for the incident that
+ * grant is written against — so a viewer identity cannot be resolved inside
+ * the same read `loadPublicPage` opens. Two round trips rather than one
+ * query doing double duty is the honest cost of a page whose content is
+ * public and whose chrome is not; `frontDoorViewerFor` keeps it to that one
+ * extra trip only when a session cookie is actually present.
+ *
+ * `null` is what a stranger gets, and it is exactly what `FrontDoorHeader`'s
+ * `viewerName: string | null` already knows how to render — the same "real
+ * case, not a fallback" `ShelfHeader`'s docstring states for its own
+ * identical prop.
+ */
+export async function loadFrontDoorViewer(): Promise<{
+  name: string;
+  isSuperAdmin: boolean;
+} | null> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value ?? null;
+  return frontDoorViewerFor(pool(), { token, clock: systemClock });
 }
 
 /**

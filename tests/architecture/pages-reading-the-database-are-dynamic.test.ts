@@ -317,18 +317,22 @@ test("the guard sees a page that reaches Postgres only through a helper", () => 
   // on it — yet a page whose only reach is through it must still be caught.
   expect(reachesTheDatabase("src/lib/shelf.ts")).toBe(true);
   expect(reachesTheDatabase("src/lib/lending.ts")).toBe(true);
+
+  // Task 6 (2026-08-10 QA remediation). `/` used to stand beside `/loi` here
+  // as the guard's negative control — proof "flag everything" would not pass
+  // this file — because it was marketing copy with nothing to read. It reads
+  // one thing now: `loadFrontDoorViewer()`, so its header can greet a
+  // signed-in visitor exactly as `/tu-sach` and `/lien-he` already do. Named
+  // individually, the same as the portal above, for the reader who assumes a
+  // marketing page is exempt from a caching rule about tenant data — this one
+  // is exempt from nothing; a session cookie makes two visitors' correct
+  // renders of the same URL disagree just as surely as two shelves' rows do.
+  expect(found).toContain("src/app/page.tsx");
+
   // A page that reads nothing is not swept up by it. Without this, "flag
-  // everything" would pass every test in the file.
-  //
-  // The landing page is the durable half of this pair: it is marketing copy
-  // and has nothing to read, so it will still be here when every other page is
-  // wired. `/loi` is the same — it renders whatever error was thrown.
-  //
-  // D2 wired `thong-ke` and B4 wired `quan-ly/cai-dat`, so both of the pages
-  // that previously stood here are gone. That is the direction of travel: when
-  // no unwired page is left, this half of the check has nothing to compare and
-  // the two lines below are what remains of it.
-  expect(found).not.toContain("src/app/page.tsx");
+  // everything" would pass every test in the file. `/loi` is what remains of
+  // that pair now that `/` has joined the pages above instead: a reference
+  // sheet that renders whatever error was thrown, and nothing else.
   expect(found).not.toContain("src/app/loi/page.tsx");
 });
 

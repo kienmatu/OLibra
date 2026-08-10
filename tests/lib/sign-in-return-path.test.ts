@@ -88,6 +88,37 @@ async function seedMember(shelfSlug: string) {
   return shelf;
 }
 
+/**
+ * A super admin with no membership anywhere — the shape `landingShelfFor`
+ * cannot tell apart from an ordinary reader belonging to nothing, and the
+ * reason Task 6 (2026-08-10 QA remediation) exists: a fresh install's only
+ * administrator signed in this way and landed on the empty portal, with no
+ * route into `/quan-tri` short of a hand-typed URL.
+ */
+async function seedSuperAdmin(username: string) {
+  await sql<{ id: string }[]>`
+    insert into users (
+      full_name, father_name, mother_name, phone, username, password_hash,
+      is_super_admin
+    )
+    values (
+      'Quản trị viên hệ thống', 'A', 'B', '0900000001', ${username},
+      ${await hashPassword("olibra-dev")}, true
+    )
+    returning id
+  `;
+}
+
+/** A reader with no active membership of any shelf, and no admin flag either. */
+async function seedUnaffiliatedReader(username: string) {
+  await sql<{ id: string }[]>`
+    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000000', ${username},
+            ${await hashPassword("olibra-dev")})
+    returning id
+  `;
+}
+
 function form(fields: Record<string, string>) {
   const data = new FormData();
   for (const [k, v] of Object.entries(fields)) data.set(k, v);
@@ -181,4 +212,38 @@ test("no return path at all still lands a single-shelf member on their shelf", a
   await seedMember("dong-thap");
 
   expect(redirectTarget(await submit({}))).toBe("/tu-sach/dong-thap");
+});
+
+test("a super admin with no shelf lands on /quan-tri, not the empty portal", async () => {
+  // Task 6 (2026-08-10 QA remediation): the finding itself, reproduced.
+  await seedSuperAdmin("sa.test");
+
+  const err = await submit({ username: "sa.test" });
+
+  expect(redirectTarget(err)).toBe("/quan-tri");
+});
+
+test("an ordinary reader with no shelf still lands on the portal", async () => {
+  // The falsification for the test above: if `/quan-tri` were the destination
+  // for anybody `landingShelfFor` sends to the portal rather than for a super
+  // admin specifically, this would redirect there too, and it must not.
+  await seedUnaffiliatedReader("no.shelf");
+
+  const err = await submit({ username: "no.shelf" });
+
+  expect(redirectTarget(err)).toBe("/tu-sach");
+});
+
+test("a return path still wins over the super admin's own destination", async () => {
+  // The same precedence IMPORTANT 6 already had, extended to the branch Task
+  // 6 added: `?tiep=` is answered before either `landingShelfFor` or the
+  // super-admin check ever gets a vote.
+  await seedSuperAdmin("sa.test");
+
+  const err = await submit({
+    username: "sa.test",
+    [RETURN_TO_PARAM]: "/lien-he",
+  });
+
+  expect(redirectTarget(err)).toBe("/lien-he");
 });

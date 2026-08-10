@@ -66,7 +66,7 @@ vi.mock("next/headers", () => ({
 
 // Imported after the mock is declared; `vi.mock` is hoisted above it either
 // way, but the ordering keeps the dependency readable.
-const { loadAdminPage, loadFile, loadPage, loadPublicPage } =
+const { loadAdminPage, loadFile, loadFrontDoorViewer, loadPage, loadPublicPage } =
   await import("../../src/lib/page-data");
 const { pool } = await import("../../src/db/client");
 
@@ -498,6 +498,37 @@ test("loadPublicPage reads with no shelf and no session, and sees nothing else",
     (err: { code?: string }) => err.code,
   );
   expect(books).toBe("42501");
+});
+
+test("loadFrontDoorViewer is null for a stranger with no session", async () => {
+  // Task 6 (2026-08-10 QA remediation): the common case for `/`, `/tu-sach`
+  // and `/lien-he` alike, and the one `frontDoorViewerFor`'s own docstring
+  // says never reaches Postgres at all.
+  session.token = null;
+  expect(await loadFrontDoorViewer()).toBeNull();
+});
+
+test("loadFrontDoorViewer names an ordinary signed-in reader, with no admin flag", async () => {
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "reader", "bandoc");
+
+  expect(await loadFrontDoorViewer()).toEqual({
+    name: "Giuse Trần Minh",
+    isSuperAdmin: false,
+  });
+});
+
+test("loadFrontDoorViewer flags a super admin, who holds no membership anywhere", async () => {
+  // The QA finding this task answers: a super admin belongs to no shelf, so
+  // `signInAs(null, ...)` — the same "signed in, no membership" shape
+  // `contextFor`'s own tests use — is the honest way to seed one.
+  await signInAs(null, "reader", "quantri");
+  await sql`update users set is_super_admin = true where username = 'quantri'`;
+
+  expect(await loadFrontDoorViewer()).toEqual({
+    name: "Giuse Trần Minh",
+    isSuperAdmin: true,
+  });
 });
 
 test("a real fault is not swallowed into a 404", async () => {

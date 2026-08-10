@@ -204,6 +204,102 @@ export async function adminContextFor(
 }
 
 /**
+ * The caller's own `users` row — name and super-admin flag — read once by
+ * id, underneath both functions below.
+ *
+ * **`olibra_app`, not `olibra_admin`.** `users` carries no RLS at all
+ * (`0010_rls.sql`'s "Global tables" note), and that migration's blanket
+ * `grant select, insert, update on all tables in schema public to
+ * olibra_app` already covers every column of it — the same grant
+ * `resolveSession` (`./session.ts`) and `viewerFor` (`src/lib/page-data.ts`)
+ * already read `full_name`/`display_name` under. `adminContextFor` above
+ * reaches for `olibra_admin` for its own `is_super_admin` lookup, but its
+ * docstring's reasoning ("no tenant column to scope by") is about a query
+ * with nowhere for RLS to bite, not about a privilege `olibra_app` lacks —
+ * and unlike that function, this one must also succeed for an *ordinary*
+ * reader, who has no business anywhere near `olibra_admin`.
+ */
+async function userIdentity(
+  sql: Sql,
+  userId: string,
+): Promise<{ name: string; isSuperAdmin: boolean } | null> {
+  const [row] = await sql.begin(async (tx) => {
+    await tx`set local role olibra_app`;
+    return tx<{ name: string; is_super_admin: boolean }[]>`
+      select coalesce(nullif(display_name, ''), full_name) as name, is_super_admin
+      from users
+      where id = ${userId} and deleted_at is null
+    `;
+  });
+  return row ? { name: row.name, isSuperAdmin: row.is_super_admin } : null;
+}
+
+/**
+ * Who the front door's chrome should greet — `/`, `/tu-sach`, `/lien-he`, the
+ * three pages a stranger can reach with no shelf named and no membership
+ * required (§1.2).
+ *
+ * Task 6 (2026-08-10 QA remediation): a QA sweep signed in as the seeded
+ * `admin`, landed on `/tu-sach`, and found the header still offering "Đăng
+ * nhập" — no name, no sign-out, no way into `/quan-tri` short of typing the
+ * URL — because `FrontDoorHeader` (`src/components/shell/public-header.tsx`)
+ * was written for a stranger and took no viewer at all.
+ *
+ * **Not `viewerFor`** (`src/lib/page-data.ts`). That function resolves a
+ * `Viewer` from an already-open, shelf-scoped `Tx` — it needs a
+ * `TenantContext`, which needs a shelf, which none of these three pages has.
+ * It also queries `notifications`, a shelf-scoped bell these pages have none
+ * of. This is the same situation `loadPublicPage`'s docstring names for the
+ * portal directory, one layer up — a read with no shelf to scope to — except
+ * this one *does* depend on who is asking, which is exactly what that
+ * function's docstring gives as the reason it takes no cookie. Threading a
+ * token through `loadPublicPage` would make that argument false for its
+ * other callers, which render identically for everyone; this is a second,
+ * narrower seam instead.
+ *
+ * **Not `adminContextFor`.** That one answers `null` for anybody who is not
+ * a super admin — correct for `/quan-tri`, wrong here: an ordinary reader
+ * signed in and looking at `/tu-sach` still needs their own name in the
+ * header, with no admin link beside it. This resolves an identity for *any*
+ * signed-in person and leaves what `isSuperAdmin` means to the caller's own
+ * chrome.
+ *
+ * **No token, no query.** The overwhelming majority of requests to these
+ * three pages carry no session cookie at all, and `resolveSession` is itself
+ * a query — the short-circuit below is what keeps a stranger's visit from
+ * paying for one just to learn what the request already said.
+ */
+export async function frontDoorViewerFor(
+  sql: Sql,
+  input: { token: string | null; clock: Clock },
+): Promise<{ name: string; isSuperAdmin: boolean } | null> {
+  if (!input.token) return null;
+  const session = await resolveSession(sql, input.token, input.clock);
+  if (!session) return null;
+  return userIdentity(sql, session.userId);
+}
+
+/**
+ * Whether `userId` is a super admin — the one fact `signInAction`
+ * (`src/app/dang-nhap/actions.ts`) needs after a fresh sign-in, and
+ * `landingShelfFor` below cannot supply it: a super admin belongs to no
+ * shelf by design (see that function's own docstring), so it resolves them
+ * to `null`, exactly as it resolves a reader who belongs to none or to
+ * several. Task 6: without this, a fresh install's first and only
+ * administrator signed in and landed on the empty portal, indistinguishable
+ * from anybody else `landingShelfFor` had nothing to say about, with no link
+ * anywhere into `/quan-tri` short of a hand-typed URL.
+ *
+ * Takes `userId` directly rather than a token, because `signInAction`
+ * already holds it — `signIn` just returned it — and resolving a session
+ * from the token it also just issued would be asking the database to
+ * confirm what this process did a moment ago.
+ */
+export async function isSuperAdminUser(sql: Sql, userId: string): Promise<boolean> {
+  return (await userIdentity(sql, userId))?.isSuperAdmin ?? false;
+}
+
+/**
  * Where a freshly-signed-in person should land (IMPORTANT 6).
  *
  * A member of exactly one active shelf goes straight there — no reason to
