@@ -184,9 +184,7 @@ export async function countUnreadFeedback(
  * means "no filter" rather than "a filter that matches nothing".
  */
 export function feedbackFilterFrom(value: string | null): FeedbackFilter | null {
-  return value === "new" || value === "read" || value === "resolved"
-    ? value
-    : null;
+  return value === "new" || value === "read" || value === "resolved" ? value : null;
 }
 
 function toRow(r: {

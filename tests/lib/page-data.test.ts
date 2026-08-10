@@ -625,7 +625,10 @@ test("the header is handed the reader's own unread count, and only theirs", asyn
  * `/quan-tri`, so U1 §3.4's original argument applies undiluted — a redirect
  * would confirm the administration surface exists to whoever guessed the URL.
  */
-async function adminRefusal(): Promise<{ notFound: boolean; redirect: string | null }> {
+async function adminRefusal(): Promise<{
+  notFound: boolean;
+  redirect: string | null;
+}> {
   try {
     await loadAdminPage(async () => "reached");
     return { notFound: false, redirect: null };

@@ -368,12 +368,9 @@ test("site-wide feedback carries no shelf, and only a super admin handles it", a
     runCommand(sql, admin, resolveFeedback, { feedbackId }),
   ).rejects.toMatchObject({ code: "not_permitted" });
 
-  await runAdminCommand(
-    sql,
-    { ...admin, bookshelfId: "" },
-    resolveFeedback,
-    { feedbackId },
-  );
+  await runAdminCommand(sql, { ...admin, bookshelfId: "" }, resolveFeedback, {
+    feedbackId,
+  });
   const [after] = await sql<{ status: string }[]>`select status from feedback`;
   expect(after.status).toBe("resolved");
   const [entry] = await sql<{ bookshelf_id: string | null }[]>`

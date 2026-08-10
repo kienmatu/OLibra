@@ -218,7 +218,13 @@ test("an unread message sorts above a read one that arrived later", async () => 
     subject: "Gửi trước, chưa đọc",
     body: "…",
   });
-  const laterCtx = { ...a.ctx, clock: { now: () => new Date("2026-08-09T08:00:00Z"), today: a.ctx.clock.today } };
+  const laterCtx = {
+    ...a.ctx,
+    clock: {
+      now: () => new Date("2026-08-09T08:00:00Z"),
+      today: a.ctx.clock.today,
+    },
+  };
   const newer = await runCommand(sql, laterCtx, submitFeedback, {
     senderName: "Người gửi muộn",
     phone: "0900000012",
@@ -305,17 +311,15 @@ test("resolving one parish's message while scoped to another is refused", async 
   const { ctx } = await superAdminContext(sql);
 
   const code = await codeThrownBy(() =>
-    runAdminCommand(
-      sql,
-      { ...ctx, bookshelfId: b.shelf.id },
-      markFeedbackRead,
-      { feedbackId: first.feedbackId },
-    ),
+    runAdminCommand(sql, { ...ctx, bookshelfId: b.shelf.id }, markFeedbackRead, {
+      feedbackId: first.feedbackId,
+    }),
   );
 
   expect(code).toBe("not_permitted");
-  expect(await sql`select id from audit_log where action = 'feedback.read'`)
-    .toHaveLength(0);
+  expect(
+    await sql`select id from audit_log where action = 'feedback.read'`,
+  ).toHaveLength(0);
 });
 
 test("a site-wide message is audited globally, and refuses a shelf scope", async () => {
@@ -325,12 +329,9 @@ test("a site-wide message is audited globally, and refuses a shelf scope", async
   // Filing a decision about the whole deployment into one parish's record.
   expect(
     await codeThrownBy(() =>
-      runAdminCommand(
-        sql,
-        { ...ctx, bookshelfId: a.shelf.id },
-        markFeedbackRead,
-        { feedbackId: siteWide.feedbackId },
-      ),
+      runAdminCommand(sql, { ...ctx, bookshelfId: a.shelf.id }, markFeedbackRead, {
+        feedbackId: siteWide.feedbackId,
+      }),
     ),
   ).toBe("not_permitted");
 
@@ -354,16 +355,21 @@ test("an audit entry that names a shelf, under a context that has none, is refus
   const { ctx } = await superAdminContext(sql);
 
   const code = await codeThrownBy(() =>
-    runAdminCommand(sql, ctx, async () => ({
-      result: undefined,
-      audit: {
-        action: "feedback.read" as const,
-        entityType: "feedback",
-        entityId: "00000000-0000-0000-0000-000000000000",
-        before: null,
-        after: null,
-      },
-    }), undefined),
+    runAdminCommand(
+      sql,
+      ctx,
+      async () => ({
+        result: undefined,
+        audit: {
+          action: "feedback.read" as const,
+          entityType: "feedback",
+          entityId: "00000000-0000-0000-0000-000000000000",
+          before: null,
+          after: null,
+        },
+      }),
+      undefined,
+    ),
   );
 
   expect(code).toBe("invalid_bookshelf_id");
@@ -372,17 +378,22 @@ test("an audit entry that names a shelf, under a context that has none, is refus
 test("a global entry under the same context commits", async () => {
   const { ctx } = await superAdminContext(sql);
 
-  await runAdminCommand(sql, ctx, async () => ({
-    result: undefined,
-    audit: {
-      action: "feedback.read" as const,
-      entityType: "feedback",
-      entityId: "00000000-0000-0000-0000-000000000000",
-      before: null,
-      after: null,
-      global: true,
-    },
-  }), undefined);
+  await runAdminCommand(
+    sql,
+    ctx,
+    async () => ({
+      result: undefined,
+      audit: {
+        action: "feedback.read" as const,
+        entityType: "feedback",
+        entityId: "00000000-0000-0000-0000-000000000000",
+        before: null,
+        after: null,
+        global: true,
+      },
+    }),
+    undefined,
+  );
 
   const [row] = await sql<{ bookshelf_id: string | null }[]>`
     select bookshelf_id from audit_log where action = 'feedback.read'

@@ -61,26 +61,35 @@ export default async function AdminFeedbackPage({
   const selectedId = param(search, "tin") ?? null;
   const refusal = refusalFrom(search);
 
-  const { viewer, unread, messages, selected } = await loadAdminPage(
-    async (tx, ctx, v) => ({
-      viewer: v,
-      unread: await countUnreadFeedback(tx, ctx),
-      messages: await getFeedbackInbox(tx, ctx, { status }),
-      selected: selectedId
-        ? await getFeedbackDetail(tx, ctx, { feedbackId: selectedId })
-        : null,
-    }),
-  );
+  const { viewer, unread, messages, open } = await loadAdminPage(
+    async (tx, ctx, v) => {
+      const messages = await getFeedbackInbox(tx, ctx, { status });
+      // Nothing chosen, or a `?tin=` naming nothing: fall back to the top of
+      // the list, which is the unread message the administrator came for.
+      //
+      // Resolved **inside the same callback**, so the whole page is one
+      // read-only transaction and one instant. Two `loadAdminPage` calls would
+      // have been two transactions, and the second could see a message the
+      // first did not — a list and a detail pane disagreeing about what is
+      // unread.
+      const chosen =
+        (selectedId
+          ? await getFeedbackDetail(tx, ctx, { feedbackId: selectedId })
+          : null) ??
+        (messages[0]
+          ? await getFeedbackDetail(tx, ctx, {
+              feedbackId: messages[0].feedbackId,
+            })
+          : null);
 
-  // Nothing chosen, or a `?tin=` naming nothing: open the top of the list, which
-  // is the unread message the administrator came for.
-  const open =
-    selected ??
-    (messages[0]
-      ? await loadAdminPage((tx, ctx) =>
-          getFeedbackDetail(tx, ctx, { feedbackId: messages[0].feedbackId }),
-        )
-      : null);
+      return {
+        viewer: v,
+        unread: await countUnreadFeedback(tx, ctx),
+        messages,
+        open: chosen,
+      };
+    },
+  );
 
   const hrefFor = (next: { status?: string | null; tin?: string }) => {
     const q = new URLSearchParams();
@@ -208,8 +217,8 @@ export default async function AdminFeedbackPage({
               </p>
 
               <p className="mt-8 text-[14px] text-meta">
-                Hệ thống không gửi email. Trả lời bằng cách gọi vào số điện thoại
-                ở trên.
+                Hệ thống không gửi email. Trả lời bằng cách gọi vào số điện thoại ở
+                trên.
               </p>
 
               {open.handledAt ? (
