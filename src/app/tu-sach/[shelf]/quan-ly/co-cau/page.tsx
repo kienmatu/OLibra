@@ -38,15 +38,26 @@ import {
  * unlike a category, a unit's position is meaning (BR §5.6, taxonomy design
  * §7 — "Tổ 10" must not sort ahead of "Tổ 2" because of its digits).
  *
- * **Every write here is `super_admin`-only** (OPS §4.5), while this screen
- * itself renders for any `manager` and above — `getParishUnits`'s own gate is
- * `reader`, and `getManagerBadgeCounts` below raises that floor to `manager`,
- * matching every other page under `quan-ly/*`. A plain manager (or a shelf's
- * own `admin` role, which the kernel's `Role` ranks below `super_admin`) sees
- * the identical tree and forms and has every write refused with "Bạn không
- * có quyền thực hiện việc này." — the same shape BR §13.3 already gives every
- * other screen in this codebase: the page decides visibility, the domain
- * decides permission, and no second copy of `requireSuperAdmin` belongs here.
+ * **Every write here is `super_admin`-only** (OPS §4.5). `getManagerBadgeCounts`
+ * below raises the *read* floor to `manager`, matching every other page under
+ * `quan-ly/*` — but a bare `manager`, or a shelf's own `admin` role (the
+ * kernel's `Role` ranks it below `super_admin`), cannot call any of the five
+ * commands. Rendering the write forms to them anyway would be exactly the
+ * defect this branch's own QA sweep spent itself cataloguing on other
+ * screens: a control that looks enabled and does nothing. **This first
+ * shipped that way — reviewed and corrected before merge.**
+ *
+ * `canEdit` (`viewer.role === "super_admin"`) below is what switches the page
+ * between the interactive tree and a read-only rendering of the same values,
+ * mirroring the split `quan-ly/cai-dat` already draws for its own
+ * `super_admin`-only lending policy: plain text, under "Chỉ quản trị viên mới
+ * đổi được các mục này." `viewer` already carries the role `loadPage`
+ * resolved, so this reads it rather than adding a second query. BR §13.3's
+ * rule still holds exactly — this is the page deciding *visibility*; every
+ * one of the five commands re-checks `requireSuperAdmin` for itself
+ * regardless of what this branch renders, and no second copy of that check
+ * belongs here.
+ *
  * `parish_units` is tenant-scoped under ordinary RLS, unlike `categories`
  * (global, no `bookshelf_id`), so this goes through `loadPage`/`submitCommand`
  * rather than the admin escalation `the-loai` needed.
@@ -60,6 +71,39 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
     <h2 className="border-b border-hairline pb-3 text-xl font-semibold">
       {children}
     </h2>
+  );
+}
+
+/**
+ * A read-only label/value row — `quan-ly/cai-dat`'s own `InfoRow`, copied
+ * rather than imported. Each manager page under `quan-ly/*` defines its own
+ * small private layout helpers (`GroupHeading` alone has three separate
+ * copies); reaching into another route's module for one is the more
+ * surprising coupling of the two.
+ */
+function InfoRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border-t border-hairline py-4 first:border-t-0">
+      <dt className="text-[15px] text-meta">{label}</dt>
+      <dd className="mt-1 text-[16px] font-medium text-ink">{children}</dd>
+    </div>
+  );
+}
+
+/** "Chỉ quản trị viên mới đổi được các mục này." — `cai-dat`'s own sentence,
+ * for the same reason: both screens draw this line under a `super_admin`-only
+ * section a `manager` can only read. */
+function SuperAdminOnlyNote() {
+  return (
+    <p className="text-[14px] text-meta">
+      Chỉ quản trị viên mới đổi được các mục này.
+    </p>
   );
 }
 
@@ -282,6 +326,12 @@ export default async function ParishStructurePage({
   // change".
   const showLevel2Tree = taxonomy.levels === 2;
 
+  // The write gate this file's own header explains: all five commands are
+  // `super_admin`-only, so a `manager` (or a shelf's own `admin`, which ranks
+  // below it) gets a read-only rendering of the same values rather than forms
+  // that would only ever answer "Bạn không có quyền thực hiện việc này."
+  const canEdit = viewer.role === "super_admin";
+
   return (
     <ManagerShell
       shelfName={shelf.name}
@@ -309,80 +359,98 @@ export default async function ParishStructurePage({
         <section className="space-y-6">
           <SectionHeading>Cách gọi các đơn vị</SectionHeading>
 
-          <form action={updateTaxonomyAction} className="space-y-6">
-            <input type="hidden" name="tu-sach" value={slug} />
+          {canEdit ? (
+            <form action={updateTaxonomyAction} className="space-y-6">
+              <input type="hidden" name="tu-sach" value={slug} />
 
-            <fieldset className="space-y-3">
-              <legend className="text-[16px] font-medium">Số bậc</legend>
-              <p className="text-[14px] text-meta">
-                Giáo xứ chia bạn đọc theo một bậc (chỉ giáo họ), hay theo hai bậc
-                (giáo họ rồi tới tổ)?
-              </p>
-              <div className="flex flex-wrap gap-5">
-                <label className="flex min-h-11 items-center gap-2.5 text-[16px]">
-                  <input
-                    type="radio"
-                    name="so-bac"
-                    value="1"
-                    defaultChecked={taxonomy.levels === 1}
-                    className="size-5 accent-terracotta"
+              <fieldset className="space-y-3">
+                <legend className="text-[16px] font-medium">Số bậc</legend>
+                <p className="text-[14px] text-meta">
+                  Giáo xứ chia bạn đọc theo một bậc (chỉ giáo họ), hay theo hai bậc
+                  (giáo họ rồi tới tổ)?
+                </p>
+                <div className="flex flex-wrap gap-5">
+                  <label className="flex min-h-11 items-center gap-2.5 text-[16px]">
+                    <input
+                      type="radio"
+                      name="so-bac"
+                      value="1"
+                      defaultChecked={taxonomy.levels === 1}
+                      className="size-5 accent-terracotta"
+                    />
+                    Một bậc
+                  </label>
+                  <label className="flex min-h-11 items-center gap-2.5 text-[16px]">
+                    <input
+                      type="radio"
+                      name="so-bac"
+                      value="2"
+                      defaultChecked={taxonomy.levels === 2}
+                      className="size-5 accent-terracotta"
+                    />
+                    Hai bậc
+                  </label>
+                </div>
+              </fieldset>
+
+              <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">
+                <input
+                  type="checkbox"
+                  name="long-nhau"
+                  defaultChecked={taxonomy.nested}
+                  className="mt-1 size-5 shrink-0 accent-terracotta"
+                />
+                <span>
+                  <span className="block text-[16px] font-medium">
+                    Bậc 2 thuộc về một đơn vị bậc 1 cụ thể
+                  </span>
+                  <span className="mt-0.5 block text-[14px] text-meta">
+                    Ví dụ: mỗi tổ thuộc về một giáo họ. Bỏ chọn nếu bậc 2 là một
+                    danh sách chung, không theo giáo họ nào.
+                  </span>
+                </span>
+              </label>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <Field label="Tên gọi bậc 1" required htmlFor="ten-bac-1">
+                  <Input
+                    id="ten-bac-1"
+                    name="ten-bac-1"
+                    required
+                    defaultValue={taxonomy.level1Label}
+                    placeholder={fallback.level1Label}
                   />
-                  Một bậc
-                </label>
-                <label className="flex min-h-11 items-center gap-2.5 text-[16px]">
-                  <input
-                    type="radio"
-                    name="so-bac"
-                    value="2"
-                    defaultChecked={taxonomy.levels === 2}
-                    className="size-5 accent-terracotta"
+                </Field>
+                <Field label="Tên gọi bậc 2" required htmlFor="ten-bac-2">
+                  <Input
+                    id="ten-bac-2"
+                    name="ten-bac-2"
+                    required
+                    defaultValue={taxonomy.level2Label}
+                    placeholder={fallback.level2Label}
                   />
-                  Hai bậc
-                </label>
+                </Field>
               </div>
-            </fieldset>
 
-            <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">
-              <input
-                type="checkbox"
-                name="long-nhau"
-                defaultChecked={taxonomy.nested}
-                className="mt-1 size-5 shrink-0 accent-terracotta"
-              />
-              <span>
-                <span className="block text-[16px] font-medium">
-                  Bậc 2 thuộc về một đơn vị bậc 1 cụ thể
-                </span>
-                <span className="mt-0.5 block text-[14px] text-meta">
-                  Ví dụ: mỗi tổ thuộc về một giáo họ. Bỏ chọn nếu bậc 2 là một danh
-                  sách chung, không theo giáo họ nào.
-                </span>
-              </span>
-            </label>
-
-            <div className="grid gap-6 sm:grid-cols-2">
-              <Field label="Tên gọi bậc 1" required htmlFor="ten-bac-1">
-                <Input
-                  id="ten-bac-1"
-                  name="ten-bac-1"
-                  required
-                  defaultValue={taxonomy.level1Label}
-                  placeholder={fallback.level1Label}
-                />
-              </Field>
-              <Field label="Tên gọi bậc 2" required htmlFor="ten-bac-2">
-                <Input
-                  id="ten-bac-2"
-                  name="ten-bac-2"
-                  required
-                  defaultValue={taxonomy.level2Label}
-                  placeholder={fallback.level2Label}
-                />
-              </Field>
+              <SubmitButton variant="primary">Lưu cách gọi</SubmitButton>
+            </form>
+          ) : (
+            <div className="space-y-3">
+              <dl>
+                <InfoRow label="Số bậc">
+                  {taxonomy.levels === 2 ? "Hai bậc" : "Một bậc"}
+                </InfoRow>
+                {taxonomy.levels === 2 ? (
+                  <InfoRow label="Bậc 2 thuộc về một đơn vị bậc 1 cụ thể">
+                    {taxonomy.nested ? "Có" : "Không"}
+                  </InfoRow>
+                ) : null}
+                <InfoRow label="Tên gọi bậc 1">{taxonomy.level1Label}</InfoRow>
+                <InfoRow label="Tên gọi bậc 2">{taxonomy.level2Label}</InfoRow>
+              </dl>
+              <SuperAdminOnlyNote />
             </div>
-
-            <SubmitButton variant="primary">Lưu cách gọi</SubmitButton>
-          </form>
+          )}
         </section>
 
         <section className="space-y-4">
@@ -397,16 +465,20 @@ export default async function ParishStructurePage({
                     <p className="text-[16px] font-medium">
                       {taxonomy.level1Label}: {unit.name}
                     </p>
-                    <ReorderControls
-                      shelfSlug={slug}
-                      siblingIds={l1Ids}
-                      unit={unit}
-                    />
+                    {canEdit ? (
+                      <ReorderControls
+                        shelfSlug={slug}
+                        siblingIds={l1Ids}
+                        unit={unit}
+                      />
+                    ) : null}
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-5">
-                    <RenameDisclosure shelfSlug={slug} unit={unit} />
-                    <DeleteDisclosure shelfSlug={slug} unit={unit} cascades />
-                  </div>
+                  {canEdit ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-5">
+                      <RenameDisclosure shelfSlug={slug} unit={unit} />
+                      <DeleteDisclosure shelfSlug={slug} unit={unit} cascades />
+                    </div>
+                  ) : null}
 
                   {showLevel2Tree && taxonomy.nested ? (
                     <div className="mt-4 ml-2 space-y-4 border-l-2 border-hairline pl-4">
@@ -416,28 +488,34 @@ export default async function ParishStructurePage({
                             <p className="text-[15px]">
                               {taxonomy.level2Label}: {child.name}
                             </p>
-                            <ReorderControls
-                              shelfSlug={slug}
-                              siblingIds={children.map((c) => c.id)}
-                              unit={child}
-                            />
+                            {canEdit ? (
+                              <ReorderControls
+                                shelfSlug={slug}
+                                siblingIds={children.map((c) => c.id)}
+                                unit={child}
+                              />
+                            ) : null}
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-5">
-                            <RenameDisclosure shelfSlug={slug} unit={child} />
-                            <DeleteDisclosure
-                              shelfSlug={slug}
-                              unit={child}
-                              cascades={false}
-                            />
-                          </div>
+                          {canEdit ? (
+                            <div className="mt-2 flex flex-wrap items-center gap-5">
+                              <RenameDisclosure shelfSlug={slug} unit={child} />
+                              <DeleteDisclosure
+                                shelfSlug={slug}
+                                unit={child}
+                                cascades={false}
+                              />
+                            </div>
+                          ) : null}
                         </div>
                       ))}
-                      <AddUnitDisclosure
-                        shelfSlug={slug}
-                        level={2}
-                        parentId={unit.id}
-                        levelLabel={taxonomy.level2Label}
-                      />
+                      {canEdit ? (
+                        <AddUnitDisclosure
+                          shelfSlug={slug}
+                          level={2}
+                          parentId={unit.id}
+                          levelLabel={taxonomy.level2Label}
+                        />
+                      ) : null}
                     </div>
                   ) : null}
                 </li>
@@ -451,56 +529,82 @@ export default async function ParishStructurePage({
             </p>
           ) : null}
 
-          <AddUnitDisclosure
-            shelfSlug={slug}
-            level={1}
-            levelLabel={taxonomy.level1Label}
-          />
+          {canEdit ? (
+            <AddUnitDisclosure
+              shelfSlug={slug}
+              level={1}
+              levelLabel={taxonomy.level1Label}
+            />
+          ) : null}
 
           {showLevel2Tree && !taxonomy.nested ? (
             <div className="space-y-4 pt-4">
               <h3 className="text-[16px] font-semibold">{taxonomy.level2Label}</h3>
               <ul className="divide-y divide-hairline rounded-card border border-hairline">
-                {l2Units.map((unit) => (
-                  <li key={unit.id} className="p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-[16px] font-medium">{unit.name}</p>
-                      <ReorderControls
-                        shelfSlug={slug}
-                        siblingIds={l2Units.map((u) => u.id)}
-                        unit={unit}
-                      />
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-5">
-                      <RenameDisclosure shelfSlug={slug} unit={unit} />
-                      <DeleteDisclosure
-                        shelfSlug={slug}
-                        unit={unit}
-                        cascades={false}
-                      />
-                    </div>
-                  </li>
-                ))}
+                {l2Units.map((unit) => {
+                  // The reorder group is this unit's *real* siblings — every
+                  // live level-2 unit sharing its actual `parentId` — never
+                  // the flat `l2Units` display list. A shelf that was nested
+                  // before and just had `nested` switched off keeps whatever
+                  // `parentId` each unit already had (`updateParishTaxonomy`
+                  // never rewrites a unit row), so two units in this one
+                  // visual list can easily not share a parent; posting the
+                  // whole flat list as one `unitIds` group is exactly what
+                  // made `reorderParishUnits`'s own "share one parent" check
+                  // refuse every click on a shelf shaped like that — found in
+                  // review, on the seeded `dong-thap` shelf. `l2ByParent` is
+                  // the same grouping the nested branch above already uses,
+                  // so this is one rule applied twice, not two rules.
+                  const siblings = l2ByParent.get(unit.parentId) ?? [unit];
+                  return (
+                    <li key={unit.id} className="p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-[16px] font-medium">{unit.name}</p>
+                        {canEdit ? (
+                          <ReorderControls
+                            shelfSlug={slug}
+                            siblingIds={siblings.map((u) => u.id)}
+                            unit={unit}
+                          />
+                        ) : null}
+                      </div>
+                      {canEdit ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-5">
+                          <RenameDisclosure shelfSlug={slug} unit={unit} />
+                          <DeleteDisclosure
+                            shelfSlug={slug}
+                            unit={unit}
+                            cascades={false}
+                          />
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
               {l2Units.length === 0 ? (
                 <p className="text-[15px] text-meta">
                   Chưa có đơn vị {taxonomy.level2Label.toLowerCase()} nào.
                 </p>
               ) : null}
-              <AddUnitDisclosure
-                shelfSlug={slug}
-                level={2}
-                levelLabel={taxonomy.level2Label}
-              />
+              {canEdit ? (
+                <AddUnitDisclosure
+                  shelfSlug={slug}
+                  level={2}
+                  levelLabel={taxonomy.level2Label}
+                />
+              ) : null}
             </div>
           ) : null}
 
-          {showLevel2Tree && taxonomy.nested && l1Units.length === 0 ? (
+          {canEdit && showLevel2Tree && taxonomy.nested && l1Units.length === 0 ? (
             <p className="text-[15px] text-meta">
               Cần có ít nhất một đơn vị {taxonomy.level1Label.toLowerCase()} trước
               khi thêm đơn vị {taxonomy.level2Label.toLowerCase()}.
             </p>
           ) : null}
+
+          {canEdit ? null : <SuperAdminOnlyNote />}
         </section>
       </div>
     </ManagerShell>
