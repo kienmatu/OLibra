@@ -48,6 +48,20 @@ export interface ManagerBadgeCounts {
   pendingProfileChanges: number;
   pendingRequests: number;
   overdue: number;
+  /**
+   * The last two of the six this file's docstring above describes, back for the
+   * reason it gives for `pendingRequests`: **the removal was never about the
+   * link, it was about the number beside it**, and B3 shipped both queries.
+   *
+   * `pendingDonations` mirrors `getDonationQueue`'s `status = 'pending'`;
+   * `pendingComments` mirrors `getPendingComments`' `status = 'pending' and
+   * deleted_at is null`. Neither list has a subtlety like the borrow queue's
+   * `pending or approved`, so both are subqueries here rather than calls — the
+   * trade `pendingRequests` makes is worth a round trip only where a second
+   * definition could be *differently* right.
+   */
+  pendingDonations: number;
+  pendingComments: number;
 }
 
 /**
@@ -131,6 +145,8 @@ export async function getManagerBadgeCounts(
       pending_registrations: number;
       pending_profile_changes: number;
       overdue: number;
+      pending_donations: number;
+      pending_comments: number;
     }[]
   >`
     select
@@ -150,7 +166,14 @@ export async function getManagerBadgeCounts(
       (
         -- BR §8: derived on read, against the injected clock. Never a column.
         select count(*) from loans_current where is_overdue
-      )::int as overdue
+      )::int as overdue,
+      (
+        select count(*) from book_donations where status = 'pending'
+      )::int as pending_donations,
+      (
+        select count(*) from comments
+        where status = 'pending' and deleted_at is null
+      )::int as pending_comments
   `;
 
   // A `select` of three scalar subqueries and no `from` returns exactly one
@@ -162,6 +185,8 @@ export async function getManagerBadgeCounts(
     pendingProfileChanges: row?.pending_profile_changes ?? 0,
     pendingRequests: await countQueuedRequests(tx, ctx),
     overdue: row?.overdue ?? 0,
+    pendingDonations: row?.pending_donations ?? 0,
+    pendingComments: row?.pending_comments ?? 0,
   };
 }
 

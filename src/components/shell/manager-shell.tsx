@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Gift,
   MessageSquare,
   Megaphone,
   ScrollText,
@@ -72,6 +73,8 @@ export interface ShellCounts {
   pendingProfileChanges: number;
   pendingRequests: number;
   overdue: number;
+  pendingDonations: number;
+  pendingComments: number;
 }
 
 /**
@@ -122,8 +125,13 @@ export type ManagerNavKey =
  * **And so the entry comes back when the query does.** C2 shipped
  * `GetBorrowRequestQueue` and `countQueuedRequests`, so **Yêu cầu mượn** is a
  * number somebody measured and a page that reads the database — which is the
- * whole of what U3 §3.1 asked for. The other two wait for B3. The removal was
- * never about the link; it was about the number beside it.
+ * whole of what U3 §3.1 asked for. The removal was never about the link; it was
+ * about the number beside it.
+ *
+ * **All three are now back.** B3 shipped the donations and comments queries and
+ * U5 wired the two screens, so `Tặng sách` and `Bình luận` carry counts somebody
+ * measured. Every badge in this nav is now a field of `ShellCounts` filled by
+ * `getManagerBadgeCounts`, and no entry in it is a link to a fixture page.
  *
  * **`badge` is a field of `ShellCounts`, not a number.** A nav entry cannot
  * carry a count that was written here, only the name of a count somebody
@@ -165,6 +173,18 @@ const NAV: {
     label: "Yêu cầu mượn",
     icon: Bookmark,
     badge: "pendingRequests",
+  },
+  {
+    key: "tang-sach",
+    label: "Tặng sách",
+    icon: Gift,
+    badge: "pendingDonations",
+  },
+  {
+    key: "binh-luan",
+    label: "Bình luận",
+    icon: MessageSquare,
+    badge: "pendingComments",
   },
   { key: "qua-han", label: "Quá hạn", icon: TriangleAlert, badge: "overdue" },
   // P1. No badge: an audit log has no queue waiting on anybody, so there is no

@@ -5,12 +5,16 @@ import { redirect } from "next/navigation";
 // records at the top of its own imports: the suite imports this module and
 // Vitest resolves no alias.
 import { cancelProfileChange } from "../../../../../domain/members/commands/cancel-profile-change";
+import { changeOwnPassword } from "../../../../../domain/members/commands/change-own-password";
+import { proposeProfileChange } from "../../../../../domain/members/commands/propose-profile-change";
+import { updateOwnProfile } from "../../../../../domain/members/commands/update-own-profile";
 import { DomainError } from "../../../../../domain/kernel/errors";
 import {
   decideAndDiscardAvatar,
   proposeAvatar,
   type UploadedFile,
 } from "../../../../../lib/avatar";
+import { submitCommand } from "../../../../../lib/page-data";
 import { ACTION_ERROR_PARAM } from "../../../../../lib/search-params";
 
 /**
@@ -170,4 +174,107 @@ function isUploadedFile(value: unknown): value is UploadedFile {
     typeof file.type === "string" &&
     typeof file.arrayBuffer === "function"
   );
+}
+
+/**
+ * OPS §4.3's `ProposeProfileChange` — **Gửi đề nghị thay đổi**, the button the
+ * shipped form has had since U1 with no action behind it.
+ *
+ * **Every proposable field is sent, always, and the command decides what
+ * changed.** The alternative — comparing against what the page rendered and
+ * sending only the differences — puts the definition of "changed" in a React
+ * component, where `normaliseProfilePatch`'s trimming and `empty_proposal`'s
+ * comparison against the person *as stored* cannot be applied. The command
+ * already filters a field proposed at its current value ("a field proposed at
+ * its current value is not a proposal"), so sending all seven and changing none
+ * comes back as `empty_proposal`, which is the sentence the reader should read.
+ *
+ * `null` for an emptied box, not `""`: `ProfilePatch` is `string | null`, and
+ * `null` is how the domain spells "clear this". An empty string would be stored
+ * as an empty string and a manager would approve a person into having a
+ * zero-length name.
+ */
+export async function proposeProfileChangeAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+  if (shelfSlug === "" || membershipId === "") {
+    back(shelfSlug, "validation_failed");
+  }
+
+  const value = (name: string): string | null => {
+    const v = field(form, name);
+    return v === "" ? null : v;
+  };
+
+  const code = await attempt(async () => {
+    await submitCommand(shelfSlug, proposeProfileChange, {
+      membershipId,
+      fields: {
+        saint_name: value("ten-thanh"),
+        full_name: value("ho-ten"),
+        date_of_birth: value("ngay-sinh"),
+        father_name: value("ten-cha"),
+        mother_name: value("ten-me"),
+        phone: value("dien-thoai"),
+        email: value("email"),
+      },
+    });
+  });
+  back(shelfSlug, code);
+}
+
+/**
+ * OPS §4.3's `UpdateOwnProfile` — BR §16.2's leaderboard toggle, the one thing
+ * on this page that takes effect without a manager.
+ *
+ * A checkbox posts its name only when checked, so the absent case *is* the
+ * value `false` rather than a missing field — `form.has` is what distinguishes
+ * "unchecked" from "this form does not have the control", and the two produce
+ * the same `FormData` entry (none). The submit is the whole form, so unchecked
+ * genuinely means off.
+ */
+export async function updateOwnProfileAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+  if (shelfSlug === "" || membershipId === "") {
+    back(shelfSlug, "validation_failed");
+  }
+
+  const code = await attempt(async () => {
+    await submitCommand(shelfSlug, updateOwnProfile, {
+      membershipId,
+      leaderboardOptIn: form.has("bang-xep-hang"),
+    });
+  });
+  back(shelfSlug, code);
+}
+
+/**
+ * OPS §4.3's `ChangeOwnPassword`.
+ *
+ * **Nothing about it goes into the query string on the way back** — not the
+ * password, and not a "which box was wrong" hint beyond the command's own code.
+ * `back` puts only an `ErrorCode` in `?loi=`, and `wrong_password` /
+ * `new_password_too_short` are both already-shipped sentences. This page's own
+ * docstring makes the same argument the registration form does about a shared
+ * parish phone's address bar.
+ */
+export async function changeOwnPasswordAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const membershipId = field(form, "thanh-vien");
+  if (shelfSlug === "" || membershipId === "") {
+    back(shelfSlug, "validation_failed");
+  }
+
+  const code = await attempt(async () => {
+    await submitCommand(shelfSlug, changeOwnPassword, {
+      membershipId,
+      // Not trimmed. A password is bytes a person chose, and trimming one
+      // silently changes the secret — `field()` above trims, so these read the
+      // form directly.
+      currentPassword: String(form.get("mat-khau-cu") ?? ""),
+      newPassword: String(form.get("mat-khau-moi") ?? ""),
+    });
+  });
+  back(shelfSlug, code);
 }

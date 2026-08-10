@@ -1,48 +1,109 @@
-import { notFound } from "next/navigation";
 import { Camera, KeyRound, Lock } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
-import { PhoneLink } from "@/components/ui/phone-link";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
+import { messageFor } from "@/domain/kernel/errors";
+import { getMyProfile } from "@/domain/members/queries/get-my-profile";
+import { loadParishContext } from "@/domain/members/parish-context";
+import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
+import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
+import { formatDate } from "@/lib/dates";
+import { loadPage } from "@/lib/page-data";
+import { refusalFrom, type SearchParams } from "@/lib/search-params";
+import { readShelf } from "@/lib/shelf";
 import {
-  hasVisibleLevel2,
-  unitName,
-  unitOptions,
-} from "@/domain/members/parish-taxonomy";
-import { readers, fixtureViewerName, shelfBySlug, shelves } from "@/lib/fixtures";
-import { proposeAvatarAction } from "./actions";
+  cancelProfileChangeAction,
+  changeOwnPasswordAction,
+  proposeAvatarAction,
+  proposeProfileChangeAction,
+  updateOwnProfileAction,
+} from "./actions";
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
+/**
+ * The reader's own profile — BR §2's "changing your own details is a request,
+ * not an edit", as a screen.
+ *
+ * **Three forms, because there are three different rules**, and putting them in
+ * one would be the screen claiming they are the same act:
+ *
+ * - The verified details go through `proposeProfileChange` and wait for a
+ *   manager. The current values stay in force meanwhile, which is why the
+ *   pending block below says the *old* phone number is still the one being used.
+ * - The leaderboard toggle is `updateOwnProfile` and takes effect immediately —
+ *   BR §16.2, and `update-own-profile.ts` argues at length that this is not a
+ *   fact a manager verifies.
+ * - The password is `changeOwnPassword`, immediate for the same reason: "chỉ là
+ *   chìa khoá để em tự đăng nhập".
+ *
+ * The fixture version had all three inside one `<form>` with one submit button,
+ * which would have proposed a password change to a manager for approval.
+ *
+ * **The pending block reads whatever the last request was, not only a pending
+ * one.** `getMyProfileChangeRequest`'s docstring is the reason: BR §15 lists no
+ * notification for a profile-change decision, so revisiting this page is how a
+ * reader learns they were refused — and a query that returned only pending rows
+ * would make the rejection reason unreachable the moment it was written.
+ *
+ * **`avatar_url` is not among the fields the form posts.** It is
+ * `ProposeAvatarChange`'s, and `proposeProfileChange` narrows it out anyway
+ * ("so a caller that sends `avatar_url` gets it dropped rather than quietly
+ * bypassing the size and content-type policy").
+ */
+export const dynamic = "force-dynamic";
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Đang chờ quản lý duyệt",
+  approved: "Đã được duyệt",
+  rejected: "Quản lý chưa duyệt",
+  cancelled: "Em đã huỷ",
+};
 
 export default async function ReaderProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
+  const refusal = refusalFrom(await searchParams);
 
-  const reader = readers.find((r) => r.id === "minh")!;
-  const pendingPhone = "0912 345 999";
+  const { shelf, viewer, profile, taxonomy, units } = await loadPage(
+    slug,
+    async (tx, ctx, v) => {
+      const parish = await loadParishContext(tx, ctx);
+      return {
+        shelf: await readShelf(tx, ctx),
+        viewer: v,
+        // `membershipId` comes from the session, never from the URL: a reader
+        // cannot ask for somebody else's profile by editing an address.
+        // `requireSelfOrManager` inside the query would refuse it anyway.
+        profile: await getMyProfile(tx, ctx, {
+          membershipId: ctx.actor.membershipId ?? "",
+        }),
+        taxonomy: parish.taxonomy,
+        units: parish.units,
+      };
+    },
+  );
 
-  const showL1 = unitOptions(shelf.parishUnits, 1).length > 0;
-  const showL2 = hasVisibleLevel2(shelf.parishTaxonomy, shelf.parishUnits);
-  const l1UnitName = unitName(shelf.parishUnits, reader.parishUnitL1Id);
-  const l2UnitName = unitName(shelf.parishUnits, reader.parishUnitL2Id);
+  const showL1 = unitOptions(units, 1).length > 0;
+  const showL2 = hasVisibleLevel2(taxonomy, units);
+  const pending = profile.pendingChange;
+  const fields = profile.fields;
 
   return (
     <>
       <ShelfHeader
         shelfName={shelf.name}
-        shelfSlug={shelf.slug}
-        viewerName={fixtureViewerName}
+        shelfSlug={slug}
+        active="toi"
+        viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={shelf.slug} active="ho-so" />
+      <ReaderTabs shelfSlug={slug} active="ho-so" />
 
       <main className="mx-auto max-w-xl px-6 py-10">
         <PageHeading
@@ -50,46 +111,30 @@ export default async function ReaderProfilePage({
           subtitle="Những thay đổi em gửi chỉ có hiệu lực sau khi quản lý duyệt."
         />
 
+        {refusal ? (
+          <p className="mt-6 rounded-card border border-hairline bg-surface px-4 py-3 text-[14px] text-ink">
+            {messageFor(refusal)}
+          </p>
+        ) : null}
+
         <div className="mt-8 flex items-center gap-4">
           <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-paper text-[26px] font-semibold text-leather">
-            {reader.name.charAt(0)}
+            {/* The last word of a Vietnamese name is the given name. */}
+            {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
           </div>
-          {/*
-            The one live control on this page, and the only part of this screen
-            B2b wires. Everything around it still renders from `@/lib/fixtures`;
-            the screens themselves are a later slice (B2b plan §7), which carves
-            out exactly one exception — "the server action Task 7 needs for the
-            avatar upload, which is not a screen and is the first `submitCommand`
-            caller that carries a file".
-
-            It is wired rather than left decorative for a reason beyond
-            completeness. B5's Docker smoke stage boots the standalone server and
-            fails the build unless it serves a page; Next traces
-            `.next/standalone` from what the **routes** import, and a
-            `"use server"` module that no route references is not compiled into
-            the build at all. Measured, on this branch: with the action file
-            present but unreferenced, `docker build --target smoke .` passed and
-            the image carried no `@aws-sdk` directory whatever. So the gate B5
-            recorded as vacuous "until B1 or B2b wires the store into a route"
-            stays vacuous until a route reaches it, and this `action={...}` is
-            that route.
-
-            The form posts no identity. `proposeAvatarChange` takes the
-            membership from `ctx.actor.membershipId`, which `contextFor` resolved
-            from the session cookie — see the action's own note on why an absent
-            field is a stronger position than a hidden one.
-          */}
+          {/* B2b's avatar upload, unchanged. The form posts no identity:
+              `proposeAvatarChange` takes the membership from
+              `ctx.actor.membershipId`, which is a stronger position than
+              posting one and comparing it — there is nothing in the request to
+              rewrite. */}
           <form action={proposeAvatarAction}>
-            <input type="hidden" name="tu-sach" value={shelf.slug} />
+            <input type="hidden" name="tu-sach" value={slug} />
             <label className="inline-flex cursor-pointer items-center gap-2 text-[15px] font-medium text-leather">
               <Camera aria-hidden className="size-[18px]" strokeWidth={1.75} />
               Đề nghị đổi ảnh
               <input
                 type="file"
                 name="anh"
-                // The three types `src/lib/avatar.ts` accepts, and therefore the
-                // three `objectKey` will build a key for. A hint to the file
-                // picker only — the policy that matters runs on the server.
                 accept="image/jpeg,image/png,image/webp"
                 className="sr-only"
               />
@@ -97,172 +142,277 @@ export default async function ReaderProfilePage({
             <p className="mt-1.5 text-[13px] text-meta">
               Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị.
             </p>
-            <Button type="submit" variant="quiet" size="sm" className="mt-2">
+            <SubmitButton variant="quiet" size="sm" className="mt-2">
               Gửi ảnh
-            </Button>
+            </SubmitButton>
           </form>
         </div>
 
-        <form className="mt-10 space-y-10">
-          <section className="space-y-6">
-            <h2 className="text-xl font-semibold">Thông tin cá nhân</h2>
+        {pending ? (
+          <div className="mt-8 rounded-card border border-hairline bg-paper p-4">
+            <p className="text-[14px] font-semibold">
+              {STATUS_LABEL[pending.status] ?? pending.status}
+            </p>
+            <ul className="mt-2 space-y-1 text-[14px]">
+              {proposedFields(pending.proposedValues).map((f) => (
+                <li key={f}>
+                  {PROFILE_FIELD_LABELS[f]}:{" "}
+                  <span className="font-semibold">
+                    {pending.proposedValues[f] ?? "(bỏ trống)"}
+                  </span>
+                  {pending.previousValues[f] !== undefined ? (
+                    <span className="text-meta">
+                      {" "}
+                      · hiện tại {pending.previousValues[f] ?? "chưa có"}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {pending.status === "pending" ? (
+              <>
+                <p className="mt-2 text-[13px] text-meta">
+                  Thông tin hiện tại vẫn được dùng cho đến khi đề nghị này được
+                  duyệt.
+                </p>
+                <form action={cancelProfileChangeAction} className="mt-2">
+                  <input type="hidden" name="tu-sach" value={slug} />
+                  <input
+                    type="hidden"
+                    name="thanh-vien"
+                    value={profile.membershipId}
+                  />
+                  <input type="hidden" name="yeu-cau" value={pending.id} />
+                  <SubmitButton variant="ghost" size="sm">
+                    Huỷ đề nghị
+                  </SubmitButton>
+                </form>
+              </>
+            ) : null}
+            {/* The whole reason a rejection requires a reason: the reader reads
+                it, and this page is the only place they can. */}
+            {pending.status === "rejected" && pending.rejectionReason ? (
+              <p className="mt-2 text-[14px]">{pending.rejectionReason}</p>
+            ) : null}
+          </div>
+        ) : null}
 
-            <Field label="Tên thánh" htmlFor="ten-thanh">
-              <Input id="ten-thanh" defaultValue={reader.saintName} />
-            </Field>
+        <form action={proposeProfileChangeAction} className="mt-10 space-y-6">
+          <input type="hidden" name="tu-sach" value={slug} />
+          <input type="hidden" name="thanh-vien" value={profile.membershipId} />
 
-            <Field label="Họ và tên" required htmlFor="ho-ten">
-              <Input id="ho-ten" defaultValue={reader.name} />
-            </Field>
+          <h2 className="text-xl font-semibold">Thông tin cá nhân</h2>
 
-            <Field label="Ngày sinh" required htmlFor="ngay-sinh">
-              <Input id="ngay-sinh" defaultValue={reader.born} />
-            </Field>
+          <Field label="Tên thánh" htmlFor="ten-thanh">
+            <Input
+              id="ten-thanh"
+              name="ten-thanh"
+              defaultValue={fields.saint_name ?? ""}
+            />
+          </Field>
 
-            <Field
-              label="Số điện thoại"
+          <Field label="Họ và tên" required htmlFor="ho-ten">
+            <Input
+              id="ho-ten"
+              name="ho-ten"
               required
-              htmlFor="dien-thoai"
-              hint="Quản lý dùng số này khi cần nhắc trả sách."
-            >
-              <Input id="dien-thoai" inputMode="tel" defaultValue={reader.phone} />
-            </Field>
+              defaultValue={fields.full_name ?? ""}
+            />
+          </Field>
 
-            <div className="rounded-card border border-hairline bg-paper p-4">
-              <p className="text-[14px]">
-                Đang chờ quản lý duyệt:{" "}
-                <span className="font-semibold">{pendingPhone}</span>
-              </p>
-              <p className="mt-1 text-[13px] text-meta">
-                Số hiện tại ({reader.phone}) vẫn được dùng cho đến khi đề nghị này
-                được duyệt.
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="mt-2 -ml-4"
-              >
-                Huỷ đề nghị
-              </Button>
-            </div>
+          {/* `type="date"`, so the value posted is an ISO `YYYY-MM-DD` and never
+              a locale spelling. `02/04/2015` typed into a text box was read as
+              4 February by a session whose DateStyle was `ISO, MDY` — the
+              defect `assertStorableDate` exists for, and the browser control is
+              what keeps it from arising here at all. */}
+          <Field label="Ngày sinh" htmlFor="ngay-sinh">
+            <Input
+              id="ngay-sinh"
+              name="ngay-sinh"
+              type="date"
+              defaultValue={fields.date_of_birth ?? ""}
+            />
+          </Field>
 
-            <Field
-              label="Email"
-              htmlFor="email"
-              hint="Không bắt buộc. Hiện tủ sách chưa gửi email."
-            >
-              <Input
-                id="email"
-                type="email"
-                placeholder="vd: minh.tran@gmail.com"
-              />
-            </Field>
-          </section>
+          <Field label="Tên cha" htmlFor="ten-cha">
+            <Input
+              id="ten-cha"
+              name="ten-cha"
+              defaultValue={fields.father_name ?? ""}
+            />
+          </Field>
 
-          {showL1 || showL2 ? (
-            <section className="space-y-4 border-t border-hairline pt-8">
-              <h2 className="text-xl font-semibold">Giáo xứ</h2>
+          <Field label="Tên mẹ" htmlFor="ten-me">
+            <Input
+              id="ten-me"
+              name="ten-me"
+              defaultValue={fields.mother_name ?? ""}
+            />
+          </Field>
 
-              {showL1 ? (
-                <Field label={shelf.parishTaxonomy.level1Label}>
-                  <ReadOnlyValue>
-                    <Lock
-                      aria-hidden
-                      className="mr-2 size-4 text-meta"
-                      strokeWidth={1.75}
-                    />
-                    {l1UnitName}
-                  </ReadOnlyValue>
-                </Field>
-              ) : null}
+          <Field
+            label="Số điện thoại"
+            htmlFor="dien-thoai"
+            hint="Quản lý dùng số này khi cần nhắc trả sách."
+          >
+            <Input
+              id="dien-thoai"
+              name="dien-thoai"
+              inputMode="tel"
+              defaultValue={fields.phone ?? ""}
+            />
+          </Field>
 
-              {showL2 ? (
-                <Field label={shelf.parishTaxonomy.level2Label}>
-                  <ReadOnlyValue>
-                    <Lock
-                      aria-hidden
-                      className="mr-2 size-4 text-meta"
-                      strokeWidth={1.75}
-                    />
-                    {l2UnitName}
-                  </ReadOnlyValue>
-                </Field>
-              ) : null}
+          <Field
+            label="Email"
+            htmlFor="email"
+            hint="Không bắt buộc. Hiện tủ sách chưa gửi email."
+          >
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              defaultValue={fields.email ?? ""}
+            />
+          </Field>
 
-              <p className="text-[14px] text-meta">
-                Muốn đổi {shelf.parishTaxonomy.level1Label.toLowerCase()}
-                {showL2
-                  ? ` hoặc ${shelf.parishTaxonomy.level2Label.toLowerCase()}`
-                  : ""}{" "}
-                thì nhờ quản lý tủ sách giúp.
-              </p>
-            </section>
-          ) : null}
-
-          <section className="space-y-4 border-t border-hairline pt-8">
-            <h2 className="text-xl font-semibold">Riêng tư</h2>
-            <p className="text-[14px] text-meta">
-              Có hiệu lực ngay, không cần quản lý duyệt — đây không phải một thông
-              tin quản lý cần xác minh.
-            </p>
-
-            <div className="flex items-center justify-between gap-4 rounded-card border border-hairline bg-surface p-4">
-              <div className="min-w-0">
-                <p className="text-[16px] font-medium">
-                  Hiện tên em trong bảng bạn đọc chăm nhất
-                </p>
-                <p className="mt-1 text-[14px] text-meta">
-                  Nếu tắt, tên em sẽ không xuất hiện công khai.
-                </p>
-              </div>
-              <span
-                role="switch"
-                aria-checked="true"
-                className="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full bg-sage"
-              >
-                <span className="ml-6 block size-5 rounded-full bg-surface" />
-              </span>
-            </div>
-          </section>
-
-          <section className="space-y-4 border-t border-hairline pt-8">
-            <h2 className="text-xl font-semibold">Mật khẩu</h2>
-            <p className="text-[14px] text-meta">
-              Cũng có hiệu lực ngay — mật khẩu không phải thông tin quản lý xác
-              minh, chỉ là chìa khoá để em tự đăng nhập.
-            </p>
-
-            <Button type="button" variant="quiet" size="md">
-              <KeyRound aria-hidden className="size-5" strokeWidth={1.75} />
-              Đổi mật khẩu
-            </Button>
-
-            <p className="text-[14px] text-meta">
-              Nếu quên mật khẩu, nhắn cho quản lý — cô Maria Nguyễn Thị Lan{" "}
-              <PhoneLink
-                phone="0912 345 678"
-                size="sm"
-                className="align-baseline"
-              />
-            </p>
-          </section>
-
-          <div className="border-t border-hairline pt-8">
-            <div className="flex items-center gap-4">
-              <Button type="submit" variant="primary" size="lg">
-                Gửi đề nghị thay đổi
-              </Button>
-              <Button type="button" variant="ghost" size="md">
-                Huỷ
-              </Button>
-            </div>
+          <div className="border-t border-hairline pt-6">
+            <SubmitButton variant="primary" size="lg">
+              Gửi đề nghị thay đổi
+            </SubmitButton>
             <p className="mt-3 text-[14px] text-meta">
               Quản lý sẽ xem và duyệt trước khi các thông tin cá nhân ở trên đổi
               thành giá trị mới.
             </p>
           </div>
         </form>
+
+        {showL1 || showL2 ? (
+          <section className="mt-10 space-y-4 border-t border-hairline pt-8">
+            <h2 className="text-xl font-semibold">Giáo xứ</h2>
+
+            {showL1 ? (
+              <Field label={taxonomy.level1Label}>
+                <ReadOnlyValue>
+                  <Lock
+                    aria-hidden
+                    className="mr-2 size-4 text-meta"
+                    strokeWidth={1.75}
+                  />
+                  {profile.parishUnitL1Name}
+                </ReadOnlyValue>
+              </Field>
+            ) : null}
+
+            {showL2 ? (
+              <Field label={taxonomy.level2Label}>
+                <ReadOnlyValue>
+                  <Lock
+                    aria-hidden
+                    className="mr-2 size-4 text-meta"
+                    strokeWidth={1.75}
+                  />
+                  {profile.parishUnitL2Name}
+                </ReadOnlyValue>
+              </Field>
+            ) : null}
+
+            <p className="text-[14px] text-meta">
+              Muốn đổi {taxonomy.level1Label.toLowerCase()}
+              {showL2 ? ` hoặc ${taxonomy.level2Label.toLowerCase()}` : ""} thì nhờ
+              quản lý tủ sách giúp.
+            </p>
+          </section>
+        ) : null}
+
+        <form
+          action={updateOwnProfileAction}
+          className="mt-10 space-y-4 border-t border-hairline pt-8"
+        >
+          <input type="hidden" name="tu-sach" value={slug} />
+          <input type="hidden" name="thanh-vien" value={profile.membershipId} />
+          <h2 className="text-xl font-semibold">Riêng tư</h2>
+          <p className="text-[14px] text-meta">
+            Có hiệu lực ngay, không cần quản lý duyệt — đây không phải một thông tin
+            quản lý cần xác minh.
+          </p>
+
+          {/* A real checkbox, not the fixture's `role="switch"` span. The
+              shipped decoration had `aria-checked="true"` written in, so it
+              announced itself as on to a screen reader regardless of the
+              setting and could not be changed by anyone. */}
+          <label className="flex items-center justify-between gap-4 rounded-card border border-hairline bg-surface p-4">
+            <span className="min-w-0">
+              <span className="block text-[16px] font-medium">
+                Hiện tên em trong bảng bạn đọc chăm nhất
+              </span>
+              <span className="mt-1 block text-[14px] text-meta">
+                Nếu tắt, tên em sẽ không xuất hiện công khai.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              name="bang-xep-hang"
+              defaultChecked={profile.leaderboardOptIn}
+              className="size-6 shrink-0"
+            />
+          </label>
+
+          <SubmitButton variant="quiet" size="md">
+            Lưu lựa chọn
+          </SubmitButton>
+        </form>
+
+        <form
+          action={changeOwnPasswordAction}
+          className="mt-10 space-y-4 border-t border-hairline pt-8"
+        >
+          <input type="hidden" name="tu-sach" value={slug} />
+          <input type="hidden" name="thanh-vien" value={profile.membershipId} />
+          <h2 className="text-xl font-semibold">Mật khẩu</h2>
+          <p className="text-[14px] text-meta">
+            Cũng có hiệu lực ngay — mật khẩu không phải thông tin quản lý xác minh,
+            chỉ là chìa khoá để em tự đăng nhập.
+          </p>
+
+          <Field label="Mật khẩu hiện tại" required htmlFor="mat-khau-cu">
+            <Input
+              id="mat-khau-cu"
+              name="mat-khau-cu"
+              type="password"
+              required
+              autoComplete="current-password"
+            />
+          </Field>
+
+          <Field label="Mật khẩu mới" required htmlFor="mat-khau-moi">
+            <Input
+              id="mat-khau-moi"
+              name="mat-khau-moi"
+              type="password"
+              required
+              autoComplete="new-password"
+            />
+          </Field>
+
+          <SubmitButton variant="quiet" size="md">
+            <KeyRound aria-hidden className="size-5" strokeWidth={1.75} />
+            Đổi mật khẩu
+          </SubmitButton>
+
+          {/* The fixture named one manager and printed her telephone number on
+              every shelf's page. Whom to ask is a fact about the parish that no
+              query here answers, so the sentence stops at the true half. */}
+          <p className="text-[14px] text-meta">
+            Nếu quên mật khẩu, nhắn cho quản lý tủ sách.
+          </p>
+        </form>
+
+        {pending?.decidedAt ? (
+          <p className="mt-10 text-[13px] text-meta">
+            Đề nghị gần nhất được xử lý ngày {formatDate(pending.decidedAt)}.
+          </p>
+        ) : null}
       </main>
     </>
   );

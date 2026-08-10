@@ -62,6 +62,23 @@ export async function getAnnouncements(
 }
 
 /**
+ * The three states the manager's screen labels — **decided in SQL, against
+ * `olibra_now()`**.
+ *
+ * `AnnouncementRow` carries `publishedAt` and `expiresAt`, so the page could
+ * work this out from two comparisons. It must not: `new Date()` in a React
+ * component is a *third* clock, disagreeing with both `ctx.clock` and the
+ * comparison `getAnnouncements` makes one function above. The reader's list
+ * would drop a lapsed announcement and the manager's would still call it
+ * "Đang hiện", with no test able to move either.
+ */
+export type AnnouncementState = "showing" | "draft" | "expired";
+
+export interface ManagedAnnouncementRow extends AnnouncementRow {
+  state: AnnouncementState;
+}
+
+/**
  * What a manager sees: everything, including drafts and lapsed announcements,
  * because managing them is exactly the job the reader-facing filter gets in the
  * way of.
@@ -69,7 +86,7 @@ export async function getAnnouncements(
 export async function getAllAnnouncements(
   tx: Tx,
   ctx: TenantContext,
-): Promise<AnnouncementRow[]> {
+): Promise<ManagedAnnouncementRow[]> {
   requireManager(ctx);
 
   const rows = await tx<
@@ -82,15 +99,24 @@ export async function getAllAnnouncements(
       is_pinned: boolean;
       published_at: Date | null;
       expires_at: Date | null;
+      state: AnnouncementState;
     }[]
   >`
-    select id, slug, title, body, body_text, is_pinned, published_at, expires_at
+    select id, slug, title, body, body_text, is_pinned, published_at, expires_at,
+           -- The same two comparisons getAnnouncements makes, in the same
+           -- direction, so the two screens cannot disagree about one notice.
+           case
+             when published_at is null or published_at > olibra_now() then 'draft'
+             when expires_at is not null and expires_at <= olibra_now()
+               then 'expired'
+             else 'showing'
+           end as state
       from announcements
      where deleted_at is null
      order by is_pinned desc, coalesce(published_at, created_at) desc, id desc
   `;
 
-  return rows.map(toRow);
+  return rows.map((r) => ({ ...toRow(r), state: r.state }));
 }
 
 function toRow(r: {
