@@ -35,7 +35,27 @@ import { requireSuperAdmin } from "../../members/policy";
 
 export interface FeedbackRow {
   feedbackId: string;
+  /**
+   * What was typed into "Tên của em" — `feedback.guest_name`, always, even
+   * when the sender was signed in. QA remediation Task 21: this used to be
+   * `member_name ?? guest_name`, so a message sent while signed in showed
+   * the *account's* name regardless of what the sender actually typed —
+   * measured live, "Tên của em" = "Chị Hạnh" displayed as "Quản trị viên" on
+   * `/quan-tri/gop-y`, and the administrator called the wrong person.
+   * `submitFeedback` (`../../community/commands/feedback.ts`) requires this
+   * non-blank on every write, so the `?? accountName` fallback below is
+   * defensive rather than a case this inbox actually meets.
+   */
   senderName: string;
+  /**
+   * The signed-in account's own name — `users.full_name` via
+   * `feedback.member_id` — or `null` for a genuine guest. Never used to
+   * decide `senderName` above; shown as its own fact
+   * (`gop-y/page.tsx`'s "gửi khi đang đăng nhập bằng …" line) so a manager
+   * who *did* mean to speak as their own account is not hidden by this fix,
+   * only no longer mistaken for the only truth.
+   */
+  accountName: string | null;
   subject: string;
   status: string;
   isUnread: boolean;
@@ -200,10 +220,14 @@ function toRow(r: {
 }): FeedbackRow {
   return {
     feedbackId: r.id,
-    // A signed-in member's own name wins over whatever was typed into the form:
-    // `submitFeedback` records both, and `users.full_name` is the one the
-    // administrator can act on. `guest_name` is all there is for a visitor.
-    senderName: r.member_name ?? r.guest_name ?? "",
+    // QA remediation Task 21. `guest_name` is what the sender actually typed
+    // into "Tên của em" and wins regardless of who was signed in —
+    // `submitFeedback` requires it non-blank, so `?? r.member_name` only
+    // covers a historical row from before that requirement, never an
+    // ordinary submission. The account's own name is `accountName` below,
+    // not folded into this field.
+    senderName: r.guest_name ?? r.member_name ?? "",
+    accountName: r.member_name,
     subject: r.subject,
     status: r.status,
     isUnread: r.status === "new",
