@@ -152,7 +152,6 @@ test("the check can see both halves of what it compares", () => {
     "src/app/quan-tri/page.tsx",
     "src/app/quan-tri/tu-sach/page.tsx",
     `${base}/quan-ly/cai-dat/page.tsx`,
-    `${base}/quan-ly/thong-ke/page.tsx`,
   ]);
 });
 
@@ -214,7 +213,6 @@ const PAGES_NOT_YET_WIRED = [
   "src/app/quan-tri/quan-ly-vien/page.tsx",
   "src/app/quan-tri/tu-sach/page.tsx",
   "src/app/tu-sach/[shelf]/quan-ly/cai-dat/page.tsx",
-  "src/app/tu-sach/[shelf]/quan-ly/thong-ke/page.tsx",
 
   // Reads nothing because it *is* nothing: U5 replaced the second donation
   // screen with a redirect to `toi/tang-sach`, the one the reader's own

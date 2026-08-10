@@ -1,56 +1,102 @@
-import { notFound } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { BookTitle } from "@/components/ui/book";
 import { Card, StatStrip } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/segmented";
 import { ManagerShell } from "@/components/shell/manager-shell";
-import { books, readers, shelfBySlug, shelves } from "@/lib/fixtures";
+import {
+  getStatistics,
+  type StatsPeriod,
+  type StatsPoint,
+  statsPeriodFrom,
+} from "@/domain/shelf/queries/get-statistics";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
+import { loadPage } from "@/lib/page-data";
+import { param, type SearchParams } from "@/lib/search-params";
+import { readShelf } from "@/lib/shelf";
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
+/**
+ * BR §16.3's *Thống kê* — OPS §3.4's `GetStatistics`.
+ *
+ * **Every number and every mark on both charts comes from the query.** The
+ * fixture version drew a plausible month: a `DAILY` array with Sunday peaks, a
+ * `CATEGORIES` list, five top books and five top readers, and four stat cards
+ * reading 128 / 54 / 9 / 0 — all invented, on a screen whose entire purpose is
+ * to be believed. It also carried comparison notes ("+12% so với tháng trước")
+ * that this page no longer shows: OPS §3.4 specifies no previous-period figure,
+ * so the honest options were to compute a second window or to drop the note, and
+ * a percentage nobody asked for is not worth doubling every aggregate.
+ *
+ * **The period is `?ky=`, in the four names OPS gives**, narrowed by
+ * `statsPeriodFrom` so an unrecognised value is the month rather than a window
+ * matching nothing — an empty statistics screen reads as "this shelf lent
+ * nothing", which is the shape of bug this project has shipped twice.
+ *
+ * **The daily chart plots the days the query returned and no others.** The
+ * fixture assumed thirty evenly spaced points; a real month has gaps, and a
+ * `week` has at most seven. Reading the x-axis off the data means the chart
+ * cannot claim a day nobody lent on.
+ */
+export const dynamic = "force-dynamic";
 
-/* Lượt mượn theo ngày trong tháng — Chúa nhật luôn cao nhất, các ngày
-   thường gần như bằng không. Dữ liệu minh hoạ, vẽ tay bằng SVG. */
-const DAILY = [
-  2, 1, 0, 1, 2, 1, 18, 1, 0, 2, 1, 0, 21, 1, 1, 0, 2, 1, 17, 2, 0, 1, 1, 2, 19, 1,
-  0, 2, 1, 1,
+const NUMBER = new Intl.NumberFormat("vi-VN");
+
+const PERIODS: { key: StatsPeriod; param: string; label: string }[] = [
+  { key: "week", param: "tuan", label: "Tuần" },
+  { key: "month", param: "thang", label: "Tháng" },
+  { key: "year", param: "nam", label: "Năm" },
+  { key: "all", param: "tu-dau", label: "Từ đầu" },
 ];
 
-/** Days shown along the x-axis — the first and last of the month plus every
- * Sunday peak, so the date named in the summary above the chart can be found. */
-const DAILY_AXIS_DAYS = [1, 7, 13, 19, 25, 30];
+/** `?ky=thang` → `month`. The URL is Vietnamese; the domain's names are not. */
+function periodFromParam(value: string | null): StatsPeriod {
+  const match = PERIODS.find((p) => p.param === value);
+  return statsPeriodFrom(match?.key ?? null);
+}
 
-function LineChart({ data }: { data: number[] }) {
+/** `2026-08-09` → `09/08`, for an axis label. */
+function shortDay(day: string): string {
+  const [, month, date] = day.split("-");
+  return `${date}/${month}`;
+}
+
+/**
+ * The daily line, drawn from whatever days came back.
+ *
+ * One point is a special case worth handling rather than dividing by zero: a
+ * week with a single day of lending would otherwise produce `NaN` coordinates
+ * and an invisible chart with no error anywhere.
+ */
+function LineChart({ data }: { data: StatsPoint[] }) {
   const width = 700;
   const height = 200;
   const padding = 16;
   const paddingLeft = 32;
   const paddingBottom = 28;
-  const max = Math.max(...data);
+  const max = Math.max(...data.map((d) => d.count), 1);
   const plotWidth = width - padding - paddingLeft;
   const plotHeight = height - paddingBottom - padding;
-  const stepX = plotWidth / (data.length - 1);
-  const points = data.map((v, i) => {
-    const x = paddingLeft + i * stepX;
-    const y = padding + plotHeight - (v / max) * plotHeight;
+  const stepX = data.length > 1 ? plotWidth / (data.length - 1) : 0;
+  const points = data.map((d, i) => {
+    const x =
+      data.length > 1 ? paddingLeft + i * stepX : paddingLeft + plotWidth / 2;
+    const y = padding + plotHeight - (d.count / max) * plotHeight;
     return [x, y] as const;
   });
   const path = points
     .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`)
     .join(" ");
-  const gridLines = [0, 0.5, 1];
+  // At most six labels, evenly spaced through the days that exist.
+  const labelEvery = Math.max(1, Math.ceil(data.length / 6));
 
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className="w-full"
       role="img"
-      aria-label="Biểu đồ lượt mượn theo ngày trong tháng, cao nhất vào các ngày Chúa nhật"
+      aria-label={`Biểu đồ lượt mượn theo ngày, cao nhất ${NUMBER.format(max)} lượt`}
     >
-      {gridLines.map((g) => {
+      {[0, 0.5, 1].map((g) => {
         const y = padding + g * plotHeight;
-        const value = Math.round(max * (1 - g));
         return (
           <g key={g}>
             <line
@@ -68,52 +114,50 @@ function LineChart({ data }: { data: number[] }) {
               dominantBaseline="middle"
               className="fill-meta text-[13px]"
             >
-              {value}
+              {Math.round(max * (1 - g))}
             </text>
           </g>
         );
       })}
-      <path
-        d={path}
-        fill="none"
-        stroke="var(--color-terracotta)"
-        strokeWidth={2.5}
-      />
+      {points.length > 1 ? (
+        <path
+          d={path}
+          fill="none"
+          stroke="var(--color-terracotta)"
+          strokeWidth={2.5}
+          strokeLinejoin="round"
+        />
+      ) : null}
       {points.map(([x, y], i) =>
-        data[i] >= 15 ? (
-          <circle key={i} cx={x} cy={y} r={4} fill="var(--color-terracotta)" />
+        points.length === 1 || data[i].count === max ? (
+          <circle
+            key={data[i].day}
+            cx={x}
+            cy={y}
+            r={4}
+            fill="var(--color-terracotta)"
+          />
         ) : null,
       )}
-      {DAILY_AXIS_DAYS.map((day, i) => {
-        const x = paddingLeft + (day - 1) * stepX;
-        const anchor =
-          i === 0 ? "start" : i === DAILY_AXIS_DAYS.length - 1 ? "end" : "middle";
-        return (
+      {data.map((d, i) =>
+        i % labelEvery === 0 ? (
           <text
-            key={day}
-            x={x}
-            y={height - paddingBottom + 18}
-            textAnchor={anchor}
+            key={d.day}
+            x={points[i][0]}
+            y={height - 8}
+            textAnchor="middle"
             className="fill-meta text-[13px]"
           >
-            {day.toString().padStart(2, "0")}/08
+            {shortDay(d.day)}
           </text>
-        );
-      })}
+        ) : null,
+      )}
     </svg>
   );
 }
 
-const CATEGORIES = [
-  { label: "Văn học thiếu nhi", value: 71 },
-  { label: "Văn học nước ngoài", value: 38 },
-  { label: "Văn học Việt Nam", value: 12 },
-  { label: "Truyện tranh", value: 5 },
-  { label: "Sách đạo", value: 2 },
-];
-
-function BarChart({ data }: { data: typeof CATEGORIES }) {
-  const max = Math.max(...data.map((d) => d.value));
+function BarChart({ data }: { data: { label: string; count: number }[] }) {
+  const max = Math.max(...data.map((d) => d.count), 1);
   return (
     <div className="space-y-3">
       {data.map((d) => (
@@ -122,11 +166,11 @@ function BarChart({ data }: { data: typeof CATEGORIES }) {
           <div className="h-6 flex-1 rounded-control bg-paper">
             <div
               className="h-full rounded-control bg-sage"
-              style={{ width: `${(d.value / max) * 100}%` }}
+              style={{ width: `${(d.count / max) * 100}%` }}
             />
           </div>
           <p className="w-8 shrink-0 text-right text-[15px] font-semibold">
-            {d.value}
+            {NUMBER.format(d.count)}
           </p>
         </div>
       ))}
@@ -134,141 +178,161 @@ function BarChart({ data }: { data: typeof CATEGORIES }) {
   );
 }
 
-const TOP_BOOKS = [
-  { book: books[1], count: 24 },
-  { book: books[0], count: 19 },
-  { book: books[7], count: 14 },
-  { book: books[3], count: 11 },
-  { book: books[2], count: 9 },
-];
-
-const TOP_READERS = [
-  { reader: readers[1], count: 8 },
-  { reader: readers[3], count: 6 },
-  { reader: readers[2], count: 5 },
-  { reader: readers[5], count: 4 },
-  { reader: readers[0], count: 4 },
-];
-
 export default async function StatsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
+  const period = periodFromParam(param(await searchParams, "ky") ?? null);
 
-  const base = `/tu-sach/${shelf.slug}/quan-ly/thong-ke`;
+  const { shelf, viewer, counts, stats } = await loadPage(
+    slug,
+    async (tx, ctx, v) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer: v,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      stats: await getStatistics(tx, ctx, { period }),
+    }),
+  );
+
+  const base = `/tu-sach/${slug}/quan-ly/thong-ke`;
+  const busiest = stats.daily.reduce<StatsPoint | null>(
+    (best, d) => (best === null || d.count > best.count ? d : best),
+    null,
+  );
 
   return (
     <ManagerShell
       shelfName={shelf.name}
-      shelfSlug={shelf.slug}
+      shelfSlug={slug}
       active="thong-ke"
-      viewer={null}
-      counts={null}
+      viewer={viewer}
+      counts={counts}
     >
       <div className="space-y-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <h1 className="text-[28px] leading-tight font-semibold">Thống kê</h1>
           <Segmented
-            options={[
-              { href: `${base}?ky=tuan`, label: "Tuần" },
-              { href: `${base}?ky=thang`, label: "Tháng", active: true },
-              { href: `${base}?ky=nam`, label: "Năm" },
-              { href: `${base}?ky=tu-dau`, label: "Từ đầu" },
-            ]}
+            options={PERIODS.map((p) => ({
+              href: `${base}?ky=${p.param}`,
+              label: p.label,
+              active: p.key === period,
+            }))}
           />
         </div>
 
+        {/* No comparison notes: OPS §3.4 specifies no previous-period figure,
+            and the fixture's "+12% so với tháng trước" was invented. `note` is
+            omitted rather than filled with something true but useless. */}
         <StatStrip
           items={[
-            { label: "Lượt mượn", value: "128", note: "+12% so với tháng trước" },
-            {
-              label: "Bạn đọc đã mượn",
-              value: "54",
-              note: "+5 người so với tháng trước",
-            },
-            { label: "Sách thêm mới", value: "9", note: "3 đầu sách mới" },
-            {
-              label: "Sách báo mất",
-              value: "0",
-              note: "-1 so với tháng trước",
-            },
+            { label: "Lượt mượn", value: NUMBER.format(stats.loans) },
+            { label: "Bạn đọc đã mượn", value: NUMBER.format(stats.borrowers) },
+            { label: "Sách thêm mới", value: NUMBER.format(stats.booksAdded) },
+            { label: "Sách báo mất", value: NUMBER.format(stats.copiesLost) },
           ]}
         />
 
         <Card>
           <h2 className="text-[18px] font-semibold">Lượt mượn theo ngày</h2>
-          <p className="mt-1 text-[15px] text-meta">
-            Tháng này có 128 lượt mượn, cao nhất vào Chúa nhật 09/08 với 21 lượt.
-            Các ngày trong tuần hầu như không có ai mượn.
-          </p>
-          <div className="mt-5">
-            <LineChart data={DAILY} />
-          </div>
+          {stats.daily.length === 0 ? (
+            <p className="mt-1 text-[15px] text-meta">
+              Chưa có lượt mượn nào trong khoảng thời gian này.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-[15px] text-meta">
+                {NUMBER.format(stats.loans)} lượt mượn
+                {busiest
+                  ? `, cao nhất ngày ${shortDay(busiest.day)} với ${NUMBER.format(busiest.count)} lượt`
+                  : ""}
+                .
+              </p>
+              <div className="mt-5">
+                <LineChart data={stats.daily} />
+              </div>
+            </>
+          )}
         </Card>
 
         <Card>
           <h2 className="text-[18px] font-semibold">Sách mượn theo thể loại</h2>
-          <p className="mt-1 text-[15px] text-meta">
-            Văn học thiếu nhi chiếm phần lớn với 71 lượt, tiếp theo là văn học nước
-            ngoài với 38 lượt.
-          </p>
-          <div className="mt-5">
-            <BarChart data={CATEGORIES} />
-          </div>
+          {stats.byCategory.length === 0 ? (
+            <p className="mt-1 text-[15px] text-meta">Chưa có dữ liệu.</p>
+          ) : (
+            <div className="mt-5">
+              <BarChart data={stats.byCategory} />
+            </div>
+          )}
         </Card>
 
         <div className="grid gap-6 md:grid-cols-2">
           <div>
             <h2 className="text-[18px] font-semibold">Sách được mượn nhiều nhất</h2>
-            <ul className="mt-3 divide-y divide-hairline border-t border-hairline">
-              {TOP_BOOKS.map((row, i) => (
-                <li key={row.book.slug} className="flex items-center gap-3 py-3">
-                  <span className="w-6 shrink-0 text-[16px] font-semibold text-meta">
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <BookTitle className="block text-[15px] leading-snug">
-                      {row.book.title}
-                    </BookTitle>
-                    <p className="text-[14px] text-meta">{row.book.author}</p>
-                  </div>
-                  <p className="text-[15px] font-semibold">{row.count}</p>
-                </li>
-              ))}
-            </ul>
+            {stats.topBooks.length === 0 ? (
+              <p className="mt-3 text-[15px] text-meta">Chưa có dữ liệu.</p>
+            ) : (
+              <ul className="mt-3 divide-y divide-hairline border-t border-hairline">
+                {stats.topBooks.map((row, i) => (
+                  <li key={row.bookId} className="flex items-center gap-3 py-3">
+                    <span className="w-6 shrink-0 text-[16px] font-semibold text-meta">
+                      {i + 1}
+                    </span>
+                    <Link
+                      href={`/tu-sach/${slug}/quan-ly/sach/${row.bookId}`}
+                      className="min-w-0 flex-1"
+                    >
+                      <BookTitle className="block text-[15px] leading-snug">
+                        {row.title}
+                      </BookTitle>
+                    </Link>
+                    <p className="text-[15px] font-semibold">
+                      {NUMBER.format(row.count)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div>
             <h2 className="text-[18px] font-semibold">Bạn đọc chăm nhất</h2>
-            <ul className="mt-3 divide-y divide-hairline border-t border-hairline">
-              {TOP_READERS.map((row, i) => (
-                <li key={row.reader.id} className="flex items-center gap-3 py-3">
-                  <span className="w-6 shrink-0 text-[16px] font-semibold text-meta">
-                    {i + 1}
-                  </span>
-                  <span
-                    aria-hidden
-                    className="flex size-9 shrink-0 items-center justify-center rounded-full bg-paper text-[14px] font-semibold text-leather"
-                  >
-                    {row.reader.name.charAt(0)}
-                  </span>
-                  <p className="min-w-0 flex-1 truncate text-[15px] font-medium">
-                    {row.reader.fullName}
-                  </p>
-                  <p className="text-[15px] font-semibold">{row.count}</p>
-                </li>
-              ))}
-            </ul>
+            {stats.topReaders.length === 0 ? (
+              <p className="mt-3 text-[15px] text-meta">Chưa có dữ liệu.</p>
+            ) : (
+              <ul className="mt-3 divide-y divide-hairline border-t border-hairline">
+                {stats.topReaders.map((row, i) => (
+                  <li key={row.name} className="flex items-center gap-3 py-3">
+                    <span className="w-6 shrink-0 text-[16px] font-semibold text-meta">
+                      {i + 1}
+                    </span>
+                    <span
+                      aria-hidden
+                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-paper text-[14px] font-semibold text-leather"
+                    >
+                      {row.name.split(" ").at(-1)?.charAt(0) ?? ""}
+                    </span>
+                    <p className="min-w-0 flex-1 truncate text-[15px] font-medium">
+                      {row.name}
+                    </p>
+                    <p className="text-[15px] font-semibold">
+                      {NUMBER.format(row.count)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {/* BR §16.2's toggle, said out loud: a manager who counts the rows
+                and finds fewer than they expect should know why. */}
+            <p className="mt-3 text-[14px] text-meta">
+              Bạn đọc đã tắt mục &ldquo;hiện tên trong bảng bạn đọc chăm nhất&rdquo;
+              sẽ không xuất hiện ở đây.
+            </p>
           </div>
         </div>
-
-        <Button variant="quiet" size="sm">
-          Tải dữ liệu CSV
-        </Button>
       </div>
     </ManagerShell>
   );

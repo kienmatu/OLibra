@@ -128,6 +128,8 @@ const SEEDS = [
   // lending seeds above give for reaching `?nguoi-doc=` and `?muon=` by
   // following.
   `${S}/quan-ly/thong-ke`,
+  `${S}/quan-ly/thong-ke?ky=tuan`,
+  `${S}/quan-ly/thong-ke?ky=tu-dau`,
   `${S}/quan-ly/thong-bao`,
   `${S}/quan-ly/cai-dat`,
   "/quan-tri",
