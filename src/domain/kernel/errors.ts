@@ -220,6 +220,17 @@ export const ERROR_MESSAGES = {
   // command's own noun.
   suspension_reason_required: "Vui lòng ghi lý do tạm khoá.",
 
+  // — members: Task 18 (QA remediation) —
+  // Measured on 2026-08-10: `khong-phai-so`, typed into the required "Số
+  // điện thoại" on `/quan-ly/nguoi-doc/moi`, was accepted, stored, and
+  // rendered as a `tel:khong-phai-so` link on the approval card, the reader
+  // profile and the overdue list — the one field whose own hint says it is
+  // how the shelf calls about an overdue book. `assertPhone`
+  // (`../members/policy.ts`) is the rule; this is its sentence, worded to
+  // show the shape rather than just say "invalid" — a volunteer correcting a
+  // typo needs to know what "right" looks like, not just that this was wrong.
+  phone_invalid: "Số điện thoại chưa đúng. Ghi 10 số, ví dụ 0912345678.",
+
   // — community: B3 —
   // OPS §4.4's own sentences. `comment_not_pending` is the **fifth** slice in a
   // row to split a `not_pending` code: OPS gives it "Bình luận này đã được xử

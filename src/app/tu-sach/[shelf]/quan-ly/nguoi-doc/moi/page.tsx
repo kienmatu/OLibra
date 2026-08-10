@@ -6,6 +6,7 @@ import { ManagerShell } from "@/components/shell/manager-shell";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { messageFor } from "@/domain/kernel/errors";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -228,7 +229,9 @@ export default async function RegisterReaderOnBehalfPage({
               id="dien-thoai"
               name="dien-thoai"
               required
-              inputMode="tel"
+              type="tel"
+              inputMode="numeric"
+              pattern={PHONE_PATTERN}
               placeholder="vd: 09xx xxx xxx"
             />
           </Field>

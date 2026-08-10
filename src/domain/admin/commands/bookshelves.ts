@@ -1,6 +1,7 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { fold } from "../../kernel/fold";
+import { assertPhone } from "../../members/policy";
 import { checkPolicyBound, type PolicyField } from "../policy";
 
 /**
@@ -55,6 +56,16 @@ export const createBookshelf: Command<
     throw new ValidationFailed("validation_failed", "slug");
   }
 
+  // QA remediation Task 18. `keeperPhone` is nullable — a shelf may not have
+  // named its keeper's number yet — so this only fires once one is actually
+  // supplied. It is BR §16.1's own public-facing number for the shelf, printed
+  // on `/tu-sach/[shelf]` and bound into a `tel:` link there from the moment
+  // the shelf exists.
+  const keeperPhone = input.keeperPhone?.trim() || null;
+  if (keeperPhone !== null) {
+    assertPhone(keeperPhone, "keeperPhone");
+  }
+
   const [taken] = await tx<{ id: string }[]>`
     select id from bookshelves where slug = ${slug}
   `;
@@ -80,7 +91,7 @@ export const createBookshelf: Command<
        status, created_by, settings)
     values
       (${slug}, ${name}, ${input.location ?? null}, ${input.address ?? null},
-       ${input.keeperName ?? null}, ${input.keeperPhone ?? null},
+       ${input.keeperName ?? null}, ${keeperPhone},
        ${input.openingHours ?? null}, 'active', ${ctx.actor.userId},
        ${tx.json({
          loan_days: defaults?.default_loan_days ?? 14,
@@ -166,6 +177,15 @@ export const updateBookshelfSettings: Command<
   const name = input.profile?.name.trim();
   if (input.profile && !name) {
     throw new ValidationFailed("required_fields_missing", "name");
+  }
+
+  // QA remediation Task 18. `keeperPhone` is one of the five nullable profile
+  // columns this all-or-nothing patch writes together (see this command's own
+  // docstring on why absent and null must stay distinguishable) — `null` is a
+  // manager clearing a keeper's number, a real edit, so this only fires when
+  // the profile carries an actual value to check.
+  if (input.profile && input.profile.keeperPhone !== null) {
+    assertPhone(input.profile.keeperPhone, "keeperPhone");
   }
 
   const policy: Record<string, number | boolean> = {};

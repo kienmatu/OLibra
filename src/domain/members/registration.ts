@@ -7,6 +7,7 @@ import { loadParishContext } from "./parish-context";
 import { validateSelection } from "./parish-taxonomy";
 import {
   assertPasswordLength,
+  assertPhone,
   blank,
   type MembershipStatus,
   membershipTransition,
@@ -191,6 +192,15 @@ export async function register(
   ] as const) {
     if (blank(value)) throw new ValidationFailed("required_fields_missing", field);
   }
+
+  // QA remediation Task 18: `khong-phai-so` used to sail through the loop
+  // above (non-blank is all it checked) and land in `users.phone`, from where
+  // it rendered as `tel:khong-phai-so`. This is the one call shared by
+  // `RegisterMembership`, `RegisterMemberOnBehalf` and `ManagerRegisterReader`
+  // — see `register`'s own docstring — so validating here, rather than in
+  // each of the three commands that call it, covers all three from one place
+  // and cannot drift the way three separate calls could.
+  assertPhone(input.phone.trim(), "phone");
 
   // **Before `findExistingPerson`, not merely before the insert.**
   //

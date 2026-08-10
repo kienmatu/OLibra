@@ -1,4 +1,5 @@
 import type { Command } from "../../kernel/unit-of-work";
+import { assertPhone } from "../../members/policy";
 import { checkPolicyBound } from "../policy";
 
 /**
@@ -39,6 +40,15 @@ export const updateSiteContact: Command<SiteContactInput, void> = async (
     phone: input.contactPhone?.trim() || null,
     hours: input.contactHours?.trim() || null,
   };
+
+  // QA remediation Task 18. `contactPhone` is nullable and clearing it is a
+  // real edit (see `SiteContactInput`'s own docstring on why all three fields
+  // move together), so the check applies only once a caller actually supplies
+  // a nonempty number — this is `/lien-he`'s own published number, so a bad
+  // value here is a public-facing dead phone link, not merely an internal one.
+  if (trimmed.phone !== null) {
+    assertPhone(trimmed.phone, "contactPhone");
+  }
 
   await tx`
     update system_settings

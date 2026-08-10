@@ -20,6 +20,7 @@ import { PhoneLink } from "@/components/ui/phone-link";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { messageFor } from "@/domain/kernel/errors";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
 import {
   getReaderDetail,
@@ -442,7 +443,9 @@ function EditProfileDisclosure({
           <Input
             id={idFor("dien-thoai")}
             name="dien-thoai"
-            inputMode="tel"
+            type="tel"
+            inputMode="numeric"
+            pattern={PHONE_PATTERN}
             defaultValue={reader.phone ?? ""}
           />
         </Field>

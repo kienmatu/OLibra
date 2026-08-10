@@ -5,6 +5,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { messageFor } from "@/domain/kernel/errors";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { findPublicShelf } from "@/domain/portal/queries/find-public-shelf";
 import { loadPage, loadPublicPage } from "@/lib/page-data";
 import { loadParishContext } from "@/domain/members/parish-context";
@@ -263,7 +264,9 @@ export default async function RegisterPage({
               <Input
                 id="dien-thoai"
                 name="dien-thoai"
-                inputMode="tel"
+                type="tel"
+                inputMode="numeric"
+                pattern={PHONE_PATTERN}
                 required
                 placeholder="vd: 09xx xxx xxx"
               />

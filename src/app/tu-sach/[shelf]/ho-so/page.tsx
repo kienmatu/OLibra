@@ -7,6 +7,7 @@ import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { messageFor } from "@/domain/kernel/errors";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
 import { formatDate } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
@@ -267,7 +268,9 @@ export default async function ReaderProfilePage({
             <Input
               id="dien-thoai"
               name="dien-thoai"
-              inputMode="tel"
+              type="tel"
+              inputMode="numeric"
+              pattern={PHONE_PATTERN}
               defaultValue={fields.phone ?? ""}
             />
           </Field>

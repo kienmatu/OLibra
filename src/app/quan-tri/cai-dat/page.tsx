@@ -4,6 +4,7 @@ import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { SavedNotice } from "@/components/ui/saved-notice";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { messageFor } from "@/domain/kernel/errors";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getSystemSettings } from "@/domain/admin/queries/get-admin-overview";
 import { loadAdminPage } from "@/lib/page-data";
@@ -103,7 +104,9 @@ export default async function AdminSettingsPage({
             <Input
               id="lien-he-dien-thoai"
               name="dien-thoai"
-              inputMode="tel"
+              type="tel"
+              inputMode="numeric"
+              pattern={PHONE_PATTERN}
               defaultValue={settings.contactPhone ?? ""}
             />
           </Field>

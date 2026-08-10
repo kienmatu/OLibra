@@ -7,6 +7,7 @@ import { Pill } from "@/components/ui/pill";
 import { SavedNotice } from "@/components/ui/saved-notice";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { messageFor } from "@/domain/kernel/errors";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getAdminOverview } from "@/domain/admin/queries/get-admin-overview";
 import { getShelfSettings } from "@/domain/shelf/queries/get-shelf-settings";
@@ -161,7 +162,13 @@ export default async function AdminBookshelvesPage({
               <Input id="nguoi-giu-moi" name="nguoi-giu" />
             </Field>
             <Field label="Số điện thoại" htmlFor="dien-thoai-moi">
-              <Input id="dien-thoai-moi" name="dien-thoai" inputMode="tel" />
+              <Input
+                id="dien-thoai-moi"
+                name="dien-thoai"
+                type="tel"
+                inputMode="numeric"
+                pattern={PHONE_PATTERN}
+              />
             </Field>
             <Field label="Giờ mở cửa" htmlFor="gio-mo-cua-moi">
               <Input
@@ -245,7 +252,9 @@ export default async function AdminBookshelvesPage({
                 <Input
                   id="dien-thoai"
                   name="dien-thoai"
-                  inputMode="tel"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern={PHONE_PATTERN}
                   defaultValue={selected.settings.profile.keeperPhone ?? ""}
                 />
               </Field>
