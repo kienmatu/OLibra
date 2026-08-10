@@ -130,29 +130,19 @@ test("the check can see both halves of what it compares", () => {
     expect(all.find((r) => r.path === page)?.readsTheDatabase, page).toBe(true);
   }
 
-  // The other half: the reader pages this slice did not wire still render from
-  // `src/lib/fixtures.ts`, and are correctly seen doing it. When a later slice
-  // wires them this list shrinks; it is a floor for the detector, not a claim
-  // that these pages should stay as they are.
-  // U5 wired every reader page, so the floor moved again — and it is now
-  // asserted as an exact set rather than a `toContain`, because the remaining
-  // five are a list somebody should have to shorten deliberately. Each needs a
-  // query no slice has written: `GetSiteContact`, `GetShelfSettings`,
-  // `GetStatistics`, and B4's two administration reads. The day this list is
-  // empty, this half of the check has nothing left to prove and should go
-  // rather than be pointed at a wired page.
-  expect(
-    all
-      .filter((r) => r.importsFixtures)
-      .map((r) => r.path)
-      .sort(),
-  ).toEqual([
-    "src/app/lien-he/page.tsx",
-    "src/app/quan-tri/cai-dat/page.tsx",
-    "src/app/quan-tri/page.tsx",
-    "src/app/quan-tri/tu-sach/page.tsx",
-    `${base}/quan-ly/cai-dat/page.tsx`,
-  ]);
+  // **The other half is now empty, and that is the end of this slice's work.**
+  //
+  // Every route file in the application reads the database or has nothing to
+  // read. `src/lib/fixtures.ts` still exists and is still imported by
+  // components — `coverForTitle`, exempted by name in the chrome rule below —
+  // but no *page* renders a parish's content from it.
+  //
+  // Kept as `toEqual([])` rather than deleted, because the rule it guards is
+  // permanent: a page added next month that starts from the fixtures, as every
+  // page in this project once did, fails here on the day it is typed. The first
+  // half above is what stops that from passing vacuously.
+  expect(all.filter((r) => r.importsFixtures).map((r) => r.path)).toEqual([]);
+  void base;
 });
 
 test("no page that reads the database also renders fixtures", () => {
@@ -192,8 +182,15 @@ test("no page that reads the database also renders fixtures", () => {
  * looking at this file, which is where the leftover-fixture rules are. Deleting
  * a page fails it too.
  *
- * The list shrinks, slice by slice, to nothing. When it is empty this test and
- * the fixture rules above have all done their job and should go together.
+ * **The list is now three pages, and none of them is unfinished.** B4 wired the
+ * last of the pending ones. What remains reads nothing because it *has* nothing
+ * to read: `/` is the marketing landing page, `/loi` renders whatever error was
+ * thrown, and `[shelf]/tang-sach` is a redirect to the donation page U4 wired.
+ *
+ * So the test has changed meaning without changing shape: it was a shrinking
+ * to-do list, and it is now the closed set of pages that legitimately touch no
+ * database. A page added to it is a claim somebody has to make on purpose, and
+ * a page leaving it is a page that got wired.
  */
 const PAGES_NOT_YET_WIRED = [
   // The two that are **finished** rather than pending, and belong on this list
@@ -204,15 +201,6 @@ const PAGES_NOT_YET_WIRED = [
   // does, this line is where that gets noticed.
   "src/app/loi/page.tsx",
   "src/app/page.tsx",
-
-  "src/app/lien-he/page.tsx",
-  "src/app/quan-tri/cai-dat/page.tsx",
-  "src/app/quan-tri/nhat-ky/page.tsx",
-  "src/app/quan-tri/page.tsx",
-  "src/app/quan-tri/quan-ly-vien/[id]/page.tsx",
-  "src/app/quan-tri/quan-ly-vien/page.tsx",
-  "src/app/quan-tri/tu-sach/page.tsx",
-  "src/app/tu-sach/[shelf]/quan-ly/cai-dat/page.tsx",
 
   // Reads nothing because it *is* nothing: U5 replaced the second donation
   // screen with a redirect to `toi/tang-sach`, the one the reader's own

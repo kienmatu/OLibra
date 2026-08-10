@@ -1,19 +1,45 @@
-import { notFound } from "next/navigation";
 import { Download } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { PageHeading } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { buttonClasses } from "@/components/ui/button";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { shelfBySlug, shelves } from "@/lib/fixtures";
+import { getShelfSettings } from "@/domain/shelf/queries/get-shelf-settings";
+import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
+import { loadPage } from "@/lib/page-data";
+import { readShelf } from "@/lib/shelf";
+
+/**
+ * OPS §3.4's `GetShelfSettings` — "view this shelf's profile and lending
+ * policy", read-only, `manager`.
+ *
+ * **Read-only, and the sentence saying so is now true.** The fixture version
+ * printed six policy values as literals — 14 / 3 / 1 / 7 / 3 / 3 — under the
+ * line "Chỉ quản trị viên mới đổi được các mục này". Those numbers happened to
+ * match the defaults, so a shelf that had overridden `loan_days` to 21 read
+ * "14 ngày" here while lending for twenty-one, and nothing anywhere disagreed
+ * out loud. That is the failure mode a settings screen has: it is believed.
+ *
+ * **The defaults are part of the policy, not an absence.** `bookshelves
+ * .settings` is a schemaless `jsonb` bag, so a shelf that has never set
+ * `loan_days` genuinely lends for fourteen days — `loanDaysFor` says so. The
+ * query answers 14 rather than "chưa đặt", and
+ * `tests/domain/shelf/shelf-settings.test.ts` compares its six numbers against
+ * the shipped readers rather than against literals, so changing a default in one
+ * place fails there instead of drifting here.
+ *
+ * **The three export buttons are forms**, as they already are on the audit page,
+ * and for the reason P1 §3.5(c) gives: a CSV of every child's name, date of
+ * birth, parents' names and telephone number must not sit in the address bar of
+ * a shared parish phone. The fixture version rendered them as `<Button>`s that
+ * did nothing at all.
+ */
+export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Cài đặt — Quản lý tủ sách OLibra" };
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
+const NUMBER = new Intl.NumberFormat("vi-VN");
 
-/** One label/value row with a hairline rule above it — read-only, since a
- * manager can see this information but only a quản trị viên can change it. */
+/** One label/value row with a hairline rule above it. */
 function InfoRow({
   label,
   children,
@@ -29,8 +55,7 @@ function InfoRow({
   );
 }
 
-/** A lending-policy row: name and explanation on the left, the value on the
- * right — plain text, never a control, because a manager cannot edit it. */
+/** A lending-policy row: plain text, never a control, because a manager cannot edit it. */
 function PolicyRow({
   label,
   hint,
@@ -57,31 +82,53 @@ export default async function ManagerSettingsPage({
   params: Promise<{ shelf: string }>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
+
+  const { shelf, viewer, counts, settings } = await loadPage(
+    slug,
+    async (tx, ctx, v) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer: v,
+      counts: await getManagerBadgeCounts(tx, ctx),
+      settings: await getShelfSettings(tx, ctx),
+    }),
+  );
+
+  const { profile, policy } = settings;
+  const base = `/tu-sach/${slug}/quan-ly`;
+  const days = (n: number) => `${NUMBER.format(n)} ngày`;
 
   return (
     <ManagerShell
       shelfName={shelf.name}
-      shelfSlug={shelf.slug}
+      shelfSlug={slug}
       active="cai-dat"
-      viewer={null}
-      counts={null}
+      viewer={viewer}
+      counts={counts}
     >
-      <PageHeading title="Cài đặt" subtitle={`Cài đặt của ${shelf.name}.`} />
+      <PageHeading title="Cài đặt" subtitle={`Cài đặt của ${profile.name}.`} />
 
       <div className="mt-8 max-w-2xl space-y-12">
         <section>
           <h2 className="text-xl font-semibold">Thông tin tủ sách</h2>
           <dl className="mt-4">
-            <InfoRow label="Tên tủ sách">{shelf.name}</InfoRow>
-            <InfoRow label="Địa chỉ">{shelf.location}</InfoRow>
-            <InfoRow label="Giờ mở cửa">{shelf.hours}</InfoRow>
+            <InfoRow label="Tên tủ sách">{profile.name}</InfoRow>
+            {/* "Chưa có" rather than an empty row: every one of these is
+                nullable, and a blank line reads as a rendering bug. */}
+            <InfoRow label="Địa chỉ">{profile.location ?? "Chưa có"}</InfoRow>
+            <InfoRow label="Giờ mở cửa">
+              {profile.openingHours ?? "Chưa có"}
+            </InfoRow>
             <InfoRow label="Người giữ chìa khoá">
-              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {shelf.keeper}
-                <PhoneLink phone={shelf.phone} size="sm" />
-              </span>
+              {profile.keeperName || profile.keeperPhone ? (
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {profile.keeperName ?? ""}
+                  {profile.keeperPhone ? (
+                    <PhoneLink phone={profile.keeperPhone} size="sm" />
+                  ) : null}
+                </span>
+              ) : (
+                "Chưa có"
+              )}
             </InfoRow>
           </dl>
           <p className="mt-3 text-[14px] text-meta">
@@ -95,32 +142,32 @@ export default async function ManagerSettingsPage({
             <PolicyRow
               label="Số ngày cho mượn"
               hint="Số ngày bạn đọc được giữ sách trong một lượt mượn."
-              value="14 ngày"
+              value={days(policy.loanDays)}
             />
             <PolicyRow
               label="Số sách mượn cùng lúc"
               hint="Số cuốn tối đa một bạn đọc được giữ cùng lúc."
-              value="3 cuốn"
+              value={`${NUMBER.format(policy.maxConcurrentLoans)} cuốn`}
             />
             <PolicyRow
               label="Số lần gia hạn"
               hint="Số lần bạn đọc được xin gia hạn cho một lượt mượn."
-              value="1 lần"
+              value={`${NUMBER.format(policy.maxRenewals)} lần`}
             />
             <PolicyRow
               label="Số ngày mỗi lần gia hạn"
               hint="Số ngày được cộng thêm mỗi lần gia hạn."
-              value="7 ngày"
+              value={days(policy.renewalDays)}
             />
             <PolicyRow
               label="Số ngày giữ chỗ"
               hint="Số ngày tủ sách giữ sách cho bạn đọc đã đăng ký chờ mượn."
-              value="3 ngày"
+              value={days(policy.holdDays)}
             />
             <PolicyRow
               label="Báo sắp đến hạn trước"
               hint="Số ngày trước hạn trả mà hệ thống nhắc bạn đọc."
-              value="3 ngày"
+              value={days(policy.dueSoonDays)}
             />
           </div>
           <p className="mt-3 text-[14px] text-meta">
@@ -129,23 +176,41 @@ export default async function ManagerSettingsPage({
         </section>
 
         <section>
+          <h2 className="text-xl font-semibold">Bình luận</h2>
+          <dl className="mt-4">
+            <InfoRow label="Cho phép bình luận">
+              {policy.commentsEnabled ? "Có" : "Không"}
+            </InfoRow>
+            <InfoRow label="Bình luận cần duyệt">
+              {policy.commentsRequireApproval ? "Có" : "Không"}
+            </InfoRow>
+          </dl>
+        </section>
+
+        <section>
           <h2 className="text-xl font-semibold">Xuất dữ liệu</h2>
           <p className="mt-2 text-[15px] text-meta">
-            Tải toàn bộ dữ liệu về máy để phòng khi cần.
+            Tải toàn bộ dữ liệu về máy để phòng khi cần. Tệp mở được bằng Excel.
           </p>
+          {/* POST, not a link — see this file's header, and the identical block
+              on the audit page. */}
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button variant="quiet" size="sm">
-              <Download aria-hidden className="size-[18px]" strokeWidth={1.75} />
-              Xuất danh sách sách
-            </Button>
-            <Button variant="quiet" size="sm">
-              <Download aria-hidden className="size-[18px]" strokeWidth={1.75} />
-              Xuất danh sách bạn đọc
-            </Button>
-            <Button variant="quiet" size="sm">
-              <Download aria-hidden className="size-[18px]" strokeWidth={1.75} />
-              Xuất lịch sử mượn
-            </Button>
+            {[
+              { kind: "sach", label: "Xuất danh sách sách" },
+              { kind: "nguoi-doc", label: "Xuất danh sách bạn đọc" },
+              { kind: "muon-tra", label: "Xuất lịch sử mượn" },
+            ].map(({ kind, label }) => (
+              <form key={kind} method="post" action={`${base}/xuat/${kind}`}>
+                <button type="submit" className={buttonClasses("quiet", "sm")}>
+                  <Download
+                    aria-hidden
+                    className="size-[18px]"
+                    strokeWidth={1.75}
+                  />
+                  {label}
+                </button>
+              </form>
+            ))}
           </div>
         </section>
       </div>

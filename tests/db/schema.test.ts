@@ -10,8 +10,12 @@ afterAll(closeAll);
 // DATABASE.md §4 defines seventeen tables — count them by `create table`
 // statements, not by section headings, since §4.1 alone holds three
 // (users, parish_units, memberships) and §4.8 holds four. This array is
-// those seventeen plus schema_migrations, which the migration runner owns
-// rather than DATABASE.md.
+// those seventeen plus two the document does not describe: `schema_migrations`,
+// which the migration runner owns, and `sessions`, which B2a added.
+//
+// B4 adds `system_settings`, and DATABASE.md §4.12 now describes it — the
+// installation's own row, which had nowhere to live because every other setting
+// in this schema is per-shelf by construction.
 const EXPECTED_TABLES = [
   "announcements",
   "audit_log",
@@ -31,6 +35,7 @@ const EXPECTED_TABLES = [
   "profile_change_requests",
   "schema_migrations",
   "sessions",
+  "system_settings",
   "users",
 ];
 

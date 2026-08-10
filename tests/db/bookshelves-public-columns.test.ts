@@ -232,6 +232,34 @@ const EXEMPT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // value itself.
   "src/domain/community/policy.ts": ["settings"],
   "src/lib/shelf.ts": ["settings", "keeper_name", "keeper_phone"],
+  // B4a. `getShelfSettings` is OPS §3.4's manager-only view of this shelf's own
+  // profile and lending policy, and its first statement is `requireManager` —
+  // so the person reading `keeper_name` and `keeper_phone` here is the keeper's
+  // own colleague, not the unauthenticated caller `bookshelves_public_read` was
+  // widened for. The two names leave the query and are rendered; that is the
+  // screen's purpose. `settings` is read as seven `coalesce((settings->>'…'))`
+  // scalars, exactly as `circulation/settings.ts` reads two.
+  "src/domain/shelf/queries/get-shelf-settings.ts": [
+    "settings",
+    "keeper_name",
+    "keeper_phone",
+  ],
+  // B4. The shelf lifecycle commands. `createBookshelf` *writes* a keeper's
+  // name and telephone number and reads neither; the guard matches on the
+  // column name appearing in a file that also queries `bookshelves`, so the
+  // `insert` column list is what trips it. `updateBookshelfSettings` writes the
+  // same six and selects only `id, name`. Both are `super_admin`-only through
+  // `runAdminCommand`, which refuses before a transaction opens.
+  //
+  // `settings` and `created_by` are on this entry for the same reason:
+  // `createBookshelf` writes both — the lending defaults it copies from
+  // `system_settings`, and the administrator who opened the shelf.
+  "src/domain/admin/commands/bookshelves.ts": [
+    "settings",
+    "created_by",
+    "keeper_name",
+    "keeper_phone",
+  ],
 };
 
 // The whole point of §16.1: a person with no membership has no business

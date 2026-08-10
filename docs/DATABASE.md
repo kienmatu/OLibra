@@ -1117,6 +1117,20 @@ That restatement was BR §6's to make, not this document's — the note in §7 a
 
 There is no `deleted_at`. A decided or cancelled request is a historical record of what was asked and what a manager did about it, closer in kind to `condition_assessments` (§4.7) than to a row a mistake needs undoing. §11 predates this table and does not mention it either way; until that is settled explicitly, treating it as retained rather than soft-deletable is the safer default given how much of §11 is built around never losing the trail behind a decision.
 
+### 4.12 System settings
+
+B4. One row, holding the facts that belong to the **installation** rather than to any shelf: the administration's own contact block (BR §16.1's *Liên hệ ban quản trị*, what `/lien-he` shows a stranger) and the lending policy a newly created shelf starts with.
+
+There was nowhere to put these. Every other setting in this schema lives in `bookshelves.settings`, which is per-shelf by construction, and `/lien-he` rendered its contact block from a fixture module until this table existed.
+
+**One row, enforced by the primary key.** `id boolean primary key default true check (id)` admits exactly one value, so a second row raises `23505` rather than becoming a duplicate half the queries would miss. A key/value table was the alternative and turns every read into a pivot while moving the column types into the application. The row is inserted by the migration, so every read is a plain `select`.
+
+**The defaults are for creation, not a fallback at read time.** `CreateBookshelf` copies `default_loan_days`, `default_max_concurrent_loans` and `default_hold_days` into the new shelf's own `settings` bag; §4.2's per-shelf `coalesce(..., 14)` reads stay exactly where they are. A shelf that referenced this row instead would change its lending policy for every parish at once, the day an administrator edited a number, weeks after anybody made a decision about it — and nobody would be told.
+
+**`changed_by` / `changed_at`, deliberately not `updated_by` / `updated_at`.** Every other `updated_at` in this schema is written by the `set_updated_at()` trigger from SQL `now()`, the *database* host's clock (§6), and `tests/db/updated-at-trigger.test.ts` asserts set-equality between the columns carrying that name and the triggers attached — precisely so a table cannot quietly opt out. This timestamp is one the domain means: the screen states when an administrator last changed these settings, and a test with a `fixedClock` must be able to move it. Keeping the conventional name would have required either the trigger (which would overwrite the injected value) or an exception in a guard that deliberately has none.
+
+**No RLS policy, and access decided by grants instead.** The table belongs to no shelf, so a `<table>_tenant` policy keyed on `olibra.bookshelf_id` has nothing to compare — the same treatment `sessions` gets (§3). Grants are the stronger control here anyway: absent is the default for a grant, open is the default for a table with no policy. `olibra_app` holds `select` and nothing else; `olibra_admin` holds everything; `olibra_public` holds a **column-level** `select` on the three contact fields alone, because OPS §3.1 lists `GetSiteContact` as guest-callable and Global.
+
 ---
 
 ## 5. Search
