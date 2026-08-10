@@ -24,6 +24,7 @@ import {
   declineDonation,
   receiveDonation,
 } from "../../../../domain/community/commands/donations";
+import { addCopies } from "../../../../domain/catalogue/commands/add-copies";
 import { assessCondition } from "../../../../domain/catalogue/commands/assess-condition";
 import { createBook } from "../../../../domain/catalogue/commands/create-book";
 import { markCopyFound } from "../../../../domain/catalogue/commands/mark-copy-found";
@@ -1319,27 +1320,34 @@ export async function updateReaderProfileAction(form: FormData): Promise<void> {
 //
 // Twelve `<button type="submit">` on that page — "Đánh giá", "Báo mất",
 // "Ngừng dùng", three per non-lost copy — had no enclosing `<form>` at all,
-// and "Sửa sách" linked to the book *list* rather than to any edit form. The
-// five commands behind them (`assessCondition`, `reportCopyLost`,
-// `retireCopy`, `markCopyFound`, `updateBook`) were all implemented and
-// tested since B1; nothing in `src/app` called four of them, and nothing
-// called `updateBook` at all. `tests/architecture/no-button-without-a-form
-// .test.ts` is the guard against this recurring.
+// and "Sửa sách" linked to the book *list* rather than to any edit form. Six
+// commands behind that page (`assessCondition`, `reportCopyLost`,
+// `retireCopy`, `markCopyFound`, `updateBook`, `addCopies`) were all
+// implemented and tested since B1; nothing in `src/app` called five of
+// them, and nothing called `updateBook` at all.
+// `tests/architecture/no-button-without-a-form.test.ts` is the guard
+// against the twelve dead buttons recurring; it was extended in review to
+// also guard against the thirteenth shape this task first shipped and a
+// review round caught — a `<form>` with a submit control and no `action`,
+// which "Thêm bản" was: a convincing-looking reload that silently discarded
+// whatever a manager had just typed, worse than a button that visibly does
+// nothing.
 //
-// **`assessConditionAction` and `updateBookAction` are new.** The other
-// three commands already had action wrappers — `reportCopyLostAction`,
-// `retireCopyAction`, `markCopyFoundAction`, above — but each one already
-// belongs to a *different* screen with a locked-in redirect target:
-// `reportCopyLostAction` returns to `nhan-tra/bao-mat` (it needs `q`/`muon`
-// to put the manager back on the loan they were returning) and
-// `retireCopyAction`/`markCopyFoundAction` return to `sach/mat`, exactly as
-// `tests/lib/manager-actions.test.ts` pins. Bending any of the three to also
-// serve this page would mean growing a parameter neither existing caller
-// needs, or risking the day someone edits the wrong branch and both screens'
-// redirects drift. The command underneath each is identical either way; only
-// *where the screen sends the manager back to* differs, which is a decision
-// this surface makes for itself — the same shape `backToReader` already
-// makes for its own five, below `backToBook`.
+// **`assessConditionAction`, `updateBookAction` and `addCopiesAction` are
+// new.** The other three commands already had action wrappers —
+// `reportCopyLostAction`, `retireCopyAction`, `markCopyFoundAction`,
+// above — but each one already belongs to a *different* screen with a
+// locked-in redirect target: `reportCopyLostAction` returns to
+// `nhan-tra/bao-mat` (it needs `q`/`muon` to put the manager back on the
+// loan they were returning) and `retireCopyAction`/`markCopyFoundAction`
+// return to `sach/mat`, exactly as `tests/lib/manager-actions.test.ts` pins.
+// Bending any of the three to also serve this page would mean growing a
+// parameter neither existing caller needs, or risking the day someone edits
+// the wrong branch and both screens' redirects drift. The command
+// underneath each is identical either way; only *where the screen sends the
+// manager back to* differs, which is a decision this surface makes for
+// itself — the same shape `backToReader` already makes for its own five,
+// below `backToBook`.
 
 /**
  * `/tu-sach/<slug>/quan-ly/sach/<bookSlug>`, with or without a refusal code —
@@ -1355,6 +1363,51 @@ function backToBook(
 ): never {
   const base = `${managerBase(shelfSlug)}/sach/${encodeURIComponent(bookSlug)}`;
   redirect(outcome.ok ? base : `${base}?${ACTION_ERROR_PARAM}=${outcome.code}`);
+}
+
+/**
+ * OPS §4.1's `AddCopies` — "Thêm bản", the disclosure above the copy table.
+ *
+ * **Wired in review, not in the first pass of this task.** The brief named
+ * five commands and this was not one of them; the first version of this task
+ * left the form exactly as fixture-era `main` had it — no `action` at all —
+ * on the reasoning that the brief's own five were the slice. A review round
+ * ruled that reasoning correct about scope and wrong about the outcome: a
+ * `<form>` with a submit control and no `action` is not "still unwired", it
+ * is a *new* failure mode a static reading misses — the browser's default GET
+ * serialises every field into a discarded query string, and the page reloads
+ * looking successful while the manager's input vanishes with no error. That
+ * is worse than the twelve dead buttons this task exists to remove, on the
+ * same screen, so it is in scope.
+ *
+ * **Donors are real now too.** The page used to pass `donors={[]}` to
+ * `DonorFields`, both because there was no action to post to yet and per
+ * that component's own docstring ("An empty list renders no member picker at
+ * all… That is what the wired caller passes today: reading the shelf's
+ * members for this picker belongs to the wave that gives this form an
+ * action.") This is that wave — the page now reads the shelf's active
+ * members exactly as `sach/moi/page.tsx` does for its own copy of the same
+ * picker.
+ *
+ * `attemptTyped`, not `attempt`: `copy_count_invalid` is a manager's ordinary
+ * mistake (an empty or non-numeric "Số bản muốn thêm"), correctable on the
+ * same form — the identical call `createBookAction` already makes for the
+ * same field.
+ */
+export async function addCopiesAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const bookSlug = field(form, "sach");
+  const outcome = complete(form, ["sach-id"])
+    ? await attemptTyped(shelfSlug, addCopies, {
+        bookId: field(form, "sach-id"),
+        count: wholeNumber(form, "so-ban") ?? -1,
+        donorMembershipId: optional(form, "donorMembershipId"),
+        donorName: optional(form, "donorName"),
+        acquiredOn: optional(form, "acquiredOn"),
+      })
+    : INCOMPLETE;
+
+  backToBook(shelfSlug, bookSlug, outcome);
 }
 
 /**
@@ -1501,9 +1554,15 @@ export async function updateBookAction(form: FormData): Promise<void> {
       })
     : INCOMPLETE;
 
-  const base = managerBase(shelfSlug);
+  // Success lands on `backToBook`'s own target; the failure target does not
+  // (it goes back to *this* form, `/sua`, not to the book itself), so this
+  // cannot fully delegate to that helper — but it encodes the slug the same
+  // way that helper does, on both branches, for the same reason: a slug is
+  // a URL segment a manager did not type, and it need not be URL-safe by
+  // construction.
+  const base = `${managerBase(shelfSlug)}/sach/${encodeURIComponent(bookSlug)}`;
   if (!outcome.ok) {
-    redirect(`${base}/sach/${bookSlug}/sua?${ACTION_ERROR_PARAM}=${outcome.code}`);
+    redirect(`${base}/sua?${ACTION_ERROR_PARAM}=${outcome.code}`);
   }
-  redirect(`${base}/sach/${bookSlug}`);
+  redirect(base);
 }

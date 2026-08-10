@@ -10,7 +10,7 @@ import {
   Pencil,
   Plus,
 } from "lucide-react";
-import { Button, ButtonLink, buttonClasses } from "@/components/ui/button";
+import { ButtonLink, buttonClasses } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
@@ -19,6 +19,7 @@ import { ManagerShell } from "@/components/shell/manager-shell";
 import { ConditionPicker } from "@/components/condition-picker";
 import { DonorFields } from "@/components/donor-fields";
 import { copyStateTransition, type CopyState } from "@/domain/catalogue/policy";
+import { getReadersList } from "@/domain/members/queries/get-readers-list";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
@@ -27,11 +28,19 @@ import { readShelf } from "@/lib/shelf";
 import { cn } from "@/lib/utils";
 import { CONDITION_LABELS, COPY_STATE_STATUS, STATUS } from "@/lib/status";
 import {
+  addCopiesAction,
   assessConditionAction,
   markCopyFoundOnBookAction,
   reportCopyLostOnBookAction,
   retireCopyOnBookAction,
 } from "../../actions";
+
+/**
+ * How many members "Thêm bản"'s donor picker offers — the identical ceiling
+ * `sach/moi/page.tsx` uses for the same picker, and for the same reason
+ * (`getReadersList`'s own paging limit; see that page's docstring).
+ */
+const DONOR_PAGE_SIZE = 100;
 
 /**
  * U1 §2, and this page had a `force-dynamic` before it read anything: the
@@ -99,9 +108,10 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * inspect — not a rule the command enforces.
  *
  * **No per-viewer-role gate was added, and that is a checked fact, not an
- * oversight.** `getBookDetailManager` (this page's own read) and all five
- * commands open with the identical `requireManager` — unlike `co-cau`'s five,
- * which are `super_admin`-only under a `manager`-readable page and needed a
+ * oversight.** `getBookDetailManager` (this page's own read) and all six
+ * commands this page now calls (five copy-state commands plus `addCopies`)
+ * open with the identical `requireManager` — unlike `co-cau`'s five, which
+ * are `super_admin`-only under a `manager`-readable page and needed a
  * `canEdit` split. Whoever can reach this page at all can use every control
  * that its *copy state* allows.
  *
@@ -110,6 +120,19 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * the bare confirm `sach/mat`'s "Đánh dấu tìm thấy" gets away with —
  * `ConditionPicker` (extracted from `nhan-tra`, see that component's own
  * docstring) for the first, an optional note for the second.
+ *
+ * **"Thêm bản" is wired too, added in a review round rather than in this
+ * task's first pass.** The brief named the other five commands and not
+ * `addCopies`, and the first version of this page left "Thêm bản" exactly as
+ * it always was — a `<form>` with no `action` at all. That reading of scope
+ * was too narrow: a form that accepts input and silently discards it (the
+ * browser's default GET, serialising every field into a query string nobody
+ * reads) is a worse failure than the twelve buttons this task exists to fix,
+ * not an unrelated one, because it sits on the same screen and looks like it
+ * worked. `actions.ts`'s own section header has the fuller account, including
+ * why the guard test below needed extending to see this shape at all — it
+ * only checked that a submit control sat inside *some* `<form>`, not that the
+ * form had anywhere to go.
  *
  * **The "Thêm bản" hint no longer names a code.** It read "ví dụ DT-0143", and
  * that was the sharpest surviving piece of the preview `sach/moi`'s docstring
@@ -129,13 +152,21 @@ export default async function ManagerBookDetailPage({
 }) {
   const { shelf: slug, id } = await params;
 
-  const { shelf, viewer, counts, book } = await loadPage(
+  const { shelf, viewer, counts, book, donors } = await loadPage(
     slug,
     async (tx, ctx, viewer) => ({
       shelf: await readShelf(tx, ctx),
       viewer,
       counts: await getManagerBadgeCounts(tx, ctx),
       book: await bookFromSlug(tx, ctx, id),
+      // Only members who could plausibly be standing at the shelf handing
+      // over a book — `DonorFields`' own docstring states the rule, and
+      // `sach/moi/page.tsx` applies the identical filter for the identical
+      // picker.
+      donors: await getReadersList(tx, ctx, {
+        status: "active",
+        pageSize: DONOR_PAGE_SIZE,
+      }),
     }),
   );
   if (!book) notFound();
@@ -254,7 +285,13 @@ export default async function ManagerBookDetailPage({
               Thêm bản
             </summary>
 
-            <form className="mt-4 max-w-md space-y-5 rounded-card border border-hairline bg-paper p-5">
+            <form
+              action={addCopiesAction}
+              className="mt-4 max-w-md space-y-5 rounded-card border border-hairline bg-paper p-5"
+            >
+              <input type="hidden" name="tu-sach" value={slug} />
+              <input type="hidden" name="sach-id" value={book.book.bookId} />
+              <input type="hidden" name="sach" value={book.book.slug} />
               <Field
                 label="Số bản muốn thêm"
                 required
@@ -263,27 +300,35 @@ export default async function ManagerBookDetailPage({
               >
                 <Input
                   id="them-so-ban"
+                  name="so-ban"
                   type="number"
                   min={1}
                   defaultValue={1}
+                  required
                   className="max-w-32"
                 />
               </Field>
 
-              {/* No donor list: this page is wired, and reading the shelf's
-                  members for this picker belongs to the wave that gives this
-                  form an action. It used to render eleven invented children
-                  from `src/lib/fixtures.ts` — see `donor-fields.tsx`. */}
-              <DonorFields idPrefix="them-nguoi-tang" donors={[]} />
+              {/* This shelf's own active members, read alongside the book —
+                  the wave `donor-fields.tsx`'s own docstring said this list
+                  was waiting for, now that the form has an action to post
+                  the chosen id to. */}
+              <DonorFields
+                idPrefix="them-nguoi-tang"
+                donors={donors.rows.map((r) => ({
+                  id: r.membershipId,
+                  fullName: r.fullName,
+                }))}
+              />
 
               {/* Outline, not solid: this screen's one primary action is
                   already spoken for above (AGENTS.md/button.tsx — "if two
                   things on a screen are terracotta, one of them is wrong").
                   This form only exists once the disclosure is open, at which
                   point both buttons are on screen at once. */}
-              <Button type="submit" variant="outline" size="md">
+              <SubmitButton variant="outline" size="md">
                 Lưu bản mới
-              </Button>
+              </SubmitButton>
             </form>
           </details>
         </div>

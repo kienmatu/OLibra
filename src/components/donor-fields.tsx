@@ -34,10 +34,13 @@ import { systemClock } from "@/domain/kernel/clock";
  * **An empty list renders no member picker at all**, rather than a `<select>`
  * whose only option is "— Không chọn —". A control that cannot be chosen from
  * is not the same control with less in it, and the outsider text field beside
- * it already covers "a donor with no account" in its own hint. That is what the
- * wired caller passes today: reading the shelf's members for this picker is the
- * wave that wires the form itself, and offering a chooser before then would be
- * offering it over nothing.
+ * it already covers "a donor with no account" in its own hint. This is no
+ * longer a live case for either caller — Task 11 (QA remediation) gave
+ * "Thêm bản" its own `action` and, in the same change, its own real read of
+ * the shelf's members, matching what "Thêm sách" already did — but the branch
+ * stays: an empty list is still the honest answer for a shelf with no active
+ * members at all, and a `<select>` with nothing to choose from would be worse
+ * than no control.
  */
 export function DonorFields({
   idPrefix,
