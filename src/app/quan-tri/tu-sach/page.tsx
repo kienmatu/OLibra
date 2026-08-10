@@ -1,310 +1,351 @@
 import Link from "next/link";
-import { ArrowLeft, Lock } from "lucide-react";
+import { Archive, Plus } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
-import { Button } from "@/components/ui/button";
+import { PageHeading } from "@/components/ui/card";
+import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
+import { Pill } from "@/components/ui/pill";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { messageFor } from "@/domain/kernel/errors";
+import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
+import { getAdminOverview } from "@/domain/admin/queries/get-admin-overview";
+import { getShelfSettings } from "@/domain/shelf/queries/get-shelf-settings";
+import { loadAdminPage } from "@/lib/page-data";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import {
-  Field,
-  Input,
-  ReadOnlyValue,
-  Select,
-  Textarea,
-  Toggle,
-} from "@/components/ui/field";
-import { ParishUnitsEditor } from "@/components/parish-units-editor";
-import { shelf } from "@/lib/fixtures";
+  archiveBookshelfAction,
+  createBookshelfAction,
+  updateBookshelfSettingsAction,
+} from "../admin-actions";
 
-export const metadata = { title: "Tủ sách Đồng Tháp — Quản trị OLibra" };
+/**
+ * OPS §3.4's `GetBookshelvesList` and `GetBookshelfSettings`, with §4.5's three
+ * commands behind them.
+ *
+ * **A list, and one shelf's editor when `?tu-sach=` names one.** The shipped
+ * screen was a settings form with no way to choose whose settings it was: it
+ * rendered one fixture shelf's fields and a "Lưu trữ" button, on a route called
+ * *Tủ sách* that is plural. The list is what makes the form's subject a fact
+ * about the request rather than about the file.
+ *
+ * **`getShelfSettings` is reused rather than a second admin query written.**
+ * OPS lists `GetBookshelfSettings` separately because its *caller* differs, but
+ * the rows are the same rows, and two queries over one table is how the manager's
+ * read-only view and the administrator's editor come to disagree about what a
+ * shelf's loan period is. It is called through `loadAdminPage`, whose context
+ * carries no shelf — so the id is passed explicitly and the `where` in that
+ * query is what selects the row.
+ *
+ * **The slug is shown and cannot be edited.** It is immutable in the database
+ * and read-only in OPS §3.4; a shelf's address appears on printed notices and in
+ * a parish's bookmarks.
+ */
+export const dynamic = "force-dynamic";
 
-/** A settings row with a hairline rule above it — name and explanation on the
- * left, a compact control on the right. Used for every lending rule below. */
-function SettingRow({
-  label,
-  hint,
-  children,
+export const metadata = { title: "Tủ sách — Quản trị OLibra" };
+
+const NUMBER = new Intl.NumberFormat("vi-VN");
+
+export default async function AdminBookshelvesPage({
+  searchParams,
 }: {
-  label: string;
-  hint: string;
-  children: React.ReactNode;
+  searchParams: Promise<SearchParams>;
 }) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline py-4 first:border-t-0">
-      <div className="max-w-md min-w-0">
-        <p className="text-[16px] font-medium">{label}</p>
-        <p className="mt-0.5 text-[14px] text-meta">{hint}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">{children}</div>
-    </div>
+  const search = await searchParams;
+  const selectedId = param(search, "tu-sach") ?? null;
+  const refusal = refusalFrom(search);
+
+  const { viewer, unreadFeedback, shelves, selected } = await loadAdminPage(
+    async (tx, ctx, v) => {
+      const shelves = await getAdminOverview(tx, ctx);
+      const named = shelves.find((s) => s.bookshelfId === selectedId) ?? null;
+      return {
+        viewer: v,
+        unreadFeedback: await countUnreadFeedback(tx, ctx),
+        shelves,
+        // Read only when the id names a shelf this administrator just listed —
+        // so a `?tu-sach=` naming nothing renders the list rather than a 404 or
+        // an empty form.
+        selected: named
+          ? {
+              row: named,
+              settings: await getShelfSettings(tx, {
+                ...ctx,
+                bookshelfId: named.bookshelfId,
+              }),
+            }
+          : null,
+      };
+    },
   );
-}
 
-function NumberField({
-  defaultValue,
-  suffix,
-  label,
-}: {
-  defaultValue: number;
-  suffix: string;
-  label: string;
-}) {
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        type="number"
-        defaultValue={defaultValue}
-        aria-label={label}
-        className="h-11 w-20 text-center"
+    <AdminShell active="tu-sach" viewer={viewer} unreadFeedback={unreadFeedback}>
+      <PageHeading
+        title="Tủ sách"
+        subtitle={`${NUMBER.format(shelves.length)} tủ sách trong hệ thống.`}
       />
-      <span className="text-[14px] text-meta">{suffix}</span>
-    </div>
-  );
-}
 
-export default function AdminShelfSettingsPage() {
-  const { parishTaxonomy, parishUnits } = shelf;
-  return (
-    <AdminShell active="tu-sach" viewer={null} unreadFeedback={null}>
-      <Link
-        href="/quan-tri"
-        className="inline-flex min-h-11 items-center gap-1.5 text-[15px] text-meta hover:text-ink"
-      >
-        <ArrowLeft aria-hidden className="size-4" strokeWidth={1.75} />
-        Quay lại danh sách tủ sách
-      </Link>
+      {refusal ? (
+        <p className="mt-6 max-w-2xl rounded-card border border-hairline bg-surface px-4 py-3 text-[15px] text-ink">
+          {messageFor(refusal)}
+        </p>
+      ) : null}
 
-      <h1 className="mt-3 text-[28px] leading-tight font-semibold">
-        Tủ sách Đồng Tháp
-      </h1>
-
-      <form className="mt-8 max-w-2xl space-y-12">
-        <section className="space-y-6">
-          <h2 className="text-xl font-semibold">Thông tin chung</h2>
-
-          <Field label="Tên tủ sách" required htmlFor="ten-tu-sach">
-            <Input id="ten-tu-sach" defaultValue={shelf.name} />
-          </Field>
-
-          <Field label="Đường dẫn">
-            <ReadOnlyValue note="Đường dẫn không đổi được sau khi tạo, vì nó đã nằm trong các liên kết đã chia sẻ.">
-              <Lock
-                aria-hidden
-                className="mr-2 size-4 shrink-0 text-leather"
-                strokeWidth={1.75}
-              />
-              olibra.vn/dong-thap
-            </ReadOnlyValue>
-          </Field>
-
-          <Field label="Giới thiệu" htmlFor="gioi-thieu">
-            <Textarea
-              id="gioi-thieu"
-              rows={4}
-              placeholder="Vài dòng giới thiệu về tủ sách này"
-            />
-          </Field>
-
-          <Field label="Địa chỉ" required htmlFor="dia-chi">
-            <Input id="dia-chi" defaultValue={shelf.location} />
-          </Field>
-
-          <Field
-            label="Giờ mở cửa"
-            required
-            htmlFor="gio-mo-cua"
-            hint="Viết tự do, bạn đọc sẽ đọc đúng như bạn gõ."
+      <ul className="mt-8 divide-y divide-hairline rounded-card border border-hairline">
+        {shelves.map((shelf) => (
+          <li
+            key={shelf.bookshelfId}
+            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
           >
-            <Input id="gio-mo-cua" defaultValue={shelf.hours} />
-          </Field>
-
-          <Field label="Người giữ chìa khoá" required htmlFor="nguoi-giu-chia">
-            <Input id="nguoi-giu-chia" defaultValue={shelf.keeper} />
-          </Field>
-
-          <Field
-            label="Số điện thoại người giữ chìa"
-            required
-            htmlFor="dien-thoai-chia"
-            hint="Số này hiển thị công khai để bạn đọc gọi khi cần."
-          >
-            <Input id="dien-thoai-chia" defaultValue={shelf.phone} />
-          </Field>
-        </section>
-
-        <section className="space-y-6">
-          <h2 className="text-xl font-semibold">Phân chia giáo xứ</h2>
-          <p className="text-[14px] text-meta">
-            Tủ sách nào cũng khác nhau ở chỗ này — có xứ chỉ chia tổ, có xứ chỉ có
-            giáo họ, có xứ chia cả hai. Chọn đúng cách giáo xứ mình vẫn gọi, đừng
-            theo tủ sách khác. Cả hai trường đều không bắt buộc khi đăng ký, kể cả
-            sau khi đã cài đặt xong ở đây — một bạn đọc chưa rõ tổ vẫn phải đăng ký
-            được.
-          </p>
-
-          <Field
-            label="Số bậc"
-            htmlFor="so-bac"
-            hint="Một bậc nếu giáo xứ chỉ chia theo một cách (chỉ tổ, hoặc chỉ giáo họ). Hai bậc nếu chia lồng nhau."
-          >
-            <Select id="so-bac" defaultValue={String(parishTaxonomy.levels)}>
-              <option value="1">1 bậc</option>
-              <option value="2">2 bậc</option>
-            </Select>
-          </Field>
-
-          <Field
-            label="Tên bậc 1"
-            htmlFor="ten-bac-1"
-            hint="Từ giáo xứ mình vẫn dùng — thường là Giáo họ hoặc Tổ."
-          >
-            <Input id="ten-bac-1" defaultValue={parishTaxonomy.level1Label} />
-          </Field>
-
-          {parishTaxonomy.levels === 2 ? (
-            <>
-              <Field
-                label="Tên bậc 2"
-                htmlFor="ten-bac-2"
-                hint={
-                  parishTaxonomy.nested
-                    ? "Đơn vị nhỏ hơn, nằm trong bậc 1 — thường là Tổ."
-                    : "Đơn vị nhỏ hơn, đánh số chung cho cả giáo xứ — thường là Tổ."
-                }
+            <div className="min-w-0">
+              <Link
+                href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                className="text-[16px] font-medium hover:underline"
               >
-                <Input id="ten-bac-2" defaultValue={parishTaxonomy.level2Label} />
+                {shelf.name}
+              </Link>
+              <p className="text-[14px] text-meta">
+                /{shelf.slug} · {NUMBER.format(shelf.books)} đầu sách ·{" "}
+                {NUMBER.format(shelf.readers)} bạn đọc
+              </p>
+            </div>
+            {shelf.status === "active" ? null : (
+              <Pill icon={Archive} label="Đã lưu trữ" tone="retired" />
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {selected === null ? (
+        <details className="mt-10 max-w-2xl">
+          <summary className="inline-flex h-12 cursor-pointer list-none items-center justify-center gap-2 rounded-control bg-terracotta px-5 text-[16px] font-semibold text-white [&::-webkit-details-marker]:hidden">
+            <Plus aria-hidden className="size-5" strokeWidth={1.75} />
+            Mở tủ sách mới
+          </summary>
+          <form
+            action={createBookshelfAction}
+            className="mt-4 space-y-6 rounded-card border border-hairline bg-surface p-5"
+          >
+            <Field label="Tên tủ sách" required htmlFor="ten-moi">
+              <Input id="ten-moi" name="ten" required />
+            </Field>
+            <Field
+              label="Đường dẫn"
+              htmlFor="dia-chi-web"
+              hint="Để trống thì hệ thống tự đặt theo tên. Không đổi được về sau."
+            >
+              <Input
+                id="dia-chi-web"
+                name="dia-chi-web"
+                placeholder="vd: vinh-long"
+              />
+            </Field>
+            <Field label="Địa điểm" htmlFor="dia-diem-moi">
+              <Input id="dia-diem-moi" name="dia-diem" placeholder="vd: Nhà xứ" />
+            </Field>
+            <Field label="Địa chỉ" htmlFor="dia-chi-moi">
+              <Input id="dia-chi-moi" name="dia-chi" />
+            </Field>
+            <Field label="Người giữ chìa khoá" htmlFor="nguoi-giu-moi">
+              <Input id="nguoi-giu-moi" name="nguoi-giu" />
+            </Field>
+            <Field label="Số điện thoại" htmlFor="dien-thoai-moi">
+              <Input id="dien-thoai-moi" name="dien-thoai" inputMode="tel" />
+            </Field>
+            <Field label="Giờ mở cửa" htmlFor="gio-mo-cua-moi">
+              <Input
+                id="gio-mo-cua-moi"
+                name="gio-mo-cua"
+                placeholder="vd: Sau lễ Chúa nhật"
+              />
+            </Field>
+            <p className="text-[14px] text-meta">
+              Tủ sách mới nhận quy định cho mượn mặc định của hệ thống. Sửa lại được
+              sau.
+            </p>
+            <SubmitButton variant="primary" size="lg">
+              Mở tủ sách
+            </SubmitButton>
+          </form>
+        </details>
+      ) : (
+        <div className="mt-10 max-w-2xl">
+          <Link href="/quan-tri/tu-sach" className="text-[14px] underline">
+            ← Về danh sách tủ sách
+          </Link>
+
+          <form action={updateBookshelfSettingsAction} className="mt-6 space-y-12">
+            <input type="hidden" name="tu-sach" value={selected.row.bookshelfId} />
+
+            <section className="space-y-6">
+              <h2 className="text-xl font-semibold">Thông tin chung</h2>
+
+              <Field label="Tên tủ sách" required htmlFor="ten">
+                <Input
+                  id="ten"
+                  name="ten"
+                  required
+                  defaultValue={selected.settings.profile.name}
+                />
               </Field>
 
-              <SettingRow
-                label={`Đánh số ${parishTaxonomy.level2Label.toLowerCase()} theo từng ${parishTaxonomy.level1Label.toLowerCase()}`}
-                hint={`Bật nếu ${parishTaxonomy.level2Label} 1 của ${parishTaxonomy.level1Label.toLowerCase()} này khác ${parishTaxonomy.level2Label} 1 của ${parishTaxonomy.level1Label.toLowerCase()} kia. Tắt nếu ${parishTaxonomy.level2Label.toLowerCase()} đánh số chung cho cả giáo xứ.`}
-              >
-                <Toggle
-                  on={parishTaxonomy.nested}
-                  label={`Đánh số ${parishTaxonomy.level2Label.toLowerCase()} theo từng ${parishTaxonomy.level1Label.toLowerCase()}`}
+              <Field label="Đường dẫn">
+                <ReadOnlyValue>/{selected.settings.profile.slug}</ReadOnlyValue>
+              </Field>
+
+              <Field label="Địa điểm" htmlFor="dia-diem">
+                <Input
+                  id="dia-diem"
+                  name="dia-diem"
+                  defaultValue={selected.settings.profile.location ?? ""}
                 />
-              </SettingRow>
-            </>
+              </Field>
+
+              {/* No screen in this application renders `address` — BR §16.1
+                  publishes `location` as the address a reader sees. It is here
+                  because the command writes the whole profile in one statement,
+                  so a form that omitted this field would clear it on every
+                  save. That is the one thing the all-or-nothing patch makes
+                  possible to get wrong, and this field is missing it that was
+                  the first version's actual bug: it defaulted to `location`. */}
+              <Field label="Địa chỉ" htmlFor="dia-chi">
+                <Input
+                  id="dia-chi"
+                  name="dia-chi"
+                  defaultValue={selected.settings.profile.address ?? ""}
+                />
+              </Field>
+
+              <Field label="Người giữ chìa khoá" htmlFor="nguoi-giu">
+                <Input
+                  id="nguoi-giu"
+                  name="nguoi-giu"
+                  defaultValue={selected.settings.profile.keeperName ?? ""}
+                />
+              </Field>
+
+              <Field
+                label="Số điện thoại"
+                htmlFor="dien-thoai"
+                hint="Hiện công khai trên trang tủ sách và bấm gọi được."
+              >
+                <Input
+                  id="dien-thoai"
+                  name="dien-thoai"
+                  inputMode="tel"
+                  defaultValue={selected.settings.profile.keeperPhone ?? ""}
+                />
+              </Field>
+
+              <Field label="Giờ mở cửa" htmlFor="gio-mo-cua">
+                <Input
+                  id="gio-mo-cua"
+                  name="gio-mo-cua"
+                  defaultValue={selected.settings.profile.openingHours ?? ""}
+                />
+              </Field>
+            </section>
+
+            <section className="space-y-6 border-t border-hairline pt-10">
+              <h2 className="text-xl font-semibold">Quy định cho mượn</h2>
+              <p className="text-[15px] text-meta">
+                Áp dụng ngay cho tủ sách này. Quản lý tủ sách xem được nhưng không
+                sửa được.
+              </p>
+
+              {[
+                {
+                  id: "so-ngay-muon",
+                  label: "Số ngày cho mượn",
+                  value: selected.settings.policy.loanDays,
+                },
+                {
+                  id: "so-sach-cung-luc",
+                  label: "Số sách mượn cùng lúc",
+                  value: selected.settings.policy.maxConcurrentLoans,
+                },
+                {
+                  id: "so-lan-gia-han",
+                  label: "Số lần gia hạn",
+                  value: selected.settings.policy.maxRenewals,
+                },
+                {
+                  id: "so-ngay-gia-han",
+                  label: "Số ngày mỗi lần gia hạn",
+                  value: selected.settings.policy.renewalDays,
+                },
+                {
+                  id: "so-ngay-giu-cho",
+                  label: "Số ngày giữ chỗ",
+                  value: selected.settings.policy.holdDays,
+                },
+              ].map((f) => (
+                <Field key={f.id} label={f.label} required htmlFor={f.id}>
+                  <Input
+                    id={f.id}
+                    name={f.id}
+                    type="number"
+                    min={0}
+                    required
+                    defaultValue={f.value}
+                  />
+                </Field>
+              ))}
+            </section>
+
+            <section className="space-y-4 border-t border-hairline pt-10">
+              <h2 className="text-xl font-semibold">Bình luận</h2>
+              <label className="flex items-center gap-3 text-[16px]">
+                <input
+                  type="checkbox"
+                  name="cho-binh-luan"
+                  className="size-5"
+                  defaultChecked={selected.settings.policy.commentsEnabled}
+                />
+                Cho phép bạn đọc bình luận
+              </label>
+              <label className="flex items-center gap-3 text-[16px]">
+                <input
+                  type="checkbox"
+                  name="binh-luan-can-duyet"
+                  className="size-5"
+                  defaultChecked={selected.settings.policy.commentsRequireApproval}
+                />
+                Bình luận cần quản lý duyệt trước khi hiển thị
+              </label>
+            </section>
+
+            <div className="border-t border-hairline pt-10">
+              <SubmitButton variant="primary" size="lg">
+                Lưu cài đặt
+              </SubmitButton>
+            </div>
+          </form>
+
+          {selected.row.status === "active" ? (
+            <details className="mt-10 border-t border-hairline pt-10">
+              <summary className="cursor-pointer list-none text-[15px] font-medium text-brick underline [&::-webkit-details-marker]:hidden">
+                Lưu trữ tủ sách này
+              </summary>
+              <form action={archiveBookshelfAction} className="mt-3 space-y-3">
+                <input
+                  type="hidden"
+                  name="tu-sach"
+                  value={selected.row.bookshelfId}
+                />
+                <p className="max-w-md text-[15px] text-meta">
+                  Lưu trữ sẽ ẩn tủ sách khỏi cổng, nhưng giữ lại toàn bộ dữ liệu và
+                  lịch sử. Sau khi lưu trữ, không ai vào được tủ sách này bằng đường
+                  dẫn — kể cả quản lý của tủ sách.
+                </p>
+                <SubmitButton variant="danger" size="md">
+                  Xác nhận lưu trữ
+                </SubmitButton>
+              </form>
+            </details>
           ) : null}
-
-          <ParishUnitsEditor taxonomy={parishTaxonomy} initialUnits={parishUnits} />
-        </section>
-
-        <section>
-          <h2 className="text-xl font-semibold">Quy định cho mượn</h2>
-
-          <div className="mt-4">
-            <SettingRow
-              label="Số ngày cho mượn"
-              hint="Số ngày bạn đọc được giữ sách trong một lượt mượn."
-            >
-              <NumberField
-                label="Số ngày cho mượn"
-                defaultValue={14}
-                suffix="ngày"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label="Số sách mượn cùng lúc"
-              hint="Số cuốn tối đa một bạn đọc được giữ cùng lúc."
-            >
-              <NumberField
-                label="Số sách mượn cùng lúc"
-                defaultValue={3}
-                suffix="cuốn"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label="Số lần gia hạn"
-              hint="Số lần bạn đọc được xin gia hạn cho một lượt mượn."
-            >
-              <NumberField label="Số lần gia hạn" defaultValue={1} suffix="lần" />
-            </SettingRow>
-
-            <SettingRow
-              label="Số ngày mỗi lần gia hạn"
-              hint="Số ngày được cộng thêm mỗi lần gia hạn."
-            >
-              <NumberField
-                label="Số ngày mỗi lần gia hạn"
-                defaultValue={7}
-                suffix="ngày"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label="Số ngày giữ chỗ"
-              hint="Số ngày tủ sách giữ sách cho bạn đọc đã đăng ký chờ mượn."
-            >
-              <NumberField label="Số ngày giữ chỗ" defaultValue={3} suffix="ngày" />
-            </SettingRow>
-
-            <SettingRow
-              label="Báo sắp đến hạn trước"
-              hint="Số ngày trước hạn trả mà hệ thống nhắc bạn đọc."
-            >
-              <NumberField
-                label="Báo sắp đến hạn trước"
-                defaultValue={3}
-                suffix="ngày"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label="Cho bạn đọc bình luận"
-              hint="Bạn đọc có thể để lại bình luận dưới mỗi cuốn sách."
-            >
-              <Toggle on label="Cho bạn đọc bình luận" />
-            </SettingRow>
-
-            <SettingRow
-              label="Bình luận cần duyệt"
-              hint="Bình luận chỉ hiển thị công khai sau khi quản lý duyệt."
-            >
-              <Toggle on label="Bình luận cần duyệt" />
-            </SettingRow>
-
-            <SettingRow
-              label="Hiện tên người đang mượn"
-              hint="Hiện tên bạn đọc đang giữ sách trên trang công khai của cuốn sách."
-            >
-              <Toggle on label="Hiện tên người đang mượn" />
-            </SettingRow>
-
-            <SettingRow
-              label="Hiện bảng bạn đọc chăm nhất"
-              hint="Hiện danh sách bạn đọc mượn nhiều sách nhất trong tháng."
-            >
-              <NumberField
-                label="Số bạn đọc hiển thị"
-                defaultValue={10}
-                suffix="người"
-              />
-              <Toggle on label="Hiện bảng bạn đọc chăm nhất" />
-            </SettingRow>
-          </div>
-        </section>
-
-        <div className="flex flex-wrap items-start justify-between gap-8 border-t border-hairline pt-8">
-          <div className="flex items-center gap-3">
-            <Button type="submit" variant="primary" size="lg">
-              Lưu cài đặt
-            </Button>
-            <Button type="button" variant="ghost" size="lg">
-              Huỷ
-            </Button>
-          </div>
-
-          <div className="max-w-64 border-l border-hairline pl-8 text-right">
-            <Button type="button" variant="danger" size="sm">
-              Lưu trữ tủ sách
-            </Button>
-            <p className="mt-2 text-[13px] text-meta">
-              Lưu trữ sẽ ẩn tủ sách khỏi cổng, nhưng giữ lại toàn bộ dữ liệu và lịch
-              sử.
-            </p>
-          </div>
         </div>
-      </form>
+      )}
     </AdminShell>
   );
 }

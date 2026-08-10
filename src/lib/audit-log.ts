@@ -1,4 +1,5 @@
 import {
+  ShieldCheck,
   BookOpen,
   MessageSquare,
   Cog,
@@ -46,6 +47,11 @@ export const AUDIT_GROUP_STYLE: Record<
   sach: { icon: BookOpen, ink: "text-available", fill: "bg-available/10" },
   "nguoi-doc": { icon: Users, ink: "text-held", fill: "bg-held/10" },
   "cai-dat": { icon: Cog, ink: "text-retired", fill: "bg-retired/10" },
+  // B4. `ShieldCheck` is the icon `/quan-tri`'s own chrome uses for the
+  // administration surface, so the two read as the same thing; `retired` is
+  // reused rather than a sixth token invented, for the reason above — a shelf
+  // being opened or retired is a settings-shaped fact.
+  "he-thong": { icon: ShieldCheck, ink: "text-retired", fill: "bg-retired/10" },
   "cong-dong": {
     icon: MessageSquare,
     ink: "text-held",

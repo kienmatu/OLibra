@@ -1,79 +1,81 @@
-import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
-import { Button } from "@/components/ui/button";
-import { Card, PageHeading } from "@/components/ui/card";
-import { Field, Input, Textarea } from "@/components/ui/field";
+import Link from "next/link";
+import { Mail } from "lucide-react";
+import { PageHeading } from "@/components/ui/card";
 import { PhoneLink } from "@/components/ui/phone-link";
-import { siteContact } from "@/lib/fixtures";
+import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
+import { getSiteContact } from "@/domain/admin/queries/get-admin-overview";
+import { loadPublicPage } from "@/lib/page-data";
+
+/**
+ * OPS §3.1's `GetSiteContact` — guest-callable and Global, and the last page in
+ * this application that rendered from `src/lib/fixtures.ts`.
+ *
+ * **`loadPublicPage`, not `loadAdminPage`.** A parish with no shelf yet is
+ * exactly who this page is for: the portal's empty state links here ("liên hệ
+ * với ban quản trị để mở một tủ mới"), and there is nobody to authenticate. The
+ * query takes no `TenantContext` and calls no policy, which is the signature
+ * carrying that — see `runPublicQuery`, whose docstring names this read as the
+ * one that would have handed a stranger the whole `users` table under the old,
+ * policy-based reasoning.
+ *
+ * What makes it safe now is a privilege rather than an argument: `olibra_public`
+ * holds a **column-level** grant on the three contact fields of
+ * `system_settings` and nothing else, so a version of this query that asked for
+ * the lending defaults would be refused by the database with `42501`.
+ * `tests/db/public-role-privileges.test.ts` sweeps every column of that table.
+ *
+ * **A fresh installation has nobody to name, and says so.** The fixture printed
+ * an invented person and telephone number on every deployment; the honest empty
+ * state is that the contact has not been filled in, which an administrator fixes
+ * on `/quan-tri/cai-dat`.
+ */
+export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Liên hệ — OLibra" };
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const contact = await loadPublicPage((tx) => getSiteContact(tx));
+  const hasContact = Boolean(contact.name || contact.phone);
+
   return (
     <>
       <FrontDoorHeader />
 
-      <main className="mx-auto max-w-2xl px-6 py-12 md:py-16">
+      <main className="mx-auto max-w-2xl px-6 py-16">
         <PageHeading
-          title="Liên hệ"
-          subtitle="Có câu hỏi, hoặc muốn mở một tủ sách cho giáo xứ của bạn?"
+          title="Liên hệ ban quản trị"
+          subtitle="Muốn mở một tủ sách cho giáo xứ mình, hoặc cần giúp đỡ về hệ thống?"
         />
 
-        <Card className="mt-8">
-          <dl>
-            <div className="flex flex-wrap items-center justify-between gap-4 py-3.5 first:pt-0">
-              <dt className="text-[15px] text-meta">Ban quản trị</dt>
-              <dd className="text-[16px] font-medium">{siteContact.name}</dd>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline py-3.5">
-              <dt className="text-[15px] text-meta">Điện thoại</dt>
-              <dd>
-                <PhoneLink phone={siteContact.phone} />
-              </dd>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-hairline py-3.5 last:pb-0">
-              <dt className="text-[15px] text-meta">Giờ liên hệ</dt>
-              <dd className="text-[16px] font-medium">{siteContact.hours}</dd>
-            </div>
-          </dl>
-        </Card>
+        {hasContact ? (
+          <div className="mt-8 rounded-card border border-hairline bg-surface p-6">
+            {contact.name ? (
+              <p className="text-[18px] font-semibold">{contact.name}</p>
+            ) : null}
+            {contact.phone ? (
+              <p className="mt-2 text-[16px]">
+                <PhoneLink phone={contact.phone} />
+              </p>
+            ) : null}
+            {contact.hours ? (
+              <p className="mt-2 text-[15px] text-meta">{contact.hours}</p>
+            ) : null}
+            <p className="mt-4 flex items-start gap-2 text-[15px] text-meta">
+              <Mail aria-hidden className="mt-0.5 size-4 shrink-0" />
+              Hệ thống không gửi email. Gọi vào số trên là nhanh nhất.
+            </p>
+          </div>
+        ) : (
+          <p className="mt-8 rounded-card border border-hairline bg-surface p-6 text-[16px] text-meta">
+            Ban quản trị chưa điền thông tin liên hệ.
+          </p>
+        )}
 
-        <p className="mt-4 text-[14px] text-meta">
-          OLibra không gửi email. Cách nhanh nhất để liên hệ là gọi điện, hoặc gửi
-          nội dung qua biểu mẫu bên dưới.
+        <p className="mt-8 text-[15px]">
+          <Link href="/tu-sach" className="underline">
+            Xem danh sách tủ sách
+          </Link>
         </p>
-
-        <form className="mt-10 space-y-6">
-          <Field
-            label="Tên của bạn"
-            required
-            htmlFor="ten"
-            hint="Để chúng tôi biết nên xưng hô thế nào khi gọi lại."
-          >
-            <Input id="ten" placeholder="Ví dụ: Anna Nguyễn Thị Mai" />
-          </Field>
-
-          <Field
-            label="Số điện thoại"
-            required
-            htmlFor="dien-thoai"
-            hint="Dùng để gọi lại, không dùng vào việc gì khác."
-          >
-            <Input id="dien-thoai" type="tel" placeholder="0901 234 567" />
-          </Field>
-
-          <Field
-            label="Nội dung"
-            required
-            htmlFor="noi-dung"
-            hint="Kể ngắn gọn điều bạn cần, ví dụ muốn mở tủ sách ở giáo xứ nào."
-          >
-            <Textarea id="noi-dung" rows={5} placeholder="Xin chào, tôi muốn..." />
-          </Field>
-
-          <Button type="submit" variant="primary" size="lg" className="w-full">
-            Gửi liên hệ
-          </Button>
-        </form>
       </main>
 
       <FrontDoorFooter />

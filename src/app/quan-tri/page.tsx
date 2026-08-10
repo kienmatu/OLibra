@@ -1,218 +1,190 @@
 import Link from "next/link";
-import {
-  AlertTriangle,
-  Bookmark,
-  ChevronRight,
-  MessageSquare,
-  UserPlus,
-} from "lucide-react";
+import { AlertTriangle, Archive } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
-import { ButtonLink } from "@/components/ui/button";
 import { PageHeading, StatStrip } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
-import { shelves, type Shelf } from "@/lib/fixtures";
-import { cn } from "@/lib/utils";
+import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
+import {
+  getAdminOverview,
+  type ShelfOverviewRow,
+} from "@/domain/admin/queries/get-admin-overview";
+import { loadAdminPage } from "@/lib/page-data";
+
+/**
+ * OPS §3.4's `GetAdminOverview` — one row per shelf, and the attention list.
+ *
+ * **Every figure is live**, which OPS states for this screen in as many words
+ * ("overdue counts, pending-item counts per shelf, all live"). The fixture
+ * version had four stat cards reading 4 / 812 / 324 / 108, a `Record` of
+ * per-shelf overdue counts, and three hand-written Vietnamese sentences about
+ * parishes that do not exist ("Tủ sách Cần Thơ có 7 cuốn quá hạn, nhiều nhất hệ
+ * thống"). None of the seven `/quan-tri` pages named `src/lib/fixtures.ts`, so
+ * no rule in this repository could see any of it — the blind spot B4a's
+ * inventory closed.
+ *
+ * **The attention list is derived, not written.** Each line restates a figure
+ * this page already has, so the sentence and the number cannot disagree, and a
+ * system with nothing waiting produces no list at all. That is the difference
+ * between an attention list and a list of things somebody once thought were
+ * worth saying.
+ *
+ * **`pending` is one number per shelf, not four.** The row links to the shelf,
+ * and the shelf's own sidebar breaks it into registrations, requests, comments
+ * and donations. Four columns here would be the manager's screen, shrunk.
+ */
+export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Tổng quan hệ thống — Quản trị OLibra" };
 
-/** Sample-only figures for the network view; not part of the shared fixtures. */
-const OVERDUE: Record<string, number> = {
-  "dong-thap": 3,
-  "can-tho": 7,
-  "ben-tre": 0,
-  "vinh-long": 1,
-};
+const NUMBER = new Intl.NumberFormat("vi-VN");
 
-const PENDING: Record<
-  string,
-  { signups: number; requests: number; comments: number }
-> = {
-  "dong-thap": { signups: 5, requests: 2, comments: 1 },
-  "can-tho": { signups: 2, requests: 1, comments: 0 },
-  "ben-tre": { signups: 0, requests: 0, comments: 0 },
-  "vinh-long": { signups: 1, requests: 0, comments: 0 },
-};
+/** The lines worth an administrator's attention, from the figures on this page. */
+function attentionLines(
+  shelves: ShelfOverviewRow[],
+  unreadFeedback: number,
+): string[] {
+  const lines: string[] = [];
+
+  const worst = shelves
+    .filter((s) => s.overdue > 0)
+    .sort((a, b) => b.overdue - a.overdue || a.name.localeCompare(b.name))[0];
+  if (worst) {
+    lines.push(
+      `${worst.name} có ${NUMBER.format(worst.overdue)} cuốn quá hạn, nhiều nhất hệ thống.`,
+    );
+  }
+
+  for (const shelf of shelves.filter(
+    (s) => s.status === "active" && s.readers === 0,
+  )) {
+    lines.push(`${shelf.name} chưa có thành viên nào.`);
+  }
+
+  const waiting = shelves.reduce((n, s) => n + s.pending, 0);
+  if (waiting > 0) {
+    lines.push(
+      `Có ${NUMBER.format(waiting)} việc đang chờ xử lý trên toàn hệ thống.`,
+    );
+  }
+
+  if (unreadFeedback > 0) {
+    lines.push(`Có ${NUMBER.format(unreadFeedback)} góp ý chưa đọc.`);
+  }
+
+  return lines;
+}
 
 function OverdueCell({ count }: { count: number }) {
-  if (count === 0) {
-    return <span className="text-[15px] text-meta">—</span>;
-  }
+  if (count === 0) return <span className="text-[15px] text-meta">—</span>;
   return (
     <span className="inline-flex items-center gap-1.5 rounded-control bg-overdue/10 px-2.5 py-1 text-[14px] font-medium text-overdue">
       <AlertTriangle aria-hidden className="size-[18px]" strokeWidth={1.75} />
-      {count} quá hạn
+      {NUMBER.format(count)} quá hạn
     </span>
   );
 }
 
-function PendingCell({ pending }: { pending: (typeof PENDING)[string] }) {
-  const chips: { key: string; icon: typeof UserPlus; label: string }[] = [];
-  if (pending.signups)
-    chips.push({
-      key: "signups",
-      icon: UserPlus,
-      label: `${pending.signups} đăng ký`,
-    });
-  if (pending.requests)
-    chips.push({
-      key: "requests",
-      icon: Bookmark,
-      label: `${pending.requests} yêu cầu`,
-    });
-  if (pending.comments)
-    chips.push({
-      key: "comments",
-      icon: MessageSquare,
-      label: `${pending.comments} bình luận`,
-    });
+const COLUMNS = [
+  "Tủ sách",
+  "Đầu sách",
+  "Bạn đọc",
+  "Đang mượn",
+  "Quá hạn",
+  "Chờ xử lý",
+];
 
-  if (chips.length === 0) {
-    return <span className="text-[15px] text-meta">—</span>;
-  }
-
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {chips.map((chip) => (
-        <Pill key={chip.key} icon={chip.icon} label={chip.label} tone="neutral" />
-      ))}
-    </div>
+export default async function AdminOverviewPage() {
+  const { viewer, unreadFeedback, shelves } = await loadAdminPage(
+    async (tx, ctx, v) => ({
+      viewer: v,
+      unreadFeedback: await countUnreadFeedback(tx, ctx),
+      shelves: await getAdminOverview(tx, ctx),
+    }),
   );
-}
 
-function ShelfRow({ shelf }: { shelf: Shelf }) {
-  const overdue = OVERDUE[shelf.slug] ?? 0;
-  const pending = PENDING[shelf.slug] ?? { signups: 0, requests: 0, comments: 0 };
-
-  return (
-    <tr>
-      <td className="px-4 py-3">
-        <p className="text-[16px] font-medium">{shelf.name}</p>
-        <p className="mt-0.5 text-[13px] text-meta">{shelf.location}</p>
-      </td>
-      <td className="px-4 py-3 text-[15px] text-ink/85">{shelf.titles}</td>
-      <td className="px-4 py-3 text-[15px] text-ink/85">{shelf.readers}</td>
-      <td className="px-4 py-3 text-[15px] text-ink/85">{shelf.onLoan}</td>
-      <td className="px-4 py-3">
-        <OverdueCell count={overdue} />
-      </td>
-      <td className="px-4 py-3">
-        <PendingCell pending={pending} />
-      </td>
-      <td className="px-4 py-3">
-        <ButtonLink href="/quan-tri/tu-sach" variant="quiet" size="sm">
-          Mở tủ sách
-        </ButtonLink>
-      </td>
-    </tr>
+  const active = shelves.filter((s) => s.status === "active");
+  const totals = shelves.reduce(
+    (t, s) => ({
+      books: t.books + s.books,
+      readers: t.readers + s.readers,
+      onLoan: t.onLoan + s.activeLoans,
+    }),
+    { books: 0, readers: 0, onLoan: 0 },
   );
-}
-
-function ShelfCard({ shelf }: { shelf: Shelf }) {
-  const overdue = OVERDUE[shelf.slug] ?? 0;
-  const pending = PENDING[shelf.slug] ?? { signups: 0, requests: 0, comments: 0 };
+  const attention = attentionLines(shelves, unreadFeedback);
 
   return (
-    <div className="rounded-card border border-hairline bg-surface p-4">
-      <p className="text-[16px] font-medium">{shelf.name}</p>
-      <p className="mt-0.5 text-[13px] text-meta">{shelf.location}</p>
-
-      <dl className="mt-3 flex divide-x divide-hairline border-y border-hairline">
-        {[
-          { label: "Đầu sách", value: shelf.titles },
-          { label: "Bạn đọc", value: shelf.readers },
-          { label: "Đang mượn", value: shelf.onLoan },
-        ].map((stat) => (
-          <div key={stat.label} className="flex-1 py-2.5 pl-3 first:pl-0">
-            <dt className="text-[13px] text-meta">{stat.label}</dt>
-            <dd className="text-[16px] leading-tight font-semibold">
-              {stat.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <OverdueCell count={overdue} />
-        <PendingCell pending={pending} />
-      </div>
-
-      <ButtonLink
-        href="/quan-tri/tu-sach"
-        variant="quiet"
-        size="sm"
-        className="mt-3 w-full"
-      >
-        Mở tủ sách
-      </ButtonLink>
-    </div>
-  );
-}
-
-const ATTENTION = [
-  {
-    key: "can-tho-qua-han",
-    text: "Tủ sách Cần Thơ có 7 cuốn quá hạn, nhiều nhất hệ thống.",
-  },
-  {
-    key: "vinh-long-quan-ly",
-    text: "Tủ sách Vĩnh Long chưa có quản lý viên nào trong 30 ngày qua.",
-  },
-  {
-    key: "dang-ky-cho-duyet",
-    text: "Có 8 đơn đăng ký chờ duyệt trên toàn hệ thống.",
-  },
-] as const;
-
-export default function AdminOverviewPage() {
-  return (
-    <AdminShell active="tong-quan" viewer={null} unreadFeedback={null}>
+    <AdminShell active="tong-quan" viewer={viewer} unreadFeedback={unreadFeedback}>
       <PageHeading
         title="Tổng quan hệ thống"
-        subtitle="4 tủ sách đang hoạt động · cập nhật lúc 09:12 hôm nay."
+        subtitle={`${NUMBER.format(active.length)} tủ sách đang hoạt động.`}
       />
 
       <div className="mt-6">
         <StatStrip
           items={[
-            { label: "Tủ sách", value: "4" },
-            { label: "Đầu sách", value: "812" },
-            { label: "Bạn đọc", value: "324" },
-            { label: "Đang mượn", value: "108" },
+            { label: "Tủ sách", value: NUMBER.format(active.length) },
+            { label: "Đầu sách", value: NUMBER.format(totals.books) },
+            { label: "Bạn đọc", value: NUMBER.format(totals.readers) },
+            { label: "Đang mượn", value: NUMBER.format(totals.onLoan) },
           ]}
         />
       </div>
+
+      {shelves.length === 0 ? (
+        <p className="mt-8 text-[15px] text-meta">
+          Chưa có tủ sách nào.{" "}
+          <Link href="/quan-tri/tu-sach" className="underline">
+            Mở tủ sách đầu tiên
+          </Link>
+          .
+        </p>
+      ) : null}
 
       {/* Table on md and up — hairline rules, never a horizontal scroll. */}
       <div className="mt-8 hidden overflow-hidden rounded-card border border-hairline md:block">
         <table className="w-full text-left">
           <thead className="bg-paper">
             <tr>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Tủ sách
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Đầu sách
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Bạn đọc
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Đang mượn
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Quá hạn
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Chờ xử lý
-              </th>
-              <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                Thao tác
-              </th>
+              {COLUMNS.map((h) => (
+                <th key={h} className="px-4 py-3 text-[14px] font-medium text-meta">
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-hairline">
             {shelves.map((shelf) => (
-              <ShelfRow key={shelf.slug} shelf={shelf} />
+              <tr key={shelf.bookshelfId}>
+                <td className="px-4 py-3">
+                  <Link
+                    href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                    className="text-[16px] font-medium hover:underline"
+                  >
+                    {shelf.name}
+                  </Link>
+                  {shelf.status !== "active" ? (
+                    <span className="ml-2 align-middle">
+                      <Pill icon={Archive} label="Đã lưu trữ" tone="retired" />
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-4 py-3 text-[15px]">
+                  {NUMBER.format(shelf.books)}
+                </td>
+                <td className="px-4 py-3 text-[15px]">
+                  {NUMBER.format(shelf.readers)}
+                </td>
+                <td className="px-4 py-3 text-[15px]">
+                  {NUMBER.format(shelf.activeLoans)}
+                </td>
+                <td className="px-4 py-3">
+                  <OverdueCell count={shelf.overdue} />
+                </td>
+                <td className="px-4 py-3 text-[15px]">
+                  {shelf.pending === 0 ? "—" : NUMBER.format(shelf.pending)}
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -221,48 +193,49 @@ export default function AdminOverviewPage() {
       {/* Stacked cards below md — the same data, never a scrolling table. */}
       <div className="mt-8 space-y-3 md:hidden">
         {shelves.map((shelf) => (
-          <ShelfCard key={shelf.slug} shelf={shelf} />
+          <div
+            key={shelf.bookshelfId}
+            className="rounded-card border border-hairline p-4"
+          >
+            <Link
+              href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+              className="text-[17px] font-semibold hover:underline"
+            >
+              {shelf.name}
+            </Link>
+            <p className="mt-1 text-[14px] text-meta">
+              {NUMBER.format(shelf.books)} đầu sách · {NUMBER.format(shelf.readers)}{" "}
+              bạn đọc · {NUMBER.format(shelf.activeLoans)} đang mượn
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <OverdueCell count={shelf.overdue} />
+              {shelf.pending > 0 ? (
+                <span className="text-[14px] text-meta">
+                  {NUMBER.format(shelf.pending)} việc chờ xử lý
+                </span>
+              ) : null}
+            </div>
+          </div>
         ))}
       </div>
 
-      <section className={cn("mt-10 rounded-card bg-paper p-6")}>
-        <h2 className="flex items-center gap-2.5 text-xl font-semibold">
-          <AlertTriangle
-            aria-hidden
-            className="size-5 text-overdue"
-            strokeWidth={1.75}
-          />
-          Cần chú ý
-        </h2>
-        <ul className="mt-4 divide-y divide-hairline border-t border-hairline">
-          {ATTENTION.map((item) => (
-            // The whole row is the link. Right-aligning a lone "Xem" across a
-            // wide card stranded the action ~500px from the sentence it
-            // belonged to, and shrank the target to a single word.
-            <li key={item.key}>
-              <Link
-                href="/quan-tri/tu-sach"
-                className="group flex min-h-11 items-center gap-2 py-3.5"
-              >
-                <span className="text-[16px] group-hover:text-terracotta-ink">
-                  {item.text}
-                </span>
-                <ChevronRight
-                  aria-hidden
-                  className="size-[18px] shrink-0 text-sage"
-                  strokeWidth={1.75}
-                />
-                <span className="sr-only">Xem chi tiết</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <p className="mt-8 text-[14px] text-meta">
-        Mỗi tủ sách do quản lý viên địa phương tự vận hành. Quản trị viên chỉ theo
-        dõi và hỗ trợ.
-      </p>
+      {attention.length > 0 ? (
+        <section className="mt-10 rounded-card bg-paper p-6">
+          <h2 className="flex items-center gap-2.5 text-xl font-semibold">
+            <AlertTriangle
+              aria-hidden
+              className="size-5 text-overdue"
+              strokeWidth={1.75}
+            />
+            Cần chú ý
+          </h2>
+          <ul className="mt-4 space-y-2 text-[15px]">
+            {attention.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </AdminShell>
   );
 }

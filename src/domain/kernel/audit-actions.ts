@@ -125,6 +125,13 @@ export const AUDIT_GROUPS = {
   // and the one the master plan uses for this slice; the four actions under it
   // reuse "bình luận", which the moderation screen already says.
   "cong-dong": "Cộng đồng",
+  // NEWLY AUTHORED (B4) — the group label for the administration surface.
+  // "Hệ thống" is the word `/quan-tri`'s own chrome already uses ("Quản trị hệ
+  // thống"), so nothing new is introduced to a volunteer's vocabulary. These
+  // entries appear in the **cross-shelf** audit browser and, where an action
+  // names one shelf, in that shelf's own log — which is why they need sentences
+  // at all rather than living outside this map.
+  "he-thong": "Hệ thống",
 } as const;
 
 export type AuditGroup = keyof typeof AUDIT_GROUPS;
@@ -523,6 +530,61 @@ const ACTIONS = {
   "parish_taxonomy.updated": {
     group: "cai-dat",
     phrase: () => "đổi cách chia đơn vị của tủ sách",
+  },
+
+  // — hệ thống (B4) —
+  //
+  // Every sentence here names *which shelf* where it can, because these are the
+  // only actions in the map whose actor is not a member of the shelf they act
+  // on. "đã sửa cài đặt" in Đồng Tháp's log, written by somebody who has never
+  // set foot there, is exactly the entry BR §14's readable-sentence rule exists
+  // to make legible.
+  "bookshelf.created": {
+    group: "he-thong",
+    phrase: (f) => {
+      const name = str(f.after, "name");
+      return name ? `mở tủ sách ${name}` : "mở một tủ sách mới";
+    },
+  },
+  "bookshelf.settings_updated": {
+    group: "he-thong",
+    phrase: (f) => {
+      const name = str(f.after, "name") ?? str(f.before, "name");
+      return name ? `sửa cài đặt tủ sách ${name}` : "sửa cài đặt tủ sách";
+    },
+  },
+  "bookshelf.archived": {
+    group: "he-thong",
+    phrase: (f) => {
+      const name = str(f.before, "name");
+      return name
+        ? `ngưng hoạt động tủ sách ${name}`
+        : "ngưng hoạt động một tủ sách";
+    },
+  },
+  // The two names are OPS §4.5's own — `membership.role_assigned` and
+  // `membership.role_revoked` — rather than the shorter `manager.*` they read
+  // as. They are facts about a *membership*, and a person may be promoted at one
+  // shelf while staying a reader at another.
+  "membership.role_assigned": {
+    group: "he-thong",
+    phrase: (f) => `giao quyền quản lý cho ${who(f.subject)}`,
+  },
+  "membership.role_revoked": {
+    group: "he-thong",
+    phrase: (f) => `thu hồi quyền quản lý của ${who(f.subject)}`,
+  },
+  "user.promoted_super_admin": {
+    group: "he-thong",
+    phrase: (f) => `giao quyền quản trị hệ thống cho ${who(f.subject)}`,
+  },
+  "system_settings.updated": {
+    group: "he-thong",
+    phrase: () => "đổi cài đặt mặc định của hệ thống",
+  },
+  "site_contact.updated": {
+    group: "he-thong",
+    phrase: () => "đổi thông tin liên hệ của ban quản trị",
   },
 } satisfies Record<string, AuditActionSpec>;
 

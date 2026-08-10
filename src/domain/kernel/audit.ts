@@ -28,7 +28,20 @@ export interface AuditEntry {
    */
   action: AuditAction;
   entityType: string;
-  entityId: string;
+  /**
+   * The row this entry is about, or **`null` for a thing that has no uuid**.
+   *
+   * `audit_log.entity_id` is a nullable `uuid` (`0007_audit_notifications.sql`),
+   * and this was typed `string` until B4 — which was true of every entity in the
+   * catalogue while all of them were rows with generated keys. `system_settings`
+   * is not: it is a singleton whose primary key is the boolean `true`, so there
+   * is no uuid to name and the honest value is absent.
+   *
+   * A sentinel uuid was the alternative and is worse in the way sentinels
+   * usually are: it would join to nothing, sort with real ids, and read in the
+   * audit browser as a row somebody could go and look at.
+   */
+  entityId: string | null;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
   /**

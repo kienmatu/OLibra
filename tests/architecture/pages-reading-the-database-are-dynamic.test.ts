@@ -320,13 +320,16 @@ test("the guard sees a page that reaches Postgres only through a helper", () => 
   // A page that reads nothing is not swept up by it. Without this, "flag
   // everything" would pass every test in the file.
   //
-  // D2 wired `thong-ke`, which used to be the second half of this pair. The
-  // landing page is the durable one — it is marketing copy and has nothing to
-  // read — and `quan-ly/cai-dat` stands in beside it until `GetShelfSettings`
-  // exists. When that lands, the negative half needs another page or this test
-  // has stopped comparing anything.
+  // The landing page is the durable half of this pair: it is marketing copy
+  // and has nothing to read, so it will still be here when every other page is
+  // wired. `/loi` is the same — it renders whatever error was thrown.
+  //
+  // D2 wired `thong-ke` and B4 wired `quan-ly/cai-dat`, so both of the pages
+  // that previously stood here are gone. That is the direction of travel: when
+  // no unwired page is left, this half of the check has nothing to compare and
+  // the two lines below are what remains of it.
   expect(found).not.toContain("src/app/page.tsx");
-  expect(found).not.toContain(`${base}/cai-dat/page.tsx`);
+  expect(found).not.toContain("src/app/loi/page.tsx");
 });
 
 test("every page that reaches the database is explicitly dynamic", () => {

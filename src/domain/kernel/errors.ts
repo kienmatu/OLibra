@@ -213,6 +213,15 @@ export const ERROR_MESSAGES = {
   // carries across the catalogue — B1 split the first two.
   announcement_fields_required: "Vui lòng điền tiêu đề và nội dung.",
   already_published: "Thông báo này đã được đăng.",
+  // — administration: added by B4 —
+  //
+  // Three codes, each for a refusal OPS §4.5 names. `slug_taken` is the one
+  // OPS does not list: `bookshelves.slug` is `unique` with no partial
+  // predicate, so a soft-deleted shelf still holds its address, and the
+  // alternative to a sentence here is the raw `23505` §2 forbids.
+  slug_taken: "Địa chỉ này đã có tủ sách khác dùng.",
+  already_archived: "Tủ sách này đã được lưu trữ.",
+  already_super_admin: "Người này đã là quản trị viên hệ thống.",
   // Feedback. The rate limit is OPS §8's, stated verbatim in the shipped form.
   rate_limited: "Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác.",
   feedback_fields_required: "Vui lòng điền đầy đủ các trường bắt buộc.",

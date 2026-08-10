@@ -135,7 +135,6 @@ const SEEDS = [
   "/quan-tri",
   "/quan-tri/tu-sach",
   "/quan-tri/quan-ly-vien",
-  "/quan-tri/quan-ly-vien/lan",
   "/quan-tri/nhat-ky",
   "/quan-tri/gop-y",
   "/quan-tri/cai-dat",

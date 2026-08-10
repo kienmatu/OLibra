@@ -125,6 +125,18 @@ export const RESET_EXCLUDED_TABLES = ["schema_migrations"] as const;
  * `restart identity cascade` resets sequences too, so a test asserting a
  * generated copy code like `DT-0001` is not silently dependent on how many
  * tests ran before it.
+ *
+ * **`system_settings`' single row is put back afterwards.** B4's migration
+ * inserts it, and every read and write treats it as part of the schema rather
+ * than as data — `updateSiteContact` is a plain `update ... where id`, so the
+ * kernel's zero-row guard turns a missing row into `write_target_not_found`,
+ * which is exactly right in production and useless in a suite that truncates
+ * between tests.
+ *
+ * Re-inserted rather than excluded from the truncation: an excluded row would
+ * carry one test's lending defaults into the next, and the whole point of
+ * resetting is that it does not. The insert restores the column defaults, which
+ * is the state a fresh installation is in.
  */
 export async function resetDatabase(): Promise<void> {
   const tables = await sql<{ tablename: string }[]>`
@@ -136,6 +148,7 @@ export async function resetDatabase(): Promise<void> {
   if (toTruncate.length === 0) return;
   const list = toTruncate.map((name) => `public."${name}"`).join(", ");
   await sql.unsafe(`truncate table ${list} restart identity cascade`);
+  await sql`insert into system_settings (id) values (true) on conflict do nothing`;
 }
 
 export async function closeAll(): Promise<void> {

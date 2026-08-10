@@ -127,7 +127,7 @@ function domainFilesWritingUsers(): string[] {
     .map((file) => file.replace(process.cwd() + "/", ""));
 }
 
-test("INV-13b: exactly three files in src/domain/ write `users`, each for a stated reason", () => {
+test("INV-13b: exactly four files in src/domain/ write `users`, each for a stated reason", () => {
   // The negative half of INV-13b, and the only mechanism that can hold it: no
   // constraint can express which code path may write a column (DATABASE.md §7,
   // §4.11), so the discipline is only as real as a test that reads the source.
@@ -144,11 +144,16 @@ test("INV-13b: exactly three files in src/domain/ write `users`, each for a stat
   // | `profile-fields.ts`        | the eight verified fields  | it *is* INV-13b's application half — both sanctioned paths go through it |
   // | `set-reader-credentials.ts`| `username` + `password_hash`, in one statement so INV-14's pairing cannot be broken even momentarily | credentials are not verified details; BR §2 gives a manager this power explicitly, by its own argument |
   // | `change-own-password.ts`   | `password_hash`            | BR §16.2: the password is one of the two things "not a fact about the person that a manager verified" |
+  // | `admin/commands/managers.ts` | `is_super_admin`         | B4. `profile-fields.ts`' own docstring already excluded this column from `PROFILE_FIELDS` with the reason: "`is_super_admin` is a grant, not a fact about a person." A grant is not a verified detail, no manager may make one, and the command that does is `super_admin`-only through `runAdminCommand` |
   //
-  // A fourth file appearing here is not necessarily wrong. It is a review
-  // conversation, held at the moment it is cheap, in the suite the author is
-  // already running.
+  // "A fourth file appearing here is not necessarily wrong. It is a review
+  // conversation, held at the moment it is cheap" — this is that fourth file
+  // and that conversation. It is admitted rather than waved through because the
+  // column it writes was already argued out of `PROFILE_FIELDS` on exactly these
+  // grounds; nothing new is being decided, only recorded in the second place it
+  // now matters.
   expect(domainFilesWritingUsers().sort()).toEqual([
+    "src/domain/admin/commands/managers.ts",
     "src/domain/members/commands/change-own-password.ts",
     "src/domain/members/commands/set-reader-credentials.ts",
     "src/domain/members/profile-fields.ts",

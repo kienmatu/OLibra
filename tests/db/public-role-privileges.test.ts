@@ -50,10 +50,18 @@ import { testPoolDatabaseUrl } from "../support/env";
  * directory is made of (BR §16.1, OPS §3.1's `GetPortalDirectory`). Every other
  * relation in the schema — base table, view or materialised view — must refuse.
  *
+ * `system_settings` is B4's addition, and it is the second and — on the current
+ * catalogue — last. OPS §3.1 lists `GetSiteContact` as **guest-callable and
+ * Global**: a parish with no shelf yet has no other way to ask for one, and the
+ * portal's own empty state links to it. The grant is column-level, on the three
+ * contact fields alone (`20260810_01_system_settings.sql`), so the lending
+ * defaults and `updated_by` on the same row refuse — which the per-column sweep
+ * below checks rather than trusts.
+ *
  * Adding a name here is the deliberate act: it widens what a stranger with no
  * session anywhere can reach, and it should read like that in a diff.
  */
-const PUBLICLY_READABLE_RELATIONS = ["bookshelves"];
+const PUBLICLY_READABLE_RELATIONS = ["bookshelves", "system_settings"];
 
 /**
  * The columns of `bookshelves` a public caller may read.
@@ -200,6 +208,55 @@ test("a public read of bookshelves is refused by privilege on every column excep
   }
 
   expect(offenders).toEqual([]);
+});
+
+/**
+ * B4's three contact columns, and the four on the same row that must refuse.
+ *
+ * The grant is column-level, which is a thing this project has now relied on
+ * twice — and the two failure modes are opposite. A too-narrow grant breaks
+ * `/lien-he` loudly, on a page nobody would ship broken. A too-wide one is
+ * silent: `default_loan_days` is not sensitive, `changed_by` is a user id, and a
+ * `grant select on system_settings` with no column list would leak the second
+ * while nobody noticed the first was wrong.
+ */
+const PUBLICLY_READABLE_SYSTEM_COLUMNS = [
+  "contact_name",
+  "contact_phone",
+  "contact_hours",
+];
+
+test("a public read of system_settings is refused on every column except the contact block", async () => {
+  const columns = await sql<{ column_name: string }[]>`
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'system_settings'
+    order by column_name
+  `;
+  expect(columns.length).toBeGreaterThan(PUBLICLY_READABLE_SYSTEM_COLUMNS.length);
+
+  const offenders: string[] = [];
+  for (const { column_name } of columns) {
+    const outcome = await publicSelect(
+      `select "${column_name}" from system_settings limit 1`,
+    );
+    const shouldBeReadable = PUBLICLY_READABLE_SYSTEM_COLUMNS.includes(column_name);
+
+    if (shouldBeReadable && outcome !== "ok") {
+      offenders.push(`${column_name}: expected readable, got ${outcome}`);
+    }
+    if (!shouldBeReadable && outcome !== INSUFFICIENT_PRIVILEGE) {
+      offenders.push(
+        `${column_name}: expected ${INSUFFICIENT_PRIVILEGE}, got ${outcome}`,
+      );
+    }
+  }
+
+  expect(offenders).toEqual([]);
+  // And the wildcard, for the reason the `bookshelves` pair below gives.
+  expect(await publicSelect("select * from system_settings limit 1")).toBe(
+    INSUFFICIENT_PRIVILEGE,
+  );
 });
 
 test("a public read cannot select every column of bookshelves, under any spelling", async () => {

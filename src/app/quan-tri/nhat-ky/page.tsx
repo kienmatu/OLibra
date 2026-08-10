@@ -1,242 +1,220 @@
-import {
-  AlertTriangle,
-  BookDown,
-  BookUp,
-  ChevronDown,
-  UserCheck,
-  type LucideIcon,
-} from "lucide-react";
+import Link from "next/link";
 import { AdminShell } from "@/components/shell/manager-shell";
-import { Button } from "@/components/ui/button";
+import { ButtonLink } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
-import { Input, Select } from "@/components/ui/field";
-import { BookTitle } from "@/components/ui/book";
+import { Chip } from "@/components/ui/segmented";
+import {
+  AUDIT_GROUPS,
+  auditGroupFromParam,
+  auditGroupOf,
+  auditSentence,
+} from "@/domain/kernel/audit-actions";
+import { getAuditLog } from "@/domain/shelf/queries/get-audit-log";
+import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
+import { AUDIT_GROUP_STYLE, payloadRows } from "@/lib/audit-log";
+import { formatInstantParts } from "@/lib/dates";
+import { loadAdminPage } from "@/lib/page-data";
+import { pageNumber, param, type SearchParams } from "@/lib/search-params";
 import { cn } from "@/lib/utils";
 
-export const metadata = { title: "Nhật ký hoạt động — Quản trị OLibra" };
+/**
+ * OPS §3.4's **cross-shelf** `GetAuditLog`.
+ *
+ * **It is `getAuditLog` — the shelf's own query — run through
+ * `runAdminQuery`.** That is not a shortcut. The query names no shelf: it is
+ * scoped entirely by RLS, which is the property `manager-dashboard.test.ts`
+ * pins by running its counts under `olibra_admin` and watching them grow. So
+ * the same function, under the role that bypasses RLS, *is* the cross-shelf
+ * view — every parish's entries plus the null-`bookshelf_id` ones that no
+ * shelf-scoped caller can reach at all.
+ *
+ * A second query would have been a second definition of what an audit entry is,
+ * with its own joins for the actor and the subject, and the two would come to
+ * disagree about a sentence the day one of them grew a case. `requireManager`
+ * inside it admits a `super_admin` on rank — the same admission every other
+ * manager query makes.
+ *
+ * **Which shelf an entry belongs to is not shown, and that is a gap worth
+ * naming rather than leaving to be noticed.** `AuditEntryRow` carries no
+ * `bookshelf_id`, so an administrator reading "đã cho mượn Dế Mèn" cannot tell
+ * which parish from this page. Adding it means widening the shelf's own row type
+ * for a field that page would never render. Filtering by actor is the way
+ * through today — a manager belongs to one shelf — and the managers list links
+ * here with the actor already set.
+ */
+export const dynamic = "force-dynamic";
 
-function FilterField({
-  label,
-  children,
+export const metadata = { title: "Nhật ký hệ thống — Quản trị OLibra" };
+
+const GROUP = "nhom";
+const PAGE = "trang";
+const ACTOR = "nguoi";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export default async function AdminAuditPage({
+  searchParams,
 }: {
-  label: string;
-  children: React.ReactNode;
+  searchParams: Promise<SearchParams>;
 }) {
-  return (
-    <div className="min-w-44 flex-1">
-      <p className="text-[13px] text-meta">{label}</p>
-      <div className="mt-1">{children}</div>
-    </div>
+  const search = await searchParams;
+  const groupParam = param(search, GROUP);
+  const group = auditGroupFromParam(groupParam);
+  const actorParam = param(search, ACTOR);
+  // Shape-checked here so a non-uuid cannot reach a `::uuid` cast and raise a
+  // raw 22P02 from inside the transaction. RLS is not what bounds this value on
+  // this surface, so the check is about the fault rather than about scope.
+  const actor = actorParam && UUID.test(actorParam) ? actorParam : undefined;
+
+  const { viewer, unreadFeedback, entries } = await loadAdminPage(
+    async (tx, ctx, v) => ({
+      viewer: v,
+      unreadFeedback: await countUnreadFeedback(tx, ctx),
+      entries: await getAuditLog(tx, ctx, {
+        actorId: actor,
+        group,
+        page: pageNumber(param(search, PAGE)),
+      }),
+    }),
   );
-}
 
-type LogEntry = {
-  key: string;
-  icon: LucideIcon;
-  ink: string;
-  fill: string;
-  sentence: React.ReactNode;
-  meta: string;
-  time: string;
-};
+  const listHref = "/quan-tri/nhat-ky";
+  const hrefWith = (over: { group?: string | null; page?: number }): string => {
+    const query = new URLSearchParams();
+    if (actor) query.set(ACTOR, actor);
+    const nextGroup =
+      over.group === undefined ? (group ? groupParam : undefined) : over.group;
+    if (nextGroup) query.set(GROUP, nextGroup);
+    const trang = over.page ?? 1;
+    if (trang > 1) query.set(PAGE, String(trang));
+    const string = query.toString();
+    return string ? `${listHref}?${string}` : listHref;
+  };
 
-const LOG: LogEntry[] = [
-  {
-    key: "loan-4821",
-    icon: BookUp,
-    ink: "text-onloan",
-    fill: "bg-onloan/10",
-    sentence: (
-      <>
-        Quản lý Maria Lan đã cho Giuse Minh mượn{" "}
-        <BookTitle>Dế Mèn Phiêu Lưu Ký</BookTitle> lúc 14:32 ngày 03/08
-      </>
-    ),
-    meta: "Tủ sách Đồng Tháp · Loan #4821",
-    time: "14:32 · 03/08",
-  },
-  {
-    key: "loan-4788",
-    icon: BookDown,
-    ink: "text-available",
-    fill: "bg-available/10",
-    sentence: (
-      <>
-        Quản lý Maria Lan đã nhận trả <BookTitle>Hoàng Tử Bé</BookTitle> từ Têrêsa
-        Lê Ngọc Ánh, tình trạng Nguyên vẹn, lúc 14:05 ngày 03/08
-      </>
-    ),
-    meta: "Tủ sách Đồng Tháp · Loan #4788",
-    time: "14:05 · 03/08",
-  },
-  {
-    key: "membership-312",
-    icon: UserCheck,
-    ink: "text-held",
-    fill: "bg-held/10",
-    sentence: (
-      <>
-        Quản lý Maria Lan đã duyệt tài khoản của Anna Phạm Thu Hà lúc 11:20 ngày
-        03/08
-      </>
-    ),
-    meta: "Tủ sách Đồng Tháp · Membership #312",
-    time: "11:20 · 03/08",
-  },
-  {
-    key: "loan-4402",
-    icon: AlertTriangle,
-    ink: "text-overdue",
-    fill: "bg-overdue/10",
-    sentence: (
-      <>
-        Hệ thống ghi nhận <BookTitle>Đất Rừng Phương Nam</BookTitle> quá hạn 21 ngày
-        lúc 00:05 ngày 03/08
-      </>
-    ),
-    meta: "Tủ sách Đồng Tháp · Loan #4402",
-    time: "00:05 · 03/08",
-  },
-];
-
-const DIFF = [
-  { field: "status", before: "active", after: "returned" },
-  { field: "returned_at", before: "null", after: "2026-08-03 14:05" },
-  { field: "return_condition", before: "null", after: "perfect" },
-];
-
-function DiffColumn({
-  heading,
-  value,
-}: {
-  heading: string;
-  value: "before" | "after";
-}) {
   return (
-    <div>
-      <p className="text-[13px] font-medium text-meta">{heading}</p>
-      <dl className="mt-2 divide-y divide-hairline">
-        {DIFF.map((row) => (
-          <div
-            key={row.field}
-            className="flex items-baseline justify-between gap-3 py-1.5"
-          >
-            <dt className="font-mono text-[13px] text-meta">{row.field}</dt>
-            <dd className="font-mono text-[13px] text-ink/70">{row[value]}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
-export default function AdminAuditLogPage() {
-  return (
-    <AdminShell active="nhat-ky" viewer={null} unreadFeedback={null}>
+    <AdminShell active="nhat-ky" viewer={viewer} unreadFeedback={unreadFeedback}>
       <PageHeading
-        title="Nhật ký hoạt động"
-        subtitle="1.248 bản ghi · Nhật ký không bao giờ bị sửa hoặc xoá."
+        title="Nhật ký hệ thống"
+        subtitle="Mọi việc đã làm, trên tất cả các tủ sách. Trang này đọc từ nhật ký."
       />
 
-      <div className="mt-6 flex flex-wrap items-end gap-3">
-        <FilterField label="Tủ sách">
-          <Select aria-label="Tủ sách" className="h-12" defaultValue="dong-thap">
-            <option value="dong-thap">Tủ sách Đồng Tháp</option>
-            <option value="can-tho">Tủ sách Cần Thơ</option>
-            <option value="ben-tre">Tủ sách Bến Tre</option>
-            <option value="vinh-long">Tủ sách Vĩnh Long</option>
-          </Select>
-        </FilterField>
-        <FilterField label="Người thực hiện">
-          <Select
-            aria-label="Người thực hiện"
-            className="h-12"
-            defaultValue="tat-ca"
-          >
-            <option value="tat-ca">Tất cả</option>
-            <option value="lan">Maria Nguyễn Thị Lan</option>
-          </Select>
-        </FilterField>
-        <FilterField label="Hành động">
-          <Select aria-label="Hành động" className="h-12" defaultValue="tat-ca">
-            <option value="tat-ca">Tất cả</option>
-            <option value="cho-muon">Cho mượn</option>
-            <option value="nhan-tra">Nhận trả</option>
-          </Select>
-        </FilterField>
-        <FilterField label="Khoảng thời gian">
-          <Input
-            className="h-12"
-            defaultValue="01/08 đến 06/08"
-            aria-label="Khoảng thời gian"
-          />
-        </FilterField>
-        <Button variant="outline" size="sm" className="h-11">
-          Xoá bộ lọc
-        </Button>
+      {actor ? (
+        <p className="mt-4 text-[15px] text-meta">
+          Đang lọc theo một người.{" "}
+          <Link href={listHref} className="underline">
+            Bỏ lọc
+          </Link>
+        </p>
+      ) : null}
+
+      <div className="mt-6 flex flex-wrap gap-2.5">
+        <Chip href={hrefWith({ group: null })} active={!group}>
+          Tất cả
+        </Chip>
+        {Object.entries(AUDIT_GROUPS).map(([key, label]) => (
+          <Chip key={key} href={hrefWith({ group: key })} active={group === key}>
+            {label}
+          </Chip>
+        ))}
       </div>
 
-      <div className="mt-8 divide-y divide-hairline border-y border-hairline">
-        {LOG.map((entry, i) => {
-          const expanded = i === 1;
-          return (
-            <div key={entry.key} className="py-4">
-              <div className="flex items-start gap-4">
-                <span
-                  aria-hidden
-                  className={cn(
-                    "flex size-10 shrink-0 items-center justify-center rounded-full",
-                    entry.fill,
-                  )}
-                >
-                  <entry.icon
-                    aria-hidden
-                    className={cn("size-5", entry.ink)}
-                    strokeWidth={1.75}
-                  />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[16px]">{entry.sentence}</p>
-                  <p className="mt-1 text-[13px] text-meta">{entry.meta}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-[14px] text-meta">{entry.time}</span>
-                  <ChevronDown
+      {entries.rows.length === 0 ? (
+        <p className="mt-8 text-[15px] text-meta">Chưa có việc nào được ghi lại.</p>
+      ) : (
+        <div className="mt-6 divide-y divide-hairline border-y border-hairline">
+          {entries.rows.map((entry) => {
+            const when = formatInstantParts(entry.occurredAt);
+            // `auditGroupOf` answers `null` for a stored action this build has
+            // no sentence for — the same real state `auditSentence` handles —
+            // and such an entry gets the neutral mark rather than a family it
+            // was guessed into.
+            const style =
+              AUDIT_GROUP_STYLE[auditGroupOf(entry.action) ?? "cai-dat"];
+            const diff = payloadRows(entry.facts.before, entry.facts.after);
+            return (
+              <div key={entry.id} className="py-4">
+                <div className="flex items-start gap-4">
+                  <span
                     aria-hidden
                     className={cn(
-                      "size-5 text-meta transition-transform",
-                      expanded && "rotate-180",
+                      "flex size-10 shrink-0 items-center justify-center rounded-full",
+                      style.fill,
                     )}
-                    strokeWidth={1.75}
-                  />
-                </div>
-              </div>
-
-              {expanded ? (
-                <div className="mt-4 ml-14 rounded-card bg-paper p-4">
-                  <p className="text-[13px] text-meta">
-                    Giá trị gốc, chỉ dùng khi cần tra cứu.
-                  </p>
-                  <div className="mt-3 grid grid-cols-1 gap-6 sm:grid-cols-2">
-                    <DiffColumn heading="Trước" value="before" />
-                    <DiffColumn heading="Sau" value="after" />
+                  >
+                    <style.icon
+                      aria-hidden
+                      className={cn("size-5", style.ink)}
+                      strokeWidth={1.75}
+                    />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[16px]">
+                      {auditSentence(entry.action, entry.facts, when)}
+                    </p>
+                    <details className="mt-2">
+                      <summary className="cursor-pointer list-none text-[13px] text-meta underline underline-offset-2">
+                        Xem dữ liệu gốc
+                      </summary>
+                      <div className="mt-2 rounded-card border border-hairline bg-paper p-3">
+                        <p className="font-mono text-[13px] text-meta">
+                          {entry.action} · {entry.entityType}
+                          {entry.entityId ? ` · ${entry.entityId}` : ""}
+                        </p>
+                        {diff.length === 0 ? (
+                          <p className="mt-2 text-[13px] text-meta">
+                            Việc này không ghi lại giá trị nào.
+                          </p>
+                        ) : (
+                          <dl className="mt-2 divide-y divide-hairline">
+                            {diff.map((row) => (
+                              <div
+                                key={row.field}
+                                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 py-1.5"
+                              >
+                                <dt className="truncate font-mono text-[13px] text-meta">
+                                  {row.field}
+                                </dt>
+                                <dd className="truncate font-mono text-[13px] text-ink/70">
+                                  {row.before}
+                                </dd>
+                                <dd className="truncate font-mono text-[13px] text-ink/70">
+                                  {row.after}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </div>
+                    </details>
                   </div>
                 </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-
-      <nav className="mt-8 flex items-center justify-between gap-4">
-        <p className="text-[15px] text-meta">Trang 1 / 63</p>
-        <div className="flex gap-2">
-          <Button size="sm" disabled>
-            Trước
-          </Button>
-          <Button size="sm">Sau</Button>
+              </div>
+            );
+          })}
         </div>
-      </nav>
+      )}
+
+      {entries.pageCount > 1 ? (
+        <div className="mt-6 flex items-center justify-between gap-4">
+          {entries.page > 1 ? (
+            <ButtonLink size="sm" href={hrefWith({ page: entries.page - 1 })}>
+              Trang trước
+            </ButtonLink>
+          ) : (
+            <span />
+          )}
+          <p className="text-[14px] text-meta">
+            Trang {entries.page} / {entries.pageCount}
+          </p>
+          {entries.page < entries.pageCount ? (
+            <ButtonLink size="sm" href={hrefWith({ page: entries.page + 1 })}>
+              Trang sau
+            </ButtonLink>
+          ) : (
+            <span />
+          )}
+        </div>
+      ) : null}
     </AdminShell>
   );
 }
