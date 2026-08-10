@@ -14,6 +14,7 @@ import {
   Gift,
   MessageSquare,
   Megaphone,
+  Network,
   ScrollText,
   ShieldCheck,
   Tags,
@@ -101,6 +102,7 @@ export type ManagerNavKey =
   | "nhat-ky"
   | "thong-bao"
   | "thong-ke"
+  | "co-cau"
   | "cai-dat";
 
 /**
@@ -145,6 +147,15 @@ export type ManagerNavKey =
  * The nav entries for the pages waves 2 and 3 of this slice wire —
  * `Người đọc`, `Đăng ký chờ duyệt`, `Đổi thông tin`, `Quá hạn` — stay for the
  * same reason and become real within the slice.
+ *
+ * **`Cơ cấu giáo xứ` joins them, also badgeless, added by Task 3 of the
+ * 2026-08-10 QA remediation.** `updateParishTaxonomy`, `createParishUnit`,
+ * `renameParishUnit`, `deleteParishUnit` and `reorderParishUnits` had shipped
+ * fully tested and called from nowhere — the visible symptom was an empty
+ * "Giáo xứ" section on the reader-registration form and a `Tổ` column that
+ * could never read anything but "Chưa có". A configuration screen has no
+ * queue either, so it gets the same treatment as the three above rather than
+ * an invented count.
  */
 const NAV: {
   key: ManagerNavKey;
@@ -196,6 +207,7 @@ const NAV: {
   { key: "nhat-ky", label: "Nhật ký", icon: ScrollText },
   { key: "thong-bao", label: "Thông báo", icon: Megaphone },
   { key: "thong-ke", label: "Thống kê", icon: BarChart3 },
+  { key: "co-cau", label: "Cơ cấu giáo xứ", icon: Network },
   { key: "cai-dat", label: "Cài đặt", icon: Cog },
 ];
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Field, Select } from "@/components/ui/field";
 import {
   hasVisibleLevel2,
@@ -25,6 +26,17 @@ import {
  * "zero, one or two": a level whose unit list is empty renders no field at
  * all — an empty dropdown answers nothing a volunteer can act on, and a
  * brand-new shelf with no units yet must still let a form submit.
+ *
+ * **A shelf with no units at all renders one sentence instead of nothing**
+ * (Task 3, QA remediation). Before the five parish-unit commands had a
+ * caller anywhere in `src/app`, every shelf was in this state permanently —
+ * `return null` here left the "Giáo xứ" section of the registration form a
+ * heading and a line of helper text over a blank space, which is what a QA
+ * pass on 10/08/2026 found. The sentence names two callers: a manager
+ * filling this in on somebody's behalf can go straight to the screen that
+ * fixes it, and a reader filling in their own registration has no business
+ * with a manager-only page — `manageHref` is how the two are told apart, see
+ * its own docstring below.
  *
  * ## Why this is a client component
  *
@@ -59,6 +71,7 @@ export function ParishUnitFields({
   units,
   defaultL1 = "",
   defaultL2 = "",
+  manageHref,
 }: {
   /** Distinguishes ids/names when this renders more than once on a page. */
   idPrefix: string;
@@ -67,6 +80,19 @@ export function ParishUnitFields({
   /** Pre-selects a unit — used when editing an existing reader's profile. */
   defaultL1?: string;
   defaultL2?: string;
+  /**
+   * The manager's `quan-ly/co-cau` screen, present only when this caller
+   * *is* a manager — `quan-ly/nguoi-doc/moi` passes it, `dang-ky/page.tsx`
+   * does not (Task 3, QA remediation).
+   *
+   * The narrowest thing this component needs to tell its two callers apart:
+   * not a role, not a viewer object, just the one URL the empty-state
+   * sentence below may or may not have somewhere useful to send a reader.
+   * `/dang-ky` is filled in by a guest who holds no membership yet and has
+   * no way to reach `quan-ly/*` at all — pointing them at it would be a link
+   * to a page that refuses them, which is worse than no link.
+   */
+  manageHref?: string;
 }) {
   const [l1, setL1] = useState(defaultL1);
   const [l2, setL2] = useState(defaultL2);
@@ -81,7 +107,23 @@ export function ParishUnitFields({
   // content is "— Không chọn —" (IMPORTANT 6).
   const showL2 = hasVisibleLevel2(taxonomy, units);
 
-  if (!showL1 && !showL2) return null;
+  if (!showL1 && !showL2) {
+    return (
+      <p className="text-[14px] text-meta">
+        Tủ sách chưa khai báo giáo họ nào.
+        {manageHref ? (
+          <>
+            {" "}
+            Quản lý thêm ở mục{" "}
+            <Link href={manageHref} className="underline">
+              Cơ cấu giáo xứ
+            </Link>
+            .
+          </>
+        ) : null}
+      </p>
+    );
+  }
 
   const l1FieldId = `${idPrefix}-bac-1`;
   const l2FieldId = `${idPrefix}-bac-2`;

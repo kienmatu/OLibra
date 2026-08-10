@@ -238,6 +238,7 @@ export default async function RegisterReaderOnBehalfPage({
             idPrefix="nguoi-doc-moi"
             taxonomy={parish.taxonomy}
             units={parish.units}
+            manageHref={`${base}/co-cau`}
           />
         </div>
 

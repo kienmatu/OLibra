@@ -35,9 +35,14 @@ import { receiveReturn } from "../../../../domain/circulation/commands/receive-r
 import { rejectBorrowRequest } from "../../../../domain/circulation/commands/reject-borrow-request";
 import { approveMembership } from "../../../../domain/members/commands/approve-membership";
 import { approveProfileChange } from "../../../../domain/members/commands/approve-profile-change";
+import { createParishUnit } from "../../../../domain/members/commands/create-parish-unit";
+import { deleteParishUnit } from "../../../../domain/members/commands/delete-parish-unit";
 import { registerMemberOnBehalf } from "../../../../domain/members/commands/register-member-on-behalf";
 import { rejectMembership } from "../../../../domain/members/commands/reject-membership";
 import { rejectProfileChange } from "../../../../domain/members/commands/reject-profile-change";
+import { renameParishUnit } from "../../../../domain/members/commands/rename-parish-unit";
+import { reorderParishUnits } from "../../../../domain/members/commands/reorder-parish-units";
+import { updateParishTaxonomy } from "../../../../domain/members/commands/update-parish-taxonomy";
 import type { CopyCondition } from "../../../../domain/catalogue/policy";
 import type { Command } from "../../../../domain/kernel/unit-of-work";
 import { decideAndDiscardAvatar } from "../../../../lib/avatar";
@@ -917,4 +922,176 @@ function expiryDate(form: FormData, name: string): Date | null {
   const at = new Date(`${raw}T00:00:00Z`);
   if (!Number.isFinite(at.getTime())) return null;
   return new Date(at.getTime() + 24 * 60 * 60 * 1000);
+}
+
+// ── Parish taxonomy and units — `quan-ly/co-cau`, wired by Task 3 ─────────
+//
+// OPS §4.5's five administration commands, fully implemented and fully
+// tested since B2b and called from nowhere until now — the QA sweep this
+// task's plan is named for found the visible consequence: an empty "Giáo xứ"
+// section on the reader-registration form, a `Tổ` column permanently
+// "Chưa có", and a `?don-vi=` filter that could never match.
+//
+// **`attemptTyped`, not `attempt`, for four of the five.** `createParishUnit`,
+// `renameParishUnit`, `reorderParishUnits` and `updateParishTaxonomy` all
+// throw `ValidationFailed` for a mistake a manager can make and undo by
+// retyping — an empty name, a duplicate name, a third level, a stale
+// reorder — the same reasoning `createCategoryAction`
+// (`src/app/quan-tri/admin-actions.ts`) already applies to the sibling
+// screen this one is modelled on. `deleteUnitAction` keeps the narrow
+// `attempt`: `deleteParishUnit` throws only `RuleViolated` and `NotFound`,
+// and `NotFound` is deliberately left to `submitCommand`'s own translation
+// into a 404 — the same thing a stale "Xoá" double-click already does to
+// every other delete-style command in this file.
+//
+// **Every one of the five is `super_admin`-only** (OPS §4.5), and this
+// screen renders under the ordinary manager surface anyway rather than
+// under `/quan-tri`. `parish_units` is tenant-scoped under RLS — unlike
+// `categories`, which needed `runAdminCommand`'s escalation because it has
+// no `bookshelf_id` at all — so the ordinary `submitCommand` path is the
+// right one; a plain `manager` reaching this screen sees the same read-only
+// tree everyone with at least `reader` can (`getParishUnits`'s own gate),
+// and a write attempt comes back "Bạn không có quyền thực hiện việc này."
+// through the same `RuleViolated` path every other refusal in this file
+// takes. No second copy of that check belongs here — see this file's own
+// header on why `requireManager` never appears beside a command call.
+
+/** `/tu-sach/<slug>/quan-ly/co-cau`, with or without a refusal code. */
+function backToCoCau(
+  shelfSlug: string,
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  const base = managerBase(shelfSlug);
+  if (!outcome.ok) redirect(`${base}/co-cau?${ACTION_ERROR_PARAM}=${outcome.code}`);
+  redirect(`${base}/co-cau`);
+}
+
+/**
+ * OPS §4.5's `UpdateParishTaxonomy` — the "Cách gọi các đơn vị" form.
+ *
+ * All four fields are sent on every submit, never `optional()`. The command
+ * itself treats each as independently optional and merges onto the stored
+ * value (see its own docstring), but this form always renders every field
+ * pre-filled from `loadParishContext`, so an empty box on submit is a
+ * manager who cleared it — a refusal, not a silent no-op. Exactly the choice
+ * `updateAnnouncementAction` already makes for the same reason, above.
+ */
+export async function updateTaxonomyAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = await attemptTyped(shelfSlug, updateParishTaxonomy, {
+    levels: field(form, "so-bac") === "2" ? 2 : 1,
+    // An unchecked box posts nothing at all — `form.has` is the right read,
+    // the same one `createBookAction`'s "hien-thi" and
+    // `updateBookshelfSettingsAction`'s two comment toggles already use.
+    nested: form.has("long-nhau"),
+    level1Label: field(form, "ten-bac-1"),
+    level2Label: field(form, "ten-bac-2"),
+  });
+
+  backToCoCau(shelfSlug, outcome);
+}
+
+/**
+ * OPS §4.5's `CreateParishUnit` — the "Thêm đơn vị" disclosure at the foot of
+ * each level's list, and of each level-1 unit's own level-2 list when nested.
+ *
+ * **`cha` only ever arrives from a form that can supply a real parent.** The
+ * co-cau screen's nested level-2 "Thêm" disclosures each sit inside one
+ * specific level-1 unit's own block and carry that unit's id as a hidden
+ * field; the flat level-2 disclosure and every level-1 disclosure carry no
+ * `cha` field at all. So a manager cannot construct a request `createParishUnit`
+ * would refuse for `parentId` — see that command's own docstring for the
+ * nesting rule this shape is built to agree with.
+ */
+export async function createUnitAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const level = field(form, "bac") === "2" ? 2 : 1;
+  const outcome = complete(form, ["ten"])
+    ? await attemptTyped(shelfSlug, createParishUnit, {
+        level,
+        parentId: optional(form, "cha"),
+        name: field(form, "ten"),
+      })
+    : INCOMPLETE;
+
+  backToCoCau(shelfSlug, outcome);
+}
+
+/** OPS §4.5's `RenameParishUnit` — "Đổi tên" on a unit's own row. */
+export async function renameUnitAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["don-vi", "ten"])
+    ? await attemptTyped(shelfSlug, renameParishUnit, {
+        unitId: field(form, "don-vi"),
+        name: field(form, "ten"),
+      })
+    : INCOMPLETE;
+
+  backToCoCau(shelfSlug, outcome);
+}
+
+/**
+ * OPS §4.5's `DeleteParishUnit` — "Xoá" on a unit's own row, cascading to a
+ * level-1 unit's live level-2 children in the same transaction (the
+ * command's own docstring has the reasoning).
+ */
+export async function deleteUnitAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const outcome = complete(form, ["don-vi"])
+    ? await attempt(shelfSlug, deleteParishUnit, { unitId: field(form, "don-vi") })
+    : INCOMPLETE;
+
+  backToCoCau(shelfSlug, outcome);
+}
+
+/**
+ * OPS §4.5's `ReorderParishUnits` — "Lên" / "Xuống" on a unit's own row.
+ *
+ * **No client JavaScript, like the rest of this app.** Each row's pair of
+ * buttons lives in one `<form>` that also carries a hidden `thu-tu` input per
+ * sibling in the group, in their *current* rendered order — the same list
+ * `reorderParishUnits` itself requires ("all at one level, under one
+ * parent"). The two buttons share that one form and differ only in their own
+ * `name="huong"` `value`, which is how a native form tells two submit
+ * buttons apart without any script at all: only the clicked button's
+ * name/value pair is submitted.
+ *
+ * The new order is computed here, from the posted order and which id moved,
+ * never on the client: swap `di-chuyen`'s position with its neighbour in the
+ * direction named by `huong`, then post the whole array as `unitIds`. This is
+ * the "server computes `orderedIds` from the current order and the row being
+ * moved" shape the plan calls for, and it is also what
+ * `reorderParishUnits`'s own docstring insists on — a **partial** list is
+ * refused rather than repaired, so the posted `thu-tu` inputs have to be the
+ * *whole* sibling group or the command's own completeness check answers
+ * `validation_failed`.
+ *
+ * A move with nowhere to go — `di-chuyen` missing from `thu-tu`, or already
+ * at the edge `huong` points past — is the same `INCOMPLETE` refusal a
+ * malformed form gets elsewhere in this file. The rendered page never
+ * constructs this request (the edge button is simply not drawn), so reaching
+ * it means the form was tampered with or the list went stale between render
+ * and submit; `validation_failed`'s "Vui lòng kiểm tra lại thông tin." is the
+ * honest answer to a stale list, same as `reorderParishUnits`'s own.
+ */
+export async function reorderUnitsAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const order = form.getAll("thu-tu").map(String);
+  const moving = field(form, "di-chuyen");
+  const delta = field(form, "huong") === "xuong" ? 1 : -1;
+  const from = order.indexOf(moving);
+  const to = from + delta;
+
+  const outcome =
+    from === -1 || to < 0 || to >= order.length
+      ? INCOMPLETE
+      : await attemptTyped(shelfSlug, reorderParishUnits, {
+          unitIds: order.map((id, i) => {
+            if (i === from) return order[to];
+            if (i === to) return order[from];
+            return id;
+          }),
+        });
+
+  backToCoCau(shelfSlug, outcome);
 }
