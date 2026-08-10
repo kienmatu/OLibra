@@ -116,3 +116,44 @@ function toRow(r: {
     expiresAt: r.expires_at,
   };
 }
+
+/**
+ * OPS §3.2's `GetAnnouncementDetail` — one announcement's full body.
+ *
+ * **The same read-time expiry the list applies**, and that is the point rather
+ * than a copy: an announcement that has lapsed must not be readable by pasting
+ * its URL, or the list's filter would be a presentation choice instead of a
+ * rule. `null` for a draft, a lapsed one, or a slug naming nothing — RLS has
+ * already filtered another shelf's out of the select, so the three are one
+ * answer and the page turns it into a 404.
+ */
+export async function getAnnouncementDetail(
+  tx: Tx,
+  ctx: TenantContext,
+  input: { slug: string },
+): Promise<AnnouncementRow | null> {
+  requireReader(ctx);
+
+  const [row] = await tx<
+    {
+      id: string;
+      slug: string;
+      title: string;
+      body: string;
+      body_text: string;
+      is_pinned: boolean;
+      published_at: Date | null;
+      expires_at: Date | null;
+    }[]
+  >`
+    select id, slug, title, body, body_text, is_pinned, published_at, expires_at
+      from announcements
+     where slug = ${input.slug}
+       and deleted_at is null
+       and published_at is not null
+       and published_at <= olibra_now()
+       and (expires_at is null or expires_at > olibra_now())
+  `;
+
+  return row ? toRow(row) : null;
+}

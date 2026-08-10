@@ -12,8 +12,13 @@ import {
 } from "../../../src/domain/community/commands/announcements";
 import {
   getAllAnnouncements,
+  getAnnouncementDetail,
   getAnnouncements,
 } from "../../../src/domain/community/queries/get-announcements";
+import {
+  getDonationQueue,
+  getMyDonations,
+} from "../../../src/domain/community/queries/get-my-donations";
 import {
   markFeedbackRead,
   phoneHash,
@@ -294,13 +299,41 @@ test("the hash column holds a hash, and the audit record holds neither", async (
   expect(JSON.stringify(entry.after)).not.toContain(row.guest_hash);
 });
 
+test("omitting the shelf files feedback against the shelf in scope", async () => {
+  // The other half of the inverted default, and the one that would have been
+  // silent: a shelf form that names no shelf must not become a site-wide
+  // message. This is the case the old reading got wrong.
+  const { shelf, ctx } = await managerContext(sql);
+  const guest: TenantContext = {
+    ...ctx,
+    actor: { userId: null, membershipId: null, role: "guest" },
+  };
+
+  await runCommand(sql, guest, submitFeedback, {
+    senderName: "Phụ huynh",
+    phone: "0900000123",
+    body: "Tủ sách mở mấy giờ ạ?",
+  });
+
+  const [row] = await sql<{ bookshelf_id: string | null }[]>`
+    select bookshelf_id from feedback
+  `;
+  expect(row.bookshelf_id).toBe(shelf.id);
+});
+
 test("site-wide feedback carries no shelf, and only a super admin handles it", async () => {
   const { shelf, ctx } = await managerContext(sql);
   const guest: TenantContext = {
     ...ctx,
     actor: { userId: null, membershipId: null, role: "guest" },
   };
+  // **`null`, out loud.** The default was inverted after this slice found the
+  // hazard: under OPS §4.4's literal reading ("absent = site-wide"), a shelf's
+  // own `gop-y` form that simply forgot the field would file its parish's
+  // message into the administrator's site-wide inbox with nothing raised.
+  // Omitting now means *this shelf*; site-wide has to say so.
   const { feedbackId } = await runCommand(sql, guest, submitFeedback, {
+    bookshelfId: null,
     senderName: "Người lạ",
     phone: "0900000009",
     body: "Giáo xứ em muốn mở tủ sách",
@@ -419,4 +452,105 @@ test("an empty description is refused, and a reader cannot offer for somebody el
       description: "Giả danh",
     }),
   ).rejects.toMatchObject({ code: "not_permitted" });
+});
+
+test("an announcement detail 404s once it lapses, like the list", async () => {
+  // The half that makes the list's filter a *rule* rather than a presentation
+  // choice: if pasting the URL still rendered it, expiry would only be true of
+  // the index page.
+  const { shelf, ctx } = await managerContext(sql);
+  const reader = await makeMember(sql, shelf.id);
+  const { announcementId, slug } = await runCommand(sql, ctx, createAnnouncement, {
+    title: "Chỉ trong tuần này",
+    body: "Hết tuần là thôi.",
+  });
+  await runCommand(sql, ctx, publishAnnouncement, {
+    announcementId,
+    expiresAt: new Date("2026-08-10T00:00:00Z"),
+  });
+
+  expect(
+    await runQuery(sql, readerContext(shelf.id, reader), (tx, c) =>
+      getAnnouncementDetail(tx, c, { slug }),
+    ),
+  ).not.toBeNull();
+
+  expect(
+    await runQuery(sql, readerContext(shelf.id, reader, LATER), (tx, c) =>
+      getAnnouncementDetail(tx, c, { slug }),
+    ),
+  ).toBeNull();
+});
+
+test("a draft announcement is not readable by its slug either", async () => {
+  const { shelf, ctx } = await managerContext(sql);
+  const reader = await makeMember(sql, shelf.id);
+  const { slug } = await runCommand(sql, ctx, createAnnouncement, {
+    title: "Chưa đăng",
+    body: "Nháp",
+  });
+
+  expect(
+    await runQuery(sql, readerContext(shelf.id, reader), (tx, c) =>
+      getAnnouncementDetail(tx, c, { slug }),
+    ),
+  ).toBeNull();
+});
+
+test("a reader sees their own donations, scoped by membership not user", async () => {
+  // `donor_membership_id` is a `memberships(id)` — the reverse of this
+  // codebase's usual trap. Comparing a user id here matches nothing, which
+  // reads as "never offered anything" rather than as an error.
+  const { shelf, ctx } = await managerContext(sql);
+  const mine = await makeMember(sql, shelf.id);
+  const theirs = await makeMember(sql, shelf.id);
+
+  await runCommand(sql, readerContext(shelf.id, mine), offerDonation, {
+    membershipId: mine.id,
+    description: "Mười cuốn truyện tranh",
+    estimatedCount: 10,
+  });
+  await runCommand(sql, readerContext(shelf.id, theirs), offerDonation, {
+    membershipId: theirs.id,
+    description: "Của bạn khác",
+  });
+
+  const rows = await runQuery(sql, readerContext(shelf.id, mine), getMyDonations);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].description).toBe("Mười cuốn truyện tranh");
+  expect(rows[0].estimatedCount).toBe(10);
+  expect(rows[0].status).toBe("pending");
+
+  // And the manager's queue sees both, with the donor named for BR §16.3's
+  // pre-filled add-book form.
+  const queue = await runQuery(sql, ctx, getDonationQueue);
+  expect(queue).toHaveLength(2);
+  expect(queue[0].donorMembershipId).toBeTruthy();
+  expect(queue[0].donorName).toBeTruthy();
+});
+
+test("a declined offer carries its reason back to the reader", async () => {
+  const { shelf, ctx } = await managerContext(sql);
+  const reader = await makeMember(sql, shelf.id);
+  const { donationId } = await runCommand(
+    sql,
+    readerContext(shelf.id, reader),
+    offerDonation,
+    { membershipId: reader.id, description: "Vài cuốn cũ" },
+  );
+  await runCommand(sql, ctx, declineDonation, {
+    donationId,
+    reason: "Tủ sách đã có nhiều bản này rồi",
+  });
+
+  const [row] = await runQuery(
+    sql,
+    readerContext(shelf.id, reader),
+    getMyDonations,
+  );
+  expect(row.status).toBe("declined");
+  expect(row.decisionNote).toBe("Tủ sách đã có nhiều bản này rồi");
+
+  // And it leaves the manager's queue, which is pending only.
+  expect(await runQuery(sql, ctx, getDonationQueue)).toEqual([]);
 });

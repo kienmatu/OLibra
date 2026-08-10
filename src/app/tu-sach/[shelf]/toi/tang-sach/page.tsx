@@ -1,136 +1,152 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { Clock, CircleCheckBig, CircleX, Gift, ImageIcon } from "lucide-react";
-import { ButtonLink } from "@/components/ui/button";
-import { PageHeading } from "@/components/ui/card";
-import { Pill, type PillTone } from "@/components/ui/pill";
+import { Gift } from "lucide-react";
+import { Field, Input, Textarea } from "@/components/ui/field";
+import { PageHeading, SectionHeading } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
-import {
-  donationsByReader,
-  fixtureViewerName,
-  shelfBySlug,
-  shelves,
-} from "@/lib/fixtures";
-import type { Donation } from "@/lib/fixtures";
-import type { LucideIcon } from "lucide-react";
-
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
-
-const STATUS: Record<
-  Donation["status"],
-  { label: string; icon: LucideIcon; tone: PillTone }
-> = {
-  pending: { label: "Chờ duyệt", icon: Clock, tone: "held" },
-  received: { label: "Đã nhận", icon: CircleCheckBig, tone: "available" },
-  declined: { label: "Đã từ chối", icon: CircleX, tone: "overdue" },
-};
+import { messageFor } from "@/domain/kernel/errors";
+import { getMyDonations } from "@/domain/community/queries/get-my-donations";
+import { readShelf } from "@/lib/shelf";
+import { loadPage } from "@/lib/page-data";
+import { formatInstant } from "@/lib/dates";
+import { refusalFrom, type SearchParams } from "@/lib/search-params";
+import { offerDonationAction } from "../../community-actions";
 
 /**
- * `GetMyDonations` (§16.2 of the requirements) — the reader's own offers and
- * where each stands, "the same way they already track any other request on
- * this page." Reached from `ReaderTabs`, the way every other reader page is
- * reached; previously the offer form at `/tang-sach` was linked only from
- * the shelf-home footer and nothing let a reader check back on what they'd
- * already sent.
+ * Tặng sách — a reader offers books they no longer want.
+ *
+ * **Deliberately thin**, and OPS §4.4 says why: free text, a rough count,
+ * "because a child does not know a publisher or an ISBN, and book data is only
+ * worth recording once a volunteer has the book in hand". Asking a nine-year-old
+ * for an ISBN is how an offer never gets made.
+ *
+ * A declined offer shows its reason, because that is the whole point of
+ * requiring one — the reader reads it. A received one says so and stops there:
+ * `receiveDonation` writes no book row, so there is nothing to link to yet, and
+ * inventing a link to a catalogue entry that may never be typed would be the
+ * screen promising something the command did not do.
  */
+export const dynamic = "force-dynamic";
+
+const STATUS: Record<
+  string,
+  { label: string; tone: "available" | "onloan" | "overdue" }
+> = {
+  pending: { label: "Đang chờ", tone: "onloan" },
+  received: { label: "Đã nhận", tone: "available" },
+  declined: { label: "Chưa nhận", tone: "overdue" },
+};
+
 export default async function MyDonationsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
+  const refusal = refusalFrom(await searchParams);
 
-  const base = `/tu-sach/${shelf.slug}`;
-  // Every reader-facing page under /toi is a fixture for reader "minh"
-  // (Giuse Trần Minh) — same convention as /toi, /toi/lich-su, /toi/ho-so.
-  const myDonations = donationsByReader("minh");
+  const { shelf, viewer, donations, membershipId } = await loadPage(
+    slug,
+    async (tx, ctx, v) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer: v,
+      donations: await getMyDonations(tx, ctx),
+      membershipId: ctx.actor.membershipId,
+    }),
+  );
+
+  const base = `/tu-sach/${slug}`;
 
   return (
     <>
       <ShelfHeader
         shelfName={shelf.name}
-        shelfSlug={shelf.slug}
-        viewerName={fixtureViewerName}
+        shelfSlug={slug}
+        active="toi"
+        viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={shelf.slug} active="tang-sach" />
+      <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
 
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <main className="mx-auto max-w-2xl px-6 py-10">
         <PageHeading
-          title="Tặng sách của em"
-          subtitle="Những lời đề nghị tặng sách em đã gửi, và tình trạng từng lời."
-          action={
-            <ButtonLink href={`${base}/tang-sach`} variant="primary" size="md">
-              <Gift aria-hidden className="size-5" strokeWidth={1.75} />
-              Gửi lời đề nghị mới
-            </ButtonLink>
-          }
+          title="Tặng sách cho tủ sách"
+          subtitle="Em có cuốn nào đọc xong rồi, muốn tặng lại cho các bạn khác không?"
         />
 
-        {myDonations.length > 0 ? (
-          <ul className="mt-8 space-y-4">
-            {myDonations.map((donation) => {
-              const status = STATUS[donation.status];
-              return (
-                <li
-                  key={donation.id}
-                  className="rounded-card border border-hairline bg-surface p-5"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <p className="text-[15px] text-meta">
-                      Gửi ngày {donation.submittedOn}
+        {refusal ? (
+          <p className="mt-6 rounded-card border border-hairline bg-surface px-4 py-3 text-[14px] text-ink">
+            {messageFor(refusal)}
+          </p>
+        ) : null}
+
+        <form action={offerDonationAction} className="mt-8 space-y-5">
+          <input type="hidden" name="tu-sach" value={slug} />
+          <input type="hidden" name="thanh-vien" value={membershipId ?? ""} />
+
+          <Field label="Em muốn tặng sách gì?" required htmlFor="mo-ta">
+            <Textarea
+              id="mo-ta"
+              name="mo-ta"
+              rows={4}
+              required
+              placeholder="Ví dụ: khoảng mười cuốn truyện tranh, còn khá mới"
+            />
+          </Field>
+
+          <Field label="Khoảng bao nhiêu cuốn?" htmlFor="so-luong">
+            <Input id="so-luong" name="so-luong" inputMode="numeric" />
+          </Field>
+
+          <SubmitButton variant="primary" size="lg">
+            Gửi lời tặng sách
+          </SubmitButton>
+        </form>
+
+        {donations.length > 0 ? (
+          <section className="mt-12">
+            <SectionHeading>Những lần em đã tặng</SectionHeading>
+            <ul className="mt-4 divide-y divide-hairline rounded-card border border-hairline bg-surface">
+              {donations.map((d) => {
+                const status = STATUS[d.status] ?? {
+                  label: d.status,
+                  tone: "onloan" as const,
+                };
+                return (
+                  <li key={d.donationId} className="px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="min-w-0 flex-1 text-[15px] leading-snug">
+                        {d.description}
+                      </p>
+                      <Pill icon={Gift} label={status.label} tone={status.tone} />
+                    </div>
+                    <p className="mt-2 text-[13px] text-meta">
+                      Gửi {formatInstant(d.offeredAt)}
+                      {d.estimatedCount !== null
+                        ? ` · khoảng ${d.estimatedCount} cuốn`
+                        : ""}
                     </p>
-                    <Pill
-                      icon={status.icon}
-                      label={status.label}
-                      tone={status.tone}
-                    />
-                  </div>
-                  <p className="mt-2 text-[16px]">{donation.description}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[14px] text-meta">
-                    {donation.estimatedCount ? (
-                      <span>Khoảng {donation.estimatedCount} cuốn</span>
+                    {/* The reason a decline required one. */}
+                    {d.status === "declined" && d.decisionNote ? (
+                      <p className="mt-2 text-[14px] text-ink">{d.decisionNote}</p>
                     ) : null}
-                    {donation.hasPhoto ? (
-                      <span className="inline-flex items-center gap-1">
-                        <ImageIcon
-                          aria-hidden
-                          className="size-4"
-                          strokeWidth={1.75}
-                        />
-                        Có ảnh đính kèm
-                      </span>
-                    ) : null}
-                  </div>
-                  {donation.status === "declined" && donation.decisionNote ? (
-                    <p className="mt-3 rounded-control bg-paper p-3 text-[14px]">
-                      Lý do từ chối: {donation.decisionNote}
-                    </p>
-                  ) : null}
-                  {donation.status === "received" ? (
-                    <p className="mt-3 text-[14px] text-meta">
-                      Cảm ơn em! Sách đã được quản lý nhận vào tủ sách.
-                    </p>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <div className="mt-8 rounded-card border border-hairline bg-paper p-6 text-center">
-            <p className="text-[16px]">Em chưa gửi lời đề nghị tặng sách nào.</p>
-            <Link
-              href={`${base}/tang-sach`}
-              className="mt-2 inline-flex min-h-11 items-center text-[15px] font-medium text-sage hover:underline"
-            >
-              Gửi lời đề nghị đầu tiên
-            </Link>
-          </div>
-        )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
+
+        <Link
+          href={`${base}/toi`}
+          className="mt-10 inline-block text-[14px] underline"
+        >
+          Về trang của tôi
+        </Link>
       </main>
     </>
   );

@@ -48,7 +48,7 @@ export default async function ReaderNotificationsPage({
       <ShelfHeader
         shelfName={shelf.name}
         shelfSlug={slug}
-        active="thong-bao"
+        active="thong-bao-cua-toi"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
       />

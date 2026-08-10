@@ -20,7 +20,19 @@ import { requireSuperAdmin } from "../../members/policy";
  */
 
 export interface SubmitFeedbackInput {
-  /** Absent means site-wide — the `lien-he` form rather than a shelf's `gop-y`. */
+  /**
+   * **Omitted means *this shelf*; an explicit `null` means site-wide.**
+   *
+   * OPS §4.4 words it the other way round — "absent = site-wide" — and this
+   * inverts the default deliberately. A caller that omits the field is almost
+   * always a shelf's own `gop-y` form, which runs inside that shelf's scope and
+   * has the id in its context; a caller that means site-wide is `/lien-he`,
+   * which is a global page and has to say so. Under OPS's reading a shelf form
+   * that simply forgot the field would file its parish's message into the
+   * administrator's site-wide inbox and nothing would raise — silence in the
+   * direction of the wrong inbox. Saying `null` out loud is one word, and it is
+   * the rarer case.
+   */
   bookshelfId?: string | null;
   senderName: string;
   phone: string;
@@ -81,7 +93,8 @@ export const submitFeedback: Command<
         (bookshelf_id, member_id, guest_name, guest_contact, guest_hash,
          subject, body, created_at)
       values
-        (${input.bookshelfId ?? null}, ${ctx.actor.userId}, ${senderName},
+        (${input.bookshelfId === undefined ? ctx.bookshelfId : input.bookshelfId},
+         ${ctx.actor.userId}, ${senderName},
          ${phone}, ${hash}, ${input.subject?.trim() ?? ""}, ${body},
          ${ctx.clock.now()})
       returning id
