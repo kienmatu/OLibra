@@ -246,6 +246,44 @@ export const ERROR_MESSAGES = {
   slug_taken: "Địa chỉ này đã có tủ sách khác dùng.",
   already_archived: "Tủ sách này đã được lưu trữ.",
   already_super_admin: "Người này đã là quản trị viên hệ thống.",
+  // QA remediation Task 15: measured on 2026-08-10, `updateBookshelfSettings`
+  // took `loanDays: 0` and wrote `settings.loan_days = 0` with no error —
+  // every loan from that shelf then fell due the day it was made, and
+  // `max_concurrent_loans = 0` would have stopped all borrowing the same
+  // silent way. The two admin forms' `<input type="number" min="0">` had no
+  // `max` and the domain checked only "a safe integer, not negative" — `0`
+  // passed both.
+  //
+  // Six codes, not one `validation_failed` reused six times: a manager reading
+  // "Vui lòng kiểm tra lại thông tin." after typing `0` into "Số ngày cho
+  // mượn" has no way to know which of five boxes on the page was the problem,
+  // or what value would have been accepted. `src/domain/admin/policy.ts`
+  // holds the one bound table both `updateBookshelfSettings` and
+  // `updateSystemDefaults` check against, so the six sentences below are the
+  // only place these numbers are ever named — the same argument `errors.ts`
+  // makes for itself at the top of this file, applied to a table instead of a
+  // single rule.
+  //
+  // `max_renewals` and `due_soon_days` are the two whose floor is 0 rather
+  // than 1: BR §5.5 lets a shelf configure "no renewals", and OPS's sweep
+  // window may legitimately warn a reader on the due date itself. Both
+  // sentences still say "phải từ 0 đến …" so a manager who *does* overshoot
+  // the ceiling, or sends a negative number, reads the true legal range rather
+  // than a floor that looks like it forbids zero.
+  //
+  // `due_soon_days` has no command that writes it yet — U1's
+  // `getShelfSettings` reports it as the constant `sweepDueNotifications`
+  // defaults to (`src/domain/shelf/queries/get-shelf-settings.ts:25-29`), and
+  // no admin form has a box for it. It is bounded here anyway, deliberately
+  // ahead of the form that will need it (Task 23), so that command inherits
+  // the rule for free rather than a seventh task re-deriving the same
+  // argument this paragraph already makes.
+  loan_days_out_of_range: "Số ngày cho mượn phải từ 1 đến 365 ngày.",
+  max_concurrent_loans_out_of_range: "Số sách mượn cùng lúc phải từ 1 đến 50 cuốn.",
+  max_renewals_out_of_range: "Số lần gia hạn phải từ 0 đến 10 lần.",
+  renewal_days_out_of_range: "Số ngày mỗi lần gia hạn phải từ 1 đến 365 ngày.",
+  hold_days_out_of_range: "Số ngày giữ chỗ phải từ 1 đến 30 ngày.",
+  due_soon_days_out_of_range: "Báo sắp đến hạn trước phải từ 0 đến 30 ngày.",
   // Feedback. The rate limit is OPS §8's, stated verbatim in the shipped form.
   rate_limited: "Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác.",
   feedback_fields_required: "Vui lòng điền đầy đủ các trường bắt buộc.",

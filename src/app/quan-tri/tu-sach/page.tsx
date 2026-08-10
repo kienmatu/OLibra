@@ -253,31 +253,52 @@ export default async function AdminBookshelvesPage({
                 sửa được.
               </p>
 
+              {/* QA remediation Task 15: `min={0}` and no `max` at all is what
+                  let "Số ngày cho mượn" take `0` and save silently — every
+                  loan from that shelf would then fall due the day it was
+                  made. Each field's own `min`/`max` here mirrors
+                  `checkPolicyBound`'s table (`src/domain/admin/policy.ts`)
+                  exactly, so the browser refuses first and the domain is the
+                  backstop it was already meant to be — never the only
+                  check, since a number box's `min`/`max` is trivially
+                  bypassed by anyone editing the request by hand. */}
               {[
                 {
                   id: "so-ngay-muon",
                   label: "Số ngày cho mượn",
                   value: selected.settings.policy.loanDays,
+                  min: 1,
+                  max: 365,
                 },
                 {
                   id: "so-sach-cung-luc",
                   label: "Số sách mượn cùng lúc",
                   value: selected.settings.policy.maxConcurrentLoans,
+                  min: 1,
+                  max: 50,
                 },
                 {
                   id: "so-lan-gia-han",
                   label: "Số lần gia hạn",
                   value: selected.settings.policy.maxRenewals,
+                  // The one field whose floor is 0, not 1 — "no renewals" is
+                  // a real policy (BR §5.5), not the defect this task closes.
+                  min: 0,
+                  max: 10,
                 },
                 {
                   id: "so-ngay-gia-han",
                   label: "Số ngày mỗi lần gia hạn",
                   value: selected.settings.policy.renewalDays,
+                  min: 1,
+                  max: 365,
                 },
                 {
                   id: "so-ngay-giu-cho",
                   label: "Số ngày giữ chỗ",
                   value: selected.settings.policy.holdDays,
+                  min: 1,
+                  max: 30,
                 },
               ].map((f) => (
                 <Field key={f.id} label={f.label} required htmlFor={f.id}>
@@ -285,7 +306,8 @@ export default async function AdminBookshelvesPage({
                     id={f.id}
                     name={f.id}
                     type="number"
-                    min={0}
+                    min={f.min}
+                    max={f.max}
                     required
                     defaultValue={f.value}
                   />

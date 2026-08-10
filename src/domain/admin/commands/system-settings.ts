@@ -1,5 +1,5 @@
-import { ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
+import { checkPolicyBound } from "../policy";
 
 /**
  * OPS §4.5's two writes to `system_settings` — the installation's own row.
@@ -94,14 +94,18 @@ export const updateSystemDefaults: Command<SystemDefaultsInput, void> = async (
   ctx,
   input,
 ) => {
-  for (const [field, value] of Object.entries(input)) {
-    // A zero-day loan period or a negative limit is not a policy anybody meant,
-    // and these three feed straight into a new shelf's settings bag where no
-    // constraint can express it.
-    if (!Number.isSafeInteger(value) || value < 1) {
-      throw new ValidationFailed("validation_failed", field);
-    }
-  }
+  // QA remediation Task 15: this used to accept any non-negative integer —
+  // `loanDays: 0` included — under the generic `validation_failed`, the same
+  // defect and the same fix `updateBookshelfSettings` gets below. The three
+  // explicit calls, not a loop over `Object.entries(input)` as this used to
+  // be, are what let each of `loanDays`, `maxConcurrentLoans` and `holdDays`
+  // check against its *own* range: `Object.entries` would need a second table
+  // mapping this input's camelCase keys to `PolicyField`'s snake_case ones,
+  // which `checkPolicyBound` (`../policy.ts`) already owns as the jsonb column
+  // names `updateBookshelfSettings` writes verbatim.
+  checkPolicyBound("loan_days", input.loanDays);
+  checkPolicyBound("max_concurrent_loans", input.maxConcurrentLoans);
+  checkPolicyBound("hold_days", input.holdDays);
 
   await tx`
     update system_settings

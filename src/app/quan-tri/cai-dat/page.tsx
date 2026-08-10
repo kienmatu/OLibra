@@ -115,12 +115,19 @@ export default async function AdminSettingsPage({
             quy định của mình.
           </p>
 
+          {/* QA remediation Task 15: `min={1}` with no `max` let this box
+              take an unbounded number and, worse, a sibling box on
+              `/quan-tri/tu-sach` took `0` and saved it silently. The `max`
+              added to each field here mirrors `checkPolicyBound`'s table
+              (`src/domain/admin/policy.ts`) — the browser refuses first, the
+              domain is the backstop for anyone bypassing this form. */}
           <Field label="Số ngày cho mượn" required htmlFor="so-ngay-muon">
             <Input
               id="so-ngay-muon"
               name="so-ngay-muon"
               type="number"
               min={1}
+              max={365}
               required
               defaultValue={settings.defaultLoanDays}
             />
@@ -131,6 +138,7 @@ export default async function AdminSettingsPage({
               name="so-sach-cung-luc"
               type="number"
               min={1}
+              max={50}
               required
               defaultValue={settings.defaultMaxConcurrentLoans}
             />
@@ -141,6 +149,7 @@ export default async function AdminSettingsPage({
               name="so-ngay-giu-cho"
               type="number"
               min={1}
+              max={30}
               required
               defaultValue={settings.defaultHoldDays}
             />

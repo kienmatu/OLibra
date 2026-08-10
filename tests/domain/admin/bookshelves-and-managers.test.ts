@@ -199,7 +199,14 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
   expect(settings.policy.holdDays).toBe(5);
 });
 
-test("a negative policy value is refused", async () => {
+test("a negative policy value is refused, by loan_days's own code", async () => {
+  // QA remediation Task 15: this used to be the generic `validation_failed` —
+  // "Vui lòng kiểm tra lại thông tin." names nothing a manager can act on for
+  // six different numbers. `checkPolicyBound`
+  // (`src/domain/admin/policy.ts`) is exercised exhaustively in
+  // `tests/domain/admin/bookshelf-settings.test.ts`; this one stays here to
+  // pin that the command reached in this file's own "editing the policy"
+  // scenario is actually wired to it.
   const ctx = await admin();
   const shelf = await makeShelf(sql);
   expect(
@@ -214,7 +221,7 @@ test("a negative policy value is refused", async () => {
         },
       ),
     ),
-  ).toBe("validation_failed");
+  ).toBe("loan_days_out_of_range");
 });
 
 // ── Archiving ──────────────────────────────────────────────────────────────
@@ -520,7 +527,9 @@ test("the audit row for a contact change carries no telephone number", async () 
   expect(JSON.stringify(row.after)).not.toContain("0909111222");
 });
 
-test("a defaults value below one is refused", async () => {
+test("a defaults value below one is refused, by loan_days's own code", async () => {
+  // QA remediation Task 15: was the generic `validation_failed` — see the
+  // sibling note on "a negative policy value is refused" above.
   const ctx = await admin();
   expect(
     await codeThrownBy(() =>
@@ -530,5 +539,5 @@ test("a defaults value below one is refused", async () => {
         holdDays: 3,
       }),
     ),
-  ).toBe("validation_failed");
+  ).toBe("loan_days_out_of_range");
 });

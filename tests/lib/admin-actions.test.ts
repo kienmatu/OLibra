@@ -177,10 +177,16 @@ test("a refusal on a target that already carries a query string joins with '&', 
   // `param`/`refusalFrom` do against a real request) finds nothing, because
   // everything after the *first* `?` is one query string and `loi` is buried
   // inside the value of `tu-sach`.
+  //
+  // `loan_days_out_of_range`, not `validation_failed`: QA remediation
+  // Task 15 gave a negative (or otherwise out-of-range) `loanDays` its own
+  // code, via `checkPolicyBound` (`src/domain/admin/policy.ts`). This test is
+  // about the `?`-joining, not the refusal code, so it only needed updating
+  // to keep matching the command's real behaviour.
   expect(target).toBe(
-    `/quan-tri/tu-sach?tu-sach=${shelf.id}&loi=validation_failed`,
+    `/quan-tri/tu-sach?tu-sach=${shelf.id}&loi=loan_days_out_of_range`,
   );
-  expect(refusalIn(target)).toBe("validation_failed");
+  expect(refusalIn(target)).toBe("loan_days_out_of_range");
 });
 
 test("a refusal on a target with no existing query string still gets exactly one '?'", async () => {

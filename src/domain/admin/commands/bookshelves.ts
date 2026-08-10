@@ -1,6 +1,7 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { fold } from "../../kernel/fold";
+import { checkPolicyBound, type PolicyField } from "../policy";
 
 /**
  * OPS §4.5's shelf lifecycle — the three commands that create, edit and retire a
@@ -180,11 +181,19 @@ export const updateBookshelfSettings: Command<
   put("comments_require_approval", input.commentsRequireApproval);
 
   for (const [key, value] of Object.entries(policy)) {
-    // A negative loan period, or a renewal count of minus one, is not a policy
-    // anybody meant. Checked here because `settings` is a schemaless bag and no
-    // constraint can express it.
-    if (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0)) {
-      throw new ValidationFailed("validation_failed", key);
+    // QA remediation Task 15: this used to accept any non-negative integer —
+    // `loanDays: 0` included, measured live on 2026-08-10 — because `settings`
+    // is a schemaless bag and no database constraint can express a range over
+    // one of its keys. `checkPolicyBound` (`../policy.ts`) is the one table
+    // both this command and `updateSystemDefaults` check the five numeric keys
+    // above against, so `0` now reads "Số ngày cho mượn phải từ 1 đến 365
+    // ngày." rather than a bare "Vui lòng kiểm tra lại thông tin." — six
+    // different numbers, six different sentences, one place either is edited.
+    // The two boolean keys (`comments_enabled`, `comments_require_approval`)
+    // have no range to check and are excluded by the `typeof` guard exactly as
+    // they were before this task.
+    if (typeof value === "number") {
+      checkPolicyBound(key as PolicyField, value);
     }
   }
 
