@@ -10,7 +10,7 @@ import { formatInstant } from "@/lib/dates";
 import {
   markAllNotificationsReadAction,
   markNotificationReadAction,
-} from "../actions";
+} from "../reader-actions";
 
 /**
  * The bell's own page. BR §15: in-app only, no email, an unread count.
@@ -122,7 +122,7 @@ export default async function ReaderNotificationsPage({
         )}
 
         <Link
-          href={`${base}/toi`}
+          href={`${base}/ho-so/tong-quan`}
           className="mt-8 inline-block text-[14px] underline"
         >
           Về trang của tôi

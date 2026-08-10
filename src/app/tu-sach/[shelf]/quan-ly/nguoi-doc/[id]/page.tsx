@@ -368,7 +368,7 @@ function MarkLeftDisclosure({
 /**
  * "Sửa hồ sơ" — `updateReaderProfile`'s direct-write path, wrapping the same
  * seven fields the reader's own profile form proposes
- * (`toi/ho-so/page.tsx`'s "Thông tin cá nhân" section), pre-filled with what
+ * (`ho-so/page.tsx`'s "Thông tin cá nhân" section), pre-filled with what
  * is on file rather than blank. Field-for-field the same set, including which
  * three carry `required`: full name is, saint name/DOB/father's/mother's
  * names/phone/email are not, matching that sibling form exactly — a manager

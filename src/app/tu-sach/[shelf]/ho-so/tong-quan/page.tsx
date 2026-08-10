@@ -15,7 +15,7 @@ import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatDueDate, formatInstant } from "@/lib/dates";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
-import { renewLoanAction } from "./actions";
+import { renewLoanAction } from "../reader-actions";
 
 /**
  * BR §16.2's "My page": books currently held with days remaining and a renew
@@ -228,7 +228,7 @@ export default async function ReaderDashboardPage({
               ))}
             </ul>
             <Link
-              href={`${base}/toi/lich-su`}
+              href={`${base}/ho-so/lich-su`}
               className="mt-4 inline-block text-[14px] underline"
             >
               Xem toàn bộ lịch sử

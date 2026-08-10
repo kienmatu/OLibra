@@ -40,7 +40,7 @@ async function attempt(run: () => Promise<unknown>): Promise<string | null> {
 export async function renewLoanAction(formData: FormData): Promise<void> {
   const shelf = String(formData.get("tu-sach") ?? "");
   const loanId = String(formData.get("muon") ?? "");
-  const base = `/tu-sach/${shelf}/toi`;
+  const base = `/tu-sach/${shelf}/ho-so/tong-quan`;
 
   // Shape-checked before it reaches Postgres: a non-uuid would arrive as a raw
   // `22P02` from inside the transaction, the unstructured exception OPS §2
@@ -59,7 +59,7 @@ export async function markNotificationReadAction(
 ): Promise<void> {
   const shelf = String(formData.get("tu-sach") ?? "");
   const notificationId = String(formData.get("thong-bao") ?? "");
-  const base = `/tu-sach/${shelf}/toi/thong-bao`;
+  const base = `/tu-sach/${shelf}/ho-so/thong-bao`;
 
   if (!isUuid(notificationId)) redirect(base);
 
@@ -74,5 +74,5 @@ export async function markAllNotificationsReadAction(
 ): Promise<void> {
   const shelf = String(formData.get("tu-sach") ?? "");
   await attempt(() => submitCommand(shelf, markAllNotificationsRead, undefined));
-  redirect(`/tu-sach/${shelf}/toi/thong-bao`);
+  redirect(`/tu-sach/${shelf}/ho-so/thong-bao`);
 }

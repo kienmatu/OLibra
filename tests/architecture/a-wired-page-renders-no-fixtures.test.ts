@@ -206,7 +206,7 @@ const PAGES_NOT_YET_WIRED = [
   "src/app/loi/page.tsx",
 
   // Reads nothing because it *is* nothing: U5 replaced the second donation
-  // screen with a redirect to `toi/tang-sach`, the one the reader's own
+  // screen with a redirect to `ho-so/tang-sach`, the one the reader's own
   // queries live behind. A route that only redirects has nothing to read.
   "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
 ];
@@ -554,20 +554,25 @@ test("the link check resolves the routes it claims to", () => {
   );
   expect(linkTargetsIn(managerShell)).toEqual(["src/app"]);
 
-  // U4 wired `toi/`, so its link is back — and this asserts *both* halves,
-  // because a link restored to a page that is still fixture-backed is exactly
-  // what IMPORTANT 4 removed it for. Restoring the link without wiring the page
-  // fails on the second line rather than passing quietly.
-  expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/toi");
+  // U4 wired the reader dashboard (`toi/` at the time, renamed to
+  // `ho-so/tong-quan/` by Task 7 of the 2026-08-10 QA remediation), so its
+  // link is back — and this asserts *both* halves, because a link restored to
+  // a page that is still fixture-backed is exactly what IMPORTANT 4 removed it
+  // for. Restoring the link without wiring the page fails on the second line
+  // rather than passing quietly.
+  expect(linkTargetsIn(header)).toContain(
+    "src/app/tu-sach/[shelf]/ho-so/tong-quan",
+  );
   expect(
-    routes().find((r) => r.path === "src/app/tu-sach/[shelf]/toi/page.tsx")
-      ?.importsFixtures,
+    routes().find(
+      (r) => r.path === "src/app/tu-sach/[shelf]/ho-so/tong-quan/page.tsx",
+    )?.importsFixtures,
   ).toBe(false);
 
   // Both halves of IMPORTANT 4 are now back, each beside its wired page — the
-  // second one here. Same two-part assertion as `toi` above: the link exists
-  // *and* the page it points at is real, so restoring one without the other
-  // fails rather than passing quietly.
+  // second one here. Same two-part assertion as the reader dashboard above:
+  // the link exists *and* the page it points at is real, so restoring one
+  // without the other fails rather than passing quietly.
   expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/thong-bao");
   expect(
     routes().find((r) => r.path === "src/app/tu-sach/[shelf]/thong-bao/page.tsx")

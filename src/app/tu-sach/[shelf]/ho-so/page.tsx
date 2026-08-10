@@ -19,7 +19,7 @@ import {
   proposeAvatarAction,
   proposeProfileChangeAction,
   updateOwnProfileAction,
-} from "./actions";
+} from "./profile-actions";
 
 /**
  * The reader's own profile — BR §2's "changing your own details is a request,

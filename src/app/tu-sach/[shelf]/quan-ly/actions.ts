@@ -87,7 +87,7 @@ import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
  * `ValidationFailed` is a *normal* outcome rather than a fault dressed as an
  * answer: a volunteer typing a child's details can produce
  * `required_fields_missing` or a date `::date` would misread, and both are
- * things they did and can undo. `toi/ho-so/actions.ts` made the same call for
+ * things they did and can undo. `ho-so/profile-actions.ts` made the same call for
  * the avatar upload and gives the long version. What it does **not** catch,
  * where that file does, is `NotWired` — see `registerReaderOnBehalfAction`.
  *
@@ -155,7 +155,7 @@ async function attempt<I, O>(
  *
  * Kept as a second function rather than as a flag on `attempt`, so that the
  * narrow catch stays the default and a new action has to *choose* the wider one
- * and say why. `toi/ho-so/actions.ts` reached the same shape from the other
+ * and say why. `ho-so/profile-actions.ts` reached the same shape from the other
  * direction and its docstring holds the general argument.
  */
 async function attemptTyped<I, O>(
@@ -1179,7 +1179,7 @@ export async function setReaderCredentialsAction(form: FormData): Promise<void> 
         membershipId,
         username: field(form, "ten-dang-nhap"),
         // Not trimmed, like every other password field in this codebase
-        // (`toi/ho-so/actions.ts`'s `changeOwnPasswordAction` carries the
+        // (`ho-so/profile-actions.ts`'s `changeOwnPasswordAction` carries the
         // reasoning): a password is bytes a person chose, and trimming one
         // silently changes the secret. `field()` above trims, so this reads
         // the form directly.
@@ -1266,7 +1266,7 @@ export async function markMembershipLeftAction(form: FormData): Promise<void> {
  * OPS §4.3's `UpdateReaderProfile` — "Sửa hồ sơ", the manager's direct
  * correction path INV-13b's restatement opened up, wrapping the identical
  * seven fields `proposeProfileChangeAction` above collects for the reader's
- * own proposal (`toi/ho-so/actions.ts`). Not the eighth, `avatar_url`: that
+ * own proposal (`ho-so/profile-actions.ts`). Not the eighth, `avatar_url`: that
  * one has its own proposal-and-approve lifecycle
  * (`ProposeAvatarChange`/`ApproveProfileChange`) and no direct-write
  * counterpart exists for a manager to reach through this command — sending it

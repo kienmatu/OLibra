@@ -160,7 +160,7 @@ export function ShelfHeader({
    * without wiring the pages first.
    *
    * This header sits on all four pages U2 wired. `${base}/thong-bao` and
-   * `${base}/toi` are not wired: they render `src/lib/fixtures.ts` — Đồng
+   * `${base}/ho-so/tong-quan` are not wired: they render `src/lib/fixtures.ts` — Đồng
    * Tháp's invented announcements, and a stranger's loans and donation history
    * under the name "Giuse Trần Minh". So a real member of Vĩnh Long, having
    * just seen their real catalogue under their real name, tapped "Thông báo"
@@ -190,7 +190,7 @@ export function ShelfHeader({
    * is not something this slice introduced, and it is recorded in the U2 plan's
    * §6 rather than half-solved here.
    *
-   * **Both are back now**, each alongside its wired page — `toi/` first, then
+   * **Both are back now**, each alongside its wired page — `ho-so/` first, then
    * `thong-bao` when B3's announcements list got a real query behind it. They
    * were never one decision; they were one sentence about two pages, and they
    * returned separately because they were wired separately. The self-test in
@@ -205,9 +205,14 @@ export function ShelfHeader({
       key: "thong-bao",
       icon: false,
     },
-    { href: `${base}/toi`, label: "Trang của tôi", key: "toi", icon: false },
     {
-      href: `${base}/toi/thong-bao`,
+      href: `${base}/ho-so/tong-quan`,
+      label: "Trang của tôi",
+      key: "toi",
+      icon: false,
+    },
+    {
+      href: `${base}/ho-so/thong-bao`,
       // BR §15: "surfaced as a bell with an unread count". The count is in the
       // label rather than in a superscript badge because this nav is text at
       // every width, and a number a child can read beats a dot they cannot.

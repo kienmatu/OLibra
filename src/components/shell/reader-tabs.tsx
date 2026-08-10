@@ -2,11 +2,11 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { key: "trang-cua-toi", label: "Trang của tôi", path: "toi" },
-  { key: "lich-su", label: "Lịch sử mượn", path: "toi/lich-su" },
-  { key: "tang-sach", label: "Tặng sách", path: "toi/tang-sach" },
-  { key: "ho-so", label: "Hồ sơ", path: "toi/ho-so" },
-  { key: "thong-bao", label: "Thông báo", path: "toi/thong-bao" },
+  { key: "trang-cua-toi", label: "Trang của tôi", path: "ho-so/tong-quan" },
+  { key: "lich-su", label: "Lịch sử mượn", path: "ho-so/lich-su" },
+  { key: "tang-sach", label: "Tặng sách", path: "ho-so/tang-sach" },
+  { key: "ho-so", label: "Hồ sơ", path: "ho-so" },
+  { key: "thong-bao", label: "Thông báo", path: "ho-so/thong-bao" },
 ] as const;
 
 export type ReaderTabKey = (typeof TABS)[number]["key"];

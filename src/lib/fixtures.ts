@@ -1120,7 +1120,7 @@ export const lostCopies: LostCopy[] = [
   },
   // Not DT-0112 (Những Tấm Lòng Cao Cả) — that copy is already `held`,
   // reserved for Anna Phạm Thu Hà to collect (see the borrow-request queue
-  // and /toi/thong-bao). A copy cannot be simultaneously held and lost
+  // and /ho-so/thong-bao). A copy cannot be simultaneously held and lost
   // (INV-2), so the third lost example lives on a title with no other claim
   // on its one copy instead.
   {

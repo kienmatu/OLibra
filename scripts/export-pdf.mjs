@@ -103,22 +103,22 @@ const SECTIONS = [
     blurb: "Sau khi đăng nhập: sách đang mượn, lịch sử, hồ sơ và thông báo.",
     routes: [
       [
-        `${S}/toi`,
+        `${S}/ho-so/tong-quan`,
         "Trang của tôi",
         "Sách đang giữ, số ngày còn lại; cuốn quá hạn không gia hạn được.",
       ],
       [
-        `${S}/toi/lich-su`,
+        `${S}/ho-so/lich-su`,
         "Lịch sử mượn",
         "Xếp theo tháng, kèm tình trạng sách khi trả.",
       ],
       [
-        `${S}/toi/ho-so`,
+        `${S}/ho-so`,
         "Hồ sơ",
         "Mọi thay đổi là đề nghị chờ quản lý duyệt; giá trị cũ vẫn có hiệu lực.",
       ],
       [
-        `${S}/toi/thong-bao`,
+        `${S}/ho-so/thong-bao`,
         "Thông báo",
         "Chỉ báo trong ứng dụng; hệ thống không gửi email.",
       ],
@@ -308,7 +308,11 @@ const MOBILE = {
       "Kết quả xếp dọc; tựa sách không bị cắt.",
     ],
     [`${S}/quan-ly/nhan-tra`, "Nhận trả", "Sáu nút tình trạng xếp lưới 3×2."],
-    [`${S}/toi`, "Trang của tôi", "Thẻ sách nằm ngang, hạn trả thấy ngay."],
+    [
+      `${S}/ho-so/tong-quan`,
+      "Trang của tôi",
+      "Thẻ sách nằm ngang, hạn trả thấy ngay.",
+    ],
   ],
 };
 

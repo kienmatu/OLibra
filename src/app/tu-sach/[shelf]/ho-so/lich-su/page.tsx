@@ -102,7 +102,7 @@ export default async function ReaderHistoryPage({
         )}
 
         <Link
-          href={`${base}/toi`}
+          href={`${base}/ho-so/tong-quan`}
           className="mt-8 inline-block text-[14px] underline"
         >
           Về trang của tôi

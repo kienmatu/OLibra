@@ -52,6 +52,41 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "4mb",
     },
   },
+
+  /**
+   * The reader area moved from `toi` to `ho-so` (Task 7, 2026-08-10 QA
+   * remediation) — `toi` reads as a pronoun and does not say what the area
+   * holds. Permanent, because these are URLs a child bookmarked on a phone;
+   * `permanent: true` sends a 308 that browsers cache indefinitely, matching
+   * the reasoning `src/app/tu-sach/[shelf]/tang-sach/page.tsx` gives for why
+   * *its* redirect deliberately does not.
+   *
+   * **Order is load-bearing.** Next matches top to bottom and stops at the
+   * first hit. `/toi/ho-so` (the profile, which became the area's own index)
+   * must be listed before the `/toi/:rest*` catch-all, or it would match the
+   * wildcard first and land on `/ho-so/ho-so` — a route that does not exist —
+   * instead of `/ho-so`. `tests/architecture/the-toi-ho-so-redirect-order.test.ts`
+   * pins this so it cannot regress silently.
+   */
+  async redirects() {
+    return [
+      {
+        source: "/tu-sach/:shelf/toi",
+        destination: "/tu-sach/:shelf/ho-so/tong-quan",
+        permanent: true,
+      },
+      {
+        source: "/tu-sach/:shelf/toi/ho-so",
+        destination: "/tu-sach/:shelf/ho-so",
+        permanent: true,
+      },
+      {
+        source: "/tu-sach/:shelf/toi/:rest*",
+        destination: "/tu-sach/:shelf/ho-so/:rest*",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

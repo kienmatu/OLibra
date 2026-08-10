@@ -18,7 +18,7 @@ import {
  *
  * - `saint_name` → **Tên thánh**, `full_name` → **Họ và tên**, `date_of_birth`
  *   → **Ngày sinh**, `phone` → **Số điện thoại**, `email` → **Email** — all
- *   five from `tu-sach/[shelf]/toi/ho-so/page.tsx`, the reader's own form,
+ *   five from `tu-sach/[shelf]/ho-so/page.tsx`, the reader's own form,
  *   which is the screen these proposals are made on.
  * - `father_name` → **Tên cha**, `mother_name` → **Tên mẹ** — from
  *   `quan-ly/nguoi-doc/[id]`'s profile table and from the registration form.

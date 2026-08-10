@@ -80,7 +80,7 @@ import { startTestServer, type TestServer } from "../support/http";
  */
 const PORT = 3097;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
-const PROFILE = "/tu-sach/dong-thap/toi/ho-so";
+const PROFILE = "/tu-sach/dong-thap/ho-so";
 
 let server: TestServer;
 /** The signed-in reader's session cookie, for every request below. */
