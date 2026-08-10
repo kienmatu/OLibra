@@ -152,7 +152,6 @@ export default async function RegisterPage({
                 name="ten-dang-nhap"
                 placeholder="vd: lan.nguyen"
                 autoComplete="username"
-                defaultValue={param(search, "ten-dang-nhap")}
               />
             </Field>
 
@@ -197,12 +196,7 @@ export default async function RegisterPage({
               htmlFor="ten-thanh"
               hint="Ghi nếu có, để quản lý dễ nhận ra em."
             >
-              <Input
-                id="ten-thanh"
-                name="ten-thanh"
-                placeholder="vd: Maria"
-                defaultValue={param(search, "ten-thanh")}
-              />
+              <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
             </Field>
 
             <Field
@@ -216,7 +210,6 @@ export default async function RegisterPage({
                 name="ho-ten"
                 required
                 placeholder="vd: Nguyễn Thị Lan"
-                defaultValue={param(search, "ho-ten")}
               />
             </Field>
 
@@ -226,13 +219,7 @@ export default async function RegisterPage({
               htmlFor="ngay-sinh"
               hint="Để tủ sách gợi ý sách hợp tuổi."
             >
-              <Input
-                id="ngay-sinh"
-                name="ngay-sinh"
-                type="date"
-                required
-                defaultValue={param(search, "ngay-sinh")}
-              />
+              <Input id="ngay-sinh" name="ngay-sinh" type="date" required />
             </Field>
           </section>
 
@@ -250,7 +237,6 @@ export default async function RegisterPage({
                 name="ten-cha"
                 required
                 placeholder="vd: Nguyễn Văn Hoà"
-                defaultValue={param(search, "ten-cha")}
               />
             </Field>
 
@@ -265,7 +251,6 @@ export default async function RegisterPage({
                 name="ten-me"
                 required
                 placeholder="vd: Trần Thị Mai"
-                defaultValue={param(search, "ten-me")}
               />
             </Field>
 
@@ -281,7 +266,6 @@ export default async function RegisterPage({
                 inputMode="tel"
                 required
                 placeholder="vd: 09xx xxx xxx"
-                defaultValue={param(search, "dien-thoai")}
               />
             </Field>
           </section>
@@ -299,8 +283,6 @@ export default async function RegisterPage({
               idPrefix="dang-ky"
               taxonomy={taxonomy}
               units={units}
-              defaultL1={param(search, "parishUnitL1Id") ?? ""}
-              defaultL2={param(search, "parishUnitL2Id") ?? ""}
             />
           </section>
 

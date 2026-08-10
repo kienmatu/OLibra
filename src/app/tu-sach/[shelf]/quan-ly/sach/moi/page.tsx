@@ -105,10 +105,19 @@ function numberOrNull(raw: string | undefined): number | null {
  * travel in the query string now. What changed is that `createBookAction` reuses
  * `BookFields`' own `defaultValues` prop, the same one `sach/[id]/sua` already
  * fills from `getBookForEdit` — wiring it from `?ten-sach=` and its seven
- * siblings instead of from a row is a few lines, not a new mechanism, once the
- * identical fix was already going into `dang-ky` and `nguoi-doc/moi` for their
- * own, heavier reasons. `so-ban`, the donor picker and "Hiện sách này" stay out
- * of it: each already defaults to something reasonable, and none of the four
+ * siblings instead of from a row is a few lines, not a new mechanism.
+ *
+ * **The identical fix went into `dang-ky` and `nguoi-doc/moi` in the same
+ * task, and was reverted from both before merge.** Both of those forms carry a
+ * child's date of birth, both parents' names and a family telephone number —
+ * exactly the sensitive class this docstring's first paragraph already says
+ * this page does not have — and a query string is a real, permanent leak on a
+ * shared parish phone (browser history, a proxy's access log). `createBook`'s
+ * own action gives the fuller account of the reversal. This page keeps the
+ * carry-back precisely because that reasoning does not apply to it: title,
+ * author, publisher, year and ISBN are facts about a book, not a person.
+ * `so-ban`, the donor picker and "Hiện sách này" stay out of it regardless:
+ * each already defaults to something reasonable, and none of the four
  * refusal codes above is caused by any of the three.
  */
 export default async function NewBookPage({

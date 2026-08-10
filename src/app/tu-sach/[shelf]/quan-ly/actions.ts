@@ -530,16 +530,27 @@ async function attemptDiscardingAvatar<I>(
  * (Task 13, 2026-08-10 QA remediation) — `sach/moi/page.tsx` used to say a
  * title and an author are quick enough to retype that losing them was a small
  * cost, and that stood while this was the only long form in `quan-ly/` that lost
- * everything on a refusal. It no longer is: the identical fix went into
- * `dang-ky` and `nguoi-doc/moi` for the same reason a shorter list, a category
- * `<select>` and a description textarea are still nine fields to redo over one
- * bad ISBN. The copy-count box, the donor picker and "Hiện sách này" stay out of
- * it — each already defaults to something sensible (`so-ban` to 1, the checkbox
- * to checked), and none of `createBook`'s refusal codes
+ * everything on a refusal. The copy-count box, the donor picker and "Hiện sách
+ * này" stay out of it — each already defaults to something sensible (`so-ban`
+ * to 1, the checkbox to checked), and none of `createBook`'s refusal codes
  * (`duplicate_isbn`, `category_not_found`, `copy_count_invalid`,
  * `required_fields_missing`) is caused by any of the three, so losing them back
  * to their defaults costs a manager nothing a refusal itself did not already
  * ask them to reconsider.
+ *
+ * **This is the one of the three Task 13 forms where the carry-back stuck.**
+ * The identical fix went into `dang-ky` and `nguoi-doc/moi` in the same task
+ * and was reverted from both before merge — a child's date of birth, both
+ * parents' names and a family telephone number in a query string are a real
+ * and permanent leak on a shared parish phone (browser history, a proxy's
+ * access log), and neither of those two forms' own docstrings had ever argued
+ * otherwise. Title, author, publisher, year, ISBN and description are
+ * bibliographic facts about a *book*, not personal data about a child — the
+ * one part of this form that names a person, the donor picker, was already
+ * excluded above, before the leak in the other two forms was even found. A
+ * long "Mô tả" lost to a mistyped ISBN is a real cost with no privacy
+ * counterweight, which is the distinction that keeps this carry-back in place
+ * while the other two came out.
  */
 export async function createBookAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
@@ -616,20 +627,26 @@ export async function createBookAction(form: FormData): Promise<void> {
  * hand). The two commands "disagree about `pending` on purpose", as their own
  * docstrings put it.
  *
- * **What the volunteer typed now comes back on a refusal** (Task 13, 2026-08-10
- * QA remediation) — every field above except nothing, since this form, unlike
- * `dang-ky`'s, has no password to withhold. This reverses what this action used
- * to do, and the reversal is worth recording rather than quietly overwriting: a
- * child's date of birth, their parents' names and a family telephone number are
- * BR §5.3's manager-only facts, and a query string is written into browser
- * history, into a proxy's access log and into the address bar of a shared parish
- * phone — a real cost, and one this docstring used to accept in exchange for
- * never carrying anything at all. What changed is the other side of the scale:
- * a volunteer at the shelf, mid-conversation with a family, who mistypes a date
- * of birth and gets every other field wiped along with it is not "a form
- * re-typed", it is the conversation restarted. `registerMembership`'s own
- * action (`dang-ky/actions.ts`) makes the identical call and gives the longer
- * version of the argument.
+ * **Nothing the volunteer typed comes back on a refusal, and that is deliberate
+ * rather than lazy.** Every other form in this file carries its state in the
+ * query string so a refusal does not lose it. The fields here are a child's date
+ * of birth, their parents' names and a family telephone number — BR §5.3's
+ * manager-only facts — and a query string is written into browser history, into
+ * a proxy's access log and into the address bar of a shared parish phone. The
+ * form is re-typed instead. The alternative is a real cost, named here rather
+ * than left to be discovered.
+ *
+ * **Proposed and withdrawn once already (Task 13, 2026-08-10 QA remediation).**
+ * A same-session task carried these eight fields back through this same query
+ * string, reasoning from the QA sweep's observation about `/dang-ky` without
+ * re-reading this paragraph first. Reverted before merge on the ground stated
+ * above: the next child to pick up a shared parish phone would see the
+ * previous child's mother's name and telephone number in the address bar, and
+ * browser history and a proxy's access log make that permanent. If this is
+ * proposed again, a short-lived same-origin cookie or `useActionState` would
+ * get the UX without the leak — neither touches the URL — and it is a design
+ * decision for its own task with the product owner's input, not a quick
+ * change here.
  *
  * **It lands on the approval queue**, not on the readers list: the application
  * this just created is `pending`, so the readers list's default view is exactly
@@ -637,46 +654,21 @@ export async function createBookAction(form: FormData): Promise<void> {
  */
 export async function registerReaderOnBehalfAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
-
-  // Read once, used both as `registerMemberOnBehalf`'s input and — on a
-  // refusal — as what rides back in the query string.
-  const saintName = optional(form, "ten-thanh");
-  const fullName = field(form, "ho-ten");
-  const dateOfBirth = field(form, "ngay-sinh");
-  const fatherName = field(form, "ten-cha");
-  const motherName = field(form, "ten-me");
-  const phone = field(form, "dien-thoai");
-  // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
-  const parishUnitL1Id = optional(form, "parishUnitL1Id");
-  const parishUnitL2Id = optional(form, "parishUnitL2Id");
-
   const outcome = await attemptTyped(shelfSlug, registerMemberOnBehalf, {
-    saintName,
-    fullName,
-    dateOfBirth,
-    fatherName,
-    motherName,
-    phone,
-    parishUnitL1Id,
-    parishUnitL2Id,
+    saintName: optional(form, "ten-thanh"),
+    fullName: field(form, "ho-ten"),
+    dateOfBirth: field(form, "ngay-sinh"),
+    fatherName: field(form, "ten-cha"),
+    motherName: field(form, "ten-me"),
+    phone: field(form, "dien-thoai"),
+    // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
+    parishUnitL1Id: optional(form, "parishUnitL1Id"),
+    parishUnitL2Id: optional(form, "parishUnitL2Id"),
   });
 
   const base = managerBase(shelfSlug);
   if (!outcome.ok) {
-    const params = new URLSearchParams({ [ACTION_ERROR_PARAM]: outcome.code });
-    for (const [name, value] of Object.entries({
-      "ten-thanh": saintName,
-      "ho-ten": fullName,
-      "ngay-sinh": dateOfBirth,
-      "ten-cha": fatherName,
-      "ten-me": motherName,
-      "dien-thoai": phone,
-      parishUnitL1Id,
-      parishUnitL2Id,
-    })) {
-      if (value) params.set(name, value);
-    }
-    redirect(`${base}/nguoi-doc/moi?${params.toString()}`);
+    redirect(`${base}/nguoi-doc/moi?${ACTION_ERROR_PARAM}=${outcome.code}`);
   }
   redirect(`${base}/dang-ky-cho-duyet`);
 }
