@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 // imports this module, and Vitest resolves no alias (see any file under
 // `src/auth/`, which the suite has always imported the same way).
 import { adminContextFor, contextFor, frontDoorViewerFor } from "../auth/guards";
+import { resolveSession } from "../auth/session";
 import { pool } from "../db/client";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
@@ -13,6 +14,7 @@ import {
   runAdminCommand,
   runAdminQuery,
   runCommand,
+  runPublicCommand,
   runPublicQuery,
   runQuery,
   type Tx,
@@ -421,6 +423,75 @@ export async function loadFrontDoorViewer(): Promise<{
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value ?? null;
   return frontDoorViewerFor(pool(), { token, clock: systemClock });
+}
+
+/**
+ * How a server action writes with **no shelf and no session required** —
+ * `submitCommand`'s counterpart for the one write OPS §4.4 opens to `guest`
+ * with no membership anywhere: `/lien-he`'s site-wide góp ý form (Task 17,
+ * 2026-08-10 QA remediation).
+ *
+ * **Why not `submitCommand`.** That function's whole sequence is slug →
+ * `contextForRequest` → `runCommand`, and `/lien-he` has no slug — a parish
+ * with no shelf yet is exactly who this form is for, the same situation
+ * `loadPublicPage`'s docstring names for the portal directory. Threading an
+ * empty slug through `contextForRequest` would reach `resolveShelfId("")`,
+ * which resolves nothing and throws `shelf_not_found` — the seam has no way
+ * to say "there is no shelf, and that is fine" rather than "the shelf named
+ * does not exist". This is a shorter seam instead, mirroring
+ * `loadPublicPage`'s own relationship to `loadPage`.
+ *
+ * **A session is read, but never required.** Unlike `loadPublicPage` (whose
+ * docstring explains why *that* read resolves nobody — nothing on the portal
+ * depends on who is asking), `submitFeedback` records `member_id:
+ * ctx.actor.userId` when the sender happens to be signed in, so a message
+ * from a reader who wandered onto the front door still ties back to their
+ * account. `resolveSession` is the one already used for the identical
+ * purpose by `loadFrontDoorViewer` just above; a missing or invalid token
+ * degrades to `userId: null`, which is `submitFeedback`'s own `guest`
+ * caller — never a refusal, because refusing an anonymous sender is exactly
+ * the one thing OPS §4.4 says this write must not do.
+ *
+ * **`role: "guest"`, always — never resolved from a membership.** There is no
+ * shelf here for a role to be a role *of*; `TenantContext.actor.role` exists
+ * to be ranked against a floor a command checks, and `submitFeedback` checks
+ * none (its own docstring: "the one command in the catalogue with no floor at
+ * all"). Naming a shelf-scoped role here would be answering a question this
+ * caller was never asked.
+ *
+ * **`runPublicCommand`, not `runCommand`/`runGlobalCommand`.** `ctx
+ * .bookshelfId` is the empty sentinel, by construction — see
+ * `runPublicCommand`'s own docstring (`src/domain/kernel/unit-of-work.ts`)
+ * for the full argument, and for why that function exists as a third, rare,
+ * separately named seam rather than a parameter on either of the other two.
+ *
+ * **`RuleViolated`/`ValidationFailed` are not caught here**, matching
+ * `submitCommand`'s own division of labour: those belong to the calling
+ * action, which turns a refusal into a `?loi=` code the form renders through
+ * `messageFor` (U1 §3.3). Nothing else is caught either — `submitFeedback`
+ * never throws a `NotFound`, so there is no translation this seam owes that
+ * `submitCommand`'s `shelf_not_found`/`write_target_not_found` handling does;
+ * a fault here is a fault, the same as `loadPublicPage`'s own "nothing is
+ * caught" for the read side.
+ */
+export async function submitPublicCommand<I, O>(
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
+
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value ?? null;
+  const session = token ? await resolveSession(pool(), token, systemClock) : null;
+
+  const ctx: TenantContext = {
+    bookshelfId: "",
+    actor: { userId: session?.userId ?? null, membershipId: null, role: "guest" },
+    clock: systemClock,
+  };
+
+  return runPublicCommand(pool(), ctx, command, input);
 }
 
 /**

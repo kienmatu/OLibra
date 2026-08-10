@@ -66,9 +66,18 @@ vi.mock("next/headers", () => ({
 
 // Imported after the mock is declared; `vi.mock` is hoisted above it either
 // way, but the ordering keeps the dependency readable.
-const { loadAdminPage, loadFile, loadFrontDoorViewer, loadPage, loadPublicPage } =
-  await import("../../src/lib/page-data");
+const {
+  loadAdminPage,
+  loadFile,
+  loadFrontDoorViewer,
+  loadPage,
+  loadPublicPage,
+  submitPublicCommand,
+} = await import("../../src/lib/page-data");
 const { pool } = await import("../../src/db/client");
+const { submitFeedback } =
+  await import("../../src/domain/community/commands/feedback");
+const { RuleViolated } = await import("../../src/domain/kernel/errors");
 
 const clock = fixedClock("2026-08-07T10:00:00Z");
 
@@ -529,6 +538,78 @@ test("loadFrontDoorViewer flags a super admin, who holds no membership anywhere"
     name: "Giuse Trần Minh",
     isSuperAdmin: true,
   });
+});
+
+test("submitPublicCommand writes with no shelf and no session, on the production pool", async () => {
+  // Task 17 (2026-08-10 QA remediation): `/lien-he`'s site-wide góp ý form,
+  // exercised on the production path (`pool()`), the same way
+  // `loadPublicPage`'s own test above is — the interesting property is that
+  // `runPublicCommand` really did open a transaction with the tenant scope
+  // empty, which a mocked runner would not prove.
+  session.token = null;
+
+  const { feedbackId } = await submitPublicCommand(submitFeedback, {
+    bookshelfId: null,
+    senderName: "Giáo xứ Thánh Tâm",
+    phone: "0900000001",
+    body: "Giáo xứ em chưa có tủ sách trên OLibra.",
+  });
+
+  const [row] = await sql<
+    {
+      bookshelf_id: string | null;
+      member_id: string | null;
+    }[]
+  >`select bookshelf_id, member_id from feedback where id = ${feedbackId}`;
+  expect(row.bookshelf_id).toBeNull();
+  // No session, so no member to name — the ordinary case for this form.
+  expect(row.member_id).toBeNull();
+});
+
+test("submitPublicCommand ties a message to a signed-in sender without requiring one", async () => {
+  // A reader who wanders onto the front door while signed in is not the
+  // common case, but `submitFeedback` records `member_id` whenever one is
+  // available, and this is the one seam that has to resolve a session with no
+  // shelf to check a membership against.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const { userId } = await signInAs(shelf.id, "reader", "bandoc-lienhe");
+
+  const { feedbackId } = await submitPublicCommand(submitFeedback, {
+    bookshelfId: null,
+    senderName: "Giuse Trần Minh",
+    phone: "0900000002",
+    body: "Hỏi thăm ban quản trị.",
+  });
+
+  const [row] = await sql<{ member_id: string | null }[]>`
+    select member_id from feedback where id = ${feedbackId}
+  `;
+  expect(row.member_id).toBe(userId);
+});
+
+test("submitPublicCommand does not catch a RuleViolated — the calling action does", async () => {
+  // Matching `submitCommand`'s own division of labour (see its docstring):
+  // a refusal is for the action to turn into a `?loi=` code, not for this
+  // seam to translate. The rate limit is the easiest one to trigger without
+  // a second command.
+  session.token = null;
+  for (let i = 0; i < 3; i++) {
+    await submitPublicCommand(submitFeedback, {
+      bookshelfId: null,
+      senderName: "A",
+      phone: "0900000003",
+      body: `Lần ${i + 1}`,
+    });
+  }
+
+  await expect(
+    submitPublicCommand(submitFeedback, {
+      bookshelfId: null,
+      senderName: "A",
+      phone: "0900000003",
+      body: "Lần thứ tư",
+    }),
+  ).rejects.toBeInstanceOf(RuleViolated);
 });
 
 test("a real fault is not swallowed into a 404", async () => {

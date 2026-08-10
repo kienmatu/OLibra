@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { AlertTriangle, Archive } from "lucide-react";
+import { AlertTriangle, Archive, PhoneOff } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
 import { PageHeading, StatStrip } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import {
   getAdminOverview,
+  getSiteContact,
   type ShelfOverviewRow,
 } from "@/domain/admin/queries/get-admin-overview";
 import { loadAdminPage } from "@/lib/page-data";
@@ -94,12 +95,23 @@ const COLUMNS = [
 ];
 
 export default async function AdminOverviewPage() {
-  const { viewer, unreadFeedback, shelves } = await loadAdminPage(
-    async (tx, ctx, v) => ({
-      viewer: v,
-      unreadFeedback: await countUnreadFeedback(tx, ctx),
-      shelves: await getAdminOverview(tx, ctx),
-    }),
+  const { viewer, unreadFeedback, shelves, hasSiteContact } = await loadAdminPage(
+    async (tx, ctx, v) => {
+      const contact = await getSiteContact(tx);
+      return {
+        viewer: v,
+        unreadFeedback: await countUnreadFeedback(tx, ctx),
+        shelves: await getAdminOverview(tx, ctx),
+        // Task 17 (2026-08-10 QA remediation). `getSiteContact` takes no
+        // `TenantContext` and calls no policy — it is written for
+        // `runPublicQuery` (see its own docstring) — but it reads nothing
+        // `system_settings` doesn't already grant `olibra_admin` in full, so
+        // calling it on the transaction `loadAdminPage` already has open costs
+        // no second round trip and needs no second query written for the
+        // same three columns `/lien-he` already reads.
+        hasSiteContact: Boolean(contact.name || contact.phone),
+      };
+    },
   );
 
   const active = shelves.filter((s) => s.status === "active");
@@ -130,6 +142,38 @@ export default async function AdminOverviewPage() {
           ]}
         />
       </div>
+
+      {/* Task 17 (2026-08-10 QA remediation): the other half of the loop
+          `/lien-he` closes. That page now offers a form when there is no
+          contact block, so a parish can still reach someone — but nothing
+          told *this* screen the block was empty, and an administrator who
+          never visits `/quan-tri/cai-dat` on their own has no way to learn
+          that. Placed above the shelves list rather than folded into "Cần chú
+          ý" below: that section is derived from per-shelf figures
+          (`attentionLines`), and this is a fact about the installation
+          itself, true before a single shelf exists — the exact state the QA
+          walk that found this defect started from. */}
+      {!hasSiteContact ? (
+        <div className="mt-8 flex items-start gap-3 rounded-card border border-hairline bg-paper p-5">
+          <PhoneOff
+            aria-hidden
+            className="mt-0.5 size-5 shrink-0 text-overdue"
+            strokeWidth={1.75}
+          />
+          <div>
+            <p className="text-[15px]">
+              Chưa có thông tin liên hệ — giáo xứ muốn mở tủ sách sẽ không biết hỏi
+              ai.
+            </p>
+            <Link
+              href="/quan-tri/cai-dat"
+              className="mt-1.5 inline-block text-[14px] font-medium text-sage hover:underline"
+            >
+              Điền thông tin liên hệ
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {shelves.length === 0 ? (
         <p className="mt-8 text-[15px] text-meta">

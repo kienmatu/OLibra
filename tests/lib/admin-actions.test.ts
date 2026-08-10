@@ -58,8 +58,13 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const { assignManagerAction, revokeManagerAction, updateBookshelfSettingsAction } =
-  await import("../../src/app/quan-tri/admin-actions");
+const {
+  assignManagerAction,
+  revokeManagerAction,
+  updateBookshelfSettingsAction,
+  updateSiteContactAction,
+  updateSystemDefaultsAction,
+} = await import("../../src/app/quan-tri/admin-actions");
 const { pool } = await import("../../src/db/client");
 
 const clock = fixedClock("2026-08-10T03:00:00Z");
@@ -209,4 +214,65 @@ test("a refusal on a target with no existing query string still gets exactly one
   );
 
   expect(target).toBe("/quan-tri/quan-ly-vien?loi=not_permitted");
+});
+
+// Task 17 (2026-08-10 QA remediation), carried over from Task 16's review
+// round: `updateSiteContactAction` and `updateSystemDefaultsAction` used to
+// redirect to `/quan-tri/cai-dat` with no `done` marker at all, saving as
+// silently as the three flows Task 16 fixed everywhere else. Both land on the
+// identical path, so `back`'s third argument has to be a *value*
+// (`"lien-he"`/`"mac-dinh"`), not the bare `?da-luu=1`
+// `updateBookshelfSettingsAction` above can afford — see `back`'s own
+// docstring for why.
+test("saving the contact block redirects with its own done-value, not the bare marker", async () => {
+  await signInAsSuperAdmin();
+
+  const target = await redirectedTo(
+    updateSiteContactAction(
+      form({
+        "ten-lien-he": "Thầy Sáu Giuse",
+        "dien-thoai": "0900000000",
+        "gio-lien-he": "Sau lễ Chúa nhật",
+      }),
+    ),
+  );
+
+  expect(target).toBe("/quan-tri/cai-dat?da-luu=lien-he");
+  expect(refusalIn(target)).toBeNull();
+});
+
+test("saving the system defaults redirects with its own done-value, distinct from the contact form's", async () => {
+  await signInAsSuperAdmin();
+
+  const target = await redirectedTo(
+    updateSystemDefaultsAction(
+      form({
+        "so-ngay-muon": "14",
+        "so-sach-cung-luc": "3",
+        "so-ngay-giu-cho": "2",
+      }),
+    ),
+  );
+
+  expect(target).toBe("/quan-tri/cai-dat?da-luu=mac-dinh");
+});
+
+test("a refusal on either system-settings form still reports through `?loi=`, not `?da-luu=`", async () => {
+  await signInAsSuperAdmin();
+
+  // updateSystemDefaults refuses a loan period out of `checkPolicyBound`'s
+  // 1–365 range (`src/domain/admin/policy.ts`) — the same family of refusal
+  // `updateBookshelfSettingsAction`'s own test above exercises.
+  const target = await redirectedTo(
+    updateSystemDefaultsAction(
+      form({
+        "so-ngay-muon": "0",
+        "so-sach-cung-luc": "3",
+        "so-ngay-giu-cho": "2",
+      }),
+    ),
+  );
+
+  expect(target).toBe("/quan-tri/cai-dat?loi=loan_days_out_of_range");
+  expect(target).not.toContain("da-luu");
 });

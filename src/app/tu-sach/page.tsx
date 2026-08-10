@@ -139,6 +139,30 @@ export default async function PortalPage({
               </li>
             ))}
           </ul>
+        ) : query === "" ? (
+          // P3-1: a system with no shelves at all read the identical "no
+          // results" copy a search that came up empty does — "Thử gõ tên
+          // giáo xứ ngắn hơn" makes no sense to a visitor who has not typed
+          // anything yet. Distinguished on `query` alone, not on the shelf
+          // count: this is what nothing-searched-yet looks like precisely
+          // because an empty query matches every shelf that exists
+          // (`listPublicShelves`'s own `%' || '' || '%'`), so zero rows back
+          // for an empty query means the installation itself has none.
+          <div className="mt-8 rounded-card border border-hairline bg-paper p-8">
+            <h2 className="text-lg font-semibold">
+              Chưa có tủ sách nào trên OLibra.
+            </h2>
+            <p className="mt-1.5 text-[15px] text-meta">
+              Giáo xứ của bạn muốn mở một tủ sách?{" "}
+              <Link
+                href="/lien-he"
+                className="font-medium text-sage hover:underline"
+              >
+                Liên hệ với ban quản trị
+              </Link>{" "}
+              để bắt đầu.
+            </p>
+          </div>
         ) : (
           <div className="mt-8 rounded-card border border-hairline bg-paper p-8">
             <h2 className="text-lg font-semibold">Không tìm thấy tủ sách nào</h2>

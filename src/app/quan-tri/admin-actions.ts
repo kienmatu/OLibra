@@ -115,15 +115,28 @@ function count(form: FormData, name: string): number | undefined {
  * `updateBookshelfSettingsAction` passes it: that is the one redirect in this
  * file whose destination page can render identically whether the save just
  * happened or the administrator merely navigated back to it.
+ *
+ * **`done` may also be a string, not only `true`** — carried over into Task
+ * 17 (2026-08-10 QA remediation) from that same review round, which flagged
+ * `updateSiteContactAction` and `updateSystemDefaultsAction` below as the two
+ * remaining silent saves Task 16 did not reach. Both redirect to the
+ * identical `/quan-tri/cai-dat`, which `updateBookshelfSettingsAction`'s
+ * single caller never had to worry about — a bare `?da-luu=1` on that page
+ * cannot say *which* of its two forms just saved, the same ambiguity
+ * `ACTION_DONE_PARAM`'s own docstring (`src/lib/search-params.ts`) already
+ * solved for `lendCopyAction`/`receiveReturnAction` sharing one dashboard.
+ * `back(path, code, true)` still writes the bare `1` unchanged, so
+ * `updateBookshelfSettingsAction` needed no edit.
  */
-function back(path: string, code: string | null, done?: true): never {
+function back(path: string, code: string | null, done?: true | string): never {
   if (code !== null) {
     const join = path.includes("?") ? "&" : "?";
     redirect(`${path}${join}${ACTION_ERROR_PARAM}=${code}`);
   }
   if (done) {
     const join = path.includes("?") ? "&" : "?";
-    redirect(`${path}${join}${ACTION_DONE_PARAM}=1`);
+    const value = done === true ? "1" : done;
+    redirect(`${path}${join}${ACTION_DONE_PARAM}=${value}`);
   }
   redirect(path);
 }
@@ -262,6 +275,15 @@ export async function promoteSuperAdminAction(form: FormData): Promise<void> {
 }
 
 // ── System settings ────────────────────────────────────────────────────────
+//
+// Both actions below redirect to the same `/quan-tri/cai-dat`, so `back`'s
+// third argument is a string rather than `true` — see `back`'s own docstring
+// for why a bare `?da-luu=1` cannot say which of the page's two forms just
+// saved. Carried into Task 17 (2026-08-10 QA remediation) from the review
+// round that closed this gap everywhere else on this branch (`1b72545`) but
+// left these two — "the two forms on `/quan-tri/cai-dat`... still redirect
+// with no `done` marker" — because that task was already in this file's
+// neighbourhood wiring the site-wide góp ý form.
 
 export async function updateSiteContactAction(form: FormData): Promise<void> {
   const code = await attempt(() =>
@@ -271,7 +293,7 @@ export async function updateSiteContactAction(form: FormData): Promise<void> {
       contactHours: optional(form, "gio-lien-he"),
     }),
   );
-  back("/quan-tri/cai-dat", code);
+  back("/quan-tri/cai-dat", code, "lien-he");
 }
 
 export async function updateSystemDefaultsAction(form: FormData): Promise<void> {
@@ -285,5 +307,5 @@ export async function updateSystemDefaultsAction(form: FormData): Promise<void> 
       holdDays: count(form, "so-ngay-giu-cho") ?? 0,
     }),
   );
-  back("/quan-tri/cai-dat", code);
+  back("/quan-tri/cai-dat", code, "mac-dinh");
 }

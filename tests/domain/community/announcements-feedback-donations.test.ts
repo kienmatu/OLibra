@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { fixedClock } from "../../../src/domain/kernel/clock";
+import { ValidationFailed } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import {
   runAdminCommand,
+  runAdminQuery,
   runCommand,
+  runGlobalCommand,
+  runPublicCommand,
   runQuery,
 } from "../../../src/domain/kernel/unit-of-work";
 import {
@@ -23,6 +27,7 @@ import {
   getDonationQueue,
   getMyDonations,
 } from "../../../src/domain/community/queries/get-my-donations";
+import { getFeedbackInbox } from "../../../src/domain/admin/queries/get-feedback-inbox";
 import {
   markFeedbackRead,
   phoneHash,
@@ -336,7 +341,17 @@ test("site-wide feedback carries no shelf, and only a super admin handles it", a
   // own `gop-y` form that simply forgot the field would file its parish's
   // message into the administrator's site-wide inbox with nothing raised.
   // Omitting now means *this shelf*; site-wide has to say so.
-  const { feedbackId } = await runCommand(sql, guest, submitFeedback, {
+  //
+  // `runGlobalCommand`, not `runCommand` — Task 17 (2026-08-10 QA
+  // remediation). `guest.bookshelfId` here is a real shelf (`managerContext`
+  // scopes it), so this is the *in-shelf* way of marking a message site-wide:
+  // a guest session that holds a shelf but explicitly declines it for this one
+  // message. Since Task 17 the audit entry this command writes for a
+  // site-wide message sets `global: true` (see `feedback.ts`'s own docstring
+  // on `auditScopeFor`, which this mirrors), and only `runGlobalCommand`/
+  // `runAdminCommand` may write that null-`bookshelf_id` row — `runCommand`
+  // would reject the insert outright.
+  const { feedbackId } = await runGlobalCommand(sql, guest, submitFeedback, {
     bookshelfId: null,
     senderName: "Người lạ",
     phone: "0900000009",
@@ -347,6 +362,14 @@ test("site-wide feedback carries no shelf, and only a super admin handles it", a
     select bookshelf_id from feedback
   `;
   expect(row.bookshelf_id).toBeNull();
+
+  // The submission's own audit row is global too, not only the resolution's
+  // (asserted further down) — a site-wide message's whole history, not just
+  // its ending, belongs in the cross-shelf log.
+  const [submitted] = await sql<{ bookshelf_id: string | null }[]>`
+    select bookshelf_id from audit_log where action = 'feedback.submitted'
+  `;
+  expect(submitted.bookshelf_id).toBeNull();
 
   // A shelf manager may not resolve it — OPS §4.4 restricts these to
   // super_admin, following the only built screen.
@@ -378,6 +401,148 @@ test("site-wide feedback carries no shelf, and only a super admin handles it", a
   `;
   expect(entry.bookshelf_id).toBeNull();
   expect(shelf.id).toBeTruthy();
+});
+
+// Task 17 (2026-08-10 QA remediation): `/lien-he`'s site-wide góp ý form,
+// reached by a stranger with **no shelf at all** — not a shelf-scoped guest
+// who happened to mark a message site-wide (the scenario just above), but the
+// actual production caller `runPublicCommand`/`submitPublicCommand` exist for.
+test("a genuinely shelf-less caller submits site-wide feedback through runPublicCommand", async () => {
+  const guest: TenantContext = {
+    bookshelfId: "",
+    actor: { userId: null, membershipId: null, role: "guest" },
+    clock: fixedClock(SCENARIO_CLOCK),
+  };
+
+  const { feedbackId } = await runPublicCommand(sql, guest, submitFeedback, {
+    bookshelfId: null,
+    senderName: "Giáo xứ Thánh Tâm",
+    phone: "0900000099",
+    body: "Giáo xứ em chưa có tủ sách, muốn mở một tủ.",
+  });
+
+  const [row] = await sql<{ bookshelf_id: string | null }[]>`
+    select bookshelf_id from feedback where id = ${feedbackId}
+  `;
+  expect(row.bookshelf_id).toBeNull();
+
+  const [entry] = await sql<
+    { bookshelf_id: string | null; actor_id: string | null }[]
+  >`
+    select bookshelf_id, actor_id from audit_log where action = 'feedback.submitted'
+  `;
+  expect(entry.bookshelf_id).toBeNull();
+  // No session, so no actor to name — `feedback.submitted`'s own sentence
+  // already reads "Hệ thống đã…" for exactly this case (audit-actions.ts).
+  expect(entry.actor_id).toBeNull();
+
+  // **The whole point of the inbox** (controller's own words for this task):
+  // a message with nobody behind it must still reach `/quan-tri/gop-y`.
+  // `getFeedbackInbox` is what that page calls, so this is the same read the
+  // screen renders from, not a re-implementation of its query.
+  const admin: TenantContext = {
+    bookshelfId: "",
+    actor: { userId: null, membershipId: null, role: "super_admin" },
+    clock: fixedClock(SCENARIO_CLOCK),
+  };
+  const inbox = await runAdminQuery(sql, admin, (tx, ctx) =>
+    getFeedbackInbox(tx, ctx, {}),
+  );
+  expect(inbox).toHaveLength(1);
+  expect(inbox[0].feedbackId).toBe(feedbackId);
+  expect(inbox[0].shelfId).toBeNull();
+  expect(inbox[0].senderName).toBe("Giáo xứ Thánh Tâm");
+});
+
+test("runPublicCommand refuses a non-global audit entry rather than binding an empty shelf id", async () => {
+  // The guard `runPublicCommand` itself adds (see its docstring): every entry
+  // reached through this seam must be global, because `ctx.bookshelfId` is
+  // always empty for a genuinely shelf-less caller. A command that forgot to
+  // set `global: true` — or a future command wired through this seam by
+  // mistake — must fail with a named `ValidationFailed`, not a raw
+  // `PostgresError: invalid input syntax for type uuid: ""` from inside the
+  // transaction.
+  const guest: TenantContext = {
+    bookshelfId: "",
+    actor: { userId: null, membershipId: null, role: "guest" },
+    clock: fixedClock(SCENARIO_CLOCK),
+  };
+
+  await expect(
+    runPublicCommand(
+      sql,
+      guest,
+      async () => ({
+        result: null,
+        audit: {
+          action: "feedback.submitted",
+          entityType: "feedback",
+          entityId: null,
+          // No `global: true` — the mistake this guard exists to catch.
+        },
+      }),
+      {},
+    ),
+  ).rejects.toBeInstanceOf(ValidationFailed);
+});
+
+// The rate-limit finding Task 17's own review round asked to be confirmed
+// rather than assumed — see `feedback.ts`'s docstring on the `recent` query
+// for the full argument. Pinned here as the *current, imperfect* behaviour
+// rather than fixed, so a future change to close it has a red test to turn
+// green instead of a silent surprise.
+test("KNOWN GAP: a site-wide submission does not see a phone number's shelf-scoped history", async () => {
+  const { shelf } = await managerContext(sql);
+  const shelfGuest: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: null, membershipId: null, role: "guest" },
+    clock: fixedClock(SCENARIO_CLOCK),
+  };
+  const siteGuest: TenantContext = {
+    bookshelfId: "",
+    actor: { userId: null, membershipId: null, role: "guest" },
+    clock: fixedClock(SCENARIO_CLOCK),
+  };
+  const phone = "0900000077";
+
+  // The number spends its daily three at the shelf's own gop-y form.
+  for (let i = 0; i < 3; i++) {
+    await runCommand(sql, shelfGuest, submitFeedback, {
+      senderName: "Người quen",
+      phone,
+      body: `Góp ý số ${i + 1}`,
+    });
+  }
+  await expect(
+    runCommand(sql, shelfGuest, submitFeedback, {
+      senderName: "Người quen",
+      phone,
+      body: "Góp ý thứ tư",
+    }),
+  ).rejects.toMatchObject({ code: "rate_limited" });
+
+  // OPS §8 reads "3 per phone number per day" with no per-shelf exception, so
+  // the honest expectation is that the same number is now refused site-wide
+  // too. It is not: `/lien-he`'s session holds no shelf, `feedback_tenant`'s
+  // policy hides the shelf's three rows from it, and the fourth message of
+  // the day for this number goes through.
+  const { feedbackId } = await runPublicCommand(sql, siteGuest, submitFeedback, {
+    bookshelfId: null,
+    senderName: "Người quen",
+    phone,
+    body: "Góp ý site-wide thứ tư trong ngày",
+  });
+  expect(feedbackId).toBeTruthy();
+
+  const total = await sql<{ n: string }[]>`
+    select count(*) as n from feedback
+  `;
+  // Four rows for one phone number in one day — the shipped copy's "tối đa 3
+  // góp ý mỗi ngày" is not true across this combination, only within each of
+  // the two buckets RLS happens to draw. See the docstring above `recent` in
+  // `feedback.ts` for why, and for why this is left open rather than fixed by
+  // this task.
+  expect(Number(total[0].n)).toBe(4);
 });
 
 // ── Donations ──────────────────────────────────────────────────────────────

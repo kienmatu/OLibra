@@ -12,6 +12,7 @@ import {
   runAdminCommand,
   runAdminQuery,
   runCommand,
+  runGlobalCommand,
   runQuery,
 } from "../../../src/domain/kernel/unit-of-work";
 import { closeAll, resetDatabase, sql } from "../../support/db";
@@ -37,6 +38,18 @@ async function codeThrownBy(run: () => Promise<unknown>): Promise<string | null>
  * The site-wide one is written with an explicit `null`, which is what
  * `submitFeedback`'s inverted default requires and what `/lien-he` will pass —
  * omitting the field files against the shelf in scope.
+ *
+ * **`runGlobalCommand`, not `runCommand`, for the site-wide one.** Since Task
+ * 17 (2026-08-10 QA remediation) `submitFeedback`'s audit entry sets `global:
+ * true` whenever the message itself is site-wide, so its `bookshelf_id` is
+ * null even though `a.ctx.bookshelfId` here is a real shelf (a guest session
+ * scoped to Đồng Tháp that chose to mark this one message site-wide, not
+ * `/lien-he`'s genuinely shelf-less caller — that path is covered separately
+ * in `tests/domain/community/announcements-feedback-donations.test.ts` and
+ * `tests/lib/site-feedback-action.test.ts`). Writing a null-`bookshelf_id`
+ * audit row needs the escalated insert only `runGlobalCommand`/
+ * `runAdminCommand` perform; `runCommand`'s `olibra_app` insert is refused by
+ * `audit_log_tenant`'s policy.
  */
 async function threeMessages() {
   const a = await managerContext(sql, { slug: "dong-thap" });
@@ -54,7 +67,7 @@ async function threeMessages() {
     subject: "Giờ mở cửa",
     body: "Tủ sách mở cửa mấy giờ ạ?",
   });
-  const siteWide = await runCommand(sql, a.ctx, submitFeedback, {
+  const siteWide = await runGlobalCommand(sql, a.ctx, submitFeedback, {
     bookshelfId: null,
     senderName: "Phêrô Lê Văn Bình",
     phone: "0900000003",
