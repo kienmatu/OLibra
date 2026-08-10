@@ -33,14 +33,20 @@ export interface ShelfProfile {
   name: string;
   location: string | null;
   /**
-   * `bookshelves.address`, which **nothing in this application renders**.
+   * `bookshelves.address` — BR:179 names it as its own field, separate from
+   * `location`: "physical location, address, keeper's name and phone".
    *
-   * BR §16.1 publishes `location` as the address a reader sees, and every
-   * shelf-facing screen uses that. `address` is on the table and is returned
-   * here for one reason: the administrator's editor writes the whole profile in
-   * one statement (see `updateBookshelfSettings`), so a form that did not show
-   * this field would clear it on every save. Carrying it is what keeps the
-   * all-or-nothing patch honest.
+   * QA remediation Task 22: until this task, nothing in this application
+   * rendered it — an administrator could type a street address into
+   * `/quan-tri/tu-sach` and it would reach exactly nowhere a reader or
+   * manager could read it back, because the only reason it was carried here
+   * at all was that the administrator's editor writes the whole profile in
+   * one statement (see `updateBookshelfSettings`), and a form that omitted
+   * this field would have cleared it on every save. It is now also read by
+   * `readShelfIdentity` (`src/lib/shelf.ts`) for the shelf's own home page,
+   * under "Địa chỉ", below "Địa điểm" (`location`) — and relabelled correctly
+   * on this page's own manager-facing counterpart, `/quan-ly/cai-dat`, which
+   * used to print `location`'s value under the label "Địa chỉ".
    */
   address: string | null;
   openingHours: string | null;

@@ -221,13 +221,16 @@ export default async function AdminBookshelvesPage({
                 />
               </Field>
 
-              {/* No screen in this application renders `address` — BR §16.1
-                  publishes `location` as the address a reader sees. It is here
-                  because the command writes the whole profile in one statement,
-                  so a form that omitted this field would clear it on every
-                  save. That is the one thing the all-or-nothing patch makes
-                  possible to get wrong, and this field is missing it that was
-                  the first version's actual bug: it defaulted to `location`. */}
+              {/* QA remediation Task 22. Until this task, no screen rendered
+                  `address` at all — `getShelfSettings`'s own docstring said so
+                  in as many words, and the field existed here only because
+                  `updateBookshelfSettings` writes the whole profile in one
+                  statement, so a form that omitted it would clear it on every
+                  save. It is now rendered on the shelf's own home page
+                  (`src/app/tu-sach/[shelf]/page.tsx`, "Địa chỉ", below "Địa
+                  điểm") and correctly labelled on `/quan-ly/cai-dat`, which
+                  used to show *this* field's sibling, `location`, under this
+                  same label. */}
               <Field label="Địa chỉ" htmlFor="dia-chi">
                 <Input
                   id="dia-chi"

@@ -114,7 +114,16 @@ export default async function ManagerSettingsPage({
             <InfoRow label="Tên tủ sách">{profile.name}</InfoRow>
             {/* "Chưa có" rather than an empty row: every one of these is
                 nullable, and a blank line reads as a rendering bug. */}
-            <InfoRow label="Địa chỉ">{profile.location ?? "Chưa có"}</InfoRow>
+            {/* QA remediation Task 22: this row used to be labelled "Địa
+                chỉ" over `profile.location`'s value — measured live on
+                2026-08-10, a manager read "Nhà xứ Thánh Tâm" (the landmark in
+                `location`) under a label that promised a street address,
+                while `profile.address` (the actual street address an
+                administrator had typed in) rendered nowhere on this page or
+                any other. "Địa điểm" is the true label for `location`; the
+                row below it is the one that now carries `address`. */}
+            <InfoRow label="Địa điểm">{profile.location ?? "Chưa có"}</InfoRow>
+            <InfoRow label="Địa chỉ">{profile.address ?? "Chưa có"}</InfoRow>
             <InfoRow label="Giờ mở cửa">
               {profile.openingHours ?? "Chưa có"}
             </InfoRow>

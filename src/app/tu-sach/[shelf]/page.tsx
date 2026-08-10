@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { BookOpen, Clock, KeyRound, Library, MapPin } from "lucide-react";
+import {
+  BookOpen,
+  Building2,
+  Clock,
+  KeyRound,
+  Library,
+  MapPin,
+} from "lucide-react";
 import { BigActionLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BookCard } from "@/components/ui/book";
@@ -131,7 +138,10 @@ export default async function ShelfHomePage({
         <Card className="p-8">
           <h1 className="text-[30px] leading-tight font-semibold">{shelf.name}</h1>
 
-          {shelf.location || shelf.openingHours || shelf.keeperName ? (
+          {shelf.location ||
+          shelf.address ||
+          shelf.openingHours ||
+          shelf.keeperName ? (
             <dl className="mt-6 space-y-4">
               {shelf.location ? (
                 <div className="flex gap-3">
@@ -143,6 +153,26 @@ export default async function ShelfHomePage({
                   <div>
                     <dt className="text-[14px] text-meta">Địa điểm</dt>
                     <dd className="text-[16px]">{shelf.location}</dd>
+                  </div>
+                </div>
+              ) : null}
+              {/* Below "Địa điểm" and separate from it (QA remediation Task
+                  22): `location` is the landmark a reader navigates by
+                  ("Nhà xứ Thánh Tâm"), `address` is the street address BR:179
+                  lists as its own field. Omitted when empty, the same as
+                  every row here — most shelves onboarded before this task had
+                  a `location` typed in and no reason yet to fill in the
+                  other. */}
+              {shelf.address ? (
+                <div className="flex gap-3">
+                  <Building2
+                    aria-hidden
+                    className="mt-1 size-5 shrink-0 text-leather"
+                    strokeWidth={1.75}
+                  />
+                  <div>
+                    <dt className="text-[14px] text-meta">Địa chỉ</dt>
+                    <dd className="text-[16px]">{shelf.address}</dd>
                   </div>
                 </div>
               ) : null}
