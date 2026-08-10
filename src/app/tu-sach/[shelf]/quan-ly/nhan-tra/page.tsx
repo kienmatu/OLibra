@@ -215,6 +215,11 @@ export default async function NhanTraPage({
           {/* Carried so a refusal comes back to this same search and this same
               loan rather than to an empty box. */}
           <input type="hidden" name="q" value={query} />
+          {/* QA remediation Task 16: the shelf-mark this screen already shows
+              below ("bản {selected.copyCode}"), carried so
+              `receiveReturnAction` can name it in the confirmation notice on
+              the dashboard it redirects to. */}
+          <input type="hidden" name="ma-ban" value={selected.copyCode} />
 
           <h2 className="text-xl font-semibold">Tình trạng sách khi trả</h2>
 

@@ -55,7 +55,10 @@ import type { CopyCondition } from "../../../../domain/catalogue/policy";
 import type { Command } from "../../../../domain/kernel/unit-of-work";
 import { decideAndDiscardAvatar } from "../../../../lib/avatar";
 import { submitCommand } from "../../../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
+import {
+  ACTION_DONE_PARAM,
+  ACTION_ERROR_PARAM,
+} from "../../../../lib/search-params";
 
 /**
  * Every button on the manager's surface that writes something — the three
@@ -249,6 +252,40 @@ const INCOMPLETE = { ok: false, code: "validation_failed" } as const;
  * trusted on that account: `lendCopy` re-reads both inside its transaction and
  * re-applies `copyLendable` and `memberMayBorrow` (OPS §5 — "the command
  * re-checks anyway, because the data can go stale in the seconds between").
+ *
+ * ── The confirmation this redirects to, and what it does not name ───────────
+ *
+ * QA remediation Task 16: this used to `redirect(base)` on success with
+ * nothing to say a lend had just happened — the dashboard it landed on was
+ * the same dashboard a manager sees by tapping "Trang chính" from the menu.
+ * The brief's own sentence is "Đã cho {tên} mượn {mã bản}, hạn trả {ngày}.",
+ * and the middle piece is missing here on purpose.
+ *
+ * **The copy code and the due date travel in the query string; the reader's
+ * name does not.** `mã bản` is a shelf-mark printed on the book itself
+ * (`xac-nhan/page.tsx` already shows it in a `<Row>`, and prints it again in
+ * "Sau khi xác nhận, bản {code} sẽ chuyển sang…") and `hạn trả` is a calendar
+ * date `lendCopy`'s own result carries — neither identifies a person. A
+ * borrower's name does, and this branch (`2fb0ee8`) reverted exactly that
+ * mistake for two other forms in the same session it was made in: a child's
+ * date of birth, both parents' names and a phone number, carried back through
+ * a query string, are a permanent leak on a shared parish phone via browser
+ * history and a proxy's access log. `lendCopy`'s own result never carried a
+ * name to begin with (`LendCopyResult` is `{ loanId, dueOn }`), and adding a
+ * lookup keyed on `loanId` just to put a name in a *courtesy* sentence would
+ * be reaching for the same shape of risk through a side door — a request for
+ * "the reader's name" is a request for the reader's name, whether it arrives
+ * by parameter or by a fetch this action triggers.
+ *
+ * **So the sentence names no one, and that is a real precedent rather than an
+ * improvisation.** `domain/kernel/audit-actions.ts`'s own `loan.created`
+ * phrase already has exactly this fallback — `f.subject ? "cho ${f.subject}
+ * mượn …" : "cho mượn …"` — for the one case *it* has no name to put in a
+ * sentence (an audit row whose actor is the system). The notice below is that
+ * same shape, chosen for the reason stated above rather than copied
+ * uncritically: BR §14's audit trail is read by a manager who is already
+ * signed in to a permissioned screen built to name people; a URL is read by
+ * whoever picks up the phone next.
  */
 export async function lendCopyAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
@@ -272,7 +309,12 @@ export async function lendCopyAction(form: FormData): Promise<void> {
     redirect(`${base}/cho-muon/xac-nhan?${params.toString()}`);
   }
 
-  redirect(base);
+  const params = new URLSearchParams({
+    [ACTION_DONE_PARAM]: "cho-muon",
+    "ma-ban": field(form, "ma-ban"),
+    han: outcome.result.dueOn,
+  });
+  redirect(`${base}?${params.toString()}`);
 }
 
 /**
@@ -298,6 +340,12 @@ export async function lendCopyAction(form: FormData): Promise<void> {
  * against the `copy_condition` enum itself and throws `ValidationFailed` for
  * anything else — not a `RuleViolated`, so it stays loud. The form can only
  * ever submit one of the six.
+ *
+ * **The success redirect carries a copy code, per QA remediation Task 16.**
+ * "Đã nhận lại {mã bản}." — the brief's own sentence — names no person, so
+ * none of `lendCopyAction`'s reasoning above about what stays out of the URL
+ * has anything to add here; the code is a shelf-mark, exactly as it is on
+ * `nhan-tra/page.tsx`'s own "Sau khi xác nhận, bản {code} sẽ chuyển sang…".
  */
 export async function receiveReturnAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
@@ -326,7 +374,11 @@ export async function receiveReturnAction(form: FormData): Promise<void> {
     redirect(`${base}/nhan-tra?${params.toString()}`);
   }
 
-  redirect(base);
+  const params = new URLSearchParams({
+    [ACTION_DONE_PARAM]: "nhan-tra",
+    "ma-ban": field(form, "ma-ban"),
+  });
+  redirect(`${base}?${params.toString()}`);
 }
 
 /**

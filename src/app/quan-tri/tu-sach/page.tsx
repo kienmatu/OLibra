@@ -4,13 +4,19 @@ import { AdminShell } from "@/components/shell/manager-shell";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { Pill } from "@/components/ui/pill";
+import { SavedNotice } from "@/components/ui/saved-notice";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { messageFor } from "@/domain/kernel/errors";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getAdminOverview } from "@/domain/admin/queries/get-admin-overview";
 import { getShelfSettings } from "@/domain/shelf/queries/get-shelf-settings";
 import { loadAdminPage } from "@/lib/page-data";
-import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
+import {
+  ACTION_DONE_PARAM,
+  param,
+  refusalFrom,
+  type SearchParams,
+} from "@/lib/search-params";
 import {
   archiveBookshelfAction,
   createBookshelfAction,
@@ -53,6 +59,11 @@ export default async function AdminBookshelvesPage({
   const search = await searchParams;
   const selectedId = param(search, "tu-sach") ?? null;
   const refusal = refusalFrom(search);
+  // QA remediation Task 16: `updateBookshelfSettingsAction` now marks its own
+  // success (`admin-actions.ts`'s `back(..., true)`). A bare presence check,
+  // like `/gop-y`'s own `da-gui`, rather than reading a value — this page has
+  // exactly one thing behind `?tu-sach=` that could just have been saved.
+  const saved = param(search, ACTION_DONE_PARAM) === "1";
 
   const { viewer, unreadFeedback, shelves, selected } = await loadAdminPage(
     async (tx, ctx, v) => {
@@ -173,6 +184,8 @@ export default async function AdminBookshelvesPage({
           <Link href="/quan-tri/tu-sach" className="text-[14px] underline">
             ← Về danh sách tủ sách
           </Link>
+
+          {saved ? <SavedNotice>Đã lưu cài đặt.</SavedNotice> : null}
 
           <form action={updateBookshelfSettingsAction} className="mt-6 space-y-12">
             <input type="hidden" name="tu-sach" value={selected.row.bookshelfId} />

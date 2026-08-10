@@ -179,3 +179,37 @@ export function refusalFrom(search: SearchParams): ErrorCode | null {
   if (code === undefined) return null;
   return Object.hasOwn(ERROR_MESSAGES, code) ? (code as ErrorCode) : null;
 }
+
+/**
+ * The query-string parameter a server action hands a *success* back through —
+ * QA remediation Task 16.
+ *
+ * `/tu-sach/[shelf]/gop-y` already had this: `?da-gui=1` on a redirect,
+ * `param(search, "da-gui") === "1"` on the page, "Đã gửi rồi, cảm ơn em nhé."
+ * beside a check icon. Three other writes — saving a shelf's settings,
+ * lending a copy, receiving a return — redirected on success with no marker
+ * at all, so the page they landed on rendered identically whether the write
+ * had just happened or a manager had simply navigated there. This is that
+ * same pattern, named once so a fourth save does not reinvent it a third way.
+ *
+ * **A value, not only a presence check**, unlike `da-gui`. `updateBookshelf
+ * SettingsAction` redirects to a page with exactly one thing that could have
+ * just happened, so `?da-luu=1` (a bare marker) says enough. `lendCopyAction`
+ * and `receiveReturnAction` both redirect to the *same* manager dashboard —
+ * the one screen in this application two different confirmations land on —
+ * so that page needs to know *which* save just happened before it can pick
+ * between "Đã cho mượn…" and "Đã nhận lại…". `da-luu=cho-muon` and
+ * `da-luu=nhan-tra` carry that, mirroring `ACTION_ERROR_PARAM` above, whose
+ * value is already a code rather than a bare marker for the identical reason.
+ *
+ * **Never a person's name.** `2fb0ee8` (this branch) reverted exactly that
+ * mistake for two other forms — a child's date of birth, both parents' names
+ * and a family phone number, carried back through a query string on a
+ * refusal, are a permanent leak on a shared parish phone via browser history
+ * and a proxy's access log. The two pages that read this parameter carry a
+ * copy code and a due date alongside it — a shelf-mark printed on the book
+ * and a calendar date, neither of which names anyone — and the lending
+ * sentence itself names no borrower; see `quan-ly/actions.ts`'s own note on
+ * `lendCopyAction` for why that is not an oversight.
+ */
+export const ACTION_DONE_PARAM = "da-luu";

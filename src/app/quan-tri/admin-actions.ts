@@ -27,7 +27,7 @@ import { archiveCategory } from "../../domain/catalogue/commands/archive-categor
 import { createCategory } from "../../domain/catalogue/commands/create-category";
 import { renameCategory } from "../../domain/catalogue/commands/rename-category";
 import { submitAdminCommand } from "../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../lib/search-params";
+import { ACTION_DONE_PARAM, ACTION_ERROR_PARAM } from "../../lib/search-params";
 
 /**
  * OPS §4.5's writes — the administration surface's own commands.
@@ -83,7 +83,8 @@ function count(form: FormData, name: string): number | undefined {
 }
 
 /**
- * `path`, plus `?loi=<code>` when there is one to report.
+ * `path`, plus `?loi=<code>` when there is one to report, or `?da-luu=1` when
+ * `done` says this caller wants a success confirmed.
  *
  * **`&`, not always `?`, when `path` already carries a query string.**
  * `updateBookshelfSettingsAction` below has redirected to
@@ -105,11 +106,26 @@ function count(form: FormData, name: string): number | undefined {
  * `URLSearchParams` classes because every path here is already a known-good
  * relative string and `redirect()` wants that string back, not a parsed
  * object.
+ *
+ * **`done` is opt-in, per caller, not a blanket addition to every success
+ * here** (QA remediation Task 16). `createBookshelfAction` and
+ * `archiveBookshelfAction` both already land on a page that visibly changed —
+ * a new row in the list, an "Đã lưu trữ" pill — so a confirmation strip on
+ * top would be telling a manager something the page already shows. Only
+ * `updateBookshelfSettingsAction` passes it: that is the one redirect in this
+ * file whose destination page can render identically whether the save just
+ * happened or the administrator merely navigated back to it.
  */
-function back(path: string, code: string | null): never {
-  if (code === null) redirect(path);
-  const join = path.includes("?") ? "&" : "?";
-  redirect(`${path}${join}${ACTION_ERROR_PARAM}=${code}`);
+function back(path: string, code: string | null, done?: true): never {
+  if (code !== null) {
+    const join = path.includes("?") ? "&" : "?";
+    redirect(`${path}${join}${ACTION_ERROR_PARAM}=${code}`);
+  }
+  if (done) {
+    const join = path.includes("?") ? "&" : "?";
+    redirect(`${path}${join}${ACTION_DONE_PARAM}=1`);
+  }
+  redirect(path);
 }
 
 // ── Shelves ────────────────────────────────────────────────────────────────
@@ -157,7 +173,10 @@ export async function updateBookshelfSettingsAction(form: FormData): Promise<voi
       bookshelfId,
     ),
   );
-  back(`/quan-tri/tu-sach?tu-sach=${bookshelfId}`, code);
+  // QA remediation Task 16: "Lưu cài đặt" used to redirect here with nothing
+  // to say the save took — the form re-rendered identically whether it had
+  // just been submitted or the page was freshly opened.
+  back(`/quan-tri/tu-sach?tu-sach=${bookshelfId}`, code, true);
 }
 
 export async function archiveBookshelfAction(form: FormData): Promise<void> {
