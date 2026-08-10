@@ -60,6 +60,28 @@ test("refuses a duplicate slug", async () => {
   ).rejects.toMatchObject({ code: "duplicate_category" });
 });
 
+test("an archived category's slug stays reserved — re-creating it is refused, not revived", async () => {
+  // Pins the decision `create-category.ts`'s docstring documents:
+  // `categories_slug_key` carries no `where deleted_at is null` (unlike
+  // `parish_units_name_unique_in_scope`), so the duplicate check in
+  // `createCategory` is deliberately unfiltered by `deleted_at` — the same
+  // choice `createBookshelf` makes for `bookshelves.slug`. Without this test,
+  // a later "fix" that adds `and deleted_at is null` to that select would
+  // compile, pass every other test here, and only fail live: the insert would
+  // hit the real `categories_slug_key` constraint and surface as a raw
+  // `23505` instead of a named `duplicate_category`.
+  const ctx = await admin();
+  await runAdminCommand(sql, ctx, createCategory, { name: "Sách quý hiếm" });
+  const [{ id: archivedId }] = await sql<{ id: string }[]>`
+    select id from categories where slug = 'sach-quy-hiem'
+  `;
+  await runAdminCommand(sql, ctx, archiveCategory, { id: archivedId });
+
+  await expect(
+    runAdminCommand(sql, ctx, createCategory, { name: "Sách quý hiếm" }),
+  ).rejects.toMatchObject({ code: "duplicate_category" });
+});
+
 test("refuses a blank name", async () => {
   const ctx = await admin();
   await expect(
