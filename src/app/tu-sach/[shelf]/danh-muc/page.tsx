@@ -131,6 +131,7 @@ export default async function CataloguePage({
         shelfSlug={slug}
         active="danh-muc"
         viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
 
       <main className="mx-auto max-w-6xl px-6 py-10">

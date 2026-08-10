@@ -89,6 +89,7 @@ export default async function SearchPage({
         shelfSlug={slug}
         active="tim-kiem"
         viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
 
       <main className="mx-auto max-w-3xl px-6 py-10">

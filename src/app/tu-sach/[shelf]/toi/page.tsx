@@ -68,6 +68,7 @@ export default async function ReaderDashboardPage({
         shelfSlug={slug}
         active="toi"
         viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
       <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
 

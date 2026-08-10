@@ -143,7 +143,15 @@ test("queue position is derived, and moves when somebody ahead is served", async
   const first = await makeMember(sql, shelf.id);
   const second = await makeMember(sql, shelf.id);
 
-  const asReader = (m: { id: string; userId: string }) => ({
+  // **Two different instants, and that is not incidental.**
+  // `createBorrowRequest` writes `requested_at` from `ctx.clock`, so two
+  // requests made under the *same* fixed clock tie exactly and the queue order
+  // falls to the `id` tiebreak — a random uuid. The tuple comparison is still a
+  // total order, so the query is right either way, but a fixture that ties
+  // makes this test a coin flip: it passed in isolation and failed in the full
+  // suite. Real requests are minutes apart; the fixture should be too. Same
+  // degenerate-fixture trap U3's review found in two tiebreak tests.
+  const asReader = (m: { id: string; userId: string }, instant: string) => ({
     ...ctx,
     actor: {
       ...ctx.actor,
@@ -151,16 +159,21 @@ test("queue position is derived, and moves when somebody ahead is served", async
       membershipId: m.id,
       role: "reader" as const,
     },
+    clock: fixedClock(instant),
   });
 
-  const a = await runCommand(sql, asReader(first), createBorrowRequest, {
-    bookId,
-    membershipId: first.id,
-  });
-  await runCommand(sql, asReader(second), createBorrowRequest, {
-    bookId,
-    membershipId: second.id,
-  });
+  const a = await runCommand(
+    sql,
+    asReader(first, "2026-08-07T10:00:00Z"),
+    createBorrowRequest,
+    { bookId, membershipId: first.id },
+  );
+  await runCommand(
+    sql,
+    asReader(second, "2026-08-07T11:00:00Z"),
+    createBorrowRequest,
+    { bookId, membershipId: second.id },
+  );
 
   expect(
     (await runQuery(sql, readerContext(shelf.id, second), getMyDashboard))

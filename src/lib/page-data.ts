@@ -56,6 +56,11 @@ export interface Viewer {
    */
   name: string | null;
   /**
+   * BR §15's bell count — unread notifications for this person, on this shelf's
+   * request. `0` for a guest, who has no bell rather than an empty one.
+   */
+  unreadNotifications: number;
+  /**
    * `ctx.actor.role` — the role the seam already resolved, carried here so the
    * chrome can print it (U3 §3.3) without eleven manager pages each reaching
    * into the `TenantContext` for one field.
@@ -119,13 +124,30 @@ export interface Viewer {
  * setting is about what a shelf discloses to third parties.
  */
 async function viewerFor(tx: Tx, ctx: TenantContext): Promise<Viewer> {
-  if (ctx.actor.userId === null) return { name: null, role: ctx.actor.role };
+  if (ctx.actor.userId === null) {
+    // A guest has no bell. The header renders on the public pages too, and a
+    // count of nobody's notifications is not zero — it is absent.
+    return { name: null, role: ctx.actor.role, unreadNotifications: 0 };
+  }
   const [row] = await tx<{ name: string }[]>`
     select coalesce(nullif(display_name, ''), full_name) as name
     from users
     where id = ${ctx.actor.userId} and deleted_at is null
   `;
-  return { name: row?.name ?? null, role: ctx.actor.role };
+  // BR §15's bell count, resolved beside the name for the reason U2 gave for
+  // the name itself: a page that forgot it would render a bell with no number
+  // and nothing would notice. One statement, on the transaction that is
+  // already open.
+  const [count] = await tx<{ unread: string }[]>`
+    select count(*) as unread from notifications
+     where user_id = ${ctx.actor.userId} and read_at is null
+  `;
+  return {
+    name: row?.name ?? null,
+    role: ctx.actor.role,
+    // `count()` is `int8`, which the driver hands back as a string.
+    unreadNotifications: Number(count.unread),
+  };
 }
 
 /**

@@ -344,6 +344,7 @@ test("the header is handed the name of the person actually signed in", async () 
   expect(await viewerOf("dong-thap")).toEqual({
     name: "Maria Nguyễn Thị Lan",
     role: "reader",
+    unreadNotifications: 0,
   });
 });
 
@@ -357,7 +358,11 @@ test("a display name the reader chose wins over their full name", async () => {
   await signInAs(shelf.id, "reader", "bandoc");
   await sql`update users set display_name = 'Lan' where username = 'bandoc'`;
 
-  expect(await viewerOf("dong-thap")).toEqual({ name: "Lan", role: "reader" });
+  expect(await viewerOf("dong-thap")).toEqual({
+    name: "Lan",
+    role: "reader",
+    unreadNotifications: 0,
+  });
 });
 
 test("an empty display name falls back to the full name rather than emptying the header", async () => {
@@ -372,6 +377,7 @@ test("an empty display name falls back to the full name rather than emptying the
   expect(await viewerOf("dong-thap")).toEqual({
     name: "Giuse Trần Minh",
     role: "reader",
+    unreadNotifications: 0,
   });
 });
 
@@ -382,7 +388,11 @@ test("a guest has no name, and the header renders signed-out from exactly that",
   // /dang-ky — where this same header renders — honest.
   await makeShelf(sql, { slug: "dong-thap" });
 
-  expect(await viewerOf("dong-thap")).toEqual({ name: null, role: "guest" });
+  expect(await viewerOf("dong-thap")).toEqual({
+    name: null,
+    role: "guest",
+    unreadNotifications: 0,
+  });
 });
 
 test("the viewer's role is the one the seam resolved, not one the page decided", async () => {
@@ -399,6 +409,7 @@ test("the viewer's role is the one the seam resolved, not one the page decided",
   expect(await viewerOf("dong-thap")).toEqual({
     name: "Maria Nguyễn Thị Lan",
     role: "manager",
+    unreadNotifications: 0,
   });
 });
 
@@ -414,6 +425,7 @@ test("a signed-in non-member is a guest to the chrome, exactly as they are to th
   expect(await viewerOf("dong-thap")).toEqual({
     name: "Giuse Trần Minh",
     role: "guest",
+    unreadNotifications: 0,
   });
 });
 
@@ -572,4 +584,31 @@ test("a fault inside an export is a fault, not an empty file", async () => {
   await expect(
     loadFile("dong-thap", (tx) => tx`select * from bang_khong_ton_tai`),
   ).rejects.toThrow(/bang_khong_ton_tai/);
+});
+
+test("the header is handed the reader's own unread count, and only theirs", async () => {
+  // BR §15's bell. Updating the assertions above to `unreadNotifications: 0`
+  // only proves the field exists — this proves it counts, that it counts the
+  // *unread* ones, and that one reader's bell never shows another's.
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  await signInAs(shelf.id, "reader", "bandoc");
+  const [me] = await sql<{ id: string }[]>`
+    select id from users where username = 'bandoc'
+  `;
+  const [somebodyElse] = await sql<{ id: string }[]>`
+    insert into users (full_name, father_name, mother_name)
+    values ('Bạn khác', '', '') returning id
+  `;
+
+  await sql`
+    insert into notifications (bookshelf_id, user_id, kind, read_at)
+    values
+      (${shelf.id}, ${me.id}, 'membership_approved', null),
+      (${shelf.id}, ${me.id}, 'loan_overdue', null),
+      (${shelf.id}, ${me.id}, 'loan_due_soon', now()),
+      (${shelf.id}, ${somebodyElse.id}, 'membership_approved', null)
+  `;
+
+  const viewer = await viewerOf("dong-thap");
+  expect(viewer.unreadNotifications).toBe(2);
 });
