@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { LogOut, Menu, Search } from "lucide-react";
-import { ButtonLink } from "@/components/ui/button";
-import { signOutAction } from "@/app/dang-nhap/actions";
+// Relative, not the `@/` alias: this file is exercised by
+// `tests/components/public-header.test.tsx`, and `vitest.config.ts` has no
+// `resolve.alias` for `@/` (deliberately, per the branch's QA-remediation
+// constraints — `reader-tabs.tsx` carries the identical note for the
+// identical reason). An alias import here would make the component
+// unimportable under Vitest, not just untested.
+import { ButtonLink } from "../ui/button";
+import { signOutAction } from "../../app/dang-nhap/actions";
 
 /**
  * Below 768px the nav collapses to a hamburger (DESIGN.md §Navigation).
@@ -154,49 +160,14 @@ export function ShelfHeader({
   unreadNotifications?: number;
 }) {
   const base = `/tu-sach/${shelfSlug}`;
-  /**
-   * **"Thông báo" and "Trang của tôi" are not here, and that is IMPORTANT 4**
-   * (fix-report, 2026-08-09-u2-shelf-and-portal), not an oversight to put back
-   * without wiring the pages first.
-   *
-   * This header sits on all four pages U2 wired. `${base}/thong-bao` and
-   * `${base}/ho-so/tong-quan` are not wired: they render `src/lib/fixtures.ts` — Đồng
-   * Tháp's invented announcements, and a stranger's loans and donation history
-   * under the name "Giuse Trần Minh". So a real member of Vĩnh Long, having
-   * just seen their real catalogue under their real name, tapped "Thông báo"
-   * and got another parish's notices; tapped "Trang của tôi" and got somebody
-   * else's borrowing record. Signed out entirely, all eight of the unwired
-   * member routes still return 200 with that same dashboard.
-   *
-   * `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` states the
-   * reason better than this comment can: "Mixed into a page whose other half is
-   * real, it is indistinguishable from data, which is exactly what makes it
-   * worse than an obviously unfinished screen." Before U2 the whole shelf area
-   * was uniformly fixture and the nav was consistent with itself. U2 made half
-   * of it real and left the nav pointing at the other half.
-   *
-   * **Why the links go rather than the pages getting gated.** Gating them
-   * behind `loadPage` would stop a stranger reading them and would put the
-   * right parish in the header — and would leave a member looking at a page
-   * whose chrome is real and whose body is invented, which is the precise
-   * failure that guard exists to prevent. It would also make those routes
-   * import both `lib/page-data` and `lib/fixtures`, which that guard fails on
-   * by construction, so "gate them" is not available without weakening it. Two
-   * links is what U2 broke and two links is what U2 can honestly put back.
-   *
-   * Both come back when their slice lands, alongside the page. The eight
-   * routes remain reachable by typing their address; that is the same
-   * condition every one of the forty-one unwired pages in this app is in, it
-   * is not something this slice introduced, and it is recorded in the U2 plan's
-   * §6 rather than half-solved here.
-   *
-   * **Both are back now**, each alongside its wired page — `ho-so/` first, then
-   * `thong-bao` when B3's announcements list got a real query behind it. They
-   * were never one decision; they were one sentence about two pages, and they
-   * returned separately because they were wired separately. The self-test in
-   * `a-wired-page-renders-no-fixtures.test.ts` asserts both halves for each:
-   * the link exists *and* the page it points at reads the database.
-   */
+  // Every link below points at a wired page that reads the database — U2
+  // shipped "Thông báo" and "Trang của tôi" pointing at `src/lib/fixtures.ts`
+  // instead, so a real member saw another parish's notices and a stranger's
+  // borrowing history under their own real name (fix-report,
+  // 2026-08-09-u2-shelf-and-portal, "IMPORTANT 4"); both were pulled until
+  // their pages were wired and are back now, and
+  // `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` is what
+  // would catch that regressing again.
   const links = [
     { href: `${base}/danh-muc`, label: "Danh mục", key: "danh-muc", icon: false },
     {
@@ -220,7 +191,17 @@ export function ShelfHeader({
         unreadNotifications > 0
           ? `Thông báo (${unreadNotifications})`
           : "Thông báo",
-      key: "thong-bao",
+      // `"thong-bao-cua-toi"`, not `"thong-bao"` — the latter is "Bản tin"'s
+      // key above. Both were `"thong-bao"` until task 9 (2026-08-10 QA
+      // remediation): React logged "Encountered two children with the same
+      // key" on every reader page, and because `active === link.key` matches
+      // by key rather than by array position, a page passing
+      // `active="thong-bao"` (Bản tin's own page) lit up *both* links, while
+      // `/ho-so/thong-bao` — which already passed the `active` union's other
+      // declared value, `"thong-bao-cua-toi"` — matched neither and left the
+      // whole top nav dark. `tests/components/public-header.test.tsx` pins
+      // both failure modes.
+      key: "thong-bao-cua-toi",
       icon: false,
     },
     { href: `${base}/tim-kiem`, label: "Tìm kiếm", key: "tim-kiem", icon: true },
