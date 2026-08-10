@@ -24,10 +24,12 @@ import {
   declineDonation,
   receiveDonation,
 } from "../../../../domain/community/commands/donations";
+import { assessCondition } from "../../../../domain/catalogue/commands/assess-condition";
 import { createBook } from "../../../../domain/catalogue/commands/create-book";
 import { markCopyFound } from "../../../../domain/catalogue/commands/mark-copy-found";
 import { reportCopyLost } from "../../../../domain/catalogue/commands/report-copy-lost";
 import { retireCopy } from "../../../../domain/catalogue/commands/retire-copy";
+import { updateBook } from "../../../../domain/catalogue/commands/update-book";
 import { approveBorrowRequest } from "../../../../domain/circulation/commands/approve-borrow-request";
 import { handoverRequest } from "../../../../domain/circulation/commands/handover-request";
 import { lendCopy } from "../../../../domain/circulation/commands/lend-copy";
@@ -1310,4 +1312,198 @@ export async function updateReaderProfileAction(form: FormData): Promise<void> {
     : INCOMPLETE;
 
   backToReader(shelfSlug, membershipId, outcome);
+}
+
+// ── The book detail page's own controls — `quan-ly/sach/[id]`, wired by
+// Task 11 (QA remediation) ──────────────────────────────────────────────
+//
+// Twelve `<button type="submit">` on that page — "Đánh giá", "Báo mất",
+// "Ngừng dùng", three per non-lost copy — had no enclosing `<form>` at all,
+// and "Sửa sách" linked to the book *list* rather than to any edit form. The
+// five commands behind them (`assessCondition`, `reportCopyLost`,
+// `retireCopy`, `markCopyFound`, `updateBook`) were all implemented and
+// tested since B1; nothing in `src/app` called four of them, and nothing
+// called `updateBook` at all. `tests/architecture/no-button-without-a-form
+// .test.ts` is the guard against this recurring.
+//
+// **`assessConditionAction` and `updateBookAction` are new.** The other
+// three commands already had action wrappers — `reportCopyLostAction`,
+// `retireCopyAction`, `markCopyFoundAction`, above — but each one already
+// belongs to a *different* screen with a locked-in redirect target:
+// `reportCopyLostAction` returns to `nhan-tra/bao-mat` (it needs `q`/`muon`
+// to put the manager back on the loan they were returning) and
+// `retireCopyAction`/`markCopyFoundAction` return to `sach/mat`, exactly as
+// `tests/lib/manager-actions.test.ts` pins. Bending any of the three to also
+// serve this page would mean growing a parameter neither existing caller
+// needs, or risking the day someone edits the wrong branch and both screens'
+// redirects drift. The command underneath each is identical either way; only
+// *where the screen sends the manager back to* differs, which is a decision
+// this surface makes for itself — the same shape `backToReader` already
+// makes for its own five, below `backToBook`.
+
+/**
+ * `/tu-sach/<slug>/quan-ly/sach/<bookSlug>`, with or without a refusal code —
+ * where every control below lands, on the same book detail page the manager
+ * was already looking at. `bookSlug` travels as a hidden `sach` field on
+ * every form in this section; see this section's own header for why that is
+ * a fifth redirect target rather than a parameter grown onto an existing one.
+ */
+function backToBook(
+  shelfSlug: string,
+  bookSlug: string,
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  const base = `${managerBase(shelfSlug)}/sach/${encodeURIComponent(bookSlug)}`;
+  redirect(outcome.ok ? base : `${base}?${ACTION_ERROR_PARAM}=${outcome.code}`);
+}
+
+/**
+ * OPS §4.1's `AssessCondition` — "Đánh giá" on a copy's own row.
+ *
+ * **No copy-state check here, and none belongs here.** `assessCondition`
+ * itself consults no transition table (BR §9: "a condition is not a state"),
+ * so the command accepts any state; the page withholds the control for
+ * `lost` and `retired` copies for a product reason — nothing to inspect —
+ * not a rule this action re-checks. See `copyControls` in the page itself.
+ *
+ * `attemptTyped`, not `attempt`: the form can only ever submit one of the six
+ * `COPY_CONDITIONS` (`ConditionPicker` renders exactly those six radios), so
+ * `assessCondition`'s own `ValidationFailed("validation_failed", "condition")`
+ * is unreachable from this form and stays loud if it ever fires anyway —
+ * `receiveReturnAction`'s docstring makes the identical point about the same
+ * picker.
+ */
+export async function assessConditionAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const bookSlug = field(form, "sach");
+  const note = field(form, "ghi-chu");
+  const outcome = complete(form, ["ban", "tinh-trang"])
+    ? await attemptTyped(shelfSlug, assessCondition, {
+        copyId: field(form, "ban"),
+        condition: field(form, "tinh-trang") as CopyCondition,
+        note: note === "" ? null : note,
+      })
+    : INCOMPLETE;
+
+  backToBook(shelfSlug, bookSlug, outcome);
+}
+
+/**
+ * OPS §4.1's `ReportCopyLost` — "Báo mất" on a copy's own row, the book
+ * detail page's own entry point rather than the return flow's
+ * (`reportCopyLostAction`, above, which is `nhan-tra/bao-mat`'s).
+ *
+ * The page renders this control only when `copyStateTransition(copy.state,
+ * "lost").allowed` — in practice only `on_loan`, BR §7.1's one arrow into
+ * `lost` — so a stale page re-posting against a copy someone already
+ * returned or retired a moment earlier is the only way this command's own
+ * refusal (`copy_not_on_loan`, `already_lost`, `already_retired`) is reached
+ * from here.
+ */
+export async function reportCopyLostOnBookAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const bookSlug = field(form, "sach");
+  const note = field(form, "ghi-chu");
+  const outcome = complete(form, ["ban"])
+    ? await attempt(shelfSlug, reportCopyLost, {
+        copyId: field(form, "ban"),
+        note: note === "" ? null : note,
+      })
+    : INCOMPLETE;
+
+  backToBook(shelfSlug, bookSlug, outcome);
+}
+
+/**
+ * OPS §4.1's `RetireCopy` — "Ngừng dùng" on a copy's own row, the same
+ * required-reason shape `retireCopyAction` above already uses for `sach/mat`.
+ *
+ * The page renders this control only for `available` and `lost` copies (BR
+ * §7.1's two arrows into `retired`), so `copy_on_loan` — the refusal a
+ * `held` or `on_loan` copy would draw — is unreachable from here except by a
+ * stale page.
+ */
+export async function retireCopyOnBookAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const bookSlug = field(form, "sach");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["ban"])
+    ? INCOMPLETE
+    : reason === ""
+      ? ({ ok: false, code: "retire_reason_required" } as const)
+      : await attempt(shelfSlug, retireCopy, {
+          copyId: field(form, "ban"),
+          reason,
+        });
+
+  backToBook(shelfSlug, bookSlug, outcome);
+}
+
+/**
+ * OPS §4.1's `MarkCopyFound` — "Đánh dấu tìm thấy" on a copy's own row, the
+ * book detail page's own entry point rather than `sach/mat`'s
+ * (`markCopyFoundAction`, above). BR:559's complaint — "'Báo mất' appears in
+ * three places… and marking a copy found appears in none of them" — is what
+ * `sach/mat` already fixed; this is the same command reachable from the
+ * *title* a manager is already looking at, for the copy whose row is
+ * already in front of them.
+ *
+ * The page renders this control only for `state === "lost"`.
+ */
+export async function markCopyFoundOnBookAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const bookSlug = field(form, "sach");
+  const outcome = complete(form, ["ban"])
+    ? await attempt(shelfSlug, markCopyFound, { copyId: field(form, "ban") })
+    : INCOMPLETE;
+
+  backToBook(shelfSlug, bookSlug, outcome);
+}
+
+/**
+ * OPS §4.1's `UpdateBook` — "Sửa sách", `sach/[id]/sua`, replacing the link
+ * that pointed at the book *list* rather than at any edit form.
+ *
+ * **Every metadata field is always sent, never `optional()`.** `sach/[id]
+ * /sua/page.tsx` pre-fills every field from `getBookForEdit`, so an empty
+ * box on submit is a manager who cleared it — a refusal or a real `null`,
+ * never a silent no-op — the same choice `updateTaxonomyAction` and
+ * `updateReaderProfileAction` already make for the identical reason, stated
+ * in both of their own docstrings. `title`/`author`/`categorySlug` are
+ * required by the form's own `required` attribute and, behind that, by
+ * `updateBook` itself (`ValidationFailed` for a blank title or author,
+ * `category_not_found` for an empty slug) — no duplicate check belongs here.
+ *
+ * **`sach-id` (the book's uuid, for `updateBook`'s own input) and `sach`
+ * (the book's slug, for the redirect) are two different hidden fields, on
+ * purpose.** `updateBook`'s own docstring is explicit that the slug is never
+ * rewritten, so the redirect target has to be the slug the page loaded with
+ * — not derived from whatever title the manager just typed — and that is a
+ * different fact from the row `updateBook` needs to find.
+ */
+export async function updateBookAction(form: FormData): Promise<void> {
+  const shelfSlug = field(form, "tu-sach");
+  const bookSlug = field(form, "sach");
+  const outcome = complete(form, ["sach-id"])
+    ? await attemptTyped(shelfSlug, updateBook, {
+        bookId: field(form, "sach-id"),
+        title: field(form, "ten-sach"),
+        author: field(form, "tac-gia"),
+        categorySlug: field(form, "the-loai"),
+        publisher: optional(form, "nxb"),
+        publishedYear: wholeNumber(form, "nam-xb"),
+        pageCount: wholeNumber(form, "so-trang"),
+        isbn: optional(form, "isbn"),
+        description: optional(form, "mo-ta"),
+        // An unchecked checkbox posts nothing at all — `createBookAction`'s
+        // own "hien-thi" read, above.
+        published: form.get("hien-thi") !== null,
+      })
+    : INCOMPLETE;
+
+  const base = managerBase(shelfSlug);
+  if (!outcome.ok) {
+    redirect(`${base}/sach/${bookSlug}/sua?${ACTION_ERROR_PARAM}=${outcome.code}`);
+  }
+  redirect(`${base}/sach/${bookSlug}`);
 }

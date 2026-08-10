@@ -69,6 +69,24 @@ const EXEMPT = new Set<string>([
   "src/domain/circulation/commands/create-borrow-request.ts", // createBorrowRequest — no caller found anywhere in src/app.
   "src/domain/circulation/commands/void-loan.ts", // voidLoan — no caller found anywhere in src/app.
   "src/domain/community/commands/comment-moderation.ts", // createComment (first export in this multi-command file) — no caller found anywhere in src/app.
+
+  // Task 11 (QA remediation) wired the other five commands the book detail
+  // page's docstring named — `assessCondition`, `reportCopyLost`,
+  // `retireCopy`, `markCopyFound`, `updateBook` — and left `addCopies`
+  // ("Thêm bản") exactly as unwired as it always was: that `<form>` has no
+  // `action` before this task or after it, and this task's own file list
+  // names the other five and not this one. `addCopies` was never actually
+  // reachable from `src/app` — this exemption does not change that — but this
+  // test's crude `grep -rl '\baddCopies\b' src/app`, which does not strip
+  // comments, used to match the old docstring's own prose ("Their commands
+  // all exist (`addCopies`, `assessCondition`, …)") and read that coincidence
+  // as a real caller. Task 11 rewrote that docstring to describe what is
+  // wired now rather than what is not yet, which stopped naming `addCopies`
+  // in passing and exposed the gap this grep was never actually closing.
+  // Wiring "Thêm bản" is real scope, belonging to whichever task takes it on
+  // deliberately — not a side effect of this task's docstring getting more
+  // accurate.
+  "src/domain/catalogue/commands/add-copies.ts", // addCopies — no caller found anywhere in src/app.
 ]);
 
 /** The name of the first command a file exports, or `""` if it exports none. */

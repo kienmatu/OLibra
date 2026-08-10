@@ -1,23 +1,13 @@
 import Link from "next/link";
-import {
-  AlertCircle,
-  Archive,
-  Check,
-  CheckCircle2,
-  Clock3,
-  FileX,
-  HelpCircle,
-  PenLine,
-  Scissors,
-  Search,
-} from "lucide-react";
+import { AlertCircle, HelpCircle, Search } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { Field, Input, Textarea } from "@/components/ui/field";
+import { Input } from "@/components/ui/field";
 import { Card } from "@/components/ui/card";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { COPY_CONDITIONS, type CopyCondition } from "@/domain/catalogue/policy";
+import { ConditionPicker } from "@/components/condition-picker";
+import { type CopyCondition } from "@/domain/catalogue/policy";
 import { messageFor } from "@/domain/kernel/errors";
 import { getBorrowRequestQueue } from "@/domain/circulation/queries/get-borrow-request-queue";
 import { searchLoansForReturn } from "@/domain/circulation/queries/search-loans-for-return";
@@ -26,8 +16,6 @@ import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashbo
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
-import { cn } from "@/lib/utils";
-import { CONDITION_LABELS } from "@/lib/status";
 import { receiveReturnAction } from "../actions";
 
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
@@ -35,21 +23,6 @@ export const dynamic = "force-dynamic";
 
 /** SDD §6.6: every number on a screen goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
-
-/**
- * One icon per grade, keyed on the `copy_condition` enum rather than on the
- * Vietnamese word, so the picker and the value posted to `ReceiveReturn` cannot
- * come apart. `Record<CopyCondition, …>` makes a seventh grade a compile error
- * here rather than a tile with no icon.
- */
-const CONDITION_ICONS: Record<CopyCondition, typeof CheckCircle2> = {
-  perfect: CheckCircle2,
-  slightly_worn: Clock3,
-  worn: Archive,
-  torn: Scissors,
-  missing_pages: FileX,
-  written_on: PenLine,
-};
 
 /** BR §16.3: "the common case is two taps", so the picker starts here. */
 const DEFAULT_CONDITION: CopyCondition = "perfect";
@@ -232,11 +205,7 @@ export default async function NhanTraPage({
       ) : null}
 
       {selected ? (
-        <form
-          action={receiveReturnAction}
-          // `group`, for the disclosure below. See its own comment.
-          className="group mt-8 max-w-2xl"
-        >
+        <form action={receiveReturnAction} className="mt-8 max-w-2xl">
           <input type="hidden" name="tu-sach" value={slug} />
           <input type="hidden" name="muon" value={selected.loanId} />
           {/* Carried so a refusal comes back to this same search and this same
@@ -245,81 +214,23 @@ export default async function NhanTraPage({
 
           <h2 className="text-xl font-semibold">Tình trạng sách khi trả</h2>
 
-          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {COPY_CONDITIONS.map((condition) => {
-              const Icon = CONDITION_ICONS[condition];
-              const id = `tinh-trang-${condition}`;
-              return (
-                // A radio inside its own label, rather than a `<button>`: the
-                // grade has to survive to the POST, and this page ships no
-                // client JavaScript to hold it. `htmlFor` also brings the
-                // pointer cursor with it — globals.css sets that for
-                // `label[for]`, per DESIGN.md §5.
-                <label
-                  key={condition}
-                  htmlFor={id}
-                  className={cn(
-                    "relative flex min-h-24 flex-col items-center justify-center gap-2 rounded-card px-2 py-3 text-center text-[13px] font-medium",
-                    "border border-hairline bg-surface text-ink",
-                    "has-checked:border-2 has-checked:border-terracotta has-checked:bg-terracotta/10 has-checked:text-terracotta-ink",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    id={id}
-                    name="tinh-trang"
-                    value={condition}
-                    defaultChecked={condition === DEFAULT_CONDITION}
-                    className="peer sr-only"
-                  />
-                  {/* BR §17.4:648, restored: "Selection is shown by a filled
-                      background **and a check**, not by colour alone." `main`
-                      drew this; the CSS-only radio rewrite kept the fill and
-                      the border weight and dropped the check, which leaves
-                      colour doing the work on its own for anyone who cannot
-                      separate terracotta from paper.
-
-                      `peer-checked:flex` beats the `hidden` beside it on
-                      variant order, so this still needs no client JavaScript —
-                      the input has to precede the badge in the DOM for `peer`
-                      to reach it, which it does. */}
-                  <span
-                    aria-hidden
-                    className="absolute top-1.5 right-1.5 hidden size-4 items-center justify-center rounded-full bg-terracotta text-white peer-checked:flex"
-                  >
-                    <Check className="size-2.5" strokeWidth={3} />
-                  </span>
-                  <Icon aria-hidden className="size-6" strokeWidth={1.75} />
-                  {CONDITION_LABELS[condition]}
-                </label>
-              );
-            })}
-          </div>
-
-          {/* BR §16.3:548 asks for "Ghi chú và ảnh" here and this is only the
-              note. **The photo is deferred, not forgotten** — U1 §6.1 records
-              what wiring it actually costs: `receiveReturn` already takes a
-              `photo`, and B5 shipped the object store, but nothing in the
-              application constructs one, the running app has never been given
-              the seven `S3_*` variables, and a size limit, a content-type
-              list, what a rejected upload says and what a failed `put` does to
-              the rest of the return are four policies that exist nowhere. It
-              belongs with B2b's avatar upload, which needs the same first
-              three. `main` did not have it either: it drew a dashed box
-              reading "Ghi chú và ảnh · hiện khi chọn tình trạng xấu hơn".
-
-              BR §16.3: the note only appears once a worse grade is chosen, so
-              the common case stays two taps. Done in CSS rather than in
-              JavaScript — exactly one radio is ever checked, so "Nguyên vẹn is
-              not the one" is the same condition as "something worse is".
-
-              Written as hide-on-perfect rather than show-on-worse on purpose:
-              if this selector ever stops matching, the field is *visible* when
-              it need not be, instead of invisible when a volunteer needs it. */}
-          <div className="mt-5 group-has-[#tinh-trang-perfect:checked]:hidden">
-            <Field label="Ghi chú" htmlFor="ghi-chu">
-              <Textarea id="ghi-chu" name="ghi-chu" rows={3} />
-            </Field>
+          {/* BR §16.3:548 asks for "Ghi chú và ảnh" here and `ConditionPicker`
+              carries only the note. **The photo is deferred, not forgotten** —
+              U1 §6.1 records what wiring it actually costs: `receiveReturn`
+              already takes a `photo`, and B5 shipped the object store, but
+              nothing in the application constructs one, the running app has
+              never been given the seven `S3_*` variables, and a size limit, a
+              content-type list, what a rejected upload says and what a failed
+              `put` does to the rest of the return are four policies that exist
+              nowhere. It belongs with B2b's avatar upload, which needs the
+              same first three. `main` did not have it either: it drew a
+              dashed box reading "Ghi chú và ảnh · hiện khi chọn tình trạng xấu
+              hơn". */}
+          <div className="mt-4">
+            <ConditionPicker
+              idPrefix="tinh-trang"
+              defaultCondition={DEFAULT_CONDITION}
+            />
           </div>
 
           {waiting.length > 0 ? (

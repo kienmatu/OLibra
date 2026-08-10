@@ -1,18 +1,37 @@
 import { notFound } from "next/navigation";
 import type { ManagerCopyRow } from "@/domain/catalogue/queries/get-book-detail-manager";
-import { BookDown, BookUp, CircleCheckBig, Pencil, Plus } from "lucide-react";
+import {
+  Archive,
+  BookDown,
+  BookUp,
+  CircleCheckBig,
+  ClipboardList,
+  HelpCircle,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import { Button, ButtonLink, buttonClasses } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/field";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { Field, Input, Textarea } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { ConditionPicker } from "@/components/condition-picker";
 import { DonorFields } from "@/components/donor-fields";
+import { copyStateTransition, type CopyState } from "@/domain/catalogue/policy";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { readShelf } from "@/lib/shelf";
+import { cn } from "@/lib/utils";
 import { CONDITION_LABELS, COPY_STATE_STATUS, STATUS } from "@/lib/status";
+import {
+  assessConditionAction,
+  markCopyFoundOnBookAction,
+  reportCopyLostOnBookAction,
+  retireCopyOnBookAction,
+} from "../../actions";
 
 /**
  * U1 §2, and this page had a `force-dynamic` before it read anything: the
@@ -51,16 +70,46 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * 404, which is what a 404 is for; U1 §3.4's rule about not confirming a page
  * exists is unaffected, because this answer does not depend on who is asking.
  *
- * **Every other control here is unchanged, and none of them writes anything.**
- * "Thêm bản", "Đánh giá", "Báo mất", "Ngừng dùng" and "Đánh dấu tìm thấy" are
- * still plain `<button>`s that submit nothing, and "Sửa sách" still links to
- * the book *list* rather than to an edit form. Their commands all exist
- * (`addCopies`, `assessCondition`, `reportCopyLost`, `retireCopy`,
- * `markCopyFound`, `updateBook` — all B1's), but wiring them is not this slice:
- * U1 is the six lending screens and the seam, and "wire the rest of the
- * catalogue's buttons while I am here" is how a slice stops being reviewable.
- * What changed for them is only that they are now drawn from real copies
- * instead of a fixture array.
+ * **Four of the five remaining controls were, until Task 11 (QA remediation),
+ * plain `<button>`s that submitted nothing — no enclosing `<form>` at all —
+ * and "Sửa sách" linked to the book *list* rather than to an edit form.**
+ * U1 shipped them that way on purpose: "Đánh giá", "Báo mất", "Ngừng dùng",
+ * "Đánh dấu tìm thấy" and "Sửa sách" drew from real copies instead of a
+ * fixture array, but wiring their commands was not that slice — U1 is the six
+ * lending screens and the seam, and "wire the rest of the catalogue's buttons
+ * while I am here" is how a slice stops being reviewable. The QA sweep this
+ * task's plan is named for found the visible cost of leaving that decision
+ * unrevisited: twelve dead submit buttons on this one screen, the largest
+ * single defect in that report. `assessCondition`, `reportCopyLost`,
+ * `retireCopy`, `markCopyFound` and `updateBook` have all existed, fully
+ * tested, since B1.
+ *
+ * **Every one of the five now renders behind a real `<form>`, and
+ * state-gated.** `copyControls` below reads `copyStateTransition`
+ * (`src/domain/catalogue/policy.ts`) — the same table `reportCopyLost`,
+ * `retireCopy` and `markCopyFound` themselves consult — so a copy that is
+ * `on_loan` never shows "Ngừng dùng" (BR §7.1 draws no `on_loan → retired`
+ * arrow) and a copy that is not `lost` never shows "Đánh dấu tìm thấy". That
+ * is Task 3's lesson, restated: a control a viewer's own role cannot use must
+ * not render, and neither must one the copy's own *state* cannot use — a
+ * control that renders and then always refuses is a dead button with extra
+ * steps. `assessCondition` consults no transition table at all (BR §9: "a
+ * condition is not a state"), so "Đánh giá" is withheld from `lost` and
+ * `retired` copies on ordinary product grounds instead — nothing left to
+ * inspect — not a rule the command enforces.
+ *
+ * **No per-viewer-role gate was added, and that is a checked fact, not an
+ * oversight.** `getBookDetailManager` (this page's own read) and all five
+ * commands open with the identical `requireManager` — unlike `co-cau`'s five,
+ * which are `super_admin`-only under a `manager`-readable page and needed a
+ * `canEdit` split. Whoever can reach this page at all can use every control
+ * that its *copy state* allows.
+ *
+ * **"Đánh giá" and "Báo mất" moved into `<details>` disclosures, matching
+ * `sach/mat/page.tsx`'s own "Ngừng dùng"**, because both need a field beyond
+ * the bare confirm `sach/mat`'s "Đánh dấu tìm thấy" gets away with —
+ * `ConditionPicker` (extracted from `nhan-tra`, see that component's own
+ * docstring) for the first, an optional note for the second.
  *
  * **The "Thêm bản" hint no longer names a code.** It read "ví dụ DT-0143", and
  * that was the sharpest surviving piece of the preview `sach/moi`'s docstring
@@ -156,7 +205,11 @@ export default async function ManagerBookDetailPage({
               Nhận trả
             </ButtonLink>
           ) : null}
-          <ButtonLink href={`${base}/sach`} variant="quiet" size="lg">
+          <ButtonLink
+            href={`${base}/sach/${book.book.slug}/sua`}
+            variant="quiet"
+            size="lg"
+          >
             <Pencil aria-hidden className="size-5" strokeWidth={1.75} />
             Sửa sách
           </ButtonLink>
@@ -280,30 +333,11 @@ export default async function ManagerBookDetailPage({
                     <CopyLocation copy={copy} />
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      {copy.state === "lost" ? (
-                        <Button variant="quiet" size="sm">
-                          <CircleCheckBig
-                            aria-hidden
-                            className="size-4"
-                            strokeWidth={1.75}
-                          />
-                          Đánh dấu tìm thấy
-                        </Button>
-                      ) : (
-                        <>
-                          <Button variant="quiet" size="sm">
-                            Đánh giá
-                          </Button>
-                          <Button variant="quiet" size="sm">
-                            Báo mất
-                          </Button>
-                        </>
-                      )}
-                      <Button variant="quiet" size="sm">
-                        Ngừng dùng
-                      </Button>
-                    </div>
+                    <CopyActions
+                      copy={copy}
+                      slug={slug}
+                      bookSlug={book.book.slug}
+                    />
                   </td>
                 </tr>
               ))}
@@ -331,29 +365,13 @@ export default async function ManagerBookDetailPage({
               <p className="mt-1.5 text-[14px] text-meta">
                 {CONDITION_LABELS[copy.condition]} · <CopyLocation copy={copy} />
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {copy.state === "lost" ? (
-                  <Button variant="quiet" size="sm" className="flex-1">
-                    <CircleCheckBig
-                      aria-hidden
-                      className="size-4"
-                      strokeWidth={1.75}
-                    />
-                    Đánh dấu tìm thấy
-                  </Button>
-                ) : (
-                  <>
-                    <Button variant="quiet" size="sm" className="flex-1">
-                      Đánh giá
-                    </Button>
-                    <Button variant="quiet" size="sm" className="flex-1">
-                      Báo mất
-                    </Button>
-                  </>
-                )}
-                <Button variant="quiet" size="sm" className="flex-1">
-                  Ngừng dùng
-                </Button>
+              <div className="mt-3">
+                <CopyActions
+                  copy={copy}
+                  slug={slug}
+                  bookSlug={book.book.slug}
+                  stretch
+                />
               </div>
             </div>
           ))}
@@ -467,6 +485,194 @@ export default async function ManagerBookDetailPage({
         </p>
       </section>
     </ManagerShell>
+  );
+}
+
+/**
+ * Which write controls a copy's row offers, derived from
+ * `copyStateTransition` — the single authority every one of these commands
+ * itself consults — rather than a second, hand-written table that could drift
+ * from it. See this page's own docstring for the Task 3 lesson this restates.
+ *
+ * `assess` is the one flag `copyStateTransition` cannot answer:
+ * `assessCondition` consults no transition table at all (BR §9), so it is
+ * withheld from `lost` and `retired` on ordinary product grounds — nothing
+ * left to inspect — stated here rather than in the domain, because it is a
+ * screen's judgement and not a rule any command enforces.
+ *
+ * `markFound` does not delegate to `copyStateTransition(state, "available")`:
+ * that arrow also exists from `held` (BR §7.1's `held → available`, a
+ * cancelled hold), which is a different event this page draws no control for
+ * at all. `markCopyFound`'s own guard is narrower still — `copy.state !==
+ * "lost"` throws regardless of what the transition table says — so this
+ * mirrors the command's actual condition rather than the table's.
+ */
+function copyControls(state: CopyState): {
+  assess: boolean;
+  reportLost: boolean;
+  retire: boolean;
+  markFound: boolean;
+} {
+  return {
+    assess: state !== "lost" && state !== "retired",
+    reportLost: copyStateTransition(state, "lost").allowed,
+    retire: copyStateTransition(state, "retired").allowed,
+    markFound: state === "lost",
+  };
+}
+
+/**
+ * One copy row's write controls — shared between the desktop table's `<td>`
+ * and the mobile card, so the state-gating in `copyControls` above and the
+ * four forms below are written once rather than twice and drifting the way
+ * the fixture-era buttons already show duplication can.
+ *
+ * Every form carries `sach` (the *book's* slug, hidden) so its action —
+ * `assessConditionAction`, `reportCopyLostOnBookAction`,
+ * `retireCopyOnBookAction`, `markCopyFoundOnBookAction`, all in `../../
+ * actions.ts` — returns the manager to this book rather than to `sach/mat` or
+ * `nhan-tra`, whose own action wrappers this page deliberately does not
+ * reuse; see that file's own section header for why.
+ */
+function CopyActions({
+  copy,
+  slug,
+  bookSlug,
+  stretch,
+}: {
+  copy: ManagerCopyRow;
+  /** The shelf's slug — `?tu-sach=` on every form here. */
+  slug: string;
+  /** The book's slug — `sach` on every form here, and `updateBookAction`'s
+   *  own redirect target once "Sửa sách" is used. */
+  bookSlug: string;
+  /** Set on the mobile card, so its buttons share the card's width evenly —
+   *  absent on the desktop table, where the cell sizes to content. */
+  stretch?: boolean;
+}) {
+  const controls = copyControls(copy.state);
+  const triggerClass = buttonClasses(
+    "quiet",
+    "sm",
+    cn("list-none [&::-webkit-details-marker]:hidden", stretch && "flex-1"),
+  );
+  const boxClass =
+    "mt-3 w-full max-w-md space-y-3 rounded-card border border-hairline bg-paper p-4";
+  // Desktop table and mobile card both render this component for the same
+  // copy, and both are in the DOM at once (`hidden md:block`/`md:hidden`
+  // toggle visibility, not presence) — so every `id` below is scoped by
+  // which one is calling, via `stretch` (true only on the mobile card),
+  // rather than by `copy.copyId` alone. A duplicate `id` is not a cosmetic
+  // problem: `<label htmlFor>` resolves to whichever element with that id
+  // the browser finds first, so the *visible* one's label could silently
+  // focus the *hidden* one's input.
+  const idScope = `${stretch ? "mobile" : "desktop"}-${copy.copyId}`;
+
+  if (
+    !controls.assess &&
+    !controls.reportLost &&
+    !controls.retire &&
+    !controls.markFound
+  ) {
+    // `retired` is the one state with nothing left to do — BR §7.1 draws no
+    // arrow out of it, and `assessCondition` is withheld from it by the same
+    // "the physical copy is gone" reasoning `copyControls` states above.
+    // Stated rather than left blank, so the cell reads as "nothing to do"
+    // instead of as a rendering bug.
+    return <span className="text-[14px] text-meta">—</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {controls.markFound ? (
+        <form action={markCopyFoundOnBookAction}>
+          <input type="hidden" name="tu-sach" value={slug} />
+          <input type="hidden" name="sach" value={bookSlug} />
+          <input type="hidden" name="ban" value={copy.copyId} />
+          <SubmitButton
+            variant="quiet"
+            size="sm"
+            className={stretch ? "flex-1" : undefined}
+            icon={
+              <CircleCheckBig aria-hidden className="size-4" strokeWidth={1.75} />
+            }
+          >
+            Đánh dấu tìm thấy
+          </SubmitButton>
+        </form>
+      ) : null}
+
+      {controls.assess ? (
+        <details className="min-w-0">
+          <summary className={triggerClass}>
+            <ClipboardList aria-hidden className="size-4" strokeWidth={1.75} />
+            Đánh giá
+          </summary>
+          <form action={assessConditionAction} className={boxClass}>
+            <input type="hidden" name="tu-sach" value={slug} />
+            <input type="hidden" name="sach" value={bookSlug} />
+            <input type="hidden" name="ban" value={copy.copyId} />
+            <ConditionPicker
+              idPrefix={`danh-gia-${idScope}`}
+              defaultCondition={copy.condition}
+              noteHint="Không bắt buộc."
+            />
+            <SubmitButton variant="outline" size="md">
+              Xác nhận đánh giá
+            </SubmitButton>
+          </form>
+        </details>
+      ) : null}
+
+      {controls.reportLost ? (
+        <details className="min-w-0">
+          <summary className={triggerClass}>
+            <HelpCircle aria-hidden className="size-4" strokeWidth={1.75} />
+            Báo mất
+          </summary>
+          <form action={reportCopyLostOnBookAction} className={boxClass}>
+            <input type="hidden" name="tu-sach" value={slug} />
+            <input type="hidden" name="sach" value={bookSlug} />
+            <input type="hidden" name="ban" value={copy.copyId} />
+            <Field
+              label="Ghi chú"
+              htmlFor={`bao-mat-ghi-chu-${idScope}`}
+              hint="Không bắt buộc."
+            >
+              <Textarea id={`bao-mat-ghi-chu-${idScope}`} name="ghi-chu" rows={2} />
+            </Field>
+            <SubmitButton variant="danger" size="md">
+              Xác nhận báo mất
+            </SubmitButton>
+          </form>
+        </details>
+      ) : null}
+
+      {controls.retire ? (
+        <details className="min-w-0">
+          <summary className={triggerClass}>
+            <Archive aria-hidden className="size-4" strokeWidth={1.75} />
+            Ngừng dùng
+          </summary>
+          <form action={retireCopyOnBookAction} className={boxClass}>
+            <input type="hidden" name="tu-sach" value={slug} />
+            <input type="hidden" name="sach" value={bookSlug} />
+            <input type="hidden" name="ban" value={copy.copyId} />
+            <Field
+              label="Lý do ngừng dùng"
+              required
+              htmlFor={`ly-do-${idScope}`}
+              hint="Dùng khi biết chắc sách sẽ không quay lại nữa."
+            >
+              <Input id={`ly-do-${idScope}`} name="ly-do" required />
+            </Field>
+            <SubmitButton variant="danger" size="md">
+              Xác nhận ngừng dùng
+            </SubmitButton>
+          </form>
+        </details>
+      ) : null}
+    </div>
   );
 }
 

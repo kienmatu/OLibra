@@ -2,8 +2,9 @@ import Link from "next/link";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Field, Input } from "@/components/ui/field";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { BookFields, PublishedToggle } from "@/components/book-fields";
 import { DonorFields } from "@/components/donor-fields";
 import { messageFor } from "@/domain/kernel/errors";
 import { getReadersList } from "@/domain/members/queries/get-readers-list";
@@ -154,75 +155,7 @@ export default async function NewBookPage({
       <form action={createBookAction} className="mt-8 max-w-2xl space-y-10">
         <input type="hidden" name="tu-sach" value={slug} />
 
-        <div className="space-y-6">
-          <Field label="Tên sách" required htmlFor="ten-sach">
-            <Input
-              id="ten-sach"
-              name="ten-sach"
-              required
-              placeholder="vd: Dế Mèn Phiêu Lưu Ký"
-            />
-          </Field>
-
-          <Field label="Tác giả" required htmlFor="tac-gia">
-            <Input id="tac-gia" name="tac-gia" required placeholder="vd: Tô Hoài" />
-          </Field>
-
-          {/* `categories.slug`, not a name and not an id — a global table with a
-              plain `unique (slug)`, which is the stable handle a form can post
-              (`create-book.ts`). */}
-          <Field label="Thể loại" required htmlFor="the-loai">
-            <Select id="the-loai" name="the-loai" required defaultValue="">
-              <option value="" disabled>
-                Chọn thể loại
-              </option>
-              {categories.map((category) => (
-                <option key={category.slug} value={category.slug}>
-                  {category.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field label="Nhà xuất bản" htmlFor="nxb">
-            <Input id="nxb" name="nxb" placeholder="vd: Kim Đồng" />
-          </Field>
-
-          <Field label="Năm xuất bản" htmlFor="nam-xb">
-            <Input
-              id="nam-xb"
-              name="nam-xb"
-              inputMode="numeric"
-              placeholder="vd: 2019"
-            />
-          </Field>
-
-          <Field label="Số trang" htmlFor="so-trang">
-            <Input
-              id="so-trang"
-              name="so-trang"
-              inputMode="numeric"
-              placeholder="vd: 176"
-            />
-          </Field>
-
-          <Field
-            label="Mã ISBN"
-            htmlFor="isbn"
-            hint="Không bắt buộc. Sách cũ hoặc sách tặng thường không có mã."
-          >
-            <Input id="isbn" name="isbn" placeholder="vd: 978-604-2-12345-6" />
-          </Field>
-
-          <Field label="Mô tả" htmlFor="mo-ta">
-            <Textarea
-              id="mo-ta"
-              name="mo-ta"
-              rows={4}
-              placeholder="Vài dòng giới thiệu nội dung cuốn sách"
-            />
-          </Field>
-        </div>
+        <BookFields categories={categories} />
 
         {/* A code is assigned per copy, inside the command's own transaction.
             See this page's docstring for why no codes are previewed here — and
@@ -258,27 +191,9 @@ export default async function NewBookPage({
           }))}
         />
 
-        {/* `books.is_published` — the draft flag that hides a title from the
-            reader catalogue while a volunteer is still preparing it. Checked by
-            default, matching `createBook`'s own `input.published ?? true`; an
-            unchecked box posts nothing at all, which is what the action reads. */}
-        <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">
-          <input
-            type="checkbox"
-            name="hien-thi"
-            defaultChecked
-            className="mt-1 size-5 shrink-0 accent-terracotta"
-          />
-          <span>
-            <span className="block text-[16px] font-medium">
-              Hiện sách này cho bạn đọc
-            </span>
-            <span className="mt-0.5 block text-[14px] text-meta">
-              Bỏ chọn nếu bạn muốn ẩn sách này khỏi danh mục công khai trong khi
-              đang chuẩn bị.
-            </span>
-          </span>
-        </label>
+        {/* Checked by default, matching `createBook`'s own
+            `input.published ?? true`. */}
+        <PublishedToggle />
 
         <div className="flex flex-wrap items-center gap-3">
           <SubmitButton>Lưu sách</SubmitButton>
