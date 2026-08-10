@@ -53,7 +53,7 @@ export default async function ReaderHistoryPage({
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
+      <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/lich-su`} />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
         <PageHeading

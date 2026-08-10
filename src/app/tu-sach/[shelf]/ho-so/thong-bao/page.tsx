@@ -52,7 +52,7 @@ export default async function ReaderNotificationsPage({
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
+      <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/thong-bao`} />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
         <div className="flex items-start justify-between gap-4">

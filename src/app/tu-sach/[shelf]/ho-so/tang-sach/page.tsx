@@ -70,7 +70,7 @@ export default async function MyDonationsPage({
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
+      <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/tang-sach`} />
 
       <main className="mx-auto max-w-2xl px-6 py-10">
         <PageHeading

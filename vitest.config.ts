@@ -7,7 +7,13 @@ config({ path: ".env", quiet: true });
 
 export default defineConfig({
   test: {
-    include: ["tests/**/*.test.ts"],
+    // `.tsx` is included alongside `.ts`: task 8 (2026-08-10 QA remediation)
+    // added the first component-rendering test
+    // (`tests/components/reader-tabs.test.tsx`), and a glob that only matched
+    // `.ts` would have let that file sit in the tree, never run, and still
+    // show green — the same toothless-test failure mode task 3's
+    // architecture test hit.
+    include: ["tests/**/*.test.{ts,tsx}"],
     // Vitest parallelises *files* by default. Every DB test file shares one
     // `public` schema, and `beforeEach(resetDatabase)` (tests/support/db.ts)
     // truncates every table in it between tests — two files running at once

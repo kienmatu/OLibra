@@ -103,7 +103,7 @@ export default async function ReaderProfilePage({
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={slug} active="ho-so" />
+      <ReaderTabs shelfSlug={slug} pathname={`/tu-sach/${slug}/ho-so`} />
 
       <main className="mx-auto max-w-xl px-6 py-10">
         <PageHeading
