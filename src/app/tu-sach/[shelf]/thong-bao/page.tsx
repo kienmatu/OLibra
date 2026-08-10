@@ -1,19 +1,27 @@
-import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, Pin } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { PhoneLink } from "@/components/ui/phone-link";
+import Link from "next/link";
+import { Pin } from "lucide-react";
+import { PageHeading } from "@/components/ui/card";
 import { ShelfHeader } from "@/components/shell/public-header";
-import {
-  announcements,
-  fixtureViewerName,
-  shelfBySlug,
-  shelves,
-} from "@/lib/fixtures";
+import { getAnnouncements } from "@/domain/community/queries/get-announcements";
+import { readShelf } from "@/lib/shelf";
+import { loadPage } from "@/lib/page-data";
+import { formatInstant } from "@/lib/dates";
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
+/**
+ * The shelf's announcements. OPS §3.2's `GetAnnouncementsList`, BR §16.1's
+ * "pinned first, most recent next".
+ *
+ * **An announcement lapses on read, and this page does not know that.** The
+ * query compares `expires_at` against `olibra_now()`, so a notice about last
+ * Sunday stops showing the moment it passes with nothing having run (G5). A
+ * filter written here would be a second definition of expiry that moves
+ * independently of the manager's own list.
+ *
+ * Members only — BR:36 puts a shelf's contents behind membership, and
+ * `getAnnouncements` calls `requireReader`. U2's seam turns that into a
+ * sign-in redirect for a guest and a 404 for a signed-in non-member.
+ */
+export const dynamic = "force-dynamic";
 
 export default async function AnnouncementsPage({
   params,
@@ -21,83 +29,72 @@ export default async function AnnouncementsPage({
   params: Promise<{ shelf: string }>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
 
-  const pinned = announcements.find((a) => a.pinned);
-  const rest = announcements.filter((a) => !a.pinned);
+  const { shelf, viewer, announcements } = await loadPage(
+    slug,
+    async (tx, ctx, v) => ({
+      shelf: await readShelf(tx, ctx),
+      viewer: v,
+      announcements: await getAnnouncements(tx, ctx),
+    }),
+  );
+
+  const base = `/tu-sach/${slug}`;
 
   return (
     <>
       <ShelfHeader
         shelfName={shelf.name}
-        shelfSlug={shelf.slug}
+        shelfSlug={slug}
         active="thong-bao"
-        viewerName={fixtureViewerName}
+        viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="text-[28px] leading-tight font-semibold">Thông báo</h1>
-        <p className="mt-1 text-meta">Tin từ {shelf.name.toLowerCase()}.</p>
+        <PageHeading
+          title="Thông báo của tủ sách"
+          subtitle={
+            announcements.length === 0 ? "Hiện chưa có thông báo nào." : undefined
+          }
+        />
 
-        {pinned ? (
-          <Card tone="paper" className="mt-8 p-8">
-            <p className="flex items-center gap-2 text-[14px] text-meta">
-              <Pin aria-hidden className="size-[18px]" strokeWidth={1.75} />
-              Đang ghim
-            </p>
-            <h2 className="mt-2 text-[22px] leading-snug font-semibold">
-              {pinned.title}
-            </h2>
-            <p className="mt-1 text-[14px] text-meta">
-              Đăng ngày {pinned.date} · {pinned.author}
-            </p>
-            <div className="mt-4 space-y-4 text-base">
-              <p>{pinned.body[0]}</p>
-              <p>
-                Các em mang sách trả vào Chúa nhật kế tiếp, ngày 20/08, sau lễ như
-                thường lệ. Nếu có việc gấp, các em nhắn cho cô Lan theo số{" "}
-                <PhoneLink
-                  phone={shelf.phone}
-                  size="sm"
-                  className="align-baseline"
-                />
-              </p>
-            </div>
-          </Card>
+        {announcements.length > 0 ? (
+          <ul className="mt-8 space-y-4">
+            {announcements.map((a) => (
+              <li
+                key={a.id}
+                className="rounded-card border border-hairline bg-surface p-5"
+              >
+                <div className="flex items-start gap-2">
+                  {a.isPinned ? (
+                    <Pin className="mt-1 size-4 shrink-0 text-meta" aria-hidden />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`${base}/thong-bao/${a.slug}`}
+                      className="text-[17px] leading-snug font-semibold hover:underline"
+                    >
+                      {a.title}
+                    </Link>
+                    <p className="mt-2 text-[14px] leading-relaxed text-meta">
+                      {a.excerpt}
+                    </p>
+                    {a.publishedAt ? (
+                      <p className="mt-3 text-[13px] text-meta">
+                        {formatInstant(a.publishedAt)}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
         ) : null}
 
-        <ul className="mt-10 divide-y divide-hairline border-t border-hairline">
-          {rest.map((a) => (
-            <li key={a.slug} className="py-6">
-              <p className="text-[14px] text-meta">{a.date}</p>
-              <h3 className="mt-1 text-lg leading-snug font-semibold">{a.title}</h3>
-              <p className="mt-1.5 line-clamp-2 text-[15px] text-meta">
-                {a.excerpt}
-              </p>
-              <button
-                type="button"
-                className="mt-2 min-h-11 text-[15px] font-medium text-sage hover:underline"
-              >
-                Đọc tiếp
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        <nav className="mt-8 flex items-center justify-between gap-4">
-          <p className="text-[15px] text-meta">Trang 1 / 2</p>
-          <div className="flex gap-2">
-            <Button size="sm" disabled>
-              <ChevronLeft aria-hidden className="size-5" strokeWidth={1.75} />
-              Trước
-            </Button>
-            <Button size="sm">
-              Sau
-              <ChevronRight aria-hidden className="size-5" strokeWidth={1.75} />
-            </Button>
-          </div>
-        </nav>
+        <Link href={base} className="mt-8 inline-block text-[14px] underline">
+          Về trang tủ sách
+        </Link>
       </main>
     </>
   );

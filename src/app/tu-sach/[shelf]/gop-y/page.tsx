@@ -1,118 +1,117 @@
-import { notFound } from "next/navigation";
-import { CheckCircle2, Send, ShieldCheck } from "lucide-react";
-import { Button, ButtonLink } from "@/components/ui/button";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import Link from "next/link";
+import { CheckCircle2, ShieldCheck } from "lucide-react";
+import { Field, Input, Textarea } from "@/components/ui/field";
+import { PageHeading } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
-import { fixtureViewerName, shelfBySlug, shelves } from "@/lib/fixtures";
+import { messageFor } from "@/domain/kernel/errors";
+import { readShelf } from "@/lib/shelf";
+import { loadPage } from "@/lib/page-data";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
+import { submitFeedbackAction } from "../community-actions";
 
-export function generateStaticParams() {
-  return shelves.map((s) => ({ shelf: s.slug }));
-}
+/**
+ * Góp ý — a message to the people who keep the shelf.
+ *
+ * **The shelf is not named in the form**, and that is the safer default this
+ * slice chose: `submitFeedback` files against the shelf in scope unless a
+ * caller passes an explicit `null`. Under OPS §4.4's literal reading a form
+ * that forgot the field would have filed a parish's message into the
+ * administrator's site-wide inbox, silently and in the wrong direction.
+ *
+ * **Nothing is repopulated after a refusal.** The fields are a person's name,
+ * phone number and message; a query string carrying them goes into browser
+ * history, proxy logs and the address bar of a shared parish phone. Same call
+ * U3 made for the on-behalf registration form, and the cost is the same — a
+ * short message retyped.
+ */
+export const dynamic = "force-dynamic";
 
 export default async function FeedbackPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const shelf = shelfBySlug(slug);
-  if (!shelf) notFound();
+  const search = await searchParams;
+  const refusal = refusalFrom(search);
+  const sent = param(search, "da-gui") === "1";
+
+  const { shelf, viewer } = await loadPage(slug, async (tx, ctx, v) => ({
+    shelf: await readShelf(tx, ctx),
+    viewer: v,
+  }));
+
+  const base = `/tu-sach/${slug}`;
 
   return (
     <>
       <ShelfHeader
         shelfName={shelf.name}
-        shelfSlug={shelf.slug}
-        viewerName={fixtureViewerName}
+        shelfSlug={slug}
+        viewerName={viewer.name}
+        unreadNotifications={viewer.unreadNotifications}
       />
 
-      <main className="mx-auto max-w-xl px-6 py-16">
-        <h1 className="text-[28px] leading-tight font-semibold">Gửi góp ý</h1>
-        <p className="mt-1 text-meta">
-          Có điều gì chưa ổn, hoặc có ý tưởng cho tủ sách? Ban quản trị đọc hết mọi
-          góp ý.
-        </p>
+      <main className="mx-auto max-w-2xl px-6 py-10">
+        <PageHeading
+          title="Gửi góp ý"
+          subtitle="Có điều gì em muốn nhắn cho các cô chú giữ tủ sách không?"
+        />
 
-        {/* Single column, labels above inputs, required marked with a word. */}
-        <form className="mt-8 space-y-6">
-          <Field
-            label="Góp ý về"
-            required
-            htmlFor="ve"
-            hint='Chọn "Toàn hệ thống" nếu góp ý không thuộc riêng tủ sách nào.'
-          >
-            <Select id="ve" defaultValue={shelf.name}>
-              {shelves.map((s) => (
-                <option key={s.slug}>{s.name}</option>
-              ))}
-              <option>Toàn hệ thống</option>
-            </Select>
+        {sent ? (
+          <p className="mt-6 flex items-start gap-2 rounded-card border border-hairline bg-surface px-4 py-3 text-[14px]">
+            <CheckCircle2
+              className="mt-0.5 size-4 shrink-0 text-available"
+              aria-hidden
+            />
+            Đã gửi rồi, cảm ơn em nhé.
+          </p>
+        ) : null}
+
+        {refusal ? (
+          <p className="mt-6 rounded-card border border-hairline bg-surface px-4 py-3 text-[14px] text-ink">
+            {messageFor(refusal)}
+          </p>
+        ) : null}
+
+        <form action={submitFeedbackAction} className="mt-8 space-y-5">
+          <input type="hidden" name="tu-sach" value={slug} />
+
+          <Field label="Tên của em" required htmlFor="ten">
+            <Input id="ten" name="ten" required />
           </Field>
 
-          <Field label="Tên của bạn" required htmlFor="ten">
-            <Input id="ten" placeholder="vd: Nguyễn Thu Trang" />
+          <Field label="Số điện thoại" required htmlFor="dien-thoai">
+            <Input id="dien-thoai" name="dien-thoai" type="tel" required />
           </Field>
 
-          <Field
-            label="Số điện thoại"
-            required
-            htmlFor="dt"
-            hint="Ban quản trị sẽ gọi lại nếu cần hỏi thêm. Hệ thống không gửi email."
-          >
-            <Input id="dt" inputMode="tel" placeholder="vd: 09xx xxx xxx" />
-          </Field>
-
-          <Field label="Tiêu đề" required htmlFor="tieu-de">
-            <Input id="tieu-de" placeholder="vd: Sách bị thiếu trang" />
+          <Field label="Chủ đề" htmlFor="chu-de">
+            <Input id="chu-de" name="chu-de" />
           </Field>
 
           <Field label="Nội dung" required htmlFor="noi-dung">
-            <Textarea
-              id="noi-dung"
-              rows={6}
-              placeholder="Bạn viết thoải mái, càng cụ thể càng dễ xử lý"
-            />
-            <p className="text-[14px] text-meta">0 / 2000</p>
+            <Textarea id="noi-dung" name="noi-dung" rows={6} required />
           </Field>
 
-          <div className="flex gap-3 rounded-card border border-hairline bg-paper p-4">
-            <ShieldCheck
-              aria-hidden
-              className="mt-0.5 size-5 shrink-0 text-leather"
-              strokeWidth={1.75}
-            />
-            <p className="text-[14px] text-meta">
-              Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác.
-            </p>
-          </div>
+          <p className="flex items-start gap-2 text-[13px] text-meta">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
+            {/* OPS §8's limit, stated in the form because that is where the
+                shipped copy stated it. The command enforces it against a hash
+                of the number, never the number itself. */}
+            Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác.
+          </p>
 
-          <Button type="submit" variant="primary" size="lg" className="w-full">
-            <Send aria-hidden className="size-5" strokeWidth={1.75} />
+          <SubmitButton variant="primary" size="lg">
             Gửi góp ý
-          </Button>
+          </SubmitButton>
         </form>
 
-        {/* The state after submitting, shown here so the copy can be reviewed. */}
-        <div className="mt-12 border-t border-hairline pt-8">
-          <p className="text-[14px] text-meta">Sau khi gửi</p>
-          <div className="mt-3 rounded-card border border-sage bg-sage/10 p-6">
-            <CheckCircle2
-              aria-hidden
-              className="size-8 text-sage"
-              strokeWidth={1.5}
-            />
-            <h2 className="mt-3 text-lg font-semibold">
-              Đã nhận được góp ý của bạn
-            </h2>
-            <p className="mt-1.5 text-[15px]">
-              Cảm ơn bạn. Ban quản trị sẽ đọc trong vài ngày tới và gọi lại nếu cần
-              hỏi thêm.
-            </p>
-            <ButtonLink href={`/tu-sach/${shelf.slug}`} size="sm" className="mt-4">
-              Về trang tủ sách
-            </ButtonLink>
-          </div>
-        </div>
+        <Link href={base} className="mt-8 inline-block text-[14px] underline">
+          Về trang tủ sách
+        </Link>
       </main>
     </>
   );

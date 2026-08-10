@@ -492,13 +492,15 @@ test("the link check resolves the routes it claims to", () => {
       ?.importsFixtures,
   ).toBe(false);
 
-  // `thong-bao` is still out: B3 shipped the announcements query but no slice
-  // has wired that page, so the reasoning IMPORTANT 4 recorded still holds for
-  // it. The two halves of that decision were one sentence about two pages, and
-  // they come back separately because they are wired separately.
-  for (const gone of ["src/app/tu-sach/[shelf]/thong-bao"]) {
-    expect(linkTargetsIn(header), gone).not.toContain(gone);
-  }
+  // Both halves of IMPORTANT 4 are now back, each beside its wired page — the
+  // second one here. Same two-part assertion as `toi` above: the link exists
+  // *and* the page it points at is real, so restoring one without the other
+  // fails rather than passing quietly.
+  expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/thong-bao");
+  expect(
+    routes().find((r) => r.path === "src/app/tu-sach/[shelf]/thong-bao/page.tsx")
+      ?.importsFixtures,
+  ).toBe(false);
   for (const gone of [
     "src/app/tu-sach/[shelf]/tang-sach",
     "src/app/tu-sach/[shelf]/gop-y",
@@ -509,10 +511,8 @@ test("the link check resolves the routes it claims to", () => {
   // passing because the page quietly got wired in the meantime.
   const byPath = new Map(routes().map((r) => [r.path, r]));
   for (const page of [
-    "src/app/tu-sach/[shelf]/thong-bao/page.tsx",
     "src/app/tu-sach/[shelf]/toi/ho-so/page.tsx",
     "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
-    "src/app/tu-sach/[shelf]/gop-y/page.tsx",
   ]) {
     expect(byPath.get(page)?.importsFixtures, page).toBe(true);
   }

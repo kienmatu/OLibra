@@ -97,7 +97,7 @@ export function ShelfHeader({
 }: {
   shelfName: string;
   shelfSlug: string;
-  active?: "danh-muc" | "thong-bao" | "tim-kiem" | "toi";
+  active?: "danh-muc" | "thong-bao" | "thong-bao-cua-toi" | "tim-kiem" | "toi";
   viewerName: string | null;
   /**
    * BR §15's bell count, from the `Viewer` the seam resolves. Defaulting to 0
@@ -146,15 +146,21 @@ export function ShelfHeader({
    * is not something this slice introduced, and it is recorded in the U2 plan's
    * §6 rather than half-solved here.
    *
-   * **U4 wired `toi/`, so "Trang của tôi" is back — and only that one.**
-   * `${base}/thong-bao` is still B3's announcements list rendered from
-   * fixtures, so its link stays out on exactly the reasoning above. The two
-   * halves of U2's decision were never one decision; they were one sentence
-   * about two pages, and they come back separately because they were wired
-   * separately.
+   * **Both are back now**, each alongside its wired page — `toi/` first, then
+   * `thong-bao` when B3's announcements list got a real query behind it. They
+   * were never one decision; they were one sentence about two pages, and they
+   * returned separately because they were wired separately. The self-test in
+   * `a-wired-page-renders-no-fixtures.test.ts` asserts both halves for each:
+   * the link exists *and* the page it points at reads the database.
    */
   const links = [
     { href: `${base}/danh-muc`, label: "Danh mục", key: "danh-muc", icon: false },
+    {
+      href: `${base}/thong-bao`,
+      label: "Bản tin",
+      key: "thong-bao",
+      icon: false,
+    },
     { href: `${base}/toi`, label: "Trang của tôi", key: "toi", icon: false },
     {
       href: `${base}/toi/thong-bao`,
