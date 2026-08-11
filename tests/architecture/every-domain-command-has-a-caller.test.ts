@@ -176,9 +176,10 @@ test("every domain command is reachable from src/app or src/lib", () => {
     }
   }
 
-  expect(unreachable, "commands with no real (non-comment) caller in src/app or src/lib").toEqual(
-    [],
-  );
+  expect(
+    unreachable,
+    "commands with no real (non-comment) caller in src/app or src/lib",
+  ).toEqual([]);
 });
 
 test("the extraction pattern finds every command this codebase actually writes, not just the first per file", () => {
