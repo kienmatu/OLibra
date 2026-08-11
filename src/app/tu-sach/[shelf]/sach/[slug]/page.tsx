@@ -15,10 +15,21 @@ import { PhoneLink } from "@/components/ui/phone-link";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getBookDetail } from "@/domain/catalogue/queries/get-book-detail";
 import { atLeast } from "@/domain/kernel/tenant";
-import { formatDueDate, formatYear } from "@/lib/dates";
+import { Field, Textarea } from "@/components/ui/field";
+import { SavedNotice } from "@/components/ui/saved-notice";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { messageFor } from "@/domain/kernel/errors";
+import { getBookComments } from "@/domain/community/queries/get-comments";
+import {
+  commentsEnabled,
+  commentsRequireApproval,
+} from "@/domain/community/policy";
+import { formatDueDate, formatInstant, formatYear } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
+import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelfIdentity } from "@/lib/shelf";
 import { STATUS, statusForAvailability } from "@/lib/status";
+import { postCommentAction } from "../../community-actions";
 
 /** U1 §2. See `src/app/tu-sach/[shelf]/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
@@ -94,23 +105,72 @@ function paragraphsOf(description: string | null): string[] {
  * it was: `getBookDetail` throws `NotFound("book_not_found")` and `loadPage`
  * translates it — see that function for why the seam and not this page.
  *
- * **Comments are not here**, though BR:513 puts them on this page. They are
- * B3's, and U2's scope note excludes them; the fixture version rendered two
- * invented comments and a box that posted nowhere.
+ * **Comments are here now** (U6 §1). This paragraph used to read "Comments are
+ * not here, though BR:513 puts them on this page. They are B3's, and U2's scope
+ * note excludes them; the fixture version rendered two invented comments and a
+ * box that posted nowhere." B3 shipped the whole slice — `createComment`,
+ * `getBookComments`, the moderation commands and `/quan-ly/binh-luan` — and
+ * nothing ever called the first two, so the queue a manager works had no way to
+ * receive anything and the reported symptom was that a manager could not
+ * comment on a book. Neither could anybody else.
+ *
+ * The section below is a list and a form. Nothing invented: the list is
+ * `getBookComments`, which returns approved rows only because that predicate is
+ * INV-9 living in the access path, and the form posts `postCommentAction`,
+ * which is `createComment` through the same `submitCommand` seam the two other
+ * reader-facing community writes already use.
  */
 export default async function BookDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string; slug: string }>;
+  /** `?da-gui=1` and `?loi=` — through `search-params.ts`, never destructured,
+   *  because a repeated key arrives as an array. */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: shelfSlug, slug } = await params;
+  const search = await searchParams;
+  const sent = param(search, "da-gui") === "1";
+  const refused = refusalFrom(search);
 
-  const { shelf, viewer, book, isManager } = await loadPage(
-    shelfSlug,
-    async (tx, ctx, viewer) => ({
+  const {
+    shelf,
+    viewer,
+    book,
+    isManager,
+    comments,
+    commentsOn,
+    needsApproval,
+    membershipId,
+  } = await loadPage(shelfSlug, async (tx, ctx, viewer) => {
+    const book = await getBookDetail(tx, ctx, { bookSlug: slug });
+    return {
       shelf: await readShelfIdentity(tx, ctx),
       viewer,
-      book: await getBookDetail(tx, ctx, { bookSlug: slug }),
+      book,
+      /**
+       * The comment form's hidden field. **From `ctx.actor`, not from
+       * `Viewer`** — that type carries a name, a bell count and a role for
+       * the chrome to print, and deliberately not an id (see its own
+       * docstring on `role` being a display of a resolution rather than a
+       * second answer). `createComment` checks this against `ctx.actor
+       * .membershipId` inside the command anyway, so what travels through the
+       * form is a convenience; what makes it safe is that the command does
+       * not trust it.
+       *
+       * Non-null for anybody who can render this page at all: `loadPage`
+       * redirects a guest and 404s a signed-in non-member, so a reader here
+       * holds an active membership of this shelf by construction.
+       */
+      membershipId: ctx.actor.membershipId,
+      // BR §5.5's two settings, and they are two decisions rather than one:
+      // a shelf can moderate comments, or it can decline to take them at
+      // all. The first picks the sentence under the form; the second removes
+      // the section entirely.
+      commentsOn: await commentsEnabled(tx, ctx.bookshelfId),
+      needsApproval: await commentsRequireApproval(tx, ctx.bookshelfId),
+      comments: await getBookComments(tx, ctx, { bookId: book.bookId }),
       // BR:517 — a manager standing at the shelf with the book in hand gets the
       // two flows they would otherwise navigate away for. The fixture version
       // rendered this panel for everyone and labelled it "Dành cho quản lý",
@@ -123,8 +183,8 @@ export default async function BookDetailPage({
       // links to runs `requireManager` for itself, and hiding the links is not
       // what stops a reader following them.
       isManager: atLeast(ctx.actor.role, "manager"),
-    }),
-  );
+    };
+  });
 
   const base = `/tu-sach/${shelfSlug}`;
   /**
@@ -528,6 +588,98 @@ export default async function BookDetailPage({
                     <p key={para.slice(0, 24)}>{para}</p>
                   ))}
                 </div>
+              </section>
+            ) : null}
+
+            {/* BR:513's comments (U6 §1). Absent entirely when the shelf has
+                turned them off — not a disabled textarea, and not a heading
+                over an explanation. A shelf that does not take comments has no
+                comments area, which is what `comments_enabled` means; OPS §4.4
+                gives that case its own refusal precisely because it is the
+                shelf's choice rather than anything the reader did. */}
+            {commentsOn ? (
+              <section className="order-7 mt-10">
+                <h2 className="text-lg font-semibold">Bình luận</h2>
+
+                {comments.length > 0 ? (
+                  <ul className="mt-4 divide-y divide-hairline border-y border-hairline">
+                    {comments.map((comment) => (
+                      <li key={comment.id} className="py-4">
+                        <p className="text-[15px] font-medium">
+                          {comment.authorName}
+                          <span className="ml-2 text-[14px] font-normal text-meta">
+                            {formatInstant(comment.createdAt)}
+                          </span>
+                        </p>
+                        {/* Plain text, escaped by React — BR §5.4, and what
+                            `inv-09-comment-visibility.test.ts` pins with a
+                            `<script>` body. `whitespace-pre-line` so the line
+                            breaks a child typed survive; nothing else about
+                            what they wrote is interpreted. */}
+                        <p className="mt-1.5 text-[16px] whitespace-pre-line">
+                          {comment.body}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-3 text-[15px] text-meta">
+                    Chưa có bình luận nào. Em là người đầu tiên nhé.
+                  </p>
+                )}
+
+                <form action={postCommentAction} className="mt-6">
+                  <input type="hidden" name="tu-sach" value={shelfSlug} />
+                  {/* The slug for the redirect, the id for the command: one is
+                      a URL and the other is a key, and `?da-gui=1` has to land
+                      back on the page the reader was reading. */}
+                  <input type="hidden" name="sach" value={book.slug} />
+                  <input type="hidden" name="sach-id" value={book.bookId} />
+                  {/* Checked against the context inside `createComment`, so
+                      this is a convenience and not a trust boundary — the same
+                      shape `offerDonationAction`'s own `thanh-vien` field has. */}
+                  <input
+                    type="hidden"
+                    name="thanh-vien"
+                    value={membershipId ?? ""}
+                  />
+
+                  <Field label="Viết bình luận" htmlFor="noi-dung">
+                    <Textarea
+                      id="noi-dung"
+                      name="noi-dung"
+                      rows={4}
+                      placeholder="Em thấy cuốn này thế nào?"
+                    />
+                  </Field>
+
+                  {refused ? (
+                    <p role="alert" className="mt-3 text-[15px] text-brick">
+                      {messageFor(refused)}
+                    </p>
+                  ) : null}
+
+                  {/* **What happened, in a sentence, because the comment
+                      itself will not appear.** `getBookComments` returns
+                      approved rows only — that predicate is INV-9 living in
+                      the access path, and its docstring is explicit that a
+                      reader seeing their own pending comment would be a
+                      different query and a product decision. So a child who
+                      presses this button and is met with an unchanged page
+                      would have no way to tell it worked. The wording follows
+                      whichever setting the shelf actually has. */}
+                  {sent ? (
+                    <SavedNotice>
+                      {needsApproval
+                        ? "Đã gửi. Quản lý tủ sách sẽ duyệt trước khi bình luận hiện lên."
+                        : "Đã gửi bình luận."}
+                    </SavedNotice>
+                  ) : null}
+
+                  {/* Not `variant="primary"`: this page's one terracotta
+                      action is "Xin mượn" above (AGENTS.md rule 3). */}
+                  <SubmitButton className="mt-4">Gửi bình luận</SubmitButton>
+                </form>
               </section>
             ) : null}
           </div>

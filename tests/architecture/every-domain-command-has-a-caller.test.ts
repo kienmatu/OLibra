@@ -122,7 +122,12 @@ const EXEMPT = new Set<string>([
   "src/domain/circulation/commands/cancel-own-request.ts:cancelOwnRequest", // no caller found anywhere in src/app or src/lib.
   "src/domain/circulation/commands/create-borrow-request.ts:createBorrowRequest", // no caller found anywhere in src/app or src/lib.
   "src/domain/circulation/commands/void-loan.ts:voidLoan", // no caller found anywhere in src/app or src/lib.
-  "src/domain/community/commands/comment-moderation.ts:createComment", // no caller found anywhere in src/app or src/lib. Its siblings in the same file (approveComment, rejectComment, hideComment) DO have callers and are checked normally — this exemption no longer hides them (see the docstring above on the file-level-exemption bug this fixed).
+  // `createComment` was here, exempt, from B3 until U6 §1 — implemented,
+  // tested against INV-9, and called from nowhere, which also made
+  // `/quan-ly/binh-luan` a moderation queue over a table nothing wrote to.
+  // `postCommentAction` (`src/app/tu-sach/[shelf]/community-actions.ts`) is
+  // its caller now, so the entry is deleted rather than reworded: removing
+  // your own exemption is what this list is for.
 
   // Found by the QA remediation branch's final fix wave, when this test
   // stopped letting a docstring count as a caller. `managerRegisterReader`
