@@ -90,7 +90,22 @@ export function filesUnder(dir: string): string[] {
  * Checked against the full suite after reordering, per QA remediation
  * Task 26's controller notes: every test that calls this function
  * (`boundaries.test.ts`, `storage-speaks-s3.test.ts`, `the-front-door-shows-
- * no-keeper-contact.test.ts`) still passes, unchanged.
+ * no-keeper-contact.test.ts`, `every-page-has-a-title.test.ts`,
+ * `tests/domain/kernel/audit-actions.test.ts`) still passes, unchanged.
+ *
+ * **The list above named three for a while (QA remediation T27).** The
+ * first omission was this function's own fourth caller at the moment that
+ * sentence was written: `every-page-has-a-title.test.ts` switched from a
+ * local `withoutComments` to this shared helper in the identical commit
+ * that added the sentence, so it was already part of the "148 files, 1363
+ * tests" the commit message counts — named nowhere in the parenthetical all
+ * the same. The second is `audit-actions.test.ts`, a caller for an
+ * unrelated reason: it keeps its own local `withoutComments` for its actual
+ * comparison (that file matches string literals, which this function
+ * deliberately erases) but imports this one specifically to demonstrate why
+ * — `test("stripCommentsAndStrings is not what this file uses, and why")`
+ * calls it directly on a one-line sample. A caller proving a helper is the
+ * wrong tool is still a caller.
  */
 export function stripCommentsAndStrings(source: string): string {
   return (
