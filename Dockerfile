@@ -78,30 +78,36 @@ RUN groupadd --system --gid 1001 nodejs \
 # this file's own comment on `app`'s `MIGRATION_DATABASE_URL` describes below,
 # had never actually worked against a built image, only against `bun run dev`.
 #
-# The fix is the untraced `node_modules` from `builder` (a full, unpruned `bun
-# install`, `postgres` included) layered under the traced one, and the raw
-# `src` tree beside it, so `bun run db:sweep` runs the file directly under
-# Bun's native TypeScript support instead of through anything Next built. Both
-# add back what `output: standalone` exists to trim, honestly rather than
-# quietly: measured before/after, this takes the runtime image from ~300 MB to
-# ~1.1 GB, because the untraced `node_modules` alone is 875 MB against the
-# traced one's 58. That is not a small cost, and it is paid so `bun run
-# db:sweep` (below) and `docker compose exec app bun run db:migrate` are true
-# rather than aspirational, and so the `sweep` service (`compose.yaml`) and
-# `app` stay one image rather than two, per that service's own comment on why
-# "same image as `app`" was the point rather than an incidental choice. A
-# split image (a slim `runner` for `app`, a fatter one for CLI use only) would
-# undo the size cost for the service that runs continuously and is worth
-# revisiting if this image's size becomes a real constraint — flagged here
-# rather than decided, since nothing in this task's scope turns on it.
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+# **Copy only what's actually missing, not the whole untraced tree.** A first
+# pass here copied the entire `builder`-stage `node_modules` — the `deps`
+# stage's `bun install --frozen-lockfile` has no `--production`, so that tree
+# carries all fifteen devDependencies (mermaid 83 MB, eslint-config-next
+# 110 MB, typescript + @types ~49 MB, pdf-lib, puppeteer/chromium-bidi, vitest,
+# prettier…) which no CLI script imports, ever — `grep -n "^import"` across
+# `migrate-cli.ts`, `seed-cli.ts`, `sweep-cli.ts` and everything they in turn
+# import (`./client`, `./migrate`, `./seed`, `../domain/kernel/clock`,
+# `../domain/notifications/sweep`, `../auth/password`, `../lib/fixtures`) names
+# exactly one npm package the traced `node_modules` below doesn't already
+# carry: `postgres` — a pure-JS package with **zero** dependencies of its own
+# (`node_modules/postgres/package.json` has no `dependencies` key at all),
+# 380 KB on disk. `@node-rs/argon2`, which `seed.ts` needs for `hashPassword`,
+# is already present below — it's a native binding the running server itself
+# uses for sign-in, so it was never missing. That first pass took the runtime
+# image from ~300 MB to ~1.1 GB to add back 380 KB of genuine need; caught in
+# review, and worth recording so nobody repeats it: verify what a script
+# actually imports before copying the tree it might import from.
+#
+# So: this one package, copied by name, plus the raw `src` tree so
+# `bun run db:sweep` (and `db:migrate`, `db:seed`) run the file directly under
+# Bun's native TypeScript support instead of through anything Next built.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
 COPY --from=builder --chown=nextjs:nodejs /app/src ./src
 
 COPY --from=builder /app/public ./public
 # `output: "standalone"` emits a server plus only the files it traced, so this
-# layers a *smaller* node_modules over the fuller one just copied above —
-# Next's own subset wins for anything both provide, which is every package it
-# provides at all, since it is a strict subset of the untraced install.
+# adds the rest of `node_modules` alongside the single package copied above —
+# the two do not overlap (`postgres` was never part of the trace, per the note
+# above), so nothing here is overwritten, only supplemented.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
