@@ -176,6 +176,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Not the implicit last stage — see the identical `target: runner` on
+      # `sweep`'s `build:` below for why `docker compose build`/`up --build`
+      # must not fall through to the `smoke` stage by omission. Kept here too,
+      # even though `sweep`'s explanation already carries it, because this
+      # line is the one that matters most: `app` is the service every
+      # developer runs, and it was the one silently exposed to a build target
+      # that was never meant to gate anything but CI.
+      target: runner
+    # Named explicitly, and reused verbatim by `sweep` below, so "the sweep
+    # runs off the same image as the app" is a fact this file states rather
+    # than an accident of two identical `build:` blocks that happen to agree.
+    image: olibra-app:latest
     restart: unless-stopped
     depends_on:
       db:
@@ -216,3 +228,116 @@ services:
       # exception — one is what you are changing, the other is what you are
       # comparing against.
       - "${APP_PORT:-3001}:3000"
+
+  # ── Reminder sweep ───────────────────────────────────────────────────────
+  # QA remediation Task 24. `bun run db:sweep` (`sweepDueNotifications`,
+  # `src/domain/notifications/sweep.ts`) is the one scheduled job OPS §7
+  # permits — BR §15's "nhắc trả sách" reminders, three days before a loan
+  # falls due and again once it lapses. Until this task nothing called it in
+  # any deployment: no cron entry, no compose service, no workflow. The
+  # database backing that finding is a matter of record — a full borrow →
+  # overdue cycle on 2026-08-10 left the QA database holding exactly one
+  # notification, and it was `membership_approved`, not either reminder.
+  #
+  # **Same image as `app` (see the comment on `app`'s `image:` above), not a
+  # second Dockerfile.** That only became true because `output: "standalone"`
+  # left the image with no way to run this command at all — the Dockerfile's
+  # own "CLI scripts" comment on the `runner` stage has the fuller story and
+  # the exact error a build without that fix produces. `docker compose exec
+  # app bun run db:migrate` (see `app`'s `MIGRATION_DATABASE_URL` comment,
+  # which describes that usage) was equally broken until the same fix, which
+  # this task made as part of getting `bun run db:sweep` to run anywhere
+  # other than a developer's own machine.
+  #
+  # **A shell loop, not `cron` or `crond`.** Neither is installed in
+  # `oven/bun`'s image, and adding a second process supervisor (`cron` plus
+  # this container's own PID 1) to run one command once a day is more moving
+  # parts than the job is worth. The loop below wakes every 20 seconds,
+  # compares the container's local clock (TZ below) against 07:00, and runs
+  # at most once per calendar day — `last_run` guards against firing twice
+  # inside the same minute, which the sweep's own idempotence (`not exists`,
+  # not a cursor — see `sweep.ts`) would also absorb harmlessly if it ever
+  # happened, but there is no reason to lean on that here.
+  #
+  # A run does not happen the instant this container starts, only at the next
+  # 07:00 boundary — matching an ordinary crontab entry `0 7 * * *`, which
+  # would not fire immediately either if installed at 14:00. `docs/
+  # OPERATIONS.md` §7's addendum covers running it by hand for anyone who
+  # does want it right now, without waiting for the clock.
+  #
+  # A failed run is logged and the loop continues rather than exiting — this
+  # container exiting would hand `restart: unless-stopped` a crash loop that
+  # could retry several times inside the same 07:00 minute, which is a worse
+  # failure mode than "tomorrow's run tries again." `bun run db:sweep` itself
+  # still exits non-zero on failure (its own docstring: "so a scheduler
+  # notices"); this loop is the scheduler, and it notices in its own log
+  # rather than by dying.
+  sweep:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Not the implicit last stage. The Dockerfile's own comment on `smoke`
+      # says it plainly: "Not part of the runtime image. Built explicitly in
+      # CI" (`ci.yml`'s `image` job does exactly that: `docker build --target
+      # smoke .`, on its own, as a Bun-compatibility check). Without `target:`
+      # here, `docker compose build` builds through to `smoke` anyway, purely
+      # because it is the last `FROM` in the file — and its `RUN` step boots
+      # the server with none of the environment a real boot has, so it is one
+      # unrelated regression away from taking `docker compose up` down with
+      # it. Verified rather than assumed while wiring the `sweep` service
+      # below: `docker build --target smoke .`, run standalone against this
+      # branch exactly as CI runs it, currently fails — `⨯ Error: DATABASE_URL
+      # is not set` — for reasons that have nothing to do with either service
+      # in this file. `target: runner` is the fix for compose specifically:
+      # stop at the image CI itself promotes into `app`/`sweep`, and leave the
+      # smoke check exactly where its own comment already puts it.
+      target: runner
+    image: olibra-app:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Not DATABASE_URL. `sweep-cli.ts`'s own docstring gives the reason at
+      # length: DATABASE_URL names olibra_pool, which 20260808_13_pool_role.sql
+      # deliberately does not make a member of olibra_admin, and the sweep's
+      # first statement is `set local role olibra_admin` because it spans
+      # every shelf. Under olibra_pool that is `42501: permission denied to
+      # set role` — correct, and not a useful way to discover the requirement
+      # at 07:00.
+      MIGRATION_DATABASE_URL: postgres://${POSTGRES_USER:-olibra}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-olibra}
+      TZ: Asia/Ho_Chi_Minh
+    # `$` is doubled throughout (`$$now`, `$$(date …)`, …) because this text
+    # goes through *two* substitution passes before a byte of it runs: Compose
+    # interpolates `$VAR`/`${VAR}` in every string in this file first (the
+    # mechanism `${S3_ACCESS_KEY_ID}` above and `storage-init`'s entrypoint
+    # rely on), and only what survives that pass reaches the container's own
+    # shell as the script it actually executes. A single `$` here is not "the
+    # shell will see this" — it is "Compose will try to resolve this against
+    # its own variables first," and `$today`/`$now`/`$last_run` are not among
+    # those, so the first draft of this script silently ran with those three
+    # replaced by empty strings and `$TZ` baked in at build time from `.env`
+    # rather than read from the container's own environment — caught by
+    # `docker compose config sweep`, which is why it is worth re-running after
+    # touching this block rather than trusting the YAML to mean what it says.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "sweep: scheduler started — runs \`bun run db:sweep\` once a day at 07:00 $$TZ"
+        last_run=""
+        while true; do
+          today=$$(date +%F)
+          now=$$(date +%H:%M)
+          if [ "$$now" = "07:00" ] && [ "$$last_run" != "$$today" ]; then
+            echo "sweep: 07:00 $$TZ reached — running for $$today"
+            if bun run db:sweep; then
+              echo "sweep: $$today run finished"
+            else
+              echo "sweep: $$today run FAILED (exit $$?) — will try again at 07:00 tomorrow"
+            fi
+            last_run="$$today"
+          fi
+          sleep 20
+        done

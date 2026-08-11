@@ -1040,6 +1040,22 @@ Every reader-facing notification below is written by the command named, in the s
 
 **Due-soon and overdue notifications are the one place this document departs from "every notification is written by a command."** §8 is emphatic that overdue *status* is computed on read, never written by a job. But a *notification* is a discrete, persisted, dismissible record — it cannot be computed on read the way a status badge can, because "has this reader already been told" is itself state. Some process must, on a schedule, compare `due_on` against today across all active loans and write the due-soon/overdue notifications once. §8 explicitly permits this category of background work — "tidying up expired holds as housekeeping rather than as correctness" — and a scheduled notification sweep is the same kind of housekeeping: if it doesn't run for a few hours, nothing a user can observe becomes *wrong* (the loan's overdue badge is still correct, computed live), only *late to be told*. This is a narrow, deliberate exception, not a contradiction of §8.
 
+**Running the sweep — QA remediation Task 24.** `sweepDueNotifications` (`src/domain/notifications/sweep.ts`) is the function; `bun run db:sweep` (`src/db/sweep-cli.ts`) is the CLI entry point that calls it; `compose.yaml`'s `sweep` service is what now actually calls the CLI, unattended, once a day at 07:00 `Asia/Ho_Chi_Minh` — off the same image as `app`, `restart: unless-stopped`, so a host reboot resumes it without anyone remembering to. Before this task existed only as the middle piece: written, tested, callable, and — per `sweep-cli.ts`'s own docstring — never once invoked in any deployment, which is exactly the failure mode this bound is written to make survivable rather than the failure mode it was supposed to prevent.
+
+*Running it by hand* — to confirm it works before trusting the schedule, or to catch up after a restore:
+
+- `docker compose exec sweep bun run db:sweep` if the `sweep` service is already up (runs alongside its own loop; the two do not conflict).
+- `docker compose run --rm sweep bun run db:sweep` for a throwaway one-off run that never touches the running scheduler.
+- Outside compose entirely, with `MIGRATION_DATABASE_URL` set by hand exactly as `sweep-cli.ts`'s docstring requires (never `DATABASE_URL` — `olibra_pool` may not `set role olibra_admin`, and the failure is `42501` rather than a useful error): `bun run db:sweep`.
+
+Any of the three prints one completion line, always, even when it wrote nothing — the line itself is the evidence the job ran, independent of whether it found anything to say:
+
+    Sweep complete: 0 due-soon, 1 overdue notification(s).
+
+*What "0 nhắc nhở" (either count at zero, or both) means.* Not failure, and not silence — it is the sweep reporting that nobody currently sits inside their shelf's due-soon window and nobody's loan has freshly lapsed since the last run, or that everyone who does was already told on a previous run. The sweep is idempotent by a `not exists` keyed per loan and per notification kind, not by a cursor (`sweep.ts`'s own docstring), so running it twice in a day ordinarily prints `0, 0` the second time — that is the expected steady state, not evidence the job has stopped working. What is worth investigating is `0, 0` from a database that provably holds a loan due within its own shelf's `due_soon_days` (per-shelf since this same task — see the module note in `sweep.ts`) or already overdue, with no matching notification on file for it; the sweep having nothing to report is not that.
+
+*Checking it ran.* `docker compose logs sweep` carries the scheduler's own narration: one "scheduler started" line at boot, and per day since, a "07:00 … reached — running for `YYYY-MM-DD`" line paired with either "run finished" or "run FAILED (exit …) — will try again at 07:00 tomorrow". A container that has been up since before 07:00 today and shows no line for today simply has not reached the boundary yet — check `docker compose exec sweep date` against 07:00 `Asia/Ho_Chi_Minh` before assuming a fault. `docker compose ps sweep` climbing a restart count is the sharper signal: the loop is written to log a failed sweep and keep waiting rather than exit (see the service's own comment in `compose.yaml` for why — a tight crash-restart loop inside the same minute is a worse failure than tomorrow's run trying again), so a restarting container means something *underneath* that guard — the process itself, not the command it invoked — is what's actually crashing.
+
 ---
 
 ## 8. Rate limiting

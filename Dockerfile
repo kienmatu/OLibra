@@ -60,9 +60,48 @@ ENV HOSTNAME=0.0.0.0
 RUN groupadd --system --gid 1001 nodejs \
  && useradd --system --uid 1001 --gid nodejs nextjs
 
+# ── CLI scripts (db:migrate, db:seed, db:sweep) ─────────────────────────────
+# None of the three is reachable from `src/app`, so `output: "standalone"`'s
+# trace carries no sign of them: `next build` bundles every server-reachable
+# module into `.next/server`'s webpack chunks and keeps no raw `src/*.ts` file
+# around to run directly, and the traced `node_modules` two lines down keeps
+# only the packages that had to stay external to that bundle (native bindings —
+# `sharp`, `@node-rs/argon2`). `postgres`, the pure-JS package all three
+# scripts need, is not one of them. Verified rather than assumed while wiring
+# QA remediation Task 24's `sweep` service: `docker exec <app-container> bun
+# run db:migrate` against the image built without the two lines below fails
+# before it ever opens a connection —
+#
+#   error: Module not found "src/db/migrate-cli.ts"
+#
+# — which means `docker compose exec app bun run db:migrate`, the very usage
+# this file's own comment on `app`'s `MIGRATION_DATABASE_URL` describes below,
+# had never actually worked against a built image, only against `bun run dev`.
+#
+# The fix is the untraced `node_modules` from `builder` (a full, unpruned `bun
+# install`, `postgres` included) layered under the traced one, and the raw
+# `src` tree beside it, so `bun run db:sweep` runs the file directly under
+# Bun's native TypeScript support instead of through anything Next built. Both
+# add back what `output: standalone` exists to trim, honestly rather than
+# quietly: measured before/after, this takes the runtime image from ~300 MB to
+# ~1.1 GB, because the untraced `node_modules` alone is 875 MB against the
+# traced one's 58. That is not a small cost, and it is paid so `bun run
+# db:sweep` (below) and `docker compose exec app bun run db:migrate` are true
+# rather than aspirational, and so the `sweep` service (`compose.yaml`) and
+# `app` stay one image rather than two, per that service's own comment on why
+# "same image as `app`" was the point rather than an incidental choice. A
+# split image (a slim `runner` for `app`, a fatter one for CLI use only) would
+# undo the size cost for the service that runs continuously and is worth
+# revisiting if this image's size becomes a real constraint — flagged here
+# rather than decided, since nothing in this task's scope turns on it.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/src ./src
+
 COPY --from=builder /app/public ./public
-# `output: "standalone"` emits a server plus only the files it traced, so no
-# node_modules is copied here.
+# `output: "standalone"` emits a server plus only the files it traced, so this
+# layers a *smaller* node_modules over the fuller one just copied above —
+# Next's own subset wins for anything both provide, which is every package it
+# provides at all, since it is a strict subset of the untraced install.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 

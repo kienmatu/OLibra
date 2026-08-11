@@ -39,6 +39,17 @@ import { sweepDueNotifications } from "../domain/notifications/sweep";
  * Exits non-zero on failure so a scheduler notices. It prints what it wrote
  * even when that is nothing, because "0 nhắc nhở" from a job that ran is a
  * different fact from silence.
+ *
+ * **A scheduler now exists to notice it — QA remediation Task 24.** The
+ * paragraph above, "never fired in any deployment," was true when this file
+ * was written and stayed true through Task 23, which made a per-shelf
+ * `due_soon_days` editable on `/quan-ly/cai-dat` while this CLI still had
+ * nothing calling it on any cadence. `compose.yaml`'s `sweep` service is that
+ * caller now — same image as `app`, `bun run db:sweep` once a day at 07:00
+ * `Asia/Ho_Chi_Minh`, `MIGRATION_DATABASE_URL` for the reason above.
+ * `docs/OPERATIONS.md` §7 has the by-hand runbook;
+ * `tests/architecture/the-scheduled-job-has-a-caller.test.ts` now checks for
+ * that service by name, not only for this file's existence.
  */
 async function main() {
   const url = process.env.MIGRATION_DATABASE_URL;
