@@ -120,6 +120,19 @@ const POLICY_FIELD_META: Record<
  * **The slug is shown and cannot be edited.** It is immutable in the database
  * and read-only in OPS §3.4; a shelf's address appears on printed notices and in
  * a parish's bookmarks.
+ *
+ * **`?tu-sach=` names a slug, not a `bookshelfId` (QA remediation T27).** It
+ * used to be the UUID — a stable key, since a shelf's id never changes
+ * either, but not one an administrator can read, type or recognise on sight,
+ * and not what the summary line under each shelf's name showed either
+ * (`/{slug}`, not the shelf's own address). The slug is exactly as stable —
+ * `20260808_02_bookshelf_slug_immutable.sql` is what makes it a legitimate
+ * key at all, the same guarantee `resolveShelfId` (`src/auth/guards.ts`)
+ * already leans on — and it is the one thing on this page a person could
+ * actually recognise in the address bar. `updateBookshelfSettingsAction`
+ * still receives the real id (a hidden field, `selected.row.bookshelfId`,
+ * never in a URL): only the query string that names *which* shelf's editor
+ * to open changed, not what `updateBookshelfSettings` is called with.
  */
 export const dynamic = "force-dynamic";
 
@@ -133,7 +146,7 @@ export default async function AdminBookshelvesPage({
   searchParams: Promise<SearchParams>;
 }) {
   const search = await searchParams;
-  const selectedId = param(search, "tu-sach") ?? null;
+  const selectedSlug = param(search, "tu-sach") ?? null;
   const refusal = refusalFrom(search);
   // QA remediation Task 16: `updateBookshelfSettingsAction` now marks its own
   // success (`admin-actions.ts`'s `back(..., true)`). A bare presence check,
@@ -144,7 +157,7 @@ export default async function AdminBookshelvesPage({
   const { viewer, unreadFeedback, shelves, selected } = await loadAdminPage(
     async (tx, ctx, v) => {
       const shelves = await getAdminOverview(tx, ctx);
-      const named = shelves.find((s) => s.bookshelfId === selectedId) ?? null;
+      const named = shelves.find((s) => s.slug === selectedSlug) ?? null;
       return {
         viewer: v,
         unreadFeedback: await countUnreadFeedback(tx, ctx),
@@ -186,13 +199,13 @@ export default async function AdminBookshelvesPage({
           >
             <div className="min-w-0">
               <Link
-                href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                href={`/quan-tri/tu-sach?tu-sach=${encodeURIComponent(shelf.slug)}`}
                 className="text-[16px] font-medium hover:underline"
               >
                 {shelf.name}
               </Link>
               <p className="text-[14px] text-meta">
-                /{shelf.slug} · {NUMBER.format(shelf.books)} đầu sách ·{" "}
+                /tu-sach/{shelf.slug} · {NUMBER.format(shelf.books)} đầu sách ·{" "}
                 {NUMBER.format(shelf.readers)} bạn đọc
               </p>
             </div>
@@ -271,6 +284,18 @@ export default async function AdminBookshelvesPage({
 
           <form action={updateBookshelfSettingsAction} className="mt-6 space-y-12">
             <input type="hidden" name="tu-sach" value={selected.row.bookshelfId} />
+            {/* QA remediation T27: the id above is what `updateBookshelfSettings`
+                needs to find the row — that has not changed. This is what
+                `updateBookshelfSettingsAction` redirects back to afterwards,
+                now that `?tu-sach=` on this page names a slug rather than the
+                id; the slug cannot change mid-request (it is immutable), so
+                carrying it as a second hidden field is exactly as reliable as
+                the id was for that purpose. */}
+            <input
+              type="hidden"
+              name="tu-sach-slug"
+              value={selected.settings.profile.slug}
+            />
 
             <section className="space-y-6">
               <h2 className="text-xl font-semibold">Thông tin chung</h2>
@@ -285,7 +310,7 @@ export default async function AdminBookshelvesPage({
               </Field>
 
               <Field label="Đường dẫn">
-                <ReadOnlyValue>/{selected.settings.profile.slug}</ReadOnlyValue>
+                <ReadOnlyValue>/tu-sach/{selected.settings.profile.slug}</ReadOnlyValue>
               </Field>
 
               <Field label="Địa điểm" htmlFor="dia-diem">

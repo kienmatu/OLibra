@@ -88,24 +88,29 @@ function count(form: FormData, name: string): number | undefined {
  *
  * **`&`, not always `?`, when `path` already carries a query string.**
  * `updateBookshelfSettingsAction` below has redirected to
- * `` `/quan-tri/tu-sach?tu-sach=${bookshelfId}` `` since this file was
- * written, and a refusal from that action — `updateBookshelfSettings` throws
+ * `` `/quan-tri/tu-sach?tu-sach=${slug}` `` since QA remediation T27 (before
+ * it, the same shape with `${bookshelfId}` — see that task's own note on
+ * `tu-sach/page.tsx` for why `?tu-sach=` there now names a slug), and a
+ * refusal from that action — `updateBookshelfSettings` throws
  * `validation_failed` for a negative policy number, among others — used to
  * reach this function with a `path` that already had a `?` in it, producing
- * `/quan-tri/tu-sach?tu-sach=<id>?loi=<code>`. Nothing downstream parses that
- * as two parameters: everything after the *first* `?` is one query string, so
- * `?loi=` there is not a delimiter, it is four literal characters inside the
- * value of `tu-sach` — `param(search, "tu-sach")` returns
- * `"<id>?loi=<code>"`, which matches no real shelf, and `refusalFrom` finds no
- * `loi` key at all. The refusal banner silently never rendered; the page
- * silently fell back to the shelf list. Caught in review of Task 5 (QA
- * remediation, 2026-08-10) while giving `assignManagerAction` below the
- * identical shape (a target carrying `?tu-sach=`) rather than one more
- * caller inheriting the same defect. `path.includes("?")` is the same test
- * `URL` would apply; a template literal is used rather than the `URL`/
- * `URLSearchParams` classes because every path here is already a known-good
- * relative string and `redirect()` wants that string back, not a parsed
- * object.
+ * `/quan-tri/tu-sach?tu-sach=<id>?loi=<code>` (the id, not the slug — this
+ * defect predates T27's rename, and it is the shape the bug actually had
+ * when it was caught, which is why the id is what stays here). Nothing
+ * downstream parses that as two parameters: everything after the *first*
+ * `?` is one query string, so `?loi=` there is not a delimiter, it is four
+ * literal characters inside the value of `tu-sach` —
+ * `param(search, "tu-sach")` returns `"<id>?loi=<code>"`, which matches no
+ * real shelf, and `refusalFrom` finds no `loi` key at all. The refusal
+ * banner silently never rendered; the page silently fell back to the shelf
+ * list. Caught in review of Task 5 (QA remediation, 2026-08-10) while giving
+ * `assignManagerAction` below the identical shape (a target carrying
+ * `?tu-sach=`) rather than one more caller inheriting the same defect. The
+ * fix does not care whether the value is an id or a slug either way —
+ * `path.includes("?")` is the same test `URL` would apply; a template
+ * literal is used rather than the `URL`/`URLSearchParams` classes because
+ * every path here is already a known-good relative string and `redirect()`
+ * wants that string back, not a parsed object.
  *
  * **`done` is opt-in, per caller, not a blanket addition to every success
  * here** (QA remediation Task 16). `createBookshelfAction` and
@@ -160,6 +165,16 @@ export async function createBookshelfAction(form: FormData): Promise<void> {
 
 export async function updateBookshelfSettingsAction(form: FormData): Promise<void> {
   const bookshelfId = field(form, "tu-sach");
+  // QA remediation T27: carried alongside the id purely to redirect back to
+  // the right editor — `?tu-sach=` on `/quan-tri/tu-sach` names a slug now,
+  // not this shelf's id (see that page's own docstring). The slug is
+  // immutable (`20260808_02_bookshelf_slug_immutable.sql`) and
+  // `updateBookshelfSettings` cannot change it, so it is exactly as safe to
+  // trust here as `bookshelfId` itself already was — a refusal below still
+  // redirects to the same shelf's editor because nothing about *which* shelf
+  // this is could have changed between the form loading and this action
+  // running.
+  const slug = field(form, "tu-sach-slug");
   const code = await attempt(() =>
     submitAdminCommand(
       updateBookshelfSettings,
@@ -191,7 +206,7 @@ export async function updateBookshelfSettingsAction(form: FormData): Promise<voi
   // QA remediation Task 16: "Lưu cài đặt" used to redirect here with nothing
   // to say the save took — the form re-rendered identically whether it had
   // just been submitted or the page was freshly opened.
-  back(`/quan-tri/tu-sach?tu-sach=${bookshelfId}`, code, true);
+  back(`/quan-tri/tu-sach?tu-sach=${encodeURIComponent(slug)}`, code, true);
 }
 
 export async function archiveBookshelfAction(form: FormData): Promise<void> {

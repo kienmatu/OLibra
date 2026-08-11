@@ -171,6 +171,13 @@ test("a refusal on a target that already carries a query string joins with '&', 
     updateBookshelfSettingsAction(
       form({
         "tu-sach": shelf.id,
+        // QA remediation T27: `?tu-sach=` on `/quan-tri/tu-sach` names a
+        // slug now, not this shelf's id — `updateBookshelfSettingsAction`
+        // still needs the id (above) to find the row, but redirects using
+        // this second field. Omitting it here is exactly the gap that broke
+        // this test the day T27 landed: `field(form, "tu-sach-slug")` reads
+        // `""` from a `FormData` that never set it, silently.
+        "tu-sach-slug": shelf.slug,
         ten: "Tủ sách Đồng Tháp",
         "so-ngay-muon": "-1", // updateBookshelfSettings refuses a negative loan period.
       }),
@@ -188,8 +195,12 @@ test("a refusal on a target that already carries a query string joins with '&', 
   // code, via `checkPolicyBound` (`src/domain/admin/policy.ts`). This test is
   // about the `?`-joining, not the refusal code, so it only needed updating
   // to keep matching the command's real behaviour.
+  //
+  // `shelf.slug`, not `shelf.id` (QA remediation T27): the admin shelf list
+  // and its editor now resolve `?tu-sach=` against a slug — see
+  // `quan-tri/tu-sach/page.tsx`'s own docstring for why.
   expect(target).toBe(
-    `/quan-tri/tu-sach?tu-sach=${shelf.id}&loi=loan_days_out_of_range`,
+    `/quan-tri/tu-sach?tu-sach=${shelf.slug}&loi=loan_days_out_of_range`,
   );
   expect(refusalIn(target)).toBe("loan_days_out_of_range");
 });

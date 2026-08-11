@@ -211,8 +211,14 @@ export default async function AdminOverviewPage() {
                 {shelves.map((shelf) => (
                   <tr key={shelf.bookshelfId}>
                     <td className="px-4 py-3">
+                      {/* QA remediation T27: links by slug, matching
+                          `/quan-tri/tu-sach`'s own list — that page's `?tu-sach=`
+                          resolves against `slug` now, not `bookshelfId` (see its
+                          docstring), so a link still built from the id would
+                          simply find no shelf. Same change on the mobile card
+                          below. */}
                       <Link
-                        href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                        href={`/quan-tri/tu-sach?tu-sach=${encodeURIComponent(shelf.slug)}`}
                         className="text-[16px] font-medium hover:underline"
                       >
                         {shelf.name}
@@ -252,7 +258,7 @@ export default async function AdminOverviewPage() {
                 className="rounded-card border border-hairline p-4"
               >
                 <Link
-                  href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                  href={`/quan-tri/tu-sach?tu-sach=${encodeURIComponent(shelf.slug)}`}
                   className="text-[17px] font-semibold hover:underline"
                 >
                   {shelf.name}
