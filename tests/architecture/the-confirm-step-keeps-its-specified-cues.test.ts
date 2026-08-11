@@ -89,31 +89,50 @@ test("every confirm button in the lending flow disables itself while in flight",
 
 const BOOK_PAGE = "src/app/tu-sach/[shelf]/(doc-gia)/sach/[slug]/page.tsx";
 
-test("the dead borrow button says why nothing happened, and says it to the button", () => {
-  // IMPORTANT 7 (fix-report, 2026-08-09-u2-shelf-and-portal). "Xin mượn" is the
-  // book page's dominant action — full-width terracotta, `size="lg"`,
-  // `min-w-80`, the "One primary action per screen, visually dominant" BR:603
-  // asks for — and it is dead until C2 wires borrow requests. Natively
-  // `disabled`, so it is out of the tab order: a keyboard or switch user never
-  // lands on it. It shipped with nothing under it at all, and two comments in
-  // the same block disagreeing about whether there was.
+test("the borrow button is alive, and cannot be double-tapped into two requests", () => {
+  // **The successor to "the dead borrow button says why nothing happened".**
+  // That test pinned a pairing — a natively `disabled` "Xin mượn" and the
+  // sentence under it apologising — and named its own end condition in as many
+  // words: "C2 removes the note and the `disabled` attribute together; until
+  // then the pairing has to hold." U8 is where that happened, so the pairing is
+  // replaced by the property that matters now.
   //
-  // The same shape as the two cues above: BR names the audience ("children who
-  // may have been reading fluently for only a few years", BR:601), the cue was
-  // absent rather than wrong, and its absence is invisible in a diff that is
-  // mostly about wiring a query. C2 removes the note and the `disabled`
-  // attribute together; until then the pairing has to hold.
+  // What it guards is a regression with a very quiet diff: re-adding `disabled`
+  // (or dropping the form back to a bare `<Button>`) leaves a page that renders
+  // identically in a screenshot and writes nothing.
   const source = readFileSync(BOOK_PAGE, "utf8");
 
-  // The `id` and the `aria-describedby` come from one constant, so the
-  // attribute cannot end up pointing at nothing — which looks identical, to
-  // everyone who can see the page, to pointing at something.
-  expect(source).toMatch(/const BORROW_NOTE_ID = "[^"]+"/);
-  expect(source).toMatch(/aria-describedby=\{BORROW_NOTE_ID\}/);
-  expect(source).toMatch(/id=\{BORROW_NOTE_ID\}/);
-  // And the note is real text under the button rather than an empty element
-  // satisfying the two above.
-  expect(source).toMatch(/id=\{BORROW_NOTE_ID\}[^>]*>\s*\n?\s*\S/);
+  // The button posts, and posts to the borrow-request action specifically —
+  // `createBorrowRequest` had no caller at all for two slices, and the
+  // architecture test that catches *that* only checks the command is named
+  // somewhere in `src/app`.
+  expect(source).toMatch(/<form action=\{requestBorrowAction\}/);
+  // Through `SubmitButton`, which is BR §17.7's rule and not decoration here:
+  // `createBorrowRequest`'s own docstring records that there is no unique index
+  // behind `duplicate_request`, so two taps in the same second really do write
+  // two pending rows and put one child twice in one queue. The in-flight
+  // disable is what closes the case the screen can actually produce.
+  // Anchored to the form rather than to a character count: the button carries
+  // an `icon={...}` block between the two, and a distance threshold is a test
+  // that fails the day somebody reformats.
+  expect(source).toMatch(
+    /<form action=\{requestBorrowAction\}[\s\S]*?<SubmitButton/,
+  );
+  expect(source).toMatch(/\{isAvailable \? "Xin mượn" : "Đăng ký chờ mượn"\}/);
+  // And the apology is gone with the `disabled` attribute it explained.
+  //
+  // **Against `withoutComments`, not the raw file**, because the page's own
+  // docstring recounts what was removed and quotes the sentence by name —
+  // documentation this test would otherwise forbid anyone from writing. It is
+  // the same blind spot `every-domain-command-has-a-caller.test.ts` describes
+  // at length, pointed the other way: there a prose mention made an unused
+  // command look called, here it would make a removed one look present. The
+  // JSX text these assertions are really about is not a string literal, so it
+  // survives the strip and the check still bites.
+  const code = withoutComments(source);
+  expect(code).not.toMatch(/BORROW_NOTE_ID/);
+  expect(code).not.toMatch(/Nút này chưa dùng được/);
+  expect(code).not.toMatch(/<Button[^>]*\bdisabled\b/);
 });
 
 test("an overdue loan is shown as overdue, not as an ordinary loan with a past date", () => {

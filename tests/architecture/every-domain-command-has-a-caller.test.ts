@@ -119,8 +119,13 @@ const EXEMPT = new Set<string>([
   // be exactly the scope creep the brief's own "don't restructure outside
   // this task" rule forbids.
   "src/domain/catalogue/commands/delete-book.ts:deleteBook", // no caller found anywhere in src/app or src/lib.
-  "src/domain/circulation/commands/cancel-own-request.ts:cancelOwnRequest", // no caller found anywhere in src/app or src/lib.
-  "src/domain/circulation/commands/create-borrow-request.ts:createBorrowRequest", // no caller found anywhere in src/app or src/lib.
+  // `createBorrowRequest` and `cancelOwnRequest` were here, exempt, from C2
+  // until U8 — implemented, tested, and callable from nowhere, which left
+  // "Xin mượn" rendered `disabled` under an apology and made
+  // `/quan-ly/yeu-cau-muon` a queue no reader could put a row in.
+  // `requestBorrowAction` and `cancelRequestAction`
+  // (`src/app/tu-sach/[shelf]/(doc-gia)/ho-so/reader-actions.ts`) are their
+  // callers now, so the entries are deleted rather than reworded.
   "src/domain/circulation/commands/void-loan.ts:voidLoan", // no caller found anywhere in src/app or src/lib.
   // `createComment` was here, exempt, from B3 until U6 §1 — implemented,
   // tested against INV-9, and called from nowhere, which also made

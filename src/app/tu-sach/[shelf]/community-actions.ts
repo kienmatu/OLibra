@@ -89,14 +89,20 @@ export async function submitFeedbackAction(form: FormData): Promise<void> {
  * the shelf like anybody else, so `membershipId === ctx.actor.membershipId`
  * is satisfiable for them. One form, everybody who can see the page.
  *
- * `?da-gui=1` on success rather than the comment itself appearing:
+ * **`?da-gui=binh-luan` on success, rather than the comment itself appearing.**
  * `getBookComments` returns approved rows only, and that predicate *is* INV-9
- * living in the access path (its own docstring). A comment awaiting approval
- * is therefore invisible to its own author, so the page says what happened in
- * a sentence instead of leaving a reader wondering whether the button worked.
+ * living in the access path (its own docstring). A comment awaiting approval is
+ * therefore invisible to its own author, so the page says what happened in a
+ * sentence instead of leaving a reader wondering whether the button worked.
+ *
+ * The marker **names this form** rather than being a bare `1`: "Xin mượn" lands
+ * on the same URL now, and a marker that cannot say which of the two was sent
+ * confirms the wrong thing. `/quan-tri/cai-dat` distinguishes its two saves for
+ * the same reason. `submitFeedbackAction` above keeps its `1` — `/gop-y` is a
+ * page with one form on it, where there is nothing to tell apart.
  *
  * The book slug travels separately from the book id because the redirect needs
- * a URL and the command needs a key: `?da-gui=1` has to land back on the page
+ * a URL and the command needs a key: the marker has to land back on the page
  * the reader was reading.
  */
 export async function postCommentAction(form: FormData): Promise<void> {
@@ -115,7 +121,9 @@ export async function postCommentAction(form: FormData): Promise<void> {
     }),
   );
 
-  redirect(code ? `${base}?${ACTION_ERROR_PARAM}=${code}` : `${base}?da-gui=1`);
+  redirect(
+    code ? `${base}?${ACTION_ERROR_PARAM}=${code}` : `${base}?da-gui=binh-luan`,
+  );
 }
 
 /** Tặng sách. A reader offers books; a manager decides later (OPS §4.4). */

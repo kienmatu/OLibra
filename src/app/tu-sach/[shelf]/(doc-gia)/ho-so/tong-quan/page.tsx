@@ -17,7 +17,7 @@ import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatDueDate, formatInstant } from "@/lib/dates";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
-import { renewLoanAction } from "../reader-actions";
+import { cancelRequestAction, renewLoanAction } from "../reader-actions";
 
 /**
  * BR §16.2's "My page": books currently held with days remaining and a renew
@@ -242,6 +242,20 @@ export default async function ReaderDashboardPage({
                         ? `Đã sẵn sàng, nhận trước ${formatInstant(r.holdExpiresAt)}`
                         : "Đã sẵn sàng"}
                   </span>
+                  {/* **Huỷ yêu cầu** — `cancelOwnRequest`, which had no caller
+                      until U8. This list has shown a queue position since U4
+                      with no way to leave the queue: a child who changed their
+                      mind stayed in it, and if their turn came the copy was
+                      held for them, off the shelf, until the hold expired.
+                      No `sach` field, so `cancelRequestAction` comes back to
+                      this page rather than to the book's. */}
+                  <form action={cancelRequestAction} className="shrink-0">
+                    <input type="hidden" name="tu-sach" value={slug} />
+                    <input type="hidden" name="yeu-cau" value={r.requestId} />
+                    <SubmitButton variant="quiet" size="sm">
+                      Huỷ
+                    </SubmitButton>
+                  </form>
                 </li>
               ))}
             </ul>

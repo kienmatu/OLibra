@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import {
+  AlertCircle,
   BookCheck,
   Bookmark,
   Hand,
@@ -20,6 +21,7 @@ import { SavedNotice } from "@/components/ui/saved-notice";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { messageFor } from "@/domain/kernel/errors";
 import { getBookComments } from "@/domain/community/queries/get-comments";
+import { getMyDashboard } from "@/domain/circulation/queries/get-my-dashboard";
 import {
   commentsEnabled,
   commentsRequireApproval,
@@ -30,6 +32,10 @@ import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelfIdentity } from "@/lib/shelf";
 import { STATUS, statusForAvailability } from "@/lib/status";
 import { postCommentAction } from "../../../community-actions";
+import {
+  cancelRequestAction,
+  requestBorrowAction,
+} from "../../ho-so/reader-actions";
 
 /** U1 §2. See `src/app/tu-sach/[shelf]/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
@@ -37,13 +43,16 @@ export const dynamic = "force-dynamic";
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /**
- * Ties the sentence under the dead "Xin mượn" button to the button itself
- * (IMPORTANT 7). A module constant rather than a literal in two places, so the
- * `aria-describedby` and the `id` cannot drift apart into an attribute that
- * points at nothing — which is indistinguishable, to everyone who can see the
- * page, from one that points at something.
+ * The refusal codes the comment box can produce, so its alert and the borrow
+ * button's alert do not both paint the same `?loi=`.
+ *
+ * Both forms on this page redirect back to this URL with the same parameter, and
+ * one code rendering twice is the page telling a child the same thing in two
+ * places. Listed rather than inferred: `createComment` raises exactly these two
+ * (`comment-moderation.ts`), and a third would be a deliberate edit here rather
+ * than a silent widening.
  */
-const BORROW_NOTE_ID = "xin-muon-chua-dung-duoc";
+const COMMENT_REFUSALS = ["comments_disabled", "empty_body"];
 
 /**
  * QA remediation Task 25. The one page a search engine actually indexes
@@ -131,7 +140,12 @@ export default async function BookDetailPage({
 }) {
   const { shelf: shelfSlug, slug } = await params;
   const search = await searchParams;
-  const sent = param(search, "da-gui") === "1";
+  // **Which form landed, not merely that one did.** Two forms on this page
+  // redirect back to it now — the comment box and "Xin mượn" — so a bare `1`
+  // would confirm whichever sentence the page happened to render first. The
+  // same reason `/quan-tri/cai-dat` distinguishes its two saves.
+  const sent = param(search, "da-gui");
+  const cancelled = param(search, "da-huy") === "1";
   const refused = refusalFrom(search);
 
   const {
@@ -143,6 +157,7 @@ export default async function BookDetailPage({
     commentsOn,
     needsApproval,
     membershipId,
+    myRequest,
   } = await loadPage(shelfSlug, async (tx, ctx, viewer) => {
     const book = await getBookDetail(tx, ctx, { bookSlug: slug });
     return {
@@ -164,6 +179,29 @@ export default async function BookDetailPage({
        * holds an active membership of this shelf by construction.
        */
       membershipId: ctx.actor.membershipId,
+      /**
+       * This reader's own request for this title, if they have one.
+       *
+       * **Through `getMyDashboard`, rather than a new query.** That function is
+       * OPS §3.2's specified read, it already derives `queuePosition` and
+       * `holdExpiresAt` exactly as the reader's own dashboard shows them, and
+       * it is reader-scoped by construction. A narrower `myRequestFor(bookId)`
+       * would be a second, unspecified way to ask the same question, and the
+       * two would eventually disagree about what "in flight" means — which is
+       * the drift `loanRenewable`'s own docstring describes between a query and
+       * a command. The cost is reading a reader's whole dashboard to answer one
+       * question about one book; a member has a handful of rows.
+       *
+       * Skipped entirely for a viewer with no membership: `getMyDashboard`
+       * calls `requireIdentifiedActor`, and a super admin browsing a shelf has
+       * no dashboard here to read.
+       */
+      myRequest:
+        ctx.actor.membershipId === null
+          ? null
+          : ((await getMyDashboard(tx, ctx)).requests.find(
+              (r) => r.bookId === book.bookId,
+            ) ?? null),
       // BR §5.5's two settings, and they are two decisions rather than one:
       // a shelf can moderate comments, or it can decline to take them at
       // all. The first picks the sentence under the form; the second removes
@@ -407,73 +445,134 @@ export default async function BookDetailPage({
               )}
             </div>
 
-            {/* **"Xin mượn" belongs to C2 and does not exist yet**, so this
-                button is rendered `disabled` and does nothing at all — no
-                form, no action, no href.
-
-                What a child who taps it experiences: nothing moves. The button
-                is drawn at 45% opacity (`disabled:opacity-45`), takes no
-                pointer cursor (globals.css excludes `:disabled` from that rule
-                deliberately — "a pointer over a control that will not respond
-                is a small lie"), and is not focusable or clickable at all.
-
-                **And that is not enough on its own, which is IMPORTANT 7**
-                (fix-report, 2026-08-09-u2-shelf-and-portal). This is the
-                page's dominant action — full-width terracotta, `size="lg"`,
-                `min-w-80`, exactly the "One primary action per screen, visually
-                dominant" BR:603 asks for — and it is dead. The two comments
-                that used to sit here contradicted each other inside one block:
-                this one said the button was acceptable because "the sentence
-                immediately under it is the one that tells them what actually
-                works", and the one below said "No sentence under it." Neither
-                matched the layout. The contact line is *above*, inside the
-                `StatusPanel`, and it answers "how do I collect this", not "why
-                did nothing happen when I pressed the big button".
-
-                Being natively `disabled` also takes it out of the tab order, so
-                a keyboard or switch user never lands on it and never hears why
-                — the audience BR:601 describes as "children who may have been
-                reading fluently for only a few years". The sentence below is in
-                the reading order regardless, and `aria-describedby` ties it to
-                the control for anyone who does reach it.
-
-                Plan §6 says the button "must not pretend to work". That forbids
-                submitting; it does not forbid explaining. The alternatives were
-                both worse: a live-looking button that posts nowhere is the
-                "told yes and then no" failure BR §16.3 is written against, and
-                removing it entirely would hide the one thing BR:508 says this
-                page is for. The label stays the specified one so that what C2
-                wires is a `disabled` attribute coming off, not a button being
-                invented.
-
-                The `Bookmark` variant — "Đăng ký chờ mượn" — is the same
-                situation: borrow requests are C2's. */}
+            {/**
+             * **"Xin mượn", alive at last** (U8).
+             *
+             * This button was rendered `disabled` from the day the page was
+             * drawn, with a paragraph underneath apologising for it — "Nút này
+             * chưa dùng được. Em nhắn cho quản lý tủ sách ở trên để mượn
+             * sách." `createBorrowRequest` had shipped in C2, fully
+             * implemented and tested, and was called from nowhere;
+             * `every-domain-command-has-a-caller.test.ts` carried a named
+             * exemption saying so. The cost ran past this one control:
+             * `/quan-ly/yeu-cau-muon` has approve, reject and handover all
+             * wired, and no reader could put a row in it, so the manager's
+             * **Yêu cầu mượn** badge could only ever read zero.
+             *
+             * The `disabled` attribute, the apology, `BORROW_NOTE_ID` and its
+             * `aria-describedby` are all gone together. What that old comment
+             * predicted is exactly what happened: "what C2 wires is a
+             * `disabled` attribute coming off, not a button being invented."
+             *
+             * **Two labels, one command.** `createBorrowRequest` reads no
+             * `book_copies` at all and says so at length — OPS §4.2 covers
+             * both an empty shelf and a reader who wants to queue while copies
+             * exist. So the call is identical either way and only the wording
+             * moves, because "go and collect it" and "join the queue" are
+             * different things to a child even when they are one write.
+             *
+             * **A request in flight replaces the button rather than sitting
+             * beside it.** Pressing twice is `duplicate_request` — a refusal
+             * the reader can do nothing with — and a button that is going to
+             * say no is the shape this whole run of work has been removing.
+             */}
             <div className="order-4 mt-6">
-              <Button
-                variant="primary"
-                size="lg"
-                className="min-w-80"
-                disabled
-                aria-describedby={BORROW_NOTE_ID}
-              >
-                {isAvailable ? (
-                  <>
-                    <Hand aria-hidden className="size-5" strokeWidth={1.75} />
-                    Xin mượn
-                  </>
-                ) : (
-                  <>
-                    <Bookmark aria-hidden className="size-5" strokeWidth={1.75} />
-                    Đăng ký chờ mượn
-                  </>
-                )}
-              </Button>
-              <p
-                id={BORROW_NOTE_ID}
-                className="mt-2 max-w-80 text-[14px] text-meta"
-              >
-                Sách hiện không khả dụng.
-              </p>
+              {/* **The refusal belongs above the control, not below it.** Both
+                  writes on this page redirect here with `?loi=`, and the codes
+                  a reader can actually cause are the interesting ones:
+                  `duplicate_request` when a stale page is tapped twice,
+                  `membership_not_active_cannot_request` when their membership
+                  was suspended between the render and the tap. Every sentence
+                  is `errors.ts`'s own — nothing new is written here. */}
+              {refused && !COMMENT_REFUSALS.includes(refused) ? (
+                <p
+                  role="alert"
+                  className="mb-4 flex max-w-80 items-start gap-2 rounded-card border border-brick bg-brick/8 px-4 py-3 text-[15px] text-brick"
+                >
+                  <AlertCircle
+                    aria-hidden
+                    className="mt-0.5 size-5 shrink-0"
+                    strokeWidth={1.75}
+                  />
+                  {messageFor(refused)}
+                </p>
+              ) : null}
+
+              {sent === "xin-muon" ? (
+                <div className="mb-4 max-w-80">
+                  <SavedNotice>
+                    Đã gửi. Quản lý tủ sách sẽ xem và báo lại cho em.
+                  </SavedNotice>
+                </div>
+              ) : null}
+
+              {cancelled ? (
+                <div className="mb-4 max-w-80">
+                  <SavedNotice>Đã huỷ yêu cầu mượn.</SavedNotice>
+                </div>
+              ) : null}
+
+              {membershipId === null ? null : myRequest ? (
+                <div className="max-w-80 rounded-card border border-hairline bg-paper p-5">
+                  <p className="flex items-start gap-2 text-[16px] font-medium">
+                    <Bookmark
+                      aria-hidden
+                      className="mt-0.5 size-5 shrink-0"
+                      strokeWidth={1.75}
+                    />
+                    {/* The three states `getMyDashboard` can report, in its own
+                        words: queueing behind somebody, holding a copy with a
+                        deadline, or holding one with none recorded. */}
+                    {myRequest.queuePosition !== null
+                      ? `Em đang chờ cuốn này · vị trí ${NUMBER.format(
+                          myRequest.queuePosition,
+                        )}`
+                      : myRequest.holdExpiresAt
+                        ? `Sách đã để dành cho em · nhận trước ${formatInstant(
+                            myRequest.holdExpiresAt,
+                          )}`
+                        : "Sách đã để dành cho em"}
+                  </p>
+                  <form action={cancelRequestAction} className="mt-4">
+                    <input type="hidden" name="tu-sach" value={shelfSlug} />
+                    {/* A slug, so the cancellation comes back to this page;
+                        `cancelRequestAction` builds the URL itself, because a
+                        form must never name a redirect target. */}
+                    <input type="hidden" name="sach" value={book.slug} />
+                    <input
+                      type="hidden"
+                      name="yeu-cau"
+                      value={myRequest.requestId}
+                    />
+                    <SubmitButton variant="outline">Huỷ yêu cầu</SubmitButton>
+                  </form>
+                </div>
+              ) : (
+                <form action={requestBorrowAction}>
+                  <input type="hidden" name="tu-sach" value={shelfSlug} />
+                  <input type="hidden" name="sach" value={book.slug} />
+                  <input type="hidden" name="sach-id" value={book.bookId} />
+                  <input type="hidden" name="thanh-vien" value={membershipId} />
+                  <SubmitButton
+                    variant="primary"
+                    size="lg"
+                    className="min-w-80"
+                    icon={
+                      isAvailable ? (
+                        <Hand aria-hidden className="size-5" strokeWidth={1.75} />
+                      ) : (
+                        <Bookmark
+                          aria-hidden
+                          className="size-5"
+                          strokeWidth={1.75}
+                        />
+                      )
+                    }
+                  >
+                    {isAvailable ? "Xin mượn" : "Đăng ký chờ mượn"}
+                  </SubmitButton>
+                </form>
+              )}
             </div>
 
             {isManager ? (
@@ -614,13 +713,14 @@ export default async function BookDetailPage({
                   </p>
                 )}
 
-                {/* Outside the form, because a refusal can outlive it: a shelf
-                    that turns comments off between page load and submit
-                    redirects here with `?loi=comments_disabled`, and an alert
-                    rendered inside the form would land on a page that no
-                    longer has one. `commentsOn` above is the only thing that
-                    can hide it now, and that branch has its own sentence. */}
-                {refused ? (
+                {/* **Only this section's own codes**, because the borrow
+                    button above renders `refused` too and one `?loi=` painting
+                    two alerts on one page is the page saying it twice. Outside
+                    the form for the reason it always was: a shelf that turns
+                    comments off between a page load and a submit redirects here
+                    with `comments_disabled`, and an alert inside the form would
+                    land where there is no longer one. */}
+                {refused && COMMENT_REFUSALS.includes(refused) ? (
                   <p role="alert" className="mt-4 text-[15px] text-brick">
                     {messageFor(refused)}
                   </p>
@@ -689,7 +789,7 @@ export default async function BookDetailPage({
                         presses this button and is met with an unchanged page
                         would have no way to tell it worked. The wording
                         follows whichever setting the shelf actually has. */}
-                    {sent ? (
+                    {sent === "binh-luan" ? (
                       <SavedNotice>
                         {needsApproval
                           ? "Đã gửi. Quản lý tủ sách sẽ duyệt trước khi bình luận hiện lên."
