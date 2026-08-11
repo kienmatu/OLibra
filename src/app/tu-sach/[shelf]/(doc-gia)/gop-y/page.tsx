@@ -9,7 +9,7 @@ import { PHONE_PATTERN } from "@/domain/members/policy";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
-import { submitFeedbackAction } from "../community-actions";
+import { submitFeedbackAction } from "../../community-actions";
 
 /**
  * Góp ý — a message to the people who keep the shelf.

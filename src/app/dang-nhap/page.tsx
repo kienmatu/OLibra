@@ -3,9 +3,10 @@ import { Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { FrontDoorHeader, ShelfHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { messageFor } from "@/domain/kernel/errors";
 import { findPublicShelf } from "@/domain/portal/queries/find-public-shelf";
-import { loadPublicPage } from "@/lib/page-data";
+import { loadPublicPage, siteContact } from "@/lib/page-data";
 import {
   RETURN_TO_PARAM,
   SHELF_PARAM,
@@ -75,6 +76,9 @@ export default async function LoginPage({
    * front-door header, not a heading of the visitor's own choosing.
    */
   const shelfSlug = param(search, SHELF_PARAM) ?? shelfSlugFromReturnPath(returnTo);
+  // U6 §6. This page had no footer at all, which made it the one screen where
+  // somebody who cannot get in had nowhere to find out who to ask.
+  const contact = await siteContact();
   const shelf = shelfSlug
     ? await loadPublicPage((tx) => findPublicShelf(tx, { slug: shelfSlug }))
     : null;
@@ -106,7 +110,7 @@ export default async function LoginPage({
           viewerName={null}
         />
       ) : (
-        <FrontDoorHeader viewerName={null} isSuperAdmin={false} />
+        <FrontDoorHeader viewerName={null} isSuperAdmin={false} shelves={[]} />
       )}
 
       <main className="mx-auto flex max-w-3xl flex-col items-center px-6 py-20">
@@ -231,6 +235,8 @@ export default async function LoginPage({
             can now actually do it (`/tu-sach/[shelf]/quan-ly/nguoi-doc/[id]`,
             landed in the wave that closed T4). */}
       </main>
+
+      <SiteFooter contact={contact} />
     </>
   );
 }

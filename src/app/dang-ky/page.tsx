@@ -3,12 +3,14 @@ import { CheckCircle2, Info } from "lucide-react";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { messageFor } from "@/domain/kernel/errors";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { findPublicShelf } from "@/domain/portal/queries/find-public-shelf";
-import { loadPage, loadPublicPage } from "@/lib/page-data";
+import { loadPage, loadPublicPage, siteContact } from "@/lib/page-data";
 import { loadParishContext } from "@/domain/members/parish-context";
+import { SHELF_PARAM } from "@/lib/return-path";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { registerMembershipAction } from "./actions";
 
@@ -53,13 +55,24 @@ export default async function RegisterPage({
   searchParams: Promise<SearchParams>;
 }) {
   const search = await searchParams;
-  const slug = param(search, "tu-sach") ?? null;
+  // `SHELF_PARAM`, not the literal `"tu-sach"` this read for its whole life.
+  // The constant exists precisely so a portal link and the page it targets
+  // cannot drift apart over one string (its own docstring,
+  // `src/lib/return-path.ts`), and U6 §4 makes the portal link at *this* page
+  // for the first time — a signed-in visitor looking at a shelf they do not
+  // belong to. Two spellings of one key is how that link silently stops
+  // carrying a shelf.
+  const slug = param(search, SHELF_PARAM) ?? null;
   const refusal = refusalFrom(search);
   const sent = param(search, "da-gui") === "1";
 
   const shelf = slug
     ? await loadPublicPage((tx) => findPublicShelf(tx, { slug }))
     : null;
+  // U6 §6. Read before the branch below, because both returns render the
+  // footer and a visitor who landed here with no shelf named is exactly the
+  // person most likely to want the contact block in it.
+  const contact = await siteContact();
 
   if (!shelf) {
     return (
@@ -79,6 +92,8 @@ export default async function RegisterPage({
             Xem danh sách tủ sách
           </Link>
         </main>
+
+        <SiteFooter contact={contact} />
       </>
     );
   }
@@ -349,6 +364,8 @@ export default async function RegisterPage({
           </p>
         </form>
       </main>
+
+      <SiteFooter contact={contact} />
     </>
   );
 }

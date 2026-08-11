@@ -49,7 +49,7 @@ vi.mock("next/headers", () => ({
 const s3 = testS3Config();
 
 const { proposeAvatarAction, cancelProfileChangeAction } =
-  await import("../../src/app/tu-sach/[shelf]/ho-so/profile-actions");
+  await import("../../src/app/tu-sach/[shelf]/(doc-gia)/ho-so/profile-actions");
 const { decideAndDiscardAvatar } = await import("../../src/lib/avatar");
 const { submitCommand } = await import("../../src/lib/page-data");
 const { approveProfileChange } =

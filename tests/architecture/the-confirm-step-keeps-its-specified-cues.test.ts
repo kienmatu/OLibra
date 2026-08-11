@@ -87,7 +87,7 @@ test("every confirm button in the lending flow disables itself while in flight",
   }
 });
 
-const BOOK_PAGE = "src/app/tu-sach/[shelf]/sach/[slug]/page.tsx";
+const BOOK_PAGE = "src/app/tu-sach/[shelf]/(doc-gia)/sach/[slug]/page.tsx";
 
 test("the dead borrow button says why nothing happened, and says it to the button", () => {
   // IMPORTANT 7 (fix-report, 2026-08-09-u2-shelf-and-portal). "Xin mượn" is the

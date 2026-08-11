@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { AlertCircle, HelpCircle, Search } from "lucide-react";
+import { AlertCircle, CheckCircle2, HelpCircle, Search } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { Pill } from "@/components/ui/pill";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Input } from "@/components/ui/field";
 import { Card } from "@/components/ui/card";
@@ -167,11 +168,26 @@ export default async function NhanTraPage({
                         {loan.title}
                       </BookTitle>
                     </div>
-                    {/* `isOverdue` is `loans_current`'s own derived column
-                        (G5), following `ctx.clock` through the `olibra.now`
-                        GUC — never recomputed here, which would be a second
-                        definition of "overdue" in a second language. */}
-                    <StatusBadge status={loan.isOverdue ? "overdue" : "onloan"} />
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {/* U6 §3. The selected row used to differ from every
+                          other row by the colour of one hairline border and
+                          nothing else — same fill, same everything — which
+                          also broke BR §17.2's rule that a state is never
+                          colour alone. This is the word and the icon; the
+                          tint and the rail are on the `Card` below. */}
+                      {isSelected ? (
+                        <Pill
+                          icon={CheckCircle2}
+                          label="Đang chọn"
+                          tone="neutral"
+                        />
+                      ) : null}
+                      {/* `isOverdue` is `loans_current`'s own derived column
+                          (G5), following `ctx.clock` through the `olibra.now`
+                          GUC — never recomputed here, which would be a second
+                          definition of "overdue" in a second language. */}
+                      <StatusBadge status={loan.isOverdue ? "overdue" : "onloan"} />
+                    </div>
                   </div>
                   <p className="mt-3 text-[15px]">
                     Người mượn:{" "}
@@ -187,7 +203,20 @@ export default async function NhanTraPage({
             if (isSelected) {
               return (
                 <li key={loan.loanId}>
-                  <Card className="border-terracotta">{card}</Card>
+                  {/* A filled tonal layer, not a shadow and not a gradient
+                      (AGENTS.md rule 7) — the same eight-percent tint the
+                      refusal banner at the top of this page already uses, and
+                      a 3px rail down the left edge, the same marker
+                      `ManagerShell` draws beside its active nav entry. A
+                      volunteer scanning a list of six loans should not have to
+                      compare border colours to find the one they picked. */}
+                  <Card className="relative border-terracotta bg-terracotta/8">
+                    <span
+                      aria-hidden
+                      className="absolute top-4 bottom-4 left-0 w-[3px] rounded-full bg-terracotta"
+                    />
+                    {card}
+                  </Card>
                 </li>
               );
             }

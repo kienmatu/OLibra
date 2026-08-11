@@ -108,7 +108,7 @@ test("the check can see both halves of what it compares", () => {
   // The member side exists and is correctly *not* front door — it is where
   // keeper contact is specified to appear, and the book page renders it today.
   const bookPage = all.find(
-    (r) => r.path === "src/app/tu-sach/[shelf]/sach/[slug]/page.tsx",
+    (r) => r.path === "src/app/tu-sach/[shelf]/(doc-gia)/sach/[slug]/page.tsx",
   );
   expect(bookPage).toBeDefined();
   expect(isFrontDoor(bookPage!.path)).toBe(false);

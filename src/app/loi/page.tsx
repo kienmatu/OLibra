@@ -1,5 +1,6 @@
 import { ButtonLink } from "@/components/ui/button";
-import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
+import { FrontDoorHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { ERROR_STATES } from "@/lib/error-states";
 
 export const metadata = { title: "Các trang lỗi khác — OLibra" };
@@ -18,7 +19,7 @@ export default function ErrorStatesSheetPage() {
       {/* No viewer: this page renders nothing from a session (Task 6,
           2026-08-10 QA remediation) — it is a reference sheet of error
           states, not a page anybody is signed in to look at. */}
-      <FrontDoorHeader viewerName={null} isSuperAdmin={false} />
+      <FrontDoorHeader viewerName={null} isSuperAdmin={false} shelves={[]} />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         {/* This is a reference sheet of error states, so the caption below is
@@ -53,7 +54,7 @@ export default function ErrorStatesSheetPage() {
         </div>
       </main>
 
-      <FrontDoorFooter />
+      <SiteFooter contact={null} />
     </>
   );
 }

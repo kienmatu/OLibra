@@ -9,7 +9,7 @@ import { isMemberlessSuperAdmin } from "../../src/lib/reader-area";
 // `tests/lib/lending-actions.test.ts` already use for this app directory.
 // `load-profile.ts` imports nothing from `next/*`, so — unlike those two
 // files — no `vi.mock("next/headers", ...)` is needed to load it.
-import { loadReaderProfile } from "../../src/app/tu-sach/[shelf]/ho-so/load-profile";
+import { loadReaderProfile } from "../../src/app/tu-sach/[shelf]/(doc-gia)/ho-so/load-profile";
 import { closeAll, resetDatabase, sql } from "../support/db";
 import { makeMember, makeShelf, makeUser } from "../support/factories";
 
@@ -25,7 +25,7 @@ import { makeMember, makeShelf, makeUser } from "../support/factories";
  * "Hồ sơ") the app itself renders for exactly this viewer.
  *
  * This suite pins `src/lib/reader-area.ts`'s `isMemberlessSuperAdmin` and
- * `src/app/tu-sach/[shelf]/ho-so/load-profile.ts`'s `loadReaderProfile`,
+ * `src/app/tu-sach/[shelf]/(doc-gia)/ho-so/load-profile.ts`'s `loadReaderProfile`,
  * which is what `/ho-so/page.tsx` now calls instead of the coercion above.
  * The fix-report for this task records a mutation test: `loadReaderProfile`
  * edited back to the coercion, rerun against this suite, fails with exactly

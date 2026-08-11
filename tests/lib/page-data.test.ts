@@ -521,9 +521,13 @@ test("loadFrontDoorViewer names an ordinary signed-in reader, with no admin flag
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
   await signInAs(shelf.id, "reader", "bandoc");
 
+  // U6 §7: the shelf they belong to travels with the identity, because the
+  // header's "Tủ sách của tôi" link and `/tu-sach`'s per-row action are the
+  // same missing fact resolved once rather than twice.
   expect(await loadFrontDoorViewer()).toEqual({
     name: "Giuse Trần Minh",
     isSuperAdmin: false,
+    shelves: [{ slug: "dong-thap", name: "Tủ sách dong-thap" }],
   });
 });
 
@@ -534,9 +538,13 @@ test("loadFrontDoorViewer flags a super admin, who holds no membership anywhere"
   await signInAs(null, "reader", "quantri");
   await sql`update users set is_super_admin = true where username = 'quantri'`;
 
+  // `shelves` is empty for exactly the reason this test's name gives, and that
+  // is what makes the header show a super admin `Quản trị hệ thống` and no
+  // "Tủ sách của tôi" — there is no shelf of theirs to link to.
   expect(await loadFrontDoorViewer()).toEqual({
     name: "Giuse Trần Minh",
     isSuperAdmin: true,
+    shelves: [],
   });
 });
 

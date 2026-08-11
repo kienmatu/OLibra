@@ -14,7 +14,7 @@ import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
-import { offerDonationAction } from "../../community-actions";
+import { offerDonationAction } from "../../../community-actions";
 
 /**
  * Tặng sách — a reader offers books they no longer want.

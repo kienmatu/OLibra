@@ -71,7 +71,7 @@ export function filesUnder(dir: string): string[] {
  * line — confirmed by walking the five `.replace()` calls one at a time and
  * watching `metadata` disappear exactly at the single-quote step. A second,
  * independent instance shipped in the same diff:
- * `src/app/tu-sach/[shelf]/ho-so/tong-quan/page.tsx`'s own `export const
+ * `src/app/tu-sach/[shelf]/(doc-gia)/ho-so/tong-quan/page.tsx`'s own `export const
  * metadata` line was equally swallowed. Neither was caught by
  * `tests/architecture/every-page-has-a-title.test.ts` itself, which used a
  * local, differently-ordered `withoutComments` rather than this function —

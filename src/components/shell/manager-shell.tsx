@@ -240,11 +240,21 @@ function badgeFor(
  */
 function MobileBar({
   title,
+  titleHref,
   subtitle,
   items,
   signOut,
 }: {
   title: string;
+  /**
+   * Where the title goes (U6 §2). **Required, because the two shells mean two
+   * different things by it** and the literal `"/"` this used to hard-code was
+   * only ever right for one of them: on a manager screen the title is *the
+   * shelf's own name*, so it was a link reading one thing and doing another —
+   * the site's landing page. `AdminShell`'s title is the word OLibra, where
+   * `/` is what it says.
+   */
+  titleHref: string;
   subtitle: string;
   items: {
     href: string;
@@ -268,7 +278,7 @@ function MobileBar({
     <div className="sticky top-0 z-20 border-b border-hairline bg-paper md:hidden">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
-          <Link href="/" className="block truncate text-lg font-semibold">
+          <Link href={titleHref} className="block truncate text-lg font-semibold">
             {title}
           </Link>
           <p className="truncate text-[14px] text-meta">{subtitle}</p>
@@ -367,6 +377,7 @@ export function ManagerShell({
     <div className="flex min-h-dvh flex-col md:flex-row">
       <MobileBar
         title={shelfName}
+        titleHref={`/tu-sach/${shelfSlug}`}
         subtitle="Quản lý tủ sách"
         items={NAV.map((entry) => ({
           href: entry.key === "trang-chinh" ? base : `${base}/${entry.key}`,
@@ -381,7 +392,20 @@ export function ManagerShell({
           <Link href="/" className="block text-xl font-semibold">
             OLibra
           </Link>
-          <p className="mt-0.5 text-[14px] text-meta">{shelfName}</p>
+          {/* U6 §2. The shelf's name was a `<p>`, and seventeen manager
+              screens had no route to `/tu-sach/[shelf]` anywhere in them — a
+              volunteer who wanted to see what a reader sees typed the URL.
+              It is not a `NAV` entry: that array is the manager's own working
+              surfaces and its `ManagerNavKey` union is checked against every
+              page's `active` prop, so a destination outside the sidebar would
+              make each of them declare a key for a page that is not in it. */}
+          <Link
+            href={`/tu-sach/${shelfSlug}`}
+            className="mt-0.5 flex min-h-11 items-center gap-1.5 text-[14px] text-meta hover:text-ink"
+          >
+            <Library aria-hidden className="size-4 shrink-0" strokeWidth={1.75} />
+            <span className="truncate">{shelfName}</span>
+          </Link>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2">
@@ -547,6 +571,7 @@ export function AdminShell({
     <div className="flex min-h-dvh flex-col md:flex-row">
       <MobileBar
         title="OLibra"
+        titleHref="/"
         subtitle="Quản trị hệ thống"
         items={ADMIN_NAV.map(({ key, label, icon }) => ({
           href: key === "tong-quan" ? "/quan-tri" : `/quan-tri/${key}`,

@@ -3,9 +3,18 @@ import { notFound, redirect } from "next/navigation";
 // Relative specifiers, not the `@/` alias: `tests/lib/page-data.test.ts`
 // imports this module, and Vitest resolves no alias (see any file under
 // `src/auth/`, which the suite has always imported the same way).
-import { adminContextFor, contextFor, frontDoorViewerFor } from "../auth/guards";
+import {
+  adminContextFor,
+  contextFor,
+  frontDoorViewerFor,
+  type MembershipShelf,
+} from "../auth/guards";
 import { resolveSession } from "../auth/session";
 import { pool } from "../db/client";
+import {
+  getSiteContact,
+  type SiteContact,
+} from "../domain/admin/queries/get-admin-overview";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
 import type { Role, TenantContext } from "../domain/kernel/tenant";
@@ -417,6 +426,13 @@ export async function loadPublicPage<T>(read: (tx: Tx) => Promise<T>): Promise<T
 export async function loadFrontDoorViewer(): Promise<{
   name: string;
   isSuperAdmin: boolean;
+  /**
+   * Every shelf this person is an active member of (U6 §7) — what
+   * `FrontDoorHeader`'s "Tủ sách của tôi" link and `/tu-sach`'s per-row action
+   * are both built from. Empty for a super admin, who belongs to none by
+   * design, and for a reader whose registration has not been approved yet.
+   */
+  shelves: MembershipShelf[];
 } | null> {
   // See `loadPage`'s docstring for why every seam calls this first.
   await ensureCryptoWired();
@@ -450,6 +466,55 @@ export async function loadFrontDoorViewer(): Promise<{
   if (token === null) return null;
 
   return frontDoorViewerFor(pool(), { token, clock: systemClock });
+}
+
+/**
+ * The contact block in the footer — the super admin's name, telephone number
+ * and hours, on every page a reader or a visitor can reach (U6 §6).
+ *
+ * **Why a seam of its own rather than `loadPublicPage` at each call site.**
+ * `src/app/tu-sach/[shelf]/(doc-gia)/layout.tsx` covers every reader page of
+ * every shelf; the four front-door pages that render a footer
+ * (`/`, `/tu-sach`, `/lien-he`, `/dang-ky`) each call it for themselves,
+ * having no shared layout to put it in, and `/dang-nhap` makes a fifth.
+ * `/lien-he` is the one page that does not call this at all — it already reads
+ * `getSiteContact` for its own body and passes that same value down.
+ *
+ * Six copies of one `loadPublicPage((tx) => getSiteContact(tx))` is six places
+ * to keep the guard below in step, and the guard is the entire reason this is
+ * not inline.
+ *
+ * **The management screens do not call it**, and that is not an oversight:
+ * `/quan-ly/*` sits outside the reader route group and `/quan-tri` has no
+ * footer layout, so neither renders one. See that group's layout for why.
+ *
+ * **No `DATABASE_URL`, no query, and this is `loadFrontDoorViewer`'s guard
+ * above repeated for the same incident.** `pool()` calls `connect()`, which
+ * throws `DATABASE_URL is not set`, and the Dockerfile's `smoke` stage boots
+ * `bun server.js` with **no environment at all** and fetches `/` to prove the
+ * image serves a page. Adding a contact read to that page without this line
+ * would break that build exactly as `/`'s viewer read once did — the incident
+ * that function's comment describes at length, misread twice as pre-existing
+ * before CI caught it against the right baseline.
+ *
+ * Guarding here rather than teaching `smoke` a dummy connection string is the
+ * same honest fix it was the first time: a deployment with no database
+ * configured has no contact details to show, and the footer is designed to
+ * render without them (`SiteFooter`'s `contact: FooterContact | null`). Every
+ * other failure keeps throwing — a database that is configured and unreachable
+ * is a fault, not an empty footer.
+ *
+ * `loadPublicPage`, so this runs as `olibra_public`, which holds a
+ * **column-level** grant on exactly these three fields of `system_settings`
+ * and nothing else. A version of this that reached for the lending defaults
+ * would be refused by the database with `42501`, which is what makes putting
+ * it on every page in the application safe — see `getSiteContact`'s own
+ * docstring, and `tests/db/public-role-privileges.test.ts`, which sweeps every
+ * column of that table.
+ */
+export async function siteContact(): Promise<SiteContact | null> {
+  if (!process.env.DATABASE_URL) return null;
+  return loadPublicPage((tx) => getSiteContact(tx));
 }
 
 /**

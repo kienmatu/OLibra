@@ -10,7 +10,7 @@ import {
  * B5 shipped `src/storage/s3.ts` with no caller anywhere outside its own tests,
  * and said so: `createObjectStore`/`s3ConfigFromEnv` were reachable and unused.
  * This module is the first caller, and the avatar's server action
- * (`src/app/tu-sach/[shelf]/ho-so/profile-actions.ts`) is what reaches it — which
+ * (`src/app/tu-sach/[shelf]/(doc-gia)/ho-so/profile-actions.ts`) is what reaches it — which
  * has a consequence beyond tidiness. B5's Docker smoke stage builds the
  * standalone server and boots it under Bun; Next traces `.next/standalone` from
  * what `src/app/` actually imports, so until something under `src/app/` reached

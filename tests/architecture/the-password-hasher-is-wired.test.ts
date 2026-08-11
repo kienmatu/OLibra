@@ -119,8 +119,21 @@ function bodyOf(fn: string, allExports: string[]): string {
   return PAGE_DATA_SRC.slice(start, end);
 }
 
-/** See the docstring above for why these two are named rather than checked. */
-const DOES_NOT_WIRE = new Set(["loadAdminPage", "loadFile"]);
+/** See the docstring above for why these three are named rather than checked. */
+const DOES_NOT_WIRE = new Set([
+  "loadAdminPage",
+  "loadFile",
+  // U6 §6. Three public columns of `system_settings` for the footer, read
+  // through `loadPublicPage` — which wires for its own callers — with no
+  // credential anywhere on the path and no page behind it that sets one. The
+  // same "inert today, on purpose" the two above are, and named here for the
+  // same reason: writing a call this function has no use for would make the
+  // guard read as satisfied rather than as considered. It also has a guard of
+  // its own that a wiring call would defeat nothing about — `if
+  // (!process.env.DATABASE_URL) return null`, which is what keeps the
+  // Dockerfile's environment-free `smoke` stage serving `/`.
+  "siteContact",
+]);
 
 const raisedBy = async (call: () => unknown): Promise<unknown> => {
   try {

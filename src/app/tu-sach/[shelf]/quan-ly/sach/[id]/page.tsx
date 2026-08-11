@@ -5,6 +5,7 @@ import type { ManagerCopyRow } from "@/domain/catalogue/queries/get-book-detail-
 import {
   Archive,
   BookDown,
+  BookOpen,
   BookUp,
   CircleCheckBig,
   ClipboardList,
@@ -235,6 +236,41 @@ export default async function ManagerBookDetailPage({
                 "undefined · undefined" instead would be worse than a shorter
                 one. */}
             <p className="mt-1 text-[14px] text-meta">{book.book.category}</p>
+
+            {/**
+             * The way back to what a reader sees (U6 §8).
+             *
+             * `sach/[slug]/page.tsx` has linked *into* this page since it was
+             * written — "Quản lý sách này — sửa thông tin, thêm bản, xem lịch
+             * sử" — and nothing here linked back, so a volunteer who wanted to
+             * check how a title reads to a child typed the URL. The same
+             * one-way street `ManagerShell` had to the shelf itself, one page
+             * further in.
+             *
+             * **Gated on `isPublished`, and that is not a nicety.**
+             * `getBookDetail` ends its statement with `and b.is_published`, so
+             * the reader page 404s for an unpublished title — the honest
+             * behaviour there (a draft has no reader page) and a dead link
+             * here. This page's own heading comment already records that the
+             * two queries differ; `BooksListRow` carries `isPublished` for
+             * exactly this kind of question, and an absent link is the same
+             * answer the "Cho mượn" button above gives when there is nothing
+             * lendable.
+             *
+             * A quiet text link rather than a fourth button: the action row
+             * beside it is what a volunteer standing at the shelf came to do,
+             * and this is a look, not a task. It mirrors the shape of the link
+             * on the reader page that points here.
+             */}
+            {book.book.isPublished ? (
+              <Link
+                href={`/tu-sach/${slug}/sach/${book.book.slug}`}
+                className="mt-2 inline-flex min-h-11 items-center gap-1.5 text-[15px] font-medium text-sage hover:underline"
+              >
+                <BookOpen aria-hidden className="size-4" strokeWidth={1.75} />
+                Xem trang bạn đọc
+              </Link>
+            ) : null}
           </div>
         </div>
 
