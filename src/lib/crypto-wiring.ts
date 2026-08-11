@@ -34,10 +34,20 @@ import { hashPassword, verifyPassword } from "../auth/password";
  * module-level `hasher`/`verifier`. Wiring the instrumentation instance never
  * reaches the server-action instance. `ensureCryptoWired()` therefore has to
  * run inside *every* layer that might need the port — which is what calling
- * it from `loadPage`, `loadPublicPage`, `submitCommand` and
- * `submitAdminCommand` (`src/lib/page-data.ts`) achieves: whichever layer's
- * copy of this module a given request runs in, that copy wires itself on its
- * own first call.
+ * it from most of `src/lib/page-data.ts`'s exported entry points achieves:
+ * whichever layer's copy of this module a given request runs in, that copy
+ * wires itself on its own first call.
+ *
+ * **Deliberately not enumerated by name here.** An earlier version of this
+ * sentence named four call sites; `page-data.ts` grew to eight exports and
+ * two more (`loadFrontDoorViewer`, `submitPublicCommand`) started calling
+ * this without the list here ever being updated — a docstring silently
+ * describing a narrower reality than the code, found in the QA remediation
+ * branch's final review. `tests/architecture/the-password-hasher-is-wired
+ * .test.ts` is the source of truth for which entry points wire and which two
+ * (`loadAdminPage`, `loadFile`) deliberately do not, because it derives the
+ * list from `page-data.ts` itself rather than a maintained enumeration —
+ * read it there instead of trusting a count that can only go stale here.
  */
 let wired = false;
 
