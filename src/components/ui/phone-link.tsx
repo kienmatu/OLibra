@@ -55,7 +55,14 @@ export function PhoneLink({
 
   return (
     <a
-      href={`tel:${phone.replace(/\s/g, "")}`}
+      // QA remediation T27: a dot- or dash-formatted number (accepted since
+      // Task 18 widened `isValidPhone` to strip `[\s.-]` before counting
+      // digits — see that function's own docstring) used to reach `tel:`
+      // with the separators still in it, e.g. `tel:091.234.5678`. Most phone
+      // apps dial that anyway, but it is not the normalised form
+      // `isValidPhone` already treats as authoritative, and this mirrors its
+      // exact separator set rather than inventing a second one.
+      href={`tel:${phone.replace(/[\s.-]/g, "")}`}
       className={cn(
         "-mx-1 inline-flex min-h-11 items-center gap-2 rounded-control px-1 font-semibold text-sage hover:underline",
         sizeClass,

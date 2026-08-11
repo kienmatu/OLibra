@@ -36,3 +36,17 @@ test("a +84-prefixed number still renders a tel: link", () => {
   const html = render({ phone: "+84912345678" });
   expect(html).toContain('href="tel:+84912345678"');
 });
+
+test("QA remediation T27: dots and dashes are stripped from the tel: link too, not just spaces", () => {
+  // `isValidPhone` (`src/domain/members/policy.ts`) has stripped `[\s.-]`
+  // before counting digits since Task 18 widened it — so this string was
+  // already accepted as valid, and only the `href` this component builds
+  // still had the separators in it: `tel:091-234.5678`, which most phone
+  // apps tolerate but is not the normalised form `isValidPhone` itself
+  // treats as authoritative.
+  const html = render({ phone: "091-234.5678" });
+  expect(html).toContain('href="tel:0912345678"');
+  // The displayed text is untouched — a manager should see the number
+  // exactly as it is on file, formatting and all.
+  expect(html).toContain("091-234.5678");
+});
