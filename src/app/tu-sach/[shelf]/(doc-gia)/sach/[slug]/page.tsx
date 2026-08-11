@@ -454,39 +454,11 @@ export default async function BookDetailPage({
                   </>
                 )}
               </Button>
-              {/* ### NEW COPY (IMPORTANT 7) — the only Vietnamese this fix
-                  wave writes. Everything else on these pages is BR's wording,
-                  `errors.ts`'s wording, or `status.ts`'s wording.
-
-                  "Nút này chưa dùng được. Em nhắn cho quản lý tủ sách ở trên để
-                  mượn sách."
-
-                  Two short sentences, present tense, no jargon, for a reader
-                  BR:601 describes as possibly "reading fluently for only a few
-                  years". The first says what happened when they pressed it —
-                  nothing, and that is the button's fault and not theirs. The
-                  second points at the thing on this page that does work, by
-                  position ("ở trên") rather than by repeating the keeper's name
-                  and number, which BR:511's line inside the panel already
-                  carries four centimetres up. "Em" is how BR §17 addresses a
-                  child throughout.
-
-                  It replaces the fixture's "Quản lý sẽ xác nhận khi bạn đến
-                  nhận sách.", which described the C2 flow this button cannot
-                  start — a promise, where this is a statement of fact.
-
-                  `aria-describedby` on the button above, so a screen-reader
-                  user who reaches the control hears it as its description; it
-                  is in the reading order regardless, which is what covers the
-                  case the `disabled` attribute creates by taking the button out
-                  of the tab order entirely. C2 deletes this element and the
-                  `disabled` attribute in one edit. */}
               <p
                 id={BORROW_NOTE_ID}
                 className="mt-2 max-w-80 text-[14px] text-meta"
               >
-                Nút này chưa dùng được. Em nhắn cho quản lý tủ sách ở trên để mượn
-                sách.
+                Sách hiện không khả dụng.
               </p>
             </div>
 
