@@ -256,6 +256,30 @@ test("feedback stores a hash of the number and the fourth in a day is refused", 
   expect(await sql`select id from feedback`).toHaveLength(4);
 });
 
+test("submitFeedback refuses a phone number that is not a phone number", async () => {
+  // Found by the QA remediation branch's final fix wave: Task 18 put
+  // assertPhone on every registration/profile/admin write but missed this
+  // command, so "khong-phai-so" — the QA report's own literal test string for
+  // the finding — was accepted and stored. `/lien-he` (Task 17, this branch)
+  // is the only way a parish with no shelf reaches the administrator, which
+  // made this the more consequential of the two holes the report named.
+  const { shelf, ctx } = await managerContext(sql);
+  const guest: TenantContext = {
+    ...ctx,
+    actor: { userId: null, membershipId: null, role: "guest" },
+  };
+
+  await expect(
+    runCommand(sql, guest, submitFeedback, {
+      bookshelfId: shelf.id,
+      senderName: "Chị Hạnh",
+      phone: "khong-phai-so",
+      body: "Nội dung",
+    }),
+  ).rejects.toMatchObject({ code: "phone_invalid", field: "phone" });
+  expect(await sql`select id from feedback`).toHaveLength(0);
+});
+
 test("a different number is a different budget", async () => {
   // Pins that the limit is keyed on the hash and not simply on the shelf.
   const { shelf, ctx } = await managerContext(sql);

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { TenantContext } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
-import { requireSuperAdmin } from "../../members/policy";
+import { assertPhone, requireSuperAdmin } from "../../members/policy";
 
 /**
  * Góp ý — a message to the administrator, shelf-scoped or site-wide.
@@ -111,6 +111,15 @@ export const submitFeedback: Command<
   if (!senderName || !phone || !body) {
     throw new ValidationFailed("feedback_fields_required", "body");
   }
+  // Found by the QA remediation branch's final fix wave: Task 18 put
+  // `assertPhone` on every registration/profile/admin write, but missed this
+  // command — the QA report's own literal test string for the finding,
+  // "khong-phai-so", was still accepted and stored here, on the form that is
+  // the *only* way a parish with no shelf reaches the administrator
+  // (`/lien-he`). Blank is already refused above; `assertPhone` (see its own
+  // docstring: "every caller is responsible for its own blank check first")
+  // only needs to judge the shape now.
+  assertPhone(phone, "phone");
 
   const hash = phoneHash(phone);
 

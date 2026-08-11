@@ -7,6 +7,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
 import { getSiteContact } from "@/domain/admin/queries/get-admin-overview";
 import { messageFor } from "@/domain/kernel/errors";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { loadFrontDoorViewer, loadPublicPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { submitSiteFeedbackAction } from "./actions";
@@ -126,7 +127,13 @@ export default async function ContactPage({
               </Field>
 
               <Field label="Số điện thoại" required htmlFor="dien-thoai">
-                <Input id="dien-thoai" name="dien-thoai" type="tel" required />
+                <Input
+                  id="dien-thoai"
+                  name="dien-thoai"
+                  type="tel"
+                  pattern={PHONE_PATTERN}
+                  required
+                />
               </Field>
 
               <Field label="Chủ đề" htmlFor="chu-de">
