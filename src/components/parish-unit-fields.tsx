@@ -2,13 +2,20 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Field, Select } from "@/components/ui/field";
+// Relative, not the `@/` alias: this component is exercised by
+// `tests/components/parish-unit-fields.test.tsx` (QA remediation's final fix
+// wave), and `vitest.config.ts` has no `resolve.alias` for `@/` (deliberately,
+// per the branch's QA-remediation constraints — `reader-tabs.tsx`,
+// `filter-chips.tsx` and `public-header.tsx` carry the identical note for the
+// identical reason). An alias import here would make this component
+// unimportable under Vitest, not just untested.
+import { Field, Select } from "./ui/field";
 import {
   hasVisibleLevel2,
   unitOptions,
   type ParishTaxonomy,
   type ParishUnit,
-} from "@/domain/members/parish-taxonomy";
+} from "../domain/members/parish-taxonomy";
 
 /**
  * Zero, one or two `<select>`s for a shelf's parish taxonomy (design §6, §6.1).
@@ -72,6 +79,7 @@ export function ParishUnitFields({
   defaultL1 = "",
   defaultL2 = "",
   manageHref,
+  canManageUnits = false,
 }: {
   /** Distinguishes ids/names when this renders more than once on a page. */
   idPrefix: string;
@@ -93,6 +101,23 @@ export function ParishUnitFields({
    * to a page that refuses them, which is worse than no link.
    */
   manageHref?: string;
+  /**
+   * Whether the caller filling this form can actually *act* on `manageHref`
+   * once there — `co-cau`'s own `canEdit = viewer.role === "super_admin"`
+   * (`quan-ly/co-cau/page.tsx`). Found by the QA remediation branch's final
+   * review: an ordinary manager (not a super admin, which is most managers)
+   * hits this empty state, reads "Quản lý thêm ở mục Cơ cấu giáo xứ", follows
+   * it, and lands on a page where all twelve write controls are suppressed —
+   * "exactly the moment the manager needs the thing it cannot give them."
+   * The read-only page is correct and stays; this is what stops the sentence
+   * from promising a capability most of its readers do not have. `true` only
+   * when the caller already knows the viewer is `super_admin`
+   * (`nguoi-doc/moi/page.tsx` does); every other caller defaults to `false`,
+   * which is the safe assumption — understating what a viewer can do reads
+   * as a dead end, overstating it reads as a broken button, and this
+   * codebase has spent this whole branch closing exactly the second kind.
+   */
+  canManageUnits?: boolean;
 }) {
   const [l1, setL1] = useState(defaultL1);
   const [l2, setL2] = useState(defaultL2);
@@ -111,10 +136,20 @@ export function ParishUnitFields({
     return (
       <p className="text-[14px] text-meta">
         Tủ sách chưa khai báo giáo họ nào.
-        {manageHref ? (
+        {manageHref && canManageUnits ? (
           <>
             {" "}
             Quản lý thêm ở mục{" "}
+            <Link href={manageHref} className="underline">
+              Cơ cấu giáo xứ
+            </Link>
+            .
+          </>
+        ) : null}
+        {manageHref && !canManageUnits ? (
+          <>
+            {" "}
+            Chỉ quản trị viên hệ thống mới thêm được, ở mục{" "}
             <Link href={manageHref} className="underline">
               Cơ cấu giáo xứ
             </Link>

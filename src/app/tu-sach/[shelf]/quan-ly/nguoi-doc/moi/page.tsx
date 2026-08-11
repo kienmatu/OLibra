@@ -277,6 +277,12 @@ export default async function RegisterReaderOnBehalfPage({
             taxonomy={parish.taxonomy}
             units={parish.units}
             manageHref={`${base}/co-cau`}
+            // QA remediation final fix wave: this screen's empty state used
+            // to say "Quản lý thêm ở mục Cơ cấu giáo xứ" to every manager,
+            // but only a super_admin can actually write there
+            // (`co-cau/page.tsx`'s own `canEdit`). See `ParishUnitFields`'s
+            // own docstring on `canManageUnits` for the full reasoning.
+            canManageUnits={viewer.role === "super_admin"}
           />
         </div>
 
