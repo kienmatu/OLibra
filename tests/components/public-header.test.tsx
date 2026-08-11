@@ -158,6 +158,15 @@ test.each([["Nguyễn Văn A"], [null]] as const)(
         viewerName={viewerName}
       />,
     );
-    expect(hrefsFor(html, "OLibra")).toEqual(["/"]);
+
+    // **The home link is an icon, so the assertion is on its accessible name.**
+    // The mark replaced the word "OLibra" in this header (the product's name
+    // competing with the parish's is noise on the one line that has to say
+    // which shelf you are looking at), and an icon-only link that announces
+    // nothing is the failure mode that swap invites. `hrefsFor` reads text
+    // content, which is exactly what the `sr-only` span puts there — an
+    // `aria-label` would leave this assertion matching the empty string and
+    // passing against a link with no name at all.
+    expect(hrefsFor(html, "OLibra — trang chủ")).toEqual(["/"]);
   },
 );
