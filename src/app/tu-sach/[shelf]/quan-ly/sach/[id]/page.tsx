@@ -506,69 +506,85 @@ export default async function ManagerBookDetailPage({
       <section className="mt-10">
         <h2 className="text-xl font-semibold">Lịch sử mượn</h2>
 
-        <div className="mt-4 hidden overflow-hidden rounded-card border border-hairline md:block">
-          <table className="w-full text-left">
-            <thead className="bg-paper">
-              <tr>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">Bản</th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Người mượn
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Mượn ngày
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Trả ngày
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Tình trạng khi trả
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
-              {book.loanHistory.map((loan) => (
-                <tr key={loan.loanId}>
-                  <td className="px-4 py-3 text-[15px] font-medium">
-                    {loan.copyCode}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {loan.borrowerName}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {formatInstant(loan.lentAt)}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    <LoanOutcome loan={loan} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-4 space-y-3 md:hidden">
-          {book.loanHistory.map((loan) => (
-            <div
-              key={loan.loanId}
-              className="rounded-card border border-hairline bg-surface p-4"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[15px] font-medium">{loan.copyCode}</span>
-                <span className="text-[14px] text-meta">
-                  <LoanOutcome loan={loan} />
-                </span>
-              </div>
-              <p className="mt-1 text-[15px]">{loan.borrowerName}</p>
-              <p className="mt-0.5 text-[14px] text-meta">
-                {formatInstant(loan.lentAt)} –{" "}
-                {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
-              </p>
+        {/* QA T27: an empty `book.loanHistory` used to still render this whole
+            table shell — header row, empty `<tbody>`, nothing telling a
+            manager whether that meant "never borrowed" or a page that failed
+            to load. `/quan-ly/nguoi-doc` and `/quan-ly/sach` already guard
+            their own tables behind a `rows.length === 0` check and a
+            "Chưa có…" line instead of an empty grid; this section had none. */}
+        {book.loanHistory.length === 0 ? (
+          <p className="mt-4 text-[15px] text-meta">Chưa có lượt mượn nào.</p>
+        ) : (
+          <>
+            <div className="mt-4 hidden overflow-hidden rounded-card border border-hairline md:block">
+              <table className="w-full text-left">
+                <thead className="bg-paper">
+                  <tr>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Bản
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Người mượn
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Mượn ngày
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Trả ngày
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Tình trạng khi trả
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {book.loanHistory.map((loan) => (
+                    <tr key={loan.loanId}>
+                      <td className="px-4 py-3 text-[15px] font-medium">
+                        {loan.copyCode}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        {loan.borrowerName}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        {formatInstant(loan.lentAt)}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        <LoanOutcome loan={loan} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
+
+            <div className="mt-4 space-y-3 md:hidden">
+              {book.loanHistory.map((loan) => (
+                <div
+                  key={loan.loanId}
+                  className="rounded-card border border-hairline bg-surface p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[15px] font-medium">
+                      {loan.copyCode}
+                    </span>
+                    <span className="text-[14px] text-meta">
+                      <LoanOutcome loan={loan} />
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[15px]">{loan.borrowerName}</p>
+                  <p className="mt-0.5 text-[14px] text-meta">
+                    {formatInstant(loan.lentAt)} –{" "}
+                    {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <p className="mt-3 text-[14px] text-meta">
           Lịch sử mượn không bao giờ bị xoá, kể cả khi bản sách đã ngừng dùng.

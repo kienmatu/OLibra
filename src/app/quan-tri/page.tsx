@@ -183,85 +183,98 @@ export default async function AdminOverviewPage() {
           </Link>
           .
         </p>
-      ) : null}
+      ) : (
+        <>
+          {/* Table on md and up — hairline rules, never a horizontal scroll.
+              QA T27: only reached with `shelves.length > 0` now — it used to
+              render unconditionally, so a fresh install with zero shelves
+              showed this header row sitting under the "Chưa có tủ sách nào."
+              paragraph above with an empty `<tbody>` beneath it, the same bug
+              this page's own two sibling listings (`/quan-ly/nguoi-doc`,
+              `/quan-ly/sach`) never had, because both already guard their
+              table behind a `rows.length === 0` check. */}
+          <div className="mt-8 hidden overflow-hidden rounded-card border border-hairline md:block">
+            <table className="w-full text-left">
+              <thead className="bg-paper">
+                <tr>
+                  {COLUMNS.map((h) => (
+                    <th
+                      key={h}
+                      className="px-4 py-3 text-[14px] font-medium text-meta"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {shelves.map((shelf) => (
+                  <tr key={shelf.bookshelfId}>
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                        className="text-[16px] font-medium hover:underline"
+                      >
+                        {shelf.name}
+                      </Link>
+                      {shelf.status !== "active" ? (
+                        <span className="ml-2 align-middle">
+                          <Pill icon={Archive} label="Đã lưu trữ" tone="retired" />
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3 text-[15px]">
+                      {NUMBER.format(shelf.books)}
+                    </td>
+                    <td className="px-4 py-3 text-[15px]">
+                      {NUMBER.format(shelf.readers)}
+                    </td>
+                    <td className="px-4 py-3 text-[15px]">
+                      {NUMBER.format(shelf.activeLoans)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <OverdueCell count={shelf.overdue} />
+                    </td>
+                    <td className="px-4 py-3 text-[15px]">
+                      {shelf.pending === 0 ? "—" : NUMBER.format(shelf.pending)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      {/* Table on md and up — hairline rules, never a horizontal scroll. */}
-      <div className="mt-8 hidden overflow-hidden rounded-card border border-hairline md:block">
-        <table className="w-full text-left">
-          <thead className="bg-paper">
-            <tr>
-              {COLUMNS.map((h) => (
-                <th key={h} className="px-4 py-3 text-[14px] font-medium text-meta">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-hairline">
+          {/* Stacked cards below md — the same data, never a scrolling table. */}
+          <div className="mt-8 space-y-3 md:hidden">
             {shelves.map((shelf) => (
-              <tr key={shelf.bookshelfId}>
-                <td className="px-4 py-3">
-                  <Link
-                    href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
-                    className="text-[16px] font-medium hover:underline"
-                  >
-                    {shelf.name}
-                  </Link>
-                  {shelf.status !== "active" ? (
-                    <span className="ml-2 align-middle">
-                      <Pill icon={Archive} label="Đã lưu trữ" tone="retired" />
+              <div
+                key={shelf.bookshelfId}
+                className="rounded-card border border-hairline p-4"
+              >
+                <Link
+                  href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                  className="text-[17px] font-semibold hover:underline"
+                >
+                  {shelf.name}
+                </Link>
+                <p className="mt-1 text-[14px] text-meta">
+                  {NUMBER.format(shelf.books)} đầu sách ·{" "}
+                  {NUMBER.format(shelf.readers)} bạn đọc ·{" "}
+                  {NUMBER.format(shelf.activeLoans)} đang mượn
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <OverdueCell count={shelf.overdue} />
+                  {shelf.pending > 0 ? (
+                    <span className="text-[14px] text-meta">
+                      {NUMBER.format(shelf.pending)} việc chờ xử lý
                     </span>
                   ) : null}
-                </td>
-                <td className="px-4 py-3 text-[15px]">
-                  {NUMBER.format(shelf.books)}
-                </td>
-                <td className="px-4 py-3 text-[15px]">
-                  {NUMBER.format(shelf.readers)}
-                </td>
-                <td className="px-4 py-3 text-[15px]">
-                  {NUMBER.format(shelf.activeLoans)}
-                </td>
-                <td className="px-4 py-3">
-                  <OverdueCell count={shelf.overdue} />
-                </td>
-                <td className="px-4 py-3 text-[15px]">
-                  {shelf.pending === 0 ? "—" : NUMBER.format(shelf.pending)}
-                </td>
-              </tr>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Stacked cards below md — the same data, never a scrolling table. */}
-      <div className="mt-8 space-y-3 md:hidden">
-        {shelves.map((shelf) => (
-          <div
-            key={shelf.bookshelfId}
-            className="rounded-card border border-hairline p-4"
-          >
-            <Link
-              href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
-              className="text-[17px] font-semibold hover:underline"
-            >
-              {shelf.name}
-            </Link>
-            <p className="mt-1 text-[14px] text-meta">
-              {NUMBER.format(shelf.books)} đầu sách · {NUMBER.format(shelf.readers)}{" "}
-              bạn đọc · {NUMBER.format(shelf.activeLoans)} đang mượn
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <OverdueCell count={shelf.overdue} />
-              {shelf.pending > 0 ? (
-                <span className="text-[14px] text-meta">
-                  {NUMBER.format(shelf.pending)} việc chờ xử lý
-                </span>
-              ) : null}
-            </div>
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       {attention.length > 0 ? (
         <section className="mt-10 rounded-card bg-paper p-6">
