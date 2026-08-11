@@ -1,5 +1,6 @@
 import { ButtonLink } from "@/components/ui/button";
-import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
+import { FrontDoorHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { ERROR_STATES } from "@/lib/error-states";
 
 export const metadata = { title: "Các trang lỗi khác — OLibra" };
@@ -53,7 +54,7 @@ export default function ErrorStatesSheetPage() {
         </div>
       </main>
 
-      <FrontDoorFooter />
+      <SiteFooter contact={null} />
     </>
   );
 }

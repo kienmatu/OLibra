@@ -4,7 +4,8 @@ import { PageHeading } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
+import { FrontDoorHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { getSiteContact } from "@/domain/admin/queries/get-admin-overview";
 import { messageFor } from "@/domain/kernel/errors";
 import { PHONE_PATTERN } from "@/domain/members/policy";
@@ -164,7 +165,7 @@ export default async function ContactPage({
         </p>
       </main>
 
-      <FrontDoorFooter />
+      <SiteFooter contact={contact} />
     </>
   );
 }

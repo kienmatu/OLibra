@@ -425,21 +425,11 @@ export function FrontDoorHeader({
   );
 }
 
-export function FrontDoorFooter() {
-  return (
-    <footer className="mt-24 border-t border-hairline bg-paper">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-8">
-        <span className="text-lg font-semibold">OLibra</span>
-        <nav className="flex flex-wrap gap-4 text-[14px] text-meta">
-          <Link href="/tu-sach" className="hover:text-ink">
-            Tìm tủ sách
-          </Link>
-          <Link href="/lien-he" className="hover:text-ink">
-            Liên hệ
-          </Link>
-        </nav>
-        <span className="text-[14px] text-meta">© 2026 OLibra</span>
-      </div>
-    </footer>
-  );
-}
+/* `FrontDoorFooter` was here, and it is `SiteFooter`
+   (`src/components/shell/site-footer.tsx`) now — U6 §6. It rendered on four
+   pages and carried a wordmark, two links and a copyright; its replacement
+   renders on every page in the application and carries the contact details a
+   super admin actually fills in. It moved to a file of its own because it
+   takes a prop this one must not know how to resolve: a footer that read the
+   database would put `lib/page-data` in the import closure of every page that
+   renders it, `/loi` included. */

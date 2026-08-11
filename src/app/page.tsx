@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, BookUp, History, Users } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
-import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
-import { loadFrontDoorViewer } from "@/lib/page-data";
+import { FrontDoorHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
+import { loadFrontDoorViewer, siteContact } from "@/lib/page-data";
 
 /**
  * U1 §2. Newly dynamic (Task 6, 2026-08-10 QA remediation) — this page read
@@ -50,6 +51,7 @@ const WHAT_IT_DOES = [
 
 export default async function LandingPage() {
   const viewer = await loadFrontDoorViewer();
+  const contact = await siteContact();
 
   return (
     <>
@@ -133,7 +135,7 @@ export default async function LandingPage() {
         </section>
       </main>
 
-      <FrontDoorFooter />
+      <SiteFooter contact={contact} />
     </>
   );
 }

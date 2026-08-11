@@ -2,9 +2,10 @@ import Link from "next/link";
 import { ChevronRight, Library, MapPin, Search } from "lucide-react";
 import { Input } from "@/components/ui/field";
 import { Pill } from "@/components/ui/pill";
-import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
+import { FrontDoorHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { listPublicShelves } from "@/domain/portal/queries/list-public-shelves";
-import { loadFrontDoorViewer, loadPublicPage } from "@/lib/page-data";
+import { loadFrontDoorViewer, loadPublicPage, siteContact } from "@/lib/page-data";
 import { SHELF_PARAM } from "@/lib/return-path";
 import { param, type SearchParams } from "@/lib/search-params";
 
@@ -78,6 +79,7 @@ export default async function PortalPage({
   // in the header and offering them "Đăng nhập" for the shelf they were
   // already a member of, three centimetres below. Same read, no second query.
   const viewer = await loadFrontDoorViewer();
+  const contact = await siteContact();
   const mine = new Set(viewer?.shelves.map((s) => s.slug) ?? []);
 
   return (
@@ -237,7 +239,7 @@ export default async function PortalPage({
         )}
       </main>
 
-      <FrontDoorFooter />
+      <SiteFooter contact={contact} />
     </>
   );
 }

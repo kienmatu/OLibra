@@ -3,11 +3,12 @@ import { CheckCircle2, Info } from "lucide-react";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { messageFor } from "@/domain/kernel/errors";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { findPublicShelf } from "@/domain/portal/queries/find-public-shelf";
-import { loadPage, loadPublicPage } from "@/lib/page-data";
+import { loadPage, loadPublicPage, siteContact } from "@/lib/page-data";
 import { loadParishContext } from "@/domain/members/parish-context";
 import { SHELF_PARAM } from "@/lib/return-path";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -68,6 +69,10 @@ export default async function RegisterPage({
   const shelf = slug
     ? await loadPublicPage((tx) => findPublicShelf(tx, { slug }))
     : null;
+  // U6 §6. Read before the branch below, because both returns render the
+  // footer and a visitor who landed here with no shelf named is exactly the
+  // person most likely to want the contact block in it.
+  const contact = await siteContact();
 
   if (!shelf) {
     return (
@@ -87,6 +92,8 @@ export default async function RegisterPage({
             Xem danh sách tủ sách
           </Link>
         </main>
+
+        <SiteFooter contact={contact} />
       </>
     );
   }
@@ -357,6 +364,8 @@ export default async function RegisterPage({
           </p>
         </form>
       </main>
+
+      <SiteFooter contact={contact} />
     </>
   );
 }

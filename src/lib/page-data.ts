@@ -11,6 +11,10 @@ import {
 } from "../auth/guards";
 import { resolveSession } from "../auth/session";
 import { pool } from "../db/client";
+import {
+  getSiteContact,
+  type SiteContact,
+} from "../domain/admin/queries/get-admin-overview";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
 import type { Role, TenantContext } from "../domain/kernel/tenant";
@@ -462,6 +466,46 @@ export async function loadFrontDoorViewer(): Promise<{
   if (token === null) return null;
 
   return frontDoorViewerFor(pool(), { token, clock: systemClock });
+}
+
+/**
+ * The contact block in the footer — the super admin's name, telephone number
+ * and hours, on every page in the application (U6 §6).
+ *
+ * **Why a seam of its own rather than `loadPublicPage` at each call site.**
+ * There are two of them that matter — `src/app/tu-sach/[shelf]/layout.tsx` and
+ * `src/app/quan-tri/layout.tsx`, which between them cover every shelf, manager
+ * and administration page — plus five front-door pages. Seven copies of one
+ * `loadPublicPage((tx) => getSiteContact(tx))` is seven places to keep the
+ * guard below in step, and the guard is the entire reason this is not inline.
+ *
+ * **No `DATABASE_URL`, no query, and this is `loadFrontDoorViewer`'s guard
+ * above repeated for the same incident.** `pool()` calls `connect()`, which
+ * throws `DATABASE_URL is not set`, and the Dockerfile's `smoke` stage boots
+ * `bun server.js` with **no environment at all** and fetches `/` to prove the
+ * image serves a page. Adding a contact read to that page without this line
+ * would break that build exactly as `/`'s viewer read once did — the incident
+ * that function's comment describes at length, misread twice as pre-existing
+ * before CI caught it against the right baseline.
+ *
+ * Guarding here rather than teaching `smoke` a dummy connection string is the
+ * same honest fix it was the first time: a deployment with no database
+ * configured has no contact details to show, and the footer is designed to
+ * render without them (`SiteFooter`'s `contact: FooterContact | null`). Every
+ * other failure keeps throwing — a database that is configured and unreachable
+ * is a fault, not an empty footer.
+ *
+ * `loadPublicPage`, so this runs as `olibra_public`, which holds a
+ * **column-level** grant on exactly these three fields of `system_settings`
+ * and nothing else. A version of this that reached for the lending defaults
+ * would be refused by the database with `42501`, which is what makes putting
+ * it on every page in the application safe — see `getSiteContact`'s own
+ * docstring, and `tests/db/public-role-privileges.test.ts`, which sweeps every
+ * column of that table.
+ */
+export async function siteContact(): Promise<SiteContact | null> {
+  if (!process.env.DATABASE_URL) return null;
+  return loadPublicPage((tx) => getSiteContact(tx));
 }
 
 /**
