@@ -29,12 +29,25 @@ import { expect, test } from "vitest";
  * a count of offending lines, so it keeps working as `.env.example` grows —
  * a ban on a *shape*, not a ban on the six lines that happened to have it
  * today.
+ *
+ * **`[A-Z_]` was blind to two-thirds of the defect it was written to catch
+ * (final fix wave, QA remediation).** Task 26 fixed six offending lines, but
+ * four of them — `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+ * `TEST_S3_ACCESS_KEY_ID`, `TEST_S3_SECRET_ACCESS_KEY` — contain a digit, and
+ * `[A-Z_]` does not match digits. A variable name with a `3` in it was
+ * invisible to this pattern from the moment it shipped, along with every
+ * other `S3_*` variable this file has (there are a dozen). The self-check
+ * below only ever probed `POSTGRES_PASSWORD` and `OLIBRA_POOL_PASSWORD` —
+ * both digit-free — so it certified the regex correct while standing
+ * exactly on top of the hole. Widened to `[A-Z0-9_]` and the self-check now
+ * carries an `S3_*` case, so this specific class of miss cannot reopen
+ * silently again.
  */
 test("no line in .env.example hands out a trailing comment as a variable's value", () => {
   const envExample = readFileSync(".env.example", "utf8");
   const lines = envExample.split("\n");
 
-  const offenders = lines.filter((line) => /^[A-Z_]+=\s*#/.test(line));
+  const offenders = lines.filter((line) => /^[A-Z0-9_]+=\s*#/.test(line));
 
   expect(offenders).toEqual([]);
 });
@@ -48,7 +61,7 @@ test("no line in .env.example hands out a trailing comment as a variable's value
  * today's `.env.example`.
  */
 test("the guard would flag the exact defective line, and nothing else", () => {
-  const pattern = /^[A-Z_]+=\s*#/;
+  const pattern = /^[A-Z0-9_]+=\s*#/;
 
   expect(
     pattern.test(
@@ -56,6 +69,10 @@ test("the guard would flag the exact defective line, and nothing else", () => {
     ),
   ).toBe(true);
   expect(pattern.test("OLIBRA_POOL_PASSWORD=        # required, no default")).toBe(
+    true,
+  );
+  // A digit in the variable name — the exact class `[A-Z_]` used to miss.
+  expect(pattern.test("S3_ACCESS_KEY_ID=            # required, no default")).toBe(
     true,
   );
 
