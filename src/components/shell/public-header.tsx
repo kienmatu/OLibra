@@ -218,10 +218,34 @@ export function ShelfHeader({
     <span className="min-w-0 truncate text-lg font-semibold">{shelfName}</span>
   );
 
+  /**
+   * The way back to the site (U6 §5).
+   *
+   * This header had no link to `/` at all, which made OLibra itself
+   * unreachable from every reader page — the shelf name is a link to the
+   * *shelf*, and there was nothing above it. `ManagerShell`'s sidebar has read
+   * "OLibra" over the shelf's name since it was written; this is the same
+   * arrangement, so the two chromes agree about which of the two is the site
+   * and which is the parish.
+   *
+   * Rendered for a signed-out visitor too, unlike the shelf link beside it:
+   * `/dang-nhap` and `/dang-ky` render this header with `viewerName={null}`,
+   * and somebody looking at a sign-in form is precisely who may want to go
+   * back to where they came from. `/` needs no session.
+   */
+  const heading = (
+    <div className="flex min-w-0 flex-col justify-center leading-tight">
+      <Link href="/" className="text-[13px] text-meta hover:text-ink">
+        OLibra
+      </Link>
+      {title}
+    </div>
+  );
+
   return (
     <header className="border-b border-hairline bg-paper">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-6">
-        {title}
+        {heading}
 
         {viewerName === null ? (
           <nav className="flex items-center gap-1">
@@ -298,9 +322,23 @@ export function ShelfHeader({
 export function FrontDoorHeader({
   viewerName,
   isSuperAdmin,
+  shelves,
 }: {
   viewerName: string | null;
   isSuperAdmin: boolean;
+  /**
+   * Every shelf this viewer is an active member of, from
+   * `loadFrontDoorViewer` (U6 §7). **Required, and empty is a real value** —
+   * the same argument the two props above make for being required and
+   * nullable, and it lands the same way: an optional `shelves` lets a page
+   * that never thought about membership render a header with no route to the
+   * reader's own shelf, which is the exact defect this prop exists to close.
+   *
+   * Empty is the honest answer for a super admin (who belongs to none by
+   * design), for a reader whose registration is still awaiting approval, and
+   * for `/dang-nhap` and `/loi`, which know nothing about anybody.
+   */
+  shelves: readonly { slug: string; name: string }[];
 }) {
   // Shared by the desktop `<nav>` below and by `MobileMenu` — the same
   // doubling `ShelfHeader`'s own `links` relies on. `/quan-tri` is in it only
@@ -308,6 +346,31 @@ export function FrontDoorHeader({
   // header showed a stranger before Task 6, plus their own name and a way to
   // sign out.
   const links = [
+    /**
+     * U6 §5, and it is first because it is the one link most people came for.
+     *
+     * A reader signed in and standing on `/lien-he` had "Tìm tủ sách" — a
+     * *directory* — and no way to their own shelf. The one-shelf case links
+     * straight there rather than to the portal, because a member of one shelf
+     * is not making a choice; that is the same rule `landingShelfFor` applies
+     * at sign-in (`src/auth/guards.ts`), applied to a link instead of a
+     * redirect, and §7 is why the two read it from one function.
+     *
+     * A member of several goes to `/tu-sach`, which marks the shelves they
+     * belong to. Nobody with no membership gets the link at all — an entry
+     * pointing at a shelf that does not exist is chrome that cannot do what it
+     * says, the argument `ShelfHeader` above already makes for hiding member
+     * navigation from a visitor with no membership.
+     */
+    ...(shelves.length > 0
+      ? [
+          {
+            href: shelves.length === 1 ? `/tu-sach/${shelves[0].slug}` : "/tu-sach",
+            label: "Tủ sách của tôi",
+            key: "cua-toi",
+          },
+        ]
+      : []),
     { href: "/tu-sach", label: "Tìm tủ sách", key: "tu-sach" },
     ...(isSuperAdmin
       ? [{ href: "/quan-tri", label: "Quản trị hệ thống", key: "quan-tri" }]

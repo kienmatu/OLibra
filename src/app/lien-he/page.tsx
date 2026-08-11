@@ -70,6 +70,7 @@ export default async function ContactPage({
       <FrontDoorHeader
         viewerName={viewer?.name ?? null}
         isSuperAdmin={viewer?.isSuperAdmin ?? false}
+        shelves={viewer?.shelves ?? []}
       />
 
       <main className="mx-auto max-w-2xl px-6 py-16">

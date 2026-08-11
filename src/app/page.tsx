@@ -56,6 +56,7 @@ export default async function LandingPage() {
       <FrontDoorHeader
         viewerName={viewer?.name ?? null}
         isSuperAdmin={viewer?.isSuperAdmin ?? false}
+        shelves={viewer?.shelves ?? []}
       />
 
       <main className="mx-auto max-w-5xl px-6">

@@ -1,6 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { ShelfHeader } from "../../src/components/shell/public-header";
+import {
+  FrontDoorHeader,
+  ShelfHeader,
+} from "../../src/components/shell/public-header";
 
 /**
  * Task 9 (2026-08-10 QA remediation). `ShelfHeader`'s `links` array had two
@@ -69,5 +72,92 @@ test.each([
   (_pathname, active, label) => {
     const html = renderNav(active);
     expect(activeLabels(html)).toEqual([label]);
+  },
+);
+
+/**
+ * U6 §5. Two headers, two gaps, both reported from the same walkthrough.
+ *
+ * `FrontDoorHeader` greeted a signed-in reader by name and offered them
+ * "Tìm tủ sách" — a directory — with no link to the shelf they actually
+ * belong to. `ShelfHeader` had no link to `/` at all, so the site was
+ * unreachable from every reader page in the application.
+ *
+ * The `href` matters as much as the label here, and that is what these assert
+ * on: the one-shelf case links *straight to that shelf*, and the several-shelf
+ * case links to the portal, which after §4 marks each shelf the reader belongs
+ * to. Asserting only that a link labelled "Tủ sách của tôi" exists would pass
+ * against a version that always pointed at `/tu-sach`, which is the failure a
+ * member of one shelf actually experiences — one more page to get through.
+ */
+function hrefsFor(html: string, label: string): string[] {
+  return [...html.matchAll(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)]
+    .filter((m) => m[2].replace(/<[^>]*>/g, "").trim() === label)
+    .map((m) => m[1]);
+}
+
+const MINE = "Tủ sách của tôi";
+
+test("FrontDoorHeader links a member of one shelf straight to that shelf", () => {
+  const html = renderToStaticMarkup(
+    <FrontDoorHeader
+      viewerName="Nguyễn Văn A"
+      isSuperAdmin={false}
+      shelves={[{ slug: "dong-thap", name: "Tủ sách Đồng Tháp" }]}
+    />,
+  );
+  // Twice — the desktop `<nav>` and `MobileMenu` render the same `links`
+  // array, which is the doubling this component has always relied on.
+  expect(hrefsFor(html, MINE)).toEqual([
+    "/tu-sach/dong-thap",
+    "/tu-sach/dong-thap",
+  ]);
+});
+
+test("FrontDoorHeader sends a member of several shelves to the portal", () => {
+  const html = renderToStaticMarkup(
+    <FrontDoorHeader
+      viewerName="Nguyễn Văn A"
+      isSuperAdmin={false}
+      shelves={[
+        { slug: "dong-thap", name: "Tủ sách Đồng Tháp" },
+        { slug: "vinh-long", name: "Tủ sách Vĩnh Long" },
+      ]}
+    />,
+  );
+  expect(hrefsFor(html, MINE)).toEqual(["/tu-sach", "/tu-sach"]);
+});
+
+test("FrontDoorHeader offers no shelf link to a super admin, who belongs to none", () => {
+  const html = renderToStaticMarkup(
+    <FrontDoorHeader viewerName="Trần Quốc Anh" isSuperAdmin shelves={[]} />,
+  );
+  expect(hrefsFor(html, MINE)).toEqual([]);
+  // The link they do get, and the reason Task 6 added it.
+  expect(hrefsFor(html, "Quản trị hệ thống")).toEqual(["/quan-tri", "/quan-tri"]);
+});
+
+test("FrontDoorHeader offers a stranger sign-in, and no shelf link", () => {
+  const html = renderToStaticMarkup(
+    <FrontDoorHeader viewerName={null} isSuperAdmin={false} shelves={[]} />,
+  );
+  expect(hrefsFor(html, MINE)).toEqual([]);
+  expect(hrefsFor(html, "Đăng nhập")).toEqual(["/dang-nhap"]);
+});
+
+test.each([["Nguyễn Văn A"], [null]] as const)(
+  "ShelfHeader links home for viewerName=%s",
+  (viewerName) => {
+    // Both cases, deliberately: `/dang-nhap` and `/dang-ky` render this header
+    // with no viewer, and a visitor looking at a sign-in form is exactly who
+    // most needs a way back to the site they arrived from.
+    const html = renderToStaticMarkup(
+      <ShelfHeader
+        shelfName="Thư viện Đồng Tháp"
+        shelfSlug="x"
+        viewerName={viewerName}
+      />,
+    );
+    expect(hrefsFor(html, "OLibra")).toEqual(["/"]);
   },
 );

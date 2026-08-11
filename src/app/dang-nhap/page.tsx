@@ -106,7 +106,7 @@ export default async function LoginPage({
           viewerName={null}
         />
       ) : (
-        <FrontDoorHeader viewerName={null} isSuperAdmin={false} />
+        <FrontDoorHeader viewerName={null} isSuperAdmin={false} shelves={[]} />
       )}
 
       <main className="mx-auto flex max-w-3xl flex-col items-center px-6 py-20">
