@@ -4,18 +4,18 @@ import { redirect } from "next/navigation";
 // Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
 // records at the top of its own imports: the suite imports this module and
 // Vitest resolves no alias.
-import { cancelProfileChange } from "../../../../domain/members/commands/cancel-profile-change";
-import { changeOwnPassword } from "../../../../domain/members/commands/change-own-password";
-import { proposeProfileChange } from "../../../../domain/members/commands/propose-profile-change";
-import { updateOwnProfile } from "../../../../domain/members/commands/update-own-profile";
-import { DomainError } from "../../../../domain/kernel/errors";
+import { cancelProfileChange } from "../../../../../domain/members/commands/cancel-profile-change";
+import { changeOwnPassword } from "../../../../../domain/members/commands/change-own-password";
+import { proposeProfileChange } from "../../../../../domain/members/commands/propose-profile-change";
+import { updateOwnProfile } from "../../../../../domain/members/commands/update-own-profile";
+import { DomainError } from "../../../../../domain/kernel/errors";
 import {
   decideAndDiscardAvatar,
   proposeAvatar,
   type UploadedFile,
-} from "../../../../lib/avatar";
-import { submitCommand } from "../../../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
+} from "../../../../../lib/avatar";
+import { submitCommand } from "../../../../../lib/page-data";
+import { ACTION_ERROR_PARAM } from "../../../../../lib/search-params";
 
 /**
  * The reader's profile actions — and the project's **first server action that

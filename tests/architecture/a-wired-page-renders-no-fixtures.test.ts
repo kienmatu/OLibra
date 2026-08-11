@@ -131,7 +131,10 @@ test("the check can see both halves of what it compares", () => {
   // database-backed, and at least one page must still be *seen* as a fixture
   // page, or there is nothing being compared.
   const all = routes();
-  const base = "src/app/tu-sach/[shelf]";
+  // `(doc-gia)` is a route group — it changes no URL, and these are the same
+  // four reader pages as before. See that group's own layout for why the
+  // manager screens sit outside it.
+  const base = "src/app/tu-sach/[shelf]/(doc-gia)";
 
   for (const page of [
     `${base}/page.tsx`,
@@ -223,7 +226,7 @@ const PAGES_NOT_YET_WIRED = [
   // Reads nothing because it *is* nothing: U5 replaced the second donation
   // screen with a redirect to `ho-so/tang-sach`, the one the reader's own
   // queries live behind. A route that only redirects has nothing to read.
-  "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
+  "src/app/tu-sach/[shelf]/(doc-gia)/tang-sach/page.tsx",
 ];
 
 test("the set of unwired pages is exactly what this file says it is", () => {
@@ -267,7 +270,7 @@ test("the set of unwired pages is exactly what this file says it is", () => {
  * **`base` is assumed to be `/tu-sach/${shelfSlug}`, and on every manager page
  * it is not.** U3 wave 1 measured this rather than inferring it. Manager pages
  * declare `` const base = `/tu-sach/${slug}/quan-ly` ``, so `` `${base}/sach/moi` ``
- * is resolved here as `src/app/tu-sach/[shelf]/sach/moi` — a route that does
+ * is resolved here as `src/app/tu-sach/[shelf]/(doc-gia)/sach/moi` — a route that does
  * not exist — and `resolveRoute` returns `null`, which is silently dropped. The
  * manager sidebar is worse still: its nav is `` `${base}/${key}` ``, and an
  * interpolated *segment* only resolves where the directory has exactly one
@@ -309,18 +312,47 @@ function componentsOf(file: string): string[] {
 function resolveRoute(segments: string[]): string | null {
   let dir = "src/app";
   for (const segment of segments) {
+    // **A route group is a directory that is not a URL segment.** `(doc-gia)`
+    // holds a shelf's reader pages so that `quan-ly` can sit outside the
+    // footer layout (U6 §6), and Next.js strips parenthesised directories out
+    // of the path entirely — `/tu-sach/x/danh-muc` really is
+    // `[shelf]/(doc-gia)/danh-muc` on disk. Without this, every reader link
+    // this file checks resolved to `null` and was silently dropped, which is
+    // the "found nothing" failure the test above exists to catch.
+    const candidates = [dir, ...groupsIn(dir)];
+
     if (segment.includes("${")) {
-      const dynamic = readdirSync(dir).filter(
-        (e) => e.startsWith("[") && statSync(join(dir, e)).isDirectory(),
+      const dynamic = candidates.flatMap((d) =>
+        readdirSync(d)
+          .filter((e) => e.startsWith("[") && statSync(join(d, e)).isDirectory())
+          .map((e) => join(d, e)),
       );
       if (dynamic.length !== 1) return null;
-      dir = join(dir, dynamic[0]);
+      dir = dynamic[0];
       continue;
     }
-    if (!existsSync(join(dir, segment))) return null;
-    dir = join(dir, segment);
+
+    const hit = candidates.map((d) => join(d, segment)).find((p) => existsSync(p));
+    if (!hit) return null;
+    dir = hit;
   }
   return dir;
+}
+
+/**
+ * The route-group directories directly inside `dir`, which a URL path passes
+ * straight through. One level is enough for this codebase and for the check
+ * above: nothing here nests a group inside a group.
+ */
+function groupsIn(dir: string): string[] {
+  return readdirSync(dir)
+    .filter(
+      (e) =>
+        e.startsWith("(") &&
+        e.endsWith(")") &&
+        statSync(join(dir, e)).isDirectory(),
+    )
+    .map((e) => join(dir, e));
 }
 
 /** Every route directory a file links to, resolved against the route tree. */
@@ -549,18 +581,25 @@ test("the link check resolves the routes it claims to", () => {
   // report nothing. `toEqual([])` cannot tell "no bad links" from "no links
   // found".
   const header = readFileSync("src/components/shell/public-header.tsx", "utf8");
-  const shelfHome = readFileSync("src/app/tu-sach/[shelf]/page.tsx", "utf8");
+  const shelfHome = readFileSync(
+    "src/app/tu-sach/[shelf]/(doc-gia)/page.tsx",
+    "utf8",
+  );
   const bookPage = readFileSync(
-    "src/app/tu-sach/[shelf]/sach/[slug]/page.tsx",
+    "src/app/tu-sach/[shelf]/(doc-gia)/sach/[slug]/page.tsx",
     "utf8",
   );
 
   // The chrome is found from the page, and its links are found in it.
-  expect(componentsOf("src/app/tu-sach/[shelf]/page.tsx")).toContain(
+  expect(componentsOf("src/app/tu-sach/[shelf]/(doc-gia)/page.tsx")).toContain(
     "src/components/shell/public-header.tsx",
   );
-  expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/danh-muc");
-  expect(linkTargetsIn(shelfHome)).toContain("src/app/tu-sach/[shelf]/danh-muc");
+  expect(linkTargetsIn(header)).toContain(
+    "src/app/tu-sach/[shelf]/(doc-gia)/danh-muc",
+  );
+  expect(linkTargetsIn(shelfHome)).toContain(
+    "src/app/tu-sach/[shelf]/(doc-gia)/danh-muc",
+  );
 
   // An interpolated segment resolves to the dynamic directory rather than
   // being dropped: `${base}/quan-ly/sach/${book.slug}` is the wired manager
@@ -591,11 +630,12 @@ test("the link check resolves the routes it claims to", () => {
   // for. Restoring the link without wiring the page fails on the second line
   // rather than passing quietly.
   expect(linkTargetsIn(header)).toContain(
-    "src/app/tu-sach/[shelf]/ho-so/tong-quan",
+    "src/app/tu-sach/[shelf]/(doc-gia)/ho-so/tong-quan",
   );
   expect(
     routes().find(
-      (r) => r.path === "src/app/tu-sach/[shelf]/ho-so/tong-quan/page.tsx",
+      (r) =>
+        r.path === "src/app/tu-sach/[shelf]/(doc-gia)/ho-so/tong-quan/page.tsx",
     )?.importsFixtures,
   ).toBe(false);
 
@@ -603,14 +643,17 @@ test("the link check resolves the routes it claims to", () => {
   // second one here. Same two-part assertion as the reader dashboard above:
   // the link exists *and* the page it points at is real, so restoring one
   // without the other fails rather than passing quietly.
-  expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/thong-bao");
+  expect(linkTargetsIn(header)).toContain(
+    "src/app/tu-sach/[shelf]/(doc-gia)/thong-bao",
+  );
   expect(
-    routes().find((r) => r.path === "src/app/tu-sach/[shelf]/thong-bao/page.tsx")
-      ?.importsFixtures,
+    routes().find(
+      (r) => r.path === "src/app/tu-sach/[shelf]/(doc-gia)/thong-bao/page.tsx",
+    )?.importsFixtures,
   ).toBe(false);
   for (const gone of [
-    "src/app/tu-sach/[shelf]/tang-sach",
-    "src/app/tu-sach/[shelf]/gop-y",
+    "src/app/tu-sach/[shelf]/(doc-gia)/tang-sach",
+    "src/app/tu-sach/[shelf]/(doc-gia)/gop-y",
   ]) {
     expect(linkTargetsIn(shelfHome), gone).not.toContain(gone);
   }

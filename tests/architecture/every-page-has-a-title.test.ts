@@ -49,7 +49,7 @@ import { filesUnder, stripCommentsAndStrings } from "../support/source-text";
  * file, and deleted every real line in between as if it were part of one
  * giant string literal. Measured on this branch, two independent instances:
  * `src/app/quan-tri/tu-sach/page.tsx`'s `export const metadata` (which has
- * shipped since U3) and `src/app/tu-sach/[shelf]/ho-so/tong-quan/page.tsx`'s
+ * shipped since U3) and `src/app/tu-sach/[shelf]/(doc-gia)/ho-so/tong-quan/page.tsx`'s
  * own `export const metadata` (added by this very task) were both silently
  * swallowed, each along with roughly a hundred real lines around it. Code
  * review on this task caught both and asked for the root fix rather than a

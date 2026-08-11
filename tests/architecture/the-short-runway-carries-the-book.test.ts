@@ -35,7 +35,7 @@ function withoutComments(source: string): string {
 
 const SHORTCUT_PAGES = [
   // The reader-facing detail page's "Dành cho quản lý" panel.
-  "src/app/tu-sach/[shelf]/sach/[slug]/page.tsx",
+  "src/app/tu-sach/[shelf]/(doc-gia)/sach/[slug]/page.tsx",
   // The manager-facing detail page's header actions.
   "src/app/tu-sach/[shelf]/quan-ly/sach/[id]/page.tsx",
 ];

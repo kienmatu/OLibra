@@ -29,7 +29,7 @@ import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelfIdentity } from "@/lib/shelf";
 import { STATUS, statusForAvailability } from "@/lib/status";
-import { postCommentAction } from "../../community-actions";
+import { postCommentAction } from "../../../community-actions";
 
 /** U1 §2. See `src/app/tu-sach/[shelf]/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
