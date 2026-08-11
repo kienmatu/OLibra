@@ -60,6 +60,8 @@ import {
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Thông báo — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 const STATE_STYLE: Record<

@@ -20,6 +20,8 @@ import { lendCopyAction } from "../../actions";
 /** U1 §2. See `../page.tsx` for what a cached manager screen actually leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Xác nhận cho mượn — Quản lý tủ sách OLibra" };
+
 /** SDD §6.6, the same formatter step 1 uses for its copy counts. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
 

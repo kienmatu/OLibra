@@ -20,6 +20,8 @@ import { markCopyFoundAction, retireCopyAction } from "../../actions";
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Sách đã mất — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /**

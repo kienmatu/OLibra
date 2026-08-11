@@ -38,6 +38,8 @@ import { readShelf } from "@/lib/shelf";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Thống kê — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 const PERIODS: { key: StatsPeriod; param: string; label: string }[] = [

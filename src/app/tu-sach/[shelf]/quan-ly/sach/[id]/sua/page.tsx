@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -56,6 +57,36 @@ export const dynamic = "force-dynamic";
  * because retyping a title or an author is quick and a query string carrying
  * a book's description is not a place to put one.
  */
+/**
+ * QA remediation Task 25. Mirrors the page body's own lighter lookup — a bare
+ * `select id from books where slug = …` then `getBookForEdit`, not
+ * `bookFromSlug`'s heavier manager-detail read (copies, condition history,
+ * loan history) `../page.tsx`'s own `generateMetadata` reuses — because that
+ * lighter path is what this page already loads for itself; `../page.tsx`'s
+ * docstring is the fuller argument for reusing what a page already reaches
+ * for rather than inventing a third resolver.
+ *
+ * `notFound()` on the same `!book` the page body checks, so a slug naming no
+ * book 404s here exactly as the render would a moment later.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ shelf: string; id: string }>;
+}): Promise<Metadata> {
+  const { shelf: slug, id } = await params;
+
+  const { book } = await loadPage(slug, async (tx, ctx) => {
+    const [row] = await tx<{ id: string }[]>`
+      select id from books where slug = ${id} and deleted_at is null
+    `;
+    return { book: row ? await getBookForEdit(tx, ctx, { bookId: row.id }) : null };
+  });
+  if (!book) notFound();
+
+  return { title: `Sửa ${book.title} — Quản lý tủ sách OLibra` };
+}
+
 export default async function EditBookPage({
   params,
   searchParams,

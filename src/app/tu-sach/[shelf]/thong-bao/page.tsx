@@ -23,6 +23,8 @@ import { formatInstant } from "@/lib/dates";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Thông báo của tủ sách — OLibra" };
+
 export default async function AnnouncementsPage({
   params,
 }: {

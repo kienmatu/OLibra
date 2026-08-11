@@ -32,6 +32,8 @@ import { offerDonationAction } from "../../community-actions";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Tặng sách cho tủ sách — OLibra" };
+
 const STATUS: Record<
   string,
   { label: string; tone: "available" | "onloan" | "overdue" }

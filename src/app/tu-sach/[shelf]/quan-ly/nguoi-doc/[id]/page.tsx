@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import {
   AlertCircle,
   ArrowLeft,
@@ -468,6 +469,35 @@ function EditProfileDisclosure({
       </form>
     </details>
   );
+}
+
+/**
+ * QA remediation Task 25. Mirrors the page component's own two checks before
+ * naming a reader in the tab: `isUuid(id)` first, since `memberships.id` is a
+ * `uuid` and a non-uuid segment would otherwise reach `getReaderDetail`'s
+ * `where membership_id = …` as a raw `22P02` Postgres cast failure rather than
+ * a 404 (see the page body's own comment on this exact defect, found live by
+ * `bun run check:links`); `getReaderDetail` itself second, through `loadPage`
+ * so a guest redirects and a non-manager 404s exactly as the page would.
+ *
+ * A second query, not a lighter one: `getReaderDetail` is already `GetReader
+ * Detail`'s narrow single-row read, and there is no memoization between this
+ * function and the page component over a raw SQL call for a second
+ * invocation to reuse.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ shelf: string; id: string }>;
+}): Promise<Metadata> {
+  const { shelf: slug, id } = await params;
+  if (!isUuid(id)) notFound();
+
+  const { reader } = await loadPage(slug, async (tx, ctx) => ({
+    reader: await getReaderDetail(tx, ctx, { membershipId: id }),
+  }));
+
+  return { title: `${reader.fullName} — Quản lý tủ sách OLibra` };
 }
 
 export default async function ManagerReaderDetailPage({

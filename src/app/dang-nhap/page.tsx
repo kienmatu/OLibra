@@ -26,6 +26,8 @@ import { signInAction } from "./actions";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Đăng nhập — OLibra" };
+
 export default async function LoginPage({
   searchParams,
 }: {

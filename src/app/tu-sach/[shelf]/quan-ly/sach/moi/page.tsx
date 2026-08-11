@@ -18,6 +18,8 @@ import { createBookAction } from "../../actions";
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Thêm sách mới — Quản lý tủ sách OLibra" };
+
 /**
  * How many members the donor picker offers.
  *

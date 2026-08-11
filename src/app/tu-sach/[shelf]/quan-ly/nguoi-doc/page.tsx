@@ -24,6 +24,8 @@ import { readShelf } from "@/lib/shelf";
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Người đọc — Quản lý tủ sách OLibra" };
+
 /** SDD §6.6. Even a count of three goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
 

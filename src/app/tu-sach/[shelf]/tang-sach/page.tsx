@@ -21,6 +21,15 @@ import { redirect } from "next/navigation";
  * that wanted a public, non-reader-facing donation page would have to fight
  * every visitor's cache to get this URL back.
  */
+// Never actually shipped to a browser — this page redirects before any
+// content, `generateMetadata` included, would render — but the guard test
+// requires every `page.tsx` to declare one, and a static object costs nothing
+// on a route that exists only to 308 elsewhere. Matches the destination's own
+// tab identity (`ho-so/tang-sach/page.tsx`) so a build that briefly served
+// this page's own metadata before Next.js applied the redirect would not read
+// as a step backwards.
+export const metadata = { title: "Tặng sách cho tủ sách — OLibra" };
+
 export default async function DonationRedirect({
   params,
 }: {

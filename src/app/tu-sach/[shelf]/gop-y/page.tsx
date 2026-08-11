@@ -27,6 +27,8 @@ import { submitFeedbackAction } from "../community-actions";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Gửi góp ý — OLibra" };
+
 export default async function FeedbackPage({
   params,
   searchParams,

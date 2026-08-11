@@ -24,6 +24,8 @@ import { formatInstant } from "@/lib/dates";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Lịch sử mượn sách — OLibra" };
+
 const STATUS_LABEL: Record<string, string> = {
   active: "Đang mượn",
   returned: "Đã trả",

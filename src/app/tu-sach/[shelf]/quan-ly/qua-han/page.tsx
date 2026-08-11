@@ -18,6 +18,8 @@ import { readShelf } from "@/lib/shelf";
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Quá hạn — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /** `?sap-xep=`, the spelling `danh-muc` and `quan-ly/sach` already use. */

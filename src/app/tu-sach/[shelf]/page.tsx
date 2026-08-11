@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import {
   BookOpen,
   Building2,
@@ -34,6 +35,32 @@ import { statusForAvailability } from "@/lib/status";
  * on every route that reaches Postgres.
  */
 export const dynamic = "force-dynamic";
+
+/**
+ * QA remediation Task 25. `readShelfIdentity`, the exact read the page body
+ * already opens with, called again here for the same reason `sach/[slug]`'s
+ * own `generateMetadata` calls `getBookDetail` a second time — Next.js runs
+ * this function and the page component as two separate invocations, and there
+ * is no `fetch`-level memoization over a raw SQL read to dedupe them.
+ *
+ * Reusing `loadPage` rather than a bespoke lookup means a guest is sent to
+ * sign in and a slug naming no shelf 404s exactly as the page's own render
+ * would, before either produces any HTML — `loadPage`'s own docstring is
+ * where that guarantee is made once, for every caller.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ shelf: string }>;
+}): Promise<Metadata> {
+  const { shelf: slug } = await params;
+
+  const { shelf } = await loadPage(slug, async (tx, ctx) => ({
+    shelf: await readShelfIdentity(tx, ctx),
+  }));
+
+  return { title: `${shelf.name} — OLibra` };
+}
 
 /**
  * Small integers, still through the locale. SDD §6.6: "Dates and numbers are

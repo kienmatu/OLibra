@@ -54,6 +54,8 @@ import {
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Hồ sơ của em — OLibra" };
+
 const STATUS_LABEL: Record<string, string> = {
   pending: "Đang chờ quản lý duyệt",
   approved: "Đã được duyệt",

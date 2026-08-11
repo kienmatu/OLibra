@@ -23,6 +23,13 @@ import { loadFrontDoorViewer } from "@/lib/page-data";
  */
 export const dynamic = "force-dynamic";
 
+// Same text as `src/app/layout.tsx`'s own fallback title, stated explicitly
+// rather than left to inheritance: `tests/architecture/every-page-has-a-
+// title.test.ts` requires every `page.tsx` to export one, precisely so that
+// no future page can go untitled by relying on the layout the way this one
+// used to — silently, and for forty-six other pages besides this one.
+export const metadata = { title: "OLibra — Tủ sách cộng đồng" };
+
 const WHAT_IT_DOES = [
   {
     icon: BookUp,

@@ -17,6 +17,8 @@ import { reportCopyLostAction } from "../../actions";
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Xác nhận báo mất — Quản lý tủ sách OLibra" };
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="border-b border-hairline px-6 py-4 last:border-b-0">

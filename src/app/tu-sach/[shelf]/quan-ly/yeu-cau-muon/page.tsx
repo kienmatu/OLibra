@@ -26,6 +26,8 @@ import {
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Yêu cầu mượn — Quản lý tủ sách OLibra" };
+
 /** SDD §6.6: every number on a screen goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
 

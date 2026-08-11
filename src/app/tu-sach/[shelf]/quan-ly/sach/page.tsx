@@ -21,6 +21,8 @@ import { statusForAvailability } from "@/lib/status";
 /** U1 §2. See `src/app/tu-sach/[shelf]/quan-ly/cho-muon/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Sách — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /**

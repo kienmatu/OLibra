@@ -32,6 +32,8 @@ import { readShelf } from "@/lib/shelf";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Tìm sách cần cho mượn — Quản lý tủ sách OLibra" };
+
 /**
  * Small integers, still through the locale. SDD §6.6: "Dates and numbers are
  * formatted through the locale, never with hand-written format strings" —

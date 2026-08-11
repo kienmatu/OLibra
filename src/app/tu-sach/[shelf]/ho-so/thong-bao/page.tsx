@@ -30,6 +30,8 @@ import {
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Thông báo — OLibra" };
+
 export default async function ReaderNotificationsPage({
   params,
 }: {

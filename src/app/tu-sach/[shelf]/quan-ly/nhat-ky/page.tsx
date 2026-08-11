@@ -23,6 +23,8 @@ import { cn } from "@/lib/utils";
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Nhật ký — Quản lý tủ sách OLibra" };
+
 /** SDD §6.6. Even a count of three goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
 

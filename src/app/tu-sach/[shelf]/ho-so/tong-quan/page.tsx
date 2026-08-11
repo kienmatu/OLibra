@@ -39,6 +39,14 @@ import { renewLoanAction } from "../reader-actions";
  */
 export const dynamic = "force-dynamic";
 
+// Static rather than the viewer's own name, matching how the manager's
+// `quan-ly/page.tsx` dashboard titles its tab "Trang chính — Quản lý tủ sách
+// OLibra" rather than something that varies per session — this is the reader
+// side of the identical decision, one route with one tab identity regardless
+// of who is signed in. The page's own `<h1>` still greets the reader by name
+// (`Chào {viewer.name}`); only the browser tab stays put.
+export const metadata = { title: "Trang của tôi — OLibra" };
+
 export default async function ReaderDashboardPage({
   params,
   searchParams,

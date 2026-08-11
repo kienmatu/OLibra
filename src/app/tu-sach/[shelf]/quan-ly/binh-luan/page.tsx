@@ -76,6 +76,12 @@ import {
  */
 export const dynamic = "force-dynamic";
 
+// Static rather than `COMMENT_STATUS_TITLE[selected]`, which the page's own
+// `<h1>` uses and which varies with the `?trang-thai=` filter chip: the tab
+// names the screen, not the filter currently applied to it, the same
+// distinction `/quan-tri/gop-y` already draws for its own status chips.
+export const metadata = { title: "Bình luận — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 const STATUS = "trang-thai";

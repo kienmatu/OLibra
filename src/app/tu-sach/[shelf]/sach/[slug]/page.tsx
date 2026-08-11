@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import {
   BookCheck,
   Bookmark,
@@ -32,6 +33,42 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * page, from one that points at something.
  */
 const BORROW_NOTE_ID = "xin-muon-chua-dung-duoc";
+
+/**
+ * QA remediation Task 25. The one page a search engine actually indexes
+ * (`/tu-sach/[shelf]/sach/[slug]`), and until this task its tab read the
+ * fallback "OLibra — Tủ sách cộng đồng" the same as every other unwritten page
+ * — a search result for a specific title carried no more information than the
+ * home page did.
+ *
+ * **Through `loadPage` and `getBookDetail`, the exact pair the page component
+ * below calls with the exact same arguments** — a second query, not a
+ * lighter invented one, because `getBookDetail` is already the narrowest read
+ * that has the title on it, and Next.js calls `generateMetadata` and the page
+ * component as two separate invocations with no shared cache over a raw SQL
+ * read (there is no `fetch` here for the framework's request memoization to
+ * dedupe). Reusing `loadPage` rather than open-coding a lookup is what keeps
+ * this path's refusals identical to the page's own: a guest is redirected to
+ * sign in, a signed-in non-member and a slug naming no published book both
+ * 404, in `loadPage`'s own words, before a byte of the page's HTML — never a
+ * different shape of failure than the body a moment later would have produced,
+ * which is the leak this docstring's own review flagged as the risk worth
+ * naming: a metadata path that threw *differently* than the page would tell a
+ * prober the two disagree about whether a book exists.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ shelf: string; slug: string }>;
+}): Promise<Metadata> {
+  const { shelf: shelfSlug, slug } = await params;
+
+  const { book } = await loadPage(shelfSlug, async (tx, ctx) => ({
+    book: await getBookDetail(tx, ctx, { bookSlug: slug }),
+  }));
+
+  return { title: `${book.title} — OLibra` };
+}
 
 /**
  * `books.description` is one `text` column; the seed writes paragraphs joined

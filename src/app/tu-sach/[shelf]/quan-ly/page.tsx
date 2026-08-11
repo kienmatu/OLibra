@@ -14,6 +14,16 @@ import { cn } from "@/lib/utils";
 /** U1 §2. See `src/app/tu-sach/[shelf]/quan-ly/cho-muon/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
 
+// Static, not `generateMetadata` reading the shelf's own name: this is a
+// manager's dashboard, not a page about one identified record, and the two
+// sibling manager pages that already shipped a title before this task
+// (`quan-ly/cai-dat`, `quan-ly/co-cau`) title themselves the same way —
+// `"<screen> — Quản lý tủ sách OLibra"` with no shelf name in the tab, even
+// though both are nested exactly this deep under `[shelf]`. The `<h1>` below
+// already carries the shelf's own name in its subtitle for a manager who has
+// more than one tab open.
+export const metadata = { title: "Trang chính — Quản lý tủ sách OLibra" };
+
 /** SDD §6.6. Even a count of three goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
 

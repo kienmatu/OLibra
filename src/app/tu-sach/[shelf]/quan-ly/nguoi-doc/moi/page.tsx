@@ -16,6 +16,8 @@ import { registerReaderOnBehalfAction } from "../../actions";
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Đăng ký người đọc mới — Quản lý tủ sách OLibra" };
+
 function GroupHeading({ children }: { children: React.ReactNode }) {
   return (
     <h2 className="border-b border-hairline pb-3 text-xl font-semibold">

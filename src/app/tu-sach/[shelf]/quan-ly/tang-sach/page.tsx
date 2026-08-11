@@ -32,6 +32,8 @@ import { declineDonationAction, receiveDonationAction } from "../actions";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Tặng sách — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 export default async function DonationQueuePage({

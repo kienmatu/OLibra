@@ -22,6 +22,8 @@ import { readShelf } from "@/lib/shelf";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Chọn người đọc — Quản lý tủ sách OLibra" };
+
 /**
  * Step 2 of BR §16.3's quick-lend: the reader.
  *

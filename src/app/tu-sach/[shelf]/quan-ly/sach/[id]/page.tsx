@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import type { ManagerCopyRow } from "@/domain/catalogue/queries/get-book-detail-manager";
 import {
   Archive,
@@ -146,6 +147,36 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * (`src/domain/catalogue/policy.ts:183`) derives it from the shelf slug, so
  * `DT-` held on one of the four seeded shelves.
  */
+/**
+ * QA remediation Task 25. `bookFromSlug` — the exact resolver the page body
+ * calls with the exact same `id` — rather than a lighter hand-written lookup:
+ * it is already "the record this page would name itself with" (the
+ * controller notes' own phrase), and inventing a narrower query here would be
+ * a second definition of "does this slug name a book" alongside the page's.
+ * It costs the same four extra reads (copies, condition history, loan
+ * history) `getBookDetailManager` always does — heavier than the title alone
+ * needs, and reusing the established resolver rather than growing a third one
+ * beside it (`getBookDetail` for readers, `getBookForEdit` for the edit form)
+ * is the trade this task makes.
+ *
+ * `notFound()` on the same `!book` check the page body uses, so a slug naming
+ * nothing 404s here exactly as the render would a moment later.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ shelf: string; id: string }>;
+}): Promise<Metadata> {
+  const { shelf: slug, id } = await params;
+
+  const { book } = await loadPage(slug, async (tx, ctx) => ({
+    book: await bookFromSlug(tx, ctx, id),
+  }));
+  if (!book) notFound();
+
+  return { title: `${book.book.title} — Quản lý tủ sách OLibra` };
+}
+
 export default async function ManagerBookDetailPage({
   params,
 }: {

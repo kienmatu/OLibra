@@ -37,6 +37,8 @@ import { registerMembershipAction } from "./actions";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Đăng ký — OLibra" };
+
 function GroupHeading({ children }: { children: React.ReactNode }) {
   return (
     <h2 className="border-b border-hairline pb-3 text-xl font-semibold">
