@@ -8,7 +8,11 @@ import {
   hideComment,
   rejectComment,
 } from "../../../src/domain/community/commands/comment-moderation";
-import { getBookComments } from "../../../src/domain/community/queries/get-comments";
+import {
+  getBookComments,
+  getPendingComments,
+  getRecentComments,
+} from "../../../src/domain/community/queries/get-comments";
 import { migrate } from "../../../src/db/migrate";
 import { makeBookWithCopies, makeMember } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";
@@ -265,4 +269,50 @@ test("the four decisions are audited, and the reason travels with them", async (
   // words, and a second copy is a second thing to redact if a child ever asks
   // for theirs to be removed.
   expect(JSON.stringify(entries[0].after)).not.toContain("riêng tư");
+});
+
+/**
+ * The `bookId` filter both moderation queries gained when the manager's own
+ * book page started showing that title's waiting comments (U7).
+ *
+ * **Two books, deliberately.** A filter that was ignored entirely — the shape a
+ * mistyped parameter name actually takes — returns both rows and passes any
+ * assertion that only checks the wanted one is present. So each case asserts the
+ * *other* book's comment is absent, which is the half that fails when the
+ * predicate does nothing.
+ */
+test("the moderation queries narrow to one book, and the shelf-wide call is unchanged", async () => {
+  const { shelf, ctx, bookId: wanted, rctx } = await scene();
+  const { bookId: other } = await makeBookWithCopies(sql, shelf.id, 1);
+
+  await runCommand(sql, rctx, createComment, {
+    bookId: wanted,
+    membershipId: rctx.actor.membershipId!,
+    body: "Bình luận về cuốn được hỏi",
+  });
+  await runCommand(sql, rctx, createComment, {
+    bookId: other,
+    membershipId: rctx.actor.membershipId!,
+    body: "Bình luận về cuốn khác",
+  });
+
+  // Absent `bookId` is every book — what `/quan-ly/binh-luan` asks for, and the
+  // behaviour every existing caller depends on.
+  const wholeShelf = await runQuery(sql, ctx, (tx, c) => getPendingComments(tx, c));
+  expect(wholeShelf).toHaveLength(2);
+
+  const justThisBook = await runQuery(sql, ctx, (tx, c) =>
+    getPendingComments(tx, c, { bookId: wanted }),
+  );
+  expect(justThisBook.map((r) => r.body)).toEqual(["Bình luận về cuốn được hỏi"]);
+
+  // And the same for the approved list the book page shows under "Đang hiện
+  // trên trang sách", so **Ẩn** can never name another title's comment.
+  for (const row of wholeShelf) {
+    await runCommand(sql, ctx, approveComment, { commentId: row.id });
+  }
+  const approvedHere = await runQuery(sql, ctx, (tx, c) =>
+    getRecentComments(tx, c, { status: "approved", bookId: wanted }),
+  );
+  expect(approvedHere.map((r) => r.body)).toEqual(["Bình luận về cuốn được hỏi"]);
 });

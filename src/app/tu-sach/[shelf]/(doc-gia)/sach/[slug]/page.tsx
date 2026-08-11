@@ -344,10 +344,24 @@ export default async function BookDetailPage({
             desktop is unaffected by the mobile `order-*` values. */}
         <div className="flex flex-col md:grid md:grid-cols-[300px_1fr] md:gap-10">
           <div className="contents md:block">
+            {/* **60% of the column on a phone, the full 300px on desktop.**
+                `w-full` at every width made the cover a full-bleed panel taller
+                than the viewport: a book jacket is portrait, so on a 390px
+                screen it ran past 500px tall and pushed the title, the
+                availability panel and the borrow button entirely below the
+                fold — a reader landing here saw a coloured rectangle and had to
+                scroll to find out which book it was. The `md:` column is a
+                fixed 300px track, so the cap only applies where the width is
+                the viewport's. */}
+            {/* `mx-auto` centres it in the mobile flex column, where the cover
+                is narrower than the measure and left-aligning it leaves a
+                lopsided gap down one side. `md:mx-0` because the desktop track
+                is exactly 300px and the cover fills it — centring there would
+                be a no-op today and a surprise the day the track changes. */}
             <BookCover
               title={book.title}
               coverUrl={book.coverUrl}
-              className="order-1 w-full text-[3rem]"
+              className="order-1 mx-auto w-3/5 text-[3rem] md:mx-0 md:w-full"
             />
 
             {detail.length > 0 ? (

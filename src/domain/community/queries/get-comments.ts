@@ -75,6 +75,7 @@ export async function getBookComments(
 export async function getPendingComments(
   tx: Tx,
   ctx: TenantContext,
+  input: { bookId?: string } = {},
 ): Promise<PendingCommentRow[]> {
   requireManager(ctx);
 
@@ -95,6 +96,15 @@ export async function getPendingComments(
       join books b on b.id = c.book_id
      where c.status = 'pending'
        and c.deleted_at is null
+       -- Optional, and absent means the whole shelf, which is what
+       -- /quan-ly/binh-luan asks for. Narrowed to one title by the manager's
+       -- own book page, where a comment waiting on *this* book is the thing
+       -- being managed. The same shape get-audit-log, get-readers-list and
+       -- get-borrow-request-queue each use for their own optional filters,
+       -- rather than a second near-identical statement -- which is the
+       -- argument getRecentComments below already records about itself.
+       and (${input.bookId ?? null}::uuid is null
+            or c.book_id = ${input.bookId ?? null})
      order by c.created_at asc, c.id asc
   `;
 
@@ -138,7 +148,17 @@ export async function getPendingComments(
 export async function getRecentComments(
   tx: Tx,
   ctx: TenantContext,
-  input: { status: "approved" | "rejected" | "hidden"; limit?: number },
+  input: {
+    status: "approved" | "rejected" | "hidden";
+    limit?: number;
+    /**
+     * One title rather than the whole shelf — the manager's own book page,
+     * which shows what a reader is currently reading under this book so the
+     * **Ẩn** button has something to name. Absent is every book, which is what
+     * `/quan-ly/binh-luan`'s three archive chips mean.
+     */
+    bookId?: string;
+  },
 ): Promise<PendingCommentRow[]> {
   requireManager(ctx);
 
@@ -159,6 +179,8 @@ export async function getRecentComments(
       join books b on b.id = c.book_id
      where c.status = ${input.status}::comment_status
        and c.deleted_at is null
+       and (${input.bookId ?? null}::uuid is null
+            or c.book_id = ${input.bookId ?? null})
      -- id beside created_at for the reason getPendingComments above records:
      -- created_at carries no unique constraint, and an ordering without a
      -- unique tiebreak repeats and drops rows across pages. (No backticks in

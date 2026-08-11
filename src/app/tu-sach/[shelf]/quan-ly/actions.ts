@@ -435,6 +435,32 @@ function backToQueue(
 }
 
 /**
+ * Where a comment decision lands when it was made somewhere other than the
+ * queue — today, `/quan-ly/sach/[slug]`, which shows this book's own waiting
+ * comments so a manager reading the title can act on them without leaving it.
+ *
+ * **A slug, never a path.** The three comment actions take `sach` as an
+ * optional *book slug* and this builds the URL from it; nothing a form submits
+ * is ever redirected to as given. A `ve=` carrying a return path would be an
+ * open redirect on a `"use server"` action reachable by anyone who can post to
+ * it, and the fact that the page only ever puts its own path in it is not a
+ * property of the action. A slug that names nothing lands on a 404 inside this
+ * shelf's own manager area, which is the worst it can do.
+ *
+ * Absent means the queue, so `/quan-ly/binh-luan` is untouched: it posts no
+ * `sach`, and `backToQueue`'s docstring above still describes what it gets.
+ */
+function afterCommentDecision(
+  base: string,
+  bookSlug: string,
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  if (bookSlug === "") backToQueue(base, "binh-luan", outcome);
+  const suffix = outcome.ok ? "" : `?${ACTION_ERROR_PARAM}=${outcome.code}`;
+  redirect(`${base}/sach/${encodeURIComponent(bookSlug)}${suffix}`);
+}
+
+/**
  * What a reject action returns when its reason box was left empty — the
  * command's own code, so the sentence a volunteer reads is `errors.ts`'s
  * ("Vui lòng ghi lý do từ chối.") rather than a second wording invented here.
@@ -850,7 +876,9 @@ export async function approveCommentAction(form: FormData): Promise<void> {
       })
     : INCOMPLETE;
 
-  backToQueue(managerBase(shelfSlug), "binh-luan", outcome);
+  // `sach` is optional and is a *slug*, not a path — see
+  // `afterCommentDecision`. The queue posts none and lands where it always did.
+  afterCommentDecision(managerBase(shelfSlug), field(form, "sach"), outcome);
 }
 
 /**
@@ -872,7 +900,7 @@ export async function rejectCommentAction(form: FormData): Promise<void> {
           reason,
         });
 
-  backToQueue(managerBase(shelfSlug), "binh-luan", outcome);
+  afterCommentDecision(managerBase(shelfSlug), field(form, "sach"), outcome);
 }
 
 /**
@@ -890,7 +918,7 @@ export async function hideCommentAction(form: FormData): Promise<void> {
       })
     : INCOMPLETE;
 
-  backToQueue(managerBase(shelfSlug), "binh-luan", outcome);
+  afterCommentDecision(managerBase(shelfSlug), field(form, "sach"), outcome);
 }
 
 /**
