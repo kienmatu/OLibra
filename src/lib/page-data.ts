@@ -422,6 +422,33 @@ export async function loadFrontDoorViewer(): Promise<{
   await ensureCryptoWired();
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value ?? null;
+
+  // **Return before `pool()`, not inside `frontDoorViewerFor`.** That function
+  // does short-circuit on a null token — its docstring says so, and this one
+  // said "only when a session cookie is actually present" on the strength of
+  // it — but `pool()` is an *argument*, so it is evaluated first regardless.
+  // `pool()` calls `connect()`, which throws `DATABASE_URL is not set` when
+  // that variable is absent. On a normal deployment it is set, so the bug was
+  // invisible: the query really was skipped, only the pool was built for
+  // nothing.
+  //
+  // Where it was not invisible is the Dockerfile's `smoke` stage, which boots
+  // `bun server.js` with **no environment at all** and fetches `/` to prove the
+  // image serves a page. `/` became `force-dynamic` in this same task so the
+  // chrome could greet a signed-in visitor, and from then on every smoke build
+  // got a 500 instead of the landing page. It was misread twice as a
+  // pre-existing fault — once by the task that worked around it in
+  // `compose.yaml`, once in the whole-branch review — because both compared
+  // against a commit that was already past this change rather than against
+  // `main`. CI caught it on the pull request, which is the first place the
+  // baseline was right.
+  //
+  // Guarding here rather than making `smoke` supply a dummy `DATABASE_URL` is
+  // the honest fix: a stranger reading the landing page genuinely needs no
+  // database, and a smoke test that has to be handed credentials to boot is
+  // proving less than the one that does not.
+  if (token === null) return null;
+
   return frontDoorViewerFor(pool(), { token, clock: systemClock });
 }
 
