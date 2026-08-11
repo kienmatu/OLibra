@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { filesUnder } from "../support/source-text";
+import { filesUnder, stripCommentsAndStrings } from "../support/source-text";
 
 /**
  * QA remediation Task 25. Audited 2026-08-10: 38 of the 47 `page.tsx` files
@@ -31,43 +31,38 @@ import { filesUnder } from "../support/source-text";
  * architecture test in this directory accepts: this looks for the shape
  * `export const metadata` or `export function generateMetadata` /
  * `export async function generateMetadata` in the file's own text, with
- * comments stripped first (`withoutComments`) so a docstring that *mentions*
- * "generateMetadata" — this one does, several times — cannot be mistaken for
- * a page that ships it. It does not check that the title is non-empty, in
- * Vietnamese, or reachable from a `<head>` a browser actually renders;
- * `next build`'s own metadata resolution is the tool for that, and "the
- * export exists" is the property a route-file sweep can check cheaply and
- * honestly.
+ * comments and strings stripped first (`stripCommentsAndStrings`) so a
+ * docstring that *mentions* "generateMetadata" — this one does, several times
+ * — cannot be mistaken for a page that ships it. It does not check that the
+ * title is non-empty, in Vietnamese, or reachable from a `<head>` a browser
+ * actually renders; `next build`'s own metadata resolution is the tool for
+ * that, and "the export exists" is the property a route-file sweep can check
+ * cheaply and honestly.
  *
- * **`withoutComments`, copied from `pages-reading-the-database-are-
- * dynamic.test.ts`, not `stripCommentsAndStrings` from `../support/source-
- * text.ts`.** The shared helper strips quoted strings *before* line comments,
- * and this codebase's own docstrings are prose full of English contractions
- * inside `//` lines ("shelf's", "editor's", "form's" …) — an apostrophe in one
- * such comment pairs with the next single quote the string-stripping regex
- * finds, anywhere later in the file, and deletes every real line in between as
- * if it were part of one giant string literal. Measured on this branch:
- * `stripCommentsAndStrings` applied to `src/app/quan-tri/tu-sach/page.tsx` —
- * which has shipped `export const metadata` since U3 — silently ate that line
- * along with roughly 170 lines around it, because a `//`-comment at line 108
- * contains "shelf's" and the next unescaped `'` the regex meets is deep inside
- * a later JSX comment. Confirmed by walking the five replacements one at a
- * time: `metadata` survives block-comment, double-quote and — critically —
- * *no* single-quote step if line comments are removed first, and disappears
- * exactly at the single-quote step otherwise. `withoutComments` strips block
- * comments and then line comments directly, with no string-literal pass in
- * between, so no apostrophe in a comment ever gets read as a string delimiter.
- * It is not exported from `../support/source-text.ts` because the bug above
- * is that shared helper's, not this file's to carry silently — fixing it
- * there is a separate change with its own blast radius across every test that
- * already depends on its current behaviour, and is out of this task's scope.
+ * **This used to carry a local `withoutComments`, not `stripCommentsAndStrings`
+ * from `../support/source-text.ts`, over a bug in the shared helper — now
+ * fixed there instead of routed around here.** The shared helper stripped
+ * quoted strings *before* line comments, and this codebase's own docstrings
+ * are prose full of English contractions inside `//` lines ("shelf's",
+ * "editor's", "form's" …): an apostrophe in one such comment paired with the
+ * next single quote the string-stripping regex found, anywhere later in the
+ * file, and deleted every real line in between as if it were part of one
+ * giant string literal. Measured on this branch, two independent instances:
+ * `src/app/quan-tri/tu-sach/page.tsx`'s `export const metadata` (which has
+ * shipped since U3) and `src/app/tu-sach/[shelf]/ho-so/tong-quan/page.tsx`'s
+ * own `export const metadata` (added by this very task) were both silently
+ * swallowed, each along with roughly a hundred real lines around it. Code
+ * review on this task caught both and asked for the root fix rather than a
+ * second local workaround: `stripCommentsAndStrings` itself now strips line
+ * comments right after block comments, before any string is touched, guarded
+ * against a `:` immediately before the `//` so a still-quoted `"http://…"` is
+ * not itself misread as a comment start — the same guard `pages-reading-the-
+ * database-are-dynamic.test.ts`'s own (still local, still separate) `without
+ * Comments` uses, so the two no longer disagree about which of two defensible
+ * orderings is correct. See that function's own docstring in `../support/
+ * source-text.ts` for the fuller account and for what re-running the full
+ * suite after the reorder confirmed.
  */
-function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
-}
-
 function pageFiles(): string[] {
   return filesUnder("src/app")
     .filter((f) => /\/page\.tsx$/.test(f.replace(/\\/g, "/")))
@@ -86,7 +81,7 @@ const HAS_TITLE_EXPORT =
 test("every page.tsx exports metadata or generateMetadata", () => {
   const offenders = pageFiles()
     .filter((file) => {
-      const source = withoutComments(readFileSync(file, "utf8"));
+      const source = stripCommentsAndStrings(readFileSync(file, "utf8"));
       return !HAS_TITLE_EXPORT.test(source);
     })
     .map((f) => f.replace(process.cwd() + "/", ""));
@@ -133,8 +128,12 @@ test("the guard can tell a page with a title apart from one without", () => {
     }
   `;
 
-  expect(HAS_TITLE_EXPORT.test(withoutComments(noExport))).toBe(false);
-  expect(HAS_TITLE_EXPORT.test(withoutComments(constMetadata))).toBe(true);
-  expect(HAS_TITLE_EXPORT.test(withoutComments(generateMetadataFn))).toBe(true);
-  expect(HAS_TITLE_EXPORT.test(withoutComments(onlyInAComment))).toBe(false);
+  expect(HAS_TITLE_EXPORT.test(stripCommentsAndStrings(noExport))).toBe(false);
+  expect(HAS_TITLE_EXPORT.test(stripCommentsAndStrings(constMetadata))).toBe(true);
+  expect(HAS_TITLE_EXPORT.test(stripCommentsAndStrings(generateMetadataFn))).toBe(
+    true,
+  );
+  expect(HAS_TITLE_EXPORT.test(stripCommentsAndStrings(onlyInAComment))).toBe(
+    false,
+  );
 });
