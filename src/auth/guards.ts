@@ -268,15 +268,38 @@ async function userIdentity(
  * three pages carry no session cookie at all, and `resolveSession` is itself
  * a query — the short-circuit below is what keeps a stranger's visit from
  * paying for one just to learn what the request already said.
+ *
+ * **`shelves` is here because the chrome above the fold needs it** (U6 §5).
+ * Task 6 gave this header a name and a way out and stopped there: a reader
+ * signed in and standing on `/lien-he` still had no link to their own shelf,
+ * and `/tu-sach` below the header offered them "Đăng nhập" for a shelf they
+ * were already a member of. Both are the same missing fact, so it is resolved
+ * once here rather than twice in two pages.
+ *
+ * It costs a second query, after `userIdentity`, and only for a request that
+ * already has a valid session — a stranger still short-circuits above without
+ * touching the database. Folding it into `userIdentity`'s statement would mean
+ * joining `memberships` under `olibra_app`, where the tenant policy makes every
+ * row invisible without a shelf GUC this caller has no shelf to set; see
+ * `shelvesFor` for why that read escalates and why it is not the cross-tenant
+ * browse INV-10 stops.
  */
 export async function frontDoorViewerFor(
   sql: Sql,
   input: { token: string | null; clock: Clock },
-): Promise<{ name: string; isSuperAdmin: boolean } | null> {
+): Promise<{
+  name: string;
+  isSuperAdmin: boolean;
+  shelves: MembershipShelf[];
+} | null> {
   if (!input.token) return null;
   const session = await resolveSession(sql, input.token, input.clock);
   if (!session) return null;
-  return userIdentity(sql, session.userId);
+  const identity = await userIdentity(sql, session.userId);
+  // A session whose user was soft-deleted between `resolveSession` and here is
+  // nobody, not a nameless somebody with a list of shelves.
+  if (!identity) return null;
+  return { ...identity, shelves: await shelvesFor(sql, session.userId) };
 }
 
 /**
@@ -300,6 +323,54 @@ export async function isSuperAdminUser(sql: Sql, userId: string): Promise<boolea
 }
 
 /**
+ * Every active shelf `userId` is an active member of, by name.
+ *
+ * **Cross-shelf by nature**, and that is why it escalates: "every shelf I
+ * belong to" cannot be answered from inside any one shelf's RLS scope — the
+ * same reason `resolveShelfId` above needs its own public-read policy rather
+ * than the ordinary tenant one. This runs as `olibra_admin` deliberately and
+ * visibly, but scoped to the caller's own `userId` and nothing else: a person
+ * listing their own memberships is not the cross-tenant browse INV-10 exists
+ * to stop, the same distinction `seed()` (`src/db/seed.ts`) draws for writing
+ * across shelves in one pass.
+ *
+ * **`landingShelfFor` below is one line over this**, and that is the point of
+ * extracting it. This statement was that function's body, returning `slug`
+ * alone, until U6 needed the same rows in two more places: the front door's
+ * "Tủ sách của tôi" link, and the portal directory's per-row action. Both need
+ * the *name* as well, and both need the count. Copying the query would have put
+ * the escalation and the `status = 'active'` pair in three files; copying the
+ * count test would have put "a member of exactly one shelf" in three.
+ *
+ * Ordered by name so the portal and the header agree about which shelf comes
+ * first, rather than inheriting whatever order the planner happened to return.
+ */
+export interface MembershipShelf {
+  slug: string;
+  name: string;
+}
+
+export async function shelvesFor(
+  sql: Sql,
+  userId: string,
+): Promise<MembershipShelf[]> {
+  return sql.begin(async (tx) => {
+    await tx`set local role olibra_admin`;
+    return tx<MembershipShelf[]>`
+      select b.slug, b.name
+      from memberships m
+      join bookshelves b on b.id = m.bookshelf_id
+      where m.user_id = ${userId}
+        and m.status = 'active'
+        and m.deleted_at is null
+        and b.status = 'active'
+        and b.deleted_at is null
+      order by b.name
+    `;
+  });
+}
+
+/**
  * Where a freshly-signed-in person should land (IMPORTANT 6).
  *
  * A member of exactly one active shelf goes straight there — no reason to
@@ -309,33 +380,16 @@ export async function isSuperAdminUser(sql: Sql, userId: string): Promise<boolea
  * choose or wait — never on some other shelf's page, which is what
  * hard-coding a single fixture shelf here used to do.
  *
- * Cross-shelf by nature: "every shelf I belong to" cannot be answered from
- * inside any one shelf's RLS scope, the same reason `resolveShelfId` above
- * needs its own public-read policy rather than the ordinary tenant one. This
- * runs as `olibra_admin` for that reason, deliberately and visibly — but
- * scoped to the caller's own `userId` and nothing else: a person listing
- * their own memberships is not the cross-tenant browse INV-10 exists to
- * stop, the same distinction `seed()` (`src/db/seed.ts`) draws for writing
- * across shelves in one pass.
+ * The rows come from `shelvesFor` above, which owns the escalation this used
+ * to perform itself; what stays here is the rule about the count, which is the
+ * only part of the decision this function makes.
  */
 export async function landingShelfFor(
   sql: Sql,
   userId: string,
 ): Promise<string | null> {
-  const rows = await sql.begin(async (tx) => {
-    await tx`set local role olibra_admin`;
-    return tx<{ slug: string }[]>`
-      select b.slug
-      from memberships m
-      join bookshelves b on b.id = m.bookshelf_id
-      where m.user_id = ${userId}
-        and m.status = 'active'
-        and m.deleted_at is null
-        and b.status = 'active'
-        and b.deleted_at is null
-    `;
-  });
-  return rows.length === 1 ? rows[0].slug : null;
+  const shelves = await shelvesFor(sql, userId);
+  return shelves.length === 1 ? shelves[0].slug : null;
 }
 
 /** BR §13.3: the interface hiding an action is never the security control. */

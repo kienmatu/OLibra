@@ -3,7 +3,12 @@ import { notFound, redirect } from "next/navigation";
 // Relative specifiers, not the `@/` alias: `tests/lib/page-data.test.ts`
 // imports this module, and Vitest resolves no alias (see any file under
 // `src/auth/`, which the suite has always imported the same way).
-import { adminContextFor, contextFor, frontDoorViewerFor } from "../auth/guards";
+import {
+  adminContextFor,
+  contextFor,
+  frontDoorViewerFor,
+  type MembershipShelf,
+} from "../auth/guards";
 import { resolveSession } from "../auth/session";
 import { pool } from "../db/client";
 import { systemClock } from "../domain/kernel/clock";
@@ -417,6 +422,13 @@ export async function loadPublicPage<T>(read: (tx: Tx) => Promise<T>): Promise<T
 export async function loadFrontDoorViewer(): Promise<{
   name: string;
   isSuperAdmin: boolean;
+  /**
+   * Every shelf this person is an active member of (U6 §7) — what
+   * `FrontDoorHeader`'s "Tủ sách của tôi" link and `/tu-sach`'s per-row action
+   * are both built from. Empty for a super admin, who belongs to none by
+   * design, and for a reader whose registration has not been approved yet.
+   */
+  shelves: MembershipShelf[];
 } | null> {
   // See `loadPage`'s docstring for why every seam calls this first.
   await ensureCryptoWired();
