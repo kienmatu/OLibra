@@ -353,10 +353,15 @@ export default async function BookDetailPage({
                 scroll to find out which book it was. The `md:` column is a
                 fixed 300px track, so the cap only applies where the width is
                 the viewport's. */}
+            {/* `mx-auto` centres it in the mobile flex column, where the cover
+                is narrower than the measure and left-aligning it leaves a
+                lopsided gap down one side. `md:mx-0` because the desktop track
+                is exactly 300px and the cover fills it — centring there would
+                be a no-op today and a surprise the day the track changes. */}
             <BookCover
               title={book.title}
               coverUrl={book.coverUrl}
-              className="order-1 w-3/5 text-[3rem] md:w-full"
+              className="order-1 mx-auto w-3/5 text-[3rem] md:mx-0 md:w-full"
             />
 
             {detail.length > 0 ? (
