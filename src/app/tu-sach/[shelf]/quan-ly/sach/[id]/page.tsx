@@ -3,12 +3,15 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import type { ManagerCopyRow } from "@/domain/catalogue/queries/get-book-detail-manager";
 import {
+  AlertCircle,
   Archive,
   BookDown,
   BookOpen,
   BookUp,
+  Check,
   CircleCheckBig,
   ClipboardList,
+  EyeOff,
   HelpCircle,
   Pencil,
   Plus,
@@ -18,22 +21,32 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Card } from "@/components/ui/card";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { ConditionPicker } from "@/components/condition-picker";
 import { DonorFields } from "@/components/donor-fields";
 import { copyStateTransition, type CopyState } from "@/domain/catalogue/policy";
+import { messageFor } from "@/domain/kernel/errors";
+import {
+  getPendingComments,
+  getRecentComments,
+} from "@/domain/community/queries/get-comments";
 import { getReadersList } from "@/domain/members/queries/get-readers-list";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
+import { refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 import { cn } from "@/lib/utils";
 import { CONDITION_LABELS, COPY_STATE_STATUS, STATUS } from "@/lib/status";
 import {
   addCopiesAction,
+  approveCommentAction,
   assessConditionAction,
+  hideCommentAction,
   markCopyFoundOnBookAction,
+  rejectCommentAction,
   reportCopyLostOnBookAction,
   retireCopyOnBookAction,
 } from "../../actions";
@@ -56,6 +69,17 @@ export const dynamic = "force-dynamic";
 
 /** SDD §6.6, the same formatter the other lending screens use. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
+
+/**
+ * How many approved comments this page shows under a book, passed to
+ * `getRecentComments` rather than left to its own default.
+ *
+ * One constant so the number fetched and the number the caption names cannot
+ * drift: the page says "Chỉ hiện N bình luận mới nhất" precisely when the list
+ * came back full, and a hard-coded 10 beside a query default of 10 is two
+ * places for that to stop being true.
+ */
+const RECENT_APPROVED_LIMIT = 5;
 
 /**
  * A title's management page (OPS §3.3's `GetBookDetail` (manager)), and — per
@@ -180,28 +204,59 @@ export async function generateMetadata({
 
 export default async function ManagerBookDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string; id: string }>;
+  /** `?loi=` from a comment decision made on this page — read through
+   *  `search-params.ts`, never destructured, because a repeated key arrives as
+   *  an array. */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug, id } = await params;
+  const refused = refusalFrom(await searchParams);
 
-  const { shelf, viewer, counts, book, donors } = await loadPage(
-    slug,
-    async (tx, ctx, viewer) => ({
-      shelf: await readShelf(tx, ctx),
-      viewer,
-      counts: await getManagerBadgeCounts(tx, ctx),
-      book: await bookFromSlug(tx, ctx, id),
-      // Only members who could plausibly be standing at the shelf handing
-      // over a book — `DonorFields`' own docstring states the rule, and
-      // `sach/moi/page.tsx` applies the identical filter for the identical
-      // picker.
-      donors: await getReadersList(tx, ctx, {
-        status: "active",
-        pageSize: DONOR_PAGE_SIZE,
-      }),
-    }),
-  );
+  const { shelf, viewer, counts, book, donors, waiting, published } =
+    await loadPage(slug, async (tx, ctx, viewer) => {
+      const book = await bookFromSlug(tx, ctx, id);
+      const bookId = book?.book.bookId;
+      return {
+        shelf: await readShelf(tx, ctx),
+        viewer,
+        counts: await getManagerBadgeCounts(tx, ctx),
+        book,
+        // Only members who could plausibly be standing at the shelf handing
+        // over a book — `DonorFields`' own docstring states the rule, and
+        // `sach/moi/page.tsx` applies the identical filter for the identical
+        // picker.
+        donors: await getReadersList(tx, ctx, {
+          status: "active",
+          pageSize: DONOR_PAGE_SIZE,
+        }),
+        /**
+         * This title's own comments — the two states that still have a
+         * decision in them.
+         *
+         * `waiting` is what a manager reading this book came here to act on;
+         * `published` is what a reader is looking at on the same book's
+         * public page right now, and it is here so **Ẩn** has something to
+         * name. Rejected and hidden comments are not read: neither has a
+         * command that moves it anywhere, and `/quan-ly/binh-luan`'s own
+         * chips already archive them.
+         *
+         * Both are skipped entirely when the slug named no book, because the
+         * page 404s a line below and a query for `undefined` would be a
+         * shelf-wide read whose rows this page would then throw away.
+         */
+        waiting: bookId ? await getPendingComments(tx, ctx, { bookId }) : [],
+        published: bookId
+          ? await getRecentComments(tx, ctx, {
+              status: "approved",
+              bookId,
+              limit: RECENT_APPROVED_LIMIT,
+            })
+          : [],
+      };
+    });
   if (!book) notFound();
 
   const base = `/tu-sach/${slug}/quan-ly`;
@@ -623,6 +678,177 @@ export default async function ManagerBookDetailPage({
         <p className="mt-3 text-[14px] text-meta">
           Lịch sử mượn không bao giờ bị xoá, kể cả khi bản sách đã ngừng dùng.
         </p>
+      </section>
+
+      {/**
+       * This title's comments, and the decisions still open on them.
+       *
+       * **Why here and not only in `/quan-ly/binh-luan`.** That screen is a
+       * queue — a stack of cards from every book on the shelf, worked through
+       * in order. This is the page a manager is on when they are thinking
+       * about *this book*, and until now a comment waiting on it was invisible
+       * from here: they would have had to leave, open the queue, and find the
+       * right card among every other title's. The queue is unchanged and is
+       * still where a manager works a backlog; this is the same rows, reachable
+       * from the one page that is about the book they name.
+       *
+       * INV-9 is not enforced here, exactly as `/quan-ly/binh-luan`'s docstring
+       * says it must not be: "a comment is publicly visible only when approved"
+       * lives in `getBookComments`' own predicate, and this is a screen where a
+       * manager *changes* the status. A page that filtered would be a second
+       * definition of visibility the book's public page could disagree with.
+       */}
+      <section className="mt-10">
+        <h2 className="text-xl font-semibold">Bình luận</h2>
+
+        {refused ? (
+          <p
+            role="alert"
+            className="mt-4 flex max-w-2xl items-center gap-2 rounded-card border border-brick bg-brick/8 px-4 py-3 text-[15px] text-brick"
+          >
+            <AlertCircle
+              aria-hidden
+              className="size-5 shrink-0"
+              strokeWidth={1.75}
+            />
+            {messageFor(refused)}
+          </p>
+        ) : null}
+
+        {waiting.length === 0 && published.length === 0 ? (
+          <p className="mt-3 text-[15px] text-meta">
+            Chưa có bình luận nào cho cuốn này.
+          </p>
+        ) : null}
+
+        {waiting.length > 0 ? (
+          <div className="mt-4 max-w-2xl space-y-4">
+            <p className="text-[15px] text-meta">
+              {NUMBER.format(waiting.length)} bình luận đang chờ duyệt. Bình luận
+              chỉ hiện trên trang sách sau khi được duyệt.
+            </p>
+
+            {waiting.map((comment) => (
+              <Card key={comment.id}>
+                <p className="text-[15px] font-medium">
+                  {comment.authorName}
+                  <span className="ml-2 text-[14px] font-normal text-meta">
+                    gửi {formatInstant(comment.createdAt)}
+                  </span>
+                </p>
+                {/* Plain text, escaped by React — BR §5.4, and what
+                    `inv-09-comment-visibility.test.ts` pins with a `<script>`
+                    body. Nothing about what a child wrote is interpreted. */}
+                <p className="mt-2 text-[16px] whitespace-pre-line">
+                  {comment.body}
+                </p>
+
+                <div className="mt-5 flex flex-wrap items-start gap-4 border-t border-hairline pt-5">
+                  <form action={approveCommentAction}>
+                    <input type="hidden" name="tu-sach" value={slug} />
+                    <input type="hidden" name="binh-luan" value={comment.id} />
+                    {/* The slug, so the decision comes back to *this* page
+                        rather than to the queue. `afterCommentDecision` builds
+                        the URL from it — a form never names a path. */}
+                    <input type="hidden" name="sach" value={book.book.slug} />
+                    <SubmitButton
+                      icon={
+                        <Check aria-hidden className="size-5" strokeWidth={1.75} />
+                      }
+                    >
+                      Duyệt bình luận
+                    </SubmitButton>
+                  </form>
+
+                  {/* The same `<details>` the queue uses, for the same reason:
+                      the reason is required and asking for it in place keeps
+                      the decision on the card being read. */}
+                  <details className="min-w-0">
+                    <summary className="inline-flex h-12 cursor-pointer list-none items-center justify-center gap-2 rounded-control border border-brick px-5 text-[16px] font-semibold text-brick transition-colors hover:bg-brick/8 [&::-webkit-details-marker]:hidden">
+                      Từ chối
+                    </summary>
+                    <form
+                      action={rejectCommentAction}
+                      className="mt-3 w-full max-w-md space-y-3"
+                    >
+                      <input type="hidden" name="tu-sach" value={slug} />
+                      <input type="hidden" name="binh-luan" value={comment.id} />
+                      <input type="hidden" name="sach" value={book.book.slug} />
+                      <Field
+                        label="Lý do từ chối"
+                        required
+                        hint="Bạn đọc sẽ thấy lý do này."
+                        htmlFor={`ly-do-${comment.id}`}
+                      >
+                        <Input id={`ly-do-${comment.id}`} name="ly-do" required />
+                      </Field>
+                      <SubmitButton variant="outline">
+                        Từ chối bình luận
+                      </SubmitButton>
+                    </form>
+                  </details>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : null}
+
+        {published.length > 0 ? (
+          <div className="mt-8 max-w-2xl">
+            <h3 className="text-[16px] font-semibold">Đang hiện trên trang sách</h3>
+            <ul className="mt-3 divide-y divide-hairline border-y border-hairline">
+              {published.map((comment) => (
+                <li
+                  key={comment.id}
+                  className="flex flex-wrap items-start justify-between gap-4 py-4"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15px] font-medium">
+                      {comment.authorName}
+                      <span className="ml-2 text-[14px] font-normal text-meta">
+                        {formatInstant(comment.createdAt)}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-[16px] whitespace-pre-line">
+                      {comment.body}
+                    </p>
+                  </div>
+                  {/* BR §7.5 — pulling something already public. The reason is
+                      optional here where a rejection's is required, and OPS
+                      §4.4 draws that distinction: a rejection is a message to
+                      an author who is waiting to hear, hiding is a manager
+                      removing something published hours or months ago, often
+                      with nobody to tell. */}
+                  <form action={hideCommentAction} className="shrink-0">
+                    <input type="hidden" name="tu-sach" value={slug} />
+                    <input type="hidden" name="binh-luan" value={comment.id} />
+                    <input type="hidden" name="sach" value={book.book.slug} />
+                    <SubmitButton variant="quiet" size="sm">
+                      <EyeOff aria-hidden className="size-4" strokeWidth={1.75} />
+                      Ẩn
+                    </SubmitButton>
+                  </form>
+                </li>
+              ))}
+            </ul>
+            {/* `getRecentComments` is capped rather than paged, deliberately —
+                see its docstring. Said out loud rather than left to be noticed,
+                because a silently truncated list reads as a complete one. */}
+            {published.length === RECENT_APPROVED_LIMIT ? (
+              <p className="mt-3 text-[14px] text-meta">
+                Chỉ hiện {NUMBER.format(RECENT_APPROVED_LIMIT)} bình luận mới nhất.
+                Xem đầy đủ ở{" "}
+                <Link
+                  href={`${base}/binh-luan?trang-thai=approved`}
+                  className="font-medium text-sage hover:underline"
+                >
+                  trang bình luận
+                </Link>
+                .
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </ManagerShell>
   );
