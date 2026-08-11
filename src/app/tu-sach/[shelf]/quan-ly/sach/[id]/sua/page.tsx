@@ -146,7 +146,19 @@ export default async function EditBookPage({
         </p>
       ) : null}
 
-      <form action={updateBookAction} className="mt-8 max-w-2xl space-y-10">
+      <form
+        action={updateBookAction}
+        // QA remediation T27: not one of the three pages that task named, but
+        // `<BookFields>` is the same component `sach/moi` uses and now
+        // carries `invalidHint` text on its three required fields
+        // (`src/components/book-fields.tsx`). Leaving this form without
+        // `noValidate` would not have left it merely unfixed — it would have
+        // shown the browser's own bubble *and* the Vietnamese line at once,
+        // a regression this edit form did not have before. `Field`'s own
+        // docstring carries the fuller argument for the pair.
+        noValidate
+        className="mt-8 max-w-2xl space-y-10"
+      >
         <input type="hidden" name="tu-sach" value={slug} />
         <input type="hidden" name="sach-id" value={book.bookId} />
         <input type="hidden" name="sach" value={book.slug} />

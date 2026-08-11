@@ -157,6 +157,12 @@ export default async function RegisterReaderOnBehalfPage({
 
       <form
         action={registerReaderOnBehalfAction}
+        // QA remediation T27. See `Field`'s `invalidHint` docstring
+        // (`src/components/ui/field.tsx`): the browser's own validation
+        // bubble speaks the browser's UI language, not this document's
+        // `lang="vi"`, and `noValidate` is what lets the Vietnamese
+        // `invalidHint` text on the four required fields below show instead.
+        noValidate
         className="mt-8 max-w-xl space-y-10"
       >
         <input type="hidden" name="tu-sach" value={slug} />
@@ -173,6 +179,7 @@ export default async function RegisterReaderOnBehalfPage({
             required
             htmlFor="ho-ten"
             hint="Ghi đầy đủ như trong sổ giáo xứ."
+            invalidHint="Vui lòng nhập họ và tên."
           >
             <Input
               id="ho-ten"
@@ -186,7 +193,12 @@ export default async function RegisterReaderOnBehalfPage({
               `assertStorableDate` accepts. A free-text box here is how
               "02/04/2015" gets stored as 3 February — measured, in
               `domain/members/profile-fields.ts`. */}
-          <Field label="Ngày sinh" required htmlFor="ngay-sinh">
+          <Field
+            label="Ngày sinh"
+            required
+            htmlFor="ngay-sinh"
+            invalidHint="Vui lòng chọn ngày sinh."
+          >
             <Input id="ngay-sinh" name="ngay-sinh" type="date" required />
           </Field>
         </div>
@@ -203,6 +215,7 @@ export default async function RegisterReaderOnBehalfPage({
             required
             htmlFor="ten-cha"
             hint="Giúp phân biệt các em trùng tên."
+            invalidHint="Vui lòng nhập tên cha."
           >
             <Input
               id="ten-cha"
@@ -212,7 +225,12 @@ export default async function RegisterReaderOnBehalfPage({
             />
           </Field>
 
-          <Field label="Tên mẹ" required htmlFor="ten-me">
+          <Field
+            label="Tên mẹ"
+            required
+            htmlFor="ten-me"
+            invalidHint="Vui lòng nhập tên mẹ."
+          >
             <Input
               id="ten-me"
               name="ten-me"
@@ -226,6 +244,10 @@ export default async function RegisterReaderOnBehalfPage({
             required
             htmlFor="dien-thoai"
             hint="Số của cha mẹ cũng được. Đây là cách tủ sách liên lạc khi cần nhắc trả sách."
+            // Same reused sentence `/dang-ky` pairs with this field's own
+            // shape — see that page's comment on why `messageFor` rather
+            // than new copy.
+            invalidHint={messageFor("phone_invalid")}
           >
             <Input
               id="dien-thoai"

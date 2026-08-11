@@ -207,7 +207,17 @@ export default async function NewBookPage({
         </p>
       ) : null}
 
-      <form action={createBookAction} className="mt-8 max-w-2xl space-y-10">
+      <form
+        action={createBookAction}
+        // QA remediation T27. See `Field`'s `invalidHint` docstring
+        // (`src/components/ui/field.tsx`) for the full argument: the browser's
+        // own validation bubble speaks whatever language the browser's UI
+        // runs in, not this document's `lang="vi"`, and `noValidate` is what
+        // lets the Vietnamese `invalidHint` text on each required field below
+        // (three inside `BookFields`, one here) show in its place.
+        noValidate
+        className="mt-8 max-w-2xl space-y-10"
+      >
         <input type="hidden" name="tu-sach" value={slug} />
 
         <BookFields categories={categories} defaultValues={bookDefaults} />
@@ -224,6 +234,7 @@ export default async function NewBookPage({
             required
             htmlFor="so-ban"
             hint="Tủ sách tự đặt mã cho từng bản, không cần điền."
+            invalidHint="Vui lòng nhập số bản sách, tối thiểu 1."
           >
             <Input
               id="so-ban"

@@ -54,7 +54,12 @@ export function BookFields({
 }) {
   return (
     <div className="space-y-6">
-      <Field label="Tên sách" required htmlFor="ten-sach">
+      <Field
+        label="Tên sách"
+        required
+        htmlFor="ten-sach"
+        invalidHint="Vui lòng nhập tên sách."
+      >
         <Input
           id="ten-sach"
           name="ten-sach"
@@ -64,7 +69,12 @@ export function BookFields({
         />
       </Field>
 
-      <Field label="Tác giả" required htmlFor="tac-gia">
+      <Field
+        label="Tác giả"
+        required
+        htmlFor="tac-gia"
+        invalidHint="Vui lòng nhập tên tác giả."
+      >
         <Input
           id="tac-gia"
           name="tac-gia"
@@ -76,8 +86,21 @@ export function BookFields({
 
       {/* `categories.slug`, not a name and not an id — a global table with a
           plain `unique (slug)`, which is the stable handle a form can post
-          (`create-book.ts`, `update-book.ts`). */}
-      <Field label="Thể loại" required htmlFor="the-loai">
+          (`create-book.ts`, `update-book.ts`).
+
+          QA remediation T27: an untouched required `<select>` left on its
+          disabled placeholder option is exactly the case a browser shows
+          "Please select an item in the list" for, in the browser's own UI
+          language rather than this page's `lang="vi"` — `invalidHint` below
+          is the Vietnamese line `Field` shows instead once the surrounding
+          `<form>` carries `noValidate` (`sach/moi/page.tsx`,
+          `sach/[id]/sua/page.tsx`). */}
+      <Field
+        label="Thể loại"
+        required
+        htmlFor="the-loai"
+        invalidHint="Vui lòng chọn thể loại."
+      >
         <Select
           id="the-loai"
           name="the-loai"
