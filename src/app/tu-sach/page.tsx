@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ChevronRight, MapPin, Search } from "lucide-react";
+import { ChevronRight, Library, MapPin, Search } from "lucide-react";
 import { Input } from "@/components/ui/field";
+import { Pill } from "@/components/ui/pill";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
 import { listPublicShelves } from "@/domain/portal/queries/list-public-shelves";
 import { loadFrontDoorViewer, loadPublicPage } from "@/lib/page-data";
@@ -71,7 +72,13 @@ export default async function PortalPage({
   // content, is what needed to know who is asking — see
   // `loadFrontDoorViewer`'s docstring for why that is a second, separate
   // read from `listPublicShelves` above rather than one query doing both.
+  //
+  // U6 §4: and now the page's own content needs it too. Task 6 wired the
+  // chrome and stopped there, so this page went on greeting a reader by name
+  // in the header and offering them "Đăng nhập" for the shelf they were
+  // already a member of, three centimetres below. Same read, no second query.
   const viewer = await loadFrontDoorViewer();
+  const mine = new Set(viewer?.shelves.map((s) => s.slug) ?? []);
 
   return (
     <>
@@ -83,9 +90,15 @@ export default async function PortalPage({
 
       <main className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-[28px] leading-tight font-semibold">Tìm tủ sách</h1>
+        {/* Two sentences, because the page means two different things to the
+            two people reading it. A stranger is here to find their parish and
+            get an account; a member is here because the directory is the only
+            cross-shelf page in the application, and telling *them* to sign in
+            is telling somebody who is signed in to sign in. */}
         <p className="mt-1.5 text-meta">
-          Chọn tủ sách của giáo xứ mình để đăng nhập, hoặc để đăng ký nếu bạn chưa
-          có tài khoản.
+          {viewer
+            ? "Tủ sách của bạn ở đây. Bạn cũng có thể xem các tủ sách khác trong hệ thống."
+            : "Chọn tủ sách của giáo xứ mình để đăng nhập, hoặc để đăng ký nếu bạn chưa có tài khoản."}
         </p>
 
         <form action="/tu-sach" className="mt-7">
@@ -102,43 +115,85 @@ export default async function PortalPage({
 
         {results.length > 0 ? (
           <ul className="mt-8 divide-y divide-hairline border-y border-hairline">
-            {results.map((shelf) => (
-              <li key={shelf.slug}>
-                {/* Nit 14 / IMPORTANT 3: `?tu-sach=` was on every one of these
+            {results.map((shelf) => {
+              /**
+               * U6 §4. Where this row goes depends on who is reading it, and
+               * until now it went to `/dang-nhap` for everybody — including a
+               * reader whose own shelf it was.
+               *
+               * Three cases, and the middle one is the one worth naming: a
+               * signed-in visitor looking at a shelf they do *not* belong to
+               * wants to register for it, not to sign in again. `/dang-ky`
+               * reads the same `SHELF_PARAM` and renders that shelf's own
+               * registration form.
+               */
+              const isMine = mine.has(shelf.slug);
+              const href = isMine
+                ? `/tu-sach/${shelf.slug}`
+                : `/${viewer ? "dang-ky" : "dang-nhap"}?${SHELF_PARAM}=${encodeURIComponent(shelf.slug)}`;
+
+              return (
+                <li key={shelf.slug}>
+                  {/* Nit 14 / IMPORTANT 3: `?tu-sach=` was on every one of these
                     links from the day the portal shipped and was read by
                     nothing, while the sign-in page it points at took its
                     heading from a fixture and named Đồng Tháp to everybody.
                     `SHELF_PARAM` is now the one spelling both ends share. */}
-                <Link
-                  href={`/dang-nhap?${SHELF_PARAM}=${encodeURIComponent(shelf.slug)}`}
-                  className="group flex min-h-11 items-center gap-4 py-5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="block text-lg font-semibold group-hover:text-terracotta-ink">
-                      {shelf.name}
-                    </span>
-                    {/* A shelf onboarded without an address is a directory
+                  <Link
+                    href={href}
+                    className="group flex min-h-11 items-center gap-4 py-5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2.5">
+                        <span className="text-lg font-semibold group-hover:text-terracotta-ink">
+                          {shelf.name}
+                        </span>
+                        {/* The row that behaves differently looks different.
+                          `Pill` because this is a state — your membership —
+                          and §17.2's rule that a state carries an icon and a
+                          word applies to it as much as to a copy's. */}
+                        {isMine ? (
+                          <Pill
+                            icon={Library}
+                            label="Tủ sách của bạn"
+                            tone="sage"
+                          />
+                        ) : null}
+                      </span>
+                      {/* A shelf onboarded without an address is a directory
                         entry with a name and no address — a thinner row, not
                         an error, and not a MapPin pointing at nothing. */}
-                    {shelf.location ? (
-                      <span className="mt-1 flex items-start gap-2 text-[15px] text-meta">
-                        <MapPin
-                          aria-hidden
-                          className="mt-0.5 size-[18px] shrink-0"
-                          strokeWidth={1.75}
-                        />
-                        {shelf.location}
+                      {shelf.location ? (
+                        <span className="mt-1 flex items-start gap-2 text-[15px] text-meta">
+                          <MapPin
+                            aria-hidden
+                            className="mt-0.5 size-[18px] shrink-0"
+                            strokeWidth={1.75}
+                          />
+                          {shelf.location}
+                        </span>
+                      ) : null}
+                    </div>
+                    {/* The action in words, for a signed-in reader only. A
+                      stranger's every row does the same thing — sign in — so
+                      naming it on each of them is five copies of one sentence
+                      the paragraph above already carries. A member's rows do
+                      two different things, which is exactly when the word
+                      earns its place beside the chevron. */}
+                    {viewer ? (
+                      <span className="shrink-0 text-[15px] text-meta group-hover:text-terracotta-ink">
+                        {isMine ? "Vào tủ sách" : "Đăng ký"}
                       </span>
                     ) : null}
-                  </div>
-                  <ChevronRight
-                    aria-hidden
-                    className="size-5 shrink-0 text-meta"
-                    strokeWidth={1.75}
-                  />
-                </Link>
-              </li>
-            ))}
+                    <ChevronRight
+                      aria-hidden
+                      className="size-5 shrink-0 text-meta"
+                      strokeWidth={1.75}
+                    />
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         ) : query === "" ? (
           // P3-1: a system with no shelves at all read the identical "no

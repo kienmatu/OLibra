@@ -9,6 +9,7 @@ import { PHONE_PATTERN } from "@/domain/members/policy";
 import { findPublicShelf } from "@/domain/portal/queries/find-public-shelf";
 import { loadPage, loadPublicPage } from "@/lib/page-data";
 import { loadParishContext } from "@/domain/members/parish-context";
+import { SHELF_PARAM } from "@/lib/return-path";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
 import { registerMembershipAction } from "./actions";
 
@@ -53,7 +54,14 @@ export default async function RegisterPage({
   searchParams: Promise<SearchParams>;
 }) {
   const search = await searchParams;
-  const slug = param(search, "tu-sach") ?? null;
+  // `SHELF_PARAM`, not the literal `"tu-sach"` this read for its whole life.
+  // The constant exists precisely so a portal link and the page it targets
+  // cannot drift apart over one string (its own docstring,
+  // `src/lib/return-path.ts`), and U6 §4 makes the portal link at *this* page
+  // for the first time — a signed-in visitor looking at a shelf they do not
+  // belong to. Two spellings of one key is how that link silently stops
+  // carrying a shelf.
+  const slug = param(search, SHELF_PARAM) ?? null;
   const refusal = refusalFrom(search);
   const sent = param(search, "da-gui") === "1";
 
