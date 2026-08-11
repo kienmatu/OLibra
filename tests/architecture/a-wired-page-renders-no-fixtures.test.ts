@@ -614,10 +614,4 @@ test("the link check resolves the routes it claims to", () => {
   ]) {
     expect(linkTargetsIn(shelfHome), gone).not.toContain(gone);
   }
-  // …and they are still fixture pages, so relinking one fails rather than
-  // passing because the page quietly got wired in the meantime.
-  const byPath = new Map(routes().map((r) => [r.path, r]));
-  for (const page of []) {
-    expect(byPath.get(page)?.importsFixtures, page).toBe(true);
-  }
 });
