@@ -53,12 +53,47 @@ describe("passwordLooksLikeASwallowedComment", () => {
     ).toBe(true);
   });
 
-  test("a password containing the percent-encoded form (%23) anywhere trips it", () => {
+  test("a swallowed comment that was fully percent-encoded before pasting trips it too, once decoded", () => {
+    // `%23%20required%2C%20no%20default` decodes to `# required, no default`
+    // — the shape a developer gets from copying the *encoded* form of the
+    // defect rather than the raw one `docker inspect` actually prints.
     expect(
       passwordLooksLikeASwallowedComment(
-        "postgres://olibra:%20%23%20required@localhost:5435/olibra",
+        "postgres://olibra:%23%20required%2C%20no%20default@localhost:5435/olibra",
       ),
     ).toBe(true);
+  });
+
+  // The High finding from code review: the first version of this check
+  // flagged any password containing `%23` anywhere, which refuses a real,
+  // correctly-encoded password that merely *contains* a `#` — exactly the
+  // spelling `postgres.js` itself expects (`parseUrl`'s own
+  // `decodeURIComponent(urlObj.password)`). `hunter#22`, written into a URL
+  // as `hunter%2322`, must authenticate, not be refused as a swallowed
+  // comment.
+  test("a real password that happens to contain # (correctly percent-encoded) never trips it", () => {
+    expect(
+      passwordLooksLikeASwallowedComment(
+        "postgres://olibra:hunter%2322@localhost:5435/olibra",
+      ),
+    ).toBe(false);
+  });
+
+  test("a password containing a bare % that is not a valid escape does not throw, and does not trip it", () => {
+    // `%of` is not a valid percent-encoded byte (`o`/`f` are not hex
+    // digits), so `decodeURIComponent` throws on it — and a password like
+    // this is a legal password, not a URL-encoding mistake. The boot check
+    // must not crash over it.
+    expect(() =>
+      passwordLooksLikeASwallowedComment(
+        "postgres://olibra:50%off@localhost:5435/olibra",
+      ),
+    ).not.toThrow();
+    expect(
+      passwordLooksLikeASwallowedComment(
+        "postgres://olibra:50%off@localhost:5435/olibra",
+      ),
+    ).toBe(false);
   });
 
   test("a # elsewhere in the URL — never in the password — does not trip it", () => {

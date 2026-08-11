@@ -85,16 +85,31 @@ export async function register(): Promise<void> {
  * db:migrate` fail from the host" confusion this task's brief was opened to
  * explain.
  *
- * **The signal, not a URL parser.** A password that starts with a literal
- * `#`, or that contains `%23` (the percent-encoded form) anywhere, is not a
- * password anybody would choose or Postgres would generate — the only
- * plausible way either character lands in a connection string's password
- * field is a comment that leaked into it, encoded or not. Checking for that
- * shape is cheap (a handful of string operations, no regular expression
- * pathological enough to matter, no network I/O) and unambiguous: it cannot
- * misfire on an unrelated malformed URL, because it only *looks* at the
- * password once one is found, and it never runs at all for a URL with no
- * userinfo section.
+ * **The signal, not a URL parser.** A password whose first character, once
+ * decoded, is `#` is not a password anybody would choose or Postgres would
+ * generate — the only plausible way it lands there is a comment that leaked
+ * into the field, encoded or not. Checking for that shape is cheap (a
+ * handful of string operations, no regular expression pathological enough to
+ * matter, no network I/O) and unambiguous: it cannot misfire on an unrelated
+ * malformed URL, because it only *looks* at the password once one is found,
+ * and it never runs at all for a URL with no userinfo section.
+ *
+ * **Decoded before judging — code review caught this one before it shipped
+ * to `main`.** The first version of this check flagged *any* password
+ * containing `%23` anywhere, on the theory that `%23` is `#`'s percent-
+ * encoded form and therefore just as suspicious unencoded. That reasoning
+ * proves too much: `postgres.js` — this project's own driver —
+ * `decodeURIComponent`s the password out of the URL before using it
+ * (`node_modules/postgres/src/index.js`'s `parseUrl`, `password:
+ * decodeURIComponent(urlObj.password)`), so a *real*, correctly-encoded
+ * password containing a literal `#` — `hunter#22`, written into a URL as
+ * `hunter%2322` — is exactly the spelling that check refused. Reproduced: an
+ * operator whose password generator happened to include `#` could not boot
+ * the app, with a message blaming `.env.example` for a password that would
+ * have authenticated fine. Decoding first and then asking only "does the
+ * *decoded* password start with `#`" tells the two cases apart, because it
+ * asks the same question `postgres.js` itself is about to ask of the same
+ * bytes.
  *
  * Checked here rather than in `src/db/client.ts`: this runs once, at process
  * start, before the first request or the first pool connection — a fault a
@@ -122,26 +137,59 @@ export function checkDatabaseUrlsForSwallowedComments(): void {
 }
 
 /**
- * Whether `url`'s own password segment starts with `#` or contains `%23` —
- * see `checkDatabaseUrlsForSwallowedComments` above for why either is an
- * unambiguous signal rather than a guess.
+ * Whether `url`'s own password segment, decoded exactly as `postgres.js`
+ * would decode it, starts with `#` — see
+ * `checkDatabaseUrlsForSwallowedComments` above for why that is an
+ * unambiguous signal rather than a guess, and for the encoded-`%23` false
+ * positive an earlier version of this function had and code review caught.
  *
  * Exported for `tests/instrumentation.test.ts` — see
  * `checkDatabaseUrlsForSwallowedComments` above for the fuller note on why
  * these two functions, and not `register()` itself, are what the test calls.
  *
- * `.trim()` before the `#` check, not on the raw password: compose trims the
- * leading whitespace `.env.example`'s own multiple spaces before `#` carried
- * — the live `docker inspect olibra-db-1` output this whole task is written
- * against reports `POSTGRES_PASSWORD=# required, no default…`, no leading
- * spaces — but a password pasted by hand from the raw `.env.example` text,
- * whitespace and all, is exactly as much the defect and must not slip past a
- * check that only compared against compose's already-trimmed shape.
+ * **Decode first, with a fallback, then trim, then check.** `decodeURIComponent`
+ * throws on a malformed percent sequence — and a password containing a bare
+ * `%` that is not part of an intentional escape (`50%off`, say) is a legal
+ * password, not a URL-encoding mistake, so a throw here must not crash the
+ * boot check over an unrelated password shape. `decodeIfPossible` below
+ * catches that and falls back to the raw password, which still correctly
+ * judges the *unencoded* form of the defect (a literal `#`, no percent
+ * signs involved at all — decoding a string with nothing to decode is a
+ * no-op, so the single `startsWith("#")` check below covers both the
+ * unencoded and the encoded shape without needing two separate branches).
+ *
+ * `.trim()` after decoding, not before: compose trims the leading whitespace
+ * `.env.example`'s own multiple spaces before `#` carried — the live `docker
+ * inspect olibra-db-1` output this whole task is written against reports
+ * `POSTGRES_PASSWORD=# required, no default…`, no leading spaces — but a
+ * password pasted by hand from the raw `.env.example` text, whitespace and
+ * all, is exactly as much the defect and must not slip past a check that
+ * only compared against compose's already-trimmed shape.
  */
 export function passwordLooksLikeASwallowedComment(url: string): boolean {
   const password = connectionStringPassword(url);
   if (password === null) return false;
-  return password.trim().startsWith("#") || password.includes("%23");
+  return decodeIfPossible(password).trim().startsWith("#");
+}
+
+/**
+ * `decodeURIComponent`, or the original string when it is not a valid
+ * percent-encoded sequence.
+ *
+ * A password is a value this check has to judge, not a specification it can
+ * refuse for being malformed — `%off`, `%zz`, a trailing bare `%`, are all
+ * legal password contents (nothing about a Postgres password requires valid
+ * percent-encoding) that `decodeURIComponent` throws on. Falling back to the
+ * raw string on that throw means the worst outcome for an undecodable
+ * password is judging it by its literal characters, which is exactly what
+ * happens today for a password with no `%` in it at all.
+ */
+function decodeIfPossible(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /**
