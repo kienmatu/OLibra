@@ -257,8 +257,21 @@ function CredentialsDisclosure({
  * though `suspendMembership` itself treats it as optional; see
  * `NO_SUSPENSION_REASON` in `../../actions.ts` for why that is this screen's
  * decision and not a stricter reading of the command. The helper sentence is
- * `docs/OPERATIONS.md`'s own quoted wording for this exact screen ("Tạm khoá
- * chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên."), not reinvented here.
+ * `docs/OPERATIONS.md`'s own quoted wording for this exact screen, not
+ * reinvented here.
+ *
+ * **Corrected, QA remediation final fix wave.** The sentence used to read
+ * "Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên." — added at
+ * `caad879` (Task 4) — and both halves misled. `membershipFor`
+ * (`src/auth/guards.ts`) filters `m.status = 'active'`, so a suspended
+ * reader's membership stops resolving entirely: `contextFor` demotes them to
+ * `guest`, and every page scoped to their shelf 404s, not only borrowing.
+ * And `signIn` (`src/auth/session.ts`) never consults `memberships.status`
+ * at all, so their password keeps authenticating — a manager reading "Tạm
+ * khoá" would reasonably infer sign-in itself is blocked, and it is not; the
+ * reader gets a "successful" sign-in that then lands nowhere. That sign-in
+ * behaviour is an existing product decision and ships as-is here — only this
+ * sentence changes, to describe it rather than contradict it.
  */
 function SuspendDisclosure({
   shelfSlug,
@@ -277,7 +290,9 @@ function SuspendDisclosure({
         <input type="hidden" name="tu-sach" value={shelfSlug} />
         <input type="hidden" name="thanh-vien" value={reader.membershipId} />
         <p className="text-[14px] text-meta">
-          Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên.
+          Tạm khoá chặn dùng cả tủ sách, không chỉ mượn mới — người đọc vẫn đăng
+          nhập được nhưng không vào được trang nào. Sách đang mượn vẫn giữ nguyên
+          trong hệ thống.
         </p>
         <Field label="Lý do tạm khoá" required htmlFor={fieldId}>
           <Textarea id={fieldId} name="ly-do" required rows={2} />

@@ -39,9 +39,14 @@ test("INV-4: no status other than active may start a new loan", () => {
 
 test("INV-4: suspending a member leaves their existing loan exactly as it was", async () => {
   // The second sentence, and the whole reason suspension is not deletion. The
-  // reader-detail screen says the same thing in its own words — "Tạm khoá chỉ
-  // chặn mượn mới. Sách đang mượn vẫn giữ nguyên." — which OPS §4.3 is careful
-  // to label as the built UI's wording rather than the requirements'.
+  // reader-detail screen says the same thing in its own words — corrected in
+  // the QA remediation branch's final fix wave, since the original wording
+  // ("Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên.") implied
+  // suspension blocked only new loans, when in practice a suspended reader's
+  // membership stops resolving at all (`membershipFor`'s `status = 'active'`
+  // filter) and every page of their shelf 404s. OPS §4.3 is careful to label
+  // the current sentence as the built UI's wording rather than the
+  // requirements'.
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
   const manager = await makeMember(sql, shelf.id, { role: "manager" });
   const member = await makeMember(sql, shelf.id, { status: "active" });

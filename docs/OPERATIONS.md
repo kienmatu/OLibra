@@ -402,7 +402,7 @@ A manager fills in the registration form for a child standing in front of them (
   - `not_pending` — "Đơn đăng ký này đã được xử lý."
 
 #### `SuspendMembership`
-`active → suspended`. Blocks new loans only — existing loans are explicitly unaffected (INV-4: "A reader whose membership is not active cannot start a new loan. Existing loans are unaffected."). The reader-detail screen states the same rule in its own words — "Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên." — but that sentence is the built UI's wording, not the requirements'.
+`active → suspended`. The command's own invariant is narrow — blocks new loans only, existing loans explicitly unaffected (INV-4: "A reader whose membership is not active cannot start a new loan. Existing loans are unaffected.") — but the practical effect of `status = 'suspended'` is wider than that invariant: `membershipFor` (`src/auth/guards.ts`) filters `status = 'active'`, so a suspended reader's membership stops resolving at all, `contextFor` demotes them to `guest`, and every page scoped to their shelf 404s, not only borrowing. `signIn` (`src/auth/session.ts`) never consults `memberships.status`, so their password still authenticates — they get a "successful" sign-in that lands nowhere, a product decision that ships as-is. The reader-detail screen states this fuller picture in its own words — "Tạm khoá chặn dùng cả tủ sách, không chỉ mượn mới — người đọc vẫn đăng nhập được nhưng không vào được trang nào. Sách đang mượn vẫn giữ nguyên trong hệ thống." — but that sentence is the built UI's wording, not the requirements'.
 
 - **Inputs:** `bookshelfId`, `membershipId`, reason?
 - **Caller:** `manager`
