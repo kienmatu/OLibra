@@ -232,12 +232,27 @@ export function ShelfHeader({
    * `/dang-nhap` and `/dang-ky` render this header with `viewerName={null}`,
    * and somebody looking at a sign-in form is precisely who may want to go
    * back to where they came from. `/` needs no session.
+   *
+   * **A breadcrumb rather than a stack, and the reason is the tap.** This
+   * shipped as two lines — a 13px wordmark directly above the shelf name —
+   * which put two separate destinations flush against each other, neither
+   * anywhere near 44px, inside a 64px header that cannot hold two such targets
+   * stacked. AGENTS.md rule 4 asks for ≥44px and nothing closer than 8px, and
+   * the sibling change in this same slice got it right (`manager-shell.tsx`'s
+   * shelf link carries `min-h-11`). Side by side, both fit: `min-h-11` each and
+   * a `gap-2` between them.
    */
   const heading = (
-    <div className="flex min-w-0 flex-col justify-center leading-tight">
-      <Link href="/" className="text-[13px] text-meta hover:text-ink">
+    <div className="flex min-w-0 items-center gap-2">
+      <Link
+        href="/"
+        className="inline-flex min-h-11 shrink-0 items-center text-[15px] text-meta hover:text-ink"
+      >
         OLibra
       </Link>
+      <span aria-hidden className="shrink-0 text-meta">
+        ›
+      </span>
       {title}
     </div>
   );

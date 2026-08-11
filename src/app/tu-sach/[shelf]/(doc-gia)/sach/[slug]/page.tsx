@@ -628,58 +628,101 @@ export default async function BookDetailPage({
                   </p>
                 )}
 
-                <form action={postCommentAction} className="mt-6">
-                  <input type="hidden" name="tu-sach" value={shelfSlug} />
-                  {/* The slug for the redirect, the id for the command: one is
-                      a URL and the other is a key, and `?da-gui=1` has to land
-                      back on the page the reader was reading. */}
-                  <input type="hidden" name="sach" value={book.slug} />
-                  <input type="hidden" name="sach-id" value={book.bookId} />
-                  {/* Checked against the context inside `createComment`, so
-                      this is a convenience and not a trust boundary — the same
-                      shape `offerDonationAction`'s own `thanh-vien` field has. */}
-                  <input
-                    type="hidden"
-                    name="thanh-vien"
-                    value={membershipId ?? ""}
-                  />
+                {/* Outside the form, because a refusal can outlive it: a shelf
+                    that turns comments off between page load and submit
+                    redirects here with `?loi=comments_disabled`, and an alert
+                    rendered inside the form would land on a page that no
+                    longer has one. `commentsOn` above is the only thing that
+                    can hide it now, and that branch has its own sentence. */}
+                {refused ? (
+                  <p role="alert" className="mt-4 text-[15px] text-brick">
+                    {messageFor(refused)}
+                  </p>
+                ) : null}
 
-                  <Field label="Viết bình luận" htmlFor="noi-dung">
-                    <Textarea
-                      id="noi-dung"
-                      name="noi-dung"
-                      rows={4}
-                      placeholder="Em thấy cuốn này thế nào?"
-                    />
-                  </Field>
+                {/**
+                 * **No membership, no form**, and the viewer this is about is
+                 * not hypothetical: `contextFor` resolves a super admin to
+                 * `role: "super_admin"` with `membershipId: null`
+                 * (`src/lib/reader-area.ts` exists for precisely this), and
+                 * that role clears every `requireReader` on this page — so the
+                 * page renders for them, and only the form cannot work.
+                 *
+                 * Posting `membershipId ?? ""` would fail `createComment`'s
+                 * `input.membershipId !== ctx.actor.membershipId` (`""` against
+                 * `null`) and come back "Bạn không có quyền thực hiện việc
+                 * này." — a form that is guaranteed to refuse the person
+                 * looking at it, which is the same defect this slice was
+                 * written to fix one page over. QA task 10 is the same `?? ""`
+                 * reaching past a null membership; there it was a 500.
+                 */}
+                {membershipId === null ? (
+                  <p className="mt-6 text-[15px] text-meta">
+                    Chỉ bạn đọc của tủ sách này mới viết bình luận được.
+                  </p>
+                ) : (
+                  <form action={postCommentAction} className="mt-6">
+                    <input type="hidden" name="tu-sach" value={shelfSlug} />
+                    {/* The slug for the redirect, the id for the command: one
+                        is a URL and the other is a key, and `?da-gui=1` has to
+                        land back on the page the reader was reading. */}
+                    <input type="hidden" name="sach" value={book.slug} />
+                    <input type="hidden" name="sach-id" value={book.bookId} />
+                    {/* Checked against the context inside `createComment`, so
+                        this is a convenience and not a trust boundary — the
+                        same shape `offerDonationAction`'s `thanh-vien` has.
+                        A forged `sach-id` naming another shelf's book is
+                        refused by the database rather than by this field: the
+                        composite foreign key `(bookshelf_id, book_id)`
+                        (`20260808_04_composite_tenant_fks.sql`) has no row to
+                        point at. */}
+                    <input type="hidden" name="thanh-vien" value={membershipId} />
 
-                  {refused ? (
-                    <p role="alert" className="mt-3 text-[15px] text-brick">
-                      {messageFor(refused)}
-                    </p>
-                  ) : null}
+                    {/* `required` on both halves — the word "Bắt buộc" rather
+                        than an asterisk is `Field`'s own doing (AGENTS.md rule
+                        6). `createComment` refuses an empty body anyway
+                        (`empty_body`); marking it here is what saves a child a
+                        round trip to be told so, and is what the sibling
+                        `gop-y` form already does. */}
+                    <Field label="Viết bình luận" required htmlFor="noi-dung">
+                      <Textarea
+                        id="noi-dung"
+                        name="noi-dung"
+                        rows={4}
+                        required
+                        placeholder="Em thấy cuốn này thế nào?"
+                      />
+                    </Field>
 
-                  {/* **What happened, in a sentence, because the comment
-                      itself will not appear.** `getBookComments` returns
-                      approved rows only — that predicate is INV-9 living in
-                      the access path, and its docstring is explicit that a
-                      reader seeing their own pending comment would be a
-                      different query and a product decision. So a child who
-                      presses this button and is met with an unchanged page
-                      would have no way to tell it worked. The wording follows
-                      whichever setting the shelf actually has. */}
-                  {sent ? (
-                    <SavedNotice>
-                      {needsApproval
-                        ? "Đã gửi. Quản lý tủ sách sẽ duyệt trước khi bình luận hiện lên."
-                        : "Đã gửi bình luận."}
-                    </SavedNotice>
-                  ) : null}
+                    {/* **What happened, in a sentence, because the comment
+                        itself will not appear.** `getBookComments` returns
+                        approved rows only — that predicate is INV-9 living in
+                        the access path, and its docstring is explicit that a
+                        reader seeing their own pending comment would be a
+                        different query and a product decision. So a child who
+                        presses this button and is met with an unchanged page
+                        would have no way to tell it worked. The wording
+                        follows whichever setting the shelf actually has. */}
+                    {sent ? (
+                      <SavedNotice>
+                        {needsApproval
+                          ? "Đã gửi. Quản lý tủ sách sẽ duyệt trước khi bình luận hiện lên."
+                          : "Đã gửi bình luận."}
+                      </SavedNotice>
+                    ) : null}
 
-                  {/* Not `variant="primary"`: this page's one terracotta
-                      action is "Xin mượn" above (AGENTS.md rule 3). */}
-                  <SubmitButton className="mt-4">Gửi bình luận</SubmitButton>
-                </form>
+                    {/* **`variant="outline"`, and it has to be said explicitly**
+                        — `SubmitButton` defaults to `variant="primary"`, which
+                        is solid terracotta, and this page's one primary action
+                        is "Xin mượn" above. Two terracotta buttons on one
+                        screen is a defect by AGENTS.md rule 3, and nothing in
+                        the suite guards that rule, so the only thing standing
+                        between this line and a second one is this line. */}
+                    <SubmitButton variant="outline" className="mt-4">
+                      Gửi bình luận
+                    </SubmitButton>
+                  </form>
+                )}
               </section>
             ) : null}
           </div>

@@ -470,14 +470,23 @@ export async function loadFrontDoorViewer(): Promise<{
 
 /**
  * The contact block in the footer — the super admin's name, telephone number
- * and hours, on every page in the application (U6 §6).
+ * and hours, on every page a reader or a visitor can reach (U6 §6).
  *
  * **Why a seam of its own rather than `loadPublicPage` at each call site.**
- * There are two of them that matter — `src/app/tu-sach/[shelf]/layout.tsx` and
- * `src/app/quan-tri/layout.tsx`, which between them cover every shelf, manager
- * and administration page — plus five front-door pages. Seven copies of one
- * `loadPublicPage((tx) => getSiteContact(tx))` is seven places to keep the
- * guard below in step, and the guard is the entire reason this is not inline.
+ * `src/app/tu-sach/[shelf]/(doc-gia)/layout.tsx` covers every reader page of
+ * every shelf; the four front-door pages that render a footer
+ * (`/`, `/tu-sach`, `/lien-he`, `/dang-ky`) each call it for themselves,
+ * having no shared layout to put it in, and `/dang-nhap` makes a fifth.
+ * `/lien-he` is the one page that does not call this at all — it already reads
+ * `getSiteContact` for its own body and passes that same value down.
+ *
+ * Six copies of one `loadPublicPage((tx) => getSiteContact(tx))` is six places
+ * to keep the guard below in step, and the guard is the entire reason this is
+ * not inline.
+ *
+ * **The management screens do not call it**, and that is not an oversight:
+ * `/quan-ly/*` sits outside the reader route group and `/quan-tri` has no
+ * footer layout, so neither renders one. See that group's layout for why.
  *
  * **No `DATABASE_URL`, no query, and this is `loadFrontDoorViewer`'s guard
  * above repeated for the same incident.** `pool()` calls `connect()`, which

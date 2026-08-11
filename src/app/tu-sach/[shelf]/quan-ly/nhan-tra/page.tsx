@@ -176,7 +176,11 @@ export default async function NhanTraPage({
                           colour alone. This is the word and the icon; the
                           tint and the rail are on the `Card` below. */}
                       {isSelected ? (
-                        <Pill icon={CheckCircle2} label="Đang chọn" tone="sage" />
+                        <Pill
+                          icon={CheckCircle2}
+                          label="Đang chọn"
+                          tone="neutral"
+                        />
                       ) : null}
                       {/* `isOverdue` is `loans_current`'s own derived column
                           (G5), following `ctx.clock` through the `olibra.now`

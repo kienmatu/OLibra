@@ -31,7 +31,7 @@ export interface FooterContact {
 }
 
 /**
- * The footer, on every page in the application.
+ * The footer, on every page a reader or a visitor can reach.
  *
  * It replaces `FrontDoorFooter`, which rendered on four pages — `/`,
  * `/tu-sach`, `/lien-he`, `/loi` — and was hardcoded to a wordmark, two links
@@ -41,11 +41,24 @@ export interface FooterContact {
  * the application.
  *
  * **`contact` is a prop and this component reaches nothing**, which is the
- * whole of how it can be rendered everywhere. The two route layouts
- * (`src/app/tu-sach/[shelf]/layout.tsx`, `src/app/quan-tri/layout.tsx`) and the
- * front-door pages each read it through `siteContact()` and pass it down; see
- * that function in `src/lib/page-data.ts` for why the read short-circuits when
- * there is no database configured at all.
+ * whole of how it can be rendered anywhere at all: a footer that queried would
+ * put `lib/page-data` in the import closure of every page rendering it, `/loi`
+ * included, and that page has to render when the database is the thing that
+ * failed.
+ *
+ * Two kinds of caller read it through `siteContact()` and pass it down: the
+ * reader route group's layout (`src/app/tu-sach/[shelf]/(doc-gia)/layout.tsx`),
+ * which covers every page of a shelf a reader can see, and the four front-door
+ * pages, which have no shared layout to put it in. See `siteContact` in
+ * `src/lib/page-data.ts` for why the read short-circuits when there is no
+ * database configured at all.
+ *
+ * **Not on the management screens.** `/quan-ly/*` sits outside that route
+ * group and `/quan-tri` has no such layout, both deliberately — see the
+ * group's own layout for the argument. A full-width footer running underneath
+ * a fixed sidebar reads as a layout that has come apart, and a work surface
+ * that carries every destination it needs in its sidebar does not need the
+ * parish's telephone number at the bottom.
  *
  * **`null` is a real case, not a fallback** — the same sentence
  * `ShelfHeader`'s `viewerName` docstring writes about its own prop. `/loi`

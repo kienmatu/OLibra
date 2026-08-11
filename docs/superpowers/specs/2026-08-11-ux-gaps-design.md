@@ -241,6 +241,15 @@ links, per `Button`'s own docstring and AGENTS.md rule 3.
 
 ## 6. A site footer, everywhere, carrying the administrator's contact details
 
+> **Changed during implementation.** "Everywhere" turned out to be wrong for
+> the management screens. A full-width footer running underneath a fixed
+> sidebar reads as a layout that has come apart rather than as chrome, and it
+> was reported on sight the moment it shipped. `/quan-ly/*` and `/quan-tri`
+> have no footer; the reader routes moved into a `(doc-gia)` route group —
+> which changes no URL — so the layout below wraps them and not the management
+> area. The surface table further down describes the *original* plan; the
+> shipped shape is that group's layout plus the front-door pages.
+
 ### What is wrong
 
 `FrontDoorFooter` renders on four pages — `/`, `/tu-sach`, `/lien-he`, `/loi` —

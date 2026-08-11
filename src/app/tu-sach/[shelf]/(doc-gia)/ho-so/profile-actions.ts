@@ -73,7 +73,7 @@ function field(form: FormData, name: string): string {
 
 /**
  * Runs one step and reports whether the domain refused it — `attempt` in
- * `../quan-ly/actions.ts`, with the wider catch this file's docstring
+ * `../../quan-ly/actions.ts`, with the wider catch this file's docstring
  * argues for. The `try` wraps the step and nothing else, so the `redirect()`
  * each caller performs afterwards cannot be swallowed by it.
  */
@@ -106,7 +106,7 @@ function back(shelfSlug: string, code: string | null): never {
  *
  * An absent or empty file is `validation_failed` rather than a crash on
  * `file.size`: a form posting no file is this application's own doing, exactly
- * as `complete()` in `../quan-ly/actions.ts` argues for the hidden ids there.
+ * as `complete()` in `../../quan-ly/actions.ts` argues for the hidden ids there.
  */
 export async function proposeAvatarAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
