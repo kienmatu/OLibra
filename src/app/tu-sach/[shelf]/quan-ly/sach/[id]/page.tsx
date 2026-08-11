@@ -568,9 +568,7 @@ export default async function ManagerBookDetailPage({
                   className="rounded-card border border-hairline bg-surface p-4"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[15px] font-medium">
-                      {loan.copyCode}
-                    </span>
+                    <span className="text-[15px] font-medium">{loan.copyCode}</span>
                     <span className="text-[14px] text-meta">
                       <LoanOutcome loan={loan} />
                     </span>

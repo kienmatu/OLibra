@@ -310,7 +310,9 @@ export default async function AdminBookshelvesPage({
               </Field>
 
               <Field label="Đường dẫn">
-                <ReadOnlyValue>/tu-sach/{selected.settings.profile.slug}</ReadOnlyValue>
+                <ReadOnlyValue>
+                  /tu-sach/{selected.settings.profile.slug}
+                </ReadOnlyValue>
               </Field>
 
               <Field label="Địa điểm" htmlFor="dia-diem">
