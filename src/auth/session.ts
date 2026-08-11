@@ -2,6 +2,15 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Sql } from "postgres";
 import type { Clock } from "../domain/kernel/clock";
 import { RuleViolated } from "../domain/kernel/errors";
+// Direct, not through `src/domain/kernel/crypto.ts`'s injected `verifyFor` —
+// deliberately. This file is `src/auth/`, application code that already owns
+// Argon2id and sits outside the domain, so routing a sign-in check through
+// the domain's port would add a dependency for no benefit. It also means
+// sign-in works whether or not that port has ever been wired, which is
+// exactly the property that let two separate wiring bugs go unnoticed in the
+// product for as long as they did — see `crypto.ts`'s own docstring for the
+// full reasoning: the seeded accounts kept signing in through this direct
+// call regardless, so nobody hit the gap until somebody typed a password.
 import { verifyPassword } from "./password";
 
 const SESSION_DAYS = 30;

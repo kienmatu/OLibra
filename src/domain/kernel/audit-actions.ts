@@ -586,6 +586,34 @@ const ACTIONS = {
     group: "he-thong",
     phrase: () => "đổi thông tin liên hệ của ban quản trị",
   },
+  // Task 2 (QA remediation). `categories` is global reference data (DATABASE.md
+  // §4.3) with no `bookshelf_id`, so every entry below sets `global: true` —
+  // the same shape `bookshelf.*` above already has, and for the identical
+  // reason: none of these three can ever land in a shelf's own log, only in
+  // the cross-shelf browser.
+  "category.created": {
+    group: "he-thong",
+    phrase: (f) => {
+      const name = str(f.after, "name");
+      return name ? `thêm thể loại ${name}` : "thêm một thể loại";
+    },
+  },
+  "category.renamed": {
+    group: "he-thong",
+    phrase: (f) => {
+      const from = str(f.before, "name");
+      const to = str(f.after, "name");
+      if (from && to) return `đổi tên thể loại ${from} thành ${to}`;
+      return to ? `đổi tên một thể loại thành ${to}` : "đổi tên một thể loại";
+    },
+  },
+  "category.archived": {
+    group: "he-thong",
+    phrase: (f) => {
+      const name = str(f.before, "name");
+      return name ? `lưu trữ thể loại ${name}` : "lưu trữ một thể loại";
+    },
+  },
 } satisfies Record<string, AuditActionSpec>;
 
 /**

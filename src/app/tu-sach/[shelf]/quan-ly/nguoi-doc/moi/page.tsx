@@ -6,6 +6,7 @@ import { ManagerShell } from "@/components/shell/manager-shell";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { messageFor } from "@/domain/kernel/errors";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -14,6 +15,8 @@ import { registerReaderOnBehalfAction } from "../../actions";
 
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Đăng ký người đọc mới — Quản lý tủ sách OLibra" };
 
 function GroupHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -83,6 +86,17 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
  * proxy's log and the address bar of a shared parish phone. The action's own
  * docstring holds the decision; the cost — a re-typed form after a refusal — is
  * real and is the one being chosen.
+ *
+ * **Proposed and withdrawn once already (Task 13, 2026-08-10 QA remediation).**
+ * A same-session task carried these six fields back through this same query
+ * string, reasoning from the QA sweep's observation about a different form
+ * (`/dang-ky`) without re-reading this paragraph first — the on-behalf form is
+ * a manager typing a child's details standing at the shelf, and the parish
+ * phone this address bar would sit in is exactly as shared as the one
+ * `dang-ky/actions.ts` withholds a password from. Reverted before merge on the
+ * ground stated above. See `registerReaderOnBehalfAction`'s own docstring for
+ * the fuller account and the alternative (a same-origin cookie or
+ * `useActionState`) that would get the UX without the leak, as its own task.
  */
 export default async function RegisterReaderOnBehalfPage({
   params,
@@ -143,6 +157,12 @@ export default async function RegisterReaderOnBehalfPage({
 
       <form
         action={registerReaderOnBehalfAction}
+        // QA remediation T27. See `Field`'s `invalidHint` docstring
+        // (`src/components/ui/field.tsx`): the browser's own validation
+        // bubble speaks the browser's UI language, not this document's
+        // `lang="vi"`, and `noValidate` is what lets the Vietnamese
+        // `invalidHint` text on the four required fields below show instead.
+        noValidate
         className="mt-8 max-w-xl space-y-10"
       >
         <input type="hidden" name="tu-sach" value={slug} />
@@ -159,6 +179,7 @@ export default async function RegisterReaderOnBehalfPage({
             required
             htmlFor="ho-ten"
             hint="Ghi đầy đủ như trong sổ giáo xứ."
+            invalidHint="Vui lòng nhập họ và tên."
           >
             <Input
               id="ho-ten"
@@ -172,7 +193,12 @@ export default async function RegisterReaderOnBehalfPage({
               `assertStorableDate` accepts. A free-text box here is how
               "02/04/2015" gets stored as 3 February — measured, in
               `domain/members/profile-fields.ts`. */}
-          <Field label="Ngày sinh" required htmlFor="ngay-sinh">
+          <Field
+            label="Ngày sinh"
+            required
+            htmlFor="ngay-sinh"
+            invalidHint="Vui lòng chọn ngày sinh."
+          >
             <Input id="ngay-sinh" name="ngay-sinh" type="date" required />
           </Field>
         </div>
@@ -189,6 +215,7 @@ export default async function RegisterReaderOnBehalfPage({
             required
             htmlFor="ten-cha"
             hint="Giúp phân biệt các em trùng tên."
+            invalidHint="Vui lòng nhập tên cha."
           >
             <Input
               id="ten-cha"
@@ -198,7 +225,12 @@ export default async function RegisterReaderOnBehalfPage({
             />
           </Field>
 
-          <Field label="Tên mẹ" required htmlFor="ten-me">
+          <Field
+            label="Tên mẹ"
+            required
+            htmlFor="ten-me"
+            invalidHint="Vui lòng nhập tên mẹ."
+          >
             <Input
               id="ten-me"
               name="ten-me"
@@ -212,12 +244,18 @@ export default async function RegisterReaderOnBehalfPage({
             required
             htmlFor="dien-thoai"
             hint="Số của cha mẹ cũng được. Đây là cách tủ sách liên lạc khi cần nhắc trả sách."
+            // Same reused sentence `/dang-ky` pairs with this field's own
+            // shape — see that page's comment on why `messageFor` rather
+            // than new copy.
+            invalidHint={messageFor("phone_invalid")}
           >
             <Input
               id="dien-thoai"
               name="dien-thoai"
               required
-              inputMode="tel"
+              type="tel"
+              inputMode="numeric"
+              pattern={PHONE_PATTERN}
               placeholder="vd: 09xx xxx xxx"
             />
           </Field>
@@ -238,6 +276,13 @@ export default async function RegisterReaderOnBehalfPage({
             idPrefix="nguoi-doc-moi"
             taxonomy={parish.taxonomy}
             units={parish.units}
+            manageHref={`${base}/co-cau`}
+            // QA remediation final fix wave: this screen's empty state used
+            // to say "Quản lý thêm ở mục Cơ cấu giáo xứ" to every manager,
+            // but only a super_admin can actually write there
+            // (`co-cau/page.tsx`'s own `canEdit`). See `ParishUnitFields`'s
+            // own docstring on `canManageUnits` for the full reasoning.
+            canManageUnits={viewer.role === "super_admin"}
           />
         </div>
 

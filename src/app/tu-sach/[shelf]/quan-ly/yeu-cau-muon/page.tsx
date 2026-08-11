@@ -26,6 +26,8 @@ import {
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Yêu cầu mượn — Quản lý tủ sách OLibra" };
+
 /** SDD §6.6: every number on a screen goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
@@ -317,7 +319,11 @@ export default async function BorrowRequestsPage({
         {queues.map((queue) => (
           <Card key={queue.bookId} className="space-y-1">
             <div className="flex flex-wrap items-center gap-4">
-              <BookCover title={queue.title} className="w-14 shrink-0" />
+              <BookCover
+                title={queue.title}
+                coverUrl={queue.coverUrl}
+                className="w-14 shrink-0"
+              />
               <div className="min-w-0 flex-1">
                 <BookTitle as="p" className="text-[19px] leading-snug">
                   {queue.title}

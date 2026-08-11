@@ -17,6 +17,8 @@ import { approveMembershipAction, rejectMembershipAction } from "../actions";
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Đăng ký chờ duyệt — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /** One field shown as a meta label above its value — used inside every group. */

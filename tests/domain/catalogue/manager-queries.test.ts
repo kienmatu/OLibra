@@ -178,6 +178,46 @@ test("manager book detail carries per-copy state, condition and 'đang ở đâu
   expect(detail.loanHistory[0].returnedAt).toBeNull();
 });
 
+/**
+ * QA remediation Task 20. `acquired_from`/`acquired_from_membership_id` were
+ * selected here since B1 and rendered nowhere — a donor could be recorded and
+ * nobody could ever read it back. The name resolution added in this task is
+ * the fix's read half; `sach/[id]/page.tsx`'s new "Người tặng" column is the
+ * other.
+ */
+test("a member donor resolves to their name; a free-text one does not", async () => {
+  const { ctx, s, bookId } = await shelf();
+  const donor = await makeMember(sql, s.id);
+  await sql`update users set full_name = 'Bác Hoà Thật' where id = ${donor.userId}`;
+  const copies = await sql<{ id: string }[]>`
+    select id from book_copies where book_id = ${bookId} order by code
+  `;
+  await sql`
+    update book_copies set acquired_from_membership_id = ${donor.id}
+    where id = ${copies[0].id}
+  `;
+  await sql`
+    update book_copies set acquired_from = 'bác Hoà (không có tài khoản)'
+    where id = ${copies[1].id}
+  `;
+
+  const detail = await runQuery(sql, ctx, (tx) =>
+    getBookDetailManager(tx, ctx, { bookId }),
+  );
+
+  const [memberCopy, freeTextCopy, noDonorCopy] = detail.copies;
+  expect(memberCopy.acquiredFromMembershipId).toBe(donor.id);
+  expect(memberCopy.acquiredFromMembershipName).toBe("Bác Hoà Thật");
+
+  expect(freeTextCopy.acquiredFrom).toBe("bác Hoà (không có tài khoản)");
+  expect(freeTextCopy.acquiredFromMembershipId).toBeNull();
+  expect(freeTextCopy.acquiredFromMembershipName).toBeNull();
+
+  expect(noDonorCopy.acquiredFrom).toBeNull();
+  expect(noDonorCopy.acquiredFromMembershipId).toBeNull();
+  expect(noDonorCopy.acquiredFromMembershipName).toBeNull();
+});
+
 test("overdue on a copy row is computed against the clock, not stored", async () => {
   // G5, and DB §4.5: "There is no is_overdue column, and there must never be
   // one." loans_current does the arithmetic in Asia/Ho_Chi_Minh.
@@ -271,6 +311,44 @@ test("M7: a garbage quick-lend query returns nothing, not the whole shelf", asyn
   const { ctx } = await shelf();
   const rows = await runQuery(sql, ctx, (tx) =>
     searchBooksForLending(tx, ctx, { q: "%" }),
+  );
+  expect(rows).toHaveLength(0);
+});
+
+test("QA remediation T27: quick-lend search also matches a copy code", async () => {
+  const { ctx, bookId } = await shelf();
+  const [{ code }] = await sql<{ code: string }[]>`
+    select code from book_copies where book_id = ${bookId} order by code limit 1
+  `;
+
+  // Lowercase and partial, the same forgiveness the title/author halves of
+  // this query already give — `ilike`, not `like`, and no need for
+  // `olibra_fold`: a copy code is plain ASCII assigned by `copy-codes.ts`,
+  // never Vietnamese text.
+  const rows = await runQuery(sql, ctx, (tx) =>
+    searchBooksForLending(tx, ctx, { q: code.toLowerCase().slice(0, -1) }),
+  );
+  expect(rows.map((r) => r.title)).toContain("Dế Mèn Phiêu Lưu Ký");
+
+  // The book this matched has three copies. A match found through only one
+  // of their codes must still report all three — this is the aggregate this
+  // query's own docstring says the `exists` clause is written to leave
+  // alone, as opposed to a condition added to the `cp` alias the counts
+  // below are built from, which would have fanned the join down to the one
+  // matching copy before `count(cp.id) filter (...)` ever ran.
+  const [row] = rows;
+  expect(row.copiesTotal).toBe(3);
+});
+
+test("QA remediation T27: a copy code match is literal, not a LIKE wildcard", async () => {
+  // escapeLikePattern's own concern (copy-codes.ts), mirrored here on the
+  // search side: a manager typing a stray `%` or `_` must not turn "find
+  // this one code" into "find every code that has any character there".
+  // Every seeded code is `DT-####` — a hyphen, not an underscore — so an
+  // unescaped `_` in this query would still match one via the wildcard.
+  const { ctx } = await shelf();
+  const rows = await runQuery(sql, ctx, (tx) =>
+    searchBooksForLending(tx, ctx, { q: "DT_0001" }),
   );
   expect(rows).toHaveLength(0);
 });

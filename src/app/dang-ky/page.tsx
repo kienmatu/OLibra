@@ -5,6 +5,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { messageFor } from "@/domain/kernel/errors";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { findPublicShelf } from "@/domain/portal/queries/find-public-shelf";
 import { loadPage, loadPublicPage } from "@/lib/page-data";
 import { loadParishContext } from "@/domain/members/parish-context";
@@ -35,6 +36,8 @@ import { registerMembershipAction } from "./actions";
  * shelf, which is precisely the reading `contextFor` gives them.
  */
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Đăng ký — OLibra" };
 
 function GroupHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -119,7 +122,23 @@ export default async function RegisterPage({
           </p>
         ) : null}
 
-        <form action={registerMembershipAction} className="mt-10 space-y-10">
+        <form
+          action={registerMembershipAction}
+          // QA remediation T27: the browser's own required/pattern validation
+          // messages ("Please fill out this field") come out in whatever
+          // language the browser's UI runs in, not this document's `lang="vi"`
+          // — measured live with a browser set to English. `noValidate`
+          // stops the browser from blocking submission on its own and popping
+          // that bubble up; `required`/`pattern` stay on every control below
+          // unchanged, so `Field`'s `invalidHint` (shown via `:user-invalid`)
+          // still only lights up a control that genuinely fails its own
+          // constraint, and a submission the browser would have refused now
+          // reaches `registerMembership`, which already refuses it in
+          // Vietnamese (`required_fields_missing`) — see `Field`'s own
+          // docstring for the fuller argument.
+          noValidate
+          className="mt-10 space-y-10"
+        >
           <input type="hidden" name="tu-sach" value={shelf.slug} />
 
           <section className="space-y-3">
@@ -204,6 +223,7 @@ export default async function RegisterPage({
               required
               htmlFor="ho-ten"
               hint="Ghi đầy đủ như trong sổ giáo xứ."
+              invalidHint="Vui lòng nhập họ và tên."
             >
               <Input
                 id="ho-ten"
@@ -218,6 +238,7 @@ export default async function RegisterPage({
               required
               htmlFor="ngay-sinh"
               hint="Để tủ sách gợi ý sách hợp tuổi."
+              invalidHint="Vui lòng chọn ngày sinh."
             >
               <Input id="ngay-sinh" name="ngay-sinh" type="date" required />
             </Field>
@@ -231,6 +252,7 @@ export default async function RegisterPage({
               required
               htmlFor="ten-cha"
               hint="Giúp quản lý phân biệt các em trùng tên."
+              invalidHint="Vui lòng nhập tên cha."
             >
               <Input
                 id="ten-cha"
@@ -245,6 +267,7 @@ export default async function RegisterPage({
               required
               htmlFor="ten-me"
               hint="Giúp quản lý phân biệt các em trùng tên."
+              invalidHint="Vui lòng nhập tên mẹ."
             >
               <Input
                 id="ten-me"
@@ -259,11 +282,22 @@ export default async function RegisterPage({
               required
               htmlFor="dien-thoai"
               hint="Số của cha mẹ cũng được. Dùng khi cần nhắc trả sách."
+              // The same sentence `phone_invalid` already gives a manager
+              // editing this same shape of field elsewhere — reused rather
+              // than newly written, per `errors.ts`'s own rule that a screen
+              // borrows the domain's wording instead of inventing its own for
+              // a rule it did not define. It covers both an empty box
+              // (`required`) and a malformed one (`pattern`): `:user-invalid`
+              // does not distinguish which constraint failed, so the message
+              // has to fit either.
+              invalidHint={messageFor("phone_invalid")}
             >
               <Input
                 id="dien-thoai"
                 name="dien-thoai"
-                inputMode="tel"
+                type="tel"
+                inputMode="numeric"
+                pattern={PHONE_PATTERN}
                 required
                 placeholder="vd: 09xx xxx xxx"
               />

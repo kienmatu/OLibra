@@ -2,7 +2,7 @@ import type { AuditEntry } from "../../kernel/audit";
 import { NotFound, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { allocateCopyCodes } from "../copy-codes";
-import { requireManager } from "../policy";
+import { assertSingleDonor, requireManager } from "../policy";
 import type { DonorInput } from "./create-book";
 
 export interface AddCopiesInput extends DonorInput {
@@ -31,6 +31,10 @@ export const addCopies: Command<
   if (!Number.isInteger(input.count) || input.count < 1) {
     throw new ValidationFailed("copy_count_invalid", "count");
   }
+  // QA remediation Task 19: see `assertSingleDonor`'s own docstring
+  // (`../policy.ts`). Shared with `CreateBook` — `DonorInput` is the same
+  // type both this command and that one take.
+  assertSingleDonor(input.donorMembershipId, input.donorName);
 
   // Scoped by RLS to this shelf, so a book on another shelf is simply not
   // here — which is the right answer to give (OPS §2), not a different one.

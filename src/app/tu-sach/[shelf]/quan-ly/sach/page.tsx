@@ -21,6 +21,8 @@ import { statusForAvailability } from "@/lib/status";
 /** U1 §2. See `src/app/tu-sach/[shelf]/quan-ly/cho-muon/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Sách — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /**
@@ -280,6 +282,7 @@ export default async function ManagerBooksPage({
                         <div className="flex items-center gap-3">
                           <BookCover
                             title={book.title}
+                            coverUrl={book.coverUrl}
                             className="w-10 text-[0.9rem]"
                           />
                           <div className="min-w-0">
@@ -347,7 +350,11 @@ export default async function ManagerBooksPage({
                   className="rounded-card border border-hairline bg-surface p-4"
                 >
                   <div className="flex items-start gap-3">
-                    <BookCover title={book.title} className="w-14 text-[1.1rem]" />
+                    <BookCover
+                      title={book.title}
+                      coverUrl={book.coverUrl}
+                      className="w-14 text-[1.1rem]"
+                    />
                     <div className="min-w-0 flex-1">
                       <BookTitle className="block truncate text-[16px] leading-snug">
                         {book.title}

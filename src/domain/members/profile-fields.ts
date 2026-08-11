@@ -1,5 +1,6 @@
 import { ValidationFailed } from "../kernel/errors";
 import type { Tx } from "../kernel/unit-of-work";
+import { assertPhone } from "./policy";
 import type { ScopedUserId } from "./scoped-user";
 
 /**
@@ -234,6 +235,16 @@ export function normaliseProfilePatch(patch: ProfilePatch): ProfilePatch {
     // by this check at all until review found it.
     if (field === "date_of_birth" && value !== null) {
       assertStorableDate(value, "date_of_birth");
+    }
+    // QA remediation Task 18. `phone` is nullable on `users`, so `value ===
+    // null` here is a real edit — a manager clearing a number nobody actually
+    // has — and must not be refused; the check applies only when a caller
+    // supplied a nonempty replacement. This is the call `UpdateReaderProfile`
+    // and `ProposeProfileChange` both inherit for free, since both go through
+    // this one function — the same reasoning `register()`'s own call gives for
+    // covering three registration commands from one place.
+    if (field === "phone" && value !== null) {
+      assertPhone(value, "phone");
     }
     out[field] = value;
   }

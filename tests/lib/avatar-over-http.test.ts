@@ -1,17 +1,14 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { hashPassword } from "../../src/auth/password";
-import { setPasswordVerifier } from "../../src/domain/members/registration";
+import { hashPassword, verifyPassword } from "../../src/auth/password";
 import { signIn } from "../../src/auth/session";
-import { verifyPassword } from "../../src/auth/password";
 import { systemClock } from "../../src/domain/kernel/clock";
+import { setPasswordVerifier } from "../../src/domain/kernel/crypto";
 import { migrate } from "../../src/db/migrate";
 import { AVATAR_MAX_BYTES } from "../../src/lib/avatar";
 import { SESSION_COOKIE } from "../../src/lib/session-cookie";
 import { makeShelf, makeUser } from "../support/factories";
 import { closeAll, resetDatabase, sql } from "../support/db";
-import { testDatabaseUrl, testPoolDatabaseUrl } from "../support/env";
+import { startTestServer, type TestServer } from "../support/http";
 
 /**
  * The avatar upload through **Next's own request handler**, over real HTTP.
@@ -37,10 +34,13 @@ import { testDatabaseUrl, testPoolDatabaseUrl } from "../support/env";
  * green throughout, because the whole suite called the function.
  *
  * So this file is deliberately the expensive kind of test — it boots a dev
- * server — and it is the only one of its kind. It exists to hold one boundary
- * that cannot be observed from inside the process, and it is written so that
- * *moving either number* makes it fail rather than merely making it stale: the
- * assertions are about which of the two limits answered, not about the numbers.
+ * server. `tests/lib/registration-over-http.test.ts` is the other one, for the
+ * equivalent reason one Turbopack layer over: a module wired correctly in one
+ * server-build layer and not another, which only a real request can observe.
+ * This file exists to hold one boundary that cannot be observed from inside
+ * the process, and it is written so that *moving either number* makes it fail
+ * rather than merely making it stale: the assertions are about which of the
+ * two limits answered, not about the numbers.
  *
  * ── What it does not need ───────────────────────────────────────────────────
  *
@@ -69,85 +69,23 @@ import { testDatabaseUrl, testPoolDatabaseUrl } from "../support/env";
  * A port nothing else in this project uses: `bun run dev` takes 3000, compose
  * publishes the app on `APP_PORT` (3001 in `.env.example`), and CI's `links`
  * job crawls 3000. Fixed rather than random so a leaked process is findable.
+ *
+ * The spawn-and-wait machinery this test used to own directly — draining the
+ * child's output, telling "never started listening" apart from "another dev
+ * server already owns this project directory", restoring `tsconfig.json`
+ * afterwards — now lives in `tests/support/http.ts`, once
+ * `tests/lib/registration-over-http.test.ts` needed the identical sequence a
+ * second time. That file carries the reasoning for each piece of it; nothing
+ * below repeats it.
  */
 const PORT = 3097;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
-const PROFILE = "/tu-sach/dong-thap/toi/ho-so";
+const PROFILE = "/tu-sach/dong-thap/ho-so";
 
-let server: ChildProcess;
+let server: TestServer;
 /** The signed-in reader's session cookie, for every request below. */
 let cookie: string;
 
-/**
- * `tsconfig.json`, as it stands before the dev server touches it.
- *
- * Next rewrites that file the first time it type-checks a page — it appends its
- * own generated `types` globs and reserialises the whole document with its own
- * JSON formatting, which is not Prettier's. That is normal for a developer
- * running `bun run dev`, and it is intolerable inside `bun run check`, where the
- * next step is `format:check` on a file the test just reformatted. Restored
- * verbatim in `afterAll` rather than left to a `.gitignore` or a lint exemption,
- * because the honest statement is that this test has a side effect on the
- * working tree and undoes it.
- */
-const TSCONFIG = "tsconfig.json";
-let tsconfigBefore: string;
-
-/**
- * Everything the child said, capped.
- *
- * **This test used to spawn with `stdio: "ignore"`, and that one word cost an
- * afternoon.** Next 16.3 refuses to start a second dev server for the same
- * project directory *even on a different port* — a developer with `bun run dev`
- * already up gets
- *
- * ```
- * ⨯ Another next dev server is already running.
- * - Local:        http://localhost:3000
- * - PID:          28918
- * ```
- *
- * …and with the child's output discarded, that sentence went nowhere. The
- * failure surfaced sixty seconds later as `the dev server never came up on
- * 3097`, which is true, is useless, and points at the port rather than at the
- * reason. The child's own words are the diagnosis, so they are kept and put in
- * the thrown error.
- *
- * Capped because a dev server that *does* come up logs every compile for the
- * rest of the run into an array nobody reads. The tail is what matters: the
- * refusal is the last thing a child that refuses ever says.
- */
-const MAX_OUTPUT = 8_000;
-let said = "";
-
-function remember(chunk: unknown): void {
-  said = (said + String(chunk)).slice(-MAX_OUTPUT);
-}
-
-/** The failure, with the child's own explanation attached. */
-function noServer(why: string): never {
-  const printed = said.trim();
-  throw new Error(
-    `${why}\n\n` +
-      `── what \`next dev -p ${PORT}\` printed ──\n` +
-      (printed || "(nothing at all — the binary produced no output)") +
-      "\n──\n" +
-      "If that says another dev server is already running: Next refuses a " +
-      "second one for the same project directory whatever port it is given. " +
-      "Stop the other one and re-run, or run this file alone in CI, where " +
-      "nothing else is serving this project.",
-  );
-}
-
-/**
- * Spawned from `node_modules/.bin/next` rather than through `bun run dev`, so
- * the port is an argument rather than an environment variable and so killing
- * the child kills the server rather than a shell that owns it.
- *
- * Both pipes are drained by `remember`; leaving a pipe undrained is what makes
- * a chatty child block on a full buffer, which would be a *new* sixty-second
- * mystery in place of the one this replaces.
- */
 beforeAll(async () => {
   // A shelf at the slug `PROFILE` names, and one reader of it who can sign in.
   // Written directly rather than through `registerMembership`, because what is
@@ -174,63 +112,12 @@ beforeAll(async () => {
   });
   cookie = `${SESSION_COOKIE}=${token}`;
 
-  tsconfigBefore = readFileSync(TSCONFIG, "utf8");
-  server = spawn("node_modules/.bin/next", ["dev", "-p", String(PORT)], {
-    cwd: process.cwd(),
-    stdio: ["ignore", "pipe", "pipe"],
-    // The dev server is a separate process and reads its own environment. The
-    // suite's own `sql` handle points at the test database; without these two
-    // the server would reach for a `DATABASE_URL` the `check` job does not set,
-    // and the page would fault instead of rendering.
-    env: {
-      ...process.env,
-      DATABASE_URL: testPoolDatabaseUrl(),
-      MIGRATION_DATABASE_URL: testDatabaseUrl(),
-    },
-  });
-  server.stdout?.on("data", remember);
-  server.stderr?.on("data", remember);
-
-  // Three ways this ends badly, and each is now reported the moment it is
-  // known rather than at the deadline. A child that refuses to start exits
-  // within a second or two; waiting out the full minute to say so was the
-  // whole of the original misdiagnosis.
-  let exit: string | null = null;
-  server.on("exit", (code, signal) => {
-    exit = signal ? `killed by ${signal}` : `exited with code ${code}`;
-  });
-  server.on("error", (error) => {
-    exit = `could not be spawned: ${error.message}`;
-  });
-
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    try {
-      const res = await fetch(`${ORIGIN}/`);
-      if (res.ok) {
-        await res.text();
-        break;
-      }
-    } catch {
-      // Not listening yet.
-    }
-    // Read through a local: `exit` is assigned from a callback, which TypeScript
-    // cannot see, so narrowing it in place would leave it typed `never` here.
-    const ended: string | null = exit;
-    if (ended) noServer(`\`next dev\` ${ended} before ${PORT} answered.`);
-    if (Date.now() > deadline) {
-      noServer(`the dev server never came up on ${PORT} within 60s.`);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
+  server = await startTestServer(PORT);
 }, 70_000);
 
 afterAll(async () => {
   await closeAll();
-  server?.kill("SIGTERM");
-  if (readFileSync(TSCONFIG, "utf8") !== tsconfigBefore) {
-    writeFileSync(TSCONFIG, tsconfigBefore);
-  }
+  await server?.close();
 });
 
 /**

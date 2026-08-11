@@ -12,6 +12,11 @@ export interface LoanForReturnRow {
   copyCode: string;
   bookId: string;
   title: string;
+  /** `books.cover_url` — Task 12 (2026-08-10 QA remediation), see
+   *  `src/components/ui/book.tsx`'s own docstring for why this now travels
+   *  with every row a `BookCover` renders rather than being guessed from the
+   *  title. */
+  coverUrl: string | null;
   /**
    * `loans.borrower_id` — a `users(id)`, not a `memberships(id)`
    * (`0005_circulation.sql:20`). Named for the id it actually carries, the
@@ -75,6 +80,7 @@ export async function searchLoansForReturn(
       copy_code: string;
       book_id: string;
       title: string;
+      cover_url: string | null;
       borrower_user_id: string;
       borrower_name: string;
       due_on: string;
@@ -85,7 +91,7 @@ export async function searchLoansForReturn(
     select
       l.id as loan_id,
       l.copy_id, c.code as copy_code,
-      l.book_id, b.title,
+      l.book_id, b.title, b.cover_url,
       l.borrower_id as borrower_user_id,
       u.full_name  as borrower_name,
       l.due_on::text as due_on,
@@ -129,6 +135,7 @@ export async function searchLoansForReturn(
     copyCode: r.copy_code,
     bookId: r.book_id,
     title: r.title,
+    coverUrl: r.cover_url,
     borrowerUserId: r.borrower_user_id,
     borrowerName: r.borrower_name,
     dueOn: r.due_on,

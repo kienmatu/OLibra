@@ -43,6 +43,7 @@ const clock = fixedClock("2026-08-08T03:00:00Z");
 async function shelfWith(
   over: Partial<{
     location: string | null;
+    address: string | null;
     openingHours: string | null;
     keeperName: string | null;
     keeperPhone: string | null;
@@ -56,6 +57,7 @@ async function shelfWith(
   await sql`
     update bookshelves set
       location      = ${or(over.location, "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú")},
+      address       = ${or(over.address, "12 Nguyễn Huệ, Phường Bến Nghé")},
       opening_hours = ${or(over.openingHours, "Mở sau lễ Chúa nhật · 9:00 đến 11:00")},
       keeper_name   = ${or(over.keeperName, "Maria Nguyễn Thị Lan")},
       keeper_phone  = ${or(over.keeperPhone, "0912 345 678")}
@@ -92,6 +94,7 @@ test("a member gets the keeper's name and number, which is what the page shows",
   expect(shelf).toEqual({
     name: "Tủ sách dong-thap",
     location: "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú",
+    address: "12 Nguyễn Huệ, Phường Bến Nghé",
     openingHours: "Mở sau lễ Chúa nhật · 9:00 đến 11:00",
     keeperName: "Maria Nguyễn Thị Lan",
     keeperPhone: "0912 345 678",
@@ -123,6 +126,7 @@ test("a shelf that has filled in nothing but its name is rows the page omits, no
   // null; returning "" instead would print a "Giờ mở cửa" label over a blank.
   const { readerCtx } = await shelfWith({
     location: null,
+    address: null,
     openingHours: null,
     keeperName: null,
     keeperPhone: null,
@@ -133,6 +137,7 @@ test("a shelf that has filled in nothing but its name is rows the page omits, no
   expect(shelf).toEqual({
     name: "Tủ sách dong-thap",
     location: null,
+    address: null,
     openingHours: null,
     keeperName: null,
     keeperPhone: null,

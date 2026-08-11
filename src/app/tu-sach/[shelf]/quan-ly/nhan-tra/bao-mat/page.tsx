@@ -17,6 +17,8 @@ import { reportCopyLostAction } from "../../actions";
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Xác nhận báo mất — Quản lý tủ sách OLibra" };
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="border-b border-hairline px-6 py-4 last:border-b-0">
@@ -127,7 +129,11 @@ export default async function NhanTraBaoMatPage({
           <dl className="mt-6 max-w-xl rounded-card border border-hairline bg-surface">
             <Row label="Sách">
               <div className="flex items-center gap-3">
-                <BookCover title={loan.title} className="w-12 text-[1rem]" />
+                <BookCover
+                  title={loan.title}
+                  coverUrl={loan.coverUrl}
+                  className="w-12 text-[1rem]"
+                />
                 <div className="min-w-0">
                   <BookTitle className="block truncate text-base leading-snug">
                     {loan.title}

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { TenantContext } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
-import { requireSuperAdmin } from "../../members/policy";
+import { assertPhone, requireSuperAdmin } from "../../members/policy";
 
 /**
  * Góp ý — a message to the administrator, shelf-scoped or site-wide.
@@ -42,6 +42,41 @@ export interface SubmitFeedbackInput {
 }
 
 /**
+ * **Known gap, found and left open by Task 17 (2026-08-10 QA remediation),
+ * recorded here rather than silently shipped.** OPS §8 states the limit flatly
+ * — "3 per phone number per day" — with no "per shelf" qualifier
+ * (`docs/OPERATIONS.md:1051` repeats it the same way). The `recent` query
+ * below has always matched that reading in intent, but not in fact: it runs on
+ * the guarded `tx` a `Command` receives, subject to RLS like any other query
+ * on this connection, and `feedback_tenant`'s `using` clause admits only
+ * *this session's own shelf's rows plus every site-wide row* — never another
+ * shelf's. Two sessions counting the identical phone number can disagree:
+ *
+ * - A shelf-scoped caller (the ordinary `gop-y` form) sees its own shelf's
+ *   messages *and* every site-wide one, so it is correctly throttled against
+ *   both.
+ * - A caller with **no** shelf at all (`/lien-he`'s form, reached through
+ *   `runPublicCommand`) sees *only* site-wide messages — a phone number that
+ *   has already spent its three at some shelf's own form is invisible to this
+ *   query, and the same number can send three more here the same day.
+ * - Symmetrically, two shelves' own `gop-y` forms are a blind spot from each
+ *   other (a number maxed out at shelf A is unseen from shelf B), which
+ *   predates this task — that half was already true the day `submitFeedback`
+ *   shipped in B3. This task adds a second, always-reachable door onto the
+ *   same shape, not a new kind of gap.
+ *
+ * This is a property of the row visibility RLS gives an `olibra_app` session,
+ * not a bug in the count's arithmetic, and closing it honestly needs either a
+ * `security definer` lookup that deliberately ignores the caller's scope (a
+ * first for this schema, and a bigger decision than this task) or
+ * restructuring this command to take the count outside the tenant-scoped
+ * transaction entirely. Neither is done here.
+ * `tests/domain/community/announcements-feedback-donations.test.ts` pins the
+ * current, imperfect behaviour on purpose, so a future fix has a red test to
+ * turn green instead of a surprise.
+ */
+
+/**
  * OPS §8's rate-limit key, and the reason it is a hash.
  *
  * *"It uses a **hashed** identifier (§5.4), not the raw phone number, so the
@@ -76,6 +111,15 @@ export const submitFeedback: Command<
   if (!senderName || !phone || !body) {
     throw new ValidationFailed("feedback_fields_required", "body");
   }
+  // Found by the QA remediation branch's final fix wave: Task 18 put
+  // `assertPhone` on every registration/profile/admin write, but missed this
+  // command — the QA report's own literal test string for the finding,
+  // "khong-phai-so", was still accepted and stored here, on the form that is
+  // the *only* way a parish with no shelf reaches the administrator
+  // (`/lien-he`). Blank is already refused above; `assertPhone` (see its own
+  // docstring: "every caller is responsible for its own blank check first")
+  // only needs to judge the shape now.
+  assertPhone(phone, "phone");
 
   const hash = phoneHash(phone);
 
@@ -88,6 +132,23 @@ export const submitFeedback: Command<
        where guest_hash = ${hash} and created_at > ${since}
     `;
   if (recent.length >= DAILY_LIMIT) throw new RuleViolated("rate_limited");
+
+  // **`=== null`, not `?? null`.** `input.bookshelfId` is `undefined` for the
+  // overwhelmingly common case — a shelf's own `gop-y` form, which omits the
+  // field to mean *this shelf* (see the field's own docstring above) — and
+  // `undefined ?? null` collapses to `null` exactly the same as an explicit
+  // one would. `isSiteWide` computed that way was true for *every* ordinary
+  // shelf submission, which the `after.site_wide` audit flag below shipped
+  // with unnoticed (a wrong fact recorded, but harmless on its own — nothing
+  // read that field back). Task 17 (2026-08-10 QA remediation) reused the
+  // same expression for `global`, where the identical mistake is not
+  // harmless: `global: true` on an ordinary shelf message makes `toRow` bind
+  // a null `bookshelf_id` onto its audit row, which `runCommand`'s
+  // `olibra_app` insert then has rejected outright by `audit_log_tenant`'s
+  // policy — caught by `tests/domain/community/announcements-feedback
+  // -donations.test.ts`'s "omitting the shelf files feedback against the
+  // shelf in scope", which started failing the moment `global` was added.
+  const isSiteWide = input.bookshelfId === null;
 
   const [row] = await tx<{ id: string }[]>`
       insert into feedback
@@ -112,7 +173,19 @@ export const submitFeedback: Command<
       // holds both because the administrator has to be able to reply; the
       // audit log is a different record with a different retention, and BR
       // §14 asks it to record what changed rather than duplicate it.
-      after: { site_wide: (input.bookshelfId ?? null) === null },
+      after: { site_wide: isSiteWide },
+      // **The message decides, matching `auditScopeFor` below for the same
+      // entity.** A site-wide message needs a null-`bookshelf_id` audit row —
+      // else `toRow` binds `ctx.bookshelfId` onto it, and for `/lien-he`'s
+      // genuinely shelf-less caller that is `""`, the exact raw-uuid-cast
+      // failure the kernel's own `assertValidBookshelfId` exists to prevent.
+      // Task 17 (2026-08-10 QA remediation) is what first calls this command
+      // with a `ctx.bookshelfId` that can be empty (`runPublicCommand`); the
+      // in-shelf case a `gop-y` form's own guest session can also mark
+      // site-wide (`bookshelfId: null` from a *scoped* caller) needs the same
+      // flag for the identical reason and runs through `runGlobalCommand`
+      // instead, which tolerates the escalated insert without an empty scope.
+      global: isSiteWide,
     },
   };
 };

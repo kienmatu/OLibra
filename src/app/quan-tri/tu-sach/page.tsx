@@ -4,18 +4,100 @@ import { AdminShell } from "@/components/shell/manager-shell";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
 import { Pill } from "@/components/ui/pill";
+import { SavedNotice } from "@/components/ui/saved-notice";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { messageFor } from "@/domain/kernel/errors";
+import { PHONE_PATTERN } from "@/domain/members/policy";
+import type { PolicyField } from "@/domain/admin/policy";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getAdminOverview } from "@/domain/admin/queries/get-admin-overview";
-import { getShelfSettings } from "@/domain/shelf/queries/get-shelf-settings";
+import {
+  getShelfSettings,
+  type LendingPolicy,
+} from "@/domain/shelf/queries/get-shelf-settings";
 import { loadAdminPage } from "@/lib/page-data";
-import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
+import {
+  ACTION_DONE_PARAM,
+  param,
+  refusalFrom,
+  type SearchParams,
+} from "@/lib/search-params";
 import {
   archiveBookshelfAction,
   createBookshelfAction,
   updateBookshelfSettingsAction,
 } from "../admin-actions";
+import { EDITABLE_POLICY_FIELDS } from "./policy-fields";
+
+/**
+ * Label, form-field id, and bound for each of `EDITABLE_POLICY_FIELDS` —
+ * paired with `PolicyField` rather than declared as a bare array so that
+ * TypeScript itself refuses a build missing an entry for any field
+ * `src/domain/admin/policy.ts`'s `BOUNDS` table adds later.
+ *
+ * The `min`/`max` pair mirrors `checkPolicyBound`'s table exactly, per QA
+ * remediation Task 15's own note further down — this is the "browser refuses
+ * first" half, never the only check.
+ */
+const POLICY_FIELD_META: Record<
+  PolicyField,
+  {
+    id: string;
+    label: string;
+    min: number;
+    max: number;
+    read: (policy: LendingPolicy) => number;
+  }
+> = {
+  loan_days: {
+    id: "so-ngay-muon",
+    label: "Số ngày cho mượn",
+    min: 1,
+    max: 365,
+    read: (p) => p.loanDays,
+  },
+  max_concurrent_loans: {
+    id: "so-sach-cung-luc",
+    label: "Số sách mượn cùng lúc",
+    min: 1,
+    max: 50,
+    read: (p) => p.maxConcurrentLoans,
+  },
+  max_renewals: {
+    id: "so-lan-gia-han",
+    label: "Số lần gia hạn",
+    // The one field whose floor is 0, not 1 — "no renewals" is a real policy
+    // (BR §5.5), not the defect QA remediation Task 15 closed.
+    min: 0,
+    max: 10,
+    read: (p) => p.maxRenewals,
+  },
+  renewal_days: {
+    id: "so-ngay-gia-han",
+    label: "Số ngày mỗi lần gia hạn",
+    min: 1,
+    max: 365,
+    read: (p) => p.renewalDays,
+  },
+  hold_days: {
+    id: "so-ngay-giu-cho",
+    label: "Số ngày giữ chỗ",
+    min: 1,
+    max: 30,
+    read: (p) => p.holdDays,
+  },
+  // QA remediation Task 23: `due_soon_days` was displayed on `/quan-ly/cai-dat`
+  // ("Báo sắp đến hạn trước") with no form anywhere that could change it. Its
+  // floor is 0, the same exception `max_renewals` gets above — warning on the
+  // due date itself is a real policy, not the shape of Task 15's defect.
+  due_soon_days: {
+    id: "so-ngay-bao-truoc",
+    label: "Báo sắp đến hạn trước",
+    min: 0,
+    max: 30,
+    read: (p) => p.dueSoonDays,
+  },
+};
 
 /**
  * OPS §3.4's `GetBookshelvesList` and `GetBookshelfSettings`, with §4.5's three
@@ -38,6 +120,19 @@ import {
  * **The slug is shown and cannot be edited.** It is immutable in the database
  * and read-only in OPS §3.4; a shelf's address appears on printed notices and in
  * a parish's bookmarks.
+ *
+ * **`?tu-sach=` names a slug, not a `bookshelfId` (QA remediation T27).** It
+ * used to be the UUID — a stable key, since a shelf's id never changes
+ * either, but not one an administrator can read, type or recognise on sight,
+ * and not what the summary line under each shelf's name showed either
+ * (`/{slug}`, not the shelf's own address). The slug is exactly as stable —
+ * `20260808_02_bookshelf_slug_immutable.sql` is what makes it a legitimate
+ * key at all, the same guarantee `resolveShelfId` (`src/auth/guards.ts`)
+ * already leans on — and it is the one thing on this page a person could
+ * actually recognise in the address bar. `updateBookshelfSettingsAction`
+ * still receives the real id (a hidden field, `selected.row.bookshelfId`,
+ * never in a URL): only the query string that names *which* shelf's editor
+ * to open changed, not what `updateBookshelfSettings` is called with.
  */
 export const dynamic = "force-dynamic";
 
@@ -51,13 +146,18 @@ export default async function AdminBookshelvesPage({
   searchParams: Promise<SearchParams>;
 }) {
   const search = await searchParams;
-  const selectedId = param(search, "tu-sach") ?? null;
+  const selectedSlug = param(search, "tu-sach") ?? null;
   const refusal = refusalFrom(search);
+  // QA remediation Task 16: `updateBookshelfSettingsAction` now marks its own
+  // success (`admin-actions.ts`'s `back(..., true)`). A bare presence check,
+  // like `/gop-y`'s own `da-gui`, rather than reading a value — this page has
+  // exactly one thing behind `?tu-sach=` that could just have been saved.
+  const saved = param(search, ACTION_DONE_PARAM) === "1";
 
   const { viewer, unreadFeedback, shelves, selected } = await loadAdminPage(
     async (tx, ctx, v) => {
       const shelves = await getAdminOverview(tx, ctx);
-      const named = shelves.find((s) => s.bookshelfId === selectedId) ?? null;
+      const named = shelves.find((s) => s.slug === selectedSlug) ?? null;
       return {
         viewer: v,
         unreadFeedback: await countUnreadFeedback(tx, ctx),
@@ -99,13 +199,13 @@ export default async function AdminBookshelvesPage({
           >
             <div className="min-w-0">
               <Link
-                href={`/quan-tri/tu-sach?tu-sach=${shelf.bookshelfId}`}
+                href={`/quan-tri/tu-sach?tu-sach=${encodeURIComponent(shelf.slug)}`}
                 className="text-[16px] font-medium hover:underline"
               >
                 {shelf.name}
               </Link>
               <p className="text-[14px] text-meta">
-                /{shelf.slug} · {NUMBER.format(shelf.books)} đầu sách ·{" "}
+                /tu-sach/{shelf.slug} · {NUMBER.format(shelf.books)} đầu sách ·{" "}
                 {NUMBER.format(shelf.readers)} bạn đọc
               </p>
             </div>
@@ -150,7 +250,13 @@ export default async function AdminBookshelvesPage({
               <Input id="nguoi-giu-moi" name="nguoi-giu" />
             </Field>
             <Field label="Số điện thoại" htmlFor="dien-thoai-moi">
-              <Input id="dien-thoai-moi" name="dien-thoai" inputMode="tel" />
+              <Input
+                id="dien-thoai-moi"
+                name="dien-thoai"
+                type="tel"
+                inputMode="numeric"
+                pattern={PHONE_PATTERN}
+              />
             </Field>
             <Field label="Giờ mở cửa" htmlFor="gio-mo-cua-moi">
               <Input
@@ -174,8 +280,22 @@ export default async function AdminBookshelvesPage({
             ← Về danh sách tủ sách
           </Link>
 
+          {saved ? <SavedNotice>Đã lưu cài đặt.</SavedNotice> : null}
+
           <form action={updateBookshelfSettingsAction} className="mt-6 space-y-12">
             <input type="hidden" name="tu-sach" value={selected.row.bookshelfId} />
+            {/* QA remediation T27: the id above is what `updateBookshelfSettings`
+                needs to find the row — that has not changed. This is what
+                `updateBookshelfSettingsAction` redirects back to afterwards,
+                now that `?tu-sach=` on this page names a slug rather than the
+                id; the slug cannot change mid-request (it is immutable), so
+                carrying it as a second hidden field is exactly as reliable as
+                the id was for that purpose. */}
+            <input
+              type="hidden"
+              name="tu-sach-slug"
+              value={selected.settings.profile.slug}
+            />
 
             <section className="space-y-6">
               <h2 className="text-xl font-semibold">Thông tin chung</h2>
@@ -190,7 +310,9 @@ export default async function AdminBookshelvesPage({
               </Field>
 
               <Field label="Đường dẫn">
-                <ReadOnlyValue>/{selected.settings.profile.slug}</ReadOnlyValue>
+                <ReadOnlyValue>
+                  /tu-sach/{selected.settings.profile.slug}
+                </ReadOnlyValue>
               </Field>
 
               <Field label="Địa điểm" htmlFor="dia-diem">
@@ -201,13 +323,16 @@ export default async function AdminBookshelvesPage({
                 />
               </Field>
 
-              {/* No screen in this application renders `address` — BR §16.1
-                  publishes `location` as the address a reader sees. It is here
-                  because the command writes the whole profile in one statement,
-                  so a form that omitted this field would clear it on every
-                  save. That is the one thing the all-or-nothing patch makes
-                  possible to get wrong, and this field is missing it that was
-                  the first version's actual bug: it defaulted to `location`. */}
+              {/* QA remediation Task 22. Until this task, no screen rendered
+                  `address` at all — `getShelfSettings`'s own docstring said so
+                  in as many words, and the field existed here only because
+                  `updateBookshelfSettings` writes the whole profile in one
+                  statement, so a form that omitted it would clear it on every
+                  save. It is now rendered on the shelf's own home page
+                  (`src/app/tu-sach/[shelf]/page.tsx`, "Địa chỉ", below "Địa
+                  điểm") and correctly labelled on `/quan-ly/cai-dat`, which
+                  used to show *this* field's sibling, `location`, under this
+                  same label. */}
               <Field label="Địa chỉ" htmlFor="dia-chi">
                 <Input
                   id="dia-chi"
@@ -232,7 +357,9 @@ export default async function AdminBookshelvesPage({
                 <Input
                   id="dien-thoai"
                   name="dien-thoai"
-                  inputMode="tel"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern={PHONE_PATTERN}
                   defaultValue={selected.settings.profile.keeperPhone ?? ""}
                 />
               </Field>
@@ -253,44 +380,40 @@ export default async function AdminBookshelvesPage({
                 sửa được.
               </p>
 
-              {[
-                {
-                  id: "so-ngay-muon",
-                  label: "Số ngày cho mượn",
-                  value: selected.settings.policy.loanDays,
-                },
-                {
-                  id: "so-sach-cung-luc",
-                  label: "Số sách mượn cùng lúc",
-                  value: selected.settings.policy.maxConcurrentLoans,
-                },
-                {
-                  id: "so-lan-gia-han",
-                  label: "Số lần gia hạn",
-                  value: selected.settings.policy.maxRenewals,
-                },
-                {
-                  id: "so-ngay-gia-han",
-                  label: "Số ngày mỗi lần gia hạn",
-                  value: selected.settings.policy.renewalDays,
-                },
-                {
-                  id: "so-ngay-giu-cho",
-                  label: "Số ngày giữ chỗ",
-                  value: selected.settings.policy.holdDays,
-                },
-              ].map((f) => (
-                <Field key={f.id} label={f.label} required htmlFor={f.id}>
-                  <Input
-                    id={f.id}
-                    name={f.id}
-                    type="number"
-                    min={0}
-                    required
-                    defaultValue={f.value}
-                  />
-                </Field>
-              ))}
+              {/* QA remediation Task 15: `min={0}` and no `max` at all is what
+                  let "Số ngày cho mượn" take `0` and save silently — every
+                  loan from that shelf would then fall due the day it was
+                  made. Each field's own `min`/`max` (in `POLICY_FIELD_META`
+                  above) mirrors `checkPolicyBound`'s table
+                  (`src/domain/admin/policy.ts`) exactly, so the browser
+                  refuses first and the domain is the backstop it was already
+                  meant to be — never the only check, since a number box's
+                  `min`/`max` is trivially bypassed by anyone editing the
+                  request by hand.
+
+                  Mapped from `EDITABLE_POLICY_FIELDS` (`./policy-fields.ts`)
+                  rather than a literal array here (QA remediation Task 23):
+                  that file is what `tests/architecture/
+                  every-shown-policy-is-editable.test.ts` compares against
+                  `/quan-ly/cai-dat`'s own field list, and the comparison is
+                  only honest if this is the array actually driving the
+                  form. */}
+              {EDITABLE_POLICY_FIELDS.map((field) => {
+                const meta = POLICY_FIELD_META[field];
+                return (
+                  <Field key={field} label={meta.label} required htmlFor={meta.id}>
+                    <Input
+                      id={meta.id}
+                      name={meta.id}
+                      type="number"
+                      min={meta.min}
+                      max={meta.max}
+                      required
+                      defaultValue={meta.read(selected.settings.policy)}
+                    />
+                  </Field>
+                );
+              })}
             </section>
 
             <section className="space-y-4 border-t border-hairline pt-10">

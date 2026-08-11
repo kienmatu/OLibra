@@ -11,6 +11,10 @@ export interface MyLoanRow {
   bookId: string;
   slug: string;
   title: string;
+  /** `books.cover_url` — Task 12 (2026-08-10 QA remediation); see
+   *  `search-loans-for-return.ts`'s `LoanForReturnRow` for why this now
+   *  travels with the row rather than being matched from the title. */
+  coverUrl: string | null;
   copyCode: string;
   dueOn: string;
   isOverdue: boolean;
@@ -75,6 +79,7 @@ export async function getMyDashboard(
       book_id: string;
       slug: string;
       title: string;
+      cover_url: string | null;
       code: string;
       due_on: string;
       is_overdue: boolean;
@@ -83,7 +88,7 @@ export async function getMyDashboard(
       title_has_queue: boolean;
     }[]
   >`
-    select l.id, l.book_id, b.slug, b.title, c.code,
+    select l.id, l.book_id, b.slug, b.title, b.cover_url, c.code,
            l.due_on::text as due_on, l.is_overdue, l.days_remaining,
            l.renewals_used,
            exists (
@@ -138,6 +143,7 @@ export async function getMyDashboard(
         bookId: r.book_id,
         slug: r.slug,
         title: r.title,
+        coverUrl: r.cover_url,
         copyCode: r.code,
         dueOn: r.due_on,
         isOverdue: r.is_overdue,

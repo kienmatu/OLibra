@@ -4,7 +4,9 @@ import { RuleViolated, ValidationFailed } from "../../../src/domain/kernel/error
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import {
   assertPasswordLength,
+  assertPhone,
   blank,
+  isValidPhone,
   MIN_PASSWORD_LENGTH,
   membershipAllowsNewLoan,
   membershipTransition,
@@ -158,4 +160,59 @@ test("blank treats whitespace as absent", () => {
   expect(blank(null)).toBe(true);
   expect(blank("   ")).toBe(true);
   expect(blank("Giuse")).toBe(false);
+});
+
+/**
+ * QA remediation Task 18. Measured on 2026-08-10: `khong-phai-so` typed into
+ * the required "Số điện thoại" on `/quan-ly/nguoi-doc/moi` was accepted,
+ * stored, and rendered as `tel:khong-phai-so` on the approval card, the
+ * reader profile and the overdue list — the field whose own hint says it is
+ * how the shelf calls about an overdue book. `/gop-y` already used
+ * `type="tel"` on its own phone box; the knowledge existed, it was simply
+ * never applied to the member-facing forms or checked in the domain that
+ * receives them.
+ *
+ * The shape ("9-11 digits after stripping spaces, dots and dashes, optionally
+ * `+84`-prefixed") was chosen after reading, not assumed: the seeded database
+ * (`src/db/seed.ts`) and the live dev database both carry every phone number
+ * as 10 digits, sometimes grouped with spaces ("0912 345 678") or written
+ * solid ("0999888777") — never with dots or dashes in practice, but the rule
+ * strips them anyway since a person copying a number from a printed list may
+ * well type one. No `+84`-prefixed number exists in either database today;
+ * the allowance is for the day a family gives their number in international
+ * form, which the shape already covers correctly.
+ */
+test("assertPhone accepts the shapes the seed and the dev database actually carry", () => {
+  expect(() => assertPhone("0912 345 678", "phone")).not.toThrow();
+  expect(() => assertPhone("0999888777", "phone")).not.toThrow();
+  expect(() => assertPhone("+84912345678", "phone")).not.toThrow();
+  // Dots and dashes are stripped like spaces are — a number copied from a
+  // printed parish list may be grouped either way.
+  expect(() => assertPhone("091.234.5678", "phone")).not.toThrow();
+  expect(() => assertPhone("091-234-5678", "phone")).not.toThrow();
+});
+
+test("assertPhone refuses khong-phai-so, naming the field and OPS's own sentence", () => {
+  try {
+    assertPhone("khong-phai-so", "phone");
+    throw new Error("expected a throw");
+  } catch (e) {
+    expect(e).toBeInstanceOf(ValidationFailed);
+    expect((e as ValidationFailed).code).toBe("phone_invalid");
+    expect((e as ValidationFailed).field).toBe("phone");
+    expect((e as ValidationFailed).message).toBe(
+      "Số điện thoại chưa đúng. Ghi 10 số, ví dụ 0912345678.",
+    );
+  }
+});
+
+test("assertPhone refuses a number with too few or too many digits", () => {
+  expect(() => assertPhone("091234", "phone")).toThrow(ValidationFailed);
+  expect(() => assertPhone("091234567890123", "phone")).toThrow(ValidationFailed);
+  expect(() => assertPhone("", "phone")).toThrow(ValidationFailed);
+});
+
+test("isValidPhone is the query PhoneLink uses to decide whether to render tel:", () => {
+  expect(isValidPhone("0912 345 678")).toBe(true);
+  expect(isValidPhone("khong-phai-so")).toBe(false);
 });

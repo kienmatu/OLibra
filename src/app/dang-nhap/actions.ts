@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { pool } from "../../db/client";
 import { RuleViolated } from "../../domain/kernel/errors";
 import { systemClock } from "../../domain/kernel/clock";
-import { landingShelfFor } from "../../auth/guards";
+import { isSuperAdminUser, landingShelfFor } from "../../auth/guards";
 import { signIn, signOut } from "../../auth/session";
 import { RETURN_TO_PARAM, safeReturnPath } from "../../lib/return-path";
 import {
@@ -85,7 +85,19 @@ export async function signInAction(formData: FormData): Promise<void> {
       // belongs to, not on a fixture. See landingShelfFor's own comment for
       // why a single admin-scoped query answers this safely.
       const shelfSlug = await landingShelfFor(sql, userId);
-      return { ok: true as const, token, shelfSlug };
+      /**
+       * Task 6 (2026-08-10 QA remediation): a super admin belongs to no
+       * shelf by design (`landingShelfFor`'s own docstring), so without this
+       * a fresh install's only administrator resolved to `shelfSlug: null`
+       * exactly like a reader belonging to none, and landed on the empty
+       * portal with no route into `/quan-tri` short of typing the URL.
+       *
+       * Checked only when `shelfSlug` is null — a member of exactly one
+       * shelf is already answered, and `isSuperAdminUser` is a query this
+       * branch has no use for.
+       */
+      const isSuperAdmin = shelfSlug ? false : await isSuperAdminUser(sql, userId);
+      return { ok: true as const, token, shelfSlug, isSuperAdmin };
     } catch (err) {
       if (err instanceof RuleViolated && err.code === "sign_in_failed") {
         return { ok: false as const };
@@ -116,9 +128,9 @@ export async function signInAction(formData: FormData): Promise<void> {
     cookieOptions(process.env.NODE_ENV, remember),
   );
   /**
-   * The page they were trying to reach wins over `landingShelfFor`.
-   *
-   * Not a contradiction of IMPORTANT 6: that rule answers "where should a
+   * The page they were trying to reach wins over `landingShelfFor` — and,
+   * as of Task 6, over the super-admin destination below it too. Not a
+   * contradiction of IMPORTANT 6: that rule answers "where should a
    * freshly-signed-in person land when nothing else says", and a return path
    * is something else saying. It can perfectly well be a shelf they turn out
    * not to belong to — someone who followed a portal link to the wrong parish
@@ -127,7 +139,11 @@ export async function signInAction(formData: FormData): Promise<void> {
    * docstring, and `tests/lib/page-data.test.ts`, which walks the round trip).
    */
   if (returnTo) redirect(returnTo);
-  redirect(outcome.shelfSlug ? `/tu-sach/${outcome.shelfSlug}` : "/tu-sach");
+  if (outcome.shelfSlug) redirect(`/tu-sach/${outcome.shelfSlug}`);
+  // Task 6: the portal was every super admin's landing page until now,
+  // fresh install or not — indistinguishable there from a reader who belongs
+  // to no shelf, which is still exactly where that reader lands.
+  redirect(outcome.isSuperAdmin ? "/quan-tri" : "/tu-sach");
 }
 
 /**

@@ -1,5 +1,6 @@
-import { ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
+import { assertPhone } from "../../members/policy";
+import { checkPolicyBound } from "../policy";
 
 /**
  * OPS §4.5's two writes to `system_settings` — the installation's own row.
@@ -40,6 +41,15 @@ export const updateSiteContact: Command<SiteContactInput, void> = async (
     hours: input.contactHours?.trim() || null,
   };
 
+  // QA remediation Task 18. `contactPhone` is nullable and clearing it is a
+  // real edit (see `SiteContactInput`'s own docstring on why all three fields
+  // move together), so the check applies only once a caller actually supplies
+  // a nonempty number — this is `/lien-he`'s own published number, so a bad
+  // value here is a public-facing dead phone link, not merely an internal one.
+  if (trimmed.phone !== null) {
+    assertPhone(trimmed.phone, "contactPhone");
+  }
+
   await tx`
     update system_settings
        set contact_name  = ${trimmed.name},
@@ -73,14 +83,17 @@ export const updateSiteContact: Command<SiteContactInput, void> = async (
 export interface SystemDefaultsInput {
   loanDays: number;
   maxConcurrentLoans: number;
+  maxRenewals: number;
+  renewalDays: number;
   holdDays: number;
+  dueSoonDays: number;
 }
 
 /**
  * The lending policy a **newly created** shelf starts with.
  *
  * **It changes no existing shelf, and that is the whole design.**
- * `createBookshelf` copies these three values into `bookshelves.settings` at
+ * `createBookshelf` copies these six values into `bookshelves.settings` at
  * creation; every command that reads a policy reads that per-shelf bag with its
  * own `coalesce` default. A shelf that pointed at this row instead would change
  * its lending policy for every parish at once, the day somebody edited a number
@@ -88,26 +101,44 @@ export interface SystemDefaultsInput {
  *
  * The page says so, because a screen labelled "Cài đặt mặc định" is otherwise
  * read as "the settings".
+ *
+ * **`maxRenewals`, `renewalDays` and `dueSoonDays` joined the other three in
+ * QA remediation Task 23.** `20260811_01_system_settings_lending_defaults.sql`
+ * is what made a column exist to hold them; before that, `/quan-tri/cai-dat`
+ * could offer an administrator only three of the six per-shelf numbers a new
+ * shelf starts with, and the other three were silently whatever
+ * `createBookshelf`'s own hard-coded fallback said — never a decision anybody
+ * on this screen could see or change.
  */
 export const updateSystemDefaults: Command<SystemDefaultsInput, void> = async (
   tx,
   ctx,
   input,
 ) => {
-  for (const [field, value] of Object.entries(input)) {
-    // A zero-day loan period or a negative limit is not a policy anybody meant,
-    // and these three feed straight into a new shelf's settings bag where no
-    // constraint can express it.
-    if (!Number.isSafeInteger(value) || value < 1) {
-      throw new ValidationFailed("validation_failed", field);
-    }
-  }
+  // QA remediation Task 15 (and Task 23 for the three added later): this used
+  // to accept any non-negative integer — `loanDays: 0` included — under the
+  // generic `validation_failed`, the same defect and the same fix
+  // `updateBookshelfSettings` gets below. Six explicit calls, not a loop over
+  // `Object.entries(input)`, are what let each field check against its *own*
+  // range: `Object.entries` would need a second table mapping this input's
+  // camelCase keys to `PolicyField`'s snake_case ones, which `checkPolicyBound`
+  // (`../policy.ts`) already owns as the jsonb column names
+  // `updateBookshelfSettings` writes verbatim.
+  checkPolicyBound("loan_days", input.loanDays);
+  checkPolicyBound("max_concurrent_loans", input.maxConcurrentLoans);
+  checkPolicyBound("max_renewals", input.maxRenewals);
+  checkPolicyBound("renewal_days", input.renewalDays);
+  checkPolicyBound("hold_days", input.holdDays);
+  checkPolicyBound("due_soon_days", input.dueSoonDays);
 
   await tx`
     update system_settings
        set default_loan_days            = ${input.loanDays},
            default_max_concurrent_loans = ${input.maxConcurrentLoans},
+           default_max_renewals         = ${input.maxRenewals},
+           default_renewal_days         = ${input.renewalDays},
            default_hold_days            = ${input.holdDays},
+           default_due_soon_days        = ${input.dueSoonDays},
            changed_by                   = ${ctx.actor.userId},
            changed_at                   = ${ctx.clock.now()}
      where id
@@ -124,7 +155,10 @@ export const updateSystemDefaults: Command<SystemDefaultsInput, void> = async (
       after: {
         loan_days: input.loanDays,
         max_concurrent_loans: input.maxConcurrentLoans,
+        max_renewals: input.maxRenewals,
+        renewal_days: input.renewalDays,
         hold_days: input.holdDays,
+        due_soon_days: input.dueSoonDays,
       },
       global: true,
     },

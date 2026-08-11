@@ -23,18 +23,30 @@ import { filesUnder } from "../support/source-text";
  *
  * **The rule below reads the route file only; the chrome rule further down
  * reads the components it renders.** This split is not tidiness, it is what
- * the first version got wrong: `src/components/ui/book.tsx` calls
+ * the first version got wrong: `src/components/ui/book.tsx` used to call
  * `coverForTitle` from the fixtures for its cover art, so *every* page showing
- * a book cover reaches the module, and a blanket transitive rule would flag all
- * of them. The original answer was to look at route files and nothing else,
- * which meant the check could not see the very shape its own opening paragraph
- * describes — chrome. U3 wave 1 found two live instances of it (the manager
- * sidebar's fixture badge, and a donor picker listing eleven invented children
- * on a wired page) and added `"no chrome rendered by a wired page renders
- * fixtures either"` below, exempting `coverForTitle` **by name** rather than
- * `book.tsx` by file. Moving the artwork map out of `fixtures.ts` is still the
- * honest end state and still nobody's slice; it is now one entry rather than a
- * blind spot.
+ * a book cover reached the module, and a blanket transitive rule would have
+ * flagged all of them. The original answer was to look at route files and
+ * nothing else, which meant the check could not see the very shape its own
+ * opening paragraph describes — chrome. U3 wave 1 found two live instances of
+ * it (the manager sidebar's fixture badge, and a donor picker listing eleven
+ * invented children on a wired page) and added `"no chrome rendered by a
+ * wired page renders fixtures either"` below, exempting `coverForTitle` **by
+ * name** rather than `book.tsx` by file.
+ *
+ * **That exemption is gone, and it is gone because the defect it was standing
+ * next to actually happened.** `coverForTitle` matched a book by *title*
+ * against eleven invented fixtures, so a real parish cataloguing a book with
+ * the same title as one of them — Giáo xứ Thánh Tâm's "Dế Mèn Phiêu Lưu Ký" —
+ * served `public/covers/de-men-phieu-luu-ky.svg`, captioned "Tủ sách Đồng
+ * Tháp", on its own public page. Task 12 (2026-08-10 QA remediation) gave
+ * `BookCover` a `coverUrl` prop read from `books.cover_url` and deleted the
+ * import; `tests/architecture/boundaries.test.ts` ("no component reaches into
+ * the fixtures module") is the permanent version of the rule this file could
+ * only state as a one-name exemption. `FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE`
+ * below is empty now rather than deleted — the mechanism stays for the next
+ * fixture the domain has not yet given a column to, which is exactly the
+ * shape this one was.
  *
  * Same reading strategy as the sibling tests in this directory — source text,
  * with comments removed and string literals *kept*, since the thing being
@@ -133,9 +145,12 @@ test("the check can see both halves of what it compares", () => {
   // **The other half is now empty, and that is the end of this slice's work.**
   //
   // Every route file in the application reads the database or has nothing to
-  // read. `src/lib/fixtures.ts` still exists and is still imported by
-  // components — `coverForTitle`, exempted by name in the chrome rule below —
-  // but no *page* renders a parish's content from it.
+  // read. `src/lib/fixtures.ts` still exists, but Task 12 (2026-08-10 QA
+  // remediation) deleted its last component import — `coverForTitle`, from
+  // `book.tsx` — and emptied `FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE` below with
+  // it (see this file's opening docstring for the full account). No component
+  // reaches into the module any more either; `boundaries.test.ts` is the
+  // permanent version of that rule.
   //
   // Kept as `toEqual([])` rather than deleted, because the rule it guards is
   // permanent: a page added next month that starts from the fixtures, as every
@@ -182,10 +197,16 @@ test("no page that reads the database also renders fixtures", () => {
  * looking at this file, which is where the leftover-fixture rules are. Deleting
  * a page fails it too.
  *
- * **The list is now three pages, and none of them is unfinished.** B4 wired the
- * last of the pending ones. What remains reads nothing because it *has* nothing
- * to read: `/` is the marketing landing page, `/loi` renders whatever error was
- * thrown, and `[shelf]/tang-sach` is a redirect to the donation page U4 wired.
+ * **The list was three pages, and it is two now.** B4 wired the last of the
+ * pending ones, and Task 6 (2026-08-10 QA remediation) wired `/`: it reads
+ * `loadFrontDoorViewer()` so its header can greet a signed-in visitor, the
+ * same way `/tu-sach` and `/lien-he` already do — see that function's
+ * docstring (`src/lib/page-data.ts`) for the QA finding that prompted it.
+ * That is what the previous paragraph's own comment said would happen —
+ * "if either ever does, this line is where that gets noticed" — and this is
+ * that line, noticing it. `/loi` renders whatever error was thrown and
+ * `[shelf]/tang-sach` is a redirect to the donation page U4 wired; neither
+ * has anything to read.
  *
  * So the test has changed meaning without changing shape: it was a shrinking
  * to-do list, and it is now the closed set of pages that legitimately touch no
@@ -193,17 +214,14 @@ test("no page that reads the database also renders fixtures", () => {
  * a page leaving it is a page that got wired.
  */
 const PAGES_NOT_YET_WIRED = [
-  // The two that are **finished** rather than pending, and belong on this list
-  // for the same reason the rest do: the list is "reads nothing", not "is
-  // unfinished", and a list that quietly excluded a category would be a list
-  // somebody could add to. `/` is the marketing landing page and `/loi` renders
-  // whatever error was thrown; neither has anything to read, and if either ever
-  // does, this line is where that gets noticed.
+  // Finished rather than pending, and on this list for the same reason the
+  // other one is: the list is "reads nothing", not "is unfinished", and a
+  // list that quietly excluded a category would be a list somebody could add
+  // to. `/loi` renders whatever error was thrown and has nothing to read.
   "src/app/loi/page.tsx",
-  "src/app/page.tsx",
 
   // Reads nothing because it *is* nothing: U5 replaced the second donation
-  // screen with a redirect to `toi/tang-sach`, the one the reader's own
+  // screen with a redirect to `ho-so/tang-sach`, the one the reader's own
   // queries live behind. A route that only redirects has nothing to read.
   "src/app/tu-sach/[shelf]/tang-sach/page.tsx",
 ];
@@ -389,18 +407,27 @@ const FIXTURE_TARGETS_THAT_MAY_STILL_BE_LINKED = [
  * (the thing being looked for is in the chrome).
  *
  * **Exempted by symbol, not by file.** The top of this file records why the
- * original rule stopped at direct imports: `src/components/ui/book.tsx` calls
- * `coverForTitle` from the fixtures for its cover artwork, so every page
- * showing a book cover reaches the module. That is still true and still the
- * honest thing to fix elsewhere — moving the artwork map out of `fixtures.ts`
- * is a component change no slice has made. What has changed is that "so the
- * rule cannot look at components at all" was too big a concession: one named
- * export is exempt, everything else in that module is not, and a file that
- * imports `coverForTitle` *and* something else is reported for the something
- * else. A whole-file pass would have waved `donationQueue` through the moment
- * `book.tsx` grew a second import.
+ * original rule stopped at direct imports: `src/components/ui/book.tsx` used
+ * to call `coverForTitle` from the fixtures for its cover artwork, so every
+ * page showing a book cover reached the module. One named export was exempt
+ * rather than the whole file, so a file importing `coverForTitle` *and*
+ * something else was still reported for the something else — a whole-file
+ * pass would have waved `donationQueue` through the moment `book.tsx` grew a
+ * second import.
+ *
+ * **The component change arrived, and the list is empty because of it.**
+ * Task 12 (2026-08-10 QA remediation) gave `BookCover` a `coverUrl` prop read
+ * from `books.cover_url` and deleted the `coverForTitle` import — the finding
+ * that forced the move was a fixture cover captioned "Tủ sách Đồng Tháp"
+ * served on a different parish's public book page (this file's own top
+ * docstring has the full account). `coverForTitle` is gone from
+ * `fixtures.ts` too, so there is no symbol left to name here. The list stays
+ * rather than the mechanism being deleted with it: the next fixture the
+ * domain has not yet given a column to is exactly this shape again, and the
+ * escape hatch should still be one name wide when it is needed, not
+ * reinvented.
  */
-const FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE = ["coverForTitle"];
+const FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE: string[] = [];
 
 /**
  * The names a file imports from `src/lib/fixtures.ts`.
@@ -450,7 +477,7 @@ test("no chrome rendered by a wired page renders fixtures either", () => {
   expect([...new Set(offenders)].sort()).toEqual([]);
 });
 
-test("the chrome check reads the chrome, and the exemption is one name wide", () => {
+test("the chrome check reads the chrome, and book.tsx needs no exemption any more", () => {
   // Its own guard, for the reason every `toEqual([])` in this file has one: a
   // `fixtureSymbolsIn` that found nothing satisfies the rule above perfectly.
   //
@@ -460,14 +487,18 @@ test("the chrome check reads the chrome, and the exemption is one name wide", ()
     "src/components/shell/manager-shell.tsx",
   );
 
-  // The shape U3 removed, and the shape that must stay allowed.
+  // `fixtureSymbolsIn` still has to parse these shapes correctly even though
+  // `FIXTURE_SYMBOLS_CHROME_MAY_STILL_USE` is empty today — nothing below
+  // asserts that either name is currently *exempt*, only that the parser
+  // extracts what a real import of each shape would name, so the mechanism
+  // still works the moment a future fixture needs it.
   expect(
     fixtureSymbolsIn('import { donationQueue } from "@/lib/fixtures";'),
   ).toEqual(["donationQueue"]);
   expect(
     fixtureSymbolsIn('import { coverForTitle } from "@/lib/fixtures";'),
   ).toEqual(["coverForTitle"]);
-  // A file that earns the exemption for one name does not earn it for another.
+  // Two named imports both come back, not just the first.
   expect(
     fixtureSymbolsIn(
       'import { coverForTitle, donationQueue } from "@/lib/fixtures";',
@@ -478,12 +509,14 @@ test("the chrome check reads the chrome, and the exemption is one name wide", ()
   // And an unrelated module is not the fixtures.
   expect(fixtureSymbolsIn('import { cn } from "@/lib/utils";')).toEqual([]);
 
-  // `book.tsx` really is the file the exemption is for, and really does import
-  // only that one name — so the exemption is not quietly covering something
-  // else today.
+  // `book.tsx` no longer imports anything from the fixtures at all — Task 12
+  // deleted the one import this exemption existed for, and `coverForTitle`
+  // itself is gone from `fixtures.ts`. This is the assertion that would have
+  // caught the defect staying fixed: if a future edit reached back into the
+  // fixtures module from this file, this line is what turns red.
   expect(
     fixtureSymbolsIn(readFileSync("src/components/ui/book.tsx", "utf8")),
-  ).toEqual(["coverForTitle"]);
+  ).toEqual([]);
 });
 
 test("no page that reads the database links to a page that renders fixtures", () => {
@@ -551,20 +584,25 @@ test("the link check resolves the routes it claims to", () => {
   );
   expect(linkTargetsIn(managerShell)).toEqual(["src/app"]);
 
-  // U4 wired `toi/`, so its link is back — and this asserts *both* halves,
-  // because a link restored to a page that is still fixture-backed is exactly
-  // what IMPORTANT 4 removed it for. Restoring the link without wiring the page
-  // fails on the second line rather than passing quietly.
-  expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/toi");
+  // U4 wired the reader dashboard (`toi/` at the time, renamed to
+  // `ho-so/tong-quan/` by Task 7 of the 2026-08-10 QA remediation), so its
+  // link is back — and this asserts *both* halves, because a link restored to
+  // a page that is still fixture-backed is exactly what IMPORTANT 4 removed it
+  // for. Restoring the link without wiring the page fails on the second line
+  // rather than passing quietly.
+  expect(linkTargetsIn(header)).toContain(
+    "src/app/tu-sach/[shelf]/ho-so/tong-quan",
+  );
   expect(
-    routes().find((r) => r.path === "src/app/tu-sach/[shelf]/toi/page.tsx")
-      ?.importsFixtures,
+    routes().find(
+      (r) => r.path === "src/app/tu-sach/[shelf]/ho-so/tong-quan/page.tsx",
+    )?.importsFixtures,
   ).toBe(false);
 
   // Both halves of IMPORTANT 4 are now back, each beside its wired page — the
-  // second one here. Same two-part assertion as `toi` above: the link exists
-  // *and* the page it points at is real, so restoring one without the other
-  // fails rather than passing quietly.
+  // second one here. Same two-part assertion as the reader dashboard above:
+  // the link exists *and* the page it points at is real, so restoring one
+  // without the other fails rather than passing quietly.
   expect(linkTargetsIn(header)).toContain("src/app/tu-sach/[shelf]/thong-bao");
   expect(
     routes().find((r) => r.path === "src/app/tu-sach/[shelf]/thong-bao/page.tsx")
@@ -575,11 +613,5 @@ test("the link check resolves the routes it claims to", () => {
     "src/app/tu-sach/[shelf]/gop-y",
   ]) {
     expect(linkTargetsIn(shelfHome), gone).not.toContain(gone);
-  }
-  // …and they are still fixture pages, so relinking one fails rather than
-  // passing because the page quietly got wired in the meantime.
-  const byPath = new Map(routes().map((r) => [r.path, r]));
-  for (const page of []) {
-    expect(byPath.get(page)?.importsFixtures, page).toBe(true);
   }
 });

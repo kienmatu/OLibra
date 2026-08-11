@@ -3,7 +3,8 @@ import { notFound, redirect } from "next/navigation";
 // Relative specifiers, not the `@/` alias: `tests/lib/page-data.test.ts`
 // imports this module, and Vitest resolves no alias (see any file under
 // `src/auth/`, which the suite has always imported the same way).
-import { adminContextFor, contextFor } from "../auth/guards";
+import { adminContextFor, contextFor, frontDoorViewerFor } from "../auth/guards";
+import { resolveSession } from "../auth/session";
 import { pool } from "../db/client";
 import { systemClock } from "../domain/kernel/clock";
 import { NotFound, RuleViolated } from "../domain/kernel/errors";
@@ -13,10 +14,12 @@ import {
   runAdminCommand,
   runAdminQuery,
   runCommand,
+  runPublicCommand,
   runPublicQuery,
   runQuery,
   type Tx,
 } from "../domain/kernel/unit-of-work";
+import { ensureCryptoWired } from "./crypto-wiring";
 import { REQUEST_PATH_HEADER, signInPathFor } from "./return-path";
 import { SESSION_COOKIE } from "./session-cookie";
 
@@ -302,11 +305,25 @@ async function signInPathForRequest(): Promise<string> {
  * seam keep compiling unchanged: a callback declaring two parameters is a
  * perfectly good three-parameter function, whereas widening the *return* type
  * would have been a change to every call site.
+ *
+ * **`ensureCryptoWired()` first, even though a read rarely needs a hasher.**
+ * `src/domain/kernel/crypto.ts` records the measurement: Turbopack bundles a
+ * module imported by both `src/instrumentation.ts` and a server action as two
+ * separate instances, so `instrumentation.ts` wiring its own copy at startup
+ * never reaches whichever copy actually serves a given request. The fix is
+ * that every seam a request can enter through wires its own instance on first
+ * use — this one and the other three `src/lib/crypto-wiring.ts` names,
+ * because a reader who *loads* `/dang-ky` and a reader who *submits* it are
+ * as likely to be the first request either layer's copy of this module ever
+ * serves. The call is idempotent after the first one, so calling it here too
+ * costs one boolean check.
  */
 export async function loadPage<T>(
   shelfSlug: string,
   read: (tx: Tx, ctx: TenantContext, viewer: Viewer) => Promise<T>,
 ): Promise<T> {
+  await ensureCryptoWired();
+
   let ctx: TenantContext;
   try {
     ctx = await contextForRequest(shelfSlug);
@@ -367,7 +384,141 @@ export async function loadPage<T>(
  * whatever the shelves were on the day of the build.
  */
 export async function loadPublicPage<T>(read: (tx: Tx) => Promise<T>): Promise<T> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
   return runPublicQuery(pool(), read);
+}
+
+/**
+ * Who the front door's chrome should greet — `loadPublicPage`'s neighbour
+ * for the one thing that page deliberately does not read.
+ *
+ * Task 6 (2026-08-10 QA remediation). `/`, `/tu-sach` and `/lien-he` all
+ * render `FrontDoorHeader` (`src/components/shell/public-header.tsx`), which
+ * used to offer "Đăng nhập" to everybody, signed in or not — see
+ * `frontDoorViewerFor`'s own docstring (`src/auth/guards.ts`) for the full
+ * argument and for why this cannot be `viewerFor` or folded into
+ * `loadPublicPage` itself.
+ *
+ * **A second, separate transaction from whatever the page's own content
+ * read.** `runPublicQuery` runs as `olibra_public`, which holds no grant on
+ * `users` at all — see that function's docstring for the incident that
+ * grant is written against — so a viewer identity cannot be resolved inside
+ * the same read `loadPublicPage` opens. Two round trips rather than one
+ * query doing double duty is the honest cost of a page whose content is
+ * public and whose chrome is not; `frontDoorViewerFor` keeps it to that one
+ * extra trip only when a session cookie is actually present.
+ *
+ * `null` is what a stranger gets, and it is exactly what `FrontDoorHeader`'s
+ * `viewerName: string | null` already knows how to render — the same "real
+ * case, not a fallback" `ShelfHeader`'s docstring states for its own
+ * identical prop.
+ */
+export async function loadFrontDoorViewer(): Promise<{
+  name: string;
+  isSuperAdmin: boolean;
+} | null> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value ?? null;
+
+  // **Return before `pool()`, not inside `frontDoorViewerFor`.** That function
+  // does short-circuit on a null token — its docstring says so, and this one
+  // said "only when a session cookie is actually present" on the strength of
+  // it — but `pool()` is an *argument*, so it is evaluated first regardless.
+  // `pool()` calls `connect()`, which throws `DATABASE_URL is not set` when
+  // that variable is absent. On a normal deployment it is set, so the bug was
+  // invisible: the query really was skipped, only the pool was built for
+  // nothing.
+  //
+  // Where it was not invisible is the Dockerfile's `smoke` stage, which boots
+  // `bun server.js` with **no environment at all** and fetches `/` to prove the
+  // image serves a page. `/` became `force-dynamic` in this same task so the
+  // chrome could greet a signed-in visitor, and from then on every smoke build
+  // got a 500 instead of the landing page. It was misread twice as a
+  // pre-existing fault — once by the task that worked around it in
+  // `compose.yaml`, once in the whole-branch review — because both compared
+  // against a commit that was already past this change rather than against
+  // `main`. CI caught it on the pull request, which is the first place the
+  // baseline was right.
+  //
+  // Guarding here rather than making `smoke` supply a dummy `DATABASE_URL` is
+  // the honest fix: a stranger reading the landing page genuinely needs no
+  // database, and a smoke test that has to be handed credentials to boot is
+  // proving less than the one that does not.
+  if (token === null) return null;
+
+  return frontDoorViewerFor(pool(), { token, clock: systemClock });
+}
+
+/**
+ * How a server action writes with **no shelf and no session required** —
+ * `submitCommand`'s counterpart for the one write OPS §4.4 opens to `guest`
+ * with no membership anywhere: `/lien-he`'s site-wide góp ý form (Task 17,
+ * 2026-08-10 QA remediation).
+ *
+ * **Why not `submitCommand`.** That function's whole sequence is slug →
+ * `contextForRequest` → `runCommand`, and `/lien-he` has no slug — a parish
+ * with no shelf yet is exactly who this form is for, the same situation
+ * `loadPublicPage`'s docstring names for the portal directory. Threading an
+ * empty slug through `contextForRequest` would reach `resolveShelfId("")`,
+ * which resolves nothing and throws `shelf_not_found` — the seam has no way
+ * to say "there is no shelf, and that is fine" rather than "the shelf named
+ * does not exist". This is a shorter seam instead, mirroring
+ * `loadPublicPage`'s own relationship to `loadPage`.
+ *
+ * **A session is read, but never required.** Unlike `loadPublicPage` (whose
+ * docstring explains why *that* read resolves nobody — nothing on the portal
+ * depends on who is asking), `submitFeedback` records `member_id:
+ * ctx.actor.userId` when the sender happens to be signed in, so a message
+ * from a reader who wandered onto the front door still ties back to their
+ * account. `resolveSession` is the one already used for the identical
+ * purpose by `loadFrontDoorViewer` just above; a missing or invalid token
+ * degrades to `userId: null`, which is `submitFeedback`'s own `guest`
+ * caller — never a refusal, because refusing an anonymous sender is exactly
+ * the one thing OPS §4.4 says this write must not do.
+ *
+ * **`role: "guest"`, always — never resolved from a membership.** There is no
+ * shelf here for a role to be a role *of*; `TenantContext.actor.role` exists
+ * to be ranked against a floor a command checks, and `submitFeedback` checks
+ * none (its own docstring: "the one command in the catalogue with no floor at
+ * all"). Naming a shelf-scoped role here would be answering a question this
+ * caller was never asked.
+ *
+ * **`runPublicCommand`, not `runCommand`/`runGlobalCommand`.** `ctx
+ * .bookshelfId` is the empty sentinel, by construction — see
+ * `runPublicCommand`'s own docstring (`src/domain/kernel/unit-of-work.ts`)
+ * for the full argument, and for why that function exists as a third, rare,
+ * separately named seam rather than a parameter on either of the other two.
+ *
+ * **`RuleViolated`/`ValidationFailed` are not caught here**, matching
+ * `submitCommand`'s own division of labour: those belong to the calling
+ * action, which turns a refusal into a `?loi=` code the form renders through
+ * `messageFor` (U1 §3.3). Nothing else is caught either — `submitFeedback`
+ * never throws a `NotFound`, so there is no translation this seam owes that
+ * `submitCommand`'s `shelf_not_found`/`write_target_not_found` handling does;
+ * a fault here is a fault, the same as `loadPublicPage`'s own "nothing is
+ * caught" for the read side.
+ */
+export async function submitPublicCommand<I, O>(
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
+
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value ?? null;
+  const session = token ? await resolveSession(pool(), token, systemClock) : null;
+
+  const ctx: TenantContext = {
+    bookshelfId: "",
+    actor: { userId: session?.userId ?? null, membershipId: null, role: "guest" },
+    clock: systemClock,
+  };
+
+  return runPublicCommand(pool(), ctx, command, input);
 }
 
 /**
@@ -458,6 +609,9 @@ export async function submitAdminCommand<I, O>(
   input: I,
   bookshelfId = "",
 ): Promise<O> {
+  // See `loadPage`'s docstring for why every seam calls this first.
+  await ensureCryptoWired();
+
   const jar = await cookies();
   const ctx = await adminContextFor(pool(), {
     token: jar.get(SESSION_COOKIE)?.value ?? null,
@@ -587,6 +741,12 @@ export async function submitCommand<I, O>(
   command: Command<I, O>,
   input: I,
 ): Promise<O> {
+  // See `loadPage`'s docstring for why every seam calls this first. This is
+  // the seam `registerMembershipAction`, `SetReaderCredentials` and
+  // `ChangeOwnPassword` all write through — the one this task's defect was
+  // reached from.
+  await ensureCryptoWired();
+
   try {
     const ctx = await contextForRequest(shelfSlug);
     return await runCommand(pool(), ctx, command, input);

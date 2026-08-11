@@ -67,7 +67,7 @@ export async function submitFeedbackAction(form: FormData): Promise<void> {
 export async function offerDonationAction(form: FormData): Promise<void> {
   const shelf = String(form.get("tu-sach") ?? "");
   const membershipId = String(form.get("thanh-vien") ?? "");
-  const base = `/tu-sach/${shelf}/toi/tang-sach`;
+  const base = `/tu-sach/${shelf}/ho-so/tang-sach`;
 
   const raw = String(form.get("so-luong") ?? "").trim();
   const estimated = raw === "" ? null : Number(raw);

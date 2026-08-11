@@ -1,7 +1,7 @@
 import type { ErrorCode } from "../../kernel/errors";
 import type { TenantContext } from "../../kernel/tenant";
 import type { Tx } from "../../kernel/unit-of-work";
-import { requireManager } from "../policy";
+import { escapeLikePattern, requireManager } from "../policy";
 
 export interface LendableBookRow {
   bookId: string;
@@ -16,13 +16,37 @@ export interface LendableBookRow {
 }
 
 /**
- * The quick-lend search a manager types a title into (OPS §3.3). Like
- * `getBooksList`, drafts are included — a manager may still want to lend a
- * title that has not been announced yet — and unlike the reader-facing
- * `searchCatalogue`, `copiesAvailable` is folded into a `blocked` flag naming
- * the same reason `LendCopy` (C1) would throw, so the quick-lend screen can
- * refuse *before* the confirm step (BR §16.3) rather than let the volunteer
- * pick a title only to have the command reject it.
+ * The quick-lend search a manager types a title, an author or a copy code
+ * into (OPS §3.3). Like `getBooksList`, drafts are included — a manager may
+ * still want to lend a title that has not been announced yet — and unlike
+ * the reader-facing `searchCatalogue`, `copiesAvailable` is folded into a
+ * `blocked` flag naming the same reason `LendCopy` (C1) would throw, so the
+ * quick-lend screen can refuse *before* the confirm step (BR §16.3) rather
+ * than let the volunteer pick a title only to have the command reject it.
+ *
+ * **The copy code branch (QA remediation T27).** `/quan-ly/cho-muon`'s
+ * search box now reads "Tên sách hoặc mã bản" — a volunteer standing at the
+ * shelf with a book in hand is as likely to read the code off its spine
+ * (`DT-0215`) as to type the title, and until this task the query answered
+ * that with zero results, silently, which would have made the new
+ * placeholder a promise this function did not keep. `code` needs no
+ * `olibra_fold`: it is plain ASCII assigned by `copy-codes.ts`, never
+ * Vietnamese text, so `ilike` alone (case-insensitive, nothing to fold) is
+ * the whole of what matching it needs. It is an `exists` against its own
+ * `book_copies` alias (`cpx`) rather than a condition added to the `cp`
+ * alias the aggregates below already join on: `cp` is fanned out one row per
+ * copy so `count(cp.id) filter (...)` can total every state a title has,
+ * and narrowing that same joined row with `cpx.code ilike …` in the `where`
+ * would have filtered *out* the book's other copies before the aggregates
+ * ever saw them — a book matched by one copy's code would have reported
+ * `copiesTotal` as 1 no matter how many copies it actually has. A separate
+ * `exists` decides only whether the book row survives at all; it never
+ * touches which of `cp`'s rows the aggregates count.
+ *
+ * `escapeLikePattern` — the same helper `copy-codes.ts`'s own allocator
+ * uses on a shelf's `copy_code_prefix` override, for the identical reason:
+ * unescaped, a `%` or `_` typed into this box would be a wildcard instead of
+ * a literal character.
  *
  * **Which reason, and why this aggregate has to answer that.** `LendCopy`
  * judges one copy and has two refusals for it: `copy_lost_or_retired` ("Bản
@@ -95,6 +119,15 @@ export async function searchBooksForLending(
       and (
         b.title_folded  like '%' || olibra_fold(${input.q}) || '%'
         or b.author_folded like '%' || olibra_fold(${input.q}) || '%'
+        or exists (
+          select 1
+            from book_copies cpx
+           where cpx.book_id = b.id
+             and cpx.bookshelf_id = b.bookshelf_id
+             and cpx.deleted_at is null
+             and cpx.code ilike ${"%" + escapeLikePattern(input.q.trim()) + "%"}
+               escape ${"\\"}
+        )
       )
     group by b.id
     order by b.title

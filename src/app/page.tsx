@@ -2,6 +2,33 @@ import Link from "next/link";
 import { ArrowRight, BookUp, History, Users } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
+import { loadFrontDoorViewer } from "@/lib/page-data";
+
+/**
+ * U1 §2. Newly dynamic (Task 6, 2026-08-10 QA remediation) — this page read
+ * nothing at all until now, and `tests/architecture/pages-reading-the-
+ * database-are-dynamic.test.ts` used to name it individually as the guard's
+ * own negative control, proof the check does not simply flag everything.
+ * `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` pinned it the
+ * same way, in `PAGES_NOT_YET_WIRED`. Both are updated alongside this file:
+ * the landing page is no longer a page with nothing to read, so it can no
+ * longer stand in as the proof that one exists — `/loi` still does, alone.
+ *
+ * What changed is not the marketing copy, it is the header above it:
+ * `loadFrontDoorViewer()` below is what lets a signed-in visitor see that
+ * they are signed in here too, exactly as `/tu-sach` and `/lien-he` do — see
+ * that function's docstring for why a page that only reads a session cookie
+ * is still a page a cached render would serve to the wrong person, the
+ * moment two different visitors reach it in different states.
+ */
+export const dynamic = "force-dynamic";
+
+// Same text as `src/app/layout.tsx`'s own fallback title, stated explicitly
+// rather than left to inheritance: `tests/architecture/every-page-has-a-
+// title.test.ts` requires every `page.tsx` to export one, precisely so that
+// no future page can go untitled by relying on the layout the way this one
+// used to — silently, and for forty-six other pages besides this one.
+export const metadata = { title: "OLibra — Tủ sách cộng đồng" };
 
 const WHAT_IT_DOES = [
   {
@@ -21,10 +48,15 @@ const WHAT_IT_DOES = [
   },
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const viewer = await loadFrontDoorViewer();
+
   return (
     <>
-      <FrontDoorHeader />
+      <FrontDoorHeader
+        viewerName={viewer?.name ?? null}
+        isSuperAdmin={viewer?.isSuperAdmin ?? false}
+      />
 
       <main className="mx-auto max-w-5xl px-6">
         {/* Logo, a sentence or two, and the two ways in. Nothing else — there
@@ -38,20 +70,41 @@ export default function LandingPage() {
             ngăn nắp — chỉ với một chiếc điện thoại.
           </p>
 
+          {/* Task 6: "Đăng nhập" is the wrong primary action for somebody who
+              already is — the same defect this whole task is about, one level
+              down from the header. A signed-in super admin gets the one thing
+              a fresh install actually needs from this screen: the way into
+              `/quan-tri`, worded exactly as the header's own link so the two
+              read as one destination rather than two. An ordinary signed-in
+              reader gets no primary at all — `Button`'s "one primary per
+              screen" is satisfied by zero as much as by one, and there is
+              nothing on this page a reader needs more than what the header
+              already gives them. */}
           <div className="mt-9 flex flex-wrap items-center gap-4">
-            <ButtonLink href="/dang-nhap" variant="primary" size="lg">
-              Đăng nhập
-              <ArrowRight aria-hidden className="size-5" strokeWidth={1.75} />
-            </ButtonLink>
+            {viewer ? (
+              viewer.isSuperAdmin ? (
+                <ButtonLink href="/quan-tri" variant="primary" size="lg">
+                  Quản trị hệ thống
+                  <ArrowRight aria-hidden className="size-5" strokeWidth={1.75} />
+                </ButtonLink>
+              ) : null
+            ) : (
+              <ButtonLink href="/dang-nhap" variant="primary" size="lg">
+                Đăng nhập
+                <ArrowRight aria-hidden className="size-5" strokeWidth={1.75} />
+              </ButtonLink>
+            )}
             <ButtonLink href="/tu-sach" variant="outline" size="lg">
-              Tìm tủ sách để đăng ký
+              {viewer ? "Tìm tủ sách" : "Tìm tủ sách để đăng ký"}
             </ButtonLink>
           </div>
 
-          <p className="mt-5 text-[15px] text-meta">
-            Chưa có tài khoản? Tìm tủ sách của giáo xứ mình rồi đăng ký — quản lý sẽ
-            duyệt sau lễ Chúa nhật.
-          </p>
+          {viewer ? null : (
+            <p className="mt-5 text-[15px] text-meta">
+              Chưa có tài khoản? Tìm tủ sách của giáo xứ mình rồi đăng ký — quản lý
+              sẽ duyệt sau lễ Chúa nhật.
+            </p>
+          )}
         </section>
 
         <section className="border-t border-hairline py-16">

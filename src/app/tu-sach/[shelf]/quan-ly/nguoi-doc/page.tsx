@@ -3,7 +3,7 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { Input } from "@/components/ui/field";
 import { Pill } from "@/components/ui/pill";
-import { Chip } from "@/components/ui/segmented";
+import { FilterChips } from "@/components/ui/filter-chips";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { describeSelection, unitOptions } from "@/domain/members/parish-taxonomy";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
@@ -23,6 +23,8 @@ import { readShelf } from "@/lib/shelf";
 
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Người đọc — Quản lý tủ sách OLibra" };
 
 /** SDD §6.6. Even a count of three goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
@@ -68,6 +70,16 @@ const PAGE = "trang";
  * five, so a reader whose application `RejectMembership` turned down was
  * unreachable from this screen even though BR §2 keeps the row on purpose ("may
  * re-apply"). `src/lib/membership-status.ts` records where its word comes from.
+ *
+ * **The chips themselves moved to `FilterChips`** (Task 14, 2026-08-10 QA
+ * remediation), which draws them from `{ label, href, active, count? }[]`
+ * instead of one `<Chip>` per line here. Nothing about how they look or behave
+ * changes — `count` is simply never passed, matching the no-counts decision two
+ * paragraphs up — except that `Chip` (`src/components/ui/segmented.tsx`) gained
+ * `aria-current="page"` on the active one in the same move, so these chips carry
+ * it now too, alongside `/quan-ly/thong-bao`'s and `/quan-ly/binh-luan`'s new
+ * ones, which is the whole reason the extraction happened rather than a fourth
+ * inline copy being written.
  */
 export default async function ManagerReadersPage({
   params,
@@ -220,18 +232,20 @@ export default async function ManagerReadersPage({
       <div className="mt-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[14px] text-meta">Trạng thái</span>
-          <Chip href={hrefWith({ status: null })} active={!status}>
-            Tất cả
-          </Chip>
-          {Object.entries(STATUS_PARAM).map(([value, key]) => (
-            <Chip
-              key={value}
-              href={hrefWith({ status: value })}
-              active={statusParam === value}
-            >
-              {MEMBERSHIP_STATUS[key].label}
-            </Chip>
-          ))}
+          <FilterChips
+            chips={[
+              {
+                label: "Tất cả",
+                href: hrefWith({ status: null }),
+                active: !status,
+              },
+              ...Object.entries(STATUS_PARAM).map(([value, key]) => ({
+                label: MEMBERSHIP_STATUS[key].label,
+                href: hrefWith({ status: value }),
+                active: statusParam === value,
+              })),
+            ]}
+          />
         </div>
 
         {/* Only when the shelf has units at all: a bar with one chip that cannot
@@ -242,18 +256,20 @@ export default async function ManagerReadersPage({
             <span className="text-[14px] text-meta">
               {parish.taxonomy.level1Label}
             </span>
-            <Chip href={hrefWith({ unit: null })} active={!unit}>
-              Tất cả đơn vị
-            </Chip>
-            {unitChips.map((u) => (
-              <Chip
-                key={u.id}
-                href={hrefWith({ unit: u.id })}
-                active={unit === u.id}
-              >
-                {u.label}
-              </Chip>
-            ))}
+            <FilterChips
+              chips={[
+                {
+                  label: "Tất cả đơn vị",
+                  href: hrefWith({ unit: null }),
+                  active: !unit,
+                },
+                ...unitChips.map((u) => ({
+                  label: u.label,
+                  href: hrefWith({ unit: u.id }),
+                  active: unit === u.id,
+                })),
+              ]}
+            />
           </div>
         ) : null}
       </div>

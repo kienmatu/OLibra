@@ -12,6 +12,7 @@ import {
   runAdminCommand,
   runAdminQuery,
   runCommand,
+  runGlobalCommand,
   runQuery,
 } from "../../../src/domain/kernel/unit-of-work";
 import { closeAll, resetDatabase, sql } from "../../support/db";
@@ -37,6 +38,18 @@ async function codeThrownBy(run: () => Promise<unknown>): Promise<string | null>
  * The site-wide one is written with an explicit `null`, which is what
  * `submitFeedback`'s inverted default requires and what `/lien-he` will pass —
  * omitting the field files against the shelf in scope.
+ *
+ * **`runGlobalCommand`, not `runCommand`, for the site-wide one.** Since Task
+ * 17 (2026-08-10 QA remediation) `submitFeedback`'s audit entry sets `global:
+ * true` whenever the message itself is site-wide, so its `bookshelf_id` is
+ * null even though `a.ctx.bookshelfId` here is a real shelf (a guest session
+ * scoped to Đồng Tháp that chose to mark this one message site-wide, not
+ * `/lien-he`'s genuinely shelf-less caller — that path is covered separately
+ * in `tests/domain/community/announcements-feedback-donations.test.ts` and
+ * `tests/lib/site-feedback-action.test.ts`). Writing a null-`bookshelf_id`
+ * audit row needs the escalated insert only `runGlobalCommand`/
+ * `runAdminCommand` perform; `runCommand`'s `olibra_app` insert is refused by
+ * `audit_log_tenant`'s policy.
  */
 async function threeMessages() {
   const a = await managerContext(sql, { slug: "dong-thap" });
@@ -54,7 +67,7 @@ async function threeMessages() {
     subject: "Giờ mở cửa",
     body: "Tủ sách mở cửa mấy giờ ạ?",
   });
-  const siteWide = await runCommand(sql, a.ctx, submitFeedback, {
+  const siteWide = await runGlobalCommand(sql, a.ctx, submitFeedback, {
     bookshelfId: null,
     senderName: "Phêrô Lê Văn Bình",
     phone: "0900000003",
@@ -184,14 +197,30 @@ test("the rate-limit hash reaches neither shape", async () => {
   expect(JSON.stringify(detail)).not.toContain(hash.guest_hash);
 });
 
-test("a member's own name wins over whatever was typed into the form", async () => {
+/**
+ * QA remediation Task 21. Measured live: a message submitted with "Tên của
+ * em" = "Chị Hạnh" while signed in stored `guest_name = 'Chị Hạnh'` correctly
+ * — `submitFeedback` always writes what was typed — but `/quan-tri/gop-y`
+ * displayed "Quản trị viên", the *signed-in account's own name*, because
+ * `toRow` preferred `member_name` over `guest_name`. The administrator calls
+ * the wrong person.
+ *
+ * This test used to assert the opposite of what it asserts now, unnoticed:
+ * its old name was "a member's own name wins over whatever was typed into
+ * the form", which is the defect this task closes, stated as if it were the
+ * design. `accountName` is new — the account survives as a secondary fact
+ * (`gop-y/page.tsx`'s own "gửi khi đang đăng nhập bằng …" line) so a manager
+ * who *did* mean to speak as themselves is not hidden, only no longer
+ * mistaken for the only truth.
+ */
+test("the typed name wins over the signed-in account's own name, which survives as accountName", async () => {
   const a = await managerContext(sql);
   const [me] = await sql<{ full_name: string }[]>`
     select full_name from users where id = ${a.manager.userId}
   `;
 
   const sent = await runCommand(sql, a.ctx, submitFeedback, {
-    senderName: "gõ vội",
+    senderName: "Chị Hạnh",
     phone: "0900000009",
     subject: "Tên",
     body: "Thân gửi ban quản trị.",
@@ -199,10 +228,40 @@ test("a member's own name wins over whatever was typed into the form", async () 
 
   const { ctx } = await superAdminContext(sql);
   const inbox = await runAdminQuery(sql, ctx, (tx, c) => getFeedbackInbox(tx, c));
+  const row = inbox.find((m) => m.feedbackId === sent.feedbackId);
 
-  expect(inbox.find((m) => m.feedbackId === sent.feedbackId)?.senderName).toBe(
-    me.full_name,
+  expect(row?.senderName).toBe("Chị Hạnh");
+  expect(row?.accountName).toBe(me.full_name);
+
+  // The detail row carries the identical precedence and the identical
+  // account name — one function (`toRow`) backs both shapes.
+  const detail = await runAdminQuery(sql, ctx, (tx, c) =>
+    getFeedbackDetail(tx, c, { feedbackId: sent.feedbackId }),
   );
+  expect(detail?.senderName).toBe("Chị Hạnh");
+  expect(detail?.accountName).toBe(me.full_name);
+});
+
+test("a genuine guest, signed into nothing, carries no account name at all", async () => {
+  const a = await managerContext(sql);
+  const guest = {
+    ...a.ctx,
+    actor: { userId: null, membershipId: null, role: "guest" as const },
+  };
+
+  const sent = await runCommand(sql, guest, submitFeedback, {
+    senderName: "Một người khách",
+    phone: "0900000010",
+    subject: "Hỏi thăm",
+    body: "Tủ sách còn nhận sách tặng không ạ?",
+  });
+
+  const { ctx } = await superAdminContext(sql);
+  const inbox = await runAdminQuery(sql, ctx, (tx, c) => getFeedbackInbox(tx, c));
+  const row = inbox.find((m) => m.feedbackId === sent.feedbackId);
+
+  expect(row?.senderName).toBe("Một người khách");
+  expect(row?.accountName).toBeNull();
 });
 
 // ── Ordering, filtering, counting ──────────────────────────────────────────

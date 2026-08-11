@@ -2,8 +2,9 @@ import Link from "next/link";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Field, Input } from "@/components/ui/field";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { BookFields, PublishedToggle } from "@/components/book-fields";
 import { DonorFields } from "@/components/donor-fields";
 import { messageFor } from "@/domain/kernel/errors";
 import { getReadersList } from "@/domain/members/queries/get-readers-list";
@@ -17,6 +18,8 @@ import { createBookAction } from "../../actions";
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Thêm sách mới — Quản lý tủ sách OLibra" };
+
 /**
  * How many members the donor picker offers.
  *
@@ -29,6 +32,19 @@ export const dynamic = "force-dynamic";
  * `book_copies.acquired_from_membership_id` needs.
  */
 const DONOR_PAGE_SIZE = 100;
+
+/**
+ * `?nam-xb=`/`?so-trang=` back to a number for `BookFields`' `defaultValues`,
+ * or `null` for anything that is not one — including "not present at all",
+ * which is the ordinary case (Task 13, 2026-08-10 QA remediation). Not
+ * `wholeNumber` from `../../actions.ts`: that helper reads a `FormData` field
+ * by name, and this reads a query-string value already in hand.
+ */
+function numberOrNull(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
  * BR §16.3's create form: "the create and edit form is single-column with the
@@ -80,11 +96,31 @@ const DONOR_PAGE_SIZE = 100;
  *
  * Refusals come back through `?loi=` and render as `ERROR_MESSAGES`' own
  * sentences — `duplicate_isbn`, `category_not_found`, `copy_count_invalid`,
- * `required_fields_missing`. What the form does **not** do is repopulate itself,
- * which is a real cost and a small one here: unlike the registration form beside
- * it, none of these fields is a fact about a child, so the reason is simply that
- * a title and an author are quick to retype and a query string carrying a
- * description is not.
+ * `required_fields_missing`.
+ *
+ * **`BookFields` now repopulates itself on a refusal** (Task 13, 2026-08-10 QA
+ * remediation), which this docstring used to say was not worth doing: "a title
+ * and an author are quick to retype and a query string carrying a description is
+ * not." The second half is still true and is why this page is more conservative
+ * than `dang-ky`'s — no field here is a fact about a child, so there was never a
+ * privacy cost to weigh, only a convenience one, and a 300-character "Mô tả" does
+ * travel in the query string now. What changed is that `createBookAction` reuses
+ * `BookFields`' own `defaultValues` prop, the same one `sach/[id]/sua` already
+ * fills from `getBookForEdit` — wiring it from `?ten-sach=` and its seven
+ * siblings instead of from a row is a few lines, not a new mechanism.
+ *
+ * **The identical fix went into `dang-ky` and `nguoi-doc/moi` in the same
+ * task, and was reverted from both before merge.** Both of those forms carry a
+ * child's date of birth, both parents' names and a family telephone number —
+ * exactly the sensitive class this docstring's first paragraph already says
+ * this page does not have — and a query string is a real, permanent leak on a
+ * shared parish phone (browser history, a proxy's access log). `createBook`'s
+ * own action gives the fuller account of the reversal. This page keeps the
+ * carry-back precisely because that reasoning does not apply to it: title,
+ * author, publisher, year and ISBN are facts about a book, not a person.
+ * `so-ban`, the donor picker and "Hiện sách này" stay out of it regardless:
+ * each already defaults to something reasonable, and none of the four
+ * refusal codes above is caused by any of the three.
  */
 export default async function NewBookPage({
   params,
@@ -100,6 +136,26 @@ export default async function NewBookPage({
   // B3 owns that queue; the parameter is read now so the two halves agree when
   // it arrives, and it is a membership id the picker either has or ignores.
   const donorParam = param(search, "nguoi-tang");
+
+  // Task 13 (2026-08-10 QA remediation): what a manager typed, read back after
+  // a refusal — `createBookAction` writes these seven, and only these seven,
+  // in its own `?ten-sach=…` query string. `BookFields`' `defaultValues` prop
+  // already exists for `sach/[id]/sua`'s edit form; this is the same shape from
+  // a different source, not a new one. `Number(...)` rather than `wholeNumber`
+  // (which lives in `../../actions.ts` and reads a `FormData`, not a query
+  // string): a box the manager left blank reads back `undefined` here, and
+  // `Number(undefined)` is `NaN`, so an absent field renders empty rather than
+  // as the literal text "NaN".
+  const bookDefaults = {
+    title: param(search, "ten-sach") ?? "",
+    author: param(search, "tac-gia") ?? null,
+    categorySlug: param(search, "the-loai") ?? null,
+    publisher: param(search, "nxb") ?? null,
+    publishedYear: numberOrNull(param(search, "nam-xb")),
+    pageCount: numberOrNull(param(search, "so-trang")),
+    isbn: param(search, "isbn") ?? null,
+    description: param(search, "mo-ta") ?? null,
+  };
 
   const { shelf, viewer, counts, categories, donors } = await loadPage(
     slug,
@@ -151,78 +207,20 @@ export default async function NewBookPage({
         </p>
       ) : null}
 
-      <form action={createBookAction} className="mt-8 max-w-2xl space-y-10">
+      <form
+        action={createBookAction}
+        // QA remediation T27. See `Field`'s `invalidHint` docstring
+        // (`src/components/ui/field.tsx`) for the full argument: the browser's
+        // own validation bubble speaks whatever language the browser's UI
+        // runs in, not this document's `lang="vi"`, and `noValidate` is what
+        // lets the Vietnamese `invalidHint` text on each required field below
+        // (three inside `BookFields`, one here) show in its place.
+        noValidate
+        className="mt-8 max-w-2xl space-y-10"
+      >
         <input type="hidden" name="tu-sach" value={slug} />
 
-        <div className="space-y-6">
-          <Field label="Tên sách" required htmlFor="ten-sach">
-            <Input
-              id="ten-sach"
-              name="ten-sach"
-              required
-              placeholder="vd: Dế Mèn Phiêu Lưu Ký"
-            />
-          </Field>
-
-          <Field label="Tác giả" required htmlFor="tac-gia">
-            <Input id="tac-gia" name="tac-gia" required placeholder="vd: Tô Hoài" />
-          </Field>
-
-          {/* `categories.slug`, not a name and not an id — a global table with a
-              plain `unique (slug)`, which is the stable handle a form can post
-              (`create-book.ts`). */}
-          <Field label="Thể loại" required htmlFor="the-loai">
-            <Select id="the-loai" name="the-loai" required defaultValue="">
-              <option value="" disabled>
-                Chọn thể loại
-              </option>
-              {categories.map((category) => (
-                <option key={category.slug} value={category.slug}>
-                  {category.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field label="Nhà xuất bản" htmlFor="nxb">
-            <Input id="nxb" name="nxb" placeholder="vd: Kim Đồng" />
-          </Field>
-
-          <Field label="Năm xuất bản" htmlFor="nam-xb">
-            <Input
-              id="nam-xb"
-              name="nam-xb"
-              inputMode="numeric"
-              placeholder="vd: 2019"
-            />
-          </Field>
-
-          <Field label="Số trang" htmlFor="so-trang">
-            <Input
-              id="so-trang"
-              name="so-trang"
-              inputMode="numeric"
-              placeholder="vd: 176"
-            />
-          </Field>
-
-          <Field
-            label="Mã ISBN"
-            htmlFor="isbn"
-            hint="Không bắt buộc. Sách cũ hoặc sách tặng thường không có mã."
-          >
-            <Input id="isbn" name="isbn" placeholder="vd: 978-604-2-12345-6" />
-          </Field>
-
-          <Field label="Mô tả" htmlFor="mo-ta">
-            <Textarea
-              id="mo-ta"
-              name="mo-ta"
-              rows={4}
-              placeholder="Vài dòng giới thiệu nội dung cuốn sách"
-            />
-          </Field>
-        </div>
+        <BookFields categories={categories} defaultValues={bookDefaults} />
 
         {/* A code is assigned per copy, inside the command's own transaction.
             See this page's docstring for why no codes are previewed here — and
@@ -236,6 +234,7 @@ export default async function NewBookPage({
             required
             htmlFor="so-ban"
             hint="Tủ sách tự đặt mã cho từng bản, không cần điền."
+            invalidHint="Vui lòng nhập số bản sách, tối thiểu 1."
           >
             <Input
               id="so-ban"
@@ -258,27 +257,9 @@ export default async function NewBookPage({
           }))}
         />
 
-        {/* `books.is_published` — the draft flag that hides a title from the
-            reader catalogue while a volunteer is still preparing it. Checked by
-            default, matching `createBook`'s own `input.published ?? true`; an
-            unchecked box posts nothing at all, which is what the action reads. */}
-        <label className="flex min-h-11 items-start gap-3 rounded-card border border-hairline bg-surface p-4">
-          <input
-            type="checkbox"
-            name="hien-thi"
-            defaultChecked
-            className="mt-1 size-5 shrink-0 accent-terracotta"
-          />
-          <span>
-            <span className="block text-[16px] font-medium">
-              Hiện sách này cho bạn đọc
-            </span>
-            <span className="mt-0.5 block text-[14px] text-meta">
-              Bỏ chọn nếu bạn muốn ẩn sách này khỏi danh mục công khai trong khi
-              đang chuẩn bị.
-            </span>
-          </span>
-        </label>
+        {/* Checked by default, matching `createBook`'s own
+            `input.published ?? true`. */}
+        <PublishedToggle />
 
         <div className="flex flex-wrap items-center gap-3">
           <SubmitButton>Lưu sách</SubmitButton>

@@ -209,6 +209,19 @@ export default async function AdminFeedbackPage({
                 <span>{open.shelfName ?? "Toàn hệ thống"}</span>
               </p>
 
+              {/* QA remediation Task 21. `senderName` above is always what was
+                  typed into "Tên của em" — never the signed-in account's own
+                  name, which used to win silently and had an administrator
+                  calling the wrong person. This line is the account, kept
+                  visible rather than hidden by that fix: whenever the message
+                  was sent while signed in, whether or not the typed name
+                  happens to match. */}
+              {open.accountName ? (
+                <p className="mt-1 text-[14px] text-meta">
+                  Gửi khi đang đăng nhập bằng {open.accountName}.
+                </p>
+              ) : null}
+
               {/* Plain text, not markup — the same call the announcement detail
                   page made, and here the author may be a stranger with no
                   account at all. */}

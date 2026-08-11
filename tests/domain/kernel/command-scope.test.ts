@@ -5,6 +5,7 @@ import {
   assertWritten,
   runCommand,
   runGlobalCommand,
+  runPublicCommand,
   runQuery,
 } from "../../../src/domain/kernel/unit-of-work";
 import { migrate } from "../../../src/db/migrate";
@@ -275,6 +276,149 @@ test("a runGlobalCommand's null-shelf audit entry still commits", async () => {
     select bookshelf_id from audit_log where action = 'parish_unit.reordered'
   `;
   expect(entry.bookshelf_id).toBeNull();
+});
+
+// Task 17 (2026-08-10 QA remediation): `runPublicCommand` is `runGlobalCommand`'s
+// sibling for the one caller `runAs`'s `allowEmpty: false` refuses outright — a
+// stranger holding no shelf at all, `/lien-he`'s site-wide góp ý form. These
+// four tests are the same shape `runGlobalCommand`'s own coverage above already
+// gives that function, run against the relaxed check instead of the strict one.
+describe("runPublicCommand — the seam for a caller with no shelf at all", () => {
+  const guest = {
+    bookshelfId: "",
+    actor: { userId: null, membershipId: null, role: "guest" as const },
+    clock,
+  };
+
+  test("an empty ctx.bookshelfId is accepted, unlike runCommand/runGlobalCommand", async () => {
+    await expect(
+      runCommand(
+        sql,
+        guest,
+        async () => ({
+          result: null,
+          audit: { action: "book.created", entityType: "x", entityId: "x" },
+        }),
+        {},
+      ),
+    ).rejects.toBeInstanceOf(ValidationFailed);
+
+    await expect(
+      runGlobalCommand(
+        sql,
+        guest,
+        async () => ({
+          result: null,
+          audit: {
+            action: "book.created",
+            entityType: "x",
+            entityId: "x",
+            global: true,
+          },
+        }),
+        {},
+      ),
+    ).rejects.toBeInstanceOf(ValidationFailed);
+
+    // The same call, through the seam built for it, succeeds.
+    await runPublicCommand(
+      sql,
+      guest,
+      async () => ({
+        result: null,
+        audit: {
+          action: "feedback.submitted",
+          entityType: "feedback",
+          entityId: null,
+          global: true,
+        },
+      }),
+      {},
+    );
+    expect(await sql`select 1 from audit_log`).toHaveLength(1);
+  });
+
+  test("the null-shelf audit entry commits, escalated the same way runGlobalCommand's does", async () => {
+    await runPublicCommand(
+      sql,
+      guest,
+      async () => ({
+        result: null,
+        audit: {
+          action: "feedback.submitted",
+          entityType: "feedback",
+          entityId: null,
+          global: true,
+        },
+      }),
+      {},
+    );
+
+    const [entry] = await sql<{ bookshelf_id: string | null }[]>`
+      select bookshelf_id from audit_log where action = 'feedback.submitted'
+    `;
+    expect(entry.bookshelf_id).toBeNull();
+  });
+
+  test("a non-global entry is a named ValidationFailed, not a raw uuid-cast error", async () => {
+    // `ctx.bookshelfId` is always "" through this seam, so a command that
+    // forgets `global: true` would otherwise ask the audit insert to bind ""
+    // into a uuid column — the exact failure `assertValidBookshelfId` exists
+    // to prevent everywhere else. `runPublicCommand` checks it explicitly.
+    await expect(
+      runPublicCommand(
+        sql,
+        guest,
+        async () => ({
+          result: null,
+          audit: {
+            action: "feedback.submitted",
+            entityType: "feedback",
+            entityId: null,
+          },
+        }),
+        {},
+      ),
+    ).rejects.toBeInstanceOf(ValidationFailed);
+
+    expect(await sql`select 1 from audit_log`).toHaveLength(0);
+  });
+
+  test("the body still cannot write an ordinary tenant row — least privilege, not a bypass", async () => {
+    // Defense in depth: even though the audit insert escalates to
+    // `olibra_admin`, the command *body* runs as `olibra_app` under the empty
+    // scope, exactly as `runPublicQuery`'s reads do. `feedback` is the one
+    // table whose policy admits a null-`bookshelf_id` row from any session;
+    // `books` is not, so an insert naming a real shelf must still be refused.
+    const shelf = await makeShelf(sql);
+
+    await expect(
+      runPublicCommand(
+        sql,
+        guest,
+        async (tx) => {
+          await tx`
+            insert into books (bookshelf_id, title, author, slug, is_published)
+            values (${shelf.id}, 'x', 'y', 'public-command-cannot-write-books', true)
+          `;
+          return {
+            result: null,
+            audit: {
+              action: "book.created",
+              entityType: "book",
+              entityId: shelf.id,
+              global: true,
+            },
+          };
+        },
+        {},
+      ),
+    ).rejects.toThrow();
+
+    expect(
+      await sql`select 1 from books where slug = 'public-command-cannot-write-books'`,
+    ).toHaveLength(0);
+  });
 });
 
 // MINOR 7 (fix-report, 2026-08-07-s2-domain-kernel): a malformed bookshelfId

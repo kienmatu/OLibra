@@ -11,6 +11,10 @@ export interface LostCopyRow {
   /** `books.slug`, so a row can link to the book's own management page. */
   bookSlug: string;
   title: string;
+  /** `books.cover_url` — Task 12 (2026-08-10 QA remediation); see
+   *  `search-loans-for-return.ts`'s `LoanForReturnRow` for why this now
+   *  travels with the row rather than being matched from the title. */
+  coverUrl: string | null;
   author: string;
   condition: CopyCondition;
   /**
@@ -121,6 +125,7 @@ export async function getLostCopies(
       book_id: string;
       book_slug: string;
       title: string;
+      cover_url: string | null;
       author: string;
       condition: string;
       reported_at: string | null;
@@ -130,7 +135,7 @@ export async function getLostCopies(
     select
       c.id as copy_id, c.code, c.condition,
       c.lost_reported_at::text as reported_at,
-      b.id as book_id, b.slug as book_slug, b.title, b.author,
+      b.id as book_id, b.slug as book_slug, b.title, b.cover_url, b.author,
       holder.full_name as last_borrower_name
     from book_copies c
     join books b on b.id = c.book_id
@@ -158,6 +163,7 @@ export async function getLostCopies(
     bookId: r.book_id,
     bookSlug: r.book_slug,
     title: r.title,
+    coverUrl: r.cover_url,
     author: r.author,
     condition: r.condition as CopyCondition,
     reportedAt: r.reported_at,

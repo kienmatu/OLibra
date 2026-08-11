@@ -45,12 +45,27 @@ export const ERROR_MESSAGES = {
   required_fields_missing: "Vui lòng điền đầy đủ các trường bắt buộc.",
   copy_count_invalid: "Số bản phải lớn hơn 0.",
   category_not_found: "Không tìm thấy thể loại này.",
+  // QA remediation Task 2: `categories` had a table (`0004_catalogue.sql`) and
+  // a seed script (`src/db/seed.ts:103`) but no command and no screen, so a
+  // fresh install — one that never ran the seed — could never satisfy the
+  // required "Thể loại" field on "Thêm sách mới" and could never catalogue a
+  // single book. `src/domain/catalogue/commands/create-category.ts` and its
+  // siblings are the fix; these two codes are the refusals that family adds.
+  duplicate_category: "Thể loại này đã có rồi.",
+  category_in_use:
+    "Còn sách thuộc thể loại này, không xoá được. Đổi thể loại cho những cuốn đó trước.",
   // Q3, decided in the B1 plan: BR §7.1 draws only on_loan → lost. The
   // sentence names what is allowed instead, per BR §17.7.
   copy_not_on_loan: "Chỉ có thể báo mất bản sách đang được mượn.",
   // Distinct from `reason_required`, whose shipped sentence says "lý do
   // huỷ" — a cancellation. Withdrawing a copy from the shelf is not that.
   retire_reason_required: "Vui lòng ghi lý do ngừng dùng bản sách này.",
+  // QA remediation Task 19: `DonorFields`' own copy says "chọn đúng MỘT
+  // trong hai cách" and, until this task, `CreateBook`/`AddCopies` accepted
+  // both a chosen member and a typed name at once — measured live, writing
+  // both `acquired_from` and `acquired_from_membership_id` onto every copy.
+  // `assertSingleDonor` (`./policy.ts`) is the rule; this is its sentence.
+  donor_ambiguous: "Chọn bạn đọc hoặc gõ tên người tặng, không chọn cả hai.",
 
   // — circulation —
   copy_not_available: "Bản sách này đang được mượn hoặc đang giữ chỗ.",
@@ -196,6 +211,32 @@ export const ERROR_MESSAGES = {
   // reached.
   profile_change_not_pending: "Yêu cầu này đã được xử lý.",
 
+  // — members: Task 4 (QA remediation) —
+  // `suspendMembership`'s own `reason` is optional (a manager may suspend with
+  // none, per OPS §4.3) — this is not that command refusing anything. It is
+  // the reader-detail screen's own decision, the same shape `NO_REJECT_REASON`
+  // already gives `RejectMembership`/`RejectProfileChange`/`RejectComment`/
+  // `DeclineDonation`: those four commands each require a reason at the
+  // database or the domain; this one does not, but a suspension a volunteer
+  // typed with no explanation is a decision nobody, including that volunteer
+  // a month later, can act on — so the screen asks before the command ever
+  // sees the request. Checked for a collision first: `reject_reason_required`
+  // ("Vui lòng ghi lý do từ chối.") is a rejection's word, not a suspension's,
+  // and every other `_reason_required` code in this file is similarly one
+  // command's own noun.
+  suspension_reason_required: "Vui lòng ghi lý do tạm khoá.",
+
+  // — members: Task 18 (QA remediation) —
+  // Measured on 2026-08-10: `khong-phai-so`, typed into the required "Số
+  // điện thoại" on `/quan-ly/nguoi-doc/moi`, was accepted, stored, and
+  // rendered as a `tel:khong-phai-so` link on the approval card, the reader
+  // profile and the overdue list — the one field whose own hint says it is
+  // how the shelf calls about an overdue book. `assertPhone`
+  // (`../members/policy.ts`) is the rule; this is its sentence, worded to
+  // show the shape rather than just say "invalid" — a volunteer correcting a
+  // typo needs to know what "right" looks like, not just that this was wrong.
+  phone_invalid: "Số điện thoại chưa đúng. Ghi 10 số, ví dụ 0912345678.",
+
   // — community: B3 —
   // OPS §4.4's own sentences. `comment_not_pending` is the **fifth** slice in a
   // row to split a `not_pending` code: OPS gives it "Bình luận này đã được xử
@@ -222,6 +263,44 @@ export const ERROR_MESSAGES = {
   slug_taken: "Địa chỉ này đã có tủ sách khác dùng.",
   already_archived: "Tủ sách này đã được lưu trữ.",
   already_super_admin: "Người này đã là quản trị viên hệ thống.",
+  // QA remediation Task 15: measured on 2026-08-10, `updateBookshelfSettings`
+  // took `loanDays: 0` and wrote `settings.loan_days = 0` with no error —
+  // every loan from that shelf then fell due the day it was made, and
+  // `max_concurrent_loans = 0` would have stopped all borrowing the same
+  // silent way. The two admin forms' `<input type="number" min="0">` had no
+  // `max` and the domain checked only "a safe integer, not negative" — `0`
+  // passed both.
+  //
+  // Six codes, not one `validation_failed` reused six times: a manager reading
+  // "Vui lòng kiểm tra lại thông tin." after typing `0` into "Số ngày cho
+  // mượn" has no way to know which of five boxes on the page was the problem,
+  // or what value would have been accepted. `src/domain/admin/policy.ts`
+  // holds the one bound table both `updateBookshelfSettings` and
+  // `updateSystemDefaults` check against, so the six sentences below are the
+  // only place these numbers are ever named — the same argument `errors.ts`
+  // makes for itself at the top of this file, applied to a table instead of a
+  // single rule.
+  //
+  // `max_renewals` and `due_soon_days` are the two whose floor is 0 rather
+  // than 1: BR §5.5 lets a shelf configure "no renewals", and OPS's sweep
+  // window may legitimately warn a reader on the due date itself. Both
+  // sentences still say "phải từ 0 đến …" so a manager who *does* overshoot
+  // the ceiling, or sends a negative number, reads the true legal range rather
+  // than a floor that looks like it forbids zero.
+  //
+  // `due_soon_days` has no command that writes it yet — U1's
+  // `getShelfSettings` reports it as the constant `sweepDueNotifications`
+  // defaults to (`src/domain/shelf/queries/get-shelf-settings.ts:25-29`), and
+  // no admin form has a box for it. It is bounded here anyway, deliberately
+  // ahead of the form that will need it (Task 23), so that command inherits
+  // the rule for free rather than a seventh task re-deriving the same
+  // argument this paragraph already makes.
+  loan_days_out_of_range: "Số ngày cho mượn phải từ 1 đến 365 ngày.",
+  max_concurrent_loans_out_of_range: "Số sách mượn cùng lúc phải từ 1 đến 50 cuốn.",
+  max_renewals_out_of_range: "Số lần gia hạn phải từ 0 đến 10 lần.",
+  renewal_days_out_of_range: "Số ngày mỗi lần gia hạn phải từ 1 đến 365 ngày.",
+  hold_days_out_of_range: "Số ngày giữ chỗ phải từ 1 đến 30 ngày.",
+  due_soon_days_out_of_range: "Báo sắp đến hạn trước phải từ 0 đến 30 ngày.",
   // Feedback. The rate limit is OPS §8's, stated verbatim in the shipped form.
   rate_limited: "Mỗi số điện thoại gửi tối đa 3 góp ý mỗi ngày, để tránh tin rác.",
   feedback_fields_required: "Vui lòng điền đầy đủ các trường bắt buộc.",

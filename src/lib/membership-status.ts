@@ -25,7 +25,7 @@ import type { PillTone } from "@/components/ui/pill";
  *   duyệt**, **Tạm khoá**, **Đã rời**, with their icons, are `READER_STATUS` and
  *   `MEMBERSHIP_ICON` from the fixture version of `quan-ly/nguoi-doc`. The words
  *   survive the fixtures; the invented readers do not.
- * - `rejected` — **Đã từ chối**, from `toi/tang-sach`, which labels a declined
+ * - `rejected` — **Đã từ chối**, from `ho-so/tang-sach`, which labels a declined
  *   donation with exactly that pair of word and icon (`CircleX`). The fixture
  *   reader list had no `rejected` entry at all, because its `Reader` type had no
  *   such state; the domain's enum does, `RejectMembership` writes it, and BR §2

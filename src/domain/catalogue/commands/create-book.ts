@@ -2,12 +2,46 @@ import type { AuditEntry } from "../../kernel/audit";
 import { RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { allocateCopyCodes } from "../copy-codes";
-import { nextAvailableSlug, requireManager, slugifyTitle } from "../policy";
+import {
+  assertSingleDonor,
+  nextAvailableSlug,
+  requireManager,
+  slugifyTitle,
+} from "../policy";
 
+/**
+ * Provenance on the physical object — `book_copies.acquired_from` /
+ * `acquired_from_membership_id` (DB §4.4), shared by `CreateBook` and
+ * `AddCopies` below because both write the same two columns onto the copies
+ * they generate.
+ *
+ * **This is not `book_donations`, and that is a decision, not an oversight —
+ * checked explicitly for QA remediation Task 20, not assumed.** DB §4.4 and
+ * §4.8 (`docs/DATABASE.md`) draw the boundary in as many words: `book_
+ * donations` is a reader's *offer* to give books away, before anything is
+ * catalogued, and it is not the provenance of any physical object; this
+ * shape is a copy's own history, once a manager has it in hand and has
+ * catalogued it. The two are different moments about (usually) different
+ * donations, and a `CreateBook`/`AddCopies` call never reads or writes
+ * `book_donations` — a manager who arrives here from "Duyệt" on the donation
+ * queue (`/quan-ly/tang-sach`) brings the donor's identity with them as a
+ * pre-filled `donorMembershipId` (`DonorFields`' own `selectedMemberId`),
+ * which is the *only* connection between the two tables, and it lives in the
+ * screen, not in a foreign key.
+ */
 export interface DonorInput {
   /** A member of this shelf, chosen from a search (DB §4.4). */
   donorMembershipId?: string | null;
-  /** A typed name, for a donor with no account. Both may be present. */
+  /**
+   * A typed name, for a donor with no account.
+   *
+   * **Not both at once** — QA remediation Task 19: `assertSingleDonor`
+   * (`../policy.ts`) refuses a call naming both this and
+   * `donorMembershipId`, because a copy can be attributed to a real member's
+   * profile or to a typed name but not both meaning different things on the
+   * same row. This field used to read "Both may be present", which was the
+   * defect Task 19 closed, stated as if it were the design.
+   */
   donorName?: string | null;
   /** `YYYY-MM-DD`. Defaults to today in Asia/Ho_Chi_Minh (G6). */
   acquiredOn?: string | null;
@@ -56,6 +90,8 @@ export const createBook: Command<
   if (!Number.isInteger(input.copyCount) || input.copyCount < 1) {
     throw new ValidationFailed("copy_count_invalid", "copyCount");
   }
+  // QA remediation Task 19: see `assertSingleDonor`'s own docstring.
+  assertSingleDonor(input.donorMembershipId, input.donorName);
 
   const [category] = await tx<{ id: string }[]>`
     select id from categories

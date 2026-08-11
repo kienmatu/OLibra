@@ -154,6 +154,18 @@ export interface ShelfIdentity {
   name: string;
   /** `0003_identity.sql:46` — "physical location, shown publicly". */
   location: string | null;
+  /**
+   * `0003_identity.sql:47` — BR:179 lists `address` as its own field,
+   * separate from `location` ("physical location, address, keeper's name and
+   * phone"). QA remediation Task 22: this column existed and was written by
+   * the admin's own editor (`updateBookshelfSettings`) since B4, but no query
+   * on the member side selected it — `getShelfSettings`'s own docstring
+   * called that fact out in as many words ("nothing in this application
+   * renders `address`"), which stayed true until this line. A manager typing
+   * a street address into `/quan-tri/tu-sach` was typing into a value no
+   * reader, including that manager, could ever see.
+   */
+  address: string | null;
   /** Free text: "Mở sau lễ Chúa nhật · 9:00 đến 11:00". */
   openingHours: string | null;
   keeperName: string | null;
@@ -170,12 +182,13 @@ export async function readShelfIdentity(
     {
       name: string;
       location: string | null;
+      address: string | null;
       opening_hours: string | null;
       keeper_name: string | null;
       keeper_phone: string | null;
     }[]
   >`
-    select name, location, opening_hours, keeper_name, keeper_phone
+    select name, location, address, opening_hours, keeper_name, keeper_phone
     from bookshelves
     where id = ${ctx.bookshelfId}
   `;
@@ -185,6 +198,7 @@ export async function readShelfIdentity(
   return {
     name: row.name,
     location: row.location,
+    address: row.address,
     openingHours: row.opening_hours,
     keeperName: row.keeper_name,
     keeperPhone: row.keeper_phone,

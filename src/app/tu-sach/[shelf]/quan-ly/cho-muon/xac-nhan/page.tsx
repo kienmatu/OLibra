@@ -20,6 +20,8 @@ import { lendCopyAction } from "../../actions";
 /** U1 §2. See `../page.tsx` for what a cached manager screen actually leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Xác nhận cho mượn — Quản lý tủ sách OLibra" };
+
 /** SDD §6.6, the same formatter step 1 uses for its copy counts. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
@@ -184,7 +186,11 @@ export default async function ChoMuonXacNhanPage({
         <Row label="Sách">
           {book ? (
             <div className="flex items-center gap-3">
-              <BookCover title={book.book.title} className="w-12 text-[1rem]" />
+              <BookCover
+                title={book.book.title}
+                coverUrl={book.book.coverUrl}
+                className="w-12 text-[1rem]"
+              />
               <div className="min-w-0">
                 <BookTitle className="block truncate text-base leading-snug">
                   {book.book.title}
@@ -272,6 +278,12 @@ export default async function ChoMuonXacNhanPage({
         {/* Carried only so a refusal can come back to this same screen with the
             book still chosen. */}
         <input type="hidden" name="sach" value={sach ?? ""} />
+        {/* QA remediation Task 16: the shelf-mark this screen already shows in
+            the "Mã bản sách" row above, carried so `lendCopyAction` can name
+            it in the confirmation notice on the dashboard it redirects to
+            without a second lookup. A shelf-mark, not a person's name — see
+            that action's own docstring for the line drawn here. */}
+        <input type="hidden" name="ma-ban" value={copy?.code ?? ""} />
         {/* `disabled` composes with the pending state rather than being
             replaced by it: a rule that already closed this button must not
             reopen when a submit settles. */}

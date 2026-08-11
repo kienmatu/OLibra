@@ -114,16 +114,18 @@ test("every generated copy starts available and perfect", async () => {
   expect(rows.every((r) => r.condition === "perfect")).toBe(true);
 });
 
-test("the donor fields land on every copy the call creates", async () => {
-  // Master §7.1's acceptance: donorMembershipId populates acquired_from_membership_id,
-  // donorName populates the existing acquired_from text column (DB §4.4).
+test("the member donor lands on every copy the call creates", async () => {
+  // Master §7.1's acceptance: donorMembershipId populates
+  // acquired_from_membership_id. Split from a test that used to send
+  // donorMembershipId *and* donorName together — see the QA remediation
+  // Task 19 tests below for why that shape is now refused rather than
+  // exercised as the happy path.
   const { shelf, ctx } = await shelfWithManager();
   const donor = await makeMember(sql, shelf.id);
 
   const { bookId } = await runCommand(sql, ctx, createBook, {
     ...BOOK,
     donorMembershipId: donor.id,
-    donorName: "bác Hoà",
     acquiredOn: "2026-07-19",
   });
 
@@ -136,8 +138,91 @@ test("the donor fields land on every copy the call creates", async () => {
   >`select acquired_from, acquired_from_membership_id, acquired_on
       from book_copies where book_id = ${bookId}`;
   expect(rows).toHaveLength(3);
-  expect(rows.every((r) => r.acquired_from === "bác Hoà")).toBe(true);
+  expect(rows.every((r) => r.acquired_from === null)).toBe(true);
   expect(rows.every((r) => r.acquired_from_membership_id === donor.id)).toBe(true);
+});
+
+test("the free-text donor lands on every copy the call creates", async () => {
+  // The other of the two ways OPS's donor picker offers — a donor with no
+  // account, chosen instead of a member rather than alongside one.
+  const { ctx } = await shelfWithManager();
+
+  const { bookId } = await runCommand(sql, ctx, createBook, {
+    ...BOOK,
+    donorName: "bác Hoà",
+    acquiredOn: "2026-07-19",
+  });
+
+  const rows = await sql<
+    {
+      acquired_from: string | null;
+      acquired_from_membership_id: string | null;
+    }[]
+  >`select acquired_from, acquired_from_membership_id
+      from book_copies where book_id = ${bookId}`;
+  expect(rows).toHaveLength(3);
+  expect(rows.every((r) => r.acquired_from === "bác Hoà")).toBe(true);
+  expect(rows.every((r) => r.acquired_from_membership_id === null)).toBe(true);
+});
+
+/**
+ * QA remediation Task 19. The add-book form says "chọn đúng MỘT trong hai
+ * cách" (choose exactly ONE of the two ways) and, until this task, accepted
+ * both: filling the donor <select> and the free-text box together wrote
+ * `acquired_from = 'bác Hoà'` *and* `acquired_from_membership_id = <donor's
+ * id>` onto every copy — two contradicting attributions on one row, with the
+ * CSV export (`../queries/exports.ts`) reporting the free text and silently
+ * discarding the membership link a manager thought they were recording. This
+ * is the exact fixture the pre-existing "donor fields land on every copy"
+ * test exercised as its happy path, unnoticed, until this task split it in
+ * two above.
+ */
+test("filling both donor controls is refused, naming the field a manager can fix", async () => {
+  const { shelf, ctx } = await shelfWithManager();
+  const donor = await makeMember(sql, shelf.id);
+
+  await expect(
+    runCommand(sql, ctx, createBook, {
+      ...BOOK,
+      donorMembershipId: donor.id,
+      donorName: "bác Hoà",
+    }),
+  ).rejects.toMatchObject({ code: "donor_ambiguous" });
+
+  // Refused before any write — no book and no copy from the rejected call.
+  expect(
+    await sql`select 1 from books where bookshelf_id = ${shelf.id}`,
+  ).toHaveLength(1); // shelfWithManager's own baseline book only.
+});
+
+test("neither donor control is filled: the ordinary case, not an error", async () => {
+  // Restated from "a copy with no donor recorded is the ordinary case" below,
+  // for the guard specifically: absence of both is not ambiguity.
+  const { ctx } = await shelfWithManager();
+  await expect(runCommand(sql, ctx, createBook, BOOK)).resolves.toMatchObject({
+    bookId: expect.any(String),
+  });
+});
+
+test("AddCopies refuses both donor controls at once too", async () => {
+  // The guard belongs to both catalogue commands that write acquired_from* —
+  // `DonorInput` is shared between them (`../commands/create-book.ts`).
+  const { shelf, ctx } = await shelfWithManager();
+  const { bookId } = await runCommand(sql, ctx, createBook, BOOK);
+  const donor = await makeMember(sql, shelf.id);
+
+  await expect(
+    runCommand(sql, ctx, addCopies, {
+      bookId,
+      count: 1,
+      donorMembershipId: donor.id,
+      donorName: "bác Hoà",
+    }),
+  ).rejects.toMatchObject({ code: "donor_ambiguous" });
+
+  expect(
+    await sql`select 1 from book_copies where book_id = ${bookId}`,
+  ).toHaveLength(3); // createBook's three; the rejected AddCopies added none.
 });
 
 test("a copy with no donor recorded is the ordinary case, not an error", async () => {

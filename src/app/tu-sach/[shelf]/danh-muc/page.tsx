@@ -16,6 +16,8 @@ import { statusForAvailability } from "@/lib/status";
 /** U1 §2. See `src/app/tu-sach/[shelf]/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Danh mục sách — OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /**
@@ -207,6 +209,7 @@ export default async function CataloguePage({
                 title={book.title}
                 author={book.author}
                 status={statusForAvailability(book.availability)}
+                coverUrl={book.coverUrl}
               />
             ))}
           </div>

@@ -1,18 +1,48 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import type { ManagerCopyRow } from "@/domain/catalogue/queries/get-book-detail-manager";
-import { BookDown, BookUp, CircleCheckBig, Pencil, Plus } from "lucide-react";
-import { Button, ButtonLink, buttonClasses } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/field";
+import {
+  Archive,
+  BookDown,
+  BookUp,
+  CircleCheckBig,
+  ClipboardList,
+  HelpCircle,
+  Pencil,
+  Plus,
+} from "lucide-react";
+import { ButtonLink, buttonClasses } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { Field, Input, Textarea } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { ConditionPicker } from "@/components/condition-picker";
 import { DonorFields } from "@/components/donor-fields";
+import { copyStateTransition, type CopyState } from "@/domain/catalogue/policy";
+import { getReadersList } from "@/domain/members/queries/get-readers-list";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
 import { readShelf } from "@/lib/shelf";
+import { cn } from "@/lib/utils";
 import { CONDITION_LABELS, COPY_STATE_STATUS, STATUS } from "@/lib/status";
+import {
+  addCopiesAction,
+  assessConditionAction,
+  markCopyFoundOnBookAction,
+  reportCopyLostOnBookAction,
+  retireCopyOnBookAction,
+} from "../../actions";
+
+/**
+ * How many members "Thêm bản"'s donor picker offers — the identical ceiling
+ * `sach/moi/page.tsx` uses for the same picker, and for the same reason
+ * (`getReadersList`'s own paging limit; see that page's docstring).
+ */
+const DONOR_PAGE_SIZE = 100;
 
 /**
  * U1 §2, and this page had a `force-dynamic` before it read anything: the
@@ -51,16 +81,60 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * 404, which is what a 404 is for; U1 §3.4's rule about not confirming a page
  * exists is unaffected, because this answer does not depend on who is asking.
  *
- * **Every other control here is unchanged, and none of them writes anything.**
- * "Thêm bản", "Đánh giá", "Báo mất", "Ngừng dùng" and "Đánh dấu tìm thấy" are
- * still plain `<button>`s that submit nothing, and "Sửa sách" still links to
- * the book *list* rather than to an edit form. Their commands all exist
- * (`addCopies`, `assessCondition`, `reportCopyLost`, `retireCopy`,
- * `markCopyFound`, `updateBook` — all B1's), but wiring them is not this slice:
- * U1 is the six lending screens and the seam, and "wire the rest of the
- * catalogue's buttons while I am here" is how a slice stops being reviewable.
- * What changed for them is only that they are now drawn from real copies
- * instead of a fixture array.
+ * **Four of the five remaining controls were, until Task 11 (QA remediation),
+ * plain `<button>`s that submitted nothing — no enclosing `<form>` at all —
+ * and "Sửa sách" linked to the book *list* rather than to an edit form.**
+ * U1 shipped them that way on purpose: "Đánh giá", "Báo mất", "Ngừng dùng",
+ * "Đánh dấu tìm thấy" and "Sửa sách" drew from real copies instead of a
+ * fixture array, but wiring their commands was not that slice — U1 is the six
+ * lending screens and the seam, and "wire the rest of the catalogue's buttons
+ * while I am here" is how a slice stops being reviewable. The QA sweep this
+ * task's plan is named for found the visible cost of leaving that decision
+ * unrevisited: twelve dead submit buttons on this one screen, the largest
+ * single defect in that report. `assessCondition`, `reportCopyLost`,
+ * `retireCopy`, `markCopyFound` and `updateBook` have all existed, fully
+ * tested, since B1.
+ *
+ * **Every one of the five now renders behind a real `<form>`, and
+ * state-gated.** `copyControls` below reads `copyStateTransition`
+ * (`src/domain/catalogue/policy.ts`) — the same table `reportCopyLost`,
+ * `retireCopy` and `markCopyFound` themselves consult — so a copy that is
+ * `on_loan` never shows "Ngừng dùng" (BR §7.1 draws no `on_loan → retired`
+ * arrow) and a copy that is not `lost` never shows "Đánh dấu tìm thấy". That
+ * is Task 3's lesson, restated: a control a viewer's own role cannot use must
+ * not render, and neither must one the copy's own *state* cannot use — a
+ * control that renders and then always refuses is a dead button with extra
+ * steps. `assessCondition` consults no transition table at all (BR §9: "a
+ * condition is not a state"), so "Đánh giá" is withheld from `lost` and
+ * `retired` copies on ordinary product grounds instead — nothing left to
+ * inspect — not a rule the command enforces.
+ *
+ * **No per-viewer-role gate was added, and that is a checked fact, not an
+ * oversight.** `getBookDetailManager` (this page's own read) and all six
+ * commands this page now calls (five copy-state commands plus `addCopies`)
+ * open with the identical `requireManager` — unlike `co-cau`'s five, which
+ * are `super_admin`-only under a `manager`-readable page and needed a
+ * `canEdit` split. Whoever can reach this page at all can use every control
+ * that its *copy state* allows.
+ *
+ * **"Đánh giá" and "Báo mất" moved into `<details>` disclosures, matching
+ * `sach/mat/page.tsx`'s own "Ngừng dùng"**, because both need a field beyond
+ * the bare confirm `sach/mat`'s "Đánh dấu tìm thấy" gets away with —
+ * `ConditionPicker` (extracted from `nhan-tra`, see that component's own
+ * docstring) for the first, an optional note for the second.
+ *
+ * **"Thêm bản" is wired too, added in a review round rather than in this
+ * task's first pass.** The brief named the other five commands and not
+ * `addCopies`, and the first version of this page left "Thêm bản" exactly as
+ * it always was — a `<form>` with no `action` at all. That reading of scope
+ * was too narrow: a form that accepts input and silently discards it (the
+ * browser's default GET, serialising every field into a query string nobody
+ * reads) is a worse failure than the twelve buttons this task exists to fix,
+ * not an unrelated one, because it sits on the same screen and looks like it
+ * worked. `actions.ts`'s own section header has the fuller account, including
+ * why the guard test below needed extending to see this shape at all — it
+ * only checked that a submit control sat inside *some* `<form>`, not that the
+ * form had anywhere to go.
  *
  * **The "Thêm bản" hint no longer names a code.** It read "ví dụ DT-0143", and
  * that was the sharpest surviving piece of the preview `sach/moi`'s docstring
@@ -73,6 +147,36 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * (`src/domain/catalogue/policy.ts:183`) derives it from the shelf slug, so
  * `DT-` held on one of the four seeded shelves.
  */
+/**
+ * QA remediation Task 25. `bookFromSlug` — the exact resolver the page body
+ * calls with the exact same `id` — rather than a lighter hand-written lookup:
+ * it is already "the record this page would name itself with" (the
+ * controller notes' own phrase), and inventing a narrower query here would be
+ * a second definition of "does this slug name a book" alongside the page's.
+ * It costs the same four extra reads (copies, condition history, loan
+ * history) `getBookDetailManager` always does — heavier than the title alone
+ * needs, and reusing the established resolver rather than growing a third one
+ * beside it (`getBookDetail` for readers, `getBookForEdit` for the edit form)
+ * is the trade this task makes.
+ *
+ * `notFound()` on the same `!book` check the page body uses, so a slug naming
+ * nothing 404s here exactly as the render would a moment later.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ shelf: string; id: string }>;
+}): Promise<Metadata> {
+  const { shelf: slug, id } = await params;
+
+  const { book } = await loadPage(slug, async (tx, ctx) => ({
+    book: await bookFromSlug(tx, ctx, id),
+  }));
+  if (!book) notFound();
+
+  return { title: `${book.book.title} — Quản lý tủ sách OLibra` };
+}
+
 export default async function ManagerBookDetailPage({
   params,
 }: {
@@ -80,13 +184,21 @@ export default async function ManagerBookDetailPage({
 }) {
   const { shelf: slug, id } = await params;
 
-  const { shelf, viewer, counts, book } = await loadPage(
+  const { shelf, viewer, counts, book, donors } = await loadPage(
     slug,
     async (tx, ctx, viewer) => ({
       shelf: await readShelf(tx, ctx),
       viewer,
       counts: await getManagerBadgeCounts(tx, ctx),
       book: await bookFromSlug(tx, ctx, id),
+      // Only members who could plausibly be standing at the shelf handing
+      // over a book — `DonorFields`' own docstring states the rule, and
+      // `sach/moi/page.tsx` applies the identical filter for the identical
+      // picker.
+      donors: await getReadersList(tx, ctx, {
+        status: "active",
+        pageSize: DONOR_PAGE_SIZE,
+      }),
     }),
   );
   if (!book) notFound();
@@ -105,7 +217,11 @@ export default async function ManagerBookDetailPage({
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex gap-4">
-          <BookCover title={book.book.title} className="w-24 text-[1.6rem]" />
+          <BookCover
+            title={book.book.title}
+            coverUrl={book.book.coverUrl}
+            className="w-24 text-[1.6rem]"
+          />
           <div>
             <BookTitle as="h1" className="block text-[28px] leading-tight">
               {book.book.title}
@@ -156,7 +272,11 @@ export default async function ManagerBookDetailPage({
               Nhận trả
             </ButtonLink>
           ) : null}
-          <ButtonLink href={`${base}/sach`} variant="quiet" size="lg">
+          <ButtonLink
+            href={`${base}/sach/${book.book.slug}/sua`}
+            variant="quiet"
+            size="lg"
+          >
             <Pencil aria-hidden className="size-5" strokeWidth={1.75} />
             Sửa sách
           </ButtonLink>
@@ -201,7 +321,13 @@ export default async function ManagerBookDetailPage({
               Thêm bản
             </summary>
 
-            <form className="mt-4 max-w-md space-y-5 rounded-card border border-hairline bg-paper p-5">
+            <form
+              action={addCopiesAction}
+              className="mt-4 max-w-md space-y-5 rounded-card border border-hairline bg-paper p-5"
+            >
+              <input type="hidden" name="tu-sach" value={slug} />
+              <input type="hidden" name="sach-id" value={book.book.bookId} />
+              <input type="hidden" name="sach" value={book.book.slug} />
               <Field
                 label="Số bản muốn thêm"
                 required
@@ -210,27 +336,35 @@ export default async function ManagerBookDetailPage({
               >
                 <Input
                   id="them-so-ban"
+                  name="so-ban"
                   type="number"
                   min={1}
                   defaultValue={1}
+                  required
                   className="max-w-32"
                 />
               </Field>
 
-              {/* No donor list: this page is wired, and reading the shelf's
-                  members for this picker belongs to the wave that gives this
-                  form an action. It used to render eleven invented children
-                  from `src/lib/fixtures.ts` — see `donor-fields.tsx`. */}
-              <DonorFields idPrefix="them-nguoi-tang" donors={[]} />
+              {/* This shelf's own active members, read alongside the book —
+                  the wave `donor-fields.tsx`'s own docstring said this list
+                  was waiting for, now that the form has an action to post
+                  the chosen id to. */}
+              <DonorFields
+                idPrefix="them-nguoi-tang"
+                donors={donors.rows.map((r) => ({
+                  id: r.membershipId,
+                  fullName: r.fullName,
+                }))}
+              />
 
               {/* Outline, not solid: this screen's one primary action is
                   already spoken for above (AGENTS.md/button.tsx — "if two
                   things on a screen are terracotta, one of them is wrong").
                   This form only exists once the disclosure is open, at which
                   point both buttons are on screen at once. */}
-              <Button type="submit" variant="outline" size="md">
+              <SubmitButton variant="outline" size="md">
                 Lưu bản mới
-              </Button>
+              </SubmitButton>
             </form>
           </details>
         </div>
@@ -250,6 +384,9 @@ export default async function ManagerBookDetailPage({
                 </th>
                 <th className="px-4 py-3 text-[14px] font-medium text-meta">
                   Đang ở đâu
+                </th>
+                <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                  Người tặng
                 </th>
                 <th className="px-4 py-3 text-[14px] font-medium text-meta">
                   Thao tác
@@ -279,31 +416,15 @@ export default async function ManagerBookDetailPage({
                   <td className="px-4 py-3 text-[15px] text-ink/85">
                     <CopyLocation copy={copy} />
                   </td>
+                  <td className="px-4 py-3 text-[15px] text-ink/85">
+                    <DonorCell copy={copy} slug={slug} />
+                  </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      {copy.state === "lost" ? (
-                        <Button variant="quiet" size="sm">
-                          <CircleCheckBig
-                            aria-hidden
-                            className="size-4"
-                            strokeWidth={1.75}
-                          />
-                          Đánh dấu tìm thấy
-                        </Button>
-                      ) : (
-                        <>
-                          <Button variant="quiet" size="sm">
-                            Đánh giá
-                          </Button>
-                          <Button variant="quiet" size="sm">
-                            Báo mất
-                          </Button>
-                        </>
-                      )}
-                      <Button variant="quiet" size="sm">
-                        Ngừng dùng
-                      </Button>
-                    </div>
+                    <CopyActions
+                      copy={copy}
+                      slug={slug}
+                      bookSlug={book.book.slug}
+                    />
                   </td>
                 </tr>
               ))}
@@ -331,29 +452,16 @@ export default async function ManagerBookDetailPage({
               <p className="mt-1.5 text-[14px] text-meta">
                 {CONDITION_LABELS[copy.condition]} · <CopyLocation copy={copy} />
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {copy.state === "lost" ? (
-                  <Button variant="quiet" size="sm" className="flex-1">
-                    <CircleCheckBig
-                      aria-hidden
-                      className="size-4"
-                      strokeWidth={1.75}
-                    />
-                    Đánh dấu tìm thấy
-                  </Button>
-                ) : (
-                  <>
-                    <Button variant="quiet" size="sm" className="flex-1">
-                      Đánh giá
-                    </Button>
-                    <Button variant="quiet" size="sm" className="flex-1">
-                      Báo mất
-                    </Button>
-                  </>
-                )}
-                <Button variant="quiet" size="sm" className="flex-1">
-                  Ngừng dùng
-                </Button>
+              <p className="mt-1 text-[14px] text-meta">
+                Người tặng: <DonorCell copy={copy} slug={slug} />
+              </p>
+              <div className="mt-3">
+                <CopyActions
+                  copy={copy}
+                  slug={slug}
+                  bookSlug={book.book.slug}
+                  stretch
+                />
               </div>
             </div>
           ))}
@@ -398,75 +506,277 @@ export default async function ManagerBookDetailPage({
       <section className="mt-10">
         <h2 className="text-xl font-semibold">Lịch sử mượn</h2>
 
-        <div className="mt-4 hidden overflow-hidden rounded-card border border-hairline md:block">
-          <table className="w-full text-left">
-            <thead className="bg-paper">
-              <tr>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">Bản</th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Người mượn
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Mượn ngày
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Trả ngày
-                </th>
-                <th className="px-4 py-3 text-[14px] font-medium text-meta">
-                  Tình trạng khi trả
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
-              {book.loanHistory.map((loan) => (
-                <tr key={loan.loanId}>
-                  <td className="px-4 py-3 text-[15px] font-medium">
-                    {loan.copyCode}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {loan.borrowerName}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {formatInstant(loan.lentAt)}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-[15px] text-ink/85">
-                    <LoanOutcome loan={loan} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-4 space-y-3 md:hidden">
-          {book.loanHistory.map((loan) => (
-            <div
-              key={loan.loanId}
-              className="rounded-card border border-hairline bg-surface p-4"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[15px] font-medium">{loan.copyCode}</span>
-                <span className="text-[14px] text-meta">
-                  <LoanOutcome loan={loan} />
-                </span>
-              </div>
-              <p className="mt-1 text-[15px]">{loan.borrowerName}</p>
-              <p className="mt-0.5 text-[14px] text-meta">
-                {formatInstant(loan.lentAt)} –{" "}
-                {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
-              </p>
+        {/* QA T27: an empty `book.loanHistory` used to still render this whole
+            table shell — header row, empty `<tbody>`, nothing telling a
+            manager whether that meant "never borrowed" or a page that failed
+            to load. `/quan-ly/nguoi-doc` and `/quan-ly/sach` already guard
+            their own tables behind a `rows.length === 0` check and a
+            "Chưa có…" line instead of an empty grid; this section had none. */}
+        {book.loanHistory.length === 0 ? (
+          <p className="mt-4 text-[15px] text-meta">Chưa có lượt mượn nào.</p>
+        ) : (
+          <>
+            <div className="mt-4 hidden overflow-hidden rounded-card border border-hairline md:block">
+              <table className="w-full text-left">
+                <thead className="bg-paper">
+                  <tr>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Bản
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Người mượn
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Mượn ngày
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Trả ngày
+                    </th>
+                    <th className="px-4 py-3 text-[14px] font-medium text-meta">
+                      Tình trạng khi trả
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {book.loanHistory.map((loan) => (
+                    <tr key={loan.loanId}>
+                      <td className="px-4 py-3 text-[15px] font-medium">
+                        {loan.copyCode}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        {loan.borrowerName}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        {formatInstant(loan.lentAt)}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[15px] text-ink/85">
+                        <LoanOutcome loan={loan} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
+
+            <div className="mt-4 space-y-3 md:hidden">
+              {book.loanHistory.map((loan) => (
+                <div
+                  key={loan.loanId}
+                  className="rounded-card border border-hairline bg-surface p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[15px] font-medium">{loan.copyCode}</span>
+                    <span className="text-[14px] text-meta">
+                      <LoanOutcome loan={loan} />
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[15px]">{loan.borrowerName}</p>
+                  <p className="mt-0.5 text-[14px] text-meta">
+                    {formatInstant(loan.lentAt)} –{" "}
+                    {loan.returnedAt ? formatInstant(loan.returnedAt) : "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <p className="mt-3 text-[14px] text-meta">
           Lịch sử mượn không bao giờ bị xoá, kể cả khi bản sách đã ngừng dùng.
         </p>
       </section>
     </ManagerShell>
+  );
+}
+
+/**
+ * Which write controls a copy's row offers, derived from
+ * `copyStateTransition` — the single authority every one of these commands
+ * itself consults — rather than a second, hand-written table that could drift
+ * from it. See this page's own docstring for the Task 3 lesson this restates.
+ *
+ * `assess` is the one flag `copyStateTransition` cannot answer:
+ * `assessCondition` consults no transition table at all (BR §9), so it is
+ * withheld from `lost` and `retired` on ordinary product grounds — nothing
+ * left to inspect — stated here rather than in the domain, because it is a
+ * screen's judgement and not a rule any command enforces.
+ *
+ * `markFound` does not delegate to `copyStateTransition(state, "available")`:
+ * that arrow also exists from `held` (BR §7.1's `held → available`, a
+ * cancelled hold), which is a different event this page draws no control for
+ * at all. `markCopyFound`'s own guard is narrower still — `copy.state !==
+ * "lost"` throws regardless of what the transition table says — so this
+ * mirrors the command's actual condition rather than the table's.
+ */
+function copyControls(state: CopyState): {
+  assess: boolean;
+  reportLost: boolean;
+  retire: boolean;
+  markFound: boolean;
+} {
+  return {
+    assess: state !== "lost" && state !== "retired",
+    reportLost: copyStateTransition(state, "lost").allowed,
+    retire: copyStateTransition(state, "retired").allowed,
+    markFound: state === "lost",
+  };
+}
+
+/**
+ * One copy row's write controls — shared between the desktop table's `<td>`
+ * and the mobile card, so the state-gating in `copyControls` above and the
+ * four forms below are written once rather than twice and drifting the way
+ * the fixture-era buttons already show duplication can.
+ *
+ * Every form carries `sach` (the *book's* slug, hidden) so its action —
+ * `assessConditionAction`, `reportCopyLostOnBookAction`,
+ * `retireCopyOnBookAction`, `markCopyFoundOnBookAction`, all in `../../
+ * actions.ts` — returns the manager to this book rather than to `sach/mat` or
+ * `nhan-tra`, whose own action wrappers this page deliberately does not
+ * reuse; see that file's own section header for why.
+ */
+function CopyActions({
+  copy,
+  slug,
+  bookSlug,
+  stretch,
+}: {
+  copy: ManagerCopyRow;
+  /** The shelf's slug — `?tu-sach=` on every form here. */
+  slug: string;
+  /** The book's slug — `sach` on every form here, and `updateBookAction`'s
+   *  own redirect target once "Sửa sách" is used. */
+  bookSlug: string;
+  /** Set on the mobile card, so its buttons share the card's width evenly —
+   *  absent on the desktop table, where the cell sizes to content. */
+  stretch?: boolean;
+}) {
+  const controls = copyControls(copy.state);
+  const triggerClass = buttonClasses(
+    "quiet",
+    "sm",
+    cn("list-none [&::-webkit-details-marker]:hidden", stretch && "flex-1"),
+  );
+  const boxClass =
+    "mt-3 w-full max-w-md space-y-3 rounded-card border border-hairline bg-paper p-4";
+  // Desktop table and mobile card both render this component for the same
+  // copy, and both are in the DOM at once (`hidden md:block`/`md:hidden`
+  // toggle visibility, not presence) — so every `id` below is scoped by
+  // which one is calling, via `stretch` (true only on the mobile card),
+  // rather than by `copy.copyId` alone. A duplicate `id` is not a cosmetic
+  // problem: `<label htmlFor>` resolves to whichever element with that id
+  // the browser finds first, so the *visible* one's label could silently
+  // focus the *hidden* one's input.
+  const idScope = `${stretch ? "mobile" : "desktop"}-${copy.copyId}`;
+
+  if (
+    !controls.assess &&
+    !controls.reportLost &&
+    !controls.retire &&
+    !controls.markFound
+  ) {
+    // `retired` is the one state with nothing left to do — BR §7.1 draws no
+    // arrow out of it, and `assessCondition` is withheld from it by the same
+    // "the physical copy is gone" reasoning `copyControls` states above.
+    // Stated rather than left blank, so the cell reads as "nothing to do"
+    // instead of as a rendering bug.
+    return <span className="text-[14px] text-meta">—</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {controls.markFound ? (
+        <form action={markCopyFoundOnBookAction}>
+          <input type="hidden" name="tu-sach" value={slug} />
+          <input type="hidden" name="sach" value={bookSlug} />
+          <input type="hidden" name="ban" value={copy.copyId} />
+          <SubmitButton
+            variant="quiet"
+            size="sm"
+            className={stretch ? "flex-1" : undefined}
+            icon={
+              <CircleCheckBig aria-hidden className="size-4" strokeWidth={1.75} />
+            }
+          >
+            Đánh dấu tìm thấy
+          </SubmitButton>
+        </form>
+      ) : null}
+
+      {controls.assess ? (
+        <details className="min-w-0">
+          <summary className={triggerClass}>
+            <ClipboardList aria-hidden className="size-4" strokeWidth={1.75} />
+            Đánh giá
+          </summary>
+          <form action={assessConditionAction} className={boxClass}>
+            <input type="hidden" name="tu-sach" value={slug} />
+            <input type="hidden" name="sach" value={bookSlug} />
+            <input type="hidden" name="ban" value={copy.copyId} />
+            <ConditionPicker
+              idPrefix={`danh-gia-${idScope}`}
+              defaultCondition={copy.condition}
+              noteHint="Không bắt buộc."
+            />
+            <SubmitButton variant="outline" size="md">
+              Xác nhận đánh giá
+            </SubmitButton>
+          </form>
+        </details>
+      ) : null}
+
+      {controls.reportLost ? (
+        <details className="min-w-0">
+          <summary className={triggerClass}>
+            <HelpCircle aria-hidden className="size-4" strokeWidth={1.75} />
+            Báo mất
+          </summary>
+          <form action={reportCopyLostOnBookAction} className={boxClass}>
+            <input type="hidden" name="tu-sach" value={slug} />
+            <input type="hidden" name="sach" value={bookSlug} />
+            <input type="hidden" name="ban" value={copy.copyId} />
+            <Field
+              label="Ghi chú"
+              htmlFor={`bao-mat-ghi-chu-${idScope}`}
+              hint="Không bắt buộc."
+            >
+              <Textarea id={`bao-mat-ghi-chu-${idScope}`} name="ghi-chu" rows={2} />
+            </Field>
+            <SubmitButton variant="danger" size="md">
+              Xác nhận báo mất
+            </SubmitButton>
+          </form>
+        </details>
+      ) : null}
+
+      {controls.retire ? (
+        <details className="min-w-0">
+          <summary className={triggerClass}>
+            <Archive aria-hidden className="size-4" strokeWidth={1.75} />
+            Ngừng dùng
+          </summary>
+          <form action={retireCopyOnBookAction} className={boxClass}>
+            <input type="hidden" name="tu-sach" value={slug} />
+            <input type="hidden" name="sach" value={bookSlug} />
+            <input type="hidden" name="ban" value={copy.copyId} />
+            <Field
+              label="Lý do ngừng dùng"
+              required
+              htmlFor={`ly-do-${idScope}`}
+              hint="Dùng khi biết chắc sách sẽ không quay lại nữa."
+            >
+              <Input id={`ly-do-${idScope}`} name="ly-do" required />
+            </Field>
+            <SubmitButton variant="danger" size="md">
+              Xác nhận ngừng dùng
+            </SubmitButton>
+          </form>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
@@ -483,6 +793,37 @@ function CopyLocation({ copy }: { copy: ManagerCopyRow }) {
   if (copy.state === "retired" && copy.retiredReason)
     return <>{copy.retiredReason}</>;
   if (copy.state === "available") return <>Trong tủ</>;
+  return <>—</>;
+}
+
+/**
+ * "Người tặng" — QA remediation Task 20. `acquiredFrom` and
+ * `acquiredFromMembershipId` have been written by `CreateBook`/`AddCopies`
+ * since B1 and read by `getBookDetailManager` since the same wave; this is
+ * the first screen either has ever been rendered on.
+ *
+ * A member donor links to their reader profile — the same
+ * `nguoi-doc/[id]` route the approval card and the readers list already
+ * link to, keyed by the membership id `acquiredFromMembershipId` carries —
+ * so a manager reading a copy's history years later can open an actual
+ * person's record rather than stare at a name. A free-text donor has no
+ * profile to link to and renders as typed. Neither present is the ordinary
+ * case (BR §16.3: "most copies still arrive with no donor recorded at
+ * all"), rendered as "—" rather than an empty cell so the column reads as
+ * answered rather than broken.
+ */
+function DonorCell({ copy, slug }: { copy: ManagerCopyRow; slug: string }) {
+  if (copy.acquiredFromMembershipId && copy.acquiredFromMembershipName) {
+    return (
+      <Link
+        href={`/tu-sach/${slug}/quan-ly/nguoi-doc/${copy.acquiredFromMembershipId}`}
+        className="text-sage hover:underline"
+      >
+        {copy.acquiredFromMembershipName}
+      </Link>
+    );
+  }
+  if (copy.acquiredFrom) return <>{copy.acquiredFrom}</>;
   return <>—</>;
 }
 

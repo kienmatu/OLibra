@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { LogOut, Menu, Search } from "lucide-react";
-import { ButtonLink } from "@/components/ui/button";
-import { signOutAction } from "@/app/dang-nhap/actions";
+// Relative, not the `@/` alias: this file is exercised by
+// `tests/components/public-header.test.tsx`, and `vitest.config.ts` has no
+// `resolve.alias` for `@/` (deliberately, per the branch's QA-remediation
+// constraints — `reader-tabs.tsx` carries the identical note for the
+// identical reason). An alias import here would make the component
+// unimportable under Vitest, not just untested.
+import { ButtonLink } from "../ui/button";
+import { signOutAction } from "../../app/dang-nhap/actions";
 
 /**
  * Below 768px the nav collapses to a hamburger (DESIGN.md §Navigation).
@@ -47,6 +53,50 @@ function MobileMenu({
         ) : null}
       </div>
     </details>
+  );
+}
+
+/**
+ * The signed-in cluster this file's two headers both end with: an avatar
+ * initial, the visitor's name, and the way out.
+ *
+ * `ShelfHeader` had all three first (U2 §3.1); `FrontDoorHeader` needs the
+ * identical three for the identical reason (Task 6, 2026-08-10 QA
+ * remediation) rather than a second header that merely looks the same — a
+ * reworded "Đăng xuất" `aria-label` or a changed avatar rule would otherwise
+ * have two call sites to find, and a diff that updated only one would compile
+ * and look inconsistent nowhere in the type system.
+ *
+ * Posts through `signOutAction`, the same form `ManagerShell` posts through
+ * on the manager and admin shells: one mechanism ends a session everywhere it
+ * can be ended, rather than three headers each trusting their own copy to
+ * agree with the other two.
+ */
+function SignedInIdentity({ name }: { name: string }) {
+  return (
+    <>
+      <span className="flex items-center gap-2 text-[15px]">
+        <span
+          aria-hidden
+          className="flex size-8 items-center justify-center rounded-full bg-surface text-[14px] font-semibold text-leather"
+        >
+          {/* The last word of a Vietnamese name is the given name —
+              "Maria Nguyễn Thị Lan" initials as L, not M. Kept from the
+              fixture-era header, which had it right. */}
+          {name.split(" ").at(-1)?.charAt(0)}
+        </span>
+        <span className="max-w-40 truncate">{name}</span>
+      </span>
+      <form action={signOutAction} className="ml-1 flex">
+        <button
+          type="submit"
+          aria-label="Đăng xuất"
+          className="inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
+        >
+          <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
+        </button>
+      </form>
+    </>
   );
 }
 
@@ -110,49 +160,14 @@ export function ShelfHeader({
   unreadNotifications?: number;
 }) {
   const base = `/tu-sach/${shelfSlug}`;
-  /**
-   * **"Thông báo" and "Trang của tôi" are not here, and that is IMPORTANT 4**
-   * (fix-report, 2026-08-09-u2-shelf-and-portal), not an oversight to put back
-   * without wiring the pages first.
-   *
-   * This header sits on all four pages U2 wired. `${base}/thong-bao` and
-   * `${base}/toi` are not wired: they render `src/lib/fixtures.ts` — Đồng
-   * Tháp's invented announcements, and a stranger's loans and donation history
-   * under the name "Giuse Trần Minh". So a real member of Vĩnh Long, having
-   * just seen their real catalogue under their real name, tapped "Thông báo"
-   * and got another parish's notices; tapped "Trang của tôi" and got somebody
-   * else's borrowing record. Signed out entirely, all eight of the unwired
-   * member routes still return 200 with that same dashboard.
-   *
-   * `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` states the
-   * reason better than this comment can: "Mixed into a page whose other half is
-   * real, it is indistinguishable from data, which is exactly what makes it
-   * worse than an obviously unfinished screen." Before U2 the whole shelf area
-   * was uniformly fixture and the nav was consistent with itself. U2 made half
-   * of it real and left the nav pointing at the other half.
-   *
-   * **Why the links go rather than the pages getting gated.** Gating them
-   * behind `loadPage` would stop a stranger reading them and would put the
-   * right parish in the header — and would leave a member looking at a page
-   * whose chrome is real and whose body is invented, which is the precise
-   * failure that guard exists to prevent. It would also make those routes
-   * import both `lib/page-data` and `lib/fixtures`, which that guard fails on
-   * by construction, so "gate them" is not available without weakening it. Two
-   * links is what U2 broke and two links is what U2 can honestly put back.
-   *
-   * Both come back when their slice lands, alongside the page. The eight
-   * routes remain reachable by typing their address; that is the same
-   * condition every one of the forty-one unwired pages in this app is in, it
-   * is not something this slice introduced, and it is recorded in the U2 plan's
-   * §6 rather than half-solved here.
-   *
-   * **Both are back now**, each alongside its wired page — `toi/` first, then
-   * `thong-bao` when B3's announcements list got a real query behind it. They
-   * were never one decision; they were one sentence about two pages, and they
-   * returned separately because they were wired separately. The self-test in
-   * `a-wired-page-renders-no-fixtures.test.ts` asserts both halves for each:
-   * the link exists *and* the page it points at reads the database.
-   */
+  // Every link below points at a wired page that reads the database — U2
+  // shipped "Thông báo" and "Trang của tôi" pointing at `src/lib/fixtures.ts`
+  // instead, so a real member saw another parish's notices and a stranger's
+  // borrowing history under their own real name (fix-report,
+  // 2026-08-09-u2-shelf-and-portal, "IMPORTANT 4"); both were pulled until
+  // their pages were wired and are back now, and
+  // `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` is what
+  // would catch that regressing again.
   const links = [
     { href: `${base}/danh-muc`, label: "Danh mục", key: "danh-muc", icon: false },
     {
@@ -161,9 +176,14 @@ export function ShelfHeader({
       key: "thong-bao",
       icon: false,
     },
-    { href: `${base}/toi`, label: "Trang của tôi", key: "toi", icon: false },
     {
-      href: `${base}/toi/thong-bao`,
+      href: `${base}/ho-so/tong-quan`,
+      label: "Trang của tôi",
+      key: "toi",
+      icon: false,
+    },
+    {
+      href: `${base}/ho-so/thong-bao`,
       // BR §15: "surfaced as a bell with an unread count". The count is in the
       // label rather than in a superscript badge because this nav is text at
       // every width, and a number a child can read beats a dot they cannot.
@@ -171,7 +191,17 @@ export function ShelfHeader({
         unreadNotifications > 0
           ? `Thông báo (${unreadNotifications})`
           : "Thông báo",
-      key: "thong-bao",
+      // `"thong-bao-cua-toi"`, not `"thong-bao"` — the latter is "Bản tin"'s
+      // key above. Both were `"thong-bao"` until task 9 (2026-08-10 QA
+      // remediation): React logged "Encountered two children with the same
+      // key" on every reader page, and because `active === link.key` matches
+      // by key rather than by array position, a page passing
+      // `active="thong-bao"` (Bản tin's own page) lit up *both* links, while
+      // `/ho-so/thong-bao` — which already passed the `active` union's other
+      // declared value, `"thong-bao-cua-toi"` — matched neither and left the
+      // whole top nav dark. `tests/components/public-header.test.tsx` pins
+      // both failure modes.
+      key: "thong-bao-cua-toi",
       icon: false,
     },
     { href: `${base}/tim-kiem`, label: "Tìm kiếm", key: "tim-kiem", icon: true },
@@ -226,27 +256,7 @@ export function ShelfHeader({
 
               <span aria-hidden className="mx-2 h-6 w-px bg-hairline" />
 
-              <span className="flex items-center gap-2 text-[15px]">
-                <span
-                  aria-hidden
-                  className="flex size-8 items-center justify-center rounded-full bg-surface text-[14px] font-semibold text-leather"
-                >
-                  {/* The last word of a Vietnamese name is the given name —
-                      "Maria Nguyễn Thị Lan" initials as L, not M. Kept from the
-                      fixture-era header, which had it right. */}
-                  {viewerName.split(" ").at(-1)?.charAt(0)}
-                </span>
-                <span className="max-w-40 truncate">{viewerName}</span>
-              </span>
-              <form action={signOutAction} className="ml-1 flex">
-                <button
-                  type="submit"
-                  aria-label="Đăng xuất"
-                  className="inline-flex size-11 items-center justify-center rounded-control text-meta hover:text-ink"
-                >
-                  <LogOut aria-hidden className="size-5" strokeWidth={1.75} />
-                </button>
-              </form>
+              <SignedInIdentity name={viewerName} />
             </nav>
 
             <MobileMenu
@@ -263,25 +273,90 @@ export function ShelfHeader({
 /**
  * The front door. Landing, portal, contact and the two auth screens — the
  * only pages a person with no account can reach (§1.2).
+ *
+ * **`viewerName` and `isSuperAdmin`, required rather than optional** (Task 6,
+ * 2026-08-10 QA remediation) — `ShelfHeader`'s own docstring above already
+ * made this argument once and it applies here unchanged: a default lets a
+ * caller that never thought about identity render a plausible one anyway,
+ * which is exactly what let "Đăng nhập" sit on `/tu-sach` and `/lien-he`
+ * under a signed-in super admin's own session and read as correct. A QA
+ * sweep walking a fresh install as that admin found no name, no sign-out, and
+ * no route into `/quan-tri` short of typing the URL by hand. `null`/`false`
+ * is what a page that genuinely does not know writes about itself —
+ * `/dang-nhap` and `/loi` pass it explicitly, by definition and by design
+ * respectively — never a value nobody chose.
+ *
+ * **The admin link is the reason this changed.** A super admin belongs to no
+ * shelf (`landingShelfFor`'s own docstring, `src/auth/guards.ts`), so
+ * `/quan-tri` — where every one of a fresh install's first tasks lives — had
+ * no link anywhere in the application. It renders as a plain nav link beside
+ * "Tìm tủ sách", not a `ButtonLink`: this header's signed-in state stays free
+ * of a second terracotta accent competing with whatever primary action the
+ * page itself carries (`Button`'s own docstring — "one primary action per
+ * screen"), the same restraint `ShelfHeader`'s member nav already keeps.
  */
-export function FrontDoorHeader() {
+export function FrontDoorHeader({
+  viewerName,
+  isSuperAdmin,
+}: {
+  viewerName: string | null;
+  isSuperAdmin: boolean;
+}) {
+  // Shared by the desktop `<nav>` below and by `MobileMenu` — the same
+  // doubling `ShelfHeader`'s own `links` relies on. `/quan-tri` is in it only
+  // for a super admin; an ordinary signed-in reader sees exactly what this
+  // header showed a stranger before Task 6, plus their own name and a way to
+  // sign out.
+  const links = [
+    { href: "/tu-sach", label: "Tìm tủ sách", key: "tu-sach" },
+    ...(isSuperAdmin
+      ? [{ href: "/quan-tri", label: "Quản trị hệ thống", key: "quan-tri" }]
+      : []),
+  ];
+
   return (
     <header className="border-b border-hairline bg-paper">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-6 px-6">
         <Link href="/" className="text-xl font-semibold">
           OLibra
         </Link>
-        <nav className="flex items-center gap-1">
-          <Link
-            href="/tu-sach"
-            className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] hover:text-terracotta-ink"
-          >
-            Tìm tủ sách
-          </Link>
-          <ButtonLink href="/dang-nhap" size="sm" className="ml-1">
-            Đăng nhập
-          </ButtonLink>
-        </nav>
+
+        {viewerName === null ? (
+          <nav className="flex items-center gap-1">
+            <Link
+              href="/tu-sach"
+              className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] hover:text-terracotta-ink"
+            >
+              Tìm tủ sách
+            </Link>
+            <ButtonLink href="/dang-nhap" size="sm" className="ml-1">
+              Đăng nhập
+            </ButtonLink>
+          </nav>
+        ) : (
+          <>
+            <nav className="hidden items-center gap-1 md:flex">
+              {links.map((link) => (
+                <Link
+                  key={link.key}
+                  href={link.href}
+                  className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] hover:text-terracotta-ink"
+                >
+                  {link.label}
+                </Link>
+              ))}
+
+              <span aria-hidden className="mx-2 h-6 w-px bg-hairline" />
+
+              <SignedInIdentity name={viewerName} />
+            </nav>
+
+            <MobileMenu
+              links={links}
+              trailing={{ action: signOutAction, label: "Đăng xuất" }}
+            />
+          </>
+        )}
       </div>
     </header>
   );

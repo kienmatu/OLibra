@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronRight, Plus, Search } from "lucide-react";
 import { ManagerShell } from "@/components/shell/manager-shell";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -31,6 +32,8 @@ import { readShelf } from "@/lib/shelf";
  * page that reaches the database, not only this one.
  */
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Tìm sách cần cho mượn — Quản lý tủ sách OLibra" };
 
 /**
  * Small integers, still through the locale. SDD §6.6: "Dates and numbers are
@@ -96,14 +99,27 @@ export default async function ChoMuonTimSachPage({
         Tìm sách cần cho mượn
       </h1>
 
+      {/* QA remediation T27. This box used to carry no placeholder and no
+          visible way to submit it — Enter was the only path, which a
+          volunteer unfamiliar with the convention has no way to discover.
+          The placeholder names both of what `searchBooksForLending` now
+          actually matches (title, author *and* copy code — see that
+          query's own docstring for the code half, added in this same task
+          so the promise here is kept, not just typed). */}
       <form action={`${base}/cho-muon`} className="mt-5 max-w-xl space-y-2">
-        <Input
-          name="q"
-          icon={Search}
-          defaultValue={query}
-          aria-label="Tìm sách cần cho mượn"
-          className="h-14 text-[17px]"
-        />
+        <div className="flex gap-3">
+          <Input
+            name="q"
+            icon={Search}
+            defaultValue={query}
+            placeholder="Tên sách hoặc mã bản"
+            aria-label="Tên sách hoặc mã bản"
+            className="h-14 flex-1 text-[17px]"
+          />
+          <Button type="submit" variant="primary" size="lg">
+            Tìm
+          </Button>
+        </div>
         <p className="text-[14px] text-meta">
           Không cần gõ dấu — gõ de men vẫn tìm ra Dế Mèn.
         </p>
@@ -118,7 +134,11 @@ export default async function ChoMuonTimSachPage({
                     below sm — `sm:contents` folds this wrapper away at sm and
                     up so its children rejoin the row as plain flex items. */}
                 <div className="flex items-center gap-4 sm:contents">
-                  <BookCover title={book.title} className="w-12 text-[1rem]" />
+                  <BookCover
+                    title={book.title}
+                    coverUrl={book.coverUrl}
+                    className="w-12 text-[1rem]"
+                  />
                   <div className="min-w-0 flex-1">
                     <BookTitle className="line-clamp-2 text-base leading-snug">
                       {book.title}

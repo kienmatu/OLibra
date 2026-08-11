@@ -1,6 +1,8 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { fold } from "../../kernel/fold";
+import { assertPhone } from "../../members/policy";
+import { checkPolicyBound, type PolicyField } from "../policy";
 
 /**
  * OPS §4.5's shelf lifecycle — the three commands that create, edit and retire a
@@ -54,6 +56,16 @@ export const createBookshelf: Command<
     throw new ValidationFailed("validation_failed", "slug");
   }
 
+  // QA remediation Task 18. `keeperPhone` is nullable — a shelf may not have
+  // named its keeper's number yet — so this only fires once one is actually
+  // supplied. It is BR §16.1's own public-facing number for the shelf, printed
+  // on `/tu-sach/[shelf]` and bound into a `tel:` link there from the moment
+  // the shelf exists.
+  const keeperPhone = input.keeperPhone?.trim() || null;
+  if (keeperPhone !== null) {
+    assertPhone(keeperPhone, "keeperPhone");
+  }
+
   const [taken] = await tx<{ id: string }[]>`
     select id from bookshelves where slug = ${slug}
   `;
@@ -66,10 +78,15 @@ export const createBookshelf: Command<
     {
       default_loan_days: number;
       default_max_concurrent_loans: number;
+      default_max_renewals: number;
+      default_renewal_days: number;
       default_hold_days: number;
+      default_due_soon_days: number;
     }[]
   >`
-    select default_loan_days, default_max_concurrent_loans, default_hold_days
+    select default_loan_days, default_max_concurrent_loans,
+           default_max_renewals, default_renewal_days, default_hold_days,
+           default_due_soon_days
       from system_settings where id
   `;
 
@@ -79,12 +96,24 @@ export const createBookshelf: Command<
        status, created_by, settings)
     values
       (${slug}, ${name}, ${input.location ?? null}, ${input.address ?? null},
-       ${input.keeperName ?? null}, ${input.keeperPhone ?? null},
+       ${input.keeperName ?? null}, ${keeperPhone},
        ${input.openingHours ?? null}, 'active', ${ctx.actor.userId},
        ${tx.json({
          loan_days: defaults?.default_loan_days ?? 14,
          max_concurrent_loans: defaults?.default_max_concurrent_loans ?? 3,
+         // QA remediation Task 23: these three used to be absent from
+         // `system_settings` entirely, so a new shelf's `max_renewals` and
+         // `renewal_days` came only from the `coalesce` fallbacks
+         // `renewalSettingsFor` (`../../circulation/settings.ts`) applies at
+         // read time (1, 7), and `due_soon_days` from `get-shelf-settings.ts`'s
+         // own fallback (3) — never from a decision an administrator could see
+         // or change on `/quan-tri/cai-dat`. The literals here are the same
+         // numbers those fallbacks already used, so a shelf created before this
+         // migration and one created after it start identically.
+         max_renewals: defaults?.default_max_renewals ?? 1,
+         renewal_days: defaults?.default_renewal_days ?? 7,
          hold_days: defaults?.default_hold_days ?? 3,
+         due_soon_days: defaults?.default_due_soon_days ?? 3,
        })})
     returning id
   `;
@@ -123,6 +152,13 @@ export interface UpdateBookshelfSettingsInput {
   maxRenewals?: number;
   renewalDays?: number;
   holdDays?: number;
+  /**
+   * QA remediation Task 23: joined the other five fields this command already
+   * wrote field-by-field. `checkPolicyBound`'s loop below needed no change to
+   * pick it up — see `../policy.ts`'s own docstring on why this was designed
+   * as one table a third caller could join rather than a decision to make.
+   */
+  dueSoonDays?: number;
   commentsEnabled?: boolean;
   commentsRequireApproval?: boolean;
 }
@@ -167,6 +203,15 @@ export const updateBookshelfSettings: Command<
     throw new ValidationFailed("required_fields_missing", "name");
   }
 
+  // QA remediation Task 18. `keeperPhone` is one of the five nullable profile
+  // columns this all-or-nothing patch writes together (see this command's own
+  // docstring on why absent and null must stay distinguishable) — `null` is a
+  // manager clearing a keeper's number, a real edit, so this only fires when
+  // the profile carries an actual value to check.
+  if (input.profile && input.profile.keeperPhone !== null) {
+    assertPhone(input.profile.keeperPhone, "keeperPhone");
+  }
+
   const policy: Record<string, number | boolean> = {};
   const put = (key: string, value: number | boolean | undefined) => {
     if (value !== undefined) policy[key] = value;
@@ -176,15 +221,24 @@ export const updateBookshelfSettings: Command<
   put("max_renewals", input.maxRenewals);
   put("renewal_days", input.renewalDays);
   put("hold_days", input.holdDays);
+  put("due_soon_days", input.dueSoonDays);
   put("comments_enabled", input.commentsEnabled);
   put("comments_require_approval", input.commentsRequireApproval);
 
   for (const [key, value] of Object.entries(policy)) {
-    // A negative loan period, or a renewal count of minus one, is not a policy
-    // anybody meant. Checked here because `settings` is a schemaless bag and no
-    // constraint can express it.
-    if (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0)) {
-      throw new ValidationFailed("validation_failed", key);
+    // QA remediation Task 15: this used to accept any non-negative integer —
+    // `loanDays: 0` included, measured live on 2026-08-10 — because `settings`
+    // is a schemaless bag and no database constraint can express a range over
+    // one of its keys. `checkPolicyBound` (`../policy.ts`) is the one table
+    // both this command and `updateSystemDefaults` check the five numeric keys
+    // above against, so `0` now reads "Số ngày cho mượn phải từ 1 đến 365
+    // ngày." rather than a bare "Vui lòng kiểm tra lại thông tin." — six
+    // different numbers, six different sentences, one place either is edited.
+    // The two boolean keys (`comments_enabled`, `comments_require_approval`)
+    // have no range to check and are excluded by the `typeof` guard exactly as
+    // they were before this task.
+    if (typeof value === "number") {
+      checkPolicyBound(key as PolicyField, value);
     }
   }
 

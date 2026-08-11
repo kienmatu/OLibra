@@ -5,6 +5,7 @@ import { PageHeading } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { messageFor } from "@/domain/kernel/errors";
+import { PHONE_PATTERN } from "@/domain/members/policy";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -26,6 +27,8 @@ import { submitFeedbackAction } from "../community-actions";
  * short message retyped.
  */
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Gửi góp ý — OLibra" };
 
 export default async function FeedbackPage({
   params,
@@ -85,7 +88,13 @@ export default async function FeedbackPage({
           </Field>
 
           <Field label="Số điện thoại" required htmlFor="dien-thoai">
-            <Input id="dien-thoai" name="dien-thoai" type="tel" required />
+            <Input
+              id="dien-thoai"
+              name="dien-thoai"
+              type="tel"
+              pattern={PHONE_PATTERN}
+              required
+            />
           </Field>
 
           <Field label="Chủ đề" htmlFor="chu-de">

@@ -76,11 +76,11 @@ const SEEDS = [
   `${S}/thong-bao`,
   `${S}/gop-y`,
   `${S}/sach/de-men-phieu-luu-ky`,
-  `${S}/toi`,
-  `${S}/toi/lich-su`,
-  `${S}/toi/tang-sach`,
-  `${S}/toi/ho-so`,
-  `${S}/toi/thong-bao`,
+  `${S}/ho-so/tong-quan`,
+  `${S}/ho-so/lich-su`,
+  `${S}/ho-so/tang-sach`,
+  `${S}/ho-so`,
+  `${S}/ho-so/thong-bao`,
   `${S}/quan-ly`,
   `${S}/quan-ly/cho-muon`,
   `${S}/quan-ly/cho-muon/nguoi-doc`,
@@ -371,12 +371,12 @@ for (const [path, { status, from }] of reached) {
  * Paths that answer 3xx by design, and where each must point.
  *
  * `${S}/tang-sach` was a second donation screen until U5 replaced it with a
- * redirect to `toi/tang-sach`, the one the reader's own queries live behind.
+ * redirect to `ho-so/tang-sach`, the one the reader's own queries live behind.
  * It cannot be a *seed* — the rule for those is "must render 200" — and simply
  * deleting it from the list would stop anything checking that a URL this
  * application itself published still works.
  */
-const REDIRECTS = [[`${S}/tang-sach`, `${S}/toi/tang-sach`]];
+const REDIRECTS = [[`${S}/tang-sach`, `${S}/ho-so/tang-sach`]];
 
 const misdirected = [];
 for (const [from, to] of REDIRECTS) {

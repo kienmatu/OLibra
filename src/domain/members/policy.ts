@@ -226,3 +226,75 @@ export function requireSelfOrManager(
 export function blank(v: string | null | undefined): boolean {
   return !v || v.trim() === "";
 }
+
+/**
+ * QA remediation Task 18. `khong-phai-so`, typed into the required "Số điện
+ * thoại" on `/quan-ly/nguoi-doc/moi`, was accepted, stored, and rendered as a
+ * `tel:khong-phai-so` link on the approval card, the reader profile and the
+ * overdue list. `/tu-sach/[shelf]/gop-y` already used `type="tel"` on its own
+ * phone box — the knowledge existed, it simply had never been written down as
+ * a rule the *domain* checks, which is why every member-facing form that
+ * forgot to mirror it let anything through.
+ *
+ * **The shape, and why it is this shape and not a stricter one.** "9-11
+ * digits after stripping spaces, dots and dashes, optionally `+84`-prefixed"
+ * was read off two sources before it was chosen, not assumed: `src/db/
+ * seed.ts`'s fixture phone numbers and the live dev database (`select phone,
+ * count(*) from users group by phone`, run against `olibra-db-1` while this
+ * task was written) both carry every number as ten digits, sometimes grouped
+ * with spaces ("0912 345 678") or written solid ("0999888777") — the ten
+ * -digit mobile shape Vietnam has used since 2018. Nothing in either database
+ * carries a `+84` prefix or a landline's shorter local shape today, but BR
+ * §5.3's "the parents' number is fine too" and OPS §8's own examples do not
+ * rule either out, so both are accepted rather than narrowed to exactly what
+ * happens to exist right now. Dots and dashes are stripped for the same
+ * reason spaces are: a number copied by hand off a printed parish list is as
+ * likely to be grouped "091.234.5678" as "091 234 5678", and the person typing
+ * it is not the one this rule should punish for a formatting choice.
+ *
+ * A function returning a boolean, not a `Block` — this file already has one
+ * shape for "may I?" questions asked before a write (`membershipAllowsNewLoan`
+ * above) and this is not that: nothing asks "would a phone number be accepted"
+ * ahead of typing one, and `assertPhone` below is the only caller that needs
+ * to *stop* anything. `PhoneLink` (`src/components/ui/phone-link.tsx`) is the
+ * second caller, and it needs exactly a yes/no to decide whether to render a
+ * `tel:` anchor — never a reason, since a reader viewing a profile is not the
+ * audience for a validation message about data somebody else typed.
+ */
+export function isValidPhone(phone: string): boolean {
+  return /^(\+84)?\d{9,11}$/.test(phone.trim().replace(/[\s.-]/g, ""));
+}
+
+/**
+ * The HTML `pattern` a phone `<input type="tel">` mirrors this rule with, on
+ * every form OPS §4.3 and §4.5 route a phone number through. A generous
+ * approximation rather than an exact restatement of `isValidPhone` — HTML
+ * `pattern` cannot express "strip separators, then count digits" in one
+ * expression — so this accepts a slightly wider set (it does not verify the
+ * digit count after stripping) than the domain does. That asymmetry is
+ * deliberate and safe: the browser check is a hint that saves a round trip
+ * for the ordinary typo, `assertPhone` below is what actually decides, the
+ * same relationship Task 15's `checkPolicyBound` has with the `min`/`max`
+ * mirrored onto the two admin forms.
+ */
+export const PHONE_PATTERN = "[+0-9][0-9 .-]{7,13}";
+
+/**
+ * Refuses `phone` unless `isValidPhone` accepts it — see that function's own
+ * docstring for the shape and the two databases it was read off. `field` is
+ * the caller's own field name (`"phone"`, `"keeperPhone"`, `"contactPhone"`),
+ * so `ValidationFailed.field` points at the box a volunteer actually typed
+ * into rather than always saying "phone" regardless of which form it was.
+ *
+ * Every caller is responsible for its own blank check first: a required
+ * phone number (`register()`, `../registration.ts`) already refuses blank
+ * with `required_fields_missing` before reaching here, and an optional one
+ * (a shelf's `keeperPhone`, the administration's `contactPhone`) must skip
+ * this call entirely when the field is absent or being cleared — `null`
+ * means "no phone on file", not "an invalid one".
+ */
+export function assertPhone(phone: string, field: string): void {
+  if (!isValidPhone(phone)) {
+    throw new ValidationFailed("phone_invalid", field);
+  }
+}

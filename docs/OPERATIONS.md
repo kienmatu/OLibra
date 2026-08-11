@@ -402,7 +402,7 @@ A manager fills in the registration form for a child standing in front of them (
   - `not_pending` — "Đơn đăng ký này đã được xử lý."
 
 #### `SuspendMembership`
-`active → suspended`. Blocks new loans only — existing loans are explicitly unaffected (INV-4: "A reader whose membership is not active cannot start a new loan. Existing loans are unaffected."). The reader-detail screen states the same rule in its own words — "Tạm khoá chỉ chặn mượn mới. Sách đang mượn vẫn giữ nguyên." — but that sentence is the built UI's wording, not the requirements'.
+`active → suspended`. The command's own invariant is narrow — blocks new loans only, existing loans explicitly unaffected (INV-4: "A reader whose membership is not active cannot start a new loan. Existing loans are unaffected.") — but the practical effect of `status = 'suspended'` is wider than that invariant: `membershipFor` (`src/auth/guards.ts`) filters `status = 'active'`, so a suspended reader's membership stops resolving at all, `contextFor` demotes them to `guest`, and every page scoped to their shelf 404s, not only borrowing. `signIn` (`src/auth/session.ts`) never consults `memberships.status`, so their password still authenticates — they get a "successful" sign-in that lands nowhere, a product decision that ships as-is. The reader-detail screen states this fuller picture in its own words — "Tạm khoá chặn dùng cả tủ sách, không chỉ mượn mới — người đọc vẫn đăng nhập được nhưng không vào được trang nào. Sách đang mượn vẫn giữ nguyên trong hệ thống." — but that sentence is the built UI's wording, not the requirements'.
 
 - **Inputs:** `bookshelfId`, `membershipId`, reason?
 - **Caller:** `manager`
@@ -484,7 +484,7 @@ It is not a weakening of INV-13. Whoever can set a reader's password (`SetReader
 > **Open question — the Vietnamese this command needs that this document does not have.** Two sentences that exist nowhere: what a manager reads above the edit form, and how the audit browser renders `profile.corrected` (§14 requires a readable Vietnamese sentence per entry). Both were written by the implementing slice rather than left blank, and both are marked in the code as newly authored rather than quoted — `PROFILE_CORRECTED_COPY` in `src/domain/members/profile-copy.ts`. They are the product owner's to approve or replace; nothing else in that slice's Vietnamese is new.
 
 #### `UpdateOwnProfile`
-Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). A membership's parish-unit fields (BR §5.6) remain read-only from this command, as before — the profile screen tells the reader why with a sentence built from the shelf's own labels, not a fixed one: for Tủ sách Đồng Tháp's taxonomy (*giáo họ*, *tổ*) it renders as "Muốn đổi giáo họ hoặc tổ thì nhờ quản lý tủ sách giúp." (`src/app/tu-sach/[shelf]/toi/ho-so/page.tsx`), a UI sentence, not requirements text — a shelf with different labels, or only one level, gets a different sentence from the same component, never this one hard-coded. Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
+Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). A membership's parish-unit fields (BR §5.6) remain read-only from this command, as before — the profile screen tells the reader why with a sentence built from the shelf's own labels, not a fixed one: for Tủ sách Đồng Tháp's taxonomy (*giáo họ*, *tổ*) it renders as "Muốn đổi giáo họ hoặc tổ thì nhờ quản lý tủ sách giúp." (`src/app/tu-sach/[shelf]/ho-so/page.tsx`), a UI sentence, not requirements text — a shelf with different labels, or only one level, gets a different sentence from the same component, never this one hard-coded. Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
 
 - **Inputs:** `membershipId`, leaderboard-visible flag
 - **Caller:** `reader` (self only)
@@ -860,12 +860,12 @@ These are configuration rather than page content for one reason: a parish with n
 #### `UpdateSystemDefaults`
 Default lending-policy values applied to newly created shelves (§16.4's system settings screen). Changing this never retroactively touches an existing shelf's own settings.
 
-- **Inputs:** default `loan_days`, `max_concurrent_loans`, `hold_days`
+- **Inputs:** default `loan_days`, `max_concurrent_loans`, `max_renewals`, `renewal_days`, `hold_days`, `due_soon_days` (QA remediation Task 23 added the last three — see `docs/DATABASE.md` §4.12's own note on why they were missing until then)
 - **Caller:** `super_admin`
 - **Invariants enforced:** INV-8
 - **Audit action:** `system_settings.updated`
 - **Failure modes:**
-  - `validation_failed` — "Giá trị phải lớn hơn 0."
+  - `loan_days_out_of_range` / `max_concurrent_loans_out_of_range` / `max_renewals_out_of_range` / `renewal_days_out_of_range` / `hold_days_out_of_range` / `due_soon_days_out_of_range` — each field's own range, by name, via `checkPolicyBound` (`src/domain/admin/policy.ts`) — QA remediation Task 15's fix for the generic `validation_failed` this row used to name for all three original fields
 
 ### 4.6 Notifications (cross-cutting)
 
@@ -958,6 +958,36 @@ that nothing happens automatically: the manager decides, because the next
 reader may not be standing there. Modelling it as one command would make that
 choice invisible and would put two business facts in one audit row.
 
+**A worse condition never diverts the copy away from `available`, and that
+is a decision, not an oversight** (2026-08-10 QA remediation, T27). The
+flowchart above already draws it: "Chọn tình trạng" branching on "Worse than
+Nguyên vẹn?" adds a note and a photograph to what gets written, never a
+different destination — every path still ends at "Loan returned · copy
+available" (or `held`, if the manager chooses to hold it for a queued
+reader). This is not `ReceiveReturn` cutting a corner; it is BR §7.1's own
+state diagram, which draws exactly one arrow out of `on_loan` on a return
+(`on_loan → available`, no branch keyed on condition), and BR §9, which is
+explicit that condition is "a single choice... plus an optional free-text
+note and an optional photograph" recorded *about* a copy rather than a state
+it enters — "`lost` is deliberately absent [from the condition list],
+because it is a copy *state*" only reads as a meaningful distinction if
+`torn` and `missing_pages` are not states either. A `Rách` or `Mất trang`
+copy is exactly as lendable the instant it is returned as a `Nguyên vẹn`
+one; the condition record (and the photo, when there is one) is what a
+manager reads before deciding, by hand, whether the copy is still fit to
+lend. **The exit that decision leads to already exists and needs nothing
+new:** `RetireCopy` (`available → retired`, BR §7.1) is on the book's own
+detail page next to every copy, a manager who judges a returned copy unfit
+retires it there with a reason, the same path every other reason a copy
+leaves circulation goes through. Adding a `needs_repair` state to intercept
+that judgement automatically — guessing a severity threshold from the six
+flat condition values, rather than trusting the person who has the book in
+hand — is the kind of change BR §20 already declined to make preemptively:
+the one open question §9's condition model has is whether it "proves too
+coarse in practice", revisited "after the first bookshelf has run for a
+month" of real use, not anticipated now from a QA sweep against a database
+with no such history yet.
+
 
 ### `LendCopy` end to end
 
@@ -1039,6 +1069,22 @@ Every reader-facing notification below is written by the command named, in the s
 | Bình luận được duyệt | `ApproveComment` |
 
 **Due-soon and overdue notifications are the one place this document departs from "every notification is written by a command."** §8 is emphatic that overdue *status* is computed on read, never written by a job. But a *notification* is a discrete, persisted, dismissible record — it cannot be computed on read the way a status badge can, because "has this reader already been told" is itself state. Some process must, on a schedule, compare `due_on` against today across all active loans and write the due-soon/overdue notifications once. §8 explicitly permits this category of background work — "tidying up expired holds as housekeeping rather than as correctness" — and a scheduled notification sweep is the same kind of housekeeping: if it doesn't run for a few hours, nothing a user can observe becomes *wrong* (the loan's overdue badge is still correct, computed live), only *late to be told*. This is a narrow, deliberate exception, not a contradiction of §8.
+
+**Running the sweep — QA remediation Task 24.** `sweepDueNotifications` (`src/domain/notifications/sweep.ts`) is the function; `bun run db:sweep` (`src/db/sweep-cli.ts`) is the CLI entry point that calls it; `compose.yaml`'s `sweep` service is what now actually calls the CLI, unattended, once a day at 07:00 `Asia/Ho_Chi_Minh` — off the same image as `app`, `restart: unless-stopped`, so a host reboot resumes it without anyone remembering to. Before this task existed only as the middle piece: written, tested, callable, and — per `sweep-cli.ts`'s own docstring — never once invoked in any deployment, which is exactly the failure mode this bound is written to make survivable rather than the failure mode it was supposed to prevent.
+
+*Running it by hand* — to confirm it works before trusting the schedule, or to catch up after a restore:
+
+- `docker compose exec sweep bun run db:sweep` if the `sweep` service is already up (runs alongside its own loop; the two do not conflict).
+- `docker compose run --rm sweep bun run db:sweep` for a throwaway one-off run that never touches the running scheduler.
+- Outside compose entirely, with `MIGRATION_DATABASE_URL` set by hand exactly as `sweep-cli.ts`'s docstring requires (never `DATABASE_URL` — `olibra_pool` may not `set role olibra_admin`, and the failure is `42501` rather than a useful error): `bun run db:sweep`.
+
+Any of the three prints one completion line, always, even when it wrote nothing — the line itself is the evidence the job ran, independent of whether it found anything to say:
+
+    Sweep complete: 0 due-soon, 1 overdue notification(s).
+
+*What "0 nhắc nhở" (either count at zero, or both) means.* Not failure, and not silence — it is the sweep reporting that nobody currently sits inside their shelf's due-soon window and nobody's loan has freshly lapsed since the last run, or that everyone who does was already told on a previous run. The sweep is idempotent by a `not exists` keyed per loan and per notification kind, not by a cursor (`sweep.ts`'s own docstring), so running it twice in a day ordinarily prints `0, 0` the second time — that is the expected steady state, not evidence the job has stopped working. What is worth investigating is `0, 0` from a database that provably holds a loan due within its own shelf's `due_soon_days` (per-shelf since this same task — see the module note in `sweep.ts`) or already overdue, with no matching notification on file for it; the sweep having nothing to report is not that.
+
+*Checking it ran.* `docker compose logs sweep` carries the scheduler's own narration: one "scheduler started" line at boot, and per day since, a "07:00 … reached — running for `YYYY-MM-DD`" line paired with either "run finished" or "run FAILED (exit …) — will try again at 07:00 tomorrow". A container that has been up since before 07:00 today and shows no line for today simply has not reached the boundary yet — check `docker compose exec sweep date` against 07:00 `Asia/Ho_Chi_Minh` before assuming a fault. `docker compose ps sweep` climbing a restart count is the sharper signal: the loop is written to log a failed sweep and keep waiting rather than exit (see the service's own comment in `compose.yaml` for why — a tight crash-restart loop inside the same minute is a worse failure than tomorrow's run trying again), so a restarting container means something *underneath* that guard — the process itself, not the command it invoked — is what's actually crashing.
 
 ---
 

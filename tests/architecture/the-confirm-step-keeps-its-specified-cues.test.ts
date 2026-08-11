@@ -29,6 +29,19 @@ function withoutComments(source: string): string {
 
 const RETURN_PAGE = "src/app/tu-sach/[shelf]/quan-ly/nhan-tra/page.tsx";
 
+/**
+ * Task 11 (QA remediation) extracted the condition picker out of
+ * `RETURN_PAGE` into its own component (`condition-picker.tsx`'s own
+ * docstring has the reasoning: `nhan-tra` renders exactly one, the book
+ * detail page renders one per copy row, and an `id`-based selector cannot
+ * serve both). The cue this file guards moved with it — checked here rather
+ * than left pointing at `RETURN_PAGE`, which would have this test keep
+ * passing for the wrong reason the moment the markup it is actually reading
+ * is gone from that file, the same failure mode its own docstring warns
+ * against for "a guard that reads the reasoning instead of the code".
+ */
+const CONDITION_PICKER = "src/components/condition-picker.tsx";
+
 const CONFIRM_FORMS = [
   "src/app/tu-sach/[shelf]/quan-ly/cho-muon/xac-nhan/page.tsx",
   RETURN_PAGE,
@@ -40,7 +53,7 @@ test("the condition picker shows selection with a check, not with colour alone",
   // check**, not by colour alone." The fill (`has-checked:bg-terracotta/10`)
   // was never lost; the check was. Colour on its own is what the requirement
   // rules out, which is why the fill passing is not evidence.
-  const source = readFileSync(RETURN_PAGE, "utf8");
+  const source = readFileSync(CONDITION_PICKER, "utf8");
 
   // Anchored to a `className`, not to the bare token. Written the loose way
   // first, this passed against a page whose only remaining `peer-checked:flex`

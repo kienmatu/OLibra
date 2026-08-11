@@ -145,7 +145,7 @@ async function activeLoansOn(copyId: string) {
   `;
 }
 
-test("a lend that succeeds writes the loan and lands on the dashboard", async () => {
+test("a lend that succeeds writes the loan and lands on the dashboard with a confirmation notice", async () => {
   const { shelf, copyIds } = await shelfWithManager();
   const reader = await makeMember(sql, shelf.id);
 
@@ -156,11 +156,14 @@ test("a lend that succeeds writes the loan and lands on the dashboard", async ()
         ban: copyIds[0],
         "nguoi-doc": reader.id,
         sach: "sach-1",
+        // The confirm page's own hidden field (QA remediation Task 16) — a
+        // shelf-mark, not read back from the database here, since
+        // `lendCopyAction` never re-derives it from `copyId` and simply
+        // carries whatever the page sent.
+        "ma-ban": "DT-0001",
       }),
     ),
   );
-
-  expect(target).toBe("/tu-sach/dong-thap/quan-ly");
 
   const loans = await activeLoansOn(copyIds[0]);
   expect(loans).toHaveLength(1);
@@ -169,6 +172,19 @@ test("a lend that succeeds writes the loan and lands on the dashboard", async ()
     select state from book_copies where id = ${copyIds[0]}
   `;
   expect(copy.state).toBe("on_loan");
+
+  // `lendCopyAction` resolves its own context through `submitCommand`, not
+  // through this file's `clock` (that fixed clock is `signIn`'s own, for
+  // session expiry — see `:92`), so `dueOn` runs off the real system clock
+  // and cannot be pinned to a literal date the way `lend-copy.test.ts`'s
+  // domain-level test pins it against an injected one. Read back rather than
+  // hard-coded, for the same reason `due_on::text` is read there.
+  const [row] = await sql<{ due_on: string }[]>`
+    select due_on::text from loans where copy_id = ${copyIds[0]}
+  `;
+  expect(target).toBe(
+    `/tu-sach/dong-thap/quan-ly?da-luu=cho-muon&ma-ban=DT-0001&han=${row.due_on}`,
+  );
 });
 
 test("a reader at the loan limit comes back as a code, and nothing is written", async () => {
@@ -482,11 +498,14 @@ test("a return closes the loan, records the condition and frees the copy", async
         "tinh-trang": "worn",
         "ghi-chu": "Gáy sách hơi long",
         q: "sach",
+        // The return screen's own hidden field (QA remediation Task 16) —
+        // see the sibling note on the lend test above.
+        "ma-ban": "DT-0001",
       }),
     ),
   );
 
-  expect(target).toBe("/tu-sach/dong-thap/quan-ly");
+  expect(target).toBe("/tu-sach/dong-thap/quan-ly?da-luu=nhan-tra&ma-ban=DT-0001");
   const [after] = await sql<{ status: string; return_condition: string }[]>`
     select status, return_condition from loans where id = ${loan.id}
   `;

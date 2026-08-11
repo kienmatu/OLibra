@@ -3,14 +3,26 @@ import { AlertTriangle, BookDown, BookUp, Bookmark, UserPlus } from "lucide-reac
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { PageHeading, StatStrip } from "@/components/ui/card";
 import { BigActionLink } from "@/components/ui/button";
+import { SavedNotice } from "@/components/ui/saved-notice";
 import { getManagerDashboard } from "@/domain/shelf/queries/get-manager-dashboard";
-import { formatDate } from "@/lib/dates";
+import { formatDate, formatDueDate } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
+import { ACTION_DONE_PARAM, param, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
 import { cn } from "@/lib/utils";
 
 /** U1 §2. See `src/app/tu-sach/[shelf]/quan-ly/cho-muon/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
+
+// Static, not `generateMetadata` reading the shelf's own name: this is a
+// manager's dashboard, not a page about one identified record, and the two
+// sibling manager pages that already shipped a title before this task
+// (`quan-ly/cai-dat`, `quan-ly/co-cau`) title themselves the same way —
+// `"<screen> — Quản lý tủ sách OLibra"` with no shelf name in the tab, even
+// though both are nested exactly this deep under `[shelf]`. The `<h1>` below
+// already carries the shelf's own name in its subtitle for a manager who has
+// more than one tab open.
+export const metadata = { title: "Trang chính — Quản lý tủ sách OLibra" };
 
 /** SDD §6.6. Even a count of three goes through the locale. */
 const NUMBER = new Intl.NumberFormat("vi-VN");
@@ -62,6 +74,40 @@ function StatCard({
 }
 
 /**
+ * The confirmation sentence for a lend or a return just completed — QA
+ * remediation Task 16 — or `null` when nothing did.
+ *
+ * **This is the one page two different confirmations redirect to.**
+ * `lendCopyAction` and `receiveReturnAction` (`../actions.ts`) both land here
+ * on success, so `?da-luu=` carries *which* one happened
+ * (`"cho-muon"`/`"nhan-tra"`) rather than a bare marker the way `/gop-y`'s own
+ * `?da-gui=1` can afford to. `ma-ban` (a copy code) and `han` (a due date) ride
+ * alongside — neither is personal data; see `lendCopyAction`'s own docstring
+ * for why the sentence itself names no borrower.
+ *
+ * **Fails closed to no notice**, the same way `refusalFrom` fails closed to no
+ * banner for a `?loi=` this application has no sentence for: a hand-edited or
+ * stale `?da-luu=` is not a fault, and a half-built sentence would be a worse
+ * outcome than none.
+ */
+function savedNoticeFrom(search: SearchParams): string | null {
+  const done = param(search, ACTION_DONE_PARAM);
+  const copyCode = param(search, "ma-ban");
+  if (!copyCode) return null;
+
+  if (done === "cho-muon") {
+    const dueOn = param(search, "han");
+    return dueOn
+      ? `Đã cho mượn bản ${copyCode}, hạn trả ${formatDueDate(dueOn)}.`
+      : `Đã cho mượn bản ${copyCode}.`;
+  }
+  if (done === "nhan-tra") {
+    return `Đã nhận lại bản ${copyCode}.`;
+  }
+  return null;
+}
+
+/**
  * BR:537's manager dashboard — "four large tappable stat cards across the top…
  * Below them, two very large primary buttons… Then shelf totals and recent
  * activity."
@@ -96,10 +142,14 @@ function StatCard({
  */
 export default async function ManagerHomePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shelf: string }>;
+  /** `?da-luu=`, `?ma-ban=` and `?han=` — see `savedNoticeFrom` above. */
+  searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
+  const notice = savedNoticeFrom(await searchParams);
 
   const { shelf, viewer, dashboard, today } = await loadPage(
     slug,
@@ -136,6 +186,8 @@ export default async function ManagerHomePage({
         title="Trang chính"
         subtitle={`${formatDate(today)} · ${shelf.name}`}
       />
+
+      {notice ? <SavedNotice>{notice}</SavedNotice> : null}
 
       <div className="mt-6 flex flex-wrap gap-4">
         <StatCard

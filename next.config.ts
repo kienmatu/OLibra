@@ -44,11 +44,48 @@ const nextConfig: NextConfig = {
        * where it can raise `file_too_large`; this only stops a body so large
        * that buffering it is itself the attack.
        * `tests/lib/avatar-over-http.test.ts` posts across the band and asserts
-       * which of the two decided — it is the only test in the suite that goes
-       * through Next's own handler rather than calling the action function.
+       * which of the two decided — one of two tests in the suite that go
+       * through Next's own handler rather than calling the action function
+       * (`tests/lib/registration-over-http.test.ts` is the other, sharing the
+       * same harness, `tests/support/http.ts`).
        */
       bodySizeLimit: "4mb",
     },
+  },
+
+  /**
+   * The reader area moved from `toi` to `ho-so` (Task 7, 2026-08-10 QA
+   * remediation) — `toi` reads as a pronoun and does not say what the area
+   * holds. Permanent, because these are URLs a child bookmarked on a phone;
+   * `permanent: true` sends a 308 that browsers cache indefinitely, matching
+   * the reasoning `src/app/tu-sach/[shelf]/tang-sach/page.tsx` gives for why
+   * *its* redirect deliberately does not.
+   *
+   * **Order is load-bearing.** Next matches top to bottom and stops at the
+   * first hit. `/toi/ho-so` (the profile, which became the area's own index)
+   * must be listed before the `/toi/:rest*` catch-all, or it would match the
+   * wildcard first and land on `/ho-so/ho-so` — a route that does not exist —
+   * instead of `/ho-so`. `tests/architecture/the-toi-ho-so-redirect-order.test.ts`
+   * pins this so it cannot regress silently.
+   */
+  async redirects() {
+    return [
+      {
+        source: "/tu-sach/:shelf/toi",
+        destination: "/tu-sach/:shelf/ho-so/tong-quan",
+        permanent: true,
+      },
+      {
+        source: "/tu-sach/:shelf/toi/ho-so",
+        destination: "/tu-sach/:shelf/ho-so",
+        permanent: true,
+      },
+      {
+        source: "/tu-sach/:shelf/toi/:rest*",
+        destination: "/tu-sach/:shelf/ho-so/:rest*",
+        permanent: true,
+      },
+    ];
   },
 };
 

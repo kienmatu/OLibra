@@ -125,3 +125,63 @@ test("the sweep crosses shelves, because a nightly job serves every parish", asy
     [a.shelf.id, b.shelf.id].sort(),
   );
 });
+
+test("a shelf's own due_soon_days sets its window, not the sweep's global default", async () => {
+  // QA remediation Task 24. Task 23 made `due_soon_days` a real per-shelf
+  // column — `coalesce((settings->>'due_soon_days')::int, 3)`, writable
+  // through `updateBookshelfSettings`, shown on `/quan-ly/cai-dat` as "Báo sắp
+  // đến hạn trước" — but `sweepDueNotifications` still took a single global
+  // `dueInDays` and never joined `bookshelves`, so the setting was inert: a
+  // manager could raise it to 7 days, watch the form save, and reminders would
+  // keep firing at 3 forever. This is the falsification `every-shown-policy-
+  // is-editable.test.ts` cannot be: that test compares what a screen shows
+  // against what a command can change, not what the sweep actually obeys.
+  const wide = await lentOut(sql, { slug: "dong-thap" });
+  const narrow = await lentOut(sql, { slug: "vinh-long" });
+  expect(wide.dueOn).toBe(narrow.dueOn); // same clock, same default loan_days
+
+  await sql`
+    update bookshelves
+       set settings = settings || ${sql.json({ due_soon_days: 7 })}
+     where id = ${wide.shelf.id}
+  `;
+  // narrow.shelf is left untouched: no due_soon_days key, so the same
+  // coalesce `getShelfSettings` uses reports (and this task's rewiring must
+  // also honour) the deployment default of 3.
+
+  // Five days before both loans fall due: inside dong-thap's 7-day window,
+  // outside vinh-long's 3-day (default) window, and not yet overdue for
+  // either — the one clock position where the two shelves must disagree.
+  const [y, m, d] = wide.dueOn.split("-").map(Number);
+  const fiveBefore = new Date(Date.UTC(y, m - 1, d - 5, 10));
+  const clock = fixedClock(fiveBefore.toISOString());
+
+  const result = await sweepDueNotifications(sql, clock);
+  expect(result).toEqual({ dueSoon: 1, overdue: 0 });
+
+  const notified = await sql<{ bookshelf_id: string; kind: string }[]>`
+    select bookshelf_id, kind from notifications
+  `;
+  expect(notified).toEqual([
+    { bookshelf_id: wide.shelf.id, kind: "loan_due_soon" },
+  ]);
+
+  // And two days before due — inside *both* shelves' windows now — vinh-long
+  // (still at the default of 3) catches up on its own, unprompted schedule.
+  // This is what rules out "narrow shelves just never fire": it is a window,
+  // not a flag.
+  const twoBefore = new Date(Date.UTC(y, m - 1, d - 2, 10));
+  const second = await sweepDueNotifications(
+    sql,
+    fixedClock(twoBefore.toISOString()),
+  );
+  expect(second).toEqual({ dueSoon: 1, overdue: 0 });
+
+  const secondRound = await sql<{ bookshelf_id: string }[]>`
+    select bookshelf_id from notifications where kind = 'loan_due_soon'
+     order by bookshelf_id
+  `;
+  expect(secondRound.map((r) => r.bookshelf_id).sort()).toEqual(
+    [wide.shelf.id, narrow.shelf.id].sort(),
+  );
+});

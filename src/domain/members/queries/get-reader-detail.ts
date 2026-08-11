@@ -15,6 +15,23 @@ export interface ReaderDetail extends ReaderRow {
   email: string | null;
   avatarUrl: string | null;
   hasCredentials: boolean;
+  /**
+   * The sign-in name itself, `null` exactly when `hasCredentials` is `false`
+   * (INV-14's pairing). Added by Task 4 for one reason and no other: the
+   * reader-detail screen's "Đặt lại mật khẩu" form changes only the password,
+   * but `setReaderCredentials` always writes a username *and* a password
+   * together — there is no password-only variant of that command — so the
+   * form has to resubmit the username it already has, silently, in a hidden
+   * field. Never rendered as an editable box next to "Đặt lại mật khẩu": the
+   * brief for that disclosure is "with `mat-khau` only", and a visible,
+   * editable username field there would make a password reset able to
+   * silently rename the account too.
+   *
+   * Still not the hash, and still not reachable by a screen the reader
+   * themselves can view — same guard as `hasCredentials`, same reasoning as
+   * this file's own docstring gives for keeping the hash off every screen.
+   */
+  username: string | null;
   leaderboardOptIn: boolean;
   managerNotes: string | null;
   rejectionReason: string | null;
@@ -36,6 +53,10 @@ export interface ReaderDetail extends ReaderRow {
      * to either can only narrow what `loans` already returned.
      */
     title: string;
+    /** `books.cover_url` — Task 12 (2026-08-10 QA remediation); see
+     *  `search-loans-for-return.ts`'s `LoanForReturnRow` for why this now
+     *  travels with the row rather than being matched from the title. */
+    coverUrl: string | null;
     copyCode: string;
     dueOn: string;
     isOverdue: boolean;
@@ -96,6 +117,7 @@ export async function getReaderDetail(
       email: string | null;
       avatar_url: string | null;
       has_credentials: boolean;
+      username: string | null;
       leaderboard_opt_in: boolean;
       manager_notes: string | null;
       rejection_reason: string | null;
@@ -115,7 +137,10 @@ export async function getReaderDetail(
       u.father_name, u.mother_name, u.phone, u.email, u.avatar_url,
       -- INV-14: username and password_hash are paired or both null — never
       -- the hash itself, only whether one exists.
-      (u.username is not null) as has_credentials
+      (u.username is not null) as has_credentials,
+      -- The name itself, never the hash beside it — Task 4's "Đặt lại mật
+      -- khẩu" needs it to resubmit unchanged; see the field's own docstring.
+      u.username
     from memberships m
     join users u on u.id = m.user_id and u.deleted_at is null
     where m.id = ${input.membershipId} and m.deleted_at is null
@@ -132,13 +157,14 @@ export async function getReaderDetail(
       id: string;
       book_id: string;
       title: string;
+      cover_url: string | null;
       copy_code: string;
       due_on: string;
       is_overdue: boolean;
       days_remaining: number;
     }[]
   >`
-    select l.id, l.book_id, b.title, c.code as copy_code,
+    select l.id, l.book_id, b.title, b.cover_url, c.code as copy_code,
            l.due_on::text as due_on, l.is_overdue, l.days_remaining
     from loans_current l
     join books       b on b.id = l.book_id
@@ -181,6 +207,7 @@ export async function getReaderDetail(
     email: row.email,
     avatarUrl: row.avatar_url,
     hasCredentials: row.has_credentials,
+    username: row.username,
     leaderboardOptIn: row.leaderboard_opt_in,
     managerNotes: row.manager_notes,
     rejectionReason: row.rejection_reason,
@@ -190,6 +217,7 @@ export async function getReaderDetail(
       loanId: l.id,
       bookId: l.book_id,
       title: l.title,
+      coverUrl: l.cover_url,
       copyCode: l.copy_code,
       dueOn: l.due_on,
       isOverdue: l.is_overdue,

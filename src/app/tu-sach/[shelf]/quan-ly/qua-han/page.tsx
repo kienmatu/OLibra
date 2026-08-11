@@ -18,6 +18,8 @@ import { readShelf } from "@/lib/shelf";
 /** U1 §2. See `../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Quá hạn — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /** `?sap-xep=`, the spelling `danh-muc` and `quan-ly/sach` already use. */
@@ -143,7 +145,11 @@ export default async function OverdueLoansPage({
             {loans.map((loan) => (
               <Card key={loan.loanId}>
                 <div className="flex items-start gap-4">
-                  <BookCover title={loan.title} className="w-16 shrink-0 text-lg" />
+                  <BookCover
+                    title={loan.title}
+                    coverUrl={loan.coverUrl}
+                    className="w-16 shrink-0 text-lg"
+                  />
                   <div className="min-w-0 flex-1">
                     <BookTitle as="p" className="text-[18px] leading-snug">
                       {loan.title}

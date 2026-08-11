@@ -496,6 +496,106 @@ export async function runGlobalCommand<I, O>(
 }
 
 /**
+ * Runs a command with **no shelf and no elevated caller** — the write
+ * counterpart of `runPublicQuery`, for the one write in the catalogue a
+ * stranger holding neither a shelf nor a session may make.
+ *
+ * **Why neither `runCommand` nor `runGlobalCommand` can serve this caller.**
+ * Both go through `runAs`, and `runAs` calls `assertValidBookshelfId(ctx
+ * .bookshelfId, { allowEmpty: false })` before it opens a transaction — its
+ * own docstring gives the reason: "a command always acts within a real
+ * shelf." That held for every command in the catalogue until Task 17
+ * (2026-08-10 QA remediation) wired `/lien-he`'s site-wide góp ý form: a
+ * parish with no shelf yet, reading the front door with no session either, is
+ * a caller `runAs` was never asked to admit. Widening `allowEmpty` on `runAs`
+ * itself was rejected — every existing caller of `runCommand`/
+ * `runGlobalCommand` is a *shelf's own* write, and an empty `ctx.bookshelfId`
+ * reaching either of them today is exactly the copy-pasted-context mistake
+ * that check exists to catch (`command-scope.test.ts`'s "an empty-string
+ * bookshelfId on the command path is also a named ValidationFailed"). A third,
+ * separately named function keeps that guard intact for every command that
+ * still needs it, rather than a parameter that would have to be threaded
+ * through — and remembered — at every one of their call sites.
+ *
+ * **The shape is `runGlobalCommand`'s, with one check relaxed.** The command
+ * body still runs as `olibra_app`, scoped to the empty sentinel — the same
+ * scope `runPublicQuery` sets, for the identical reason: `''` is what
+ * `nullif(current_setting(...), '')` turns into `null`, so every ordinary
+ * `<table>_tenant` policy fails closed to zero rows for this session.
+ * `feedback_tenant` is the one policy in the schema that does not: its `with
+ * check` admits a `bookshelf_id is null` row from *any* session, scoped or
+ * not (`20260808_01_feedback_rls.sql`), which is what lets `submitFeedback`'s
+ * insert succeed here at all. A second command reached through this seam
+ * inherits exactly the privileges `olibra_app` always has and nothing more —
+ * the same least-privilege argument `runPublicQuery`'s own docstring makes
+ * for reads, run in the other direction for a write.
+ *
+ * **Every audit entry must be `global: true`, and the reason is arithmetic,
+ * not policy.** `ctx.bookshelfId` is always `""` here — the caller has no
+ * shelf to put in it — so a non-global entry would ask `toRow` to bind `""`
+ * into `audit_log.bookshelf_id`, the exact raw-`uuid`-cast failure
+ * `assertValidBookshelfId` exists to turn into a named refusal everywhere
+ * else. Checked explicitly below, the same guard `runAdminCommand` already
+ * applies for its own empty-scope case, rather than left to surface as
+ * Postgres's own `22P02` from inside the transaction.
+ *
+ * **No `requireSuperAdminActor` gate, unlike `runAdminQuery`/
+ * `runAdminCommand` — deliberately the opposite floor.** Those two exist so
+ * that only the most trusted caller in the system reaches `olibra_admin`;
+ * this exists so that the *least* trusted caller — someone who has proven
+ * nothing about who they are — can still make the one write OPS §4.4 opens to
+ * `guest`. The two pairs read as mirror images and are not: one widens who
+ * may be admitted, the other widens what an admitted stranger may write, and
+ * treating them as the same shape would be the same mistake in either
+ * direction.
+ *
+ * **Rare by construction, not by convention.** `submitFeedback` is, as of
+ * this writing, the only command whose `SubmitFeedbackInput` can express a
+ * caller with no shelf (`bookshelfId: null`, out loud). A future command
+ * reached through this seam should be held to the same question this one
+ * answers explicitly: is this genuinely a write OPS lists as open to `guest`
+ * with no membership anywhere, or does it merely look convenient from inside
+ * a page that has not resolved a shelf yet.
+ */
+export async function runPublicCommand<I, O>(
+  sql: Sql,
+  ctx: TenantContext,
+  command: Command<I, O>,
+  input: I,
+): Promise<O> {
+  assertValidBookshelfId(ctx.bookshelfId, { allowEmpty: true });
+  const nowIso = assertValidClockInstant(ctx.clock);
+  return sql.begin(async (tx) => {
+    await setSessionScope(tx as RawTx, ctx, nowIso);
+    await tx`set local role olibra_app`;
+
+    const { result, audit } = await command(guardWrites(tx as RawTx), ctx, input);
+
+    await tx`set local role olibra_admin`;
+    for (const entry of Array.isArray(audit) ? audit : [audit]) {
+      const row = toRow(entry, ctx);
+      // See the docstring above: every entry through this seam must be
+      // global, because `ctx.bookshelfId` is always empty here.
+      if (row.bookshelfId === "") {
+        throw new ValidationFailed("invalid_bookshelf_id", "bookshelfId");
+      }
+      await tx`
+        insert into audit_log
+          (bookshelf_id, actor_id, action, entity_type, entity_id,
+           before, after, occurred_at)
+        values
+          (${row.bookshelfId}, ${row.actorId}, ${row.action}, ${row.entityType},
+           ${row.entityId}, ${tx.json((row.before ?? null) as JSONValue)},
+           ${tx.json((row.after ?? null) as JSONValue)}, ${row.occurredAt})
+      `;
+    }
+    await tx`set local role olibra_app`;
+
+    return result;
+  }) as Promise<O>;
+}
+
+/**
  * Runs a read in a scoped, read-only transaction.
  *
  * Read-only is not decoration: OPS §1 says "queries never change state", and

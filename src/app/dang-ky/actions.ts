@@ -36,6 +36,20 @@ import { ACTION_ERROR_PARAM } from "../../lib/search-params";
  * into the address bar of a shared parish phone. The form is re-typed instead.
  * The same call U3 recorded for the on-behalf form, and the cost is the same
  * and real.
+ *
+ * **Proposed and withdrawn once already (Task 13, 2026-08-10 QA remediation).**
+ * A same-session task carried every field but the password back through this
+ * same query string, reasoning from the QA sweep's observation that a rejected
+ * registration cleared all nine fields — without re-reading this paragraph
+ * first. It shipped, was caught in the same task's own self-review, and was
+ * reverted before merge on exactly the ground stated above: the next child to
+ * pick up a shared parish phone would see the previous child's mother's name
+ * and telephone number in the address bar, and browser history and a proxy's
+ * access log make that permanent rather than momentary. If this is proposed
+ * again, the fix that gets the UX without the leak is a short-lived
+ * same-origin cookie or `useActionState` — neither touches the URL — and it is
+ * a design decision for its own task with the product owner's input, not a
+ * quick change here.
  */
 export async function registerMembershipAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");

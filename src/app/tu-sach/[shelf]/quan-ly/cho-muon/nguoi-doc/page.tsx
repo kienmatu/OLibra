@@ -22,6 +22,8 @@ import { readShelf } from "@/lib/shelf";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Chọn người đọc — Quản lý tủ sách OLibra" };
+
 /**
  * Step 2 of BR §16.3's quick-lend: the reader.
  *
@@ -114,7 +116,11 @@ export default async function ChoMuonNguoiDocPage({
       <div className="mt-6 flex max-w-xl items-center gap-3 rounded-card border border-hairline bg-paper p-4">
         {book ? (
           <>
-            <BookCover title={book.book.title} className="w-12 text-[1rem]" />
+            <BookCover
+              title={book.book.title}
+              coverUrl={book.book.coverUrl}
+              className="w-12 text-[1rem]"
+            />
             <div className="min-w-0 flex-1">
               <p className="text-[13px] text-meta">Sách đã chọn</p>
               <BookTitle className="block truncate text-base leading-snug">
@@ -236,7 +242,21 @@ export default async function ChoMuonNguoiDocPage({
         <p className="mt-6 max-w-2xl text-[15px] text-meta">
           {messageFor("membership_not_found")}
         </p>
-      ) : null}
+      ) : (
+        // QA remediation T27 (P3-9 of the 2026-08-10 sweep). Before a
+        // volunteer has typed anything, this used to render nothing at all
+        // below the search box — indistinguishable from a page that failed
+        // to load its reader list, on the one step of quick-lend a manager
+        // most often arrives at already knowing what to type (a child's
+        // name, standing at the shelf with a book in hand). Step 1
+        // (`../page.tsx`) has the identical `null` in its own query-less
+        // branch and was not part of this finding — left alone here rather
+        // than changed to match, since a second screen's copy is its own
+        // decision and not this task's to make by inference.
+        <p className="mt-6 max-w-2xl text-[15px] text-meta">
+          Gõ tên bạn đọc để tìm.
+        </p>
+      )}
 
       <ButtonLink
         href={`${base}/nguoi-doc/moi`}

@@ -6,8 +6,10 @@ import { Pill } from "@/components/ui/pill";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
+import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { messageFor } from "@/domain/kernel/errors";
 import { getMyDonations } from "@/domain/community/queries/get-my-donations";
+import { isMemberlessSuperAdmin } from "@/lib/reader-area";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
@@ -30,6 +32,8 @@ import { offerDonationAction } from "../../community-actions";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Tặng sách cho tủ sách — OLibra" };
+
 const STATUS: Record<
   string,
   { label: string; tone: "available" | "onloan" | "overdue" }
@@ -49,19 +53,34 @@ export default async function MyDonationsPage({
   const { shelf: slug } = await params;
   const refusal = refusalFrom(await searchParams);
 
-  const { shelf, viewer, donations, membershipId } = await loadPage(
-    slug,
-    async (tx, ctx, v) => ({
-      shelf: await readShelf(tx, ctx),
-      viewer: v,
-      donations: await getMyDonations(tx, ctx),
-      membershipId: ctx.actor.membershipId,
-    }),
-  );
-
   const base = `/tu-sach/${slug}`;
 
-  return (
+  const result = await loadPage(slug, async (tx, ctx, v) => {
+    const shelf = await readShelf(tx, ctx);
+    // See `src/lib/reader-area.ts`'s `isMemberlessSuperAdmin` — task 10,
+    // 2026-08-10 QA remediation. `getMyDonations` compares
+    // `ctx.actor.membershipId` (here, unlike `get-my-profile.ts`, with no
+    // `?? ""`) to a `donor_membership_id` column, and `= null` matches no
+    // row rather than raising — so this branch is for consistency with the
+    // other four `/ho-so/*` pages, not to stop a crash: without it a super
+    // admin sees an empty "Những lần em đã tặng" list and a donation form
+    // that would refuse anything typed into it (`offerDonation` compares the
+    // form's `thanh-vien` against `ctx.actor.membershipId` and refuses a
+    // mismatch, `not_permitted`) — a form the app should not have offered.
+    if (isMemberlessSuperAdmin(ctx)) {
+      return { shelf, viewer: v, member: false as const };
+    }
+    return {
+      shelf,
+      viewer: v,
+      member: true as const,
+      donations: await getMyDonations(tx, ctx),
+      membershipId: ctx.actor.membershipId,
+    };
+  });
+
+  const { shelf, viewer } = result;
+  const chrome = (
     <>
       <ShelfHeader
         shelfName={shelf.name}
@@ -70,7 +89,24 @@ export default async function MyDonationsPage({
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
+      <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/tang-sach`} />
+    </>
+  );
+
+  if (!result.member) {
+    return (
+      <>
+        {chrome}
+        <NotAReaderNotice />
+      </>
+    );
+  }
+
+  const { donations, membershipId } = result;
+
+  return (
+    <>
+      {chrome}
 
       <main className="mx-auto max-w-2xl px-6 py-10">
         <PageHeading
@@ -142,7 +178,7 @@ export default async function MyDonationsPage({
         ) : null}
 
         <Link
-          href={`${base}/toi`}
+          href={`${base}/ho-so/tong-quan`}
           className="mt-10 inline-block text-[14px] underline"
         >
           Về trang của tôi

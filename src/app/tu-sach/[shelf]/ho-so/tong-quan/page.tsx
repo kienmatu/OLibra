@@ -6,16 +6,18 @@ import { Pill } from "@/components/ui/pill";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
+import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { messageFor } from "@/domain/kernel/errors";
 import {
   getMyDashboard,
   getMyLoanHistory,
 } from "@/domain/circulation/queries/get-my-dashboard";
+import { isMemberlessSuperAdmin } from "@/lib/reader-area";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatDueDate, formatInstant } from "@/lib/dates";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
-import { renewLoanAction } from "./actions";
+import { renewLoanAction } from "../reader-actions";
 
 /**
  * BR §16.2's "My page": books currently held with days remaining and a renew
@@ -37,6 +39,14 @@ import { renewLoanAction } from "./actions";
  */
 export const dynamic = "force-dynamic";
 
+// Static rather than the viewer's own name, matching how the manager's
+// `quan-ly/page.tsx` dashboard titles its tab "Trang chính — Quản lý tủ sách
+// OLibra" rather than something that varies per session — this is the reader
+// side of the identical decision, one route with one tab identity regardless
+// of who is signed in. The page's own `<h1>` still greets the reader by name
+// (`Chào {viewer.name}`); only the browser tab stays put.
+export const metadata = { title: "Trang của tôi — OLibra" };
+
 export default async function ReaderDashboardPage({
   params,
   searchParams,
@@ -47,21 +57,32 @@ export default async function ReaderDashboardPage({
   const { shelf: slug } = await params;
   const refusal = refusalFrom(await searchParams);
 
-  const { shelf, viewer, dashboard, history } = await loadPage(
-    slug,
-    async (tx, ctx, viewer) => ({
-      shelf: await readShelf(tx, ctx),
+  const base = `/tu-sach/${slug}`;
+
+  const result = await loadPage(slug, async (tx, ctx, viewer) => {
+    const shelf = await readShelf(tx, ctx);
+    // A super admin holds no membership anywhere by design (`src/lib
+    // /reader-area.ts`'s `isMemberlessSuperAdmin` carries the full story —
+    // task 10, 2026-08-10 QA remediation). `getMyDashboard` and
+    // `getMyLoanHistory` scope by `ctx.actor.userId`, which a super admin
+    // always has, so this branch is not here to stop a crash — it is here so
+    // this page agrees with the other four about what this viewer is, rather
+    // than rendering "Em chưa mượn cuốn nào." as if they were simply a reader
+    // with no loans yet.
+    if (isMemberlessSuperAdmin(ctx)) {
+      return { shelf, viewer, member: false as const };
+    }
+    return {
+      shelf,
       viewer,
+      member: true as const,
       dashboard: await getMyDashboard(tx, ctx),
       history: await getMyLoanHistory(tx, ctx, { limit: 6 }),
-    }),
-  );
+    };
+  });
 
-  const base = `/tu-sach/${slug}`;
-  const overdue = dashboard.loans.filter((l) => l.isOverdue).length;
-  const returned = history.filter((h) => h.status === "returned");
-
-  return (
+  const { shelf, viewer } = result;
+  const chrome = (
     <>
       <ShelfHeader
         shelfName={shelf.name}
@@ -70,7 +91,26 @@ export default async function ReaderDashboardPage({
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
       />
-      <ReaderTabs shelfSlug={slug} active="trang-cua-toi" />
+      <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/tong-quan`} />
+    </>
+  );
+
+  if (!result.member) {
+    return (
+      <>
+        {chrome}
+        <NotAReaderNotice />
+      </>
+    );
+  }
+
+  const { dashboard, history } = result;
+  const overdue = dashboard.loans.filter((l) => l.isOverdue).length;
+  const returned = history.filter((h) => h.status === "returned");
+
+  return (
+    <>
+      {chrome}
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         <PageHeading
@@ -109,6 +149,7 @@ export default async function ReaderDashboardPage({
                 >
                   <BookCover
                     title={loan.title}
+                    coverUrl={loan.coverUrl}
                     className="w-20 shrink-0 text-lg sm:w-full sm:text-[1.5rem]"
                   />
                   <div className="min-w-0 flex-1 sm:mt-3">
@@ -228,7 +269,7 @@ export default async function ReaderDashboardPage({
               ))}
             </ul>
             <Link
-              href={`${base}/toi/lich-su`}
+              href={`${base}/ho-so/lich-su`}
               className="mt-4 inline-block text-[14px] underline"
             >
               Xem toàn bộ lịch sử

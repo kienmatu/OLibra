@@ -4,18 +4,18 @@ import { redirect } from "next/navigation";
 // Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
 // records at the top of its own imports: the suite imports this module and
 // Vitest resolves no alias.
-import { cancelProfileChange } from "../../../../../domain/members/commands/cancel-profile-change";
-import { changeOwnPassword } from "../../../../../domain/members/commands/change-own-password";
-import { proposeProfileChange } from "../../../../../domain/members/commands/propose-profile-change";
-import { updateOwnProfile } from "../../../../../domain/members/commands/update-own-profile";
-import { DomainError } from "../../../../../domain/kernel/errors";
+import { cancelProfileChange } from "../../../../domain/members/commands/cancel-profile-change";
+import { changeOwnPassword } from "../../../../domain/members/commands/change-own-password";
+import { proposeProfileChange } from "../../../../domain/members/commands/propose-profile-change";
+import { updateOwnProfile } from "../../../../domain/members/commands/update-own-profile";
+import { DomainError } from "../../../../domain/kernel/errors";
 import {
   decideAndDiscardAvatar,
   proposeAvatar,
   type UploadedFile,
-} from "../../../../../lib/avatar";
-import { submitCommand } from "../../../../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../../../../lib/search-params";
+} from "../../../../lib/avatar";
+import { submitCommand } from "../../../../lib/page-data";
+import { ACTION_ERROR_PARAM } from "../../../../lib/search-params";
 
 /**
  * The reader's profile actions — and the project's **first server action that
@@ -62,9 +62,9 @@ import { ACTION_ERROR_PARAM } from "../../../../../lib/search-params";
  * down does not tell a reader their photograph was the wrong shape.
  */
 
-/** `/tu-sach/<slug>/toi/ho-so`, from a slug that came in on the form. */
+/** `/tu-sach/<slug>/ho-so`, from a slug that came in on the form. */
 function profilePath(shelfSlug: string): string {
-  return `/tu-sach/${encodeURIComponent(shelfSlug)}/toi/ho-so`;
+  return `/tu-sach/${encodeURIComponent(shelfSlug)}/ho-so`;
 }
 
 function field(form: FormData, name: string): string {
@@ -73,7 +73,7 @@ function field(form: FormData, name: string): string {
 
 /**
  * Runs one step and reports whether the domain refused it — `attempt` in
- * `../../quan-ly/actions.ts`, with the wider catch this file's docstring
+ * `../quan-ly/actions.ts`, with the wider catch this file's docstring
  * argues for. The `try` wraps the step and nothing else, so the `redirect()`
  * each caller performs afterwards cannot be swallowed by it.
  */
@@ -106,7 +106,7 @@ function back(shelfSlug: string, code: string | null): never {
  *
  * An absent or empty file is `validation_failed` rather than a crash on
  * `file.size`: a form posting no file is this application's own doing, exactly
- * as `complete()` in `../../quan-ly/actions.ts` argues for the hidden ids there.
+ * as `complete()` in `../quan-ly/actions.ts` argues for the hidden ids there.
  */
 export async function proposeAvatarAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");

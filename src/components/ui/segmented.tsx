@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+// Relative, not the `@/` alias: `Chip` below is exercised by
+// `tests/components/filter-chips.test.tsx` through `filter-chips.tsx`, and
+// `vitest.config.ts` has no `resolve.alias` for `@/` (deliberately, per the
+// branch's QA-remediation constraints — `reader-tabs.tsx` and
+// `public-header.tsx` carry the identical note for the identical reason).
+import { cn } from "../../lib/utils";
 
 /**
  * A segmented control, not a dropdown — the đang có / toàn bộ toggle is the
@@ -47,7 +52,19 @@ export function Segmented({
   );
 }
 
-/** Filter chips — used where a dropdown would hide the counts. */
+/**
+ * Filter chips — used where a dropdown would hide the counts.
+ *
+ * `aria-current="page"` on the active one (Task 14, 2026-08-10 QA remediation
+ * — P3-4). `Segmented` above has carried the equivalent since it was written;
+ * this sibling did not, on every one of its nine call sites at once, because
+ * each renders its own chip row and none of them could have fixed it alone.
+ * `"page"`, not `"true"`: an active chip *is* the current page for the filter
+ * it names, in the same sense a nav link's current page is — `Segmented`
+ * already uses `"true"` for a different reason (a segmented control is a
+ * choice among views, not a location), and this control is closer to
+ * `nguoi-doc/page.tsx`'s own `hrefWith`-built links than to that one.
+ */
 export function Chip({
   children,
   active,
@@ -60,6 +77,7 @@ export function Chip({
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className={cn(
         "inline-flex min-h-11 items-center rounded-control border px-4 text-[15px]",
         active

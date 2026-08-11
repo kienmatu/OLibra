@@ -1,95 +1,180 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { NotWired } from "../../src/domain/kernel/errors";
-import { hashFor, verifyFor } from "../../src/domain/members/registration";
+import {
+  hashFor,
+  resetCryptoForTests,
+  verifyFor,
+} from "../../src/domain/kernel/crypto";
+import {
+  ensureCryptoWired,
+  resetCryptoWiringForTests,
+} from "../../src/lib/crypto-wiring";
 
 /**
- * **The domain's two injected setters are actually set, by the application.**
+ * **The domain's crypto port is actually wired, on the path a real request
+ * takes — not merely by `src/instrumentation.ts`, which used to be this
+ * file's whole story and was not enough.**
  *
- * `registration.ts` defaults its hasher and its verifier to throwing
- * `NotWired`, and says why: an unwired hasher must fail loudly rather than
- * write a plausible-looking string into `password_hash`. Until U5 nothing in the
- * running application called either setter — `grep -rn setPasswordHasher src`
- * returned three comments *about* the wiring and no call — so
- * `SetReaderCredentials` and `ChangeOwnPassword` would both have thrown
- * `password_hasher_not_wired` the first time a volunteer used them.
+ * This file used to read `src/instrumentation.ts` as text and assert it
+ * contained `setPasswordHasher(`. That assertion was true for the entire time
+ * `POST /dang-ky` returned 500 for every reader who supplied a username and
+ * password — confirmed live by a QA sweep on 10/08/2026 — because it never
+ * crossed the seam the defect actually lives in. Turbopack bundles a module
+ * imported by both `src/instrumentation.ts` (the `node` layer) and a server
+ * action (the `react-server` layer) as two separate instances, each with its
+ * own copy of every module-level binding; `instrumentation.ts` calling
+ * `setPasswordHasher` wired only its own copy; `registerMembershipAction` ran
+ * against the other one, still at its throwing default. Reading
+ * `instrumentation.ts`'s source cannot see that, and neither can calling
+ * `hashFor`/`verifyFor` after the suite's own setup has wired them — every
+ * unit test in this project does exactly that, in its own `beforeAll`, so
+ * none of them could ever observe the unwired state either.
  *
- * **Every test in the suite was green, and that is the point of this file.** The
- * suite calls the setters in its own setup, so a test can never observe the
- * unwired state; the defect lives strictly between the domain and the
- * application, which is the seam no domain test crosses.
+ * The regression guard for *that* — an actual request, through Next's own
+ * handler — is `tests/lib/registration-over-http.test.ts`, which this file
+ * cannot replace: an in-process test, however it calls `hashFor`, never
+ * crosses the layer boundary.
  *
- * It also stayed hidden in the product. Registration without credentials — the
- * ordinary case, since most children never supply a username — returns before
- * the hasher is reached, and sign-in verifies through `src/auth/session.ts`,
- * which calls `verifyPassword` directly rather than through `verifyFor`. So
- * seeded accounts signed in, the link crawl passed, and the only untried path
- * was changing a password.
+ * **Why a gap like this survives in the product long enough for a QA sweep
+ * to find it, rather than the first reader who tries it**, is recorded in
+ * `src/domain/kernel/crypto.ts`'s own docstring: registration without
+ * credentials never reaches `hashFor`, and sign-in verifies through
+ * `src/auth/session.ts` directly rather than through this port, so the only
+ * path that ever needed the port wired is somebody typing a *new*
+ * password — which is exactly the path this bug, and the wiring gap before
+ * it, both went untried on.
  *
- * So the rule is read off the source rather than by calling the functions: this
- * file cannot *invoke* `register()` and then assert, because doing so would
- * wire them and the assertion would hold whether the application did it or not.
+ * What this file can and does check:
+ *
+ * 1. The unwired default still throws (`NotWired`), so wiring is not
+ *    decoration — the floor everything else stands on.
+ * 2. `ensureCryptoWired()` (`src/lib/crypto-wiring.ts`) really does wire a
+ *    hasher and verifier that agree with each other, with the real
+ *    implementation (`$argon2` output), not a stub written here.
+ * 3. Every function `src/lib/page-data.ts` exports either calls
+ *    `ensureCryptoWired()` inside its own body, or is named in
+ *    `DOES_NOT_WIRE` with the reason it genuinely should not.
+ *
+ * **Point 3 used to be a hard-coded list of four names, and that list drifted
+ * twice (QA remediation's final fix wave found it).** `page-data.ts` now
+ * exports eight functions, not four: `loadFrontDoorViewer` (Task 6) and
+ * `submitPublicCommand` (Task 17) both wire `ensureCryptoWired()` correctly
+ * and were simply never added here, so a broken wiring in either would have
+ * passed this test silently. The docstring this replaced even promised "a
+ * future edit that adds a fifth entry point … fails this test immediately" —
+ * falsified twice over by the time anyone reread it. Fixed at the root:
+ * `pageDataExports()` reads the list from the module itself
+ * (`export async function NAME`, source order), so a ninth export is checked
+ * automatically instead of needing a human to remember to add its name here.
+ *
+ * `loadAdminPage` and `loadFile` genuinely do not call `ensureCryptoWired()`
+ * and are not a second instance of the same drift — they are inert today,
+ * on purpose: `loadAdminPage` only *reads* the administration surface (no
+ * page behind it sets a password), and `loadFile` is a read-only CSV export
+ * (P1, §3.5(c)). Deriving the export list does not mean pretending these two
+ * wire when they do not — `DOES_NOT_WIRE` names them explicitly, with this
+ * reason, and a second test below pins that the exemption is honest: both
+ * names are still real exports, and neither's body actually contains the
+ * call. If a future edit adds a real credential path to either, deleting its
+ * `DOES_NOT_WIRE` entry is what re-enables the check on it — the same
+ * remove-your-own-exemption pattern `every-domain-command-has-a-caller
+ * .test.ts`'s `EXEMPT` already uses.
+ *
+ * This is still a source-text check, and it inherits the same limit the
+ * original one had: it cannot prove a call actually runs before the port is
+ * needed, only that it is written in the function's own body. It stays
+ * anyway, as the cheap regression guard for exactly this defect's shape — a
+ * future entry point that forgets to wire, or a refactor that moves the call
+ * out of one of the wired functions, fails this test immediately rather than
+ * waiting for `registration-over-http.test.ts` (or a QA sweep) to notice a
+ * specific request path stopped wiring itself.
  */
 
-const INSTRUMENTATION = "src/instrumentation.ts";
+const PAGE_DATA_PATH = "src/lib/page-data.ts";
+const PAGE_DATA_SRC = readFileSync(PAGE_DATA_PATH, "utf8");
+
+/** Every function `src/lib/page-data.ts` exports, in source order. */
+function pageDataExports(): string[] {
+  return [
+    ...PAGE_DATA_SRC.matchAll(/^export async function ([A-Za-z0-9_]+)/gm),
+  ].map((m) => m[1]);
+}
 
 /**
- * The error a call raised, however it raised it.
- *
- * The two defaults do not fail the same way and the difference is invisible at
- * the call site: `hasher` is a plain arrow that throws **synchronously**, while
- * `verifier` is `async` and therefore returns a **rejected promise**. A test
- * written for one shape passes vacuously against the other — `expect(() =>
- * verifyFor(…)).toThrow()` fails not because the verifier is wired but because
- * nothing was thrown to catch.
+ * The source text from `fn`'s own declaration up to the next exported
+ * function's declaration (or the end of the file) — a stand-in for "`fn`'s
+ * body" that does not need to track braces, because every private helper in
+ * this file is declared *before* the first export (verified by reading the
+ * file — `contextForRequest`, `viewerFor`, `signInPathForRequest` all sit
+ * above `loadPage`), so no other function's real code can land inside this
+ * slice.
  */
-async function raisedBy(call: () => unknown): Promise<unknown> {
+function bodyOf(fn: string, allExports: string[]): string {
+  const start = PAGE_DATA_SRC.indexOf(`export async function ${fn}`);
+  const next = allExports[allExports.indexOf(fn) + 1];
+  const end = next
+    ? PAGE_DATA_SRC.indexOf(`export async function ${next}`, start + 1)
+    : PAGE_DATA_SRC.length;
+  return PAGE_DATA_SRC.slice(start, end);
+}
+
+/** See the docstring above for why these two are named rather than checked. */
+const DOES_NOT_WIRE = new Set(["loadAdminPage", "loadFile"]);
+
+const raisedBy = async (call: () => unknown): Promise<unknown> => {
   try {
     return await call();
   } catch (err) {
     return err;
   }
-}
+};
 
-test("the defaults really do throw, so wiring them is not decoration", async () => {
-  // The floor for everything below. If the unwired default quietly returned a
-  // string, the rest of this file would be checking a call nobody needs.
+test("the unwired default throws, so wiring is not decoration", async () => {
+  resetCryptoForTests();
   expect(await raisedBy(() => hashFor("bất kỳ"))).toBeInstanceOf(NotWired);
   expect(await raisedBy(() => verifyFor("a", "b"))).toBeInstanceOf(NotWired);
 });
 
-test("the application's startup hook wires both", () => {
-  const source = readFileSync(INSTRUMENTATION, "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+test("ensureCryptoWired produces a hash the verifier accepts", async () => {
+  // Both resets: `resetCryptoForTests` puts the domain's hasher/verifier back
+  // to their throwing defaults, and `resetCryptoWiringForTests` clears
+  // `crypto-wiring.ts`'s own `wired` flag — without the second,
+  // `ensureCryptoWired()` below would see `wired` still `true` from an
+  // earlier test in this file and return immediately, leaving the just-reset
+  // throwing defaults in place.
+  resetCryptoForTests();
+  resetCryptoWiringForTests();
 
-  // Next calls `register()` once per server process, before any request.
-  expect(source).toMatch(/export\s+async\s+function\s+register\s*\(/);
-
-  for (const setter of ["setPasswordHasher", "setPasswordVerifier"]) {
-    expect(source, `${INSTRUMENTATION} calls ${setter}`).toContain(`${setter}(`);
-  }
-
-  // And with the real implementations, not with stubs written here.
-  expect(source).toContain("hashPassword");
-  expect(source).toContain("verifyPassword");
-  expect(source).toContain("./auth/password");
+  await ensureCryptoWired();
+  const hash = await hashFor("matkhau123");
+  expect(hash).toMatch(/^\$argon2/);
+  expect(await verifyFor("matkhau123", hash)).toBe(true);
+  expect(await verifyFor("sai", hash)).toBe(false);
 });
 
-test("nothing else in the application wires them, so there is one composition root", () => {
-  // Two call sites is how one of them stops being reached and nobody notices —
-  // the failure mode is silent, because whichever ran first already wired the
-  // module for the whole process.
-  const { execSync } =
-    require("node:child_process") as typeof import("node:child_process");
-  const hits = execSync(
-    "grep -rln 'setPasswordHasher(\\|setPasswordVerifier(' src || true",
-    { encoding: "utf8" },
-  )
-    .split("\n")
-    .filter(Boolean)
-    // The module that *declares* them is not a caller.
-    .filter((f) => f !== "src/domain/members/registration.ts");
+test("every application entry point src/lib/page-data.ts exports wires before it can need the port", () => {
+  const exportsFound = pageDataExports();
+  // If this fails, page-data.ts's export shape changed — the regex above
+  // expects `export async function NAME`, the only shape this file uses
+  // today.
+  expect(exportsFound.length).toBeGreaterThan(0);
 
-  expect(hits).toEqual([INSTRUMENTATION]);
+  for (const fn of exportsFound) {
+    if (DOES_NOT_WIRE.has(fn)) continue;
+    expect(bodyOf(fn, exportsFound), `${fn} calls ensureCryptoWired`).toContain(
+      "ensureCryptoWired(",
+    );
+  }
+});
+
+test("DOES_NOT_WIRE names only functions that are real exports and genuinely do not wire", () => {
+  const exportsFound = pageDataExports();
+  for (const fn of DOES_NOT_WIRE) {
+    expect(exportsFound, `${fn} is still exported by page-data.ts`).toContain(fn);
+    expect(
+      bodyOf(fn, exportsFound),
+      `${fn} does not call ensureCryptoWired`,
+    ).not.toContain("ensureCryptoWired(");
+  }
 });

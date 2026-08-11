@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { hashPassword, verifyPassword } from "../../../src/auth/password";
 import { fixedClock } from "../../../src/domain/kernel/clock";
+import {
+  setPasswordHasher,
+  setPasswordVerifier,
+} from "../../../src/domain/kernel/crypto";
 import { RuleViolated } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runCommand } from "../../../src/domain/kernel/unit-of-work";
 import { managerRegisterReader } from "../../../src/domain/members/commands/manager-register-reader";
 import { registerMemberOnBehalf } from "../../../src/domain/members/commands/register-member-on-behalf";
 import { membershipAllowsNewLoan } from "../../../src/domain/members/policy";
-import {
-  type RegistrationInput,
-  setPasswordHasher,
-  setPasswordVerifier,
-} from "../../../src/domain/members/registration";
+import { type RegistrationInput } from "../../../src/domain/members/registration";
 import { migrate } from "../../../src/db/migrate";
 import { makeMember, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";

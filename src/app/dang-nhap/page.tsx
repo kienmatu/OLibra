@@ -26,6 +26,8 @@ import { signInAction } from "./actions";
  */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Đăng nhập — OLibra" };
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -104,7 +106,7 @@ export default async function LoginPage({
           viewerName={null}
         />
       ) : (
-        <FrontDoorHeader />
+        <FrontDoorHeader viewerName={null} isSuperAdmin={false} />
       )}
 
       <main className="mx-auto flex max-w-3xl flex-col items-center px-6 py-20">
@@ -151,7 +153,13 @@ export default async function LoginPage({
               />
             </Field>
 
-            <Field label="Mật khẩu" required htmlFor="mat-khau" error={signInError}>
+            <Field
+              label="Mật khẩu"
+              required
+              htmlFor="mat-khau"
+              hint="Nếu quên, quản lý sẽ đặt lại giúp."
+              error={signInError}
+            >
               <Input
                 id="mat-khau"
                 name="password"
@@ -161,22 +169,14 @@ export default async function LoginPage({
               />
             </Field>
 
-            <div className="flex items-center justify-between gap-4">
-              <label className="inline-flex min-h-11 items-center gap-2 text-[15px]">
-                <input
-                  type="checkbox"
-                  name="remember"
-                  className="size-[18px] rounded-control border-hairline accent-sage"
-                />
-                Ghi nhớ đăng nhập
-              </label>
-              <Link
-                href="#"
-                className="inline-flex min-h-11 items-center text-[15px] font-medium text-sage hover:underline"
-              >
-                Quên mật khẩu?
-              </Link>
-            </div>
+            <label className="inline-flex min-h-11 items-center gap-2 text-[15px]">
+              <input
+                type="checkbox"
+                name="remember"
+                className="size-[18px] rounded-control border-hairline accent-sage"
+              />
+              Ghi nhớ đăng nhập
+            </label>
 
             <Button type="submit" variant="primary" size="lg" className="w-full">
               Đăng nhập
@@ -220,9 +220,16 @@ export default async function LoginPage({
             would replace is one nobody can act on without a phone number
             anyway; `/lien-he` is already in the front door's footer and is
             where site-wide contact belongs (OPS §3.1's `GetSiteContact`).
-            "Quên mật khẩu?" above the button is a real screen a later slice
-            owes; inventing a stopgap sentence here would be one more thing for
-            it to unpick. */}
+
+            QA T27 (2026-08-10): the "Quên mật khẩu?" link above the button
+            used to point at `href="#"` — there was no self-service reset to
+            send it to, and BR §2 says there never will be ("no email, so no
+            self-service reset"). Removed rather than wired up, and replaced
+            with the same hint `/dang-ky`'s password field already carries
+            ("Nếu quên, quản lý sẽ đặt lại giúp.") — true today in a way it
+            was not when that sentence was first written, because a manager
+            can now actually do it (`/tu-sach/[shelf]/quan-ly/nguoi-doc/[id]`,
+            landed in the wave that closed T4). */}
       </main>
     </>
   );

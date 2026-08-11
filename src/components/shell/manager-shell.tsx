@@ -14,8 +14,10 @@ import {
   Gift,
   MessageSquare,
   Megaphone,
+  Network,
   ScrollText,
   ShieldCheck,
+  Tags,
   TriangleAlert,
   UserPen,
   UserPlus,
@@ -100,6 +102,7 @@ export type ManagerNavKey =
   | "nhat-ky"
   | "thong-bao"
   | "thong-ke"
+  | "co-cau"
   | "cai-dat";
 
 /**
@@ -144,6 +147,15 @@ export type ManagerNavKey =
  * The nav entries for the pages waves 2 and 3 of this slice wire —
  * `Người đọc`, `Đăng ký chờ duyệt`, `Đổi thông tin`, `Quá hạn` — stay for the
  * same reason and become real within the slice.
+ *
+ * **`Cơ cấu giáo xứ` joins them, also badgeless, added by Task 3 of the
+ * 2026-08-10 QA remediation.** `updateParishTaxonomy`, `createParishUnit`,
+ * `renameParishUnit`, `deleteParishUnit` and `reorderParishUnits` had shipped
+ * fully tested and called from nowhere — the visible symptom was an empty
+ * "Giáo xứ" section on the reader-registration form and a `Tổ` column that
+ * could never read anything but "Chưa có". A configuration screen has no
+ * queue either, so it gets the same treatment as the three above rather than
+ * an invented count.
  */
 const NAV: {
   key: ManagerNavKey;
@@ -195,6 +207,7 @@ const NAV: {
   { key: "nhat-ky", label: "Nhật ký", icon: ScrollText },
   { key: "thong-bao", label: "Thông báo", icon: Megaphone },
   { key: "thong-ke", label: "Thống kê", icon: BarChart3 },
+  { key: "co-cau", label: "Cơ cấu giáo xứ", icon: Network },
   { key: "cai-dat", label: "Cài đặt", icon: Cog },
 ];
 
@@ -473,11 +486,20 @@ export function ManagerShell({
 }
 
 export type AdminNavKey =
-  "tong-quan" | "tu-sach" | "quan-ly-vien" | "nhat-ky" | "gop-y" | "cai-dat";
+  | "tong-quan"
+  | "tu-sach"
+  | "the-loai"
+  | "quan-ly-vien"
+  | "nhat-ky"
+  | "gop-y"
+  | "cai-dat";
 
 const ADMIN_NAV: { key: AdminNavKey; label: string; icon: LucideIcon }[] = [
   { key: "tong-quan", label: "Tổng quan", icon: LayoutDashboard },
   { key: "tu-sach", label: "Tủ sách", icon: Archive },
+  // Task 2 (QA remediation). Global reference data, so it sits with the other
+  // cross-shelf administration screens rather than under any one shelf.
+  { key: "the-loai", label: "Thể loại", icon: Tags },
   { key: "quan-ly-vien", label: "Quản lý viên", icon: KeyRound },
   { key: "nhat-ky", label: "Nhật ký", icon: ScrollText },
   { key: "gop-y", label: "Góp ý", icon: MessageSquare },

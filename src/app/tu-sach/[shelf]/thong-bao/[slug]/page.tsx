@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { PageHeading } from "@/components/ui/card";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getAnnouncementDetail } from "@/domain/community/queries/get-announcements";
@@ -18,6 +19,29 @@ import { formatInstant } from "@/lib/dates";
  * another shelf's, so telling those apart would confirm it exists.
  */
 export const dynamic = "force-dynamic";
+
+/**
+ * QA remediation Task 25. `getAnnouncementDetail`, the same query and the
+ * same `slug` the page body reads, returning `null` for a draft, a lapsed
+ * announcement, or a slug naming nothing alike — the page's own docstring
+ * gives the reason all three collapse into one 404 rather than three answers
+ * that would tell a prober which case it hit. `notFound()` here on that same
+ * `null` keeps the metadata path refusing exactly the way the page does.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ shelf: string; slug: string }>;
+}): Promise<Metadata> {
+  const { shelf: shelfSlug, slug } = await params;
+
+  const { announcement } = await loadPage(shelfSlug, async (tx, ctx) => ({
+    announcement: await getAnnouncementDetail(tx, ctx, { slug }),
+  }));
+  if (!announcement) notFound();
+
+  return { title: `${announcement.title} — OLibra` };
+}
 
 export default async function AnnouncementDetailPage({
   params,

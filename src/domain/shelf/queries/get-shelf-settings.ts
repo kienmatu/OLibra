@@ -22,25 +22,49 @@ import { requireManager } from "../../members/policy";
  * six numbers, and because a wrong number here is silent while a failing test
  * is not.
  *
- * **`dueSoonDays` is the sweep's window and is not in `settings` at all.**
- * `sweepDueNotifications` takes it as a parameter defaulting to 3, and nothing
- * writes a shelf-level value yet — so it is reported as the constant it is,
- * rather than read from a key that does not exist and rendered as a default
- * indistinguishable from a configured one.
+ * **`dueSoonDays` joined the other five as a real per-shelf column in QA
+ * remediation Task 23.** Until then it was reported as a bare constant —
+ * `sweepDueNotifications` takes it as a parameter defaulting to 3 and nothing
+ * wrote a shelf-level override — which was the shape of a second defect this
+ * task closed alongside it: `/quan-ly/cai-dat` showed "Báo sắp đến hạn trước —
+ * 3 ngày" as if it were a policy like the other five, and no admin form had
+ * the field to change it. It is now `coalesce((settings->>'due_soon_days')
+ * ::int, 3)`, the identical shape the other five already use, writable
+ * through `updateBookshelfSettings`. **At the time, `sweepDueNotifications`
+ * itself was left unchanged** — it still took `dueInDays` as a parameter and
+ * still defaulted to 3 system-wide; wiring the nightly sweep to read this per
+ * shelf was named explicitly as a separate piece of work that task did not
+ * do. What Task 23 fixed was narrower and prior to that: that a number a
+ * screen already claims to be a shelf's own policy is now actually one.
+ *
+ * **QA remediation Task 24 did the separate piece.** `sweepDueNotifications`
+ * (`src/domain/notifications/sweep.ts`) now joins `bookshelves` in its
+ * due-soon query and reads this identical `coalesce`, so the value this
+ * function reports and the value the nightly sweep enforces are the same
+ * `coalesce` expression rather than two numbers that happened to agree while
+ * nothing read the second one. See that module's own note for why reading a
+ * per-shelf value this way does not reopen the "no tenant to scope to"
+ * argument the sweep's docstring makes elsewhere.
  */
 
 export interface ShelfProfile {
   name: string;
   location: string | null;
   /**
-   * `bookshelves.address`, which **nothing in this application renders**.
+   * `bookshelves.address` — BR:179 names it as its own field, separate from
+   * `location`: "physical location, address, keeper's name and phone".
    *
-   * BR §16.1 publishes `location` as the address a reader sees, and every
-   * shelf-facing screen uses that. `address` is on the table and is returned
-   * here for one reason: the administrator's editor writes the whole profile in
-   * one statement (see `updateBookshelfSettings`), so a form that did not show
-   * this field would clear it on every save. Carrying it is what keeps the
-   * all-or-nothing patch honest.
+   * QA remediation Task 22: until this task, nothing in this application
+   * rendered it — an administrator could type a street address into
+   * `/quan-tri/tu-sach` and it would reach exactly nowhere a reader or
+   * manager could read it back, because the only reason it was carried here
+   * at all was that the administrator's editor writes the whole profile in
+   * one statement (see `updateBookshelfSettings`), and a form that omitted
+   * this field would have cleared it on every save. It is now also read by
+   * `readShelfIdentity` (`src/lib/shelf.ts`) for the shelf's own home page,
+   * under "Địa chỉ", below "Địa điểm" (`location`) — and relabelled correctly
+   * on this page's own manager-facing counterpart, `/quan-ly/cai-dat`, which
+   * used to print `location`'s value under the label "Địa chỉ".
    */
   address: string | null;
   openingHours: string | null;
@@ -56,7 +80,11 @@ export interface LendingPolicy {
   maxRenewals: number;
   renewalDays: number;
   holdDays: number;
-  /** The sweep's reminder window. A constant today — see the module note. */
+  /**
+   * The sweep's reminder window, defaulting to 3 — and, since QA remediation
+   * Task 24, the same value `sweepDueNotifications` itself reads per shelf.
+   * See the module note above for how the two stayed in agreement.
+   */
   dueSoonDays: number;
   commentsEnabled: boolean;
   commentsRequireApproval: boolean;
@@ -66,9 +94,6 @@ export interface ShelfSettings {
   profile: ShelfProfile;
   policy: LendingPolicy;
 }
-
-/** The window `sweepDueNotifications` uses when nobody passes one. */
-export const DEFAULT_DUE_SOON_DAYS = 3;
 
 export async function getShelfSettings(
   tx: Tx,
@@ -90,6 +115,7 @@ export async function getShelfSettings(
       max_renewals: number;
       renewal_days: number;
       hold_days: number;
+      due_soon_days: number;
       comments_enabled: boolean;
       comments_require_approval: boolean;
     }[]
@@ -102,6 +128,7 @@ export async function getShelfSettings(
       coalesce((settings->>'max_renewals')::int, 1) as max_renewals,
       coalesce((settings->>'renewal_days')::int, 7) as renewal_days,
       coalesce((settings->>'hold_days')::int, 3) as hold_days,
+      coalesce((settings->>'due_soon_days')::int, 3) as due_soon_days,
       coalesce((settings->>'comments_enabled')::boolean, true)
         as comments_enabled,
       coalesce((settings->>'comments_require_approval')::boolean, true)
@@ -129,7 +156,7 @@ export async function getShelfSettings(
       maxRenewals: row.max_renewals,
       renewalDays: row.renewal_days,
       holdDays: row.hold_days,
-      dueSoonDays: DEFAULT_DUE_SOON_DAYS,
+      dueSoonDays: row.due_soon_days,
       commentsEnabled: row.comments_enabled,
       commentsRequireApproval: row.comments_require_approval,
     },

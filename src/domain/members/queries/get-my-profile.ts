@@ -66,9 +66,27 @@ export interface MyProfile {
 export async function getMyProfile(
   tx: Tx,
   ctx: TenantContext,
-  input: { membershipId: string },
+  // `string | null`, not `string`: the caller is `/ho-so/page.tsx`, passing
+  // `ctx.actor.membershipId` straight through. That value is `null` for a
+  // super admin (`src/auth/guards.ts`'s `contextFor`), and the page used to
+  // paper over it with `ctx.actor.membershipId ?? ""` — an empty string is a
+  // well-formed *value* for this parameter's type, so nothing here caught it,
+  // and Postgres raised a raw `22P02 invalid input syntax for type uuid: ""`
+  // from inside `where m.id = ${input.membershipId}` below (2026-08-10 QA
+  // remediation, task 10; `src/lib/reader-area.ts` carries the full story).
+  // Widening the type is what makes that coercion unnecessary at the call
+  // site, and the branch immediately below is what a caller that still sends
+  // `null` gets instead of a failed cast.
+  input: { membershipId: string | null },
 ): Promise<MyProfile> {
-  requireSelfOrManager(ctx, input.membershipId);
+  // Bound to a local rather than read back off `input` below: TypeScript
+  // narrows an *expression* (`input.membershipId === null`), not the
+  // declared shape of `input` itself, so `input` handed to
+  // `getMyProfileChangeRequest` further down would still type-check as
+  // possibly-null and force a cast there instead of here.
+  const membershipId = input.membershipId;
+  if (membershipId === null) throw new NotFound("membership_not_found");
+  requireSelfOrManager(ctx, membershipId);
 
   // RLS scopes this to `ctx.bookshelfId`; `users` carries none, so the join is
   // the whole of what ties the person to this shelf.
@@ -85,15 +103,15 @@ export async function getMyProfile(
       m.leaderboard_opt_in, m.parish_unit_l1_id, m.parish_unit_l2_id
     from memberships m
     join users u on u.id = m.user_id and u.deleted_at is null
-    where m.id = ${input.membershipId} and m.deleted_at is null
+    where m.id = ${membershipId} and m.deleted_at is null
   `;
   if (!row) throw new NotFound("membership_not_found");
 
   const { taxonomy, units } = await loadParishContext(tx, ctx);
-  const pendingChange = await getMyProfileChangeRequest(tx, ctx, input);
+  const pendingChange = await getMyProfileChangeRequest(tx, ctx, { membershipId });
 
   return {
-    membershipId: input.membershipId,
+    membershipId,
     fields: Object.fromEntries(
       PROFILE_FIELDS.map((f) => [f, row[f] ?? null]),
     ) as ProfileFields,

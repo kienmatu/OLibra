@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { hashPassword, verifyPassword } from "../../src/auth/password";
 import { signIn } from "../../src/auth/session";
 import { fixedClock } from "../../src/domain/kernel/clock";
-import { runCommand } from "../../src/domain/kernel/unit-of-work";
-import { proposeProfileChange } from "../../src/domain/members/commands/propose-profile-change";
 import {
   setPasswordHasher,
   setPasswordVerifier,
-} from "../../src/domain/members/registration";
+} from "../../src/domain/kernel/crypto";
+import { runCommand } from "../../src/domain/kernel/unit-of-work";
+import { proposeProfileChange } from "../../src/domain/members/commands/propose-profile-change";
 import { migrate } from "../../src/db/migrate";
 import { SESSION_COOKIE } from "../../src/lib/session-cookie";
 import { makeBookWithCopies, makeMember, makeShelf } from "../support/factories";

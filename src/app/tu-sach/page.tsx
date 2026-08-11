@@ -3,7 +3,7 @@ import { ChevronRight, MapPin, Search } from "lucide-react";
 import { Input } from "@/components/ui/field";
 import { FrontDoorFooter, FrontDoorHeader } from "@/components/shell/public-header";
 import { listPublicShelves } from "@/domain/portal/queries/list-public-shelves";
-import { loadPublicPage } from "@/lib/page-data";
+import { loadFrontDoorViewer, loadPublicPage } from "@/lib/page-data";
 import { SHELF_PARAM } from "@/lib/return-path";
 import { param, type SearchParams } from "@/lib/search-params";
 
@@ -67,10 +67,18 @@ export default async function PortalPage({
 }) {
   const query = (param(await searchParams, "q") ?? "").trim();
   const results = await loadPublicPage((tx) => listPublicShelves(tx, { q: query }));
+  // Task 6 (2026-08-10 QA remediation): the header, not this page's own
+  // content, is what needed to know who is asking — see
+  // `loadFrontDoorViewer`'s docstring for why that is a second, separate
+  // read from `listPublicShelves` above rather than one query doing both.
+  const viewer = await loadFrontDoorViewer();
 
   return (
     <>
-      <FrontDoorHeader />
+      <FrontDoorHeader
+        viewerName={viewer?.name ?? null}
+        isSuperAdmin={viewer?.isSuperAdmin ?? false}
+      />
 
       <main className="mx-auto max-w-2xl px-6 py-14">
         <h1 className="text-[28px] leading-tight font-semibold">Tìm tủ sách</h1>
@@ -131,6 +139,30 @@ export default async function PortalPage({
               </li>
             ))}
           </ul>
+        ) : query === "" ? (
+          // P3-1: a system with no shelves at all read the identical "no
+          // results" copy a search that came up empty does — "Thử gõ tên
+          // giáo xứ ngắn hơn" makes no sense to a visitor who has not typed
+          // anything yet. Distinguished on `query` alone, not on the shelf
+          // count: this is what nothing-searched-yet looks like precisely
+          // because an empty query matches every shelf that exists
+          // (`listPublicShelves`'s own `%' || '' || '%'`), so zero rows back
+          // for an empty query means the installation itself has none.
+          <div className="mt-8 rounded-card border border-hairline bg-paper p-8">
+            <h2 className="text-lg font-semibold">
+              Chưa có tủ sách nào trên OLibra.
+            </h2>
+            <p className="mt-1.5 text-[15px] text-meta">
+              Giáo xứ của bạn muốn mở một tủ sách?{" "}
+              <Link
+                href="/lien-he"
+                className="font-medium text-sage hover:underline"
+              >
+                Liên hệ với ban quản trị
+              </Link>{" "}
+              để bắt đầu.
+            </p>
+          </div>
         ) : (
           <div className="mt-8 rounded-card border border-hairline bg-paper p-8">
             <h2 className="text-lg font-semibold">Không tìm thấy tủ sách nào</h2>

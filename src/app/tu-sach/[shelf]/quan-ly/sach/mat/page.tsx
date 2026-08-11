@@ -20,6 +20,8 @@ import { markCopyFoundAction, retireCopyAction } from "../../actions";
 /** U1 §2. See `../../cho-muon/page.tsx` for what a cached manager screen leaks. */
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Sách đã mất — Quản lý tủ sách OLibra" };
+
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /**
@@ -130,7 +132,11 @@ export default async function LostCopiesPage({
             {copies.map((copy) => (
               <Card key={copy.copyId}>
                 <div className="flex items-start gap-4">
-                  <BookCover title={copy.title} className="w-16 shrink-0 text-lg" />
+                  <BookCover
+                    title={copy.title}
+                    coverUrl={copy.coverUrl}
+                    className="w-16 shrink-0 text-lg"
+                  />
                   <div className="min-w-0 flex-1">
                     <BookTitle as="p" className="text-[18px] leading-snug">
                       {copy.title}
