@@ -958,6 +958,36 @@ that nothing happens automatically: the manager decides, because the next
 reader may not be standing there. Modelling it as one command would make that
 choice invisible and would put two business facts in one audit row.
 
+**A worse condition never diverts the copy away from `available`, and that
+is a decision, not an oversight** (2026-08-10 QA remediation, T27). The
+flowchart above already draws it: "Chọn tình trạng" branching on "Worse than
+Nguyên vẹn?" adds a note and a photograph to what gets written, never a
+different destination — every path still ends at "Loan returned · copy
+available" (or `held`, if the manager chooses to hold it for a queued
+reader). This is not `ReceiveReturn` cutting a corner; it is BR §7.1's own
+state diagram, which draws exactly one arrow out of `on_loan` on a return
+(`on_loan → available`, no branch keyed on condition), and BR §9, which is
+explicit that condition is "a single choice... plus an optional free-text
+note and an optional photograph" recorded *about* a copy rather than a state
+it enters — "`lost` is deliberately absent [from the condition list],
+because it is a copy *state*" only reads as a meaningful distinction if
+`torn` and `missing_pages` are not states either. A `Rách` or `Mất trang`
+copy is exactly as lendable the instant it is returned as a `Nguyên vẹn`
+one; the condition record (and the photo, when there is one) is what a
+manager reads before deciding, by hand, whether the copy is still fit to
+lend. **The exit that decision leads to already exists and needs nothing
+new:** `RetireCopy` (`available → retired`, BR §7.1) is on the book's own
+detail page next to every copy, a manager who judges a returned copy unfit
+retires it there with a reason, the same path every other reason a copy
+leaves circulation goes through. Adding a `needs_repair` state to intercept
+that judgement automatically — guessing a severity threshold from the six
+flat condition values, rather than trusting the person who has the book in
+hand — is the kind of change BR §20 already declined to make preemptively:
+the one open question §9's condition model has is whether it "proves too
+coarse in practice", revisited "after the first bookshelf has run for a
+month" of real use, not anticipated now from a QA sweep against a database
+with no such history yet.
+
 
 ### `LendCopy` end to end
 
