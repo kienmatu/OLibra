@@ -30,12 +30,21 @@ import { requireManager } from "../../members/policy";
  * 3 ngày" as if it were a policy like the other five, and no admin form had
  * the field to change it. It is now `coalesce((settings->>'due_soon_days')
  * ::int, 3)`, the identical shape the other five already use, writable
- * through `updateBookshelfSettings`. **`sweepDueNotifications` itself is
- * unchanged** — it still takes `dueInDays` as a parameter and still defaults
- * to 3 system-wide; wiring the nightly sweep to read this per shelf is a
- * separate piece of work this task does not do. What Task 23 fixes is
- * narrower and prior to that: that a number a screen already claims to be a
- * shelf's own policy is now actually one.
+ * through `updateBookshelfSettings`. **At the time, `sweepDueNotifications`
+ * itself was left unchanged** — it still took `dueInDays` as a parameter and
+ * still defaulted to 3 system-wide; wiring the nightly sweep to read this per
+ * shelf was named explicitly as a separate piece of work that task did not
+ * do. What Task 23 fixed was narrower and prior to that: that a number a
+ * screen already claims to be a shelf's own policy is now actually one.
+ *
+ * **QA remediation Task 24 did the separate piece.** `sweepDueNotifications`
+ * (`src/domain/notifications/sweep.ts`) now joins `bookshelves` in its
+ * due-soon query and reads this identical `coalesce`, so the value this
+ * function reports and the value the nightly sweep enforces are the same
+ * `coalesce` expression rather than two numbers that happened to agree while
+ * nothing read the second one. See that module's own note for why reading a
+ * per-shelf value this way does not reopen the "no tenant to scope to"
+ * argument the sweep's docstring makes elsewhere.
  */
 
 export interface ShelfProfile {
@@ -72,8 +81,9 @@ export interface LendingPolicy {
   renewalDays: number;
   holdDays: number;
   /**
-   * The sweep's reminder window, defaulting to 3 — see the module note on
-   * why `sweepDueNotifications` itself does not read this per shelf yet.
+   * The sweep's reminder window, defaulting to 3 — and, since QA remediation
+   * Task 24, the same value `sweepDueNotifications` itself reads per shelf.
+   * See the module note above for how the two stayed in agreement.
    */
   dueSoonDays: number;
   commentsEnabled: boolean;
