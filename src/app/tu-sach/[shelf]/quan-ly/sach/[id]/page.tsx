@@ -268,7 +268,7 @@ export default async function ManagerBookDetailPage({
                 className="mt-2 inline-flex min-h-11 items-center gap-1.5 text-[15px] font-medium text-sage hover:underline"
               >
                 <BookOpen aria-hidden className="size-4" strokeWidth={1.75} />
-                Xem trang bạn đọc
+                Xem chi tiết
               </Link>
             ) : null}
           </div>
