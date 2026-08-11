@@ -98,10 +98,19 @@ function InfoRow({
 
 /** "Chỉ quản trị viên mới đổi được các mục này." — `cai-dat`'s own sentence,
  * for the same reason: both screens draw this line under a `super_admin`-only
- * section a `manager` can only read. */
+ * section a `manager` can only read.
+ *
+ * `mt-3`, matching `cai-dat`'s own `<p className="mt-3 …">` exactly (QA
+ * remediation T27) — missing here until this task, harmlessly at both of
+ * this component's current call sites (each already sits at the tail of a
+ * `space-y-*` container, whose own margin on the preceding sibling collapses
+ * with this one to the larger of the two — 0.75rem inside `space-y-3`,
+ * where they're equal; 1rem inside `space-y-4`, where the parent's already
+ * wins), but a component's own spacing should not depend on which
+ * `space-y-*` its caller happens to wrap it in. */
 function SuperAdminOnlyNote() {
   return (
-    <p className="text-[14px] text-meta">
+    <p className="mt-3 text-[14px] text-meta">
       Chỉ quản trị viên mới đổi được các mục này.
     </p>
   );
