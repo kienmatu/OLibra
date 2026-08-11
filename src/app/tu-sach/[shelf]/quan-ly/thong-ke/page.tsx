@@ -62,6 +62,43 @@ function shortDay(day: string): string {
 }
 
 /**
+ * The y-axis gridlines' labels for a chart topping out at `max` — up to
+ * three of them (top, middle, zero), always whole numbers, never repeating.
+ *
+ * QA remediation T27 (P3-7, 2026-08-10 sweep): fixed at three even
+ * fractions of `max` — `Math.round(max * (1 - g))` for `g` in
+ * `[0, 0.5, 1]` — this used to render `1, 1, 0` for a chart whose busiest
+ * day had a single loan (`max = 1`, the smallest value `LineChart` ever
+ * calls this with — its own `Math.max(...counts, 1)` floors it there so a
+ * quiet period never divides by zero). `Math.round(1 * 0.5)` rounds to
+ * `1`, tying the midpoint gridline's label to the top one with nothing
+ * distinguishing them.
+ *
+ * `count` is `max + 1` — the number of distinct whole numbers between `0`
+ * and `max` inclusive — whenever that is smaller than three, rather than
+ * asking three gridlines to label two (or one) distinct counts: `max = 1`
+ * gets two ticks (`1, 0`), not three. Three fixed fractions of a *larger*
+ * `max` never collide (`max`, `round(max / 2)` and `0` are only equal to
+ * each other when `max` is 0 or 1, both caught by the `count` reduction —
+ * `max` itself is never 0 through `LineChart`, but `yTicks` does not
+ * assume its one caller stays its only one), so nothing changes for the
+ * ordinary case this page has always drawn correctly. The final `Set` is
+ * a defensive last step, not the mechanism the fix relies on — evidence
+ * the arithmetic above already can't produce a duplicate should not be
+ * the same thing as trusting it never will.
+ */
+function yTicks(max: number): number[] {
+  const count = Math.max(1, Math.min(3, max + 1));
+  const values =
+    count === 1
+      ? [max]
+      : Array.from({ length: count }, (_, i) =>
+          Math.round((max * (count - 1 - i)) / (count - 1)),
+        );
+  return [...new Set(values)];
+}
+
+/**
  * The daily line, drawn from whatever days came back.
  *
  * One point is a special case worth handling rather than dividing by zero: a
@@ -97,10 +134,14 @@ function LineChart({ data }: { data: StatsPoint[] }) {
       role="img"
       aria-label={`Biểu đồ lượt mượn theo ngày, cao nhất ${NUMBER.format(max)} lượt`}
     >
-      {[0, 0.5, 1].map((g) => {
+      {yTicks(max).map((value, i, ticks) => {
+        // Evenly spaced top-to-bottom across however many distinct ticks
+        // `yTicks` actually returned — two gridlines split the height in
+        // half, one sits at the top, exactly as three already did.
+        const g = ticks.length > 1 ? i / (ticks.length - 1) : 0;
         const y = padding + g * plotHeight;
         return (
-          <g key={g}>
+          <g key={value}>
             <line
               x1={paddingLeft}
               x2={width - padding}
@@ -116,7 +157,7 @@ function LineChart({ data }: { data: StatsPoint[] }) {
               dominantBaseline="middle"
               className="fill-meta text-[13px]"
             >
-              {Math.round(max * (1 - g))}
+              {value}
             </text>
           </g>
         );
