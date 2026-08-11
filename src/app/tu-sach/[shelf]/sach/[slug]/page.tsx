@@ -435,18 +435,67 @@ export default async function BookDetailPage({
                 <p className="text-[13px] font-semibold tracking-wide text-leather uppercase">
                   Dành cho quản lý
                 </p>
+                {/* OPS §5's "second, shorter entry point", and the whole of it
+                    is these two query strings. Both flows are perfectly capable
+                    of being told which book this is — `cho-muon/nguoi-doc` reads
+                    `?sach=` and renders step 2 with the title already chosen,
+                    `nhan-tra` reads `?q=` and arrives with the search run — and
+                    for one wave these buttons linked the flow *roots* instead,
+                    which handed a volunteer holding the book a search box and
+                    asked them to type its title into it.
+
+                    A sentence under the buttons used to promise the behaviour
+                    the links did not have ("Mở sẵn với cuốn này đã chọn, rút quy
+                    trình cho mượn ba bước xuống còn hai bước từ đây."). It is
+                    gone rather than corrected: once the links carry the book,
+                    the shortcut is a thing the buttons *do*, and a caption
+                    narrating it is a caption nobody needs to read. The manager
+                    twin (`quan-ly/sach/[id]`) has never had one. */}
                 <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                  {/* OPS §5: "When a copy of that title is available, the page
+                      shows **Cho mượn**." Gated, not merely linked, and the
+                      preloading is why. A bare link to the search step let the
+                      volunteer meet `searchBooksForLending`'s `blocked` row and
+                      its reason first; skipping that step would carry them past
+                      the refusal into step 2 for a book with no lendable copy,
+                      to be turned away at `xac-nhan` instead — the late "no"
+                      BR §16.3 exists to prevent. `copiesAvailable > 0` is
+                      exactly what that query calls not-blocked
+                      (`deriveAvailability`), so this is the same answer one step
+                      earlier, and the status panel above already says why. */}
+                  {isAvailable ? (
+                    <ButtonLink
+                      href={`${base}/quan-ly/cho-muon/nguoi-doc?sach=${encodeURIComponent(
+                        book.slug,
+                      )}`}
+                      variant="outline"
+                      size="lg"
+                      className="flex-1"
+                    >
+                      <BookCheck
+                        aria-hidden
+                        className="size-5"
+                        strokeWidth={1.75}
+                      />
+                      Cho mượn
+                    </ButtonLink>
+                  ) : null}
+                  {/* Its twin is not gated, and deliberately. OPS §5 pairs the
+                      button with "when one is out", but this page cannot ask
+                      that question honestly: `getBookDetail` returns no on-loan
+                      count, and `currentLoan` — the one loan-shaped field it has
+                      — is `null` on a shelf whose `public_show_current_borrower`
+                      is off (BR §5.5), so gating on it would hide the manager's
+                      return flow as a side effect of a *reader privacy* setting.
+                      Landing on a search that finds nothing is the honest
+                      failure of the two, and it is the same empty list the
+                      manager would have reached by hand. Gating this properly is
+                      a `copiesOnLoan` on `BookDetail` — the SQL already counts
+                      it — which is a domain change, not a link fix. */}
                   <ButtonLink
-                    href={`${base}/quan-ly/cho-muon`}
-                    variant="outline"
-                    size="lg"
-                    className="flex-1"
-                  >
-                    <BookCheck aria-hidden className="size-5" strokeWidth={1.75} />
-                    Cho mượn
-                  </ButtonLink>
-                  <ButtonLink
-                    href={`${base}/quan-ly/nhan-tra`}
+                    href={`${base}/quan-ly/nhan-tra?q=${encodeURIComponent(
+                      book.title,
+                    )}`}
                     variant="outline"
                     size="lg"
                     className="flex-1"
@@ -455,10 +504,6 @@ export default async function BookDetailPage({
                     Nhận trả
                   </ButtonLink>
                 </div>
-                <p className="mt-3 text-[14px] text-meta">
-                  Mở sẵn với cuốn này đã chọn, rút quy trình cho mượn ba bước xuống
-                  còn hai bước từ đây.
-                </p>
 
                 {/* Everything else a manager might want on this title — sửa
                     thông tin, thêm bản, tình trạng từng bản, lịch sử mượn —
