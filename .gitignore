@@ -5,6 +5,14 @@
 # Git worktrees live inside the project, never beside it.
 /.worktrees/
 
+# A Claude Code worktree, same shape as /.worktrees/ above but a separate
+# convention this file did not cover. Found by the QA remediation branch's
+# Task 6, whose reported `bun run lint` failure turned out to be 100% of 284
+# errors coming from a stray `.claude/worktrees/*/.next/` left by another
+# session — unignored, so ESLint (and everything else that walks the tree)
+# happily descended into another branch's build output.
+/.claude/worktrees/
+
 # Dependencies
 /node_modules
 .pnp
