@@ -315,6 +315,44 @@ test("M7: a garbage quick-lend query returns nothing, not the whole shelf", asyn
   expect(rows).toHaveLength(0);
 });
 
+test("QA remediation T27: quick-lend search also matches a copy code", async () => {
+  const { ctx, bookId } = await shelf();
+  const [{ code }] = await sql<{ code: string }[]>`
+    select code from book_copies where book_id = ${bookId} order by code limit 1
+  `;
+
+  // Lowercase and partial, the same forgiveness the title/author halves of
+  // this query already give — `ilike`, not `like`, and no need for
+  // `olibra_fold`: a copy code is plain ASCII assigned by `copy-codes.ts`,
+  // never Vietnamese text.
+  const rows = await runQuery(sql, ctx, (tx) =>
+    searchBooksForLending(tx, ctx, { q: code.toLowerCase().slice(0, -1) }),
+  );
+  expect(rows.map((r) => r.title)).toContain("Dế Mèn Phiêu Lưu Ký");
+
+  // The book this matched has three copies. A match found through only one
+  // of their codes must still report all three — this is the aggregate this
+  // query's own docstring says the `exists` clause is written to leave
+  // alone, as opposed to a condition added to the `cp` alias the counts
+  // below are built from, which would have fanned the join down to the one
+  // matching copy before `count(cp.id) filter (...)` ever ran.
+  const [row] = rows;
+  expect(row.copiesTotal).toBe(3);
+});
+
+test("QA remediation T27: a copy code match is literal, not a LIKE wildcard", async () => {
+  // escapeLikePattern's own concern (copy-codes.ts), mirrored here on the
+  // search side: a manager typing a stray `%` or `_` must not turn "find
+  // this one code" into "find every code that has any character there".
+  // Every seeded code is `DT-####` — a hyphen, not an underscore — so an
+  // unescaped `_` in this query would still match one via the wildcard.
+  const { ctx } = await shelf();
+  const rows = await runQuery(sql, ctx, (tx) =>
+    searchBooksForLending(tx, ctx, { q: "DT_0001" }),
+  );
+  expect(rows).toHaveLength(0);
+});
+
 test("a reader reaches none of the three", async () => {
   const { ctx, s, bookId } = await shelf();
   const reader = await makeMember(sql, s.id);
