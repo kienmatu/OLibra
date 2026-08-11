@@ -132,8 +132,10 @@ test("a reader's comment lands as pending, on the right shelf and the right book
   );
 
   // Back to the page they were reading, with the sentence that tells them the
-  // comment is waiting — the whole reason this redirect carries a marker.
-  expect(target).toBe(`/tu-sach/dong-thap/sach/${bookSlug}?da-gui=1`);
+  // comment is waiting. The marker **names the form**: "Xin mượn" lands on this
+  // same URL, and a bare `1` would confirm whichever of the two sentences the
+  // page rendered first.
+  expect(target).toBe(`/tu-sach/dong-thap/sach/${bookSlug}?da-gui=binh-luan`);
 
   const [row] = await sql<
     { status: string; body: string; author_id: string; bookshelf_id: string }[]
@@ -167,7 +169,7 @@ test("a manager can comment too — the symptom this slice was reported for", as
     ),
   );
 
-  expect(target).toBe(`/tu-sach/dong-thap/sach/${bookSlug}?da-gui=1`);
+  expect(target).toBe(`/tu-sach/dong-thap/sach/${bookSlug}?da-gui=binh-luan`);
   expect(await sql`select 1 from comments`).toHaveLength(1);
 });
 
