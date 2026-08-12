@@ -5,10 +5,14 @@ import { hashFor, verifyFor } from "../registration";
 
 /**
  * A reader changes their own password (OPS §4.3). BR §16.2: "Changing the
- * password and toggling leaderboard visibility take effect immediately —
- * neither is a fact about the person that a manager verified", which is why
- * this is not a `ProfileChangeRequest` the way every other personal field now
- * is.
+ * password takes effect immediately — it is not a fact about the person that
+ * a manager verified", which is why this is not a `ProfileChangeRequest` the
+ * way every other personal field now is. (An earlier version of that BR
+ * sentence paired the password with toggling leaderboard visibility, the
+ * profile page's other immediate-effect control; PO feedback round 1, Task 6
+ * removed the leaderboard toggle along with `memberships.leaderboard_opt_in`
+ * and the `UpdateOwnProfile` command that wrote it, leaving this password
+ * change as the one remaining example of the distinction BR §16.2 draws.)
  *
  * **The input is a `membershipId`, not OPS §4.3's `userId`.** OPS lists
  * `userId`, and taking one would be a real hazard here: `users` carries no

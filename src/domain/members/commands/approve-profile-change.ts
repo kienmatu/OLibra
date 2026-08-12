@@ -225,12 +225,14 @@ export const approveProfileChange: Command<
   const diff = diffProfileFields(before, after);
 
   // PO feedback round 1, Task 8: "a manager approving ... a profile change
-  // whose phone is empty" — this is that check. A reader may propose clearing
-  // their phone with no reason (this command never gated the proposal itself;
-  // Task 8's file list does not touch `ProposeProfileChange`), so the record
-  // this approval would produce is what gets asked, not the proposal alone.
-  // A reason already on file — from an earlier decision, untouched by this
-  // proposal — answers it without anyone retyping anything.
+  // whose phone is empty" — this is that check. A follow-up fix to the same
+  // task ("Fix round 1", `../propose-profile-change.ts`) later added the same
+  // check there too, so this is no longer the only gate — but it stays as
+  // the backstop for a request written before that fix, or by a caller that
+  // bypasses `ProposeProfileChange` entirely, and the record this approval
+  // would actually produce is what gets asked either way, not the proposal
+  // alone: a reason already on file — from an earlier decision, untouched by
+  // this proposal — answers it without anyone retyping anything.
   assertPhoneOrReason(after);
 
   // Read *after* the write, off the authoritative before/after, rather than

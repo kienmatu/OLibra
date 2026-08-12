@@ -221,9 +221,12 @@ export async function proposeProfileChangeAction(form: FormData): Promise<void> 
         // (`../../../../domain/members/profile-proposals.ts` filters
         // `PROFILE_FIELDS` by excluding only `avatar_url`), so a reader who
         // types a reason here has it travel with the proposal. The rule
-        // itself is enforced downstream, at approval: `ApproveProfileChange`
-        // refuses `thieu-so-dien-thoai` if approving this proposal would
-        // leave the record with neither a phone nor a reason.
+        // itself is enforced in the domain, not here: `proposeProfileChange`
+        // calls `assertPhoneOrReason` directly (Task 8's fix), and
+        // `approveProfileChange` calls it again on the resulting record, so
+        // a proposal that would leave the person with neither a phone nor a
+        // reason is refused with `thieu-so-dien-thoai` whether the gap shows
+        // up at the moment of proposing or only becomes apparent at approval.
         phone_missing_reason: value("ly-do-thieu-sdt"),
         email: value("email"),
       },

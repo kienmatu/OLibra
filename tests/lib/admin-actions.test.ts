@@ -60,12 +60,16 @@ vi.mock("next/headers", () => ({
 
 const {
   assignManagerAction,
-  contactsFromForm,
   revokeManagerAction,
   updateBookshelfSettingsAction,
   updateSiteContactAction,
   updateSystemDefaultsAction,
 } = await import("../../src/app/quan-tri/admin-actions");
+// `contactsFromForm` moved out of `admin-actions.ts` on 2026-08-12 (PO
+// feedback round 1, Task 13's final check): a `"use server"` file may only
+// export async functions, and this pure form-parsing helper is not one.
+const { contactsFromForm } =
+  await import("../../src/app/quan-tri/contacts-from-form");
 const { pool } = await import("../../src/db/client");
 
 const clock = fixedClock("2026-08-10T03:00:00Z");

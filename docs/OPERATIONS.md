@@ -2,7 +2,7 @@
 
 **Status:** Draft for backend implementation. Transport-neutral by design.
 **Date:** 2026-08-07
-**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 47 route files) and the settled stack. This catalogue defines **47 queries** (§3) and **66 commands** (§4), enforcing the fourteen business rules of §6.
+**Scope:** Every operation the system can perform — the contract between the built UI (`src/app/`, 47 route files) and the settled stack. This catalogue defines **48 queries** (§3) and **66 commands** (§4), enforcing the fourteen business rules of §6. (Query count updated 2026-08-12 for `GetPendingManagerChanges`, added below; `UpdateOwnProfile`'s retirement the same date leaves the command count as it already was, since it was not being counted as one of the 66 to begin with.)
 
 This document does not restate [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md); it references it by section and adds what that document does not already say: names, inputs, callers, invariant enforcement, audit actions, and named failure modes for every command and query the UI needs. [DESIGN.md](DESIGN.md) is referenced only for the UI behaviour that shapes an operation's contract (e.g. why blocking conditions must be visible before a confirm step).
 
@@ -44,11 +44,11 @@ Per §1.2 of the requirements, only two things live here now: the portal directo
 
 | Query | Purpose | Inputs | Returns | Caller | Derived on read |
 |---|---|---|---|---|---|
-| `GetPortalDirectory` | List every active bookshelf for the front door. **Global.** | — | Per shelf: **name and address only** (§16.1) — no book count, no reader count, no keeper contact | `guest` | — |
+| `GetPortalDirectory` | List every active bookshelf for the front door. **Global.** | — | Per shelf: **name and address only** (§16.1) — no book count, no reader count, no shelf contacts | `guest` | — |
 | `SearchBookshelves` | Live search over the portal directory by name, so a stranger can find their own parish's shelf (§16.1: "A search box, because finding your own parish is the only job this page has"). **Global.** | `q` | Matching shelves: name and address only, same shape as `GetPortalDirectory` | `guest` | — |
 | `GetSiteContact` | The administration's contact details for the public contact page (§16.1). **Global.** | — | Name, phone, contact hours | `guest` | — |
 
-Book counts, reader counts, and keeper contact are withheld from both of the above on purpose (§16.1: "a person with no membership has no business knowing them"), not merely omitted for brevity — a candidate implementation must not join that data in and trim it client-side, since that would put it on the wire.
+Book counts, reader counts, and a shelf's contacts are withheld from both of the above on purpose (§16.1: "a person with no membership has no business knowing them"), not merely omitted for brevity — a candidate implementation must not join that data in and trim it client-side, since that would put it on the wire. **Since 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §1), the withholding is also a privilege, not only a query's own care: `bookshelf_contacts` carries no grant to the role a public query runs as (DATABASE.md §4.2), so a query that tried to join it here would fail rather than merely being told not to.
 
 ### 3.2 Reader (authenticated `reader`)
 
@@ -56,7 +56,7 @@ Everything about a shelf's books, announcements, and search moved here from §3.
 
 | Query | Purpose | Inputs | Returns | Caller | Derived on read |
 |---|---|---|---|---|---|
-| `GetShelfHome` | The shelf's home page, the first thing a member sees after signing in (§16.1). Not public. | `bookshelfId` | Identity, opening hours, keeper contact, pinned + recent announcements, most-borrowed row, most-active readers, latest approved comments | `reader` | Most-borrowed ranking, availability badges |
+| `GetShelfHome` | The shelf's home page, the first thing a member sees after signing in (§16.1). Not public. | `bookshelfId` | Identity, up to three contacts (**changed 2026-08-12**, `docs/superpowers/specs/2026-08-12-po-feedback-design.md` §1, §2 — this used to read "opening hours, keeper contact"; opening hours are gone entirely, BR:179), pinned + recent announcements, most-borrowed row, most-active readers, latest approved comments | `reader` | Most-borrowed ranking, availability badges |
 | `GetCatalogue` | Browse or filter the shelf's catalogue. | `bookshelfId`, `scope` (`available` \| `all`), `category?`, `sort?`, `page` | Paginated book cards: cover, title, author, availability badge | `reader` | Availability badge per book (§8) |
 | `SearchCatalogue` | Live, diacritic-insensitive search over title and author (§12). | `bookshelfId`, `q` | Ranked book list; empty state suggests popular titles | `reader` | Availability badge |
 | `GetBookDetail` | A book's detail page. §16.1 is explicit: "There is no guest path — only a member of this shelf can see this page at all." | `bookshelfId`, `bookSlug` | Metadata, description, availability panel, approved comments | `reader` | Availability, current holder (if `public_show_current_borrower`), queue length, days remaining on current loan |
@@ -64,7 +64,7 @@ Everything about a shelf's books, announcements, and search moved here from §3.
 | `GetAnnouncementDetail` | One announcement's full body. | `bookshelfId`, `announcementSlug` | Title, body, author, date | `reader` | — |
 | `GetMyDashboard` | "My page" — held books, pending requests, recent reads (§16.2). | `membershipId` | Current loans with days-remaining, pending/held requests with queue position, recently returned | `reader` | Days remaining/overdue per loan (§8), queue position |
 | `GetMyLoanHistory` | Full borrowing history, reverse-chronological. | `membershipId`, `page` | Loan rows with return condition | `reader` | — |
-| `GetMyProfile` | View own profile and propose changes to it (§16.2). | `membershipId` | Personal fields, parish-unit selections (read-only — `describeSelection`'s rendering of them, per shelf label), leaderboard toggle, current pending change if any (see `GetMyProfileChangeRequest`) | `reader` | — |
+| `GetMyProfile` | View own profile and propose changes to it (§16.2). | `membershipId` | Personal fields, parish-unit selections (read-only — `describeSelection`'s rendering of them, per shelf label), current pending change if any (see `GetMyProfileChangeRequest`) | `reader` | — |
 | `GetMyProfileChangeRequest` | The reader's own pending profile-change proposal, if one exists (§16.2: "the page shows the current value with the pending one beside it, and says plainly that it is waiting"). | `membershipId` | Current values and proposed values side by side, status, when proposed — `null`/empty if nothing is pending (INV-13: at most one) | `reader` | — |
 | `GetMyNotifications` | Bell dropdown / notifications page. | `membershipId` | Notification list, unread count | `reader` | Unread count |
 | `GetMyDonations` | The reader's own book-donation offers and their status (§16.2's Tặng sách screen). | `membershipId` | Donation rows: description, estimated count, status, decision note if declined | `reader` | — |
@@ -87,7 +87,7 @@ Reader full names on these pages are governed by the shelf's `public_name_displa
 | `GetReadersList` | Manager's reader list, filterable by status and parish unit — the payoff a text field could never give (BR §5.3, §16.3). | `bookshelfId`, `status?`, `parishUnitId?`, `q?`, `page` | Reader rows with parish-unit names (shelf's own labels), current holding count, status | `manager` | Holding count |
 | `GetReaderDetail` (manager) | A reader's full profile. | `bookshelfId`, `membershipId` | Full profile incl. manager-only fields, current loans, loan history | `manager` | Current loans, days remaining |
 | `GetPendingRegistrations` | The approval queue. | `bookshelfId` | Pending applications with a similar-name warning where one exists | `manager` | Similar-name match (fuzzy name comparison against existing active members) |
-| `GetPendingProfileChanges` | The profile-change approval queue (§16.3: "One card per proposed change, showing the current value and the proposed one side by side"). | `bookshelfId` | Pending `ProfileChangeRequest` rows for this shelf's members, each with current and proposed values side by side | `manager` | — |
+| `GetPendingProfileChanges` | The profile-change approval queue (§16.3: "One card per proposed change, showing the current value and the proposed one side by side"). **Since 2026-08-12** (§9 of the design), filtered to `reader` subjects only — a manager's or admin's own pending change routes to `GetPendingManagerChanges` (§3.4) instead, since nobody at their own shelf may decide it. | `bookshelfId` | Pending `ProfileChangeRequest` rows for this shelf's `reader` members, each with current and proposed values side by side | `manager` | — |
 | `GetBorrowRequestQueue` | Requests grouped by book, in request-time order. | `bookshelfId` | Per book: queue position, requester, status, hold expiry where approved | `manager` | Queue position, hold-expired flag (§8) |
 | `GetDonationQueue` | Pending donation offers, oldest first — backs the sidebar's count badge (§16.3). | `bookshelfId` | Pending donation rows: donor, description, photo, estimated count, submitted time | `manager` | Queue count for the badge |
 | `GetOverdueLoans` | Loans past due, sorted by lateness. | `bookshelfId`, `sort` | Borrower, phone, days late, due date | `manager` | Days late — computed from `due_on` vs. today (§8), never stored |
@@ -112,6 +112,7 @@ Reader full names on these pages are governed by the shelf's `public_name_displa
 | `GetManagersList` | Every manager/admin across every shelf. | `shelfFilter?`, `q?` | Person, shelf, role, last-active | `super_admin` | Last-active recency (flags e.g. "32 ngày trước" as stale) |
 | `GetManagerActivity` | One manager's full activity, grouped by type (§16.4). | `membershipId` (or `userId` for the global `admin` role), `period` | Grouped sections: lends, returns, registrations approved, books added | `super_admin` | All counts read live from the audit log — "trang này đọc từ nhật ký" |
 | `GetAuditLog` (cross-shelf) | Filterable by shelf, actor, action, date range. | filters | Same entry shape as the shelf-scoped version, any shelf | `super_admin` | — |
+| `GetPendingManagerChanges` | *Added 2026-08-12* (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §9). The super admin's half of the profile-change routing table at `/quan-tri/doi-thong-tin` — every pending `ProfileChangeRequest` whose subject is a `manager` or `admin`, anywhere in the system, the shelf named on each row. The complement of `GetPendingProfileChanges` (§3.3), which now filters to `reader` subjects only; together the two partition every pending request. | — | Rows: shelf, subject, current and proposed values side by side, requested time | `super_admin` | — |
 | `GetFeedbackInbox` | Messages from readers and guests. | `status?` (`new` \| `read` \| `resolved`), `shelfFilter?` | Sender, subject, shelf (or site-wide), time, unread flag | `super_admin` | Unread flag/count |
 | `GetFeedbackDetail` | One message. | `feedbackId` | Full body, sender contact, shelf | `super_admin` | — |
 | `GetSystemSettings` | Global defaults, the public contact details, and read-only system facts. | — | **Administration contact: name, phone, contact hours**; default lending-policy values for new shelves, locale, timezone (read-only: `Asia/Ho_Chi_Minh`), last backup time | `super_admin` | — |
@@ -464,7 +465,7 @@ bookshelf (§13.2, Oversight). `credentials.set` is therefore one of the audit
 actions the administration surface must be able to filter on by name.
 
 #### `UpdateReaderProfile`
-A manager corrects a reader's personal details directly, with no approval step. Named after `SetReaderCredentials` above, its closest sibling: a manager acting on a named reader's person record. `UpdateOwnProfile` (reader, own) and `UpdateReaderProfile` (manager, a reader's) then read as the pair they are.
+A manager corrects a reader's personal details directly, with no approval step. Named after `SetReaderCredentials` above, its closest sibling: a manager acting on a named reader's person record. (**Retired 2026-08-12**: this used to be named as one half of a pair with `UpdateOwnProfile`, "reader, own" to this command's "manager, a reader's". `UpdateOwnProfile` is gone — see its retirement note below — so this command no longer has that sibling; `ProposeProfileChange`, below, is the route a reader now has to their own record, and it is a proposal rather than a direct write, which is the whole reason the two commands were never really a symmetric pair.)
 
 This is the product owner's answer to the hole master plan §5 Q8 named, recorded in BR §2 ("A manager corrects a reader's details directly") and in BR §6's restated INV-13. BR §2 makes credentials optional *because* most readers are children who will never sign in, so `ProposeProfileChange` below — whose caller is `reader` (self only) — is not a route to a corrected phone number for most of the shelf, and §16.3 calls the phone number the actual mechanism by which books come back.
 
@@ -473,7 +474,7 @@ It is not a weakening of INV-13. Whoever can set a reader's password (`SetReader
 - **Inputs:** `bookshelfId`, `membershipId`, new values for any subset of: saint name, full name, DOB, father's name, mother's name, phone, email, avatar URL. **Never a `userId`** — `users` carries no row-level security, so a caller-supplied user id would let a manager of one parish rewrite any person in the system; the reader is reached by joining out of a `memberships` row RLS has already scoped, exactly as `SetReaderCredentials` does.
 - **Caller:** `manager`
 - **Invariants enforced:** INV-8; INV-13 as restated in BR §6 — this is the second sanctioned write path to a person's verified details, and it is audited with before and after
-- **Audit action:** `profile.corrected`, with `before`/`after` carrying only the fields that actually changed. Deliberately not `membership.updated` (which `UpdateOwnProfile` below uses for the leaderboard toggle) and not `profile_change.approved` (a different act, by a manager who was shown a proposal). §14 wants a name the audit browser can filter on, and the thing a super administrator must be able to filter for is exactly "a manager changed someone's details without an approval step" — the same oversight need `credentials.set` serves (BR §2, §13.2).
+- **Audit action:** `profile.corrected`, with `before`/`after` carrying only the fields that actually changed. Deliberately not `profile_change.approved` (a different act, by a manager who was shown a proposal) — §14 wants a name the audit browser can filter on, and the thing a super administrator must be able to filter for is exactly "a manager changed someone's details without an approval step", the same oversight need `credentials.set` serves (BR §2, §13.2). (This used to also be contrasted with `membership.updated`, which `UpdateOwnProfile` wrote for the now-retired leaderboard toggle; that command and its audit action are gone — see the retirement note below — so the contrast no longer applies.)
 - **Failure modes:**
   - `membership_not_found` — "Không tìm thấy bạn đọc này."
   - `required_fields_missing` — "Vui lòng điền đầy đủ các trường bắt buộc." (full name, father's name and mother's name are `not null`, so blanking one is a named refusal rather than a constraint violation)
@@ -483,14 +484,11 @@ It is not a weakening of INV-13. Whoever can set a reader's password (`SetReader
 
 > **Open question — the Vietnamese this command needs that this document does not have.** Two sentences that exist nowhere: what a manager reads above the edit form, and how the audit browser renders `profile.corrected` (§14 requires a readable Vietnamese sentence per entry). Both were written by the implementing slice rather than left blank, and both are marked in the code as newly authored rather than quoted — `PROFILE_CORRECTED_COPY` in `src/domain/members/profile-copy.ts`. They are the product owner's to approve or replace; nothing else in that slice's Vietnamese is new.
 
-#### `UpdateOwnProfile`
-Reader toggles their own leaderboard visibility — the one part of the profile page that takes effect immediately, because it is "not a fact about the person that a manager verified" (§16.2). A membership's parish-unit fields (BR §5.6) remain read-only from this command, as before — the profile screen tells the reader why with a sentence built from the shelf's own labels, not a fixed one: for Tủ sách Đồng Tháp's taxonomy (*giáo họ*, *tổ*) it renders as "Muốn đổi giáo họ hoặc tổ thì nhờ quản lý tủ sách giúp." (`src/app/tu-sach/[shelf]/ho-so/page.tsx`), a UI sentence, not requirements text — a shelf with different labels, or only one level, gets a different sentence from the same component, never this one hard-coded. Every other personal field — saint name, full name, DOB, father's and mother's names, phone, email — no longer changes here at all; it goes through `ProposeProfileChange` below, because §2 and §7.4 now make **every** field on the person a proposal a manager must approve, including the phone number, so the manager never loses the means of contacting a family mid-change.
+#### `UpdateOwnProfile` — retired 2026-08-12
 
-- **Inputs:** `membershipId`, leaderboard-visible flag
-- **Caller:** `reader` (self only)
-- **Invariants enforced:** INV-8
-- **Audit action:** `membership.updated`
-- **Failure modes:** none beyond `not_found`
+**Retired**, not merely edited, per Task 6's removal of `memberships.leaderboard_opt_in` (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §13). This command existed to write exactly one thing — a reader's own leaderboard-visibility toggle, "not a fact about the person that a manager verified" (BR §16.2, before that paragraph's own 2026-08-12 revision) — and nothing else: every other personal field already went through `ProposeProfileChange`, below, because §2 and §7.4 make every field on the person a proposal a manager must approve. Once the column and the toggle it wrote were gone, the command had no remaining input, and went with them, along with its server action, the reader's "Riêng tư" form block, and the `membership.updated` audit action, which existed only to name this command's write.
+
+A membership's parish-unit fields (BR §5.6) are still read-only from the reader's own side — nothing in this retirement changes that — the profile screen still tells the reader why with a sentence built from the shelf's own labels, not a fixed one: for Tủ sách Đồng Tháp's taxonomy (*giáo họ*, *tổ*) it renders as "Muốn đổi giáo họ hoặc tổ thì nhờ quản lý tủ sách giúp." (`src/app/tu-sach/[shelf]/ho-so/page.tsx`), a UI sentence, not requirements text.
 
 #### `ProposeProfileChange`
 A reader proposes new values for their own verified details (§2: "Changing your own details is a request, not an edit"; §7.4). **Every field requires approval** — the product owner's explicit decision, including the phone number — so this command never writes to the person record; it only ever creates or replaces a `ProfileChangeRequest`. The existing values remain in force, and are what every other query and screen keeps showing, until a manager approves the proposal (§5.4: "Storing the previous values alongside the proposed ones means a manager reviewing a week-old request sees what it would actually change").
@@ -510,28 +508,34 @@ This has one consequence worth stating, because it is the only proposable field 
 #### `ApproveProfileChange`
 A manager approves a pending change; the proposed values are written to the person record in the same transaction as the audit record (§7.4's diagram: `pending ──► approved (values written to the person)`).
 
-**Also carries `parishUnitL1Id?` and `parishUnitL2Id?`, in place of the two text fields an earlier draft of this catalogue had here.** These are not part of what was proposed — parish units are a membership fact, not one of the person-level fields `ProposeProfileChange` lets a reader put forward (§4.3, above) — they let the approving manager set or correct the reader's parish-unit placement in the same action, which is the mechanism the profile screen's own note points a reader towards when it says a unit change needs the shelf manager's help (`UpdateOwnProfile`, above). Both stay optional here exactly as they are everywhere else (BR §5.6): supplying neither leaves the membership's existing placement untouched.
+**Also carries `parishUnitL1Id?` and `parishUnitL2Id?`, in place of the two text fields an earlier draft of this catalogue had here.** These are not part of what was proposed — parish units are a membership fact, not one of the person-level fields `ProposeProfileChange` lets a reader put forward (§4.3, above) — they let the approving manager set or correct the reader's parish-unit placement in the same action, which is the mechanism the profile screen's own note points a reader towards when it says a unit change needs the shelf manager's help (the profile screen's own copy, since `UpdateOwnProfile` was retired above). Both stay optional here exactly as they are everywhere else (BR §5.6): supplying neither leaves the membership's existing placement untouched.
+
+**Added 2026-08-12 — who may decide is derived from whose change it is** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §9). `manager` in the Caller line below is a floor, not the whole rule: the actual permission check reads the **subject's** membership role at decision time. A `reader` subject is decided by any manager or shelf admin of that reader's own shelf, exactly as before. A `manager`- or `admin`-subject change may be decided by a `super_admin` only — a colleague of equal rank could otherwise approve their own shelf's own change, which in a one-manager parish is the same person deciding for themselves — and it is reached from a new cross-shelf queue at `/quan-tri/doi-thong-tin`, not the shelf-level one. **Nobody decides their own proposal, at any rank**, including a super admin proposing a change to their own record. Both rules are evaluated fresh at approval time from the subject's current role, so a membership promoted or demoted since the proposal was made is routed correctly without anyone updating a stored value.
 
 - **Inputs:** `bookshelfId`, `profileChangeRequestId`, `parishUnitL1Id?`, `parishUnitL2Id?`
-- **Caller:** `manager`
+- **Caller:** `manager` — see the routing rule immediately above; the effective decider depends on the subject's role, not only the caller's
 - **Invariants enforced:** INV-13 (this is one of the two paths by which a person's verified details change — the other is `UpdateReaderProfile` above, and BR §6's restated INV-13 names both), INV-8; the parish-taxonomy selection rule (BR §5.6) when either unit id is supplied — `validateSelection` in `src/domain/members/parish-taxonomy.ts`, same as `RegisterMembership`
 - **Audit action:** `profile_change.approved`
 - **Failure modes:**
   - `not_pending` — "Yêu cầu này đã được xử lý."
+  - `not_permitted` — a `manager`/`admin`-subject change approved by anyone but a `super_admin`, or any decider approving their own proposal (added 2026-08-12, routing rule above)
   - `parish_unit_l1_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại."
   - `parish_unit_l2_not_found` — "Đơn vị bậc 2 đã chọn không tồn tại."
   - `parish_unit_l2_not_in_l1` — "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn."
 
+`RejectProfileChange`, below, is governed by the identical routing rule and the identical `not_permitted` failure mode — same subject-role check, same self-decision refusal — and is not restated a second time.
+
 #### `RejectProfileChange`
-A manager rejects a pending change with a reason, which the reader then sees (§16.3: mirrors `RejectMembership` and `RejectComment`'s required-reason pattern). The existing values are untouched — there was never anything to undo.
+A manager rejects a pending change with a reason, which the reader then sees (§16.3: mirrors `RejectMembership` and `RejectComment`'s required-reason pattern). The existing values are untouched — there was never anything to undo. **Since 2026-08-12**, governed by the identical subject-role routing rule `ApproveProfileChange` documents above — a `manager`/`admin` subject's rejection is a `super_admin`-only decision, and nobody rejects their own proposal.
 
 - **Inputs:** `bookshelfId`, `profileChangeRequestId`, reason (required)
-- **Caller:** `manager`
+- **Caller:** `manager` — a floor, not the whole rule; see `ApproveProfileChange`, above
 - **Invariants enforced:** INV-8
 - **Audit action:** `profile_change.rejected`
 - **Failure modes:**
   - `reason_required` — "Vui lòng ghi lý do từ chối."
   - `not_pending` — "Yêu cầu này đã được xử lý."
+  - `not_permitted` — same routing rule as `ApproveProfileChange`, above
 
 #### `CancelProfileChange`
 The reader withdraws their own proposal before a decision is made (§7.4's diagram: `pending ──► cancelled (reader withdrew before a decision)`).
@@ -723,7 +727,7 @@ A signed-in reader offers books they no longer want, from the Tặng sách scree
 #### `CreateBookshelf`
 Provisions a new tenant (§16.4: "Create and edit shelves, including the slug that becomes the URL").
 
-- **Inputs:** name, slug (fixed after creation), description?, location, keeper name + phone, opening hours, timezone, locale, initial lending-policy values (defaulting from `GetSystemSettings`)
+- **Inputs:** name, slug (fixed after creation), description?, location, up to three contacts (name, phone?, role label? — position 1 required, per position — **changed 2026-08-12**, `docs/superpowers/specs/2026-08-12-po-feedback-design.md` §1; this used to be a single keeper name + phone), timezone, locale, initial lending-policy values (defaulting from `GetSystemSettings`). `opening_hours` is gone (§3 of the same design; BR:179).
 - **Caller:** `super_admin`
 - **Invariants enforced:** INV-8
 - **Audit action:** `bookshelf.created`
@@ -736,7 +740,7 @@ Provisions a new tenant (§16.4: "Create and edit shelves, including the slug th
 #### `UpdateBookshelfSettings`
 Edits a shelf's profile and lending policy together, in one save (the built settings form submits both under a single "Lưu cài đặt" button).
 
-- **Inputs:** `bookshelfId`, changed profile fields (name, description, location, hours, keeper name/phone — **not** the slug), changed lending-policy values (§5.5)
+- **Inputs:** `bookshelfId`, changed profile fields (name, description, location — **not** the slug), the shelf's full set of up to three contacts (**changed 2026-08-12**, same source as `CreateBookshelf` above — this used to be `hours, keeper name/phone`; opening hours are gone entirely and contacts are now written as a set, all-or-nothing, rather than as two scalar columns), changed lending-policy values (§5.5)
 - **Caller:** `super_admin` — see the open question below on whether a shelf's own `admin` role should also be able to call this
 - **Invariants enforced:** INV-8; the slug is immutable after creation ("Đường dẫn không đổi được sau khi tạo") — attempting to change it is a validation failure, not silently ignored
 - **Audit action:** `bookshelf.updated`
