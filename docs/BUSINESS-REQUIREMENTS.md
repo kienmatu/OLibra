@@ -170,7 +170,9 @@ This distinction matters and is easy to get wrong.
 
 Parents' names are required rather than optional because they are how a manager tells apart two children with the same name, which §3 lists as a real edge case. A photograph is collected at registration for the same reason — a volunteer who meets forty children on a Sunday recognises a face faster than a name.
 
-**On the membership** — facts about that person's relationship to *that specific parish*: up to two levels of parish-unit reference (§5.6), role, status, who approved them and when, rejection or suspension reason, manager's private notes, leaderboard visibility.
+**On the membership** — facts about that person's relationship to *that specific parish*: up to two levels of parish-unit reference (§5.6), role, status, who approved them and when, rejection or suspension reason, manager's private notes.
+
+**Changed 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §13): this list carried a trailing "leaderboard visibility" fact. The column is dropped and appears nowhere in `src/` — see §5.4 and §16.2 for what that reverses and why.
 
 **The parish-unit fields are references to units the shelf itself defines, not free text typed at registration.** An earlier draft stored them as two plain text columns, and free text fails in three ways that matter here. It cannot be grouped: one volunteer writes "Tổ 1", the next "tổ 1", a third "T1", and the reader list's unit filter (§16.3) can never make sense of three spellings of the same group — a filter is the whole reason to record the value at all. Renaming is expensive: a parish reorganising *Giáo họ Mân Côi* into *Giáo họ Đức Mẹ* would mean editing every membership row by hand rather than one row. And a fixed two-level shape, always called tổ and giáo họ, was never something this document actually specified — it was assumed from how one parish happens to be organised, and real parishes vary in how many levels they use, what they call them, and whether the smaller nests inside the bigger (§5.6).
 
