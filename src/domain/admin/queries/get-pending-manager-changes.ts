@@ -180,3 +180,33 @@ export async function countPendingManagerChanges(
   `;
   return Number(row?.n ?? 0);
 }
+
+/**
+ * The shelf one specific request belongs to, read off `profile_change_requests`
+ * itself rather than trusted from a caller.
+ *
+ * Fix round 1: `/quan-tri/actions.ts`'s approve/reject actions used to read a
+ * posted `tu-sach` field straight off the form and pass it through as
+ * `ctx.bookshelfId`, unchecked — on this admin path RLS does not run (
+ * `runAdminCommand` executes as `olibra_admin` with `bypassrls`), so nothing
+ * stood between a mismatched post and a `profile_change.approved` audit row
+ * filed against the wrong parish. This is the same defect class the query
+ * above already closed once, at `m.bookshelf_id = r.bookshelf_id`: **the
+ * shelf is a fact about the request, not a value a form carries.** The two
+ * actions resolve it from here — the same way `handle()`'s feedback actions
+ * resolve their shelf from `getFeedbackDetail` instead of a hidden field —
+ * rather than trusting what was posted.
+ */
+export async function getProfileChangeRequestShelf(
+  tx: Tx,
+  ctx: TenantContext,
+  input: { profileChangeRequestId: string },
+): Promise<string | null> {
+  requireSuperAdmin(ctx);
+
+  const [row] = await tx<{ bookshelf_id: string }[]>`
+    select bookshelf_id from profile_change_requests
+     where id = ${input.profileChangeRequestId}
+  `;
+  return row?.bookshelf_id ?? null;
+}

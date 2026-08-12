@@ -91,6 +91,24 @@ export async function userOfMembership(
  * `ApproveProfileChange` may correct the reader's parish placement in the same
  * action — and re-selecting it separately would be a second chance to reach the
  * wrong row.
+ *
+ * **`m.bookshelf_id = r.bookshelf_id`, not a bare `m.user_id = r.user_id`.**
+ * Fix round 1: on the ordinary shelf-scoped path (`ApproveProfileChange` etc.
+ * called through `runCommand`) RLS already narrows both tables to
+ * `ctx.bookshelfId`, so this predicate changes nothing there — but the same
+ * two commands are also reachable through `/quan-tri/actions.ts`'s admin
+ * queue, which runs as `olibra_admin` with `bypassrls`, and there this join
+ * had nothing narrowing it at all. A subject holding `manager`/`admin`
+ * membership at more than one parish — the ordinary case
+ * `get-pending-manager-changes.ts`'s own docstring names, not an edge case —
+ * let `[row]` pick an arbitrary one, so the `membershipId` (and, downstream,
+ * the `subject_role` `ApproveProfileChange` reads off it) could come from a
+ * parish the request was never about. `get-pending-manager-changes.ts` fixed
+ * the identical shape of query the same way, for the identical reason: the
+ * shelf is a fact about the *request*, and `bookshelf_id` on
+ * `profile_change_requests` is always `ctx.bookshelfId` at propose time
+ * (`pending-proposal.ts:193-198`) — never a value to re-derive from
+ * `memberships`, which can only answer "every shelf this person belongs to".
  */
 export async function subjectOfProfileChange(
   tx: Tx,
@@ -99,7 +117,9 @@ export async function subjectOfProfileChange(
   const [row] = await tx<{ user_id: string; membership_id: string }[]>`
     select r.user_id, m.id as membership_id
       from profile_change_requests r
-      join memberships m on m.user_id = r.user_id and m.deleted_at is null
+      join memberships m on m.user_id = r.user_id
+                         and m.bookshelf_id = r.bookshelf_id
+                         and m.deleted_at is null
       join users u       on u.id = r.user_id and u.deleted_at is null
      where r.id = ${profileChangeRequestId}
   `;

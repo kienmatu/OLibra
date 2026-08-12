@@ -1,18 +1,19 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
+import { RuleViolated, ValidationFailed } from "../../domain/kernel/errors";
 import {
   markFeedbackRead,
   resolveFeedback,
-} from "@/domain/community/commands/feedback";
-import { getFeedbackDetail } from "@/domain/admin/queries/get-feedback-inbox";
-import { approveProfileChange } from "@/domain/members/commands/approve-profile-change";
-import { rejectProfileChange } from "@/domain/members/commands/reject-profile-change";
-import type { Command } from "@/domain/kernel/unit-of-work";
-import { discardAvatarObject } from "@/lib/avatar";
-import { loadAdminPage, submitAdminCommand } from "@/lib/page-data";
-import { ACTION_ERROR_PARAM } from "@/lib/search-params";
+} from "../../domain/community/commands/feedback";
+import { getFeedbackDetail } from "../../domain/admin/queries/get-feedback-inbox";
+import { getProfileChangeRequestShelf } from "../../domain/admin/queries/get-pending-manager-changes";
+import { approveProfileChange } from "../../domain/members/commands/approve-profile-change";
+import { rejectProfileChange } from "../../domain/members/commands/reject-profile-change";
+import type { Command } from "../../domain/kernel/unit-of-work";
+import { discardAvatarObject } from "../../lib/avatar";
+import { loadAdminPage, submitAdminCommand } from "../../lib/page-data";
+import { ACTION_ERROR_PARAM } from "../../lib/search-params";
 
 /**
  * The administration surface's server actions.
@@ -92,10 +93,18 @@ export async function resolveFeedbackAction(form: FormData): Promise<void> {
 // hold no membership of at all — `assignManagerAction`'s "AssignManager
 // writes a memberships row for a shelf the caller holds no membership of"
 // (`unit-of-work.ts`'s `runAdminCommand` docstring) describes this act
-// exactly. `bookshelfId` travels as a hidden `tu-sach` field, off the row
-// `getPendingManagerChanges` already resolved it from, so the audit entry
-// lands on the request's own shelf — the same reason `assignManagerAction`
-// carries one.
+// exactly.
+//
+// **`bookshelfId` is resolved from the request row, not trusted off the
+// form.** Fix round 1: this used to travel as a hidden `tu-sach` field —
+// populated correctly by the page, off `getPendingManagerChanges`' own
+// resolved row, but nothing stood between a *mismatched* post and a
+// `profile_change.approved` audit row filed against the wrong parish, since
+// `runAdminCommand` runs as `olibra_admin` with `bypassrls` here and RLS is
+// exactly the layer that would otherwise have refused it. `getFeedbackDetail`
+// above already resolves *its* shelf this way rather than trusting a form —
+// `getProfileChangeRequestShelf` (`get-pending-manager-changes.ts`) is that
+// same pattern for this pair of actions.
 //
 // **The page's own guard is the second line, not the first** (the brief's
 // own words): `approveProfileChange`/`rejectProfileChange` both refuse
@@ -148,30 +157,54 @@ function backToAdminQueue(
   redirect(`/quan-tri/doi-thong-tin${suffix}`);
 }
 
+/**
+ * `getFeedbackDetail`'s role for this pair of actions: the one place that
+ * turns a posted request id into the shelf `submitAdminCommand` writes the
+ * audit row against. `null` for an id naming no request at all — the same
+ * "already handled by somebody else" case `handle()` above redirects on —
+ * which the two callers below fold into `INCOMPLETE` rather than a second
+ * error shape.
+ */
+async function resolveRequestShelf(
+  profileChangeRequestId: string,
+): Promise<string | null> {
+  return loadAdminPage((tx, ctx) =>
+    getProfileChangeRequestShelf(tx, ctx, { profileChangeRequestId }),
+  );
+}
+
 export async function approveManagerProfileChangeAction(
   form: FormData,
 ): Promise<void> {
-  const bookshelfId = field(form, "tu-sach");
-  const outcome = complete(form, ["yeu-cau", "tu-sach"])
-    ? await attemptDiscardingAvatar(bookshelfId, approveProfileChange, {
-        profileChangeRequestId: field(form, "yeu-cau"),
-      })
-    : INCOMPLETE;
+  const requestId = field(form, "yeu-cau");
+  const bookshelfId = complete(form, ["yeu-cau"])
+    ? await resolveRequestShelf(requestId)
+    : null;
+  const outcome =
+    bookshelfId === null
+      ? INCOMPLETE
+      : await attemptDiscardingAvatar(bookshelfId, approveProfileChange, {
+          profileChangeRequestId: requestId,
+        });
   backToAdminQueue(outcome);
 }
 
 export async function rejectManagerProfileChangeAction(
   form: FormData,
 ): Promise<void> {
-  const bookshelfId = field(form, "tu-sach");
+  const requestId = field(form, "yeu-cau");
   const reason = field(form, "ly-do");
-  const outcome = !complete(form, ["yeu-cau", "tu-sach"])
-    ? INCOMPLETE
-    : reason === ""
-      ? NO_REJECT_REASON
-      : await attemptDiscardingAvatar(bookshelfId, rejectProfileChange, {
-          profileChangeRequestId: field(form, "yeu-cau"),
-          reason,
-        });
+  const bookshelfId = complete(form, ["yeu-cau"])
+    ? await resolveRequestShelf(requestId)
+    : null;
+  const outcome =
+    bookshelfId === null
+      ? INCOMPLETE
+      : reason === ""
+        ? NO_REJECT_REASON
+        : await attemptDiscardingAvatar(bookshelfId, rejectProfileChange, {
+            profileChangeRequestId: requestId,
+            reason,
+          });
   backToAdminQueue(outcome);
 }
