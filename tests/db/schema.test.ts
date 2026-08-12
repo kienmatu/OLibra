@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { migrate } from "../../src/db/migrate";
 import { closeAll, sql } from "../support/db";
+import { makeShelf } from "../support/factories";
 
 beforeAll(async () => {
   await migrate(sql);
@@ -16,12 +17,16 @@ afterAll(closeAll);
 // B4 adds `system_settings`, and DATABASE.md §4.12 now describes it — the
 // installation's own row, which had nowhere to live because every other setting
 // in this schema is per-shelf by construction.
+//
+// PO feedback round one adds `bookshelf_contacts`, replacing the single
+// keeper on `bookshelves` with up to three ordered contacts per shelf.
 const EXPECTED_TABLES = [
   "announcements",
   "audit_log",
   "book_copies",
   "book_donations",
   "books",
+  "bookshelf_contacts",
   "bookshelves",
   "borrow_requests",
   "categories",
@@ -75,4 +80,67 @@ test("categories are global, not shelf-scoped", async () => {
     where table_name = 'categories' and column_name = 'bookshelf_id'
   `;
   expect(rows).toHaveLength(0);
+});
+
+test("bookshelf_contacts holds up to three ordered contacts per shelf", async () => {
+  const shelf = await makeShelf(sql);
+
+  await sql`
+    insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+    values (${shelf.id}, 1, 'Maria Nguyễn Thị Lan', '0912345678', 'Người giữ chìa khoá')
+  `;
+
+  // position is unique per shelf among live rows
+  await expect(
+    sql`
+      insert into bookshelf_contacts (bookshelf_id, position, name)
+      values (${shelf.id}, 1, 'Giuse Trần Minh')
+    `,
+  ).rejects.toMatchObject({ code: "23505" });
+
+  // position is constrained to 1..3
+  await expect(
+    sql`
+      insert into bookshelf_contacts (bookshelf_id, position, name)
+      values (${shelf.id}, 4, 'Têrêsa Lê Ngọc Ánh')
+    `,
+  ).rejects.toMatchObject({ code: "23514" });
+});
+
+test("the keeper columns and opening hours are gone from bookshelves", async () => {
+  const columns = await sql<{ column_name: string }[]>`
+    select column_name from information_schema.columns
+    where table_schema = 'public' and table_name = 'bookshelves'
+  `;
+  const names = columns.map((c) => c.column_name);
+  expect(names).not.toContain("keeper_name");
+  expect(names).not.toContain("keeper_phone");
+  expect(names).not.toContain("opening_hours");
+});
+
+test("leaderboard_opt_in is gone from memberships", async () => {
+  const columns = await sql<{ column_name: string }[]>`
+    select column_name from information_schema.columns
+    where table_schema = 'public' and table_name = 'memberships'
+  `;
+  expect(columns.map((c) => c.column_name)).not.toContain("leaderboard_opt_in");
+});
+
+test("saint_name is required and a reason may be recorded for a missing phone", async () => {
+  await expect(
+    sql`
+      insert into users (full_name, father_name, mother_name)
+      values ('Anna Phạm Thu Hà', 'Giuse Phạm Văn C', 'Maria Trần Thị D')
+    `,
+  ).rejects.toMatchObject({ code: "23502" });
+
+  const [row] = await sql<{ phone_missing_reason: string | null }[]>`
+    insert into users (saint_name, full_name, father_name, mother_name, phone_missing_reason)
+    values ('Anna', 'Anna Phạm Thu Hà', 'Giuse Phạm Văn C', 'Maria Trần Thị D',
+            'Em bé chưa có điện thoại, gia đình sẽ bổ sung sau')
+    returning phone_missing_reason
+  `;
+  expect(row.phone_missing_reason).toBe(
+    "Em bé chưa có điện thoại, gia đình sẽ bổ sung sau",
+  );
 });

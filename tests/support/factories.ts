@@ -21,8 +21,9 @@ export async function makeShelf(sql: Sql, over: { slug?: string } = {}) {
 
 export async function makeUser(sql: Sql, over: { fullName?: string } = {}) {
   const [row] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
     values (
+      'Maria',
       ${over.fullName ?? `Người đọc ${next()}`},
       'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0900000000'
     )
