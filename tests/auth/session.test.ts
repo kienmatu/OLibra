@@ -18,8 +18,8 @@ const clock = fixedClock("2026-08-07T10:00:00Z");
 
 async function makeUserWithCredentials(username: string, password: string) {
   const [row] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B',
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Giuse', 'Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B',
             '0900000000', ${username}, ${await hashPassword(password)})
     returning id
   `;
@@ -48,8 +48,8 @@ test("an account with no credentials cannot sign in", async () => {
   // a person may exist purely as a record. That is a valid state, and the
   // sign-in path must handle it as a failed sign-in rather than a crash.
   await sql`
-    insert into users (full_name, father_name, mother_name, phone)
-    values ('Têrêsa Lê Ngọc Ánh', 'A', 'B', '0900000002')
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Têrêsa', 'Têrêsa Lê Ngọc Ánh', 'A', 'B', '0900000002')
   `;
   await expect(
     signIn(sql, { username: "leanh", password: "bat-ky", clock }),

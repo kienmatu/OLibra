@@ -216,8 +216,8 @@ test("INV-10/INV-11: olibra_app cannot delete a loan", async () => {
   const shelf = await makeShelf(sql);
   const { bookId, copyIds } = await makeBookWithCopies(sql, shelf.id, 1);
   const [reader] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name)
-    values ('Người đọc', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B')
+    insert into users (saint_name, full_name, father_name, mother_name)
+    values ('Maria', 'Người đọc', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B')
     returning id
   `;
 

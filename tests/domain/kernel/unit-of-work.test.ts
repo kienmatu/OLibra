@@ -137,8 +137,8 @@ test("a command may write several audit entries", async () => {
 test("the actor and the shelf are recorded on every entry", async () => {
   const shelf = await makeShelf(sql);
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values ('Maria Lan', 'A', 'B', '0900000001') returning id
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Maria', 'Maria Lan', 'A', 'B', '0900000001') returning id
   `;
   const ctx: TenantContext = {
     bookshelfId: shelf.id,

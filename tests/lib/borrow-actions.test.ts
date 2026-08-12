@@ -88,8 +88,8 @@ async function redirectedTo(run: Promise<void>): Promise<string> {
 
 async function signInAs(bookshelfId: string, role: string, username: string) {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Giuse Trần Minh', 'A', 'B', '0900000002', ${username},
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Giuse', 'Giuse Trần Minh', 'A', 'B', '0900000002', ${username},
             ${await hashPassword("x")})
     returning id
   `;
@@ -190,8 +190,8 @@ test("posting somebody else's membership is refused", async () => {
   // check, one child would be put in a queue under another child's name.
   const { shelf, bookId, bookSlug } = await aShelfWithABook();
   const [other] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000003')
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Maria', 'Maria Nguyễn Thị Lan', 'A', 'B', '0900000003')
     returning id
   `;
   const [otherMembership] = await sql<{ id: string }[]>`

@@ -49,6 +49,7 @@ async function shelfWithManager() {
 }
 
 const registration = (over: Record<string, string> = {}) => ({
+  saintName: "Maria",
   fullName: "Nguyễn Thị Mai",
   dateOfBirth: "2015-04-02",
   fatherName: "Giuse Nguyễn Văn C",

@@ -116,8 +116,8 @@ afterAll(async () => {
 
 async function signInAs(shelfId: string | null, role: string, username: string) {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Giuse Trần Minh', 'A', 'B', '0900000000', ${username},
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Giuse', 'Giuse Trần Minh', 'A', 'B', '0900000000', ${username},
             ${await hashPassword("x")})
     returning id
   `;
@@ -716,8 +716,8 @@ test("the header is handed the reader's own unread count, and only theirs", asyn
     select id from users where username = 'bandoc'
   `;
   const [somebodyElse] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name)
-    values ('Bạn khác', '', '') returning id
+    insert into users (saint_name, full_name, father_name, mother_name)
+    values ('Anna', 'Bạn khác', '', '') returning id
   `;
 
   await sql`

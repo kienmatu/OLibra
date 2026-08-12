@@ -45,19 +45,41 @@ test("it returns the shelf's name, address and slug — and no other key", async
   // The same assertion `list-public-shelves.test.ts` makes, on the same
   // grounds and for the same reason: what reaches a stranger is the object,
   // not the SQL, and this query returns the driver's row unmapped so the keys
-  // are the columns. A `keeper_phone` added to the `select` fails here even if
-  // no TypeScript declared it.
+  // are the columns.
+  //
+  // **Rewritten, PO feedback round 1 Task 7.** `bookshelves.keeper_name` /
+  // `keeper_phone` are gone (`20260812_01_contacts_profile_and_hours.sql`,
+  // Task 1); the fact that no keeper contact reaches this query used to be
+  // provable by writing those two columns and checking they were not among
+  // the returned keys. There is nothing left on `bookshelves` to write that
+  // way — the contact now lives in `bookshelf_contacts`, a separate table
+  // `olibra_public` holds no grant on at all (`tests/lib/shelf-pages.test.ts`
+  // is where Task 2 first made this same translation, for the member-facing
+  // read). So the property is now proved in two parts: this query's own
+  // `select` still names only the three columns, with a contact genuinely on
+  // file for the row it is reading — and reading `bookshelf_contacts`
+  // directly, as this same role, is refused outright rather than merely
+  // filtered.
   const shelf = await makeNamedShelf("dong-thap", "Tủ sách Đồng Tháp");
   await sql`
-    update bookshelves set
-      location = 'Nhà xứ Đồng Tháp, ấp Tân Hoà',
-      keeper_name = 'Maria Nguyễn Thị Lan',
-      keeper_phone = '0912345678'
+    update bookshelves set location = 'Nhà xứ Đồng Tháp, ấp Tân Hoà'
     where id = ${shelf.id}
+  `;
+  await sql`
+    insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+    values (${shelf.id}, 1, 'Maria Nguyễn Thị Lan', '0912345678', 'Người giữ chìa khoá')
   `;
 
   const row = await find("dong-thap");
   expect(Object.keys(row ?? {}).sort()).toEqual(["location", "name", "slug"]);
+
+  const code = await runPublicQuery(sql, (tx) =>
+    tx.unsafe(`select 1 from "bookshelf_contacts" limit 1`),
+  ).then(
+    () => "ok",
+    (err: { code?: string }) => err.code,
+  );
+  expect(code).toBe("42501");
 });
 
 test("a slug naming nothing is null, not an error", async () => {

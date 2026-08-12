@@ -7,8 +7,8 @@ beforeEach(resetDatabase);
 afterAll(closeAll);
 
 const insert = (username: string | null, hash: string | null) => sql`
-  insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-  values ('Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B',
+  insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+  values ('Giuse', 'Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B',
           '0900000000', ${username}, ${hash})
 `;
 

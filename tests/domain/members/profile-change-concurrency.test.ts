@@ -85,9 +85,14 @@ test("two proposals landing together merge; neither is silently overwritten", as
   // A pending request already exists — which is the shape the failure needs.
   // With no pending row both commands insert, and the unique index turns the
   // loser into `change_already_pending` rather than into a lost update.
+  // `makeMember` -> `makeUser` seeds every reader with saint_name "Maria"
+  // (PO feedback round 1, Task 1), so the proposal below has to name a
+  // different value or `proposeProfileChange`'s own "not a proposal" filter
+  // ("a field proposed at its current value is not a proposal") drops it and
+  // there is no pending row for the race to interleave against.
   await runCommand(sql, readerCtx, proposeProfileChange, {
     membershipId: reader.id,
-    fields: { saint_name: "Maria" },
+    fields: { saint_name: "Giuse" },
   });
 
   await withTwoConnections(async (a, b) => {
@@ -127,7 +132,7 @@ test("two proposals landing together merge; neither is silently overwritten", as
   });
 
   const row = await pending(reader.userId);
-  expect(row.proposed_values.saint_name).toBe("Maria");
+  expect(row.proposed_values.saint_name).toBe("Giuse");
   expect(row.proposed_values.phone).toBe("0912345678");
   expect(row.proposed_values.avatar_url).toBe(
     "http://localhost:9000/olibra/avatars/a.png",

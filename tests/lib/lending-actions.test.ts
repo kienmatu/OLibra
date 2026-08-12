@@ -80,8 +80,8 @@ afterAll(async () => {
 
 async function signInAs(bookshelfId: string, role: string, username: string) {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000001', ${username},
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Maria', 'Maria Nguyễn Thị Lan', 'A', 'B', '0900000001', ${username},
             ${await hashPassword("x")})
     returning id
   `;

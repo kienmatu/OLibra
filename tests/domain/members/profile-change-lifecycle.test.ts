@@ -170,7 +170,7 @@ test("proposing again replaces the portion named and keeps the rest", async () =
   });
   expect(rows[0].previous_values).toEqual({
     phone: "0900000000",
-    saint_name: null,
+    saint_name: "Maria",
   });
 });
 

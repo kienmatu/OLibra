@@ -51,7 +51,7 @@ async function shelfWithReader(slug = "dong-thap") {
 
 // — GetMyProfile —
 
-test("a reader's own profile carries the eight fields and the parish line", async () => {
+test("a reader's own profile carries the nine fields and the parish line", async () => {
   // OPS §3.2's return list. The parish line is rendered with *this shelf's*
   // labels rather than a hard-coded word — the same `describeSelection` the
   // manager's reader page uses, so the two cannot describe one child two ways.
@@ -79,7 +79,7 @@ test("a reader's own profile carries the eight fields and the parish line", asyn
 
   expect(profile.fields.saint_name).toBe("Maria");
   expect(profile.fields.phone).toBe("0900000000");
-  expect(Object.keys(profile.fields)).toHaveLength(8);
+  expect(Object.keys(profile.fields)).toHaveLength(9);
   expect(profile.parishUnitL1Name).toBe("Giáo họ Thánh Tâm");
   expect(profile.parishUnitL2Name).toBe("Tổ 2");
   expect(profile.parishLine).toContain("Tổ 2");

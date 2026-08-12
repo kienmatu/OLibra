@@ -102,9 +102,10 @@ async function signInAsSuperAdmin() {
   const username = `admin-${Math.random().toString(36).slice(2, 10)}`;
   const [user] = await sql<{ id: string }[]>`
     insert into users (
-      full_name, father_name, mother_name, username, password_hash, is_super_admin
+      saint_name, full_name, father_name, mother_name, username, password_hash,
+      is_super_admin
     )
-    values ('Quản trị viên', '', '', ${username}, ${await hashPassword("x")}, true)
+    values ('', 'Quản trị viên', '', '', ${username}, ${await hashPassword("x")}, true)
     returning id
   `;
   const { token } = await signIn(sql, { username, password: "x", clock });

@@ -149,8 +149,8 @@ test("INV-5: 'per bookshelf' comes from RLS, not from the where clause", async (
   const a = await makeShelf(sql, { slug: "dong-thap" });
   const b = await makeShelf(sql, { slug: "an-giang" });
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values ('Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0900000000')
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Giuse', 'Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0900000000')
     returning id
   `;
   for (const shelfId of [a.id, b.id]) {
@@ -300,8 +300,8 @@ test("INV-5: lendCopy counts per shelf — three books at one, still lendable at
   const ctxB = await managerContext(b.id);
 
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values ('Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0900000000')
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Giuse', 'Giuse Trần Minh', 'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0900000000')
     returning id
   `;
   const memberships: string[] = [];

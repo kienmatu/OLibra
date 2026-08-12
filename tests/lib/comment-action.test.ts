@@ -91,8 +91,8 @@ async function redirectedTo(run: Promise<void>): Promise<string> {
 /** A signed-in member of `shelfId` with `role`, and the membership the form posts. */
 async function signInAs(shelfId: string, role: string, username: string) {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000000', ${username},
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Maria', 'Maria Nguyễn Thị Lan', 'A', 'B', '0900000000', ${username},
             ${await hashPassword("x")})
     returning id
   `;
@@ -203,8 +203,8 @@ test("a membership that is not the caller's own is refused", async () => {
   // — it exists, it is active, and it is not theirs.
   const { shelf, bookId, bookSlug } = await aShelfWithABook("dong-thap");
   const [other] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values ('Giuse Trần Minh', 'A', 'B', '0900000001')
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Giuse', 'Giuse Trần Minh', 'A', 'B', '0900000001')
     returning id
   `;
   const [otherMembership] = await sql<{ id: string }[]>`
