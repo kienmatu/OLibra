@@ -103,7 +103,7 @@ export async function markAllNotificationsReadAction(
  * wired and tested, and no reader could put a single row in it, so the
  * **Yêu cầu mượn** badge in the manager's sidebar could only ever read zero.
  * The book page apologised for the button instead — "Nút này chưa dùng được.
- * Em nhắn cho quản lý tủ sách ở trên để mượn sách." — which is what a note
+ * Bạn nhắn cho quản lý tủ sách ở trên để mượn sách." — which is what a note
  * written in place of wiring looks like.
  *
  * **It does not matter whether a copy is free, and that is deliberate.**
@@ -148,7 +148,7 @@ export async function requestBorrowAction(formData: FormData): Promise<void> {
  * rest of `hold_days` with nobody left to hand it to.
  *
  * **`sach` is an optional slug, never a path.** Cancelling from the book page
- * comes back to the book page; cancelling from "Sách em đang chờ" on the
+ * comes back to the book page; cancelling from "Sách bạn đang chờ" on the
  * reader's own dashboard comes back there. A `"use server"` action that
  * redirected to a *path* a form supplied would be an open redirect, which is
  * the same rule `afterCommentDecision` (`quan-ly/actions.ts`) is written to.

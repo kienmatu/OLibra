@@ -7,9 +7,18 @@
    --------------------------------------------------------------------------- */
 
 @theme {
-  /* Surfaces and ink */
-  --color-page: #fbf9f6;
-  --color-surface: #fffdfb;
+  /* Surfaces and ink.
+
+     `page` was #fbf9f6 and read heavier than it needed to. Brightening it
+     alone would have cost the layering: with no shadows anywhere, a card is
+     only legible as a card because `surface` sits above `page`, and moving
+     `page` up on its own closes that gap from 3.56% of luminance to 1.07% —
+     the cards stop lifting off the background. So `surface` goes to pure
+     white at the same time, which keeps the step at 3.35% while `page` still
+     lands closer to white than before. `paper` and `hairline` both gain a
+     little separation as a side effect; neither needed changing. */
+  --color-page: #fdfbf8;
+  --color-surface: #ffffff;
   --color-paper: #f2ebe1;
   /* Was #ede5da, which sat at 1.05:1 on warm paper — the dividers between
      rows were effectively invisible. In a design with no shadows the borders

@@ -185,7 +185,7 @@ export function refusalFrom(search: SearchParams): ErrorCode | null {
  * QA remediation Task 16.
  *
  * `/tu-sach/[shelf]/gop-y` already had this: `?da-gui=1` on a redirect,
- * `param(search, "da-gui") === "1"` on the page, "Đã gửi rồi, cảm ơn em nhé."
+ * `param(search, "da-gui") === "1"` on the page, "Đã gửi rồi, cảm ơn bạn nhé."
  * beside a check icon. Three other writes — saving a shelf's settings,
  * lending a copy, receiving a return — redirected on success with no marker
  * at all, so the page they landed on rendered identically whether the write

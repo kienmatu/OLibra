@@ -450,7 +450,7 @@ export default async function BookDetailPage({
              *
              * This button was rendered `disabled` from the day the page was
              * drawn, with a paragraph underneath apologising for it — "Nút này
-             * chưa dùng được. Em nhắn cho quản lý tủ sách ở trên để mượn
+             * chưa dùng được. Bạn nhắn cho quản lý tủ sách ở trên để mượn
              * sách." `createBorrowRequest` had shipped in C2, fully
              * implemented and tested, and was called from nowhere;
              * `every-domain-command-has-a-caller.test.ts` carried a named
@@ -501,7 +501,7 @@ export default async function BookDetailPage({
               {sent === "xin-muon" ? (
                 <div className="mb-4 max-w-80">
                   <SavedNotice>
-                    Đã gửi. Quản lý tủ sách sẽ xem và báo lại cho em.
+                    Đã gửi. Quản lý tủ sách sẽ xem và báo lại cho bạn.
                   </SavedNotice>
                 </div>
               ) : null}
@@ -524,14 +524,14 @@ export default async function BookDetailPage({
                         words: queueing behind somebody, holding a copy with a
                         deadline, or holding one with none recorded. */}
                     {myRequest.queuePosition !== null
-                      ? `Em đang chờ cuốn này · vị trí ${NUMBER.format(
+                      ? `Bạn đang chờ cuốn này · vị trí ${NUMBER.format(
                           myRequest.queuePosition,
                         )}`
                       : myRequest.holdExpiresAt
-                        ? `Sách đã để dành cho em · nhận trước ${formatInstant(
+                        ? `Sách đã để dành cho bạn · nhận trước ${formatInstant(
                             myRequest.holdExpiresAt,
                           )}`
-                        : "Sách đã để dành cho em"}
+                        : "Sách đã để dành cho bạn"}
                   </p>
                   <form action={cancelRequestAction} className="mt-4">
                     <input type="hidden" name="tu-sach" value={shelfSlug} />
@@ -709,7 +709,7 @@ export default async function BookDetailPage({
                   </ul>
                 ) : (
                   <p className="mt-3 text-[15px] text-meta">
-                    Chưa có bình luận nào. Em là người đầu tiên nhé.
+                    Chưa có bình luận nào. Bạn là người đầu tiên nhé.
                   </p>
                 )}
 
@@ -776,7 +776,7 @@ export default async function BookDetailPage({
                         name="noi-dung"
                         rows={4}
                         required
-                        placeholder="Em thấy cuốn này thế nào?"
+                        placeholder="Bạn thấy cuốn này thế nào?"
                       />
                     </Field>
 

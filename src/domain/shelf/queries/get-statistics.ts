@@ -162,7 +162,7 @@ export async function getStatistics(
    * **A reader who opted out is absent, not anonymised.**
    *
    * BR §16.2's toggle is on the reader's own profile and its shipped words are
-   * "Hiện tên em trong bảng bạn đọc chăm nhất — nếu tắt, tên em sẽ không xuất
+   * "Hiện tên bạn trong bảng bạn đọc chăm nhất — nếu tắt, tên bạn sẽ không xuất
    * hiện công khai." This screen's heading is that phrase. A manager can of
    * course see every loan through the lending screens and the audit log, so
    * hiding a name here withholds nothing they could not reach — which is the

@@ -339,7 +339,7 @@ export const ERROR_MESSAGES = {
   // all (INV-14) alike, deliberately not distinguishing which — telling a
   // caller which one happened is what the earlier, more specific wording
   // this replaced was leaking.
-  sign_in_failed: "Tên đăng nhập hoặc mật khẩu chưa đúng, em thử lại nhé.",
+  sign_in_failed: "Tên đăng nhập hoặc mật khẩu chưa đúng, bạn thử lại nhé.",
 
   // — kernel —
   invalid_bookshelf_id: "Mã tủ sách không hợp lệ.",

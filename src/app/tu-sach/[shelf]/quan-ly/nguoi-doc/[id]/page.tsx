@@ -197,7 +197,7 @@ function CredentialsDisclosure({
             />
           </Field>
           <p className="text-[14px] text-meta">
-            Ghi lại giúp em rồi đưa tận tay. Hệ thống không gửi tin nhắn.
+            Ghi lại giúp bạn đọc rồi đưa tận tay. Hệ thống không gửi tin nhắn.
           </p>
           <SubmitButton
             variant="primary"

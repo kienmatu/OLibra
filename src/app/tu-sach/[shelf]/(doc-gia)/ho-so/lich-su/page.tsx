@@ -48,7 +48,7 @@ export default async function ReaderHistoryPage({
     // 2026-08-10 QA remediation. `getMyLoanHistory` scopes by
     // `ctx.actor.userId`, which a super admin always has, so this branch is
     // for consistency with the other four `/ho-so/*` pages, not to stop a
-    // crash: without it a super admin sees "Khi em mượn sách, lượt mượn sẽ
+    // crash: without it a super admin sees "Khi bạn mượn sách, lượt mượn sẽ
     // hiện ở đây." as if they were a reader with an empty history.
     if (isMemberlessSuperAdmin(ctx)) {
       return { shelf, viewer: v, member: false as const };
@@ -95,7 +95,7 @@ export default async function ReaderHistoryPage({
           title="Lịch sử mượn sách"
           subtitle={
             history.length === 0
-              ? "Em chưa mượn cuốn nào."
+              ? "Bạn chưa mượn cuốn nào."
               : `${history.length} lượt mượn, mới nhất trước.`
           }
         />
@@ -132,7 +132,7 @@ export default async function ReaderHistoryPage({
           </ul>
         ) : (
           <p className="mt-8 text-[14px] text-meta">
-            Khi em mượn sách, lượt mượn sẽ hiện ở đây.
+            Khi bạn mượn sách, lượt mượn sẽ hiện ở đây.
           </p>
         )}
 

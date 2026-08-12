@@ -36,7 +36,7 @@ import {
  *   BR §16.2, and `update-own-profile.ts` argues at length that this is not a
  *   fact a manager verifies.
  * - The password is `changeOwnPassword`, immediate for the same reason: "chỉ là
- *   chìa khoá để em tự đăng nhập".
+ *   chìa khoá để bạn tự đăng nhập".
  *
  * The fixture version had all three inside one `<form>` with one submit button,
  * which would have proposed a password change to a manager for approval.
@@ -54,13 +54,13 @@ import {
  */
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Hồ sơ của em — OLibra" };
+export const metadata = { title: "Hồ sơ của bạn — OLibra" };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "Đang chờ quản lý duyệt",
   approved: "Đã được duyệt",
   rejected: "Quản lý chưa duyệt",
-  cancelled: "Em đã huỷ",
+  cancelled: "Bạn đã huỷ",
 };
 
 export default async function ReaderProfilePage({
@@ -119,8 +119,8 @@ export default async function ReaderProfilePage({
 
       <main className="mx-auto max-w-xl px-6 py-10">
         <PageHeading
-          title="Hồ sơ của em"
-          subtitle="Những thay đổi em gửi chỉ có hiệu lực sau khi quản lý duyệt."
+          title="Hồ sơ của bạn"
+          subtitle="Những thay đổi bạn gửi chỉ có hiệu lực sau khi quản lý duyệt."
         />
 
         {refusal ? (
@@ -358,10 +358,10 @@ export default async function ReaderProfilePage({
           <label className="flex items-center justify-between gap-4 rounded-card border border-hairline bg-surface p-4">
             <span className="min-w-0">
               <span className="block text-[16px] font-medium">
-                Hiện tên em trong bảng bạn đọc chăm nhất
+                Hiện tên bạn trong bảng bạn đọc chăm nhất
               </span>
               <span className="mt-1 block text-[14px] text-meta">
-                Nếu tắt, tên em sẽ không xuất hiện công khai.
+                Nếu tắt, tên bạn sẽ không xuất hiện công khai.
               </span>
             </span>
             <input
@@ -386,7 +386,7 @@ export default async function ReaderProfilePage({
           <h2 className="text-xl font-semibold">Mật khẩu</h2>
           <p className="text-[14px] text-meta">
             Cũng có hiệu lực ngay — mật khẩu không phải thông tin quản lý xác minh,
-            chỉ là chìa khoá để em tự đăng nhập.
+            chỉ là chìa khoá để bạn tự đăng nhập.
           </p>
 
           <Field label="Mật khẩu hiện tại" required htmlFor="mat-khau-cu">

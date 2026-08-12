@@ -63,7 +63,7 @@ export default async function MyDonationsPage({
     // `?? ""`) to a `donor_membership_id` column, and `= null` matches no
     // row rather than raising — so this branch is for consistency with the
     // other four `/ho-so/*` pages, not to stop a crash: without it a super
-    // admin sees an empty "Những lần em đã tặng" list and a donation form
+    // admin sees an empty "Những lần bạn đã tặng" list and a donation form
     // that would refuse anything typed into it (`offerDonation` compares the
     // form's `thanh-vien` against `ctx.actor.membershipId` and refuses a
     // mismatch, `not_permitted`) — a form the app should not have offered.
@@ -111,7 +111,7 @@ export default async function MyDonationsPage({
       <main className="mx-auto max-w-2xl px-6 py-10">
         <PageHeading
           title="Tặng sách cho tủ sách"
-          subtitle="Em có cuốn nào đọc xong rồi, muốn tặng lại cho các bạn khác không?"
+          subtitle="Bạn có cuốn nào đọc xong rồi, muốn tặng lại cho các bạn khác không?"
         />
 
         {refusal ? (
@@ -124,7 +124,7 @@ export default async function MyDonationsPage({
           <input type="hidden" name="tu-sach" value={slug} />
           <input type="hidden" name="thanh-vien" value={membershipId ?? ""} />
 
-          <Field label="Em muốn tặng sách gì?" required htmlFor="mo-ta">
+          <Field label="Bạn muốn tặng sách gì?" required htmlFor="mo-ta">
             <Textarea
               id="mo-ta"
               name="mo-ta"
@@ -145,7 +145,7 @@ export default async function MyDonationsPage({
 
         {donations.length > 0 ? (
           <section className="mt-12">
-            <SectionHeading>Những lần em đã tặng</SectionHeading>
+            <SectionHeading>Những lần bạn đã tặng</SectionHeading>
             <ul className="mt-4 divide-y divide-hairline rounded-card border border-hairline bg-surface">
               {donations.map((d) => {
                 const status = STATUS[d.status] ?? {

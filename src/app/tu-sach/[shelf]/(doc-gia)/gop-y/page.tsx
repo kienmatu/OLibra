@@ -61,7 +61,7 @@ export default async function FeedbackPage({
       <main className="mx-auto max-w-2xl px-6 py-10">
         <PageHeading
           title="Gửi góp ý"
-          subtitle="Có điều gì em muốn nhắn cho các cô chú giữ tủ sách không?"
+          subtitle="Có điều gì bạn muốn nhắn cho các cô chú giữ tủ sách không?"
         />
 
         {sent ? (
@@ -70,7 +70,7 @@ export default async function FeedbackPage({
               className="mt-0.5 size-4 shrink-0 text-available"
               aria-hidden
             />
-            Đã gửi rồi, cảm ơn em nhé.
+            Đã gửi rồi, cảm ơn bạn nhé.
           </p>
         ) : null}
 
@@ -83,7 +83,7 @@ export default async function FeedbackPage({
         <form action={submitFeedbackAction} className="mt-8 space-y-5">
           <input type="hidden" name="tu-sach" value={slug} />
 
-          <Field label="Tên của em" required htmlFor="ten">
+          <Field label="Tên của bạn" required htmlFor="ten">
             <Input id="ten" name="ten" required />
           </Field>
 

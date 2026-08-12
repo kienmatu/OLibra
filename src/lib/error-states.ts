@@ -37,8 +37,8 @@ const FORBIDDEN: ErrorState = {
   icon: Lock,
   ink: "text-leather",
   heading: "Trang này chỉ dành cho quản lý",
-  body: "Tài khoản của em không mở được trang này. Nếu em nghĩ đây là nhầm lẫn, nhắn cho quản lý tủ sách giúp nhé.",
-  action: "Về trang của em",
+  body: "Tài khoản của bạn không mở được trang này. Nếu bạn nghĩ đây là nhầm lẫn, nhắn cho quản lý tủ sách giúp nhé.",
+  action: "Về trang của bạn",
 };
 
 const SESSION_EXPIRED: ErrorState = {
@@ -46,8 +46,8 @@ const SESSION_EXPIRED: ErrorState = {
   caption: "Phiên đăng nhập hết hạn",
   icon: Clock,
   ink: "text-leather",
-  heading: "Em cần đăng nhập lại",
-  body: "Em đã không dùng trang trong một lúc lâu nên tủ sách tự đăng xuất cho an toàn.",
+  heading: "Bạn cần đăng nhập lại",
+  body: "Bạn đã không dùng trang trong một lúc lâu nên tủ sách tự đăng xuất cho an toàn.",
   action: "Đăng nhập lại",
 };
 
@@ -57,7 +57,7 @@ const RATE_LIMITED: ErrorState = {
   icon: Hand,
   ink: "text-brick",
   heading: "Chậm lại một chút nhé",
-  body: "Em vừa gửi hơi nhiều yêu cầu trong thời gian ngắn. Em chờ khoảng một phút rồi thử lại.",
+  body: "Bạn vừa gửi hơi nhiều yêu cầu trong thời gian ngắn. Bạn chờ khoảng một phút rồi thử lại.",
   action: "Thử lại",
 };
 
@@ -74,7 +74,7 @@ export const SERVER_FAULT: ErrorState = {
   icon: AlertTriangle,
   ink: "text-brick",
   heading: "Tủ sách đang gặp trục trặc",
-  body: "Lỗi từ phía tủ sách, không phải do em. Ban quản trị đã được báo và đang xem.",
+  body: "Lỗi từ phía tủ sách, không phải do bạn. Ban quản trị đã được báo và đang xem.",
   action: "Thử lại",
 };
 
