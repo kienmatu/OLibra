@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Archive, Plus } from "lucide-react";
+import { AlertOctagon, Archive, Plus } from "lucide-react";
 import { AdminShell } from "@/components/shell/manager-shell";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
@@ -209,9 +209,18 @@ export default async function AdminBookshelvesPage({
                 {NUMBER.format(shelf.readers)} bạn đọc
               </p>
             </div>
-            {shelf.status === "active" ? null : (
-              <Pill icon={Archive} label="Đã lưu trữ" tone="retired" />
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              {shelf.hasContacts ? null : (
+                <Pill
+                  icon={AlertOctagon}
+                  label="Chưa có người liên hệ"
+                  tone="overdue"
+                />
+              )}
+              {shelf.status === "active" ? null : (
+                <Pill icon={Archive} label="Đã lưu trữ" tone="retired" />
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -246,25 +255,90 @@ export default async function AdminBookshelvesPage({
             <Field label="Địa chỉ" htmlFor="dia-chi-moi">
               <Input id="dia-chi-moi" name="dia-chi" />
             </Field>
-            <Field label="Người giữ chìa khoá" htmlFor="nguoi-giu-moi">
-              <Input id="nguoi-giu-moi" name="nguoi-giu" />
-            </Field>
-            <Field label="Số điện thoại" htmlFor="dien-thoai-moi">
-              <Input
-                id="dien-thoai-moi"
-                name="dien-thoai"
-                type="tel"
-                inputMode="numeric"
-                pattern={PHONE_PATTERN}
-              />
-            </Field>
-            <Field label="Giờ mở cửa" htmlFor="gio-mo-cua-moi">
-              <Input
-                id="gio-mo-cua-moi"
-                name="gio-mo-cua"
-                placeholder="vd: Sau lễ Chúa nhật"
-              />
-            </Field>
+            <fieldset className="space-y-6 border-t border-hairline pt-6">
+              <legend className="text-[16px] font-semibold">Người liên hệ</legend>
+              <p className="text-[14px] text-meta">
+                Người liên hệ thứ nhất là bắt buộc. Hai người sau có thể để trống.
+              </p>
+
+              <Field
+                label="Họ tên người liên hệ 1"
+                required
+                htmlFor="lien-he-1-ten-moi"
+              >
+                <Input id="lien-he-1-ten-moi" name="lien-he-1-ten" required />
+              </Field>
+              <Field
+                label="Số điện thoại người liên hệ 1"
+                htmlFor="lien-he-1-sdt-moi"
+              >
+                <Input
+                  id="lien-he-1-sdt-moi"
+                  name="lien-he-1-sdt"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern={PHONE_PATTERN}
+                />
+              </Field>
+              <Field
+                label="Vai trò người liên hệ 1"
+                htmlFor="lien-he-1-vai-tro-moi"
+              >
+                <Input
+                  id="lien-he-1-vai-tro-moi"
+                  name="lien-he-1-vai-tro"
+                  placeholder="Người giữ chìa khoá"
+                />
+              </Field>
+
+              <Field label="Họ tên người liên hệ 2" htmlFor="lien-he-2-ten-moi">
+                <Input id="lien-he-2-ten-moi" name="lien-he-2-ten" />
+              </Field>
+              <Field
+                label="Số điện thoại người liên hệ 2"
+                htmlFor="lien-he-2-sdt-moi"
+              >
+                <Input
+                  id="lien-he-2-sdt-moi"
+                  name="lien-he-2-sdt"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern={PHONE_PATTERN}
+                />
+              </Field>
+              <Field
+                label="Vai trò người liên hệ 2"
+                htmlFor="lien-he-2-vai-tro-moi"
+              >
+                <Input
+                  id="lien-he-2-vai-tro-moi"
+                  name="lien-he-2-vai-tro"
+                  placeholder="Quản lý tủ sách"
+                />
+              </Field>
+
+              <Field label="Họ tên người liên hệ 3" htmlFor="lien-he-3-ten-moi">
+                <Input id="lien-he-3-ten-moi" name="lien-he-3-ten" />
+              </Field>
+              <Field
+                label="Số điện thoại người liên hệ 3"
+                htmlFor="lien-he-3-sdt-moi"
+              >
+                <Input
+                  id="lien-he-3-sdt-moi"
+                  name="lien-he-3-sdt"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern={PHONE_PATTERN}
+                />
+              </Field>
+              <Field
+                label="Vai trò người liên hệ 3"
+                htmlFor="lien-he-3-vai-tro-moi"
+              >
+                <Input id="lien-he-3-vai-tro-moi" name="lien-he-3-vai-tro" />
+              </Field>
+            </fieldset>
             <p className="text-[14px] text-meta">
               Tủ sách mới nhận quy định cho mượn mặc định của hệ thống. Sửa lại được
               sau.
@@ -340,37 +414,61 @@ export default async function AdminBookshelvesPage({
                   defaultValue={selected.settings.profile.address ?? ""}
                 />
               </Field>
+            </section>
 
-              <Field label="Người giữ chìa khoá" htmlFor="nguoi-giu">
-                <Input
-                  id="nguoi-giu"
-                  name="nguoi-giu"
-                  defaultValue={selected.settings.profile.keeperName ?? ""}
-                />
-              </Field>
+            <section className="space-y-6 border-t border-hairline pt-10">
+              <h2 className="text-xl font-semibold">Người liên hệ</h2>
+              <p className="text-[14px] text-meta">
+                Người liên hệ thứ nhất là bắt buộc. Hai người sau có thể để trống.
+              </p>
 
-              <Field
-                label="Số điện thoại"
-                htmlFor="dien-thoai"
-                hint="Hiện công khai trên trang tủ sách và bấm gọi được."
-              >
-                <Input
-                  id="dien-thoai"
-                  name="dien-thoai"
-                  type="tel"
-                  inputMode="numeric"
-                  pattern={PHONE_PATTERN}
-                  defaultValue={selected.settings.profile.keeperPhone ?? ""}
-                />
-              </Field>
-
-              <Field label="Giờ mở cửa" htmlFor="gio-mo-cua">
-                <Input
-                  id="gio-mo-cua"
-                  name="gio-mo-cua"
-                  defaultValue={selected.settings.profile.openingHours ?? ""}
-                />
-              </Field>
+              {[1, 2, 3].map((position) => {
+                const contact = selected.settings.profile.contacts.find(
+                  (c) => c.position === position,
+                );
+                return (
+                  <div key={position} className="space-y-6">
+                    <Field
+                      label={`Họ tên người liên hệ ${position}`}
+                      required={position === 1}
+                      htmlFor={`lien-he-${position}-ten`}
+                    >
+                      <Input
+                        id={`lien-he-${position}-ten`}
+                        name={`lien-he-${position}-ten`}
+                        required={position === 1}
+                        defaultValue={contact?.name ?? ""}
+                      />
+                    </Field>
+                    <Field
+                      label={`Số điện thoại người liên hệ ${position}`}
+                      htmlFor={`lien-he-${position}-sdt`}
+                    >
+                      <Input
+                        id={`lien-he-${position}-sdt`}
+                        name={`lien-he-${position}-sdt`}
+                        type="tel"
+                        inputMode="numeric"
+                        pattern={PHONE_PATTERN}
+                        defaultValue={contact?.phone ?? ""}
+                      />
+                    </Field>
+                    <Field
+                      label={`Vai trò người liên hệ ${position}`}
+                      htmlFor={`lien-he-${position}-vai-tro`}
+                    >
+                      <Input
+                        id={`lien-he-${position}-vai-tro`}
+                        name={`lien-he-${position}-vai-tro`}
+                        placeholder={
+                          position === 1 ? "Người giữ chìa khoá" : undefined
+                        }
+                        defaultValue={contact?.roleLabel ?? ""}
+                      />
+                    </Field>
+                  </div>
+                );
+              })}
             </section>
 
             <section className="space-y-6 border-t border-hairline pt-10">

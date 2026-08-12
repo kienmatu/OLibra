@@ -60,6 +60,7 @@ vi.mock("next/headers", () => ({
 
 const {
   assignManagerAction,
+  contactsFromForm,
   revokeManagerAction,
   updateBookshelfSettingsAction,
   updateSiteContactAction,
@@ -293,4 +294,27 @@ test("a refusal on either system-settings form still reports through `?loi=`, no
 
   expect(target).toBe("/quan-tri/cai-dat?loi=loan_days_out_of_range");
   expect(target).not.toContain("da-luu");
+});
+
+test("contactsFromForm reads three blocks and drops the empty ones", () => {
+  const form = new FormData();
+  form.set("lien-he-1-ten", "Maria Nguyễn Thị Lan");
+  form.set("lien-he-1-sdt", "0912345678");
+  form.set("lien-he-1-vai-tro", "Người giữ chìa khoá");
+  form.set("lien-he-2-ten", "  ");
+  form.set("lien-he-2-sdt", "");
+  form.set("lien-he-3-ten", "Giuse Trần Minh");
+  form.set("lien-he-3-sdt", "0987654321");
+
+  expect(contactsFromForm(form)).toEqual([
+    {
+      position: 1,
+      name: "Maria Nguyễn Thị Lan",
+      phone: "0912345678",
+      roleLabel: "Người giữ chìa khoá",
+    },
+    // Block 3's contact keeps position 3. Renumbering it to 2 would silently
+    // move a volunteer a super admin deliberately left in the third slot.
+    { position: 3, name: "Giuse Trần Minh", phone: "0987654321", roleLabel: null },
+  ]);
 });

@@ -177,21 +177,23 @@ export default async function ManagerSettingsPage({
                 row below it is the one that now carries `address`. */}
             <InfoRow label="Địa điểm">{profile.location ?? "Chưa có"}</InfoRow>
             <InfoRow label="Địa chỉ">{profile.address ?? "Chưa có"}</InfoRow>
-            <InfoRow label="Giờ mở cửa">
-              {profile.openingHours ?? "Chưa có"}
-            </InfoRow>
-            <InfoRow label="Người giữ chìa khoá">
-              {profile.keeperName || profile.keeperPhone ? (
-                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {profile.keeperName ?? ""}
-                  {profile.keeperPhone ? (
-                    <PhoneLink phone={profile.keeperPhone} size="sm" />
-                  ) : null}
-                </span>
-              ) : (
-                "Chưa có"
-              )}
-            </InfoRow>
+            {profile.contacts.length === 0 ? (
+              <InfoRow label="Người liên hệ">Chưa có</InfoRow>
+            ) : (
+              profile.contacts.map((contact) => (
+                <InfoRow
+                  key={contact.position}
+                  label={contact.roleLabel ?? "Người liên hệ"}
+                >
+                  <span className="flex flex-wrap items-center gap-x-2">
+                    {contact.name}
+                    {contact.phone ? (
+                      <PhoneLink phone={contact.phone} size="sm" />
+                    ) : null}
+                  </span>
+                </InfoRow>
+              ))
+            )}
           </dl>
           <p className="mt-3 text-[14px] text-meta">
             Muốn đổi những thông tin này thì nhờ quản trị viên giúp.

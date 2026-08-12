@@ -14,6 +14,7 @@ import {
   createBookshelf,
   updateBookshelfSettings,
 } from "../../domain/admin/commands/bookshelves";
+import type { ShelfContact } from "../../domain/shelf/queries/get-shelf-settings";
 import {
   assignManager,
   promoteSuperAdmin,
@@ -80,6 +81,34 @@ function count(form: FormData, name: string): number | undefined {
   if (raw === "") return undefined;
   const n = Number(raw);
   return Number.isSafeInteger(n) ? n : undefined;
+}
+
+/**
+ * The three contact blocks both shelf forms post, as the domain's list.
+ *
+ * A block with no name is not a contact — an empty block is how a super admin
+ * says "there is no third volunteer", and a phone with nobody attached to it
+ * is a number nobody can be asked for. The domain refuses a whitespace-only
+ * name (`contact_name_required`) for the case where a name *was* typed and is
+ * blank; this filter is for the ordinary empty block, which is not an error.
+ *
+ * Positions are kept, not compacted: a contact left in block 3 stays at
+ * position 3, because moving them would change what the reader's accordion
+ * shows without anybody asking for it.
+ */
+export function contactsFromForm(form: FormData): ShelfContact[] {
+  return [1, 2, 3].flatMap((position) => {
+    const name = (optional(form, `lien-he-${position}-ten`) ?? "").trim();
+    if (name === "") return [];
+    return [
+      {
+        position,
+        name,
+        phone: optional(form, `lien-he-${position}-sdt`),
+        roleLabel: optional(form, `lien-he-${position}-vai-tro`),
+      },
+    ];
+  });
 }
 
 /**
@@ -155,9 +184,7 @@ export async function createBookshelfAction(form: FormData): Promise<void> {
       slug: optional(form, "dia-chi-web") ?? undefined,
       location: optional(form, "dia-diem"),
       address: optional(form, "dia-chi"),
-      keeperName: optional(form, "nguoi-giu"),
-      keeperPhone: optional(form, "dien-thoai"),
-      openingHours: optional(form, "gio-mo-cua"),
+      contacts: contactsFromForm(form),
     }),
   );
   back("/quan-tri/tu-sach", code);
@@ -186,9 +213,7 @@ export async function updateBookshelfSettingsAction(form: FormData): Promise<voi
           name: field(form, "ten"),
           location: optional(form, "dia-diem"),
           address: optional(form, "dia-chi"),
-          keeperName: optional(form, "nguoi-giu"),
-          keeperPhone: optional(form, "dien-thoai"),
-          openingHours: optional(form, "gio-mo-cua"),
+          contacts: contactsFromForm(form),
         },
         loanDays: count(form, "so-ngay-muon"),
         maxConcurrentLoans: count(form, "so-sach-cung-luc"),

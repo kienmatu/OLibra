@@ -30,6 +30,14 @@ export interface ShelfOverviewRow {
   activeLoans: number;
   overdue: number;
   pending: number;
+  /**
+   * PO feedback round 1, Task 3. Whether `bookshelf_contacts` has at least one
+   * live row for this shelf — not the contacts themselves, since the overview
+   * is a cross-shelf list and `/quan-tri/tu-sach` only needs to flag the
+   * shelves the migration could not backfill (Task 1's own note on why a
+   * migrated shelf may legitimately have none yet), not print who they are.
+   */
+  hasContacts: boolean;
 }
 
 /**
@@ -60,10 +68,13 @@ export async function getAdminOverview(
       active_loans: number;
       overdue: number;
       pending: number;
+      has_contacts: boolean;
     }[]
   >`
     select
       b.id, b.slug, b.name, b.status,
+      exists(select 1 from bookshelf_contacts
+        where bookshelf_id = b.id and deleted_at is null) as has_contacts,
       (select count(*) from books
         where bookshelf_id = b.id and deleted_at is null)::int as books,
       (select count(*) from memberships
@@ -106,6 +117,7 @@ export async function getAdminOverview(
     activeLoans: r.active_loans,
     overdue: r.overdue,
     pending: r.pending,
+    hasContacts: r.has_contacts,
   }));
 }
 
