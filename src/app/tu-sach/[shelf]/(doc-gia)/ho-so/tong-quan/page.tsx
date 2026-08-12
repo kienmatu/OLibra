@@ -67,7 +67,7 @@ export default async function ReaderDashboardPage({
     // `getMyLoanHistory` scope by `ctx.actor.userId`, which a super admin
     // always has, so this branch is not here to stop a crash — it is here so
     // this page agrees with the other four about what this viewer is, rather
-    // than rendering "Em chưa mượn cuốn nào." as if they were simply a reader
+    // than rendering "Bạn chưa mượn cuốn nào." as if they were simply a reader
     // with no loans yet.
     if (isMemberlessSuperAdmin(ctx)) {
       return { shelf, viewer, member: false as const };
@@ -117,10 +117,10 @@ export default async function ReaderDashboardPage({
           title={viewer.name ? `Chào ${viewer.name}` : "Trang của tôi"}
           subtitle={
             dashboard.loans.length === 0
-              ? "Em chưa mượn cuốn nào."
+              ? "Bạn chưa mượn cuốn nào."
               : overdue > 0
-                ? `Em đang giữ ${dashboard.loans.length} cuốn · ${overdue} cuốn đã quá hạn.`
-                : `Em đang giữ ${dashboard.loans.length} cuốn.`
+                ? `Bạn đang giữ ${dashboard.loans.length} cuốn · ${overdue} cuốn đã quá hạn.`
+                : `Bạn đang giữ ${dashboard.loans.length} cuốn.`
           }
         />
 
@@ -131,10 +131,10 @@ export default async function ReaderDashboardPage({
         ) : null}
 
         <section className="mt-10">
-          <SectionHeading>Sách em đang mượn</SectionHeading>
+          <SectionHeading>Sách bạn đang mượn</SectionHeading>
           {dashboard.loans.length === 0 ? (
             <p className="mt-4 text-[14px] text-meta">
-              Em chưa mượn cuốn nào. Ghé{" "}
+              Bạn chưa mượn cuốn nào. Ghé{" "}
               <Link href={`${base}/danh-muc`} className="underline">
                 danh mục
               </Link>{" "}
@@ -224,7 +224,7 @@ export default async function ReaderDashboardPage({
 
         {dashboard.requests.length > 0 ? (
           <section className="mt-12">
-            <SectionHeading>Sách em đang chờ</SectionHeading>
+            <SectionHeading>Sách bạn đang chờ</SectionHeading>
             <ul className="mt-4 divide-y divide-hairline rounded-card border border-hairline bg-surface">
               {dashboard.requests.map((r) => (
                 <li key={r.requestId} className="flex items-center gap-3 px-4 py-3">
@@ -237,7 +237,7 @@ export default async function ReaderDashboardPage({
                   </Link>
                   <span className="shrink-0 text-[13px] text-meta">
                     {r.queuePosition !== null
-                      ? `Em ở vị trí ${r.queuePosition}`
+                      ? `Bạn ở vị trí ${r.queuePosition}`
                       : r.holdExpiresAt
                         ? `Đã sẵn sàng, nhận trước ${formatInstant(r.holdExpiresAt)}`
                         : "Đã sẵn sàng"}
@@ -264,7 +264,7 @@ export default async function ReaderDashboardPage({
 
         {returned.length > 0 ? (
           <section className="mt-12">
-            <SectionHeading>Em đã đọc gần đây</SectionHeading>
+            <SectionHeading>Bạn đã đọc gần đây</SectionHeading>
             <ul className="mt-4 divide-y divide-hairline rounded-card border border-hairline bg-surface">
               {returned.map((h) => (
                 <li key={h.loanId} className="flex items-center gap-3 px-4 py-3">

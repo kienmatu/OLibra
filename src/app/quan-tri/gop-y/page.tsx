@@ -210,7 +210,7 @@ export default async function AdminFeedbackPage({
               </p>
 
               {/* QA remediation Task 21. `senderName` above is always what was
-                  typed into "Tên của em" — never the signed-in account's own
+                  typed into "Tên của bạn" — never the signed-in account's own
                   name, which used to win silently and had an administrator
                   calling the wrong person. This line is the account, kept
                   visible rather than hidden by that fix: whenever the message

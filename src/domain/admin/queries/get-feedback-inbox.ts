@@ -36,11 +36,11 @@ import { requireSuperAdmin } from "../../members/policy";
 export interface FeedbackRow {
   feedbackId: string;
   /**
-   * What was typed into "Tên của em" — `feedback.guest_name`, always, even
+   * What was typed into "Tên của bạn" — `feedback.guest_name`, always, even
    * when the sender was signed in. QA remediation Task 21: this used to be
    * `member_name ?? guest_name`, so a message sent while signed in showed
    * the *account's* name regardless of what the sender actually typed —
-   * measured live, "Tên của em" = "Chị Hạnh" displayed as "Quản trị viên" on
+   * measured live, "Tên của bạn" = "Chị Hạnh" displayed as "Quản trị viên" on
    * `/quan-tri/gop-y`, and the administrator called the wrong person.
    * `submitFeedback` (`../../community/commands/feedback.ts`) requires this
    * non-blank on every write, so the `?? accountName` fallback below is
@@ -221,7 +221,7 @@ function toRow(r: {
   return {
     feedbackId: r.id,
     // QA remediation Task 21. `guest_name` is what the sender actually typed
-    // into "Tên của em" and wins regardless of who was signed in —
+    // into "Tên của bạn" and wins regardless of who was signed in —
     // `submitFeedback` requires it non-blank, so `?? r.member_name` only
     // covers a historical row from before that requirement, never an
     // ordinary submission. The account's own name is `accountName` below,

@@ -141,8 +141,9 @@ export default async function RegisterReaderOnBehalfPage({
         Đăng ký người đọc mới
       </h1>
       <p className="mt-1.5 max-w-xl text-meta">
-        Dùng khi có một em đang đứng trước mặt bạn ở nhà xứ. Bạn điền giúp thay vì
-        em tự điền — thông tin và bước duyệt sau đó vẫn như một đăng ký bình thường.
+        Dùng khi có một bạn đọc đang đứng trước mặt bạn ở nhà xứ. Bạn điền giúp thay
+        vì để bạn đọc tự điền — thông tin và bước duyệt sau đó vẫn như một đăng ký
+        bình thường.
       </p>
 
       {refused ? (
@@ -214,7 +215,7 @@ export default async function RegisterReaderOnBehalfPage({
             label="Tên cha"
             required
             htmlFor="ten-cha"
-            hint="Giúp phân biệt các em trùng tên."
+            hint="Giúp phân biệt các bạn đọc trùng tên."
             invalidHint="Vui lòng nhập tên cha."
           >
             <Input

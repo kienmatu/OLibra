@@ -47,7 +47,7 @@ export default async function ReaderNotificationsPage({
     // 2026-08-10 QA remediation. `getMyNotifications` scopes by
     // `ctx.actor.userId`, which a super admin always has, so this branch is
     // for consistency with the other four `/ho-so/*` pages, not to stop a
-    // crash: without it a super admin sees "Em đã đọc hết rồi." as if they
+    // crash: without it a super admin sees "Bạn đã đọc hết rồi." as if they
     // were a reader with nothing unread.
     if (isMemberlessSuperAdmin(ctx)) {
       return { shelf, viewer: v, member: false as const };
@@ -95,8 +95,8 @@ export default async function ReaderNotificationsPage({
             title="Thông báo"
             subtitle={
               mine.unread === 0
-                ? "Em đã đọc hết rồi."
-                : `Em có ${mine.unread} thông báo chưa đọc.`
+                ? "Bạn đã đọc hết rồi."
+                : `Bạn có ${mine.unread} thông báo chưa đọc.`
             }
           />
           {mine.unread > 0 ? (
@@ -111,8 +111,8 @@ export default async function ReaderNotificationsPage({
 
         {mine.rows.length === 0 ? (
           <p className="mt-8 text-[14px] text-meta">
-            Chưa có thông báo nào. Khi đơn đăng ký hoặc yêu cầu mượn của em được
-            duyệt, em sẽ thấy ở đây.
+            Chưa có thông báo nào. Khi đơn đăng ký hoặc yêu cầu mượn của bạn được
+            duyệt, bạn sẽ thấy ở đây.
           </p>
         ) : (
           <ul className="mt-8 divide-y divide-hairline rounded-card border border-hairline bg-surface">

@@ -49,12 +49,12 @@ function because(reason: string | null): string {
 export const NOTIFICATIONS = {
   membership_approved: {
     /** OPS §7, written by `ApproveMembership`. */
-    sentence: () => "Đơn đăng ký của em đã được duyệt. Chúc em đọc sách vui!",
+    sentence: () => "Đơn đăng ký của bạn đã được duyệt. Chúc bạn đọc sách vui!",
   },
   membership_rejected: {
     /** OPS §7, written by `RejectMembership`. The reason is the whole point. */
     sentence: (p: Payload) =>
-      `Đơn đăng ký của em chưa được duyệt${because(str(p, "reason"))}.`,
+      `Đơn đăng ký của bạn chưa được duyệt${because(str(p, "reason"))}.`,
   },
   request_approved: {
     /**
@@ -70,8 +70,8 @@ export const NOTIFICATIONS = {
       const until = str(p, "hold_until");
       const book = which(str(p, "title"));
       return until
-        ? `${book} đã sẵn sàng, em đến nhận trước ngày ${until} nhé.`
-        : `${book} đã sẵn sàng, em đến nhận sớm nhé.`;
+        ? `${book} đã sẵn sàng, bạn đến nhận trước ngày ${until} nhé.`
+        : `${book} đã sẵn sàng, bạn đến nhận sớm nhé.`;
     },
   },
   request_rejected: {
@@ -81,7 +81,7 @@ export const NOTIFICATIONS = {
   },
   comment_approved: {
     /** OPS §7, written by `ApproveComment` — the only B3 command that notifies. */
-    sentence: () => "Bình luận của em đã được duyệt và hiện đã hiển thị.",
+    sentence: () => "Bình luận của bạn đã được duyệt và hiện đã hiển thị.",
   },
   loan_due_soon: {
     /** The scheduled sweep, not a command — see `./sweep.ts` and OPS §7. */
@@ -91,7 +91,7 @@ export const NOTIFICATIONS = {
   loan_overdue: {
     /** The scheduled sweep, not a command. */
     sentence: (p: Payload) =>
-      `${which(str(p, "title"))} đã quá hạn trả. Em mang sách đến trả giúp nhé.`,
+      `${which(str(p, "title"))} đã quá hạn trả. Bạn mang sách đến trả giúp nhé.`,
   },
 } as const;
 
@@ -113,6 +113,6 @@ export function isNotificationKind(value: unknown): value is NotificationKind {
  * deploy. It renders a neutral sentence rather than the token.
  */
 export function notificationSentence(kind: string, payload: Payload): string {
-  if (!isNotificationKind(kind)) return "Em có một thông báo mới.";
+  if (!isNotificationKind(kind)) return "Bạn có một thông báo mới.";
   return NOTIFICATIONS[kind].sentence(payload);
 }

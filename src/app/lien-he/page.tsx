@@ -103,7 +103,7 @@ export default async function ContactPage({
             <p className="mt-8 text-[15px] text-meta">
               Ban quản trị chưa điền số điện thoại liên hệ trực tiếp. Gửi lời nhắn
               dưới đây, ban quản trị sẽ đọc được trong hộp góp ý và liên lạc lại
-              theo số điện thoại em để lại.
+              theo số điện thoại bạn để lại.
             </p>
 
             {sent ? (

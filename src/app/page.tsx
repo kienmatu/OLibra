@@ -35,7 +35,7 @@ const WHAT_IT_DOES = [
   {
     icon: BookUp,
     title: "Cho mượn trong ba bước",
-    body: "Tìm sách, chọn bạn đọc, xác nhận. Tình nguyện viên đứng ngay tại kệ cũng làm được, và các em không cần đăng nhập gì cả.",
+    body: "Tìm sách, chọn bạn đọc, xác nhận. Tình nguyện viên đứng ngay tại kệ cũng làm được, và các bạn đọc không cần đăng nhập gì cả.",
   },
   {
     icon: Users,

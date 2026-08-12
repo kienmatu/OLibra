@@ -9,7 +9,7 @@ import { CheckCircle2 } from "lucide-react";
  * next screen to say so — the settings form re-rendered identically, and a
  * manager had no way to tell a save had taken effect from a page that had
  * simply not changed. `/tu-sach/[shelf]/gop-y` already had the right idea —
- * "Đã gửi rồi, cảm ơn em nhé." beside a `CheckCircle2` — this is that same
+ * "Đã gửi rồi, cảm ơn bạn nhé." beside a `CheckCircle2` — this is that same
  * shape, pulled out so the other three call sites do not each invent their
  * own markup for it. `src/lib/search-params.ts`'s `ACTION_DONE_PARAM` is the
  * query-string half of the pattern; a page decides *whether* to render this

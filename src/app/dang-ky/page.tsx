@@ -83,7 +83,7 @@ export default async function RegisterPage({
             Đăng ký làm bạn đọc
           </h1>
           <p className="mt-1.5 text-meta">
-            Trước hết, em chọn tủ sách của giáo xứ mình nhé.
+            Trước hết, bạn chọn tủ sách của giáo xứ mình nhé.
           </p>
           <Link
             href="/tu-sach"
@@ -127,7 +127,7 @@ export default async function RegisterPage({
               className="mt-0.5 size-5 shrink-0 text-available"
               aria-hidden
             />
-            Đã gửi đăng ký. Quản lý sẽ gặp em ở nhà xứ để xác nhận.
+            Đã gửi đăng ký. Quản lý sẽ gặp bạn ở nhà xứ để xác nhận.
           </p>
         ) : null}
 
@@ -172,7 +172,7 @@ export default async function RegisterPage({
             <GroupHeading>Đăng nhập</GroupHeading>
 
             <p className="text-[14px] text-meta">
-              Để trống cũng được — em chỉ cần tên đăng nhập nếu muốn tự xem sách ở
+              Để trống cũng được — bạn chỉ cần tên đăng nhập nếu muốn tự xem sách ở
               nhà. Quản lý có thể tạo sau.
             </p>
 
@@ -228,7 +228,7 @@ export default async function RegisterPage({
             <Field
               label="Tên thánh"
               htmlFor="ten-thanh"
-              hint="Ghi nếu có, để quản lý dễ nhận ra em."
+              hint="Ghi nếu có, để quản lý dễ nhận ra bạn."
             >
               <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
             </Field>
@@ -266,7 +266,7 @@ export default async function RegisterPage({
               label="Tên cha"
               required
               htmlFor="ten-cha"
-              hint="Giúp quản lý phân biệt các em trùng tên."
+              hint="Giúp quản lý phân biệt các bạn đọc trùng tên."
               invalidHint="Vui lòng nhập tên cha."
             >
               <Input
@@ -281,7 +281,7 @@ export default async function RegisterPage({
               label="Tên mẹ"
               required
               htmlFor="ten-me"
-              hint="Giúp quản lý phân biệt các em trùng tên."
+              hint="Giúp quản lý phân biệt các bạn đọc trùng tên."
               invalidHint="Vui lòng nhập tên mẹ."
             >
               <Input
@@ -324,7 +324,7 @@ export default async function RegisterPage({
 
             <p className="text-[14px] text-meta">
               Không bắt buộc. Chưa biết cũng cứ gửi đăng ký — quản lý bổ sung giúp
-              sau khi gặp em.
+              sau khi gặp bạn.
             </p>
 
             {/* This shelf's own labels and units, never Đồng Tháp's. */}
@@ -344,7 +344,7 @@ export default async function RegisterPage({
             <div>
               <p className="text-[16px] font-semibold">Sau khi gửi thì sao?</p>
               <p className="mt-1.5 text-[15px] text-meta">
-                Tài khoản chưa dùng được ngay. Quản lý sẽ gặp em ở nhà xứ để xác
+                Tài khoản chưa dùng được ngay. Quản lý sẽ gặp bạn ở nhà xứ để xác
                 nhận, thường trong vòng một tuần.
               </p>
             </div>
