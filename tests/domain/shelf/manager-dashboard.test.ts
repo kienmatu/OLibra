@@ -219,6 +219,33 @@ test("a badge shows the number of rows the list it links to shows", async () => 
   expect(registrations.length).toBe(2);
 });
 
+test("a manager's own pending change does not inflate the Đổi thông tin badge", async () => {
+  // PO feedback round 1, Task 9 (§9 of the design doc): a manager's or admin's
+  // own profile change is decided at the new super-admin queue, not this
+  // shelf's — `getPendingProfileChanges` filters it out — so counting it here
+  // would be exactly the disagreement the test above guards against: a badge
+  // promising a decision this screen's own queue does not offer.
+  const a = await shelfWithOneOfEach("dong-thap");
+  const otherManager = await makeMember(sql, a.shelf.id, { role: "manager" });
+  await runCommand(
+    sql,
+    contextFor(a.shelf.id, otherManager, "manager"),
+    proposeProfileChange,
+    { membershipId: otherManager.id, fields: { phone: "0987654321" } },
+  );
+
+  const { counts, changes } = await runQuery(sql, a.ctx, async (tx) => ({
+    counts: await getManagerBadgeCounts(tx, a.ctx),
+    changes: await getPendingProfileChanges(tx, a.ctx),
+  }));
+
+  // shelfWithOneOfEach already proposed one reader-subject change; the
+  // manager's own is the second pending row on this shelf and must not
+  // appear in either the queue or its badge.
+  expect(changes).toHaveLength(1);
+  expect(counts.pendingProfileChanges).toBe(1);
+});
+
 test("the Quá hạn badge shows the number of rows qua-han shows", async () => {
   // The third badge, and the one the two agreement tests above left out.
   // `getManagerBadgeCounts.overdue` is `count(*) from loans_current where

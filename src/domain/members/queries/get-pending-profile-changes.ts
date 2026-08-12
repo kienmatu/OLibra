@@ -80,6 +80,24 @@ export interface PendingProfileChange {
  *
  * `requireIdentifiedActor` is deliberately not called — it exists so an audit
  * row cannot name nobody, and a query writes none.
+ *
+ * ── `and m.role = 'reader'`: this queue is one half of §9's table ───────────
+ *
+ * PO feedback round 1, Task 9 routes approval by *whose* record is changing:
+ * a `reader`'s change is decided by any `manager` or `admin` of the shelf —
+ * this screen, unchanged — and a `manager`'s or `admin`'s own change is
+ * decided by a `super_admin` only, at the new `/quan-tri/doi-thong-tin`
+ * (`ApproveProfileChange` and `RejectProfileChange` both refuse
+ * `not_permitted` if a manager reaches for either on a colleague's request,
+ * whether or not it appears in a list they can see).
+ *
+ * A manager's pending change is therefore **not missing** when it is absent
+ * from this list — it is at the admin queue, where a super admin can actually
+ * decide it. Leaving it here instead would put a card in front of the one
+ * kind of viewer this screen has (a manager or shelf admin) who is
+ * structurally unable to act on it: every click resolves to `not_permitted`,
+ * which is worse than the card not being there, because it promises a
+ * decision this queue cannot make.
  */
 export async function getPendingProfileChanges(
   tx: Tx,
@@ -108,6 +126,7 @@ export async function getPendingProfileChanges(
     join memberships m on m.user_id = r.user_id and m.deleted_at is null
     join users u       on u.id = r.user_id and u.deleted_at is null
    where r.status = 'pending'
+     and m.role = 'reader'
    order by r.requested_at
   `;
 
