@@ -4,6 +4,7 @@ import type { Command } from "../../kernel/unit-of-work";
 import { requireManager } from "../policy";
 import {
   applyProfileFields,
+  assertPhoneOrReason,
   diffProfileFields,
   normaliseProfilePatch,
   type ProfilePatch,
@@ -142,6 +143,14 @@ export const updateReaderProfile: Command<UpdateReaderProfileInput, void> = asyn
   if (diff.changed.length === 0) {
     throw new RuleViolated("empty_proposal");
   }
+
+  // PO feedback round 1, Task 8. Checked after `applyProfileFields`, on the
+  // same authoritative `after` the diff above reads — so a reason already on
+  // file (inherited from `prev` because this call named neither field) answers
+  // this without the manager retyping it, and only a record that ends up
+  // genuinely silent on both is refused. Rolls the whole transaction back,
+  // same as `empty_proposal` just above.
+  assertPhoneOrReason(after);
 
   return {
     result: undefined,

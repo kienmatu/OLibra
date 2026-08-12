@@ -1,4 +1,4 @@
-import { ValidationFailed } from "../kernel/errors";
+import { RuleViolated, ValidationFailed } from "../kernel/errors";
 import type { Tx } from "../kernel/unit-of-work";
 import { assertPhone } from "./policy";
 import type { ScopedUserId } from "./scoped-user";
@@ -418,6 +418,32 @@ export async function applyProfileFields(
     ) as ProfileFields;
 
   return { before: side("before"), after: side("after") };
+}
+
+/**
+ * Refuses a write that would leave the subject with neither a phone number
+ * nor a stated reason for lacking one — PO feedback round 1, Task 8.
+ *
+ * **Checked against `after`, the resulting record, never the patch alone.**
+ * That is what makes "a reason already on file counts" true: a caller that
+ * touches an unrelated field and leaves both `phone` and
+ * `phone_missing_reason` exactly as they were inherits whatever `after`
+ * already carries, and only a record that is *genuinely* silent on both — no
+ * number, no reason, on the row as it now stands — is refused. `applyProfile
+ * Fields` itself stays unconditional (its own test drives `{ phone: null }`
+ * with no reason and expects it to succeed) precisely so this rule can live
+ * one level up, in the two callers that speak for a *decision* rather than a
+ * raw write: `./commands/update-reader-profile.ts` and
+ * `./commands/approve-profile-change.ts`. `register()` (`../registration.ts`)
+ * raises the identical code for the third and fourth write paths
+ * (self-registration, a manager registering on behalf), where there is no
+ * `after` to read yet and the same question is asked of the patch directly.
+ */
+export function assertPhoneOrReason(after: ProfileFields): void {
+  const reason = after.phone_missing_reason;
+  if (after.phone === null && (reason === null || reason.trim() === "")) {
+    throw new RuleViolated("thieu-so-dien-thoai");
+  }
 }
 
 /**

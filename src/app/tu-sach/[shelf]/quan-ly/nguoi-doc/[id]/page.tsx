@@ -18,6 +18,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Pill } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
+import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { messageFor } from "@/domain/kernel/errors";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
@@ -110,9 +111,12 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
 function ReaderActions({
   shelfSlug,
   reader,
+  refused,
 }: {
   shelfSlug: string;
   reader: ReaderDetail;
+  /** PO feedback round 1, Task 8: whether `?loi=thieu-so-dien-thoai` is showing. */
+  refused: boolean;
 }) {
   return (
     <section className="mt-10 max-w-2xl space-y-4">
@@ -137,7 +141,11 @@ function ReaderActions({
           </li>
         ) : null}
         <li className="p-4">
-          <EditProfileDisclosure shelfSlug={shelfSlug} reader={reader} />
+          <EditProfileDisclosure
+            shelfSlug={shelfSlug}
+            reader={reader}
+            refused={refused}
+          />
         </li>
       </ul>
     </section>
@@ -399,17 +407,33 @@ function MarkLeftDisclosure({
 function EditProfileDisclosure({
   shelfSlug,
   reader,
+  refused,
 }: {
   shelfSlug: string;
   reader: ReaderDetail;
+  refused: boolean;
 }) {
   const idFor = (name: string) => `${name}-${reader.membershipId}`;
+  const formId = `sua-ho-so-${reader.membershipId}`;
+  // PO feedback round 1, Task 8. Unlike the two registration forms, this one
+  // already knows the record: a reader with no phone on file gets the reason
+  // box up front, pre-filled with whatever is already there, rather than
+  // waiting for a first refusal to reveal it — the design's own ask ("renders
+  // ... beside the empty phone, so the next volunteer to open the record
+  // reads why"). `refused` still widens it: a manager who *clears* the phone
+  // on a reader who had one sees the box appear the moment that refusal comes
+  // back, exactly as the two registration forms do.
+  const showReason = !reader.phone || refused;
   return (
-    <details>
+    <details open={showReason || undefined}>
       <summary className="cursor-pointer list-none text-[14px] underline [&::-webkit-details-marker]:hidden">
         Sửa hồ sơ
       </summary>
-      <form action={updateReaderProfileAction} className="mt-3 max-w-sm space-y-4">
+      <form
+        id={formId}
+        action={updateReaderProfileAction}
+        className="mt-3 max-w-sm space-y-4"
+      >
         <input type="hidden" name="tu-sach" value={shelfSlug} />
         <input type="hidden" name="thanh-vien" value={reader.membershipId} />
 
@@ -456,17 +480,54 @@ function EditProfileDisclosure({
           />
         </Field>
 
-        <Field label="Số điện thoại" required htmlFor={idFor("dien-thoai")}>
+        <Field
+          label="Số điện thoại"
+          required
+          htmlFor={idFor("dien-thoai")}
+          hint={!reader.phone ? "Để trống thì cần ghi lý do bên dưới." : undefined}
+        >
           <Input
             id={idFor("dien-thoai")}
             name="dien-thoai"
             type="tel"
             inputMode="numeric"
             pattern={PHONE_PATTERN}
-            required
+            // PO feedback round 1, Task 8: not HTML `required` — the real
+            // rule is "a phone, or a reason", and a native `required` here
+            // would block the browser from ever submitting the second half
+            // of that. `Field`'s own `required` prop still shows the "Bắt
+            // buộc" pill; only the constraint that would stop submission is
+            // gone. `PhoneConfirmDialog` and `updateReaderProfile`'s
+            // `assertPhoneOrReason` are what actually enforce it.
             defaultValue={reader.phone ?? ""}
           />
         </Field>
+
+        {/* PO feedback round 1, Task 8. Visible whenever the record already
+            has no phone (pre-filled with what is on file) or a refusal just
+            said so; a hidden carrier otherwise, for `PhoneConfirmDialog` to
+            fill in. */}
+        {showReason ? (
+          <Field
+            label="Lý do chưa có số điện thoại"
+            required
+            htmlFor={idFor("ly-do-thieu-sdt")}
+          >
+            <Textarea
+              id={idFor("ly-do-thieu-sdt")}
+              name="ly-do-thieu-sdt"
+              required
+              rows={3}
+              defaultValue={reader.phoneMissingReason ?? ""}
+            />
+          </Field>
+        ) : (
+          <input
+            type="hidden"
+            name="ly-do-thieu-sdt"
+            defaultValue={reader.phoneMissingReason ?? ""}
+          />
+        )}
 
         <Field label="Email" htmlFor={idFor("email")}>
           <Input
@@ -484,6 +545,7 @@ function EditProfileDisclosure({
           Lưu thay đổi
         </SubmitButton>
       </form>
+      <PhoneConfirmDialog formId={formId} />
     </details>
   );
 }
@@ -749,7 +811,11 @@ export default async function ManagerReaderDetailPage({
         </dl>
       </section>
 
-      <ReaderActions shelfSlug={slug} reader={reader} />
+      <ReaderActions
+        shelfSlug={slug}
+        reader={reader}
+        refused={refused === "thieu-so-dien-thoai"}
+      />
 
       <section className="mt-10 max-w-2xl">
         <h2 className="text-xl font-semibold">

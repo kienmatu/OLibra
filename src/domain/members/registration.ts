@@ -74,6 +74,16 @@ export interface RegistrationInput {
   avatarUrl?: string | null;
   parishUnitL1Id?: string | null;
   parishUnitL2Id?: string | null;
+  /**
+   * PO feedback round 1, Task 8. `phone` above is typed as a plain required
+   * `string`, and mostly is one — but the column stays nullable (some readers
+   * are children with no phone of their own, and a placeholder number is a
+   * tap that dials a stranger), so a *blank* `phone` is allowed exactly once
+   * this field says why. `register()` refuses `thieu-so-dien-thoai` when both
+   * are blank, matching `../profile-fields.ts`'s `assertPhoneOrReason` for the
+   * two correction paths.
+   */
+  phoneMissingReason?: string | null;
 }
 
 export interface RegistrationResult {
@@ -200,9 +210,20 @@ export async function register(
     ["dateOfBirth", input.dateOfBirth],
     ["fatherName", input.fatherName],
     ["motherName", input.motherName],
-    ["phone", input.phone],
   ] as const) {
     if (blank(value)) throw new ValidationFailed("required_fields_missing", field);
+  }
+
+  // PO feedback round 1, Task 8: `phone` left this loop. It used to be
+  // unconditionally required here — every reader had a phone by construction,
+  // because nothing else was possible — and that stopped being true the
+  // moment the interface started accepting a stated reason instead. A blank
+  // phone is refused only when the reason is blank too, and the code is
+  // `thieu-so-dien-thoai`, not `required_fields_missing`: this is not a
+  // malformed submission, it is the two-question rule the interface now
+  // asks — a number, or why not.
+  if (blank(input.phone) && blank(input.phoneMissingReason)) {
+    throw new RuleViolated("thieu-so-dien-thoai");
   }
 
   // QA remediation Task 18: `khong-phai-so` used to sail through the loop
@@ -211,8 +232,12 @@ export async function register(
   // `RegisterMembership`, `RegisterMemberOnBehalf` and `ManagerRegisterReader`
   // — see `register`'s own docstring — so validating here, rather than in
   // each of the three commands that call it, covers all three from one place
-  // and cannot drift the way three separate calls could.
-  assertPhone(input.phone.trim(), "phone");
+  // and cannot drift the way three separate calls could. Skipped when the
+  // phone itself is blank: a phone that is not there has no shape to check,
+  // and the arm above already decided a blank one is allowed here.
+  if (!blank(input.phone)) {
+    assertPhone(input.phone.trim(), "phone");
+  }
 
   // **Before `findExistingPerson`, not merely before the insert.**
   //
@@ -259,14 +284,25 @@ export async function register(
     // is the conclusion that is load-bearing here.)
     userId = existingId;
   } else {
+    // `trimmed` (this file's own helper, above) folds blank to `null` — the
+    // same fold `normaliseProfilePatch` gives every other nullable field, so
+    // a phone left blank stores as `null` rather than as an empty string that
+    // would render as an honest-looking `tel:` link to nowhere. The reason
+    // travels only when the phone does not: Task 7's rule for a phone
+    // arriving later ("a present number makes the reason stale") applies
+    // here from the start, so a phone supplied at registration is never
+    // paired with a reason nobody needs.
+    const phone = trimmed(input.phone);
+    const phoneMissingReason =
+      phone === null ? trimmed(input.phoneMissingReason) : null;
     const [created] = await tx<{ id: string }[]>`
       insert into users (
         saint_name, full_name, date_of_birth, father_name, mother_name,
-        phone, email, avatar_url, username, password_hash
+        phone, phone_missing_reason, email, avatar_url, username, password_hash
       ) values (
         ${trimmed(input.saintName)}, ${input.fullName.trim()},
         ${input.dateOfBirth.trim()}::date, ${input.fatherName.trim()},
-        ${input.motherName.trim()}, ${input.phone.trim()},
+        ${input.motherName.trim()}, ${phone}, ${phoneMissingReason},
         ${trimmed(input.email)}, ${trimmed(input.avatarUrl)},
         ${credentials.username}, ${credentials.passwordHash}
       )

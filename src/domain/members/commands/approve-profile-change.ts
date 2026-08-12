@@ -7,6 +7,7 @@ import { avatarObjectOf } from "../pending-proposal";
 import { requireManager } from "../policy";
 import {
   applyProfileFields,
+  assertPhoneOrReason,
   diffProfileFields,
   lockPerson,
   normaliseProfilePatch,
@@ -196,6 +197,15 @@ export const approveProfileChange: Command<
   }
   const { before, after } = await applyProfileFields(tx, subject.userId, proposed);
   const diff = diffProfileFields(before, after);
+
+  // PO feedback round 1, Task 8: "a manager approving ... a profile change
+  // whose phone is empty" — this is that check. A reader may propose clearing
+  // their phone with no reason (this command never gated the proposal itself;
+  // Task 8's file list does not touch `ProposeProfileChange`), so the record
+  // this approval would produce is what gets asked, not the proposal alone.
+  // A reason already on file — from an earlier decision, untouched by this
+  // proposal — answers it without anyone retyping anything.
+  assertPhoneOrReason(after);
 
   // Read *after* the write, off the authoritative before/after, rather than
   // from `proposed_values` — so an approval that did not actually move the

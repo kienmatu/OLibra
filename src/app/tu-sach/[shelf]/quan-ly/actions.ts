@@ -739,6 +739,10 @@ export async function registerReaderOnBehalfAction(form: FormData): Promise<void
     fatherName: field(form, "ten-cha"),
     motherName: field(form, "ten-me"),
     phone: field(form, "dien-thoai"),
+    // PO feedback round 1, Task 8: same rule as `dang-ky/actions.ts`'s
+    // `registerMembershipAction` — `register()` refuses `thieu-so-dien-thoai`
+    // when this and `phone` above are both blank.
+    phoneMissingReason: optional(form, "ly-do-thieu-sdt"),
     // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
     parishUnitL1Id: optional(form, "parishUnitL1Id"),
     parishUnitL2Id: optional(form, "parishUnitL2Id"),
@@ -1453,6 +1457,14 @@ export async function updateReaderProfileAction(form: FormData): Promise<void> {
           father_name: optional(form, "ten-cha"),
           mother_name: optional(form, "ten-me"),
           phone: optional(form, "dien-thoai"),
+          // PO feedback round 1, Task 8: `applyProfileFields`'s two callers
+          // both call `assertPhoneOrReason` on the resulting record — see
+          // `../../../../domain/members/profile-fields.ts`. This form always
+          // sends the field (see `EditProfileDisclosure`'s hidden/visible
+          // `ly-do-thieu-sdt` input), pre-filled with whatever is already on
+          // file, so leaving it untouched preserves an existing reason rather
+          // than silently clearing it.
+          phone_missing_reason: optional(form, "ly-do-thieu-sdt"),
           email: optional(form, "email"),
         },
       })

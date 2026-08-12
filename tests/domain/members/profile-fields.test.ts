@@ -411,3 +411,44 @@ test("giving a phone clears the reason it was missing", async () => {
   `;
   expect(row.phone_missing_reason).toBeNull();
 });
+
+// — PO feedback round 1, Task 8: the interface's own rule, enforced by the
+// two callers of `applyProfileFields` rather than by `applyProfileFields`
+// itself (whose own test above, "a nullable field can be cleared", clears
+// `phone` with no reason at all and must keep succeeding — this is a raw
+// write, not a decision) —
+
+test("clearing the phone with no reason on file is refused, not silently written", async () => {
+  const { membershipId, userId, ctx } = await aReaderWithAProfile();
+  await expect(
+    runCommand(sql, ctx, updateReaderProfile, {
+      membershipId,
+      fields: { phone: null },
+    }),
+  ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
+
+  // Refused, and the transaction rolled back — the phone is untouched.
+  const [row] = await sql`select phone from users where id = ${userId}`;
+  expect(row.phone).not.toBeNull();
+});
+
+test("clearing the phone when a reason is already on file is not refused", async () => {
+  const { membershipId, userId, ctx } = await aReaderWithAProfile();
+  await runCommand(sql, ctx, updateReaderProfile, {
+    membershipId,
+    fields: { phone: null, phone_missing_reason: "Chưa có, sẽ bổ sung sau" },
+  });
+
+  // A later, unrelated edit that does not touch either field — the reason
+  // already on file is what answers the question, not anything typed now.
+  await runCommand(sql, ctx, updateReaderProfile, {
+    membershipId,
+    fields: { email: "moi@vd.vn" },
+  });
+
+  const [row] = await sql<
+    { phone: string | null; email: string | null }[]
+  >`select phone, email from users where id = ${userId}`;
+  expect(row.phone).toBeNull();
+  expect(row.email).toBe("moi@vd.vn");
+});

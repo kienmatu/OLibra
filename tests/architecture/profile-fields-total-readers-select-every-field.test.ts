@@ -116,7 +116,9 @@ test("every query mapping the whole of PROFILE_FIELDS over a row also mentions e
   const offenders: string[] = [];
 
   for (const { path, source } of totalProfileFieldReaders()) {
-    const missing = PROFILE_FIELDS.filter((f) => !new RegExp(`\\b${f}\\b`).test(source));
+    const missing = PROFILE_FIELDS.filter(
+      (f) => !new RegExp(`\\b${f}\\b`).test(source),
+    );
     if (missing.length > 0) {
       offenders.push(`${path}: never mentions ${missing.join(", ")}`);
     }

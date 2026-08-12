@@ -236,6 +236,17 @@ export const ERROR_MESSAGES = {
   // show the shape rather than just say "invalid" — a volunteer correcting a
   // typo needs to know what "right" looks like, not just that this was wrong.
   phone_invalid: "Số điện thoại chưa đúng. Ghi 10 số, ví dụ 0912345678.",
+  // PO feedback round 1, Task 8. `phone` stays nullable on `users` — some
+  // readers are children with no phone of their own, and a placeholder number
+  // is a tap that dials a stranger — but the interface requires one anyway.
+  // So a blank phone is refused exactly once: the moment nobody has said why
+  // yet. `register()` (`../members/registration.ts`) and `applyProfileFields`'s
+  // two callers (`updateReaderProfile`, `approveProfileChange`, via
+  // `assertPhoneOrReason` in `../members/profile-fields.ts`) all raise this
+  // same code against the *resulting* record, never the patch alone, so a
+  // reason already on file answers it without being retyped.
+  "thieu-so-dien-thoai":
+    "Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có.",
 
   // — community: B3 —
   // OPS §4.4's own sentences. `comment_not_pending` is the **fifth** slice in a

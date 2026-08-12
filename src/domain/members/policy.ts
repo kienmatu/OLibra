@@ -286,12 +286,14 @@ export const PHONE_PATTERN = "[+0-9][0-9 .-]{7,13}";
  * so `ValidationFailed.field` points at the box a volunteer actually typed
  * into rather than always saying "phone" regardless of which form it was.
  *
- * Every caller is responsible for its own blank check first: a required
- * phone number (`register()`, `../registration.ts`) already refuses blank
- * with `required_fields_missing` before reaching here, and an optional one
- * (a shelf's `keeperPhone`, the administration's `contactPhone`) must skip
- * this call entirely when the field is absent or being cleared — `null`
- * means "no phone on file", not "an invalid one".
+ * Every caller is responsible for its own blank check first: a shelf's
+ * `keeperPhone`, the administration's `contactPhone`, and (PO feedback round
+ * 1, Task 8) `register()`'s own `input.phone` must all skip this call
+ * entirely when the field is absent or being cleared — `null` means "no
+ * phone on file", not "an invalid one". `register()` no longer refuses a
+ * blank phone unconditionally; it refuses `thieu-so-dien-thoai` only when no
+ * reason accompanies it, and calls this function only once it has decided
+ * the phone itself is not blank.
  */
 export function assertPhone(phone: string, field: string): void {
   if (!isValidPhone(phone)) {

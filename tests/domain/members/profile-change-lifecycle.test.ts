@@ -282,6 +282,64 @@ test("approval writes the proposed values and audits against the person", async 
   expect(rows[1].actor_id).toBe(manager.userId);
 });
 
+// — PO feedback round 1, Task 8: "a manager approving ... a profile change
+// whose phone is empty" —
+
+test("approving a proposal that would leave phone and reason both empty is refused", async () => {
+  // ProposeProfileChange itself is not gated (Task 8's file list does not
+  // touch it) — a reader may propose clearing their phone with no reason.
+  // The rule is enforced here, at the moment it would actually take effect.
+  const { readerCtx, ctx, reader } = await shelfWithReader();
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: null },
+  });
+  const [request] = await requestsOf(reader.userId);
+
+  await expect(
+    runCommand(sql, ctx, approveProfileChange, {
+      profileChangeRequestId: request.id,
+    }),
+  ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
+
+  // Refused before anything committed — the phone is exactly what it was,
+  // and the request is still pending for a manager to reject or ask again.
+  const person = await personOf(reader.userId);
+  expect(person.phone).not.toBeNull();
+  const [after] = await requestsOf(reader.userId);
+  expect(after.status).toBe("pending");
+});
+
+test("a reason already on file answers it, even though the proposal names only the phone", async () => {
+  const { readerCtx, ctx, ctxWith, reader } = await shelfWithReader();
+  // The record already carries a reason, from an earlier, unrelated decision
+  // — a manager's own direct correction, not this proposal.
+  await runCommand(sql, ctxWith(clock), approveProfileChange, {
+    profileChangeRequestId: (
+      await runCommand(sql, readerCtx, proposeProfileChange, {
+        membershipId: reader.id,
+        fields: { phone: null, phone_missing_reason: "Chưa có, sẽ bổ sung sau" },
+      })
+    ).profileChangeRequestId,
+  });
+
+  // A second, unrelated proposal — the field it never mentions is
+  // phone_missing_reason, so approving it must not ask the question again.
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { saint_name: "Anna" },
+  });
+  const [, second] = await requestsOf(reader.userId);
+
+  await runCommand(sql, ctxWith(laterClock), approveProfileChange, {
+    profileChangeRequestId: second.id,
+  });
+
+  const person = await personOf(reader.userId);
+  expect(person.phone).toBeNull();
+  expect(person.saint_name).toBe("Anna");
+});
+
 test("approval can set the parish placement in the same action, and validates it", async () => {
   // BR §5.6's rule, through the shared `validateSelection` — the only code path
   // this slice shares with B2a, and shared as an import rather than restated.

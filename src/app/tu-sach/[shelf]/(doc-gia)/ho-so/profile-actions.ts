@@ -215,6 +215,16 @@ export async function proposeProfileChangeAction(form: FormData): Promise<void> 
         father_name: value("ten-cha"),
         mother_name: value("ten-me"),
         phone: value("dien-thoai"),
+        // PO feedback round 1, Task 8. Nothing in this file gains a new
+        // refusal — Task 8's brief does not list this action among the ones
+        // that enforce `thieu-so-dien-thoai` — but the field is `PROPOSABLE`
+        // (`../../../../domain/members/profile-proposals.ts` filters
+        // `PROFILE_FIELDS` by excluding only `avatar_url`), so a reader who
+        // types a reason here has it travel with the proposal. The rule
+        // itself is enforced downstream, at approval: `ApproveProfileChange`
+        // refuses `thieu-so-dien-thoai` if approving this proposal would
+        // leave the record with neither a phone nor a reason.
+        phone_missing_reason: value("ly-do-thieu-sdt"),
         email: value("email"),
       },
     });

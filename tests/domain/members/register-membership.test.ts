@@ -148,18 +148,64 @@ test("an avatar is a URL the domain records, never bytes it stores", async () =>
 test("the required fields are the ones the database and BR §5.3 agree on", async () => {
   // OPS §4.3 marks father/mother optional; BR §5.3 and §16.1 say required,
   // and users.father_name / mother_name are `not null`. The columns decide.
+  // `phone` is deliberately not in this list any more — PO feedback round 1,
+  // Task 8 moved it to its own test below, because blanking it alone is no
+  // longer `required_fields_missing`: it is `thieu-so-dien-thoai`, and only
+  // when no reason accompanies it.
   const { ctx } = await guestAt("dong-thap");
   for (const missing of [
     "fullName",
     "dateOfBirth",
     "fatherName",
     "motherName",
-    "phone",
   ] as const) {
     await expect(
       runCommand(sql, ctx, registerMembership, { ...FAMILY, [missing]: "  " }),
     ).rejects.toMatchObject({ code: "required_fields_missing" });
   }
+});
+
+// — PO feedback round 1, Task 8: a blank phone is allowed once a reason is
+// given, and refused with its own code when neither is —
+
+test("a blank phone with no reason is thieu-so-dien-thoai, not required_fields_missing", async () => {
+  const { ctx } = await guestAt("dong-thap");
+  await expect(
+    runCommand(sql, ctx, registerMembership, {
+      ...FAMILY,
+      phone: "  ",
+      phoneMissingReason: undefined,
+    }),
+  ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
+});
+
+test("a blank phone with a typed reason registers, and the reason is stored", async () => {
+  const { ctx } = await guestAt("dong-thap");
+  const { userId } = await runCommand(sql, ctx, registerMembership, {
+    ...FAMILY,
+    phone: "",
+    phoneMissingReason: "Em bé chưa có điện thoại riêng",
+  });
+  const [row] = await sql<
+    { phone: string | null; phone_missing_reason: string | null }[]
+  >`select phone, phone_missing_reason from users where id = ${userId}`;
+  expect(row.phone).toBeNull();
+  expect(row.phone_missing_reason).toBe("Em bé chưa có điện thoại riêng");
+});
+
+test("a real phone needs no reason, and none is stored even if one was typed", async () => {
+  // Task 7's rule ("a present number makes the reason stale") applies from
+  // the moment of registration, not only once a phone arrives later.
+  const { ctx } = await guestAt("dong-thap");
+  const { userId } = await runCommand(sql, ctx, registerMembership, {
+    ...FAMILY,
+    phoneMissingReason: "Không cần vì đã có số",
+  });
+  const [row] = await sql<
+    { phone: string | null; phone_missing_reason: string | null }[]
+  >`select phone, phone_missing_reason from users where id = ${userId}`;
+  expect(row.phone).toBe(FAMILY.phone);
+  expect(row.phone_missing_reason).toBeNull();
 });
 
 test("a password shorter than eight characters, and a mistyped confirmation", async () => {

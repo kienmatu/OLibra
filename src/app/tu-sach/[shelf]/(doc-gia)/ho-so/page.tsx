@@ -1,7 +1,8 @@
 import { Camera, KeyRound, Lock } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
-import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
+import { Field, Input, ReadOnlyValue, Textarea } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
@@ -208,7 +209,11 @@ export default async function ReaderProfilePage({
           </div>
         ) : null}
 
-        <form action={proposeProfileChangeAction} className="mt-10 space-y-6">
+        <form
+          id="ho-so-form"
+          action={proposeProfileChangeAction}
+          className="mt-10 space-y-6"
+        >
           <input type="hidden" name="tu-sach" value={slug} />
           <input type="hidden" name="thanh-vien" value={profile.membershipId} />
 
@@ -266,7 +271,11 @@ export default async function ReaderProfilePage({
             label="Số điện thoại"
             required
             htmlFor="dien-thoai"
-            hint="Quản lý dùng số này khi cần nhắc trả sách."
+            hint={
+              fields.phone
+                ? "Quản lý dùng số này khi cần nhắc trả sách."
+                : "Để trống thì cần ghi lý do bên dưới."
+            }
           >
             <Input
               id="dien-thoai"
@@ -274,10 +283,41 @@ export default async function ReaderProfilePage({
               type="tel"
               inputMode="numeric"
               pattern={PHONE_PATTERN}
-              required
+              // PO feedback round 1, Task 8: not HTML `required` — see
+              // `nguoi-doc/[id]/page.tsx`'s identical note. The real rule is
+              // "a phone, or a reason", enforced by `PhoneConfirmDialog` and,
+              // on the server, by `ApproveProfileChange`'s
+              // `assertPhoneOrReason` at the moment a manager would approve
+              // this proposal.
               defaultValue={fields.phone ?? ""}
             />
           </Field>
+
+          {/* PO feedback round 1, Task 8 — see `nguoi-doc/[id]/page.tsx`'s
+              identical reasoning: visible and pre-filled whenever this
+              reader's own record already has no phone, or a refusal just
+              said so; a hidden carrier otherwise. */}
+          {!fields.phone || refusal === "thieu-so-dien-thoai" ? (
+            <Field
+              label="Lý do chưa có số điện thoại"
+              required
+              htmlFor="ly-do-thieu-sdt"
+            >
+              <Textarea
+                id="ly-do-thieu-sdt"
+                name="ly-do-thieu-sdt"
+                required
+                rows={3}
+                defaultValue={fields.phone_missing_reason ?? ""}
+              />
+            </Field>
+          ) : (
+            <input
+              type="hidden"
+              name="ly-do-thieu-sdt"
+              defaultValue={fields.phone_missing_reason ?? ""}
+            />
+          )}
 
           <Field
             label="Email"
@@ -302,6 +342,7 @@ export default async function ReaderProfilePage({
             </p>
           </div>
         </form>
+        <PhoneConfirmDialog formId="ho-so-form" />
 
         {showL1 || showL2 ? (
           <section className="mt-10 space-y-4 border-t border-hairline pt-8">
