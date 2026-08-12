@@ -2,6 +2,38 @@ import { requireManager, requireReader } from "../domain/catalogue/policy";
 import type { TenantContext } from "../domain/kernel/tenant";
 import type { Tx } from "../domain/kernel/unit-of-work";
 
+const NUMBER = new Intl.NumberFormat("vi-VN");
+
+/**
+ * The three copy counts, in the one wording both book pages use — the
+ * reader's `sach/[slug]` and the manager's `quan-ly/sach/[id]` (SDD §10, PO
+ * feedback round 1 Task 11).
+ *
+ * One function rather than the sentence written out twice, so the wording
+ * cannot drift the way `getBookDetail`/`getBookDetailManager`'s near-identical
+ * SQL already shows a copy-pasted shape can.
+ *
+ * **`copiesAvailable + onLoan` need not equal `copiesTotal`, and that is not a
+ * bug to fix here.** A lost or retired copy is in neither count — `held` copies
+ * are not in `onLoan` either — so the three numbers can undercount the total
+ * by however many copies are in one of those other states. That is exactly why
+ * the third number is worded "bản trong tủ" (copies in the shelf's records)
+ * rather than presented as a sum the first two add up to. Do not "correct" the
+ * arithmetic by deriving `copiesTotal` from the other two, or by deriving one
+ * of the other two from `copiesTotal` minus the rest — each is its own count
+ * off its own `book_copies` rows, and a title with a lost copy is the ordinary
+ * case this sentence has to stay honest about.
+ */
+export function copyCountLine(counts: {
+  copiesAvailable: number;
+  onLoan: number;
+  copiesTotal: number;
+}): string {
+  return `${NUMBER.format(counts.copiesAvailable)} bản có sẵn · ${NUMBER.format(
+    counts.onLoan,
+  )} đang cho mượn · ${NUMBER.format(counts.copiesTotal)} bản trong tủ`;
+}
+
 /**
  * What the catalogue's filter bar needs and no query provides: the categories
  * *this shelf actually stocks*.

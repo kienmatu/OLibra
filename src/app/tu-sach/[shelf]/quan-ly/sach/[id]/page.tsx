@@ -32,6 +32,7 @@ import {
   getRecentComments,
 } from "@/domain/community/queries/get-comments";
 import { getReadersList } from "@/domain/members/queries/get-readers-list";
+import { copyCountLine } from "@/lib/catalogue";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { bookFromSlug, chooseCopyToLend } from "@/lib/lending";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
@@ -375,13 +376,28 @@ export default async function ManagerBookDetailPage({
       </div>
 
       <section className="mt-10">
+        {/* PO feedback round 1, Task 11 / SDD §10. The same sentence the
+            reader's book page now shows, summarising the table beneath it —
+            one function (`copyCountLine`) so the wording on the two pages
+            cannot drift apart. `book.onLoan` is Task 11's own addition to
+            `getBookDetailManager`'s return shape; the SQL had always counted
+            it for `deriveAvailability` and no screen had ever seen the
+            number. */}
+        <p className="text-[15px] text-meta">
+          {copyCountLine({
+            copiesAvailable: book.book.copiesAvailable,
+            onLoan: book.onLoan,
+            copiesTotal: book.book.copiesTotal,
+          })}
+        </p>
+
         {/* A title receives more donated copies over time, so the copy count
             has to be able to grow after cataloguing. This is the only entry
             point for that — "Sửa sách" edits the title, not the shelf. */}
         {/* items-start, not items-center: the disclosure's body grows tall
             once opened, and centring against it left the heading floating
             in the middle of that height instead of sitting at the top. */}
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
           <h2 className="pt-2.5 text-xl font-semibold">
             Các bản sách ({NUMBER.format(book.copies.length)})
           </h2>

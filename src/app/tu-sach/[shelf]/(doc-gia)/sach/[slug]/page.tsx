@@ -26,6 +26,7 @@ import {
   commentsEnabled,
   commentsRequireApproval,
 } from "@/domain/community/policy";
+import { copyCountLine } from "@/lib/catalogue";
 import { formatDueDate, formatInstant, formatYear } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -279,20 +280,36 @@ export default async function BookDetailPage({
 
   const description = paragraphsOf(book.description);
 
+  /**
+   * PO feedback round 1, Task 11 / SDD §11. The shelf's mandatory contact —
+   * position 1 is required by Task 2's own write path, but a shelf onboarded
+   * before that constraint existed, or whose row is mid-edit, can still have
+   * an empty `contacts` array (`readShelfIdentity`'s own docstring: "empty
+   * for a shelf onboarded before anyone filled it in"), so this falls back to
+   * whichever contact sorts first rather than assuming position 1 exists.
+   */
+  const primaryContact =
+    shelf.contacts.find((c) => c.position === 1) ?? shelf.contacts[0];
+
   /* The availability panel's body, assembled once because it is the same three
      shapes under both the badged panel and the un-badged fallback. */
   const availabilityBody = (
     <>
       {isAvailable ? (
-        // BR:508: "copy count if more than one". One copy on the shelf needs no
-        // sentence — the badge above already says it is here — and "Có 1 trên 1
-        // bản" is arithmetic a child should not have to read.
-        book.copiesTotal > 1 ? (
-          <p className="text-[16px]">
-            Có {NUMBER.format(book.copiesAvailable)} trên{" "}
-            {NUMBER.format(book.copiesTotal)} bản đang ở trong tủ.
-          </p>
-        ) : null
+        /* PO feedback round 1, Task 11 / SDD §10. Shown at every count now,
+           including one: BR:508's old rule ("copy count if more than one")
+           read "Có 1 trên 1 bản" as arithmetic not worth a child's time, but
+           it also meant a single-copy book's panel showed nothing at all —
+           indistinguishable from a page that had failed to load. This line
+           carries information at every count: how many are on loan is never
+           readable from the badge above, one copy or five. */
+        <p className="text-[16px]">
+          {copyCountLine({
+            copiesAvailable: book.copiesAvailable,
+            onLoan: book.onLoan,
+            copiesTotal: book.copiesTotal,
+          })}
+        </p>
       ) : book.currentLoan ? (
         <>
           {/* The holder's name is `null` when the shelf sets
@@ -342,19 +359,34 @@ export default async function BookDetailPage({
       ) : (
         <p className="text-[16px]">Cuốn này hiện không có trong tủ.</p>
       )}
-      {/* BR:511, word for word: "Liên hệ {keeper} · {phone} để nhận sách."
-          Shown in every state, not only when available (M4 of the refinements
+      {/* BR:511, word for word: "Liên hệ {keeper} · {phone} để nhận sách." —
+          narrowed to readers by SDD §11 (PO feedback round 1, Task 11). Shown
+          in every state, not only when available (M4 of the refinements
           review): the state where a reader most wants to ring someone — the
           book is nowhere to be found on this page — is exactly the state that
-          used to say nothing. Both halves are nullable columns, so the line
-          appears only when there is somebody to ring. */}
-      {shelf.keeperName ? (
+          used to say nothing.
+
+          **Hidden entirely from a manager.** A manager reading this page is
+          the person being named here, or one of their colleagues — telling
+          them to ring themselves is noise on the screen where they are about
+          to lend the book, not information. This narrows BR:511, which said
+          the line appears in every state; the requirement is now "for
+          readers".
+
+          `primaryContact` is `shelf.contacts.find((c) => c.position === 1) ??
+          shelf.contacts[0]` (PO feedback round 1 Task 2 replaced the single
+          `keeperName`/`keeperPhone` pair with up to three ordered contacts).
+          It renders nothing when there is no contact at all, exactly as this
+          used to render nothing when `keeperName` was null; `phone` stays
+          nullable, so the sentence still ends "để nhận sách." on its own when
+          there is a name but no number. */}
+      {!isManager && primaryContact ? (
         <p className="flex flex-wrap items-center gap-x-1.5 text-[14px] text-meta">
-          Liên hệ {shelf.keeperName}
-          {shelf.keeperPhone ? (
+          Liên hệ {primaryContact.name}
+          {primaryContact.phone ? (
             <>
               {" · "}
-              <PhoneLink phone={shelf.keeperPhone} size="sm" /> để nhận sách.
+              <PhoneLink phone={primaryContact.phone} size="sm" /> để nhận sách.
             </>
           ) : (
             " để nhận sách."

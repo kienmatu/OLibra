@@ -34,6 +34,18 @@ export interface ManagerCopyRow {
 
 export interface ManagerBookDetail {
   book: BooksListRow;
+  /**
+   * PO feedback round 1, Task 11. Copies presently on loan for this title —
+   * already selected for `deriveAvailability` below, and not otherwise
+   * surfaced. Kept off `BooksListRow` itself rather than added there: that
+   * type is shared by `getBooksList` and `searchCatalogue`, neither of which
+   * has a use for it, and widening a type three queries share for one
+   * caller's benefit is how the other two end up constructing a field they
+   * never populate. `copyCountLine` (`src/lib/catalogue.ts`) is what turns
+   * this and `book.copiesAvailable`/`copiesTotal` into the sentence both book
+   * pages show.
+   */
+  onLoan: number;
   copies: ManagerCopyRow[];
   conditionHistory: {
     assessedAt: string;
@@ -239,6 +251,7 @@ export async function getBookDetailManager(
       isPublished: book.is_published,
       codes: book.codes,
     },
+    onLoan: Number(book.on_loan),
     copies: copies.map((c) => ({
       copyId: c.id,
       code: c.code,

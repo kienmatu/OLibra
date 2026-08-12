@@ -112,7 +112,16 @@ test("the check can see both halves of what it compares", () => {
   );
   expect(bookPage).toBeDefined();
   expect(isFrontDoor(bookPage!.path)).toBe(false);
-  expect(bookPage!.source).toContain("keeper");
+  // `PhoneLink` rather than `keeper`: PO feedback round 1 Task 11 replaced
+  // `shelf.keeperName`/`keeperPhone` on this very page with
+  // `shelf.contacts.find((c) => c.position === 1) ?? shelf.contacts[0]`, so
+  // the literal token "keeper" no longer appears in its non-comment source at
+  // all (it survives only inside this file's own stripped-out prose above).
+  // `PhoneLink` is still the component the contact line renders the number
+  // with, and it is a member of `FORBIDDEN_ON_THE_FRONT_DOOR` in its own
+  // right, so this keeps proving the same thing the "keeper" check did: that
+  // `routes()` found real, non-empty source for the page BR §16.1 names.
+  expect(bookPage!.source).toContain("PhoneLink");
 });
 
 test("no front-door route renders a shelf's keeper contact", () => {

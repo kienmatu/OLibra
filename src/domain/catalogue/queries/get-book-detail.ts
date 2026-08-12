@@ -17,6 +17,16 @@ export interface BookDetail extends CatalogueRow {
     dueOn: string;
   } | null;
   queueLength: number;
+  /**
+   * PO feedback round 1, Task 11. Copies presently on loan — already selected
+   * for `deriveAvailability` below, and not previously carried onto the
+   * returned object, so the reader page had `copiesAvailable` and
+   * `copiesTotal` to show but nothing for "đang cho mượn" without a second
+   * query. `copyCountLine` (`src/lib/catalogue.ts`) is the one place that
+   * turns this and the other two counts into the sentence both book pages
+   * show.
+   */
+  onLoan: number;
 }
 
 /**
@@ -176,5 +186,6 @@ export async function getBookDetail(
     language: book.language,
     currentLoan,
     queueLength,
+    onLoan: Number(book.on_loan),
   };
 }

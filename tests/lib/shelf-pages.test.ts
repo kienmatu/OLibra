@@ -4,7 +4,7 @@ import { NotFound, RuleViolated } from "../../src/domain/kernel/errors";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import { createBook } from "../../src/domain/catalogue/commands/create-book";
-import { readCatalogueCategories } from "../../src/lib/catalogue";
+import { copyCountLine, readCatalogueCategories } from "../../src/lib/catalogue";
 import { readShelfIdentity } from "../../src/lib/shelf";
 import { statusForAvailability } from "../../src/lib/status";
 import { migrate } from "../../src/db/migrate";
@@ -349,4 +349,36 @@ test("a title with no live copies gets no badge rather than the nearest one", ()
   expect(statusForAvailability("held")).toBe("held");
   expect(statusForAvailability("lost")).toBe("lost");
   expect(statusForAvailability("retired")).toBe("retired");
+});
+
+// — the copy-count sentence both book pages show (PO feedback round 1, Task 11) —
+
+test("the copy line shows all three counts even for a single copy", () => {
+  // BR:508's old rule hid this sentence entirely when `copiesTotal` was 1,
+  // which is exactly why a single-copy book's page read as though the
+  // information were missing rather than simply small. SDD §10 drops that
+  // gate.
+  const line = copyCountLine({ copiesAvailable: 1, onLoan: 0, copiesTotal: 1 });
+  expect(line).toBe("1 bản có sẵn · 0 đang cho mượn · 1 bản trong tủ");
+});
+
+test("lost and retired copies are counted in the total only", () => {
+  // 3 available + 2 on loan = 5, one short of the 6 total: the missing copy
+  // is lost or retired, which is neither "có sẵn" nor "đang cho mượn". That
+  // gap is correct and must not be "fixed" by deriving one count from the
+  // other two — see `copyCountLine`'s own docstring.
+  const line = copyCountLine({ copiesAvailable: 3, onLoan: 2, copiesTotal: 6 });
+  expect(line).toBe("3 bản có sẵn · 2 đang cho mượn · 6 bản trong tủ");
+});
+
+test('the counts format through Intl.NumberFormat("vi-VN"), not string interpolation', () => {
+  // SDD §6.6 forbids hand-written number formatting; a four-digit count is
+  // the case that would expose a raw `${n}` (no thousands separator) if this
+  // helper ever stopped calling the formatter.
+  const line = copyCountLine({
+    copiesAvailable: 1234,
+    onLoan: 0,
+    copiesTotal: 1234,
+  });
+  expect(line).toBe("1.234 bản có sẵn · 0 đang cho mượn · 1.234 bản trong tủ");
 });
