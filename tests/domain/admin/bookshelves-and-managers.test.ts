@@ -84,6 +84,14 @@ test("a new shelf inherits the system defaults, by value and not by reference", 
 
   const { bookshelfId, slug } = await runAdminCommand(sql, ctx, createBookshelf, {
     name: "Tủ sách Giáo xứ Vĩnh Long",
+    // Task 3 fix round 1: `createBookshelf` now refuses a write with no
+    // position-1 contact (`contact_position_1_required`) — see
+    // `shelf-contacts.test.ts` for that rule's own coverage. This test is
+    // about the lending-policy inheritance, so the contact here is the
+    // minimum that satisfies the rule, not itself the point of the test.
+    contacts: [
+      { position: 1, name: "Maria Nguyễn Thị Lan", phone: null, roleLabel: null },
+    ],
   });
   expect(slug).toBe("tu-sach-giao-xu-vinh-long");
 
@@ -143,7 +151,14 @@ test("creating a shelf writes a global audit row", async () => {
   // It has to be global: the shelf did not exist when the decision was made,
   // and `runAdminCommand` refuses a shelf-scoped entry under an empty scope.
   const ctx = await admin();
-  await runAdminCommand(sql, ctx, createBookshelf, { name: "Tủ sách mới" });
+  await runAdminCommand(sql, ctx, createBookshelf, {
+    name: "Tủ sách mới",
+    // Task 3 fix round 1: see the note on the earlier `createBookshelf` call
+    // in this file for why a position-1 contact is now required.
+    contacts: [
+      { position: 1, name: "Maria Nguyễn Thị Lan", phone: null, roleLabel: null },
+    ],
+  });
 
   const [row] = await sql<{ bookshelf_id: string | null; action: string }[]>`
     select bookshelf_id, action from audit_log where action = 'bookshelf.created'

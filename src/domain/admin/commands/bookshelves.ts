@@ -29,12 +29,20 @@ export interface CreateBookshelfInput {
   location?: string | null;
   address?: string | null;
   /**
-   * PO feedback round 1, Task 2. Optional and defaulted to none — a shelf
-   * created before anybody has typed a contact in is exactly the "onboarded
-   * on a Sunday afternoon" case `ShelfIdentity.contacts`'s own docstring
-   * already names, and `/quan-tri/tu-sach`'s create form (Task 3) posts this
-   * alongside the rest of the profile so a super admin can name the first
-   * contact at creation time rather than in a second edit.
+   * PO feedback round 1, Task 2. Optional in the type only for a caller that
+   * has not yet decided who the contacts are — `/quan-tri/tu-sach`'s create
+   * form (Task 3) always posts one alongside the rest of the profile, so a
+   * super admin names the first contact at creation time rather than in a
+   * second edit.
+   *
+   * **A missing or empty array is refused (`contact_position_1_required`,
+   * Task 3 fix round 1), same as an array with no position-1 entry.** The
+   * "onboarded on a Sunday afternoon" shelf with zero contacts —
+   * `ShelfIdentity.contacts`'s own docstring names it — is real, but it is a
+   * *pre-migration row* the domain cannot retroactively fix, never something
+   * this command is allowed to create fresh. Every shelf `createBookshelf`
+   * makes from here on is created with a form in front of it, and that form
+   * marks position 1 *Bắt buộc*.
    */
   contacts?: ShelfContact[];
 }
@@ -111,6 +119,20 @@ export const createBookshelf: Command<
        })})
     returning id
   `;
+
+  // Position 1 is the mandatory contact (PO feedback round 1, Task 3 fix
+  // round 1 — the design spec's own words). This is a domain rule, not a
+  // `not null` column: a shelf onboarded before the migration may
+  // legitimately hold zero contacts today, and no constraint can be added
+  // retroactively without inventing a volunteer for it — see the migration's
+  // own comment ("A shelf with no keeper today gets no row and is flagged as
+  // incomplete in /quan-tri/tu-sach instead"). So the rule binds *writes*,
+  // never existing rows: every path that creates or replaces a shelf's
+  // contacts must leave a position-1 entry behind, but a row created before
+  // this check existed stays exactly as readable as it was.
+  if (!(input.contacts ?? []).some((c) => c.position === 1)) {
+    throw new ValidationFailed("contact_position_1_required");
+  }
 
   // The shelf is brand new, so there is nothing to soft-delete first — unlike
   // `updateBookshelfSettings`'s wholesale replacement below, this is a plain
@@ -279,6 +301,21 @@ export const updateBookshelfSettings: Command<
   }
 
   if (input.profile) {
+    // Position 1 is the mandatory contact (PO feedback round 1, Task 3 fix
+    // round 1). Same domain rule `createBookshelf` enforces above, and the
+    // same reason: a `not null` column cannot be added retroactively — a
+    // shelf that already exists may legitimately hold zero contacts today
+    // (the migration flags it as incomplete rather than inventing a
+    // volunteer) — so this refuses the *write* that would leave a live
+    // position-1 gap, not the row. Checked before either statement below
+    // runs: the form posts all three blocks every time (the wholesale-
+    // replacement contract this whole branch is built on), so a save
+    // missing position 1 is refused before the old contacts are even
+    // soft-deleted, not partway through replacing them.
+    if (!input.profile.contacts.some((c) => c.position === 1)) {
+      throw new ValidationFailed("contact_position_1_required");
+    }
+
     await tx`
       update bookshelves
          set name     = ${name!},

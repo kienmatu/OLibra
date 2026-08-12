@@ -151,3 +151,83 @@ test("a contact with a phone and no name is refused", async () => {
     }),
   ).rejects.toMatchObject({ code: "contact_name_required" });
 });
+
+// ── Position 1 is mandatory, by domain rule (Task 3 fix round 1) ────────────
+//
+// `createBookshelf`/`updateBookshelfSettings` refuse a write that would leave
+// a shelf with no position-1 contact — `contactsFromForm`
+// (`src/app/quan-tri/admin-actions.ts`) drops any block, position 1 included,
+// whose trimmed name is empty, so a whitespace-only "required" field or a raw
+// POST omitting it entirely both reach the domain as an empty list, and the
+// domain is what has to refuse it. This does not apply to rows that already
+// exist — see the migration's own comment ("A shelf with no keeper today gets
+// no row and is flagged as incomplete... instead") and `bookshelves.ts`'s
+// `CreateBookshelfInput.contacts` docstring for why: the rule binds writes,
+// not rows, because a `not null` column could not be added retroactively.
+
+test("updateBookshelfSettings refuses an empty contact list", async () => {
+  const shelf = await makeShelf(sql);
+  const ctx = await admin();
+  const shelfCtx = { ...ctx, bookshelfId: shelf.id };
+
+  await expect(
+    runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+      bookshelfId: shelf.id,
+      profile: {
+        name: "Tủ sách Đồng Tháp",
+        location: null,
+        address: null,
+        contacts: [],
+      },
+    }),
+  ).rejects.toMatchObject({ code: "contact_position_1_required" });
+});
+
+test("updateBookshelfSettings refuses a contact list with only position 2", async () => {
+  const shelf = await makeShelf(sql);
+  const ctx = await admin();
+  const shelfCtx = { ...ctx, bookshelfId: shelf.id };
+
+  await expect(
+    runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+      bookshelfId: shelf.id,
+      profile: {
+        name: "Tủ sách Đồng Tháp",
+        location: null,
+        address: null,
+        contacts: [
+          { position: 2, name: "Giuse Trần Minh", phone: null, roleLabel: null },
+        ],
+      },
+    }),
+  ).rejects.toMatchObject({ code: "contact_position_1_required" });
+});
+
+test("updateBookshelfSettings saves a contact list that carries position 1", async () => {
+  const shelf = await makeShelf(sql);
+  const ctx = await admin();
+  const shelfCtx = { ...ctx, bookshelfId: shelf.id };
+
+  await runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+    bookshelfId: shelf.id,
+    profile: {
+      name: "Tủ sách Đồng Tháp",
+      location: null,
+      address: null,
+      contacts: [
+        {
+          position: 1,
+          name: "Maria Nguyễn Thị Lan",
+          phone: "0912345678",
+          roleLabel: "Người giữ chìa khoá",
+        },
+      ],
+    },
+  });
+
+  const readCtx = await readerContext(shelf.id);
+  const identity = await runQuery(sql, readCtx, (tx, c) =>
+    readShelfIdentity(tx, c),
+  );
+  expect(identity.contacts.map((c) => c.position)).toEqual([1]);
+});

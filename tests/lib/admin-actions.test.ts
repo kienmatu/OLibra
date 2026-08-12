@@ -318,3 +318,25 @@ test("contactsFromForm reads three blocks and drops the empty ones", () => {
     { position: 3, name: "Giuse Trần Minh", phone: "0987654321", roleLabel: null },
   ]);
 });
+
+test("contactsFromForm reads a present-but-empty phone as null, not an empty string", () => {
+  // A block that survives (has a name) but whose phone box was submitted
+  // empty — distinct from block 2 in the test above, which is dropped
+  // entirely because its *name* is blank. `optional()` already turns `""`
+  // into `null`; this pins that `contactsFromForm` does not undo it, because
+  // an empty string in the `phone` column renders a `PhoneLink` that dials
+  // nothing rather than showing no phone at all.
+  const form = new FormData();
+  form.set("lien-he-1-ten", "Maria Nguyễn Thị Lan");
+  form.set("lien-he-1-sdt", "");
+  form.set("lien-he-1-vai-tro", "Người giữ chìa khoá");
+
+  expect(contactsFromForm(form)).toEqual([
+    {
+      position: 1,
+      name: "Maria Nguyễn Thị Lan",
+      phone: null,
+      roleLabel: "Người giữ chìa khoá",
+    },
+  ]);
+});

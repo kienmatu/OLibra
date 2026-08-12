@@ -269,6 +269,15 @@ export const ERROR_MESSAGES = {
   // contact — the same shape `assertSingleDonor` above refuses for a donor
   // attribution split across two fields.
   contact_name_required: "Vui lòng nhập tên người liên hệ.",
+  // PO feedback round 1, Task 3 fix round 1: position 1 is the mandatory
+  // contact (the design spec's own words) and that mandatory-ness is a
+  // domain rule, not a `not null` column — shelves onboarded before the
+  // migration may legitimately hold zero contacts, and inventing a volunteer
+  // for them is worse than an incomplete row (see the migration's own
+  // comment). So this refuses a *write* that leaves a shelf with no
+  // position-1 contact; it does not, and cannot, reach back and repair rows
+  // that already exist.
+  contact_position_1_required: "Vui lòng nhập người liên hệ thứ nhất.",
   // QA remediation Task 15: measured on 2026-08-10, `updateBookshelfSettings`
   // took `loanDays: 0` and wrote `settings.loan_days = 0` with no error —
   // every loan from that shelf then fell due the day it was made, and
