@@ -171,8 +171,18 @@ export default async function RegisterReaderOnBehalfPage({
         <div className="space-y-6">
           <GroupHeading>Bản thân</GroupHeading>
 
-          <Field label="Tên thánh" htmlFor="ten-thanh">
-            <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
+          <Field
+            label="Tên thánh"
+            required
+            htmlFor="ten-thanh"
+            invalidHint="Vui lòng nhập tên thánh."
+          >
+            <Input
+              id="ten-thanh"
+              name="ten-thanh"
+              required
+              placeholder="vd: Maria"
+            />
           </Field>
 
           <Field

@@ -214,10 +214,11 @@ export default async function ReaderProfilePage({
 
           <h2 className="text-xl font-semibold">Thông tin cá nhân</h2>
 
-          <Field label="Tên thánh" htmlFor="ten-thanh">
+          <Field label="Tên thánh" required htmlFor="ten-thanh">
             <Input
               id="ten-thanh"
               name="ten-thanh"
+              required
               defaultValue={fields.saint_name ?? ""}
             />
           </Field>
@@ -263,6 +264,7 @@ export default async function ReaderProfilePage({
 
           <Field
             label="Số điện thoại"
+            required
             htmlFor="dien-thoai"
             hint="Quản lý dùng số này khi cần nhắc trả sách."
           >
@@ -272,6 +274,7 @@ export default async function ReaderProfilePage({
               type="tel"
               inputMode="numeric"
               pattern={PHONE_PATTERN}
+              required
               defaultValue={fields.phone ?? ""}
             />
           </Field>

@@ -413,10 +413,11 @@ function EditProfileDisclosure({
         <input type="hidden" name="tu-sach" value={shelfSlug} />
         <input type="hidden" name="thanh-vien" value={reader.membershipId} />
 
-        <Field label="Tên thánh" htmlFor={idFor("ten-thanh")}>
+        <Field label="Tên thánh" required htmlFor={idFor("ten-thanh")}>
           <Input
             id={idFor("ten-thanh")}
             name="ten-thanh"
+            required
             defaultValue={reader.saintName ?? ""}
           />
         </Field>
@@ -455,13 +456,14 @@ function EditProfileDisclosure({
           />
         </Field>
 
-        <Field label="Số điện thoại" htmlFor={idFor("dien-thoai")}>
+        <Field label="Số điện thoại" required htmlFor={idFor("dien-thoai")}>
           <Input
             id={idFor("dien-thoai")}
             name="dien-thoai"
             type="tel"
             inputMode="numeric"
             pattern={PHONE_PATTERN}
+            required
             defaultValue={reader.phone ?? ""}
           />
         </Field>

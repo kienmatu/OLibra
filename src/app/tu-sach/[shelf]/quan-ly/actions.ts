@@ -733,7 +733,7 @@ export async function createBookAction(form: FormData): Promise<void> {
 export async function registerReaderOnBehalfAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
   const outcome = await attemptTyped(shelfSlug, registerMemberOnBehalf, {
-    saintName: optional(form, "ten-thanh"),
+    saintName: field(form, "ten-thanh"),
     fullName: field(form, "ho-ten"),
     dateOfBirth: field(form, "ngay-sinh"),
     fatherName: field(form, "ten-cha"),

@@ -65,7 +65,7 @@ export async function registerMembershipAction(form: FormData): Promise<void> {
       // silently changes the secret.
       password: raw(form, "mat-khau"),
       passwordConfirm: raw(form, "nhap-lai-mat-khau"),
-      saintName: optional(form, "ten-thanh"),
+      saintName: field(form, "ten-thanh"),
       fullName: field(form, "ho-ten"),
       dateOfBirth: field(form, "ngay-sinh"),
       fatherName: field(form, "ten-cha"),

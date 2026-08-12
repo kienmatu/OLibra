@@ -25,6 +25,17 @@ import { assertStorableDate } from "./profile-fields";
  * `users.father_name`/`mother_name` are `not null` in the live schema. A
  * command that treated them as optional would raise a bare 23502 from inside
  * the transaction instead of a named failure.
+ *
+ * `saintName` joined the same rule in PO feedback round 1, Task 7: "a parish
+ * register with no saint name is not a parish register." `users.saint_name`
+ * became `not null` in the same migration that added `phone_missing_reason`
+ * (`20260812_01_contacts_profile_and_hours.sql`), and this field stays
+ * *typed* as optional — matching `../profile-fields.ts`'s
+ * `REQUIRED_PROFILE_FIELDS`, which enforces the same rule for a correction or
+ * a proposal by *name* rather than by type — because a blank or missing value
+ * is exactly the input `register()`'s own loop below exists to turn into
+ * `required_fields_missing` rather than a bare `23502`, the same case the
+ * paragraph above already makes for the two parents' names.
  */
 export interface RegistrationInput {
   username?: string | null;
@@ -184,6 +195,7 @@ export async function register(
   status: "pending" | "active",
 ): Promise<RegistrationResult> {
   for (const [field, value] of [
+    ["saintName", input.saintName],
     ["fullName", input.fullName],
     ["dateOfBirth", input.dateOfBirth],
     ["fatherName", input.fatherName],

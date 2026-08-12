@@ -3,7 +3,7 @@ import { PROFILE_FIELDS } from "../../src/domain/members/profile-fields";
 import { PROFILE_FIELD_LABELS, proposedFields } from "../../src/lib/profile-labels";
 
 /**
- * The profile-change queue names eight fields, and every one of the eight words
+ * The profile-change queue names nine fields, and every one of the nine words
  * is copy this project already shipped somewhere else. What a type cannot hold
  * is *that* — `Record<ProfileField, string>` proves a label exists and says
  * nothing about whether it is still the right word, or whether the list and the
@@ -31,6 +31,7 @@ test("the labels are the words already shipped elsewhere in the app", () => {
     father_name: "Tên cha",
     mother_name: "Tên mẹ",
     phone: "Số điện thoại",
+    phone_missing_reason: "Lý do chưa có số điện thoại",
     email: "Email",
     avatar_url: "Ảnh đại diện",
   });

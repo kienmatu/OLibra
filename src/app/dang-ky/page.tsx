@@ -235,10 +235,17 @@ export default async function RegisterPage({
 
             <Field
               label="Tên thánh"
+              required
               htmlFor="ten-thanh"
-              hint="Ghi nếu có, để quản lý dễ nhận ra bạn."
+              hint="Theo sổ giáo xứ, để quản lý dễ nhận ra bạn."
+              invalidHint="Vui lòng nhập tên thánh."
             >
-              <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
+              <Input
+                id="ten-thanh"
+                name="ten-thanh"
+                required
+                placeholder="vd: Maria"
+              />
             </Field>
 
             <Field
