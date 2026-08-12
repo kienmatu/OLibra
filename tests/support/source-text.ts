@@ -22,6 +22,27 @@ export function filesUnder(dir: string): string[] {
 }
 
 /**
+ * Block comments, then line comments — split out on their own (2026-08-12)
+ * for a caller that needs comments gone but string literals *intact*:
+ * `isServerActionModule`'s own directive-position regex already tells a real
+ * `"use server"` statement from one merely mentioned in prose, but a second
+ * caller wants the reverse question — a quoted `"use server"` that is *not*
+ * in directive position, which means finding the string while comments
+ * cannot hide inside it. `stripCommentsAndStrings`, below, strips strings
+ * too, which would erase the very quotes such a caller is looking for.
+ *
+ * No apostrophe-pairing risk here the combined function's own docstring
+ * warns about: that failure mode is strings being stripped *after* line
+ * comments, so an apostrophe left behind in a comment pairs with an unrelated
+ * quote later in the file. This function never touches a quote at all.
+ */
+export function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
+    .replace(/(^|[^:])\/\/.*$/gm, "$1"); // line comments, `:`-guarded — see stripCommentsAndStrings below
+}
+
+/**
  * Crude removal of block comments, line comments, and string literals.
  *
  * The architecture checks need it more than they might appear to. They look for
@@ -109,9 +130,7 @@ export function filesUnder(dir: string): string[] {
  */
 export function stripCommentsAndStrings(source: string): string {
   return (
-    source
-      .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
-      .replace(/(^|[^:])\/\/.*$/gm, "$1") // line comments — before any string
+    stripComments(source)
       // is stripped, so an apostrophe inside one is gone before the quote
       // passes below can misread it as an opening quote. Guarded against a `:`
       // immediately before the `//`, so a still-quoted `"http://…"` or
@@ -120,4 +139,37 @@ export function stripCommentsAndStrings(source: string): string {
       .replace(/'(?:[^'\\]|\\.)*'/g, "''") // single-quoted strings
       .replace(/`(?:[^`\\]|\\.)*`/g, "``")
   ); // template literals
+}
+
+/**
+ * Whether `source` opens with a `"use server"` (or `'use server'`) **directive
+ * prologue** — the one spelling Next.js and SWC actually honour, not merely
+ * the string appearing somewhere in the file.
+ *
+ * A directive prologue is a leading run of bare string-literal expression
+ * statements, before any other statement. This regex allows leading blank
+ * lines and comments before it (source text a bundler's own prologue scan
+ * also tolerates) and then requires the directive itself as the first real
+ * statement — a `"use server"` string sitting later in the file, inside a
+ * function body or after other code, does not match, because at that position
+ * it is an inert string expression, not a directive: SWC's own
+ * `action-validate.js` reads the prologue the same way, so a file that fails
+ * this test is a file Next.js would also fail to compile as a server-action
+ * module.
+ *
+ * Moved here 2026-08-12 (PO feedback round 1, Task 13's second fix round)
+ * from `tests/architecture/pages-reading-the-database-are-dynamic.test.ts`,
+ * which used it as a private function to decide where its own database-reach
+ * walk should stop (a server action's own database reads happen in a POST
+ * after the page has already rendered, so they are not part of what makes a
+ * page's *render* need to be dynamic — see that file for the long version).
+ * `tests/architecture/every-use-server-export-is-an-async-function.test.ts`
+ * is the second caller, checking the opposite direction: that every export of
+ * a module this function selects actually satisfies the constraint that
+ * selection implies. One definition, shared, rather than two regexes that
+ * could drift apart on exactly the character class that decides whether a
+ * check fires at all.
+ */
+export function isServerActionModule(source: string): boolean {
+  return /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*["']use server["']/.test(source);
 }
