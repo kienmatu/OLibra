@@ -27,7 +27,13 @@ import { filesUnder } from "../support/source-text";
  *
  * **Discovered from the idiom, not from a named list of two files.** A third
  * query built the same way tomorrow is covered without anybody remembering
- * this file exists. A query that maps *named* columns onto a differently
+ * this file exists — a promise this file did not actually keep until fix
+ * round 1 widened the walk below from `src/domain/members` to `src/domain`:
+ * `get-pending-manager-changes.ts` (`src/domain/admin/queries`) used the same
+ * idiom from the moment it was written, one directory outside the original
+ * walk. It selected all nine columns from day one, so nothing was silently
+ * broken — but the walk's own promise was, and this is that promise kept.
+ * A query that maps *named* columns onto a differently
  * -shaped, camelCase return type instead (`get-reader-detail.ts`,
  * `get-readers-list.ts`, `get-pending-registrations.ts`) is honestly silent
  * about a field it does not select — nothing in its own return type claims
@@ -71,7 +77,7 @@ function withoutComments(source: string): string {
 }
 
 function totalProfileFieldReaders() {
-  return filesUnder("src/domain/members")
+  return filesUnder("src/domain")
     .map((file) => ({
       path: file.replace(process.cwd() + "/", "").replace(/\\/g, "/"),
       source: withoutComments(readFileSync(file, "utf8")),
@@ -99,6 +105,15 @@ test("the check can see both halves: it finds the known total readers, and its o
   expect(found).toContain("src/domain/members/queries/get-my-profile.ts");
   expect(found).toContain(
     "src/domain/members/queries/get-pending-profile-changes.ts",
+  );
+  // Fix round 1: the walk used to stop at `src/domain/members`, one directory
+  // short of this query — the identical `Object.fromEntries(PROFILE_FIELDS
+  // .map(...))` idiom, added in the same branch, but outside the walk. It
+  // selects all nine columns today, so widening the walk changes nothing this
+  // test asserts about it yet, but it is now actually covered rather than
+  // covered "in spirit" by a docstring's promise.
+  expect(found).toContain(
+    "src/domain/admin/queries/get-pending-manager-changes.ts",
   );
 
   // And the comparison the real test below runs can actually fail — proven

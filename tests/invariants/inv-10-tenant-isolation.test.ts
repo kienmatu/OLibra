@@ -291,6 +291,57 @@ test("INV-10: a genuinely site-wide feedback row (null bookshelf_id) is visible 
   expect(visible).toHaveLength(1);
 });
 
+test("INV-10: bookshelf_contacts is shelf-scoped — shelf A cannot read shelf B's contact", async () => {
+  // Fix round 1: `bookshelf_contacts` (PO feedback round 1, Task 1/2) carries
+  // its own `enable`/`force row level security` and `bookshelf_contacts_tenant`
+  // policy (20260812_01_contacts_profile_and_hours.sql), same shape as every
+  // other shelf-scoped table this file already exercises, but nothing had
+  // proven it live. Modelled directly on the `feedback` pair above: a plain
+  // `sql` insert (the test superuser bypasses RLS regardless of `force`,
+  // exactly as that file's contact rows are seeded in
+  // `tests/domain/admin/shelf-contacts.test.ts`), then a scoped `olibra_app`
+  // session for the read/write halves.
+  const a = await makeShelf(sql, { slug: "dong-thap-contacts" });
+  const b = await makeShelf(sql, { slug: "an-giang-contacts" });
+  const [contactB] = await sql<{ id: string }[]>`
+    insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+    values (${b.id}, 1, 'Maria Nguyễn Thị Lan', '0912345678', 'Người giữ chìa khoá')
+    returning id
+  `;
+
+  const visible = await sql.begin(async (tx) => {
+    await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
+    await tx`set local role olibra_app`;
+    return tx`select id from bookshelf_contacts where id = ${contactB.id}`;
+  });
+  expect(visible).toHaveLength(0);
+});
+
+test("INV-10: a write scoped to shelf A cannot plant a contact under shelf B", async () => {
+  // The write half of the pair above: `bookshelf_contacts_tenant`'s `with
+  // check` has to refuse this, not merely the `using` clause hiding it from
+  // a read — the same distinction `contactB` above exercises from the read
+  // side.
+  const a = await makeShelf(sql, { slug: "dong-thap-contacts-2" });
+  const b = await makeShelf(sql, { slug: "an-giang-contacts-2" });
+
+  await expect(
+    sql.begin(async (tx) => {
+      await tx`select set_config('olibra.bookshelf_id', ${a.id}, true)`;
+      await tx`set local role olibra_app`;
+      return tx`
+        insert into bookshelf_contacts (bookshelf_id, position, name)
+        values (${b.id}, 1, 'Maria Nguyễn Thị Lan')
+      `;
+    }),
+  ).rejects.toThrow();
+
+  const rows = await sql<{ id: string }[]>`
+    select id from bookshelf_contacts where bookshelf_id = ${b.id}
+  `;
+  expect(rows).toHaveLength(0);
+});
+
 test("INV-10/INV-12: olibra_app cannot update an audit row", async () => {
   const shelf = await makeShelf(sql);
   const [entry] = await sql<{ id: string }[]>`
