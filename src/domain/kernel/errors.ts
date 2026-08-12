@@ -263,6 +263,12 @@ export const ERROR_MESSAGES = {
   slug_taken: "Địa chỉ này đã có tủ sách khác dùng.",
   already_archived: "Tủ sách này đã được lưu trữ.",
   already_super_admin: "Người này đã là quản trị viên hệ thống.",
+  // PO feedback round 1, Task 2: `bookshelf_contacts` replaces the two
+  // `bookshelves.keeper_*` columns with up to three rows, each with its own
+  // `name`. A phone or a role label with nobody's name attached is not a
+  // contact — the same shape `assertSingleDonor` above refuses for a donor
+  // attribution split across two fields.
+  contact_name_required: "Vui lòng nhập tên người liên hệ.",
   // QA remediation Task 15: measured on 2026-08-10, `updateBookshelfSettings`
   // took `loanDays: 0` and wrote `settings.loan_days = 0` with no error —
   // every loan from that shelf then fell due the day it was made, and

@@ -1,8 +1,8 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { fold } from "../../kernel/fold";
-import { assertPhone } from "../../members/policy";
 import { checkPolicyBound, type PolicyField } from "../policy";
+import type { ShelfContact } from "../../shelf/queries/get-shelf-settings";
 
 /**
  * OPS §4.5's shelf lifecycle — the three commands that create, edit and retire a
@@ -28,9 +28,15 @@ export interface CreateBookshelfInput {
   slug?: string;
   location?: string | null;
   address?: string | null;
-  keeperName?: string | null;
-  keeperPhone?: string | null;
-  openingHours?: string | null;
+  /**
+   * PO feedback round 1, Task 2. Optional and defaulted to none — a shelf
+   * created before anybody has typed a contact in is exactly the "onboarded
+   * on a Sunday afternoon" case `ShelfIdentity.contacts`'s own docstring
+   * already names, and `/quan-tri/tu-sach`'s create form (Task 3) posts this
+   * alongside the rest of the profile so a super admin can name the first
+   * contact at creation time rather than in a second edit.
+   */
+  contacts?: ShelfContact[];
 }
 
 /**
@@ -54,16 +60,6 @@ export const createBookshelf: Command<
   const slug = (input.slug?.trim() || fold(name).replace(/\s+/g, "-")).slice(0, 60);
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
     throw new ValidationFailed("validation_failed", "slug");
-  }
-
-  // QA remediation Task 18. `keeperPhone` is nullable — a shelf may not have
-  // named its keeper's number yet — so this only fires once one is actually
-  // supplied. It is BR §16.1's own public-facing number for the shelf, printed
-  // on `/tu-sach/[shelf]` and bound into a `tel:` link there from the moment
-  // the shelf exists.
-  const keeperPhone = input.keeperPhone?.trim() || null;
-  if (keeperPhone !== null) {
-    assertPhone(keeperPhone, "keeperPhone");
   }
 
   const [taken] = await tx<{ id: string }[]>`
@@ -92,12 +88,10 @@ export const createBookshelf: Command<
 
   const [row] = await tx<{ id: string }[]>`
     insert into bookshelves
-      (slug, name, location, address, keeper_name, keeper_phone, opening_hours,
-       status, created_by, settings)
+      (slug, name, location, address, status, created_by, settings)
     values
       (${slug}, ${name}, ${input.location ?? null}, ${input.address ?? null},
-       ${input.keeperName ?? null}, ${keeperPhone},
-       ${input.openingHours ?? null}, 'active', ${ctx.actor.userId},
+       'active', ${ctx.actor.userId},
        ${tx.json({
          loan_days: defaults?.default_loan_days ?? 14,
          max_concurrent_loans: defaults?.default_max_concurrent_loans ?? 3,
@@ -117,6 +111,23 @@ export const createBookshelf: Command<
        })})
     returning id
   `;
+
+  // The shelf is brand new, so there is nothing to soft-delete first — unlike
+  // `updateBookshelfSettings`'s wholesale replacement below, this is a plain
+  // insert per contact the caller supplied.
+  for (const contact of input.contacts ?? []) {
+    if (contact.name.trim() === "") {
+      throw new ValidationFailed(
+        "contact_name_required",
+        `contact_${contact.position}`,
+      );
+    }
+    await tx`
+      insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+      values (${row.id}, ${contact.position}, ${contact.name.trim()},
+              ${contact.phone}, ${contact.roleLabel})
+    `;
+  }
 
   return {
     result: { bookshelfId: row.id, slug },
@@ -138,14 +149,18 @@ export interface ShelfProfilePatch {
   name: string;
   location: string | null;
   address: string | null;
-  keeperName: string | null;
-  keeperPhone: string | null;
-  openingHours: string | null;
+  /**
+   * PO feedback round 1, Task 2. Replaces `keeperName`/`keeperPhone`/
+   * `openingHours` — a wholesale replacement of `bookshelf_contacts`'
+   * live rows, not a diff against them. See `updateBookshelfSettings`'s own
+   * body for why.
+   */
+  contacts: ShelfContact[];
 }
 
 export interface UpdateBookshelfSettingsInput {
   bookshelfId: string;
-  /** All six profile fields together, or none of them. See below. */
+  /** The profile's four fields together, or none of them. See below. */
   profile?: ShelfProfilePatch;
   loanDays?: number;
   maxConcurrentLoans?: number;
@@ -169,16 +184,22 @@ export interface UpdateBookshelfSettingsInput {
  * **The profile is all-or-nothing and the policy is field-by-field**, which is
  * an asymmetry worth explaining rather than smoothing over.
  *
- * Five of the six profile columns are nullable, and `null` is a value a person
- * means: clearing a keeper's telephone number is a real edit. So "absent" and
- * "null" have to be different, and the usual `coalesce(${x}, column)` spelling
- * conflates them — it can only express "set it" and "leave it", never "clear
- * it". The spelling that *would* work, interpolating a SQL fragment per column,
- * is unavailable here: this kernel wraps every tagged-template call in
- * `guardPendingQuery`, which attaches a `.then`, so a fragment executes as its
- * own statement the moment it is built (`get-statistics.ts` records the same
- * discovery). Taking the six together sidesteps both, and it matches the one
- * form that calls this — an administrator editing a shelf sees all six fields.
+ * `location` and `address` are nullable, and `null` is a value a person means:
+ * clearing a street address is a real edit. So "absent" and "null" have to be
+ * different, and the usual `coalesce(${x}, column)` spelling conflates them —
+ * it can only express "set it" and "leave it", never "clear it". The spelling
+ * that *would* work, interpolating a SQL fragment per column, is unavailable
+ * here: this kernel wraps every tagged-template call in `guardPendingQuery`,
+ * which attaches a `.then`, so a fragment executes as its own statement the
+ * moment it is built (`get-statistics.ts` records the same discovery). Taking
+ * the whole profile together sidesteps both, and it matches the one form that
+ * calls this — an administrator editing a shelf sees the whole thing at once.
+ *
+ * `contacts` follows the same all-or-nothing rule for a different reason: it
+ * is not a column at all but the live rows of `bookshelf_contacts`, and the
+ * form posts all three contact blocks every time — see the write below for
+ * why that makes a wholesale replacement the honest operation rather than a
+ * diff.
  *
  * The policy is a `jsonb` bag, where `||` merges exactly the keys supplied and
  * leaves the rest, so field-by-field costs nothing. That matters: a form editing
@@ -203,14 +224,29 @@ export const updateBookshelfSettings: Command<
     throw new ValidationFailed("required_fields_missing", "name");
   }
 
-  // QA remediation Task 18. `keeperPhone` is one of the five nullable profile
-  // columns this all-or-nothing patch writes together (see this command's own
-  // docstring on why absent and null must stay distinguishable) — `null` is a
-  // manager clearing a keeper's number, a real edit, so this only fires when
-  // the profile carries an actual value to check.
-  if (input.profile && input.profile.keeperPhone !== null) {
-    assertPhone(input.profile.keeperPhone, "keeperPhone");
-  }
+  // Read before any write, for the audit `before` bag below — and so a save
+  // that touches only the policy still has a true "no change" `contacts` on
+  // both sides rather than an empty array pretending nothing was ever there.
+  const contactsBefore = (
+    await tx<
+      {
+        position: number;
+        name: string;
+        phone: string | null;
+        role_label: string | null;
+      }[]
+    >`
+      select position, name, phone, role_label
+        from bookshelf_contacts
+       where bookshelf_id = ${input.bookshelfId} and deleted_at is null
+       order by position
+    `
+  ).map((c) => ({
+    position: Number(c.position),
+    name: c.name,
+    phone: c.phone,
+    roleLabel: c.role_label,
+  }));
 
   const policy: Record<string, number | boolean> = {};
   const put = (key: string, value: number | boolean | undefined) => {
@@ -245,14 +281,39 @@ export const updateBookshelfSettings: Command<
   if (input.profile) {
     await tx`
       update bookshelves
-         set name          = ${name!},
-             location      = ${input.profile.location},
-             address       = ${input.profile.address},
-             keeper_name   = ${input.profile.keeperName},
-             keeper_phone  = ${input.profile.keeperPhone},
-             opening_hours = ${input.profile.openingHours}
+         set name     = ${name!},
+             location = ${input.profile.location},
+             address  = ${input.profile.address}
        where id = ${shelf.id}
     `;
+
+    // Wholesale replacement rather than a diff: the admin form posts all
+    // three blocks every time, so "what the form said" is the complete truth
+    // about this shelf's contacts. Soft-delete first, then insert, so the
+    // `bookshelf_contacts_position` partial index sees the old rows as dead
+    // before the new ones claim the same positions.
+    //
+    // `.allowZero()`: a shelf with no contacts yet — the common case for a
+    // shelf created before this task, or one whose first save this is — has
+    // nothing to retire, and that is not `write_target_not_found`, unlike an
+    // ordinary `update`/`delete` this kernel guards by default.
+    await tx`
+      update bookshelf_contacts set deleted_at = ${ctx.clock.now()}
+       where bookshelf_id = ${input.bookshelfId} and deleted_at is null
+    `.allowZero();
+    for (const contact of input.profile.contacts) {
+      if (contact.name.trim() === "") {
+        throw new ValidationFailed(
+          "contact_name_required",
+          `contact_${contact.position}`,
+        );
+      }
+      await tx`
+        insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+        values (${input.bookshelfId}, ${contact.position}, ${contact.name.trim()},
+                ${contact.phone}, ${contact.roleLabel})
+      `;
+    }
   }
 
   if (Object.keys(policy).length > 0) {
@@ -263,16 +324,17 @@ export const updateBookshelfSettings: Command<
     `;
   }
 
-  void ctx;
-
   return {
     result: undefined,
     audit: {
       action: "bookshelf.settings_updated",
       entityType: "bookshelf",
       entityId: shelf.id,
-      before: { name: shelf.name },
-      after: { name: name ?? shelf.name },
+      before: { name: shelf.name, contacts: contactsBefore },
+      after: {
+        name: name ?? shelf.name,
+        contacts: input.profile ? input.profile.contacts : contactsBefore,
+      },
     },
   };
 };

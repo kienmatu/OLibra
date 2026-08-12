@@ -2,6 +2,19 @@ import { requireReader } from "../domain/catalogue/policy";
 import { NotFound } from "../domain/kernel/errors";
 import type { TenantContext } from "../domain/kernel/tenant";
 import type { Tx } from "../domain/kernel/unit-of-work";
+import type { ShelfContact } from "../domain/shelf/queries/get-shelf-settings";
+
+/**
+ * Re-exported rather than declared here. `ShelfContact` is a domain type —
+ * `src/domain/admin/commands/bookshelves.ts` and
+ * `src/domain/shelf/queries/get-shelf-settings.ts` both need it as much as
+ * this file does — and the existing direction across this boundary
+ * (`tests/architecture/boundaries.test.ts`) is surface-reads-domain, never
+ * the reverse: nothing under `src/domain/` imports `src/lib/` today. See
+ * `get-shelf-settings.ts`'s own docstring on `ShelfContact` for the longer
+ * version of this argument.
+ */
+export type { ShelfContact };
 
 export interface ShelfPageData {
   /** The shelf's own name, for `ManagerShell`'s chrome. */
@@ -121,20 +134,26 @@ export async function readShelf(
  * the same mistake the portal already declines to make.
  *
  * **`requireReader` is called here, and that is the whole disclosure argument.**
- * This is the one read in `src/lib/` that names `keeper_name` and
- * `keeper_phone`, which BR §16.1 withholds from anyone without a membership —
- * "Book counts, reader counts and keeper contact are not shown, because a
- * person with no membership has no business knowing them" — and which
- * `tests/db/bookshelves-public-columns.test.ts` guards for exactly that reason.
- * `bookshelves_public_read` admits the whole row to any caller, so the column
- * list is the only thing standing there (DATABASE.md §4.2), and every other
- * exemption in that guard argues that its file is unreachable without a
- * membership. `readShelf` above cannot make that argument — it runs on the `Tx`
- * before the page's own gated query does — so this function does not rely on
- * the page beside it either. It refuses first, itself, with the domain's own
- * `requireReader`, and `loadPage` then turns that `RuleViolated` into a
- * redirect for a guest or a 404 for a signed-in non-member before a byte of
- * HTML exists.
+ * This is the one read in `src/lib/` that names the shelf's contacts — since
+ * PO feedback round 1's Task 1 and Task 2, the rows of `bookshelf_contacts`
+ * rather than the `keeper_name`/`keeper_phone` pair that used to sit directly
+ * on `bookshelves` — which BR §16.1 withholds from anyone without a
+ * membership: "Book counts, reader counts and keeper contact are not shown,
+ * because a person with no membership has no business knowing them", and
+ * which `tests/db/bookshelves-public-columns.test.ts` guards for exactly that
+ * reason. `bookshelves_public_read` admits the whole `bookshelves` row to any
+ * caller, so the column list on *that* table is the only thing standing there
+ * for `name`/`location`/`address` (DATABASE.md §4.2). `bookshelf_contacts` is
+ * stronger still: Task 1 gave it no grant to `olibra_public` at all, so the
+ * guard below is now a privilege as well as a call — a caller running as
+ * `olibra_public` cannot read that table under any scoping, and every other
+ * caller still needs `requireReader` to pass before either `select` below
+ * runs. `readShelf` above cannot make the "unreachable without a membership"
+ * argument — it runs on the `Tx` before the page's own gated query does — so
+ * this function does not rely on the page beside it either. It refuses first,
+ * itself, with the domain's own `requireReader`, and `loadPage` then turns
+ * that `RuleViolated` into a redirect for a guest or a 404 for a signed-in
+ * non-member before a byte of HTML exists.
  *
  * That check is *added*, never a gate that was moved or relaxed: the queries
  * these pages call each still run their own `requireReader`, and nothing in
@@ -166,10 +185,13 @@ export interface ShelfIdentity {
    * reader, including that manager, could ever see.
    */
   address: string | null;
-  /** Free text: "Mở sau lễ Chúa nhật · 9:00 đến 11:00". */
-  openingHours: string | null;
-  keeperName: string | null;
-  keeperPhone: string | null;
+  /**
+   * PO feedback round 1, Task 2. Replaces `openingHours`/`keeperName`/
+   * `keeperPhone` — the old single-keeper pair plus the free-text hours field
+   * that used to sit directly on `bookshelves`. Ordered by position. Empty
+   * for a shelf onboarded before anyone filled it in.
+   */
+  contacts: ShelfContact[];
 }
 
 export async function readShelfIdentity(
@@ -179,28 +201,42 @@ export async function readShelfIdentity(
   requireReader(ctx);
 
   const [row] = await tx<
-    {
-      name: string;
-      location: string | null;
-      address: string | null;
-      opening_hours: string | null;
-      keeper_name: string | null;
-      keeper_phone: string | null;
-    }[]
+    { name: string; location: string | null; address: string | null }[]
   >`
-    select name, location, address, opening_hours, keeper_name, keeper_phone
+    select name, location, address
     from bookshelves
     where id = ${ctx.bookshelfId}
   `;
   // Same reasoning as `readShelf` above: a missing row is the code `loadPage`
   // maps to a 404, not a `TypeError` from destructuring `undefined`.
   if (!row) throw new NotFound("shelf_not_found");
+
+  const contacts = await tx<
+    {
+      position: number;
+      name: string;
+      phone: string | null;
+      role_label: string | null;
+    }[]
+  >`
+    select position, name, phone, role_label
+      from bookshelf_contacts
+     where bookshelf_id = ${ctx.bookshelfId} and deleted_at is null
+     order by position
+  `;
+
   return {
     name: row.name,
     location: row.location,
     address: row.address,
-    openingHours: row.opening_hours,
-    keeperName: row.keeper_name,
-    keeperPhone: row.keeper_phone,
+    // `Number(...)` because `smallint` arrives as a number from postgres.js
+    // already, but the cast documents the intent and costs nothing — the
+    // same defensive shape `getBookDetail` uses on its counts.
+    contacts: contacts.map((c) => ({
+      position: Number(c.position),
+      name: c.name,
+      phone: c.phone,
+      roleLabel: c.role_label,
+    })),
   };
 }

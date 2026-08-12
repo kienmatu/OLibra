@@ -176,9 +176,9 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
         name: "Tủ sách Đồng Tháp",
         location: "Nhà xứ",
         address: "Đồng Tháp",
-        keeperName: "Cô Lan",
-        keeperPhone: "0912345678",
-        openingHours: "Sau lễ Chúa nhật",
+        contacts: [
+          { position: 1, name: "Cô Lan", phone: "0912345678", roleLabel: null },
+        ],
       },
       loanDays: 21,
     },
@@ -187,11 +187,13 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
   let settings = await runQuery(sql, managerCtx, (tx, c) =>
     getShelfSettings(tx, c),
   );
-  expect(settings.profile.keeperName).toBe("Cô Lan");
+  expect(settings.profile.contacts).toEqual([
+    { position: 1, name: "Cô Lan", phone: "0912345678", roleLabel: null },
+  ]);
   expect(settings.policy.loanDays).toBe(21);
   expect(settings.policy.holdDays).toBe(3);
 
-  // Policy only, no profile. The keeper survives.
+  // Policy only, no profile. The contact survives.
   await runAdminCommand(
     sql,
     { ...ctx, bookshelfId: shelf.id },
@@ -202,11 +204,15 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
     },
   );
   settings = await runQuery(sql, managerCtx, (tx, c) => getShelfSettings(tx, c));
-  expect(settings.profile.keeperName).toBe("Cô Lan");
+  expect(settings.profile.contacts).toEqual([
+    { position: 1, name: "Cô Lan", phone: "0912345678", roleLabel: null },
+  ]);
   expect(settings.policy.loanDays).toBe(21);
   expect(settings.policy.holdDays).toBe(5);
 
-  // Profile only, with the phone cleared — the edit `coalesce` cannot express.
+  // Profile only, with the phone cleared — the edit `coalesce` cannot express,
+  // and `contacts` is a wholesale replace rather than a diff, so the whole
+  // block is resent with `phone: null`.
   await runAdminCommand(
     sql,
     { ...ctx, bookshelfId: shelf.id },
@@ -217,14 +223,12 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
         name: "Tủ sách Đồng Tháp",
         location: "Nhà xứ",
         address: "Đồng Tháp",
-        keeperName: "Cô Lan",
-        keeperPhone: null,
-        openingHours: "Sau lễ Chúa nhật",
+        contacts: [{ position: 1, name: "Cô Lan", phone: null, roleLabel: null }],
       },
     },
   );
   settings = await runQuery(sql, managerCtx, (tx, c) => getShelfSettings(tx, c));
-  expect(settings.profile.keeperPhone).toBeNull();
+  expect(settings.profile.contacts[0].phone).toBeNull();
   expect(settings.policy.holdDays).toBe(5);
 });
 

@@ -47,6 +47,30 @@ import { requireManager } from "../../members/policy";
  * argument the sweep's docstring makes elsewhere.
  */
 
+/**
+ * A shelf may name up to three people at `bookshelves_contacts.position`
+ * 1-3, replacing the single `keeper_name`/`keeper_phone` pair PO feedback
+ * round 1's Task 1 dropped from `bookshelves` itself.
+ *
+ * **Declared here, in the domain, and not in `src/lib/shelf.ts`.**
+ * `tests/architecture/boundaries.test.ts` draws no line against `src/domain`
+ * importing `src/lib`, but nothing in `src/domain` does today, and the
+ * existing direction is the other way — `src/lib/shelf.ts`'s own docstring
+ * calls itself "the surface side of the boundary" and reads from the domain,
+ * never the reverse. This command (`bookshelves.ts`) and this query both need
+ * the type; `src/lib/shelf.ts` needs it too, for `ShelfIdentity`, and
+ * re-exports it from here rather than declaring a second copy a domain file
+ * would then have to reach past its own boundary to use.
+ */
+export interface ShelfContact {
+  /** 1, 2 or 3. Position 1 is the mandatory contact. */
+  position: number;
+  name: string;
+  phone: string | null;
+  /** Free text — "Người giữ chìa khoá", "Quản lý tủ sách". A parish names its own jobs. */
+  roleLabel: string | null;
+}
+
 export interface ShelfProfile {
   name: string;
   location: string | null;
@@ -67,9 +91,13 @@ export interface ShelfProfile {
    * used to print `location`'s value under the label "Địa chỉ".
    */
   address: string | null;
-  openingHours: string | null;
-  keeperName: string | null;
-  keeperPhone: string | null;
+  /**
+   * PO feedback round 1, Task 2. Replaces `openingHours`/`keeperName`/
+   * `keeperPhone`, which lived directly on `bookshelves` and admitted only
+   * one keeper. Ordered by position; empty for a shelf nobody has filled in
+   * yet.
+   */
+  contacts: ShelfContact[];
   /** Read-only after creation (OPS §3.4), and shown so a manager can quote it. */
   slug: string;
 }
@@ -106,9 +134,6 @@ export async function getShelfSettings(
       name: string;
       location: string | null;
       address: string | null;
-      opening_hours: string | null;
-      keeper_name: string | null;
-      keeper_phone: string | null;
       slug: string;
       loan_days: number;
       max_concurrent_loans: number;
@@ -121,7 +146,7 @@ export async function getShelfSettings(
     }[]
   >`
     select
-      name, location, address, opening_hours, keeper_name, keeper_phone, slug,
+      name, location, address, slug,
       coalesce((settings->>'loan_days')::int, 14) as loan_days,
       coalesce((settings->>'max_concurrent_loans')::int, 3)
         as max_concurrent_loans,
@@ -140,14 +165,36 @@ export async function getShelfSettings(
   // of the one the policy admits, since `bookshelves_public_read` also admits
   // every other active shelf for a `select`.
 
+  // `bookshelf_contacts` carries its own plain `<table>_tenant` policy and no
+  // grant to `olibra_public` at all (Task 1), so this second `select` needs no
+  // `where` beyond the ordinary tenant scope this transaction already runs
+  // under — unlike `bookshelves` above, there is no competing permissive
+  // policy to narrow past.
+  const contactRows = await tx<
+    {
+      position: number;
+      name: string;
+      phone: string | null;
+      role_label: string | null;
+    }[]
+  >`
+    select position, name, phone, role_label
+      from bookshelf_contacts
+     where bookshelf_id = ${ctx.bookshelfId} and deleted_at is null
+     order by position
+  `;
+
   return {
     profile: {
       name: row.name,
       location: row.location,
       address: row.address,
-      openingHours: row.opening_hours,
-      keeperName: row.keeper_name,
-      keeperPhone: row.keeper_phone,
+      contacts: contactRows.map((c) => ({
+        position: Number(c.position),
+        name: c.name,
+        phone: c.phone,
+        roleLabel: c.role_label,
+      })),
       slug: row.slug,
     },
     policy: {

@@ -93,6 +93,7 @@ export async function makePerson(
   sql: Sql,
   over: {
     fullName?: string;
+    saintName?: string;
     dateOfBirth?: string;
     phone?: string;
     username?: string | null;
@@ -102,10 +103,11 @@ export async function makePerson(
   const n = next();
   const [row] = await sql<{ id: string }[]>`
     insert into users (
-      full_name, father_name, mother_name, date_of_birth, phone,
+      saint_name, full_name, father_name, mother_name, date_of_birth, phone,
       username, password_hash
     )
     values (
+      ${over.saintName ?? "Maria"},
       ${over.fullName ?? `Giuse Trần Minh ${n}`},
       'Giuse Trần Văn A', 'Maria Nguyễn Thị B',
       ${over.dateOfBirth ?? "2015-04-02"}::date,
