@@ -651,10 +651,29 @@ test("the link check resolves the routes it claims to", () => {
       (r) => r.path === "src/app/tu-sach/[shelf]/(doc-gia)/thong-bao/page.tsx",
     )?.importsFixtures,
   ).toBe(false);
-  for (const gone of [
+  // PO feedback round 1, Task 4: both links are back, each beside its own
+  // wired page — the same two-part assertion as the reader dashboard and
+  // "Thông báo" above, because a link restored to a page that is still
+  // fixture-backed is exactly what IMPORTANT 4 removed it for in the first
+  // place. `/gop-y` reads the database directly (`readShelf` via `loadPage`);
+  // `/tang-sach` redirects to `ho-so/tang-sach`, itself wired, so it counts as
+  // "reads nothing" in `PAGES_NOT_YET_WIRED` above rather than as a fixture
+  // page — neither imports `lib/fixtures`.
+  expect(linkTargetsIn(shelfHome)).toContain(
     "src/app/tu-sach/[shelf]/(doc-gia)/tang-sach",
+  );
+  expect(
+    routes().find(
+      (r) => r.path === "src/app/tu-sach/[shelf]/(doc-gia)/tang-sach/page.tsx",
+    )?.importsFixtures,
+  ).toBe(false);
+
+  expect(linkTargetsIn(shelfHome)).toContain(
     "src/app/tu-sach/[shelf]/(doc-gia)/gop-y",
-  ]) {
-    expect(linkTargetsIn(shelfHome), gone).not.toContain(gone);
-  }
+  );
+  expect(
+    routes().find(
+      (r) => r.path === "src/app/tu-sach/[shelf]/(doc-gia)/gop-y/page.tsx",
+    )?.importsFixtures,
+  ).toBe(false);
 });
