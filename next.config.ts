@@ -50,6 +50,23 @@ const nextConfig: NextConfig = {
        * same harness, `tests/support/http.ts`).
        */
       bodySizeLimit: "4mb",
+
+      /**
+       * Dev tunnels (VS Code / `devtunnels.ms`) proxy the app under a
+       * `*.devtunnels.ms` hostname. Server Actions compare the request's
+       * `Origin` against `x-forwarded-host`/`Host` and abort with "Invalid
+       * Server Actions request" on a mismatch — this widens that allowlist
+       * to cover it.
+       *
+       * Not gated on `NODE_ENV`: `compose.yaml`'s `app` service — the only
+       * environment this project runs in today, per its own "every developer
+       * runs this" comment — builds from the `runner` stage, which hardcodes
+       * `NODE_ENV=production` (Dockerfile). A dev-only gate here would silently
+       * no-op in that container, which is exactly the bug this replaces.
+       * Revisit if a real public deployment, distinct from this local/QA
+       * compose stack, is ever stood up.
+       */
+      allowedOrigins: ["localhost:3001", "*.devtunnels.ms"],
     },
   },
 
