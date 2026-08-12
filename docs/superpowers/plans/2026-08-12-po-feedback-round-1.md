@@ -1879,7 +1879,15 @@ git commit -m "feat: ghim bản tin lên đầu danh sách"
 **Files:**
 - Modify: `docs/BUSINESS-REQUIREMENTS.md` — §5.4, §16.2, §16.1, BR:511, BR:179, §2, §6
 - Modify: `docs/DATABASE.md` — §4.2 and the schema listing at line ~536
-- Modify: `docs/OPERATIONS.md` — §4.3, for the approval routing
+- Modify: `docs/OPERATIONS.md` — §4.3 for the approval routing, **and the `UpdateOwnProfile` retirement below**
+- Modify: `src/domain/members/commands/change-own-password.ts:7-8` — a docstring quoting BR §16.2 on "toggling leaderboard visibility take effect immediately", describing a control that no longer exists
+
+**Added after Task 6's review.** Task 6 removed `memberships.leaderboard_opt_in`, and with it the `updateOwnProfile` command — which wrote nothing else — its server action, the reader's "Riêng tư" form block, and the `membership.updated` audit action. That leaves documentation describing an operation the code no longer has, and no other task owned it:
+
+- **`docs/OPERATIONS.md:486-489`** still specifies `UpdateOwnProfile` as a live operation with inputs. Retire the entry, recording that it existed only to write the leaderboard toggle and went with it (spec §13), rather than deleting it without trace.
+- **`docs/OPERATIONS.md:67`** still lists "leaderboard toggle" among `GetMyProfile`'s return values. Remove it.
+- **`docs/OPERATIONS.md:476`** explains `profile.corrected` by contrast with "`membership.updated` (which `UpdateOwnProfile` below uses…)". Both referents are gone; rewrite the sentence so it stands on its own.
+- **`src/domain/members/commands/change-own-password.ts:7-8`** quotes BR §16.2 on the leaderboard toggle taking effect immediately. Replace the example with one that still exists — a password change is itself the immediate-effect case that docstring is contrasting against a proposal.
 
 - [ ] **Step 1: Update the requirements**
 
