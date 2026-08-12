@@ -461,6 +461,40 @@ function afterCommentDecision(
 }
 
 /**
+ * Where a pin/unpin decision lands when it was made somewhere other than the
+ * manager's list — today, Task 12's control on the announcement's own
+ * reader-facing detail page (`/tu-sach/{slug}/thong-bao/{annSlug}`), added so
+ * a manager reading a notice is not yanked into the admin console just for
+ * pinning it.
+ *
+ * `src/lib/return-path.ts`'s `safeReturnPath` was the first thing checked for
+ * this and does not fit: it is built for the pre-auth guest redirect — an
+ * unauthenticated `GET` landing on `/dang-nhap`, willing to honour *any*
+ * same-origin path. This is a `"use server"` action anyone can `POST` to
+ * directly, which is exactly the distinction `afterCommentDecision` immediately
+ * above already draws for this same file (its own docstring: "A `ve=` carrying
+ * a return path would be an open redirect on a `"use server"` action reachable
+ * by anyone who can post to it"). So this follows `afterCommentDecision`'s
+ * shape instead of inventing a third one: **a slug, never a path** — the field
+ * names which announcement to return to, not where to go, and the URL is built
+ * from a closed template with exactly two shapes.
+ *
+ * Absent means the manager list, so its existing control (which posts no
+ * `thong-bao-slug`) is untouched.
+ */
+function afterPinDecision(
+  shelfSlug: string,
+  announcementSlug: string | null,
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  if (!announcementSlug) backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+  const suffix = outcome.ok ? "" : `?${ACTION_ERROR_PARAM}=${outcome.code}`;
+  redirect(
+    `/tu-sach/${encodeURIComponent(shelfSlug)}/thong-bao/${encodeURIComponent(announcementSlug)}${suffix}`,
+  );
+}
+
+/**
  * What a reject action returns when its reason box was left empty — the
  * command's own code, so the sentence a volunteer reads is `errors.ts`'s
  * ("Vui lòng ghi lý do từ chối.") rather than a second wording invented here.
@@ -1024,7 +1058,7 @@ export async function pinAnnouncementAction(form: FormData): Promise<void> {
       })
     : INCOMPLETE;
 
-  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+  afterPinDecision(shelfSlug, optional(form, "thong-bao-slug"), outcome);
 }
 
 export async function unpinAnnouncementAction(form: FormData): Promise<void> {
@@ -1035,7 +1069,7 @@ export async function unpinAnnouncementAction(form: FormData): Promise<void> {
       })
     : INCOMPLETE;
 
-  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+  afterPinDecision(shelfSlug, optional(form, "thong-bao-slug"), outcome);
 }
 
 /**

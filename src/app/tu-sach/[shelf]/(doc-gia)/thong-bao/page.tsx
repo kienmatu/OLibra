@@ -77,27 +77,25 @@ export default async function AnnouncementsPage({
                 key={a.id}
                 className="rounded-card border border-hairline bg-surface p-5"
               >
-                <div className="min-w-0 flex-1">
-                  {a.isPinned ? (
-                    <div className="mb-2">
-                      <Pill icon={Pin} label="Ghim" />
-                    </div>
-                  ) : null}
-                  <Link
-                    href={`${base}/thong-bao/${a.slug}`}
-                    className="text-[17px] leading-snug font-semibold hover:underline"
-                  >
-                    {a.title}
-                  </Link>
-                  <p className="mt-2 text-[14px] leading-relaxed text-meta">
-                    {a.excerpt}
+                {a.isPinned ? (
+                  <div className="mb-2">
+                    <Pill icon={Pin} label="Ghim" />
+                  </div>
+                ) : null}
+                <Link
+                  href={`${base}/thong-bao/${a.slug}`}
+                  className="text-[17px] leading-snug font-semibold hover:underline"
+                >
+                  {a.title}
+                </Link>
+                <p className="mt-2 text-[14px] leading-relaxed text-meta">
+                  {a.excerpt}
+                </p>
+                {a.publishedAt ? (
+                  <p className="mt-3 text-[13px] text-meta">
+                    {formatInstant(a.publishedAt)}
                   </p>
-                  {a.publishedAt ? (
-                    <p className="mt-3 text-[13px] text-meta">
-                      {formatInstant(a.publishedAt)}
-                    </p>
-                  ) : null}
-                </div>
+                ) : null}
               </li>
             ))}
           </ul>

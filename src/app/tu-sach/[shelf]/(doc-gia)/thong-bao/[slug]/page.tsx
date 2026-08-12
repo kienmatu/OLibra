@@ -111,6 +111,12 @@ export default async function AnnouncementDetailPage({
               >
                 <input type="hidden" name="tu-sach" value={shelfSlug} />
                 <input type="hidden" name="thong-bao" value={announcement.id} />
+                {/* Names which announcement to return to, not where to go —
+                    `afterPinDecision`'s own docstring is where the "slug,
+                    never a path" reasoning is made once. Its absence is what
+                    keeps the manager list's own control landing back on the
+                    queue, unchanged. */}
+                <input type="hidden" name="thong-bao-slug" value={slug} />
                 <SubmitButton variant="ghost" size="sm">
                   {announcement.isPinned ? "Bỏ ghim" : "Ghim lên đầu"}
                 </SubmitButton>

@@ -730,14 +730,14 @@ test("an incomplete form is a refusal in words, not a 22P02", async () => {
  * seeds this table by hand rather than through the command.
  */
 async function anAnnouncement(bookshelfId: string) {
-  const [row] = await sql<{ id: string }[]>`
+  const [row] = await sql<{ id: string; slug: string }[]>`
     insert into announcements (bookshelf_id, title, slug, body, body_text)
     values (${bookshelfId}, 'Thánh lễ Chúa nhật', 'thanh-le-chua-nhat',
             'Thánh lễ lúc 8 giờ sáng Chúa nhật này.',
             'Thánh lễ lúc 8 giờ sáng Chúa nhật này.')
-    returning id
+    returning id, slug
   `;
-  return row.id;
+  return row;
 }
 
 async function isPinned(announcementId: string) {
@@ -749,7 +749,7 @@ async function isPinned(announcementId: string) {
 
 test("a manager pins an announcement, and pinning again unpins it", async () => {
   const { shelf } = await shelfWithManager();
-  const announcementId = await anAnnouncement(shelf.id);
+  const { id: announcementId } = await anAnnouncement(shelf.id);
 
   await redirectedTo(
     pinAnnouncementAction(
@@ -768,7 +768,7 @@ test("a manager pins an announcement, and pinning again unpins it", async () => 
 
 test("a reader may not pin an announcement", async () => {
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
-  const announcementId = await anAnnouncement(shelf.id);
+  const { id: announcementId } = await anAnnouncement(shelf.id);
   await signInAs(shelf.id, "reader", "minh.tran");
 
   const target = await redirectedTo(
@@ -782,4 +782,40 @@ test("a reader may not pin an announcement", async () => {
   // than from the command's own test.
   expect(refusalIn(target)).toBe("not_permitted");
   expect(await isPinned(announcementId)).toBe(false);
+});
+
+test("pinning from the manager list returns to the manager queue", async () => {
+  // No `thong-bao-slug` field — exactly what the manager list's own form
+  // posts. `afterPinDecision`'s absent-means-the-queue default.
+  const { shelf } = await shelfWithManager();
+  const { id: announcementId } = await anAnnouncement(shelf.id);
+
+  const target = await redirectedTo(
+    pinAnnouncementAction(
+      form({ "tu-sach": "dong-thap", "thong-bao": announcementId }),
+    ),
+  );
+
+  expect(target).toBe("/tu-sach/dong-thap/quan-ly/thong-bao");
+});
+
+test("pinning from the reader-facing detail page returns to that same page", async () => {
+  // The fix this round of review asked for: a manager reading
+  // `/tu-sach/dong-thap/thong-bao/{slug}` who pins from there is not yanked
+  // into the admin console. The reader detail page's control is the one
+  // surface that posts `thong-bao-slug`.
+  const { shelf } = await shelfWithManager();
+  const { id: announcementId, slug } = await anAnnouncement(shelf.id);
+
+  const target = await redirectedTo(
+    pinAnnouncementAction(
+      form({
+        "tu-sach": "dong-thap",
+        "thong-bao": announcementId,
+        "thong-bao-slug": slug,
+      }),
+    ),
+  );
+
+  expect(target).toBe(`/tu-sach/dong-thap/thong-bao/${slug}`);
 });
