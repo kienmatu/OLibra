@@ -1,6 +1,7 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import type { Command } from "../../kernel/unit-of-work";
 import { fold } from "../../kernel/fold";
+import { assertPhone } from "../../members/policy";
 import { checkPolicyBound, type PolicyField } from "../policy";
 import type { ShelfContact } from "../../shelf/queries/get-shelf-settings";
 
@@ -143,6 +144,16 @@ export const createBookshelf: Command<
         "contact_name_required",
         `contact_${contact.position}`,
       );
+    }
+    // QA remediation Task 18's rule, carried forward from the single
+    // `keeperPhone` this table replaced (PO feedback round 1, Task 2): a
+    // contact's phone is nullable — a block may name somebody with no number
+    // on file — so this only fires once one is actually supplied. Without it,
+    // `khong-phai-so` reaches `bookshelf_contacts` unchecked and every member
+    // of the shelf reads it back in the contact strip; see
+    // `git show 98a7bd2` for the defect this restores the guard against.
+    if (contact.phone !== null) {
+      assertPhone(contact.phone, `contact_${contact.position}_phone`);
     }
     await tx`
       insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
@@ -344,6 +355,15 @@ export const updateBookshelfSettings: Command<
           "contact_name_required",
           `contact_${contact.position}`,
         );
+      }
+      // QA remediation Task 18's rule, carried forward from the single
+      // `keeperPhone` this table replaced (PO feedback round 1, Task 2): a
+      // contact's phone is nullable — clearing it is a real edit, same as the
+      // old `keeperPhone !== null` guard — so this only fires once a value is
+      // actually supplied. Checked per contact and before any row is written,
+      // consistent with `contact_name_required` just above.
+      if (contact.phone !== null) {
+        assertPhone(contact.phone, `contact_${contact.position}_phone`);
       }
       await tx`
         insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)

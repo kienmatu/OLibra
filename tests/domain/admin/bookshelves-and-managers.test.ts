@@ -133,6 +133,28 @@ test("a new shelf inherits the system defaults, by value and not by reference", 
   });
 });
 
+test("createBookshelf refuses a non-numeric contact phone", async () => {
+  // Fix round 1: the refactor from `bookshelves.keeper_phone` to
+  // `bookshelf_contacts` dropped `assertPhone` from this command, so
+  // `khong-phai-so` reached the table unchecked. Restored per contact — see
+  // `tests/domain/admin/shelf-contacts.test.ts` for the `updateBookshelfSettings`
+  // half of this pin.
+  const ctx = await admin();
+  await expect(
+    runAdminCommand(sql, ctx, createBookshelf, {
+      name: "Tủ sách mới",
+      contacts: [
+        {
+          position: 1,
+          name: "Maria Nguyễn Thị Lan",
+          phone: "khong-phai-so",
+          roleLabel: null,
+        },
+      ],
+    }),
+  ).rejects.toMatchObject({ code: "phone_invalid", field: "contact_1_phone" });
+});
+
 test("a slug already in use is refused by name, not by a raw 23505", async () => {
   const ctx = await admin();
   await makeShelf(sql, { slug: "dong-thap" });

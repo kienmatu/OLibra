@@ -282,13 +282,15 @@ export const PHONE_PATTERN = "[+0-9][0-9 .-]{7,13}";
 /**
  * Refuses `phone` unless `isValidPhone` accepts it — see that function's own
  * docstring for the shape and the two databases it was read off. `field` is
- * the caller's own field name (`"phone"`, `"keeperPhone"`, `"contactPhone"`),
- * so `ValidationFailed.field` points at the box a volunteer actually typed
- * into rather than always saying "phone" regardless of which form it was.
+ * the caller's own field name (`"phone"`, `"contactPhone"`, or — since PO
+ * feedback round 1, Task 2 replaced the shelf's single `keeperPhone` with up
+ * to three `bookshelf_contacts` rows — `` `contact_${position}_phone` ``), so
+ * `ValidationFailed.field` points at the box a volunteer actually typed into
+ * rather than always saying "phone" regardless of which form it was.
  *
- * Every caller is responsible for its own blank check first: a shelf's
- * `keeperPhone`, the administration's `contactPhone`, and (PO feedback round
- * 1, Task 8) `register()`'s own `input.phone` must all skip this call
+ * Every caller is responsible for its own blank check first: a shelf
+ * contact's `phone`, the administration's `contactPhone`, and (PO feedback
+ * round 1, Task 8) `register()`'s own `input.phone` must all skip this call
  * entirely when the field is absent or being cleared — `null` means "no
  * phone on file", not "an invalid one". `register()` no longer refuses a
  * blank phone unconditionally; it refuses `thieu-so-dien-thoai` only when no

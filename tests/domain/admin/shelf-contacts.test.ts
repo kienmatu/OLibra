@@ -152,6 +152,101 @@ test("a contact with a phone and no name is refused", async () => {
   ).rejects.toMatchObject({ code: "contact_name_required" });
 });
 
+// ── A contact's phone is validated, same as the `keeperPhone` it replaced ──
+//
+// Fix round 1: the refactor from `bookshelves.keeper_phone` to
+// `bookshelf_contacts` dropped `assertPhone` from both call sites, so
+// `khong-phai-so` reached the table unchecked and every member of the shelf
+// read it back in the contact strip. `git show 98a7bd2` has the original
+// checks (`createBookshelf` and `updateBookshelfSettings` each called
+// `assertPhone(keeperPhone, "keeperPhone")`); these pin the restored guard,
+// per contact, in both commands.
+
+test("updateBookshelfSettings refuses a non-numeric contact phone", async () => {
+  const shelf = await makeShelf(sql);
+  const ctx = await admin();
+  const shelfCtx = { ...ctx, bookshelfId: shelf.id };
+
+  await expect(
+    runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+      bookshelfId: shelf.id,
+      profile: {
+        name: "Tủ sách Đồng Tháp",
+        location: null,
+        address: null,
+        contacts: [
+          {
+            position: 1,
+            name: "Maria Nguyễn Thị Lan",
+            phone: "khong-phai-so",
+            roleLabel: null,
+          },
+        ],
+      },
+    }),
+  ).rejects.toMatchObject({ code: "phone_invalid", field: "contact_1_phone" });
+
+  // Refused before any write — the old contact list (there was none here) and
+  // the profile itself are both untouched.
+  const readCtx = await readerContext(shelf.id);
+  const identity = await runQuery(sql, readCtx, (tx, c) =>
+    readShelfIdentity(tx, c),
+  );
+  expect(identity.contacts).toEqual([]);
+});
+
+test("updateBookshelfSettings refuses a bad phone on the second contact block, naming that block", async () => {
+  const shelf = await makeShelf(sql);
+  const ctx = await admin();
+  const shelfCtx = { ...ctx, bookshelfId: shelf.id };
+
+  await expect(
+    runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+      bookshelfId: shelf.id,
+      profile: {
+        name: "Tủ sách Đồng Tháp",
+        location: null,
+        address: null,
+        contacts: [
+          {
+            position: 1,
+            name: "Maria Nguyễn Thị Lan",
+            phone: null,
+            roleLabel: null,
+          },
+          { position: 2, name: "Giuse Trần Minh", phone: "abc", roleLabel: null },
+        ],
+      },
+    }),
+  ).rejects.toMatchObject({ code: "phone_invalid", field: "contact_2_phone" });
+});
+
+test("updateBookshelfSettings accepts a contact with no phone at all", async () => {
+  // `null` means "no phone on file", not "an invalid one" — the same
+  // distinction `assertPhone`'s own docstring makes for every other caller.
+  const shelf = await makeShelf(sql);
+  const ctx = await admin();
+  const shelfCtx = { ...ctx, bookshelfId: shelf.id };
+
+  await runAdminCommand(sql, shelfCtx, updateBookshelfSettings, {
+    bookshelfId: shelf.id,
+    profile: {
+      name: "Tủ sách Đồng Tháp",
+      location: null,
+      address: null,
+      contacts: [
+        { position: 1, name: "Maria Nguyễn Thị Lan", phone: null, roleLabel: null },
+      ],
+    },
+  });
+
+  const readCtx = await readerContext(shelf.id);
+  const identity = await runQuery(sql, readCtx, (tx, c) =>
+    readShelfIdentity(tx, c),
+  );
+  expect(identity.contacts[0].phone).toBeNull();
+});
+
 // ── Position 1 is mandatory, by domain rule (Task 3 fix round 1) ────────────
 //
 // `createBookshelf`/`updateBookshelfSettings` refuse a write that would leave
