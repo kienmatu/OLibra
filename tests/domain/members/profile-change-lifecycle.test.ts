@@ -282,23 +282,51 @@ test("approval writes the proposed values and audits against the person", async 
   expect(rows[1].actor_id).toBe(manager.userId);
 });
 
-// — PO feedback round 1, Task 8: "a manager approving ... a profile change
-// whose phone is empty" —
+// — PO feedback round 1, Task 8, and its own fix round 1: the rule moved to
+// `ProposeProfileChange` — the screen with the reason box — with
+// `ApproveProfileChange`'s own check kept as a backstop for a request that
+// bypassed it entirely —
 
-test("approving a proposal that would leave phone and reason both empty is refused", async () => {
-  // ProposeProfileChange itself is not gated (Task 8's file list does not
-  // touch it) — a reader may propose clearing their phone with no reason.
-  // The rule is enforced here, at the moment it would actually take effect.
-  const { readerCtx, ctx, reader } = await shelfWithReader();
-  await runCommand(sql, readerCtx, proposeProfileChange, {
-    membershipId: reader.id,
-    fields: { phone: null },
-  });
-  const [request] = await requestsOf(reader.userId);
+test("proposing to clear the phone with no reason on file is refused, before anything is written", async () => {
+  // Reviewer-found critical: raising this only at approval put the refusal
+  // on a screen (`doi-thong-tin`) whose form carries no phone or reason box
+  // at all — a manager could never approve it, only reject it. `ho-so
+  // /page.tsx` has the box; `ProposeProfileChange` is where the check now
+  // lives, so the reader who submitted it is the one asked.
+  const { readerCtx, reader } = await shelfWithReader();
+  await expect(
+    runCommand(sql, readerCtx, proposeProfileChange, {
+      membershipId: reader.id,
+      fields: { phone: null },
+    }),
+  ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
+
+  // Nothing was written — no pending request sits around half-answered.
+  expect(await requestsOf(reader.userId)).toHaveLength(0);
+  const person = await personOf(reader.userId);
+  expect(person.phone).not.toBeNull();
+});
+
+test("ApproveProfileChange's own check is a backstop for a request ProposeProfileChange never touched", async () => {
+  // `profile_change_requests.proposed_values` is `jsonb` with no check
+  // constraint (DATABASE.md §4.11's own price for the design) — a row can
+  // exist without ever going through `ProposeProfileChange`, the same fact
+  // "approval re-validates the stored proposal rather than trusting it"
+  // (above) already exercises for a blank `full_name`. `assertPhoneOrReason`
+  // still runs inside `ApproveProfileChange` for exactly this reason.
+  const { ctx, reader, shelf } = await shelfWithReader();
+  await sql`
+    insert into profile_change_requests
+      (user_id, bookshelf_id, proposed_values, previous_values, status)
+    values (${reader.userId}, ${shelf.id}, '{"phone":null}', '{}', 'pending')
+  `;
+  const [row] = await sql<
+    { id: string }[]
+  >`select id from profile_change_requests where user_id = ${reader.userId}`;
 
   await expect(
     runCommand(sql, ctx, approveProfileChange, {
-      profileChangeRequestId: request.id,
+      profileChangeRequestId: row.id,
     }),
   ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
 

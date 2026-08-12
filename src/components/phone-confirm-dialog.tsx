@@ -2,8 +2,14 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/field";
+// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data
+// .ts` records at the top of its own imports: `tests/components/phone
+// -confirm-dialog.test.tsx` (fix round 1) imports this module directly and
+// `vitest.config.ts` has no `resolve.alias` for `@/` — `field.tsx`,
+// `parish-unit-fields.tsx`, `reader-tabs.tsx` and `public-header.tsx` all
+// carry the identical note for the identical reason.
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/field";
 
 /** Every form this dialog mounts beside spells the phone field this way. */
 const PHONE_FIELD = "dien-thoai";
@@ -117,9 +123,17 @@ export function PhoneConfirmDialog({ formId }: { formId: string }) {
           <label htmlFor={reasonId} className="text-[16px] font-medium">
             Lý do
           </label>
+          {/* Fix round 1: not HTML `required`. This textarea and the cancel
+              button below share one `<form method="dialog">`, and a browser
+              runs interactive constraint validation *before* branching on
+              `method="dialog"` — so clicking "Quay lại nhập số" while this
+              box is empty (the state the dialog opens in, every time) fired
+              the native validation bubble instead of closing. The confirm
+              button's own `disabled={reason.trim() === ""}` below is already
+              the real gate; a second, native one on the same field only
+              breaks the other button. */}
           <Textarea
             id={reasonId}
-            required
             rows={3}
             value={reason}
             onChange={(e) => setReason(e.target.value)}

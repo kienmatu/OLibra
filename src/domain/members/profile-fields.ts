@@ -421,27 +421,48 @@ export async function applyProfileFields(
 }
 
 /**
- * Refuses a write that would leave the subject with neither a phone number
- * nor a stated reason for lacking one — PO feedback round 1, Task 8.
+ * Refuses a write — or, since fix round 1, a *proposal* — that would leave
+ * the subject with neither a phone number nor a stated reason for lacking
+ * one. PO feedback round 1, Task 8, and its own fix round 1.
  *
- * **Checked against `after`, the resulting record, never the patch alone.**
- * That is what makes "a reason already on file counts" true: a caller that
- * touches an unrelated field and leaves both `phone` and
- * `phone_missing_reason` exactly as they were inherits whatever `after`
- * already carries, and only a record that is *genuinely* silent on both — no
- * number, no reason, on the row as it now stands — is refused. `applyProfile
- * Fields` itself stays unconditional (its own test drives `{ phone: null }`
- * with no reason and expects it to succeed) precisely so this rule can live
- * one level up, in the two callers that speak for a *decision* rather than a
- * raw write: `./commands/update-reader-profile.ts` and
- * `./commands/approve-profile-change.ts`. `register()` (`../registration.ts`)
- * raises the identical code for the third and fourth write paths
- * (self-registration, a manager registering on behalf), where there is no
- * `after` to read yet and the same question is asked of the patch directly.
+ * **Checked against the resulting record, never the patch alone.** That is
+ * what makes "a reason already on file counts" true: a caller that touches
+ * an unrelated field and leaves both `phone` and `phone_missing_reason`
+ * exactly as they were inherits whatever the record already carries, and
+ * only a record that is *genuinely* silent on both — no number, no reason,
+ * on the row as it now stands — is refused. `applyProfileFields` itself
+ * stays unconditional (its own test drives `{ phone: null }` with no reason
+ * and expects it to succeed) precisely so this rule can live one level up.
+ *
+ * The parameter is `Pick<ProfileFields, "phone" | "phone_missing_reason">`
+ * rather than the full nine-key `ProfileFields`, because it now has three
+ * callers with three different shapes of "the resulting record" in hand:
+ *
+ * - `./commands/update-reader-profile.ts` and
+ *   `./commands/approve-profile-change.ts` pass `after`, the authoritative
+ *   post-write row `applyProfileFields` returns — a `ProfileFields`, which
+ *   satisfies this narrower type structurally.
+ * - `./commands/propose-profile-change.ts` passes a two-key object built
+ *   from the merged proposal overlaid on the person as they stand now — see
+ *   that command for why the check belongs there and not only at approval:
+ *   a reader may leave the phone blank with no reason on a screen with no
+ *   phone box at all (`ApproveProfileChange`'s), and a refusal nobody on
+ *   that screen can answer is not a refusal, it is a dead end.
+ * - `register()` (`../registration.ts`) raises the identical code directly,
+ *   for the two registration write paths, where there is no existing record
+ *   to overlay at all.
+ *
+ * `ApproveProfileChange`'s own call stays in place as the backstop it always
+ * was — a request written before this fix, or by a caller that bypasses
+ * `ProposeProfileChange` entirely (`profile_change_requests` is `jsonb` with
+ * no check constraint, DATABASE.md §4.11's own price for the design), still
+ * cannot be approved into a phone-less, reason-less record.
  */
-export function assertPhoneOrReason(after: ProfileFields): void {
-  const reason = after.phone_missing_reason;
-  if (after.phone === null && (reason === null || reason.trim() === "")) {
+export function assertPhoneOrReason(
+  result: Pick<ProfileFields, "phone" | "phone_missing_reason">,
+): void {
+  const reason = result.phone_missing_reason;
+  if (result.phone === null && (reason === null || reason.trim() === "")) {
     throw new RuleViolated("thieu-so-dien-thoai");
   }
 }

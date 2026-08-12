@@ -303,10 +303,12 @@ export default async function ReaderProfilePage({
               required
               htmlFor="ly-do-thieu-sdt"
             >
+              {/* Fix round 1: not HTML `required` — see `nguoi-doc/[id]
+                  /page.tsx`'s identical note. `ProposeProfileChange`'s
+                  `assertPhoneOrReason` is the real check. */}
               <Textarea
                 id="ly-do-thieu-sdt"
                 name="ly-do-thieu-sdt"
-                required
                 rows={3}
                 defaultValue={fields.phone_missing_reason ?? ""}
               />

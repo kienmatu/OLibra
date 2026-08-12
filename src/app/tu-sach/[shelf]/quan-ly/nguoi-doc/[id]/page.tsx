@@ -417,15 +417,22 @@ function EditProfileDisclosure({
   const formId = `sua-ho-so-${reader.membershipId}`;
   // PO feedback round 1, Task 8. Unlike the two registration forms, this one
   // already knows the record: a reader with no phone on file gets the reason
-  // box up front, pre-filled with whatever is already there, rather than
-  // waiting for a first refusal to reveal it — the design's own ask ("renders
-  // ... beside the empty phone, so the next volunteer to open the record
-  // reads why"). `refused` still widens it: a manager who *clears* the phone
-  // on a reader who had one sees the box appear the moment that refusal comes
-  // back, exactly as the two registration forms do.
+  // box up front inside the form, pre-filled with whatever is already there,
+  // rather than waiting for a first refusal to reveal it. `refused` widens
+  // it: a manager who *clears* the phone on a reader who had one sees the
+  // box appear the moment that refusal comes back, exactly as the two
+  // registration forms do.
   const showReason = !reader.phone || refused;
+  // Fix round 1: this used to be `open={showReason || undefined}`, which
+  // pinned "Sửa hồ sơ" permanently expanded for every phone-less reader —
+  // every one of them, on every visit, whether or not anyone was editing
+  // anything. The reason is now readable without opening this disclosure at
+  // all (the read-only row above), so the only remaining reason to force it
+  // open is a *live* refusal from this exact form — the manager was mid-edit
+  // a moment ago and needs to see what they typed, not every reader who
+  // simply lacks a phone.
   return (
-    <details open={showReason || undefined}>
+    <details open={refused || undefined}>
       <summary className="cursor-pointer list-none text-[14px] underline [&::-webkit-details-marker]:hidden">
         Sửa hồ sơ
       </summary>
@@ -513,10 +520,17 @@ function EditProfileDisclosure({
             required
             htmlFor={idFor("ly-do-thieu-sdt")}
           >
+            {/* Fix round 1: not HTML `required` — this form carries neither
+                `noValidate` nor an `invalidHint` on any field (unlike
+                `/dang-ky` and `nguoi-doc/moi`), so a manager who types a
+                phone and then clears this now-unneeded box would have hit
+                the browser's own English validation bubble instead of
+                submitting. `updateReaderProfile`'s `assertPhoneOrReason` is
+                the real check; `Field`'s `required` prop above still shows
+                the "Bắt buộc" pill. */}
             <Textarea
               id={idFor("ly-do-thieu-sdt")}
               name="ly-do-thieu-sdt"
-              required
               rows={3}
               defaultValue={reader.phoneMissingReason ?? ""}
             />
@@ -675,10 +689,24 @@ export default async function ManagerReaderDetailPage({
     { label: "Tên mẹ", value: reader.motherName, private: true },
     {
       label: "Số điện thoại",
+      // Fix round 1 (PO feedback round 1, Task 8). Spec §8's own words: the
+      // reason "renders on the reader's manager-facing detail page beside
+      // the empty phone, so the next volunteer to open the record reads why
+      // rather than assuming an oversight." It was only reachable before as
+      // a prefilled value inside the "Sửa hồ sơ" disclosure — a volunteer
+      // has to open and not touch an edit form to read it, which is not
+      // "beside the empty phone" by any reading. This is that row.
       value: reader.phone ? (
         <PhoneLink phone={reader.phone} size="sm" />
       ) : (
-        "Chưa có"
+        <span className="flex flex-col items-end gap-0.5">
+          <span>Chưa có</span>
+          {reader.phoneMissingReason ? (
+            <span className="max-w-[220px] text-[13px] text-meta">
+              {reader.phoneMissingReason}
+            </span>
+          ) : null}
+        </span>
       ),
       private: true,
     },
