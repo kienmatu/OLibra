@@ -200,7 +200,7 @@ function formlessSubmitControls(source: string): string[] {
  * different, real violation added to this same file later still fails.
  */
 const EXEMPT_NO_ACTION = new Set<string>([
-  "src/app/quan-tri/quan-ly-vien/page.tsx:198", // "Xem bạn đọc" — GET-to-self shelf picker.
+  "src/app/quan-tri/quan-ly-vien/page.tsx:201", // "Xem bạn đọc" — GET-to-self shelf picker.
 ]);
 
 test("every submit control under src/app is lexically inside a <form> with an action", () => {

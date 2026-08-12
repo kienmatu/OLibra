@@ -11,6 +11,7 @@ import {
 } from "@/domain/kernel/audit-actions";
 import { getAuditLog } from "@/domain/shelf/queries/get-audit-log";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
+import { countPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
 import { AUDIT_GROUP_STYLE, payloadRows } from "@/lib/audit-log";
 import { formatInstantParts } from "@/lib/dates";
 import { loadAdminPage } from "@/lib/page-data";
@@ -66,17 +67,17 @@ export default async function AdminAuditPage({
   // this surface, so the check is about the fault rather than about scope.
   const actor = actorParam && UUID.test(actorParam) ? actorParam : undefined;
 
-  const { viewer, unreadFeedback, entries } = await loadAdminPage(
-    async (tx, ctx, v) => ({
+  const { viewer, unreadFeedback, pendingManagerChanges, entries } =
+    await loadAdminPage(async (tx, ctx, v) => ({
       viewer: v,
       unreadFeedback: await countUnreadFeedback(tx, ctx),
+      pendingManagerChanges: await countPendingManagerChanges(tx, ctx),
       entries: await getAuditLog(tx, ctx, {
         actorId: actor,
         group,
         page: pageNumber(param(search, PAGE)),
       }),
-    }),
-  );
+    }));
 
   const listHref = "/quan-tri/nhat-ky";
   const hrefWith = (over: { group?: string | null; page?: number }): string => {
@@ -92,7 +93,11 @@ export default async function AdminAuditPage({
   };
 
   return (
-    <AdminShell active="nhat-ky" viewer={viewer} unreadFeedback={unreadFeedback}>
+    <AdminShell
+      active="nhat-ky"
+      viewer={viewer}
+      counts={{ unreadFeedback, pendingManagerChanges }}
+    >
       <PageHeading
         title="Nhật ký hệ thống"
         subtitle="Mọi việc đã làm, trên tất cả các tủ sách. Trang này đọc từ nhật ký."

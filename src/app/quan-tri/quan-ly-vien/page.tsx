@@ -13,6 +13,7 @@ import {
   getManagersList,
 } from "@/domain/admin/queries/get-admin-overview";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
+import { countPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
 import { formatInstant } from "@/lib/dates";
 import { loadAdminPage } from "@/lib/page-data";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -104,6 +105,7 @@ export default async function AdminManagersPage({
   const {
     viewer,
     unreadFeedback,
+    pendingManagerChanges,
     managers,
     shelves,
     appointableShelves,
@@ -127,6 +129,7 @@ export default async function AdminManagersPage({
     return {
       viewer: v,
       unreadFeedback: await countUnreadFeedback(tx, ctx),
+      pendingManagerChanges: await countPendingManagerChanges(tx, ctx),
       managers: await getManagersList(tx, ctx),
       // For the shelf id each revoke has to be scoped to — `auditScopeFor`'s
       // sibling rule, and the reason `submitAdminCommand` takes one. The full
@@ -146,7 +149,7 @@ export default async function AdminManagersPage({
     <AdminShell
       active="quan-ly-vien"
       viewer={viewer}
-      unreadFeedback={unreadFeedback}
+      counts={{ unreadFeedback, pendingManagerChanges }}
     >
       <PageHeading
         title="Quản lý viên"

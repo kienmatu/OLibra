@@ -7,6 +7,10 @@ import {
   resolveFeedback,
 } from "@/domain/community/commands/feedback";
 import { getFeedbackDetail } from "@/domain/admin/queries/get-feedback-inbox";
+import { approveProfileChange } from "@/domain/members/commands/approve-profile-change";
+import { rejectProfileChange } from "@/domain/members/commands/reject-profile-change";
+import type { Command } from "@/domain/kernel/unit-of-work";
+import { discardAvatarObject } from "@/lib/avatar";
 import { loadAdminPage, submitAdminCommand } from "@/lib/page-data";
 import { ACTION_ERROR_PARAM } from "@/lib/search-params";
 
@@ -70,4 +74,104 @@ export async function markFeedbackReadAction(form: FormData): Promise<void> {
 
 export async function resolveFeedbackAction(form: FormData): Promise<void> {
   await handle(form, resolveFeedback);
+}
+
+// ── Đổi thông tin quản lý (Task 10) ─────────────────────────────────────────
+//
+// `/quan-tri/doi-thong-tin`'s two decisions — approving or rejecting a
+// manager's or shelf admin's own pending profile change, §9 of the design
+// doc's other half. The domain commands are the exact ones
+// `/tu-sach/[shelf]/quan-ly/actions.ts` already calls for a *reader's*
+// change; nothing here is a second implementation of the decision, only of
+// how this surface reaches it.
+//
+// **Why `submitAdminCommand`, not `submitCommand`.** Every other write under
+// `/quan-tri` goes through it (`admin-actions.ts`'s docstring), and the
+// reason applies here without alteration: a super admin deciding a
+// manager's change is, in the ordinary case, a person acting on a shelf they
+// hold no membership of at all — `assignManagerAction`'s "AssignManager
+// writes a memberships row for a shelf the caller holds no membership of"
+// (`unit-of-work.ts`'s `runAdminCommand` docstring) describes this act
+// exactly. `bookshelfId` travels as a hidden `tu-sach` field, off the row
+// `getPendingManagerChanges` already resolved it from, so the audit entry
+// lands on the request's own shelf — the same reason `assignManagerAction`
+// carries one.
+//
+// **The page's own guard is the second line, not the first** (the brief's
+// own words): `approveProfileChange`/`rejectProfileChange` both refuse
+// `not_permitted` if the subject is not a manager/admin decided by a
+// `super_admin`, or if the actor is the subject, regardless of what this
+// file does or does not check first. `loadAdminPage` already refuses
+// anybody who is not a super admin a render of the page these actions are
+// posted from.
+
+function field(form: FormData, name: string): string {
+  return String(form.get(name) ?? "").trim();
+}
+
+function complete(form: FormData, names: string[]): boolean {
+  return names.every((name) => field(form, name) !== "");
+}
+
+const INCOMPLETE = { ok: false, code: "validation_failed" } as const;
+const NO_REJECT_REASON = { ok: false, code: "reject_reason_required" } as const;
+
+/**
+ * `attemptDiscardingAvatar` in `/tu-sach/[shelf]/quan-ly/actions.ts`,
+ * restated over `submitAdminCommand` rather than `submitCommand` — see this
+ * section's own header for why the seam differs and `src/lib/avatar.ts`'s
+ * `decideAndDiscardAvatar` for the ordering being restated by hand here: the
+ * delete has to run after the transaction commits, never inside it, and that
+ * shelf-side helper is hard-wired to `submitCommand`, so it cannot be reused
+ * as-is from a surface that writes through `submitAdminCommand` instead.
+ */
+async function attemptDiscardingAvatar<I>(
+  bookshelfId: string,
+  command: Command<I, { avatarObject: string | null }>,
+  input: I,
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  try {
+    const { avatarObject } = await submitAdminCommand(command, input, bookshelfId);
+    await discardAvatarObject(avatarObject);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof RuleViolated) return { ok: false, code: err.code };
+    throw err;
+  }
+}
+
+/** Back to the queue, a refusal's code carried along exactly as `backToQueue` does. */
+function backToAdminQueue(
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  const suffix = outcome.ok ? "" : `?${ACTION_ERROR_PARAM}=${outcome.code}`;
+  redirect(`/quan-tri/doi-thong-tin${suffix}`);
+}
+
+export async function approveManagerProfileChangeAction(
+  form: FormData,
+): Promise<void> {
+  const bookshelfId = field(form, "tu-sach");
+  const outcome = complete(form, ["yeu-cau", "tu-sach"])
+    ? await attemptDiscardingAvatar(bookshelfId, approveProfileChange, {
+        profileChangeRequestId: field(form, "yeu-cau"),
+      })
+    : INCOMPLETE;
+  backToAdminQueue(outcome);
+}
+
+export async function rejectManagerProfileChangeAction(
+  form: FormData,
+): Promise<void> {
+  const bookshelfId = field(form, "tu-sach");
+  const reason = field(form, "ly-do");
+  const outcome = !complete(form, ["yeu-cau", "tu-sach"])
+    ? INCOMPLETE
+    : reason === ""
+      ? NO_REJECT_REASON
+      : await attemptDiscardingAvatar(bookshelfId, rejectProfileChange, {
+          profileChangeRequestId: field(form, "yeu-cau"),
+          reason,
+        });
+  backToAdminQueue(outcome);
 }

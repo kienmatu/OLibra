@@ -9,6 +9,7 @@ import {
   getSiteContact,
   type ShelfOverviewRow,
 } from "@/domain/admin/queries/get-admin-overview";
+import { countPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
 import { loadAdminPage } from "@/lib/page-data";
 
 /**
@@ -95,12 +96,13 @@ const COLUMNS = [
 ];
 
 export default async function AdminOverviewPage() {
-  const { viewer, unreadFeedback, shelves, hasSiteContact } = await loadAdminPage(
-    async (tx, ctx, v) => {
+  const { viewer, unreadFeedback, pendingManagerChanges, shelves, hasSiteContact } =
+    await loadAdminPage(async (tx, ctx, v) => {
       const contact = await getSiteContact(tx);
       return {
         viewer: v,
         unreadFeedback: await countUnreadFeedback(tx, ctx),
+        pendingManagerChanges: await countPendingManagerChanges(tx, ctx),
         shelves: await getAdminOverview(tx, ctx),
         // Task 17 (2026-08-10 QA remediation). `getSiteContact` takes no
         // `TenantContext` and calls no policy — it is written for
@@ -111,8 +113,7 @@ export default async function AdminOverviewPage() {
         // same three columns `/lien-he` already reads.
         hasSiteContact: Boolean(contact.name || contact.phone),
       };
-    },
-  );
+    });
 
   const active = shelves.filter((s) => s.status === "active");
   const totals = shelves.reduce(
@@ -126,7 +127,11 @@ export default async function AdminOverviewPage() {
   const attention = attentionLines(shelves, unreadFeedback);
 
   return (
-    <AdminShell active="tong-quan" viewer={viewer} unreadFeedback={unreadFeedback}>
+    <AdminShell
+      active="tong-quan"
+      viewer={viewer}
+      counts={{ unreadFeedback, pendingManagerChanges }}
+    >
       <PageHeading
         title="Tổng quan hệ thống"
         subtitle={`${NUMBER.format(active.length)} tủ sách đang hoạt động.`}

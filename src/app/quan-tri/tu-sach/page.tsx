@@ -11,6 +11,7 @@ import { PHONE_PATTERN } from "@/domain/members/policy";
 import type { PolicyField } from "@/domain/admin/policy";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getAdminOverview } from "@/domain/admin/queries/get-admin-overview";
+import { countPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
 import {
   getShelfSettings,
   type LendingPolicy,
@@ -154,13 +155,14 @@ export default async function AdminBookshelvesPage({
   // exactly one thing behind `?tu-sach=` that could just have been saved.
   const saved = param(search, ACTION_DONE_PARAM) === "1";
 
-  const { viewer, unreadFeedback, shelves, selected } = await loadAdminPage(
-    async (tx, ctx, v) => {
+  const { viewer, unreadFeedback, pendingManagerChanges, shelves, selected } =
+    await loadAdminPage(async (tx, ctx, v) => {
       const shelves = await getAdminOverview(tx, ctx);
       const named = shelves.find((s) => s.slug === selectedSlug) ?? null;
       return {
         viewer: v,
         unreadFeedback: await countUnreadFeedback(tx, ctx),
+        pendingManagerChanges: await countPendingManagerChanges(tx, ctx),
         shelves,
         // Read only when the id names a shelf this administrator just listed —
         // so a `?tu-sach=` naming nothing renders the list rather than a 404 or
@@ -175,11 +177,14 @@ export default async function AdminBookshelvesPage({
             }
           : null,
       };
-    },
-  );
+    });
 
   return (
-    <AdminShell active="tu-sach" viewer={viewer} unreadFeedback={unreadFeedback}>
+    <AdminShell
+      active="tu-sach"
+      viewer={viewer}
+      counts={{ unreadFeedback, pendingManagerChanges }}
+    >
       <PageHeading
         title="Tủ sách"
         subtitle={`${NUMBER.format(shelves.length)} tủ sách trong hệ thống.`}
