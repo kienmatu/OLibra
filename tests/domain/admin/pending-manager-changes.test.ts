@@ -199,6 +199,50 @@ test("each row names its own shelf and carries what it takes to decide it", asyn
   expect(row.currentValues.phone).not.toBe("0912345678");
 });
 
+test("a subject with membership at more than one shelf is not duplicated or misattributed", async () => {
+  // Fix round 1: the query used to take the shelf from `m.bookshelf_id`
+  // (`join memberships m on m.user_id = r.user_id`, no shelf predicate),
+  // which fans out to one row per membership a multi-shelf subject holds.
+  // Multi-shelf membership is ordinary (`src/domain/admin/commands/
+  // managers.ts:12-14`), not an edge case, so `a.manager` here holds three:
+  // manager at shelf A (where the request is proposed), manager at shelf B,
+  // and — so the bug is not merely "two manager rows" — reader at shelf C.
+  const a = await aShelfWithAManager({ slug: "dong-thap" });
+  const b = await aShelfWithAManager({ slug: "thanh-tam" });
+  const c = await makeShelf(sql, { slug: "vinh-long" });
+  await sql`
+    insert into memberships (bookshelf_id, user_id, role, status)
+    values (${b.shelf.id}, ${a.manager.userId}, 'manager', 'active')
+  `;
+  await sql`
+    insert into memberships (bookshelf_id, user_id, role, status)
+    values (${c.id}, ${a.manager.userId}, 'reader', 'active')
+  `;
+
+  await propose(
+    ctxFor(a.shelf.id, a.manager, "manager", "2026-08-13T07:00:00Z"),
+    a.manager.id,
+    "0912345678",
+  );
+
+  const { ctx } = await superAdminContext(sql);
+  const rows = await runAdminQuery(sql, ctx, (tx, c) =>
+    getPendingManagerChanges(tx, c),
+  );
+  const count = await runAdminQuery(sql, ctx, (tx, c) =>
+    countPendingManagerChanges(tx, c),
+  );
+
+  // Exactly one row — not one per membership — and attributed to the shelf
+  // the request was actually proposed at (`r.bookshelf_id`), never to a
+  // shelf the subject merely also belongs to.
+  expect(rows).toHaveLength(1);
+  expect(rows[0].shelfSlug).toBe("dong-thap");
+  expect(rows[0].bookshelfId).toBe(a.shelf.id);
+  // The badge and the queue must agree — both read the identical `where`.
+  expect(count).toBe(1);
+});
+
 // ── The permission boundary, falsified on both paths ────────────────────────
 
 test("the kernel refuses a manager the admin role, before the query ever runs", async () => {

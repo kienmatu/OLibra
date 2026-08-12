@@ -61,6 +61,26 @@ export interface PendingManagerChangeRow {
  * shelf at all — here, to *every* shelf at once, since nothing narrows this
  * select to one.
  *
+ * **The shelf is `r.bookshelf_id`, and the `memberships` join is scoped to
+ * it — `m.bookshelf_id = r.bookshelf_id`, not a bare `m.user_id = r.user_id`.**
+ * Fix round 1 caught this live: the first version took the shelf from
+ * `m.bookshelf_id` with no predicate tying it to the request's own shelf, so
+ * a subject who holds `manager`/`admin` membership at more than one parish —
+ * ordinary, not an edge case, per `../commands/managers.ts`'s "the same
+ * person may be a manager of one parish and a reader of another" — produced
+ * one row *per membership*, not one row per request: the same
+ * `profileChangeRequestId` came back twice, labelled with two different
+ * shelves, and `countPendingManagerChanges` inflated the badge the same way.
+ * `pending-proposal.ts:193-198` is where the authoritative column is
+ * decided in the first place — `bookshelf_id` on `profile_change_requests`
+ * is always `ctx.bookshelfId` at propose time, "the shelf this call is
+ * scoped to", never a value from input — so this query reads that column
+ * back rather than re-deriving "which shelf" from `memberships`, which can
+ * only ever answer "every shelf this person belongs to".
+ * `tests/domain/admin/pending-manager-changes.test.ts`'s "a subject with
+ * membership at more than one shelf is not duplicated or misattributed"
+ * pins it.
+ *
  * **Order is oldest first.** A queue is worked front to back; the person who
  * has waited longest for a super admin to look should not be at the bottom of
  * the list.
@@ -104,9 +124,11 @@ export async function getPendingManagerChanges(
       u.father_name, u.mother_name, u.phone, u.phone_missing_reason, u.email,
       u.avatar_url
     from profile_change_requests r
-    join memberships m  on m.user_id = r.user_id and m.deleted_at is null
+    join memberships m  on m.user_id = r.user_id
+                        and m.bookshelf_id = r.bookshelf_id
+                        and m.deleted_at is null
     join users u        on u.id = r.user_id and u.deleted_at is null
-    join bookshelves b  on b.id = m.bookshelf_id and b.deleted_at is null
+    join bookshelves b  on b.id = r.bookshelf_id and b.deleted_at is null
    where r.status = 'pending'
      and m.role in ('manager', 'admin')
    order by r.requested_at
@@ -131,11 +153,15 @@ export async function getPendingManagerChanges(
 
 /**
  * The nav badge behind `getPendingManagerChanges` — a `count(*)` of the
- * identical `where`, for `AdminShell`'s sidebar, which needs the number on
- * every `/quan-tri` page and not only on `/quan-tri/doi-thong-tin` itself.
- * Mirrors `countUnreadFeedback` (`../get-feedback-inbox.ts`) rather than
- * having every other admin page pull the full row list just to read its
- * `.length`.
+ * identical `where` (`m.bookshelf_id = r.bookshelf_id` included, for the
+ * identical reason the main query's own docstring gives — fix round 1's
+ * defect inflated this count exactly as it duplicated the queue's rows, and
+ * the two must agree since a badge that overcounts a queue a super admin can
+ * open and count by eye is worse than no badge), for `AdminShell`'s sidebar,
+ * which needs the number on every `/quan-tri` page and not only on
+ * `/quan-tri/doi-thong-tin` itself. Mirrors `countUnreadFeedback`
+ * (`../get-feedback-inbox.ts`) rather than having every other admin page
+ * pull the full row list just to read its `.length`.
  */
 export async function countPendingManagerChanges(
   tx: Tx,
@@ -146,7 +172,9 @@ export async function countPendingManagerChanges(
   const [row] = await tx<{ n: string }[]>`
     select count(*) as n
       from profile_change_requests r
-      join memberships m on m.user_id = r.user_id and m.deleted_at is null
+      join memberships m on m.user_id = r.user_id
+                         and m.bookshelf_id = r.bookshelf_id
+                         and m.deleted_at is null
      where r.status = 'pending'
        and m.role in ('manager', 'admin')
   `;
