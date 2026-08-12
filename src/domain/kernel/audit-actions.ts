@@ -436,20 +436,6 @@ const ACTIONS = {
     group: "nguoi-doc",
     phrase: (f) => `đánh dấu ${who(f.subject)} đã rời tủ sách`,
   },
-  "membership.updated": {
-    group: "nguoi-doc",
-    // `updateOwnProfile` is the only writer and it changes one field, so the
-    // sentence says which way it went rather than that "something changed".
-    // "bảng bạn đọc chăm nhất" is the shipped wording from the reader's own
-    // profile form, not a new name for the leaderboard.
-    phrase: (f) => {
-      const on = flag(f.after, "leaderboard_opt_in");
-      if (on === null) return "đổi cài đặt tài khoản của mình";
-      return on
-        ? "chọn hiện tên trong bảng bạn đọc chăm nhất"
-        : "chọn ẩn tên khỏi bảng bạn đọc chăm nhất";
-    },
-  },
   "credentials.set": {
     group: "nguoi-doc",
     // BR §2, and the reason this action exists at all: "this manager set or

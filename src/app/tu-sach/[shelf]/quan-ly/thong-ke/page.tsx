@@ -373,12 +373,6 @@ export default async function StatsPage({
                 ))}
               </ul>
             )}
-            {/* BR §16.2's toggle, said out loud: a manager who counts the rows
-                and finds fewer than they expect should know why. */}
-            <p className="mt-3 text-[14px] text-meta">
-              Bạn đọc đã tắt mục &ldquo;hiện tên trong bảng bạn đọc chăm nhất&rdquo;
-              sẽ không xuất hiện ở đây.
-            </p>
           </div>
         </div>
       </div>

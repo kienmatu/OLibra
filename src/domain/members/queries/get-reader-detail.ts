@@ -32,7 +32,6 @@ export interface ReaderDetail extends ReaderRow {
    * this file's own docstring gives for keeping the hash off every screen.
    */
   username: string | null;
-  leaderboardOptIn: boolean;
   managerNotes: string | null;
   rejectionReason: string | null;
   suspensionReason: string | null;
@@ -118,7 +117,6 @@ export async function getReaderDetail(
       avatar_url: string | null;
       has_credentials: boolean;
       username: string | null;
-      leaderboard_opt_in: boolean;
       manager_notes: string | null;
       rejection_reason: string | null;
       suspension_reason: string | null;
@@ -130,7 +128,7 @@ export async function getReaderDetail(
       m.user_id,
       m.status, m.role,
       m.parish_unit_l1_id, m.parish_unit_l2_id,
-      m.leaderboard_opt_in, m.manager_notes,
+      m.manager_notes,
       m.rejection_reason, m.suspension_reason,
       m.approved_at::text as approved_at,
       u.full_name, u.saint_name, u.date_of_birth::text as date_of_birth,
@@ -208,7 +206,6 @@ export async function getReaderDetail(
     avatarUrl: row.avatar_url,
     hasCredentials: row.has_credentials,
     username: row.username,
-    leaderboardOptIn: row.leaderboard_opt_in,
     managerNotes: row.manager_notes,
     rejectionReason: row.rejection_reason,
     suspensionReason: row.suspension_reason,

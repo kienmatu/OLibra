@@ -122,13 +122,9 @@ test("borrowers counts people, not loans", async () => {
   expect(stats.borrowers).toBe(2);
 });
 
-test("a reader who turned the leaderboard off is absent from it", async () => {
-  // BR §16.2's toggle, and the words the child was shown: "nếu tắt, tên em sẽ
-  // không xuất hiện công khai" — under a heading that is that phrase.
-  //
-  // The fixture is deliberately not degenerate: the opted-out reader has *more*
-  // loans than the other, so an implementation that ignored the flag would put
-  // them first and this would fail on the name rather than only on the length.
+test("every borrower appears in the leaderboard", async () => {
+  // §13 of the PO-feedback spec: the opt-in toggle is gone, and the list now
+  // counts every borrower — no reader is absent from it.
   const { shelf: s, ctx } = await shelf();
   const { copyIds } = await makeBookWithCopies(sql, s.id, 3);
   const shy = await makeMember(sql, s.id);
@@ -144,21 +140,11 @@ test("a reader who turned the leaderboard off is absent from it", async () => {
   await lendAt(ctx, copyIds[1], shy.id, NOW);
   await lendAt(ctx, copyIds[2], willing.id, NOW);
 
-  // Both in, before the toggle: the floor for the assertion below.
-  const before = await runQuery(sql, ctx, (tx, c) => getStatistics(tx, c));
-  expect(before.topReaders.map((r) => r.name)).toEqual([
+  const stats = await runQuery(sql, ctx, (tx, c) => getStatistics(tx, c));
+  expect(stats.topReaders.map((r) => r.name)).toEqual([
     "Bạn kín đáo",
     "Bạn cởi mở",
   ]);
-
-  await sql`
-    update memberships set leaderboard_opt_in = false where id = ${shy.id}
-  `;
-
-  const after = await runQuery(sql, ctx, (tx, c) => getStatistics(tx, c));
-  expect(after.topReaders.map((r) => r.name)).toEqual(["Bạn cởi mở"]);
-  // Absent, not anonymised: no row carries their count under another label.
-  expect(after.topReaders.map((r) => r.count)).toEqual([1]);
 });
 
 test("it is RLS doing the scoping, not a where clause", async () => {

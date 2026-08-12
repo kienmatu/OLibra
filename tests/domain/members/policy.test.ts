@@ -137,7 +137,7 @@ test("role gates are server-side, per BR §13.3", () => {
 });
 
 test("a reader may act on their own membership and no other", () => {
-  // UpdateOwnProfile, CancelProfileChange and ChangeOwnPassword all need this
+  // CancelProfileChange and ChangeOwnPassword both need this
   // (OPS §4.3: caller "reader (self only)"). A manager passes regardless.
   expect(() => requireSelfOrManager(ctxWith("reader"), MEMBERSHIP)).not.toThrow();
   expect(() =>

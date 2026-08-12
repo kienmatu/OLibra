@@ -95,15 +95,11 @@ export interface UpdateReaderProfileInput {
  *
  * ── The action name ──────────────────────────────────────────────────────
  *
- * `profile.corrected`, and deliberately neither of the two names already in
- * use. Not `membership.updated`, which `./update-own-profile.ts` uses for the
- * leaderboard toggle — a reader flipping their own visibility and a manager
- * rewriting a child's date of birth are not the same event and BR §13.2's
- * Oversight view must be able to tell them apart. Not
- * `profile_change.approved`, which is a manager who was *shown a proposal*
- * ruling on it. The thing a super administrator must be able to filter for is
- * precisely "a manager changed someone's details with no approval step", the
- * same oversight need `credentials.set` serves.
+ * `profile.corrected`, and deliberately not `profile_change.approved`, which
+ * is a manager who was *shown a proposal* ruling on it. The thing a super
+ * administrator must be able to filter for is precisely "a manager changed
+ * someone's details with no approval step", the same oversight need
+ * `credentials.set` serves.
  *
  * Its Vietnamese label and sentence did not exist anywhere and are newly
  * authored — see `../profile-copy.ts`, which is flagged for the product owner.
