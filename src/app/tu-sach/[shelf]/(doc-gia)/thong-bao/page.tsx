@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Pin } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getAnnouncements } from "@/domain/community/queries/get-announcements";
 import { atLeast } from "@/domain/kernel/tenant";
@@ -11,6 +12,11 @@ import { formatInstant } from "@/lib/dates";
 /**
  * The shelf's announcements. OPS §3.2's `GetAnnouncementsList`, BR §16.1's
  * "pinned first, most recent next".
+ *
+ * Task 12's **Ghim** marker is `Pill icon={Pin} label="Ghim"`, the exact
+ * treatment the shelf home's announcement card already carries
+ * (`(doc-gia)/page.tsx`) — one visual language for "this notice is pinned"
+ * rather than a second one invented for this list.
  *
  * **An announcement lapses on read, and this page does not know that.** The
  * query compares `expires_at` against `olibra_now()`, so a notice about last
@@ -71,26 +77,26 @@ export default async function AnnouncementsPage({
                 key={a.id}
                 className="rounded-card border border-hairline bg-surface p-5"
               >
-                <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
                   {a.isPinned ? (
-                    <Pin className="mt-1 size-4 shrink-0 text-meta" aria-hidden />
+                    <div className="mb-2">
+                      <Pill icon={Pin} label="Ghim" />
+                    </div>
                   ) : null}
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`${base}/thong-bao/${a.slug}`}
-                      className="text-[17px] leading-snug font-semibold hover:underline"
-                    >
-                      {a.title}
-                    </Link>
-                    <p className="mt-2 text-[14px] leading-relaxed text-meta">
-                      {a.excerpt}
+                  <Link
+                    href={`${base}/thong-bao/${a.slug}`}
+                    className="text-[17px] leading-snug font-semibold hover:underline"
+                  >
+                    {a.title}
+                  </Link>
+                  <p className="mt-2 text-[14px] leading-relaxed text-meta">
+                    {a.excerpt}
+                  </p>
+                  {a.publishedAt ? (
+                    <p className="mt-3 text-[13px] text-meta">
+                      {formatInstant(a.publishedAt)}
                     </p>
-                    {a.publishedAt ? (
-                      <p className="mt-3 text-[13px] text-meta">
-                        {formatInstant(a.publishedAt)}
-                      </p>
-                    ) : null}
-                  </div>
+                  ) : null}
                 </div>
               </li>
             ))}

@@ -56,6 +56,8 @@ const {
   registerReaderOnBehalfAction,
   markCopyFoundAction,
   retireCopyAction,
+  pinAnnouncementAction,
+  unpinAnnouncementAction,
 } = await import("../../src/app/tu-sach/[shelf]/quan-ly/actions");
 const { pool } = await import("../../src/db/client");
 
@@ -717,4 +719,67 @@ test("an incomplete form is a refusal in words, not a 22P02", async () => {
   );
 
   expect(refusalIn(target)).toBe("validation_failed");
+});
+
+// — pinning an announcement —
+
+/**
+ * One row in `announcements`, inserted directly rather than through
+ * `createAnnouncement` — `pinAnnouncement`/`unpinAnnouncement` only need the
+ * row to exist, the same reason `soft-delete-aware-uniqueness-round-2.test.ts`
+ * seeds this table by hand rather than through the command.
+ */
+async function anAnnouncement(bookshelfId: string) {
+  const [row] = await sql<{ id: string }[]>`
+    insert into announcements (bookshelf_id, title, slug, body, body_text)
+    values (${bookshelfId}, 'Thánh lễ Chúa nhật', 'thanh-le-chua-nhat',
+            'Thánh lễ lúc 8 giờ sáng Chúa nhật này.',
+            'Thánh lễ lúc 8 giờ sáng Chúa nhật này.')
+    returning id
+  `;
+  return row.id;
+}
+
+async function isPinned(announcementId: string) {
+  const [row] = await sql<{ is_pinned: boolean }[]>`
+    select is_pinned from announcements where id = ${announcementId}
+  `;
+  return row.is_pinned;
+}
+
+test("a manager pins an announcement, and pinning again unpins it", async () => {
+  const { shelf } = await shelfWithManager();
+  const announcementId = await anAnnouncement(shelf.id);
+
+  await redirectedTo(
+    pinAnnouncementAction(
+      form({ "tu-sach": "dong-thap", "thong-bao": announcementId }),
+    ),
+  );
+  expect(await isPinned(announcementId)).toBe(true);
+
+  await redirectedTo(
+    unpinAnnouncementAction(
+      form({ "tu-sach": "dong-thap", "thong-bao": announcementId }),
+    ),
+  );
+  expect(await isPinned(announcementId)).toBe(false);
+});
+
+test("a reader may not pin an announcement", async () => {
+  const shelf = await makeShelf(sql, { slug: "dong-thap" });
+  const announcementId = await anAnnouncement(shelf.id);
+  await signInAs(shelf.id, "reader", "minh.tran");
+
+  const target = await redirectedTo(
+    pinAnnouncementAction(
+      form({ "tu-sach": "dong-thap", "thong-bao": announcementId }),
+    ),
+  );
+
+  // `pinAnnouncement` carries its own `requireManager`, and the action adds
+  // no second rule — this is that check, exercised from the surface rather
+  // than from the command's own test.
+  expect(refusalIn(target)).toBe("not_permitted");
+  expect(await isPinned(announcementId)).toBe(false);
 });
