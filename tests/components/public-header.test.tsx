@@ -124,6 +124,25 @@ function hrefsFor(html: string, label: string): string[] {
 
 const MINE = "Tủ sách của tôi";
 
+/**
+ * PO feedback round 1, Task 5, fix round 1. Scopes an assertion to the mobile
+ * `<details>…</details>` panel rather than the whole rendered string.
+ *
+ * The finding this exists for: `toContain("Quản lý tủ sách")` against the
+ * *whole* `html` string passes whether that link is in the desktop `<nav>`,
+ * the mobile panel, or both — `ShelfHeader` renders both in one
+ * `renderToStaticMarkup` call, so a bug that left the panel empty (shipped in
+ * fix round 0) was invisible to an assertion that did not first narrow to the
+ * panel's own markup. There is exactly one `<details>` in any `ShelfHeader`
+ * render (`MobileMenu` is the only caller of it), so a single non-greedy match
+ * is unambiguous.
+ */
+function mobilePanelHtml(html: string): string {
+  const match = html.match(/<details\b[\s\S]*?<\/details>/);
+  if (!match) throw new Error("renderShelfHeader produced no mobile panel");
+  return match[0];
+}
+
 test("FrontDoorHeader links a member of one shelf straight to that shelf", () => {
   const html = renderToStaticMarkup(
     <FrontDoorHeader
@@ -245,6 +264,48 @@ test("an ordinary reader gets neither management link", () => {
   expect(html).not.toContain("Quản trị hệ thống");
 });
 
+/**
+ * Design spec §6: "Both appear in the desktop nav and inside the mobile
+ * panel (§7)." Fix round 1 — the three tests above assert against the whole
+ * `html` string, which cannot tell "in the desktop nav" from "in the panel
+ * too" apart; they passed against fix round 0's shipped bug, where
+ * `managementLinks` reached the desktop `<nav>` only. These three narrow to
+ * `mobilePanelHtml` specifically, so they fail again if that regresses.
+ */
+test("a manager's mobile panel also carries the management link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Giuse Trần Minh",
+    canManage: true,
+    isSuperAdmin: false,
+  });
+  const panel = mobilePanelHtml(html);
+  expect(panel).toContain("Quản lý tủ sách");
+  expect(panel).toContain("/tu-sach/dong-thap/quan-ly");
+  expect(panel).not.toContain("Quản trị hệ thống");
+});
+
+test("a super admin's mobile panel also carries the system admin link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Quản trị viên",
+    canManage: true,
+    isSuperAdmin: true,
+  });
+  const panel = mobilePanelHtml(html);
+  expect(panel).toContain("Quản trị hệ thống");
+  expect(panel).toContain('href="/quan-tri"');
+});
+
+test("an ordinary reader's mobile panel carries neither management link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Anna Phạm Thu Hà",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  const panel = mobilePanelHtml(html);
+  expect(panel).not.toContain("Quản lý tủ sách");
+  expect(panel).not.toContain("Quản trị hệ thống");
+});
+
 test("the mobile search form posts into the search page", () => {
   const html = renderShelfHeader({
     viewerName: "Maria Nguyễn Thị Lan",
@@ -255,14 +316,49 @@ test("the mobile search form posts into the search page", () => {
   expect(html).toContain('name="q"');
 });
 
-test("the mobile panel offers the profile page under the reader's name", () => {
+/**
+ * Fix round 1. The original version of this test asserted
+ * `toContain("/ho-so/tong-quan")` and `toContain("Trang của tôi")` against the
+ * whole `html` string — and both strings already existed in `ShelfHeader`'s
+ * pre-Task-5 `links` array (the plain reader nav link to "Trang của tôi"),
+ * which renders into the panel's link list with or without the new profile
+ * block. The test passed byte-for-byte against the pre-Task-5 header and
+ * proved nothing about the block this task adds.
+ *
+ * Both the profile block and the plain reader-nav link point at
+ * `/ho-so/tong-quan`, so this narrows to the panel and asserts on what is
+ * unique to the *block*: the reader's own name appears inside the anchor
+ * (the plain nav link never carries a name), and the block carries the
+ * avatar circle (`rounded-full`) the plain nav link does not.
+ */
+test("the mobile panel's profile block names the reader and links to their own page", () => {
+  const name = "Maria Nguyễn Thị Lan";
   const html = renderShelfHeader({
-    viewerName: "Maria Nguyễn Thị Lan",
+    viewerName: name,
     canManage: false,
     isSuperAdmin: false,
   });
-  expect(html).toContain("/ho-so/tong-quan");
-  expect(html).toContain("Trang của tôi");
+  const panel = mobilePanelHtml(html);
+  const anchorsToProfile = [
+    ...panel.matchAll(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g),
+  ].filter((m) => m[1] === "/tu-sach/dong-thap/ho-so/tong-quan");
+
+  // Two anchors point here: the profile block itself, first in document
+  // order, and the plain "Trang của tôi" reader-nav link below it — both
+  // real, both expected, and only the first carries the reader's name.
+  expect(anchorsToProfile).toHaveLength(2);
+  const [profileBlock, readerNavLink] = anchorsToProfile;
+
+  expect(profileBlock[2]).toContain(name);
+  expect(profileBlock[2]).toContain("Trang của tôi");
+  // The avatar circle — markup no plain nav link in this panel has.
+  expect(profileBlock[0]).toContain("rounded-full");
+
+  // The plain reader-nav link, by contrast, carries no name — confirming the
+  // two anchors are genuinely distinct rather than one being a stray extra
+  // match of the other.
+  expect(readerNavLink[2].replace(/<[^>]*>/g, "").trim()).toBe("Trang của tôi");
+  expect(readerNavLink[0]).not.toContain(name);
 });
 
 test("a signed-out visitor gets no search box and no panel", () => {
@@ -272,5 +368,10 @@ test("a signed-out visitor gets no search box and no panel", () => {
     isSuperAdmin: false,
   });
   expect(html).not.toContain('name="q"');
+  // "no panel", stated in the test's own name, was previously unverified —
+  // this render skips `MobileMenu` entirely for `viewerName === null`
+  // (`ShelfHeader`'s own `viewerName === null` branch), so there is no
+  // `<details>` at all, not merely an empty one.
+  expect(html).not.toContain("<details");
   expect(html).toContain("Đăng nhập");
 });

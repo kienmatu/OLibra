@@ -34,14 +34,27 @@ function initialOf(name: string): string {
  * block, rather than `FrontDoorHeader` inventing a link to a page that does
  * not exist for that visitor. `ShelfHeader` below always has both, because a
  * signed-in reader on a shelf always has a shelf and a profile page on it.
+ *
+ * **`managementLinks` is a separate prop from `links`, not folded into it.**
+ * Design spec §7's order is explicit — profile block, hairline, reader nav
+ * links, *then* the management links from §6, then sign out — and they are a
+ * distinct group with their own hairline above them here, the same way the
+ * profile block gets one below it, so the panel reads as three sections
+ * rather than one undifferentiated list of nine links once both management
+ * links are present. `FrontDoorHeader`'s own call below passes nothing for
+ * this prop: it shares this component but has no shelf role to resolve one
+ * from (its docstring's own reasoning for why it renders no `/quan-ly` link
+ * at all).
  */
 function MobileMenu({
   links,
+  managementLinks,
   trailing,
   viewerName,
   profileHref,
 }: {
   links: readonly { href: string; label: string; key: string }[];
+  managementLinks?: readonly { href: string; label: string; key: string }[];
   trailing?: { action: (formData: FormData) => Promise<void>; label: string };
   viewerName?: string;
   profileHref?: string;
@@ -98,6 +111,20 @@ function MobileMenu({
             {link.label}
           </Link>
         ))}
+        {managementLinks && managementLinks.length > 0 ? (
+          <>
+            <span aria-hidden className="my-2 block h-px bg-hairline" />
+            {managementLinks.map((link) => (
+              <Link
+                key={link.key}
+                href={link.href}
+                className="flex min-h-11 items-center rounded-control px-3 text-[15px] hover:bg-paper"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </>
+        ) : null}
         {trailing ? (
           <form action={trailing.action}>
             <button
@@ -425,6 +452,7 @@ export function ShelfHeader({
 
             <MobileMenu
               links={links}
+              managementLinks={managementLinks}
               trailing={{ action: signOutAction, label: "Đăng xuất" }}
               viewerName={viewerName}
               profileHref={`${base}/ho-so/tong-quan`}
