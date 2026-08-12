@@ -286,9 +286,12 @@ export default async function ReaderProfilePage({
               // PO feedback round 1, Task 8: not HTML `required` — see
               // `nguoi-doc/[id]/page.tsx`'s identical note. The real rule is
               // "a phone, or a reason", enforced by `PhoneConfirmDialog` and,
-              // on the server, by `ApproveProfileChange`'s
-              // `assertPhoneOrReason` at the moment a manager would approve
-              // this proposal.
+              // on the server, by `proposeProfileChange`'s own
+              // `assertPhoneOrReason` call — fired right here, the moment
+              // this very form is submitted, not deferred to a manager's
+              // later approval. (`approveProfileChange` calls it again on the
+              // resulting record, as a second, independent check — see
+              // `profile-actions.ts`'s identical note on that call.)
               defaultValue={fields.phone ?? ""}
             />
           </Field>

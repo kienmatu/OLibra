@@ -76,7 +76,7 @@ export const proposeProfileChange: Command<
   // above on rank alone — the defect `requireIdentifiedActor` records.
   requireIdentifiedActor(ctx);
 
-  // Narrowed to the seven before validation, so a caller that sends
+  // Narrowed to the eight before validation, so a caller that sends
   // `avatar_url` gets it dropped rather than quietly bypassing
   // `ProposeAvatarChange`'s size and content-type policy, which lives at the
   // surface and cannot be enforced from here.
