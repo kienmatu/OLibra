@@ -541,7 +541,7 @@ A manager rejects a pending change with a reason, which the reader then sees (§
 The reader withdraws their own proposal before a decision is made (§7.4's diagram: `pending ──► cancelled (reader withdrew before a decision)`).
 
 - **Inputs:** `membershipId`, `profileChangeRequestId`
-- **Caller:** `reader` (own request only)
+- **Caller:** `requireSelfOrManager` (`src/domain/members/commands/cancel-profile-change.ts:61`) — the requester themselves, **or any manager/admin of the shelf**, not "reader (own request only)" as an earlier draft of this entry said. **Known gap, recorded 2026-08-13:** this lets a manager cancel a colleague's pending change as well as their own, which nothing in this document or the design spec calls for; it also predates §9's routing rule (a manager's/admin's own change is decided by a `super_admin`) without being brought into line with it, so a manager can withdraw a request that same rule would otherwise route above their own rank to decide. Left as documentation only — narrowing the permission is a product decision outside this branch's authorised scope, for the product owner to make.
 - **Invariants enforced:** INV-8
 - **Audit action:** `profile_change.cancelled`
 - **Failure modes:**
