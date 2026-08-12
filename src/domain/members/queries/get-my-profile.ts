@@ -13,7 +13,7 @@ import {
 export interface MyProfile {
   membershipId: string;
   /**
-   * The eight verified fields, spelled as the database spells them.
+   * The nine verified fields, spelled as the database spells them.
    *
    * snake_case out of a query, which is unlike every other query in this
    * codebase and is deliberate: the profile screen puts these side by side with
@@ -96,8 +96,8 @@ export async function getMyProfile(
   >`
     select
       u.saint_name, u.full_name, u.date_of_birth::text as date_of_birth,
-      u.father_name, u.mother_name, u.phone, u.email, u.avatar_url,
-      m.parish_unit_l1_id, m.parish_unit_l2_id
+      u.father_name, u.mother_name, u.phone, u.phone_missing_reason, u.email,
+      u.avatar_url, m.parish_unit_l1_id, m.parish_unit_l2_id
     from memberships m
     join users u on u.id = m.user_id and u.deleted_at is null
     where m.id = ${membershipId} and m.deleted_at is null

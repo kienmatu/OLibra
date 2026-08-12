@@ -102,7 +102,8 @@ export async function getPendingProfileChanges(
       r.requested_at::text as requested_at,
       m.id as membership_id,
       u.saint_name, u.full_name, u.date_of_birth::text as date_of_birth,
-      u.father_name, u.mother_name, u.phone, u.email, u.avatar_url
+      u.father_name, u.mother_name, u.phone, u.phone_missing_reason, u.email,
+      u.avatar_url
     from profile_change_requests r
     join memberships m on m.user_id = r.user_id and m.deleted_at is null
     join users u       on u.id = r.user_id and u.deleted_at is null

@@ -86,6 +86,31 @@ test("a reader's own profile carries the nine fields and the parish line", async
   expect(profile.pendingChange).toBeNull();
 });
 
+test("a reader's own profile carries the phone-missing reason on file, not a hardcoded null", async () => {
+  // The assertion `toHaveLength(9)` above cannot make: a query that forgot to
+  // select `phone_missing_reason` still returns a nine-key object (`row[f] ??
+  // null` fills the gap with `null`), and a length check cannot tell that
+  // apart from a query that genuinely read an empty reason. This stores a
+  // real one and reads it back through the same command a manager actually
+  // uses, then checks the exact string.
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+  await runCommand(sql, managerCtx, updateReaderProfile, {
+    membershipId: reader.id,
+    fields: {
+      phone: null,
+      phone_missing_reason: "Em bé chưa có điện thoại, mẹ sẽ bổ sung sau",
+    },
+  });
+
+  const profile = await runQuery(sql, readerCtx, (tx, ctx) =>
+    getMyProfile(tx, ctx, { membershipId: reader.id }),
+  );
+
+  expect(profile.fields.phone_missing_reason).toBe(
+    "Em bé chưa có điện thoại, mẹ sẽ bổ sung sau",
+  );
+});
+
 test("a reader's own profile shows the pending proposal beside the values still in force", async () => {
   // BR §16.2: "the page shows the current value with the pending one beside it,
   // and says plainly that it is waiting". Both halves in one assertion, because
@@ -191,4 +216,24 @@ test("a phone corrected by UpdateReaderProfile shows as current, and previous_va
   >`select status, previous_values from profile_change_requests`;
   expect(stored.status).toBe("pending");
   expect(stored.previous_values.phone).toBe("0900000000");
+});
+
+test("the queue's current values carry the phone-missing reason on file, not a hardcoded null", async () => {
+  // The same property `getMyProfile`'s own test above proves, for
+  // `currentValues` — read live from `users` in this query too, through the
+  // same `PROFILE_FIELDS.map((f) => [f, row[f] ?? null])` idiom, and just as
+  // silently wrong if the `select` list ever drifts from the array again.
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: "0912345678" },
+  });
+  await runCommand(sql, managerCtx, updateReaderProfile, {
+    membershipId: reader.id,
+    fields: { phone: null, phone_missing_reason: "Chưa có, sẽ bổ sung sau" },
+  });
+
+  const [row] = await runQuery(sql, managerCtx, getPendingProfileChanges);
+
+  expect(row.currentValues.phone_missing_reason).toBe("Chưa có, sẽ bổ sung sau");
 });
