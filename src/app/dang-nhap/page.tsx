@@ -108,6 +108,8 @@ export default async function LoginPage({
           shelfName={shelf.name}
           shelfSlug={shelf.slug}
           viewerName={null}
+          canManage={false}
+          isSuperAdmin={false}
         />
       ) : (
         <FrontDoorHeader viewerName={null} isSuperAdmin={false} shelves={[]} />

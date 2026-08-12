@@ -7,6 +7,7 @@ import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { getMyLoanHistory } from "@/domain/circulation/queries/get-my-dashboard";
+import { atLeast } from "@/domain/kernel/tenant";
 import { CONDITION_LABELS } from "@/lib/status";
 import { isCopyCondition } from "@/domain/catalogue/policy";
 import { isMemberlessSuperAdmin } from "@/lib/reader-area";
@@ -70,6 +71,8 @@ export default async function ReaderHistoryPage({
         active="toi"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
       <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/lich-su`} />
     </>

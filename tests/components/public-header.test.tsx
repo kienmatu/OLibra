@@ -32,13 +32,33 @@ import {
  * and the `/tu-sach/x/ho-so/thong-bao` case red with `[]` — see the task 9
  * report for the exact output.
  */
-function renderNav(active: Parameters<typeof ShelfHeader>[0]["active"]) {
+/**
+ * PO feedback round 1, Task 5 — extended (not duplicated) for the topbar's
+ * new `canManage`/`isSuperAdmin` props and its mobile search/avatar-panel
+ * markup, rather than growing a second render helper beside this one.
+ * `shelfSlug` moved from `"x"` to `"dong-thap"` so the same helper can assert
+ * on real hrefs (`/tu-sach/dong-thap/quan-ly`, the search form's `action`)
+ * without a caller having to know the slug is otherwise arbitrary.
+ */
+function renderShelfHeader({
+  active,
+  viewerName = "Nguyễn Văn A",
+  canManage = false,
+  isSuperAdmin = false,
+}: {
+  active?: Parameters<typeof ShelfHeader>[0]["active"];
+  viewerName?: string | null;
+  canManage?: boolean;
+  isSuperAdmin?: boolean;
+} = {}) {
   return renderToStaticMarkup(
     <ShelfHeader
       shelfName="Thư viện Đồng Tháp"
-      shelfSlug="x"
-      viewerName="Nguyễn Văn A"
+      shelfSlug="dong-thap"
+      viewerName={viewerName}
       active={active}
+      canManage={canManage}
+      isSuperAdmin={isSuperAdmin}
     />,
   );
 }
@@ -61,17 +81,23 @@ function activeLabels(html: string): string[] {
 // in the task 9 report) — the pathname documents which page passes that
 // value, not something `ShelfHeader` reads directly, since it takes an
 // explicit `active` key rather than deriving one from a URL.
+//
+// `/tu-sach/dong-thap/danh-muc` still passes `active="danh-muc"` (PO
+// feedback round 1, Task 5), but the nav no longer carries a "Danh mục" link
+// — Task 4 gave the shelf home the one catalogue link — so that page now
+// lights up nothing, which is the one row below asserting `[]` rather than a
+// label.
 test.each([
-  ["/tu-sach/x/danh-muc", "danh-muc", "Danh mục"],
-  ["/tu-sach/x/thong-bao", "thong-bao", "Bản tin"],
-  ["/tu-sach/x/ho-so/tong-quan", "toi", "Trang của tôi"],
-  ["/tu-sach/x/ho-so/thong-bao", "thong-bao-cua-toi", "Thông báo"],
-  ["/tu-sach/x/tim-kiem", "tim-kiem", "Tìm kiếm"],
+  ["/tu-sach/dong-thap/danh-muc", "danh-muc", []],
+  ["/tu-sach/dong-thap/thong-bao", "thong-bao", ["Bản tin"]],
+  ["/tu-sach/dong-thap/ho-so/tong-quan", "toi", ["Trang của tôi"]],
+  ["/tu-sach/dong-thap/ho-so/thong-bao", "thong-bao-cua-toi", ["Thông báo"]],
+  ["/tu-sach/dong-thap/tim-kiem", "tim-kiem", ["Tìm kiếm"]],
 ] as const)(
-  "%s (active=%s) marks exactly %s active",
-  (_pathname, active, label) => {
-    const html = renderNav(active);
-    expect(activeLabels(html)).toEqual([label]);
+  "%s (active=%s) marks exactly %j active",
+  (_pathname, active, labels) => {
+    const html = renderShelfHeader({ active });
+    expect(activeLabels(html)).toEqual(labels);
   },
 );
 
@@ -156,6 +182,8 @@ test.each([["Nguyễn Văn A"], [null]] as const)(
         shelfName="Thư viện Đồng Tháp"
         shelfSlug="x"
         viewerName={viewerName}
+        canManage={false}
+        isSuperAdmin={false}
       />,
     );
 
@@ -170,3 +198,79 @@ test.each([["Nguyễn Văn A"], [null]] as const)(
     expect(hrefsFor(html, "OLibra — trang chủ")).toEqual(["/"]);
   },
 );
+
+/**
+ * PO feedback round 1, Task 5: the search box, the avatar panel and the two
+ * management links.
+ */
+test("Danh mục is no longer in the reader nav", () => {
+  const html = renderShelfHeader({
+    viewerName: "Maria Nguyễn Thị Lan",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).not.toContain("Danh mục");
+  expect(html).toContain("Bản tin");
+  expect(html).toContain("Tìm kiếm");
+});
+
+test("a manager gets a link into the manager area", () => {
+  const html = renderShelfHeader({
+    viewerName: "Giuse Trần Minh",
+    canManage: true,
+    isSuperAdmin: false,
+  });
+  expect(html).toContain("Quản lý tủ sách");
+  expect(html).toContain("/tu-sach/dong-thap/quan-ly");
+  expect(html).not.toContain("Quản trị hệ thống");
+});
+
+test("a super admin also gets the system admin link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Quản trị viên",
+    canManage: true,
+    isSuperAdmin: true,
+  });
+  expect(html).toContain("Quản trị hệ thống");
+  expect(html).toContain('href="/quan-tri"');
+});
+
+test("an ordinary reader gets neither management link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Anna Phạm Thu Hà",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).not.toContain("Quản lý tủ sách");
+  expect(html).not.toContain("Quản trị hệ thống");
+});
+
+test("the mobile search form posts into the search page", () => {
+  const html = renderShelfHeader({
+    viewerName: "Maria Nguyễn Thị Lan",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).toContain('action="/tu-sach/dong-thap/tim-kiem"');
+  expect(html).toContain('name="q"');
+});
+
+test("the mobile panel offers the profile page under the reader's name", () => {
+  const html = renderShelfHeader({
+    viewerName: "Maria Nguyễn Thị Lan",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).toContain("/ho-so/tong-quan");
+  expect(html).toContain("Trang của tôi");
+});
+
+test("a signed-out visitor gets no search box and no panel", () => {
+  const html = renderShelfHeader({
+    viewerName: null,
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).not.toContain('name="q"');
+  expect(html).toContain("Đăng nhập");
+});

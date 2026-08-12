@@ -594,9 +594,10 @@ test("the link check resolves the routes it claims to", () => {
   expect(componentsOf("src/app/tu-sach/[shelf]/(doc-gia)/page.tsx")).toContain(
     "src/components/shell/public-header.tsx",
   );
-  expect(linkTargetsIn(header)).toContain(
-    "src/app/tu-sach/[shelf]/(doc-gia)/danh-muc",
-  );
+  // PO feedback round 1, Task 5 removed "Danh mục" from `public-header.tsx`'s
+  // own nav — Task 4 gave the shelf home the single catalogue link below, so
+  // the header no longer needs a second one. The shelf home's own link is
+  // still the one this check needs to prove itself against.
   expect(linkTargetsIn(shelfHome)).toContain(
     "src/app/tu-sach/[shelf]/(doc-gia)/danh-muc",
   );

@@ -7,31 +7,88 @@ import { Book, LogOut, Menu, Search } from "lucide-react";
 // identical reason). An alias import here would make the component
 // unimportable under Vitest, not just untested.
 import { ButtonLink } from "../ui/button";
+import { Input } from "../ui/field";
 import { signOutAction } from "../../app/dang-nhap/actions";
 
 /**
- * Below 768px the nav collapses to a hamburger (DESIGN.md §Navigation).
- * Built on <details>/<summary> so it works without client JavaScript — these
- * pages are otherwise entirely static server components.
+ * The last word of a Vietnamese name is the given name — "Maria Nguyễn Thị
+ * Lan" initials as **L**, not M. `SignedInIdentity` and `MobileMenu`'s
+ * profile block both need exactly this rule; factored here rather than
+ * written a third time.
+ */
+function initialOf(name: string): string {
+  return name.split(" ").at(-1)?.charAt(0) ?? "";
+}
+
+/**
+ * Below 768px the nav collapses to a hamburger — an avatar once a viewer is
+ * known (DESIGN.md §Navigation). Built on <details>/<summary> so it works
+ * without client JavaScript — these pages are otherwise entirely static
+ * server components.
+ *
+ * **`viewerName` and `profileHref` are optional, and that is `FrontDoorHeader`'s
+ * doing.** It renders this same menu for a signed-in visitor who belongs to no
+ * shelf — a super admin, a reader whose registration is still pending — who
+ * therefore has no shelf profile page to send them to. When either prop is
+ * absent the panel falls back to the plain hamburger and carries no profile
+ * block, rather than `FrontDoorHeader` inventing a link to a page that does
+ * not exist for that visitor. `ShelfHeader` below always has both, because a
+ * signed-in reader on a shelf always has a shelf and a profile page on it.
  */
 function MobileMenu({
   links,
   trailing,
+  viewerName,
+  profileHref,
 }: {
   links: readonly { href: string; label: string; key: string }[];
   trailing?: { action: (formData: FormData) => Promise<void>; label: string };
+  viewerName?: string;
+  profileHref?: string;
 }) {
+  const hasProfile = viewerName !== undefined && profileHref !== undefined;
   return (
     <details className="relative md:hidden [&_svg]:open:rotate-90">
       <summary className="flex size-11 cursor-pointer list-none items-center justify-center rounded-control hover:bg-surface [&::-webkit-details-marker]:hidden">
         <span className="sr-only">Mở menu</span>
-        <Menu
-          aria-hidden
-          className="size-6 transition-transform duration-150"
-          strokeWidth={1.75}
-        />
+        {hasProfile ? (
+          <span
+            aria-hidden
+            className="flex size-8 items-center justify-center rounded-full bg-surface text-[14px] font-semibold text-leather"
+          >
+            {initialOf(viewerName)}
+          </span>
+        ) : (
+          <Menu
+            aria-hidden
+            className="size-6 transition-transform duration-150"
+            strokeWidth={1.75}
+          />
+        )}
       </summary>
       <div className="absolute right-0 z-20 mt-2 w-56 rounded-card border border-hairline bg-surface p-2">
+        {hasProfile ? (
+          <>
+            <Link
+              href={profileHref}
+              className="flex min-h-11 items-center gap-3 rounded-control px-3 py-2 hover:bg-paper"
+            >
+              <span
+                aria-hidden
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-paper text-[15px] font-semibold text-leather"
+              >
+                {initialOf(viewerName)}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[15px] font-semibold">
+                  {viewerName}
+                </span>
+                <span className="block text-[14px] text-meta">Trang của tôi</span>
+              </span>
+            </Link>
+            <span aria-hidden className="my-2 block h-px bg-hairline" />
+          </>
+        ) : null}
         {links.map((link) => (
           <Link
             key={link.key}
@@ -80,10 +137,7 @@ function SignedInIdentity({ name }: { name: string }) {
           aria-hidden
           className="flex size-8 items-center justify-center rounded-full bg-surface text-[14px] font-semibold text-leather"
         >
-          {/* The last word of a Vietnamese name is the given name —
-              "Maria Nguyễn Thị Lan" initials as L, not M. Kept from the
-              fixture-era header, which had it right. */}
-          {name.split(" ").at(-1)?.charAt(0)}
+          {initialOf(name)}
         </span>
         <span className="max-w-40 truncate">{name}</span>
       </span>
@@ -144,9 +198,17 @@ export function ShelfHeader({
   active,
   viewerName,
   unreadNotifications = 0,
+  canManage,
+  isSuperAdmin,
 }: {
   shelfName: string;
   shelfSlug: string;
+  // `"danh-muc"` stays in the union though no link below carries that key any
+  // more (PO feedback round 1, Task 5 — Task 4 gave the shelf home a single
+  // catalogue link, so this nav no longer needs a second one). `/danh-muc`
+  // still passes `active="danh-muc"`, and removing the value would be a
+  // compile error on that page for no gain; it now simply lights up nothing,
+  // same as any other page whose `active` matches no remaining link.
   active?: "danh-muc" | "thong-bao" | "thong-bao-cua-toi" | "tim-kiem" | "toi";
   viewerName: string | null;
   /**
@@ -158,6 +220,24 @@ export function ShelfHeader({
    * that has not asked.
    */
   unreadNotifications?: number;
+  /**
+   * **Required, no default** — the same argument this file's own docstrings
+   * already make twice over (`ShelfHeader`'s own `viewerName` above,
+   * `FrontDoorHeader`'s `viewerName`/`isSuperAdmin`): a default lets a page
+   * that never thought about who is asking render a plausible header anyway,
+   * which is exactly the defect that put "Đăng nhập" in front of a signed-in
+   * super admin before Task 6. `canManage` and `isSuperAdmin` decide whether a
+   * link into `/quan-ly` or `/quan-tri` appears at all, so a caller that
+   * cannot answer must be made to answer, not quietly get "no".
+   *
+   * Resolved by each page from the `Viewer` its own `loadPage` call already
+   * returns — `atLeast(viewer.role, "manager")` for this one — never compared
+   * here, which is why this file takes a plain `boolean` rather than a `Role`
+   * it would have to rank itself.
+   */
+  canManage: boolean;
+  /** See `canManage` just above; `atLeast(viewer.role, "super_admin")`. */
+  isSuperAdmin: boolean;
 }) {
   const base = `/tu-sach/${shelfSlug}`;
   // Every link below points at a wired page that reads the database — U2
@@ -168,8 +248,11 @@ export function ShelfHeader({
   // their pages were wired and are back now, and
   // `tests/architecture/a-wired-page-renders-no-fixtures.test.ts` is what
   // would catch that regressing again.
+  //
+  // No "Danh mục" entry (PO feedback round 1, Task 5): the shelf home
+  // (`(doc-gia)/page.tsx`) now carries the one link into the catalogue, and a
+  // second one here was a second door to the same room.
   const links = [
-    { href: `${base}/danh-muc`, label: "Danh mục", key: "danh-muc", icon: false },
     {
       href: `${base}/thong-bao`,
       label: "Bản tin",
@@ -206,6 +289,21 @@ export function ShelfHeader({
     },
     { href: `${base}/tim-kiem`, label: "Tìm kiếm", key: "tim-kiem", icon: true },
   ] as const;
+
+  // The two links this shelf's managers and the system's super admins get,
+  // built the way `FrontDoorHeader`'s own conditional `/quan-tri` entry is
+  // built above it. Plain links, not `ButtonLink`s — this nav already keeps
+  // one primary action per screen free of a second terracotta accent, the
+  // same restraint `FrontDoorHeader`'s docstring argues for its own admin
+  // link.
+  const managementLinks = [
+    ...(canManage
+      ? [{ href: `${base}/quan-ly`, label: "Quản lý tủ sách", key: "quan-ly" }]
+      : []),
+    ...(isSuperAdmin
+      ? [{ href: "/quan-tri", label: "Quản trị hệ thống", key: "quan-tri" }]
+      : []),
+  ];
 
   // The shelf's own name links to the shelf home, which a signed-out visitor
   // cannot reach — `loadPage` would send them straight back to sign in. So for
@@ -305,6 +403,21 @@ export function ShelfHeader({
                 </Link>
               ))}
 
+              {managementLinks.length > 0 ? (
+                <>
+                  <span aria-hidden className="mx-2 h-6 w-px bg-hairline" />
+                  {managementLinks.map((link) => (
+                    <Link
+                      key={link.key}
+                      href={link.href}
+                      className="inline-flex min-h-11 items-center rounded-control px-3 text-[15px] text-ink hover:text-terracotta-ink"
+                    >
+                      {link.label}
+                    </Link>
+                  ))}
+                </>
+              ) : null}
+
               <span aria-hidden className="mx-2 h-6 w-px bg-hairline" />
 
               <SignedInIdentity name={viewerName} />
@@ -313,10 +426,48 @@ export function ShelfHeader({
             <MobileMenu
               links={links}
               trailing={{ action: signOutAction, label: "Đăng xuất" }}
+              viewerName={viewerName}
+              profileHref={`${base}/ho-so/tong-quan`}
             />
           </>
         )}
       </div>
+
+      {/* Mobile search — below `md` only, and only for a signed-in reader:
+          `tim-kiem` is member navigation exactly as "Bản tin" and "Trang của
+          tôi" are (this header's own docstring on why a signed-out visitor
+          gets none of them). The desktop nav above already carries "Tìm
+          kiếm" as a link; below `md` that link is inside the collapsed
+          `MobileMenu`, a tap further away than BR:519's own search deserves,
+          so this row puts the box itself where a thumb already is.
+          `text-[16px]` on the input is deliberate: iOS Safari zooms the
+          viewport on focus for anything smaller — confirmed the same way
+          `Field`'s own `CONTROL` constant already sets it. */}
+      {viewerName !== null ? (
+        <form
+          method="get"
+          action={`${base}/tim-kiem`}
+          className="mx-auto flex max-w-6xl items-center gap-2 px-6 pb-3 md:hidden"
+        >
+          <label htmlFor="tim-kiem-tren-thanh" className="sr-only">
+            Tìm sách trong tủ
+          </label>
+          <Input
+            id="tim-kiem-tren-thanh"
+            name="q"
+            type="search"
+            placeholder="Tìm sách trong tủ"
+            className="flex-1"
+          />
+          <button
+            type="submit"
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-control text-leather hover:bg-surface"
+          >
+            <span className="sr-only">Tìm</span>
+            <Search aria-hidden className="size-5" strokeWidth={1.75} />
+          </button>
+        </form>
+      ) : null}
     </header>
   );
 }

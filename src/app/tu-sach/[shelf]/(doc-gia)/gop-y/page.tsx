@@ -5,6 +5,7 @@ import { PageHeading } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { messageFor } from "@/domain/kernel/errors";
+import { atLeast } from "@/domain/kernel/tenant";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
@@ -56,6 +57,8 @@ export default async function FeedbackPage({
         shelfSlug={slug}
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-2xl px-6 py-10">

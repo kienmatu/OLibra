@@ -9,6 +9,7 @@ import { ContactList } from "@/components/ui/contact-list";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getAnnouncements } from "@/domain/community/queries/get-announcements";
 import { getCatalogue } from "@/domain/catalogue/queries/get-catalogue";
+import { atLeast } from "@/domain/kernel/tenant";
 import { loadPage } from "@/lib/page-data";
 import { readShelfIdentity } from "@/lib/shelf";
 import { statusForAvailability } from "@/lib/status";
@@ -139,6 +140,8 @@ export default async function ShelfHomePage({
         shelfSlug={slug}
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-5xl px-6 py-10">

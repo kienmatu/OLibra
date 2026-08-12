@@ -371,6 +371,8 @@ export default async function BookDetailPage({
         shelfSlug={shelfSlug}
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={isManager}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-5xl px-6 py-10">

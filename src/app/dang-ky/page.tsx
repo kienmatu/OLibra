@@ -77,7 +77,13 @@ export default async function RegisterPage({
   if (!shelf) {
     return (
       <>
-        <ShelfHeader shelfName="OLibra" shelfSlug="" viewerName={null} />
+        <ShelfHeader
+          shelfName="OLibra"
+          shelfSlug=""
+          viewerName={null}
+          canManage={false}
+          isSuperAdmin={false}
+        />
         <main className="mx-auto max-w-xl px-6 py-16">
           <h1 className="text-[28px] leading-tight font-semibold">
             Đăng ký làm bạn đọc
@@ -110,6 +116,8 @@ export default async function RegisterPage({
         shelfName={shelf.name}
         shelfSlug={shelf.slug}
         viewerName={null}
+        canManage={false}
+        isSuperAdmin={false}
       />
 
       <main className="mx-auto max-w-xl px-6 py-16">

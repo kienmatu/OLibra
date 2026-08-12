@@ -6,6 +6,7 @@ import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { messageFor } from "@/domain/kernel/errors";
+import { atLeast } from "@/domain/kernel/tenant";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
@@ -93,6 +94,8 @@ export default async function ReaderProfilePage({
         active="toi"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
       <ReaderTabs shelfSlug={slug} pathname={`/tu-sach/${slug}/ho-so`} />
     </>

@@ -3,6 +3,7 @@ import { Pin } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getAnnouncements } from "@/domain/community/queries/get-announcements";
+import { atLeast } from "@/domain/kernel/tenant";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
@@ -51,6 +52,8 @@ export default async function AnnouncementsPage({
         active="thong-bao"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
