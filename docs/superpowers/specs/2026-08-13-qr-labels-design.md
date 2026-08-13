@@ -161,7 +161,7 @@ layout would fit, so a 400-copy shelf is 20 pages rather than 17.
 `pdf-lib` receives the module matrix and draws filled rectangles, run-length
 merging each row into single wide rectangles. No raster, no DPI, no resampling —
 sharp at whatever resolution the printer has. Measured on the prototype: **4,658
-rectangles for one page of 21 labels**, in a two-page file of 113KB. A 400-copy
+rectangles for one page of 21 labels**, in a two-page file of 94KB. A 400-copy
 shelf is 20 pages and comfortably under 1MB — small enough to build in memory
 and stream without a temporary file.
 
@@ -172,8 +172,46 @@ WinAnsi-encoded; `Dế Mèn Phiêu Lưu Ký` comes back as mojibake or throws on
 encoding. `@pdf-lib/fontkit` and a real TrueType face are mandatory.
 
 **`next/font` cannot supply it.** It emits **woff2** into `.next/`, which
-fontkit does not read. So a **Lexend TTF (regular and semibold, OFL-1.1) is
-vendored into the repository** and read from disk at runtime.
+fontkit does not read. So the face is **vendored into the repository** and read
+from disk at runtime. It is Lexend — the same face `src/app/layout.tsx` already
+loads with the `vietnamese` subset, and the one AGENTS.md rule 1 makes "the
+interface font for absolutely everything". A printed label is not the place to
+introduce a second typeface.
+
+Vendored, with provenance, because getting these two files is not obvious:
+
+| Path                              | Bytes  |
+| --------------------------------- | ------ |
+| `src/lib/fonts/Lexend-Regular.ttf`  | 41,056 |
+| `src/lib/fonts/Lexend-SemiBold.ttf` | 41,244 |
+| `src/lib/fonts/OFL.txt`             | 4,436  |
+
+**They do not come from the `google/fonts` repository, and that is deliberate.**
+That repository publishes Lexend only as `Lexend[wght].ttf`, a *variable* font.
+pdf-lib embeds a variable font's default instance, which is weight 400 — so
+both faces would come out regular and the code line would silently lose its
+semibold. The static instances come instead from `fonts.gstatic.com`, whose URLs
+are obtained by asking the Google Fonts CSS API with a legacy `User-Agent`:
+
+```
+curl "https://fonts.googleapis.com/css?family=Lexend:400,600" -H "User-Agent: Mozilla/4.0"
+```
+
+A modern user-agent gets woff2 from that same endpoint, which is unusable here.
+The `v26` path segment in those URLs is a version and will move; the files are
+committed rather than fetched at build time, so a moved URL is not a broken
+build.
+
+**Coverage is verified, not assumed.** Both faces were checked with
+`hasGlyphForCodePoint` against every string these labels print — copy codes,
+all four sample titles, the shelf name, digits and the ellipsis — and both
+carry every character. This matters because Google Fonts' `vietnamese` subset
+contains only the Vietnamese-specific codepoints, not basic Latin; a file
+fetched with `&subset=vietnamese` and assumed complete would render `DT-0142`
+as blanks. The legacy endpoint returns the full face, which is what these are.
+
+A test asserts this coverage, so a future font swap cannot quietly reintroduce
+the problem.
 
 That file must reach the container. `next.config.ts` gains
 `outputFileTracingIncludes` for the route, or the PDF works under `bun run dev`
@@ -313,6 +351,11 @@ was wanted.
   fixture generator producing malformed UUIDs from signed 32-bit bitwise
   arithmetic) that were invisible in review and only surfaced when a rendered
   sheet was decoded. It belongs in CI.
+- **Font coverage** — both vendored faces carry every codepoint the labels
+  print, asserted with `hasGlyphForCodePoint` over the copy code format, the
+  sample titles, the shelf name, digits and the ellipsis. Cheap, and it is the
+  check that catches a well-meaning font swap to a `&subset=vietnamese` file
+  with no Latin in it.
 - **Domain** — `markCopiesPrinted` increments the count and writes its audit
   entry; a failed generation marks nothing; `resolveCopyByToken` refuses a UUID
   belonging to another shelf.
