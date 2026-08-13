@@ -21,6 +21,7 @@ import { PhoneLink } from "@/components/ui/phone-link";
 import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { messageFor } from "@/domain/kernel/errors";
+import { atLeast } from "@/domain/kernel/tenant";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
@@ -112,11 +113,24 @@ function ReaderActions({
   shelfSlug,
   reader,
   refused,
+  canEditProfile,
 }: {
   shelfSlug: string;
   reader: ReaderDetail;
   /** PO feedback round 1, Task 8: whether `?loi=thieu-so-dien-thoai` is showing. */
   refused: boolean;
+  /**
+   * Post-review fix wave, item 1. `updateReaderProfile` now refuses a
+   * `manager`/`admin` subject unless the actor is `super_admin`
+   * (`update-reader-profile.ts`'s note 5) — this is that same fact, resolved
+   * once by the page from `viewer.role` and `reader.role`, so
+   * `EditProfileDisclosure` renders a form that can actually save rather than
+   * one that always looks enabled and sometimes is not. Display only: the
+   * command re-checks this for itself regardless of what renders here, the
+   * same split `co-cau/page.tsx`'s own `canEdit` documents for the identical
+   * reason (BR §13.3 — the interface is never the security control).
+   */
+  canEditProfile: boolean;
 }) {
   return (
     <section className="mt-10 max-w-2xl space-y-4">
@@ -145,6 +159,7 @@ function ReaderActions({
             shelfSlug={shelfSlug}
             reader={reader}
             refused={refused}
+            canEdit={canEditProfile}
           />
         </li>
       </ul>
@@ -403,18 +418,41 @@ function MarkLeftDisclosure({
  * Always rendered, in every status: nothing about this command reads
  * `status`, so a manager can correct a suspended or departed reader's phone
  * number exactly as freely as an active one's.
+ *
+ * **Except when `canEdit` is false** (post-review fix wave, item 1). A
+ * `manager`/`admin` subject viewed by anyone but a `super_admin` used to get
+ * the identical form regardless — a button that opened, filled in and then
+ * refused on submit, which is worse than no control: "Do not leave a button
+ * that refuses" is the brief this satisfies. The reader of this screen sees a
+ * plain sentence naming who decides instead, matching the `<details>` shape
+ * every other disclosure on this list already renders inside its own `<li>`.
  */
 function EditProfileDisclosure({
   shelfSlug,
   reader,
   refused,
+  canEdit,
 }: {
   shelfSlug: string;
   reader: ReaderDetail;
   refused: boolean;
+  canEdit: boolean;
 }) {
   const idFor = (name: string) => `${name}-${reader.membershipId}`;
   const formId = `sua-ho-so-${reader.membershipId}`;
+
+  if (!canEdit) {
+    return (
+      <div>
+        <p className="text-[14px] font-medium">Sửa hồ sơ</p>
+        <p className="mt-1 max-w-sm text-[14px] text-meta">
+          Đây là hồ sơ của một quản lý hoặc quản trị tủ sách. Chỉ quản trị viên hệ
+          thống mới sửa được, để không ai tự sửa hồ sơ của mình hay của đồng nghiệp.
+        </p>
+      </div>
+    );
+  }
+
   // PO feedback round 1, Task 8. Unlike the two registration forms, this one
   // already knows the record: a reader with no phone on file gets the reason
   // box up front inside the form, pre-filled with whatever is already there,
@@ -639,6 +677,14 @@ export default async function ManagerReaderDetailPage({
   // The last word of a Vietnamese name is the given name — the same line the
   // manager sidebar and the public header both carry.
   const initial = reader.fullName.split(" ").at(-1)?.charAt(0) ?? "";
+  // Post-review fix wave, item 1: `updateReaderProfile` now refuses a
+  // `manager`/`admin` subject unless the actor is `super_admin` — see that
+  // command's note 5. `reader.role` no longer appears among ordinary rows on
+  // this list (`getReadersList` now filters to `role = 'reader'`), but the
+  // detail page stays reachable by a typed URL for any membership id RLS
+  // resolves, so this page still has to ask the question for itself.
+  const canEditProfile =
+    viewer.role === "super_admin" || !atLeast(reader.role, "manager");
 
   /**
    * Rows for the shelf's own parish levels — only for a level that actually has
@@ -843,6 +889,7 @@ export default async function ManagerReaderDetailPage({
         shelfSlug={slug}
         reader={reader}
         refused={refused === "thieu-so-dien-thoai"}
+        canEditProfile={canEditProfile}
       />
 
       <section className="mt-10 max-w-2xl">

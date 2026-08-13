@@ -105,6 +105,62 @@ test("a reader's parish line uses the shelf's own labels, never a hard-coded wor
   expect(page.taxonomy.level1Label).toBe("Giáo họ");
 });
 
+// Post-review fix wave, item 1. `role` is opt-in, not a hardcoded filter —
+// `getReadersList` is also how the donor picker on `sach/moi/page.tsx` and
+// `quan-ly/sach/[id]/page.tsx` finds every *active* member regardless of
+// role, and a manager or admin is exactly the kind of person who might hand
+// a book to their own shelf. This is the "nobody asked to narrow it" case,
+// pinned so a future change cannot make the query itself reader-only and
+// silently break the donor picker.
+test("with no role filter, the roster lists managers and admins too", async () => {
+  const { ctx, shelf } = await shelfWithReaders();
+  await reader(shelf.id, { fullName: "Trần Minh" });
+  const otherManager = await makeMember(sql, shelf.id, {
+    role: "manager",
+    status: "active",
+  });
+  await sql`update users set full_name = 'Anna Phạm' where id = ${otherManager.userId}`;
+
+  const page = await runQuery(sql, ctx, (tx, c) => getReadersList(tx, c, {}));
+
+  // Not an exact-equality check on the whole roster: `shelfWithReaders`'s own
+  // ctx actor is itself a `manager` membership and appears too, under an
+  // auto-generated name this test does not control. What matters is that
+  // neither manager is filtered out.
+  const names = page.rows.map((r) => r.fullName);
+  expect(names).toContain("Anna Phạm");
+  expect(names).toContain("Trần Minh");
+});
+
+// `nguoi-doc/page.tsx` is the one caller that passes `role: "reader"` — this
+// screen is titled *Người đọc* — readers — and a shelf's own managers and
+// admins used to appear here in front of an edit control with no approval
+// step. Narrowing here is the same move `/quan-ly/doi-thong-tin`'s queue
+// already makes for reader subjects (`approval-routing.test.ts`).
+test("with role: 'reader', the roster excludes managers and admins, including the viewer's own membership", async () => {
+  const { ctx, shelf, manager } = await shelfWithReaders();
+  await reader(shelf.id, { fullName: "Trần Minh" });
+  const otherManager = await makeMember(sql, shelf.id, {
+    role: "manager",
+    status: "active",
+  });
+  const shelfAdmin = await makeMember(sql, shelf.id, {
+    role: "admin",
+    status: "active",
+  });
+
+  const page = await runQuery(sql, ctx, (tx, c) =>
+    getReadersList(tx, c, { role: "reader" }),
+  );
+
+  const membershipIds = page.rows.map((r) => r.membershipId);
+  expect(membershipIds).not.toContain(manager.id);
+  expect(membershipIds).not.toContain(otherManager.id);
+  expect(membershipIds).not.toContain(shelfAdmin.id);
+  expect(page.rows.map((r) => r.fullName)).toEqual(["Trần Minh"]);
+  expect(page.total).toBe(1);
+});
+
 test("holdingCount is derived on read, and moves with no command in between", async () => {
   // G5, BR §8: "Overdue status, hold expiry, and book availability are
   // computed on read, from stored data and the current clock." A test that

@@ -1,4 +1,5 @@
 import type { Tx } from "../kernel/unit-of-work";
+import type { MembershipRole } from "./policy";
 
 /**
  * The one way to name a person inside this domain, and the reason it is a type
@@ -75,6 +76,34 @@ export async function userOfMembership(
     where m.id = ${membershipId} and m.deleted_at is null
   `;
   return row ? (row.user_id as ScopedUserId) : null;
+}
+
+/**
+ * The person behind a membership **of this shelf**, together with their
+ * current membership role — the same join `userOfMembership` performs,
+ * carrying one more column.
+ *
+ * Added for `UpdateReaderProfile` (post-review fix wave, item 1):
+ * that command writes a person's details with no approval step, so it needs
+ * to know *whose* record it is before it writes anything — a manager's or
+ * admin's own details are a super admin's decision (`./commands/approve-
+ * profile-change.ts` derives the identical fact for the identical reason).
+ * Reading the role off a second, separate query would be a second, un-scoped
+ * chance to name the wrong row; one join answers both questions from the one
+ * row RLS already scoped.
+ */
+export async function userAndRoleOfMembership(
+  tx: Tx,
+  membershipId: string,
+): Promise<{ userId: ScopedUserId; role: MembershipRole } | null> {
+  const [row] = await tx<{ user_id: string; role: string }[]>`
+    select m.user_id, m.role from memberships m
+    join users u on u.id = m.user_id and u.deleted_at is null
+    where m.id = ${membershipId} and m.deleted_at is null
+  `;
+  return row
+    ? { userId: row.user_id as ScopedUserId, role: row.role as MembershipRole }
+    : null;
 }
 
 /**
