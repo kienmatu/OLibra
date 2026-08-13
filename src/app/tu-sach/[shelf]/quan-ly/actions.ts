@@ -606,6 +606,19 @@ export async function rejectProfileChangeAction(form: FormData): Promise<void> {
  * the guarded region and a storage fault propagates as a fault, exactly like a
  * `PostgresError`. It is not a refusal a volunteer can act on, and dressing it
  * as one would tell them their decision failed when the decision committed.
+ *
+ * **Widened to `ValidationFailed`, post-review fix wave, item 3.** This used
+ * to catch `RuleViolated` only, which was enough the day it was written —
+ * `approveProfileChange` raised nothing else. It now reaches
+ * `normaliseProfilePatch` on the way to writing the person record, and that
+ * throws `ValidationFailed("required_fields_missing", "saint_name")` for any
+ * proposal written before saint name became mandatory (§8) and blanked it,
+ * which was legal when it was written. Narrow to `RuleViolated` meant that
+ * threw straight past this `catch`, out of the server action, and into Next's
+ * generic error page — on a request the deciding manager or super admin can
+ * otherwise only *reject*, which OPS §2's "no bare 500" rule exists to
+ * prevent. Same shape `attemptTyped` above already uses for the identical
+ * reason.
  */
 async function attemptDiscardingAvatar<I>(
   shelfSlug: string,
@@ -616,7 +629,9 @@ async function attemptDiscardingAvatar<I>(
     await decideAndDiscardAvatar(shelfSlug, command, input);
     return { ok: true };
   } catch (err) {
-    if (err instanceof RuleViolated) return { ok: false, code: err.code };
+    if (err instanceof RuleViolated || err instanceof ValidationFailed) {
+      return { ok: false, code: err.code };
+    }
     throw err;
   }
 }

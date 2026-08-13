@@ -182,6 +182,48 @@ test("rejecting files the audit row against the request's own shelf, even when a
   expect(rows[0].bookshelf_id).toBe(a.shelf.id);
 });
 
+/**
+ * Post-review fix wave, item 3. `approveProfileChange` reaches
+ * `normaliseProfilePatch` on the way to writing the person record, which
+ * throws `ValidationFailed("required_fields_missing", "saint_name")` for any
+ * proposal whose stored `proposed_values` blanks the saint name — legal to
+ * write before §8 made the column `not null`, and `profile_change_requests`
+ * is never migrated, so a row like this can still be sitting pending.
+ * `attemptDiscardingAvatar` in `src/app/quan-tri/actions.ts` used to catch
+ * `RuleViolated` only, so this reached Next's generic error page instead of
+ * the ordinary refusal banner — on a request the super admin can otherwise
+ * only reject. Constructed the same way
+ * `profile-change-lifecycle.test.ts`'s "ApproveProfileChange's own check is
+ * a backstop" pins the identical shape for `phone`/`thieu-so-dien-thoai`.
+ */
+async function aShelfWithALegacyBlankSaintNameChange(slug: string) {
+  const shelf = await makeShelf(sql, { slug });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const [row] = await sql<{ id: string }[]>`
+    insert into profile_change_requests
+      (user_id, bookshelf_id, proposed_values, previous_values, status)
+    values (${manager.userId}, ${shelf.id}, '{"saint_name":null}', '{}', 'pending')
+    returning id
+  `;
+  return { shelf, manager, profileChangeRequestId: row.id };
+}
+
+test("approving a legacy proposal that blanked a saint name is a refusal, not a 500", async () => {
+  await signInAsSuperAdmin();
+  const { profileChangeRequestId } = await aShelfWithALegacyBlankSaintNameChange(
+    "dong-thap-legacy-saint-name",
+  );
+
+  const target = await redirectedTo(
+    approveManagerProfileChangeAction(form({ "yeu-cau": profileChangeRequestId })),
+  );
+
+  expect(refusalIn(target)).toBe("required_fields_missing");
+  expect(
+    await sql`select id from audit_log where action = 'profile_change.approved'`,
+  ).toHaveLength(0);
+});
+
 test("approving an id naming no request at all is refused, not silently filed under the posted shelf", async () => {
   await signInAsSuperAdmin();
   const b = await makeShelf(sql, { slug: "an-giang-missing" });

@@ -133,6 +133,16 @@ const NO_REJECT_REASON = { ok: false, code: "reject_reason_required" } as const;
  * delete has to run after the transaction commits, never inside it, and that
  * shelf-side helper is hard-wired to `submitCommand`, so it cannot be reused
  * as-is from a surface that writes through `submitAdminCommand` instead.
+ *
+ * **Widened to `ValidationFailed`, post-review fix wave, item 3 — same fix,
+ * same reason, as the shelf-side sibling.** `approveProfileChange` reaches
+ * `normaliseProfilePatch` on the way to writing the person record, which
+ * throws `ValidationFailed("required_fields_missing", "saint_name")` for any
+ * proposal written before saint name became mandatory (§8) and blanked it —
+ * legal at the time. Catching `RuleViolated` only sent that straight past
+ * this function, out of the server action, and into Next's generic error
+ * page, on a request the deciding super admin can otherwise only *reject*.
+ * `attempt` above already widens the same way, for the same reason.
  */
 async function attemptDiscardingAvatar<I>(
   bookshelfId: string,
@@ -144,7 +154,9 @@ async function attemptDiscardingAvatar<I>(
     await discardAvatarObject(avatarObject);
     return { ok: true };
   } catch (err) {
-    if (err instanceof RuleViolated) return { ok: false, code: err.code };
+    if (err instanceof RuleViolated || err instanceof ValidationFailed) {
+      return { ok: false, code: err.code };
+    }
     throw err;
   }
 }
