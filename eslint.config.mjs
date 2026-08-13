@@ -7,7 +7,32 @@ import next from "eslint-config-next";
  */
 const config = [
   {
-    ignores: [".next/**", "out/**", "build/**", "node_modules/**", "next-env.d.ts"],
+    /**
+     * `.claude/**` is not source. Claude Code puts each session's git worktree
+     * under `.claude/worktrees/<name>/`, and a worktree that has been run at
+     * all carries its own `.next/` build output — hundreds of generated
+     * chunks, minified and full of `eval`, which ESLint then tries to parse
+     * with the TypeScript rules this config only ever meant for `src/`. The
+     * result is a few hundred errors of the shape "Definition for rule
+     * '@typescript-eslint/no-unused-vars' was not found" and `bun run check`
+     * red for a reason that has nothing to do with the branch under it.
+     *
+     * The existing `.next/**` entry does not cover it: a leading-segment
+     * pattern anchors to this config file's directory, so it matches the
+     * repository's own build output and not a nested one several levels down.
+     * Ignoring the whole directory rather than `.claude/worktrees/**\/.next/**`
+     * is deliberate — nothing under `.claude/` is ours to lint, and a narrower
+     * pattern would need widening again the first time a session writes
+     * something else in there.
+     */
+    ignores: [
+      ".next/**",
+      ".claude/**",
+      "out/**",
+      "build/**",
+      "node_modules/**",
+      "next-env.d.ts",
+    ],
   },
   ...next,
   {
