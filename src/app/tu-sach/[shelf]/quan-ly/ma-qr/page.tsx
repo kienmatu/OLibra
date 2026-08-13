@@ -32,7 +32,7 @@ const ALL = "tat-ca";
  * component to gain one would trade a screen that works without JavaScript for
  * a convenience.
  */
-const FORM_ID = "chon-ban-in-nhan";
+const FORM_ID = "chon-ban-in-ma";
 
 /**
  * BR §19's "QR labels per copy", the screen a manager picks from.
@@ -96,12 +96,12 @@ export default async function NhanQrPage({
         className="mt-5"
         options={[
           {
-            href: `${base}/nhan-qr`,
+            href: `${base}/ma-qr`,
             label: "Chưa in mã",
             active: onlyUnprinted,
           },
           {
-            href: `${base}/nhan-qr?${FILTER}=${ALL}`,
+            href: `${base}/ma-qr?${FILTER}=${ALL}`,
             label: "Tất cả",
             active: !onlyUnprinted,
           },
@@ -118,7 +118,7 @@ export default async function NhanQrPage({
         <form
           id={FORM_ID}
           method="post"
-          action={`${base}/xuat/nhan-qr`}
+          action={`${base}/xuat/ma-qr`}
           className="mt-6 space-y-3"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">

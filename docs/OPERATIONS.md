@@ -189,7 +189,7 @@ Records that a QR label sheet was produced for a set of copies (§19's "QR label
 
 **A zero-row update is not a failure here**, and this is the one command in this document for which that is true. It is set-valued bookkeeping about a document that already exists — the route builds the PDF bytes *before* calling this — so an empty result is a fact to record, not a target that was missed. The reported count is what actually moved, not what was asked for.
 
-**UI trigger:** submitting the selection on `/quan-ly/nhan-qr`, which returns the sheet as a download.
+**UI trigger:** submitting the selection on `/quan-ly/ma-qr`, which returns the sheet as a download.
 
 #### `AssessCondition`
 Records a manager's judgement of a copy's physical state at a point in time, independent of any loan (§5.4: "a manager may assess a copy at any time, not only at return").

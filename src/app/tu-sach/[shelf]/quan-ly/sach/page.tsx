@@ -170,7 +170,7 @@ export default async function ManagerBooksPage({
           // it, which is also the honest ranking: cataloguing comes first and
           // labelling follows it.
           <div className="flex flex-wrap gap-3">
-            <ButtonLink href={`${base}/nhan-qr`} variant="quiet" size="lg">
+            <ButtonLink href={`${base}/ma-qr`} variant="quiet" size="lg">
               <QrCode aria-hidden className="size-5" strokeWidth={1.75} />
               In mã QR
             </ButtonLink>

@@ -98,7 +98,7 @@ every other state change in this system (BR §14).
 
 ## 3. Choosing what to print
 
-One screen owns the selection: **`/tu-sach/[shelf]/quan-ly/nhan-qr`**.
+One screen owns the selection: **`/tu-sach/[shelf]/quan-ly/ma-qr`**.
 
 Titles listed as accordion rows. Collapsed, a row is the title and its copy
 count with a checkbox that means *all copies of this title*. Expanded, it lists
@@ -226,7 +226,7 @@ install prunes dev dependencies.
 
 ### The route
 
-`POST /tu-sach/[shelf]/quan-ly/xuat/nhan-qr`, a static segment beside the
+`POST /tu-sach/[shelf]/quan-ly/xuat/ma-qr`, a static segment beside the
 existing `xuat/[loai]`. Next resolves static before dynamic, so the CSV route is
 untouched and its closed `EXPORTS` map keeps its CSV-only shape rather than
 growing a content-type conditional.
