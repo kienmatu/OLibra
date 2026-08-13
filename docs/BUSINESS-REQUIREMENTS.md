@@ -166,7 +166,7 @@ These were ambiguous in the brief and are resolved as follows. Changing any of t
 
 This distinction matters and is easy to get wrong.
 
-**On the person** — facts true everywhere: **username and password (both optional, and either both set or neither)**, saint name (tên thánh), full name, date of birth, **father's name and mother's name (both required)**, phone, optional email, display name, locale, avatar.
+**On the person** — facts true everywhere: **username and password (both optional, and either both set or neither)**, **saint name (tên thánh, required — 2026-08-12, §8)**, full name, date of birth, **father's name and mother's name (both required)**, phone, optional email, display name, locale, avatar.
 
 Parents' names are required rather than optional because they are how a manager tells apart two children with the same name, which §3 lists as a real edge case. A photograph is collected at registration for the same reason — a volunteer who meets forty children on a Sunday recognises a face faster than a name.
 
@@ -722,7 +722,7 @@ Ordered by value to this specific project rather than by novelty.
 - A reading log where children record what they thought of a book, beyond a public comment.
 - Multi-locale content, if a shelf ever serves a non-Vietnamese-speaking community.
 
-**Deliberately not planned:** fines and payments, barcode scanning of commercial ISBNs (unreliable for donated and second-hand Vietnamese books, where QR labels are strictly better), integration with any external library system, and public reader profiles beyond the leaderboard.
+**Deliberately not planned:** fines and payments, barcode scanning of commercial ISBNs (unreliable for donated and second-hand Vietnamese books, where QR labels are strictly better), integration with any external library system, and public reader profiles. (Corrected, post-review fix wave, item 5: this used to read "public reader profiles beyond the leaderboard", which implied the leaderboard already was one. §16.2's 2026-08-12 revision keeps *Bạn đọc chăm nhất* on the manager-facing statistics screen precisely so that it is not — see that section for the reasoning the phrase used to contradict.)
 
 ---
 
@@ -731,7 +731,7 @@ Ordered by value to this specific project rather than by novelty.
 None blocking. Two worth revisiting after the first bookshelf has run for a month:
 
 1. Whether the single-choice condition model (§9) proves too coarse in practice. Moving to grade-plus-flags is additive if so.
-2. Whether the public display of full reader names (§4, assumption 6) still feels right once real children's names are on a public leaderboard. The `public_name_display` setting makes this a configuration change.
+2. Whether the public display of full reader names (§4, assumption 6) still feels right *if* the leaderboard at `/quan-ly/thong-ke` — manager-facing only as of §16.2's 2026-08-12 revision — is ever made reader-facing. (Corrected, post-review fix wave, item 5: this used to say "once … are on a public leaderboard", stating as settled the exact reader-facing move §16.2 explicitly leaves unsettled.) The `public_name_display` setting makes this a configuration change.
 
 ---
 

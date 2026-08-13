@@ -84,7 +84,7 @@ Reader full names on these pages are governed by the shelf's `public_name_displa
 | `SearchLoansForReturn` | Find the loan to receive back, by book or reader. | `bookshelfId`, `q` | Active loan rows with borrower, due date, copy code | `manager` | Overdue flag |
 | `GetBooksList` | Manager's book list, filterable. | `bookshelfId`, `q?`, `category?`, `sort?`, `page` | Title rows with copy counts and status | `manager` | Aggregate status per title |
 | `GetBookDetail` (manager) | A book's management page. Per §16.1, this page also surfaces **Cho mượn** on an available copy and **Nhận trả** on one that's out, as direct entry points into `LendCopy`/`ReceiveReturn` with the book already chosen (§5). | `bookshelfId`, `bookId` | Metadata, per-copy state/condition/location, condition-assessment history, full loan history | `manager` | Per-copy state, "đang ở đâu" (on shelf / with whom) |
-| `GetReadersList` | Manager's reader list, filterable by status and parish unit — the payoff a text field could never give (BR §5.3, §16.3). | `bookshelfId`, `status?`, `parishUnitId?`, `q?`, `page` | Reader rows with parish-unit names (shelf's own labels), current holding count, status | `manager` | Holding count |
+| `GetReadersList` | Manager's reader list, filterable by status and parish unit — the payoff a text field could never give (BR §5.3, §16.3). Also the two book forms' donor picker, unfiltered by role — see `role?` (**added 2026-08-13**, post-review fix wave item 1): `/quan-ly/nguoi-doc` is the one caller that passes `role: "reader"`, keeping a shelf's own managers and admins out of a roster built to edit a reader's details directly and without approval; the donor picker leaves it unset, since a donor is any active member regardless of role. | `bookshelfId`, `status?`, `role?`, `parishUnitId?`, `q?`, `page` | Reader rows with parish-unit names (shelf's own labels), current holding count, status | `manager` | Holding count |
 | `GetReaderDetail` (manager) | A reader's full profile. | `bookshelfId`, `membershipId` | Full profile incl. manager-only fields, current loans, loan history | `manager` | Current loans, days remaining |
 | `GetPendingRegistrations` | The approval queue. | `bookshelfId` | Pending applications with a similar-name warning where one exists | `manager` | Similar-name match (fuzzy name comparison against existing active members) |
 | `GetPendingProfileChanges` | The profile-change approval queue (§16.3: "One card per proposed change, showing the current value and the proposed one side by side"). **Since 2026-08-12** (§9 of the design), filtered to `reader` subjects only — a manager's or admin's own pending change routes to `GetPendingManagerChanges` (§3.4) instead, since nobody at their own shelf may decide it. | `bookshelfId` | Pending `ProfileChangeRequest` rows for this shelf's `reader` members, each with current and proposed values side by side | `manager` | — |
@@ -346,7 +346,7 @@ A reader withdraws their own pending or held request, from the dashboard §16.2 
 #### `RegisterMembership`
 Public self-registration (§16.1, `src/app/dang-ky/page.tsx`) — creates a `pending` membership. Reuses an existing global `User` identity if the phone/username already exists at another shelf (§5.3: "identity is reused" across shelves).
 
-- **Inputs:** `bookshelfId`, username, password, saint name?, full name, DOB, father's name?, mother's name?, phone, `parishUnitL1Id?`, `parishUnitL2Id?`
+- **Inputs:** `bookshelfId`, username, password, saint name (required — **2026-08-12**, §8, no longer optional), full name, DOB, father's name?, mother's name?, phone, `phoneMissingReason?` (required in its place when `phone` is left empty — §8's danger confirmation, cleared automatically the moment a phone is supplied), `parishUnitL1Id?`, `parishUnitL2Id?`
 - **Caller:** `guest`
 - **Invariants enforced:** INV-8; the parish-taxonomy selection rule (BR §5.6) — when the shelf's taxonomy is nested, a supplied `parishUnitL2Id` must belong to the supplied `parishUnitL1Id`, checked by `validateSelection` in `src/domain/members/parish-taxonomy.ts` in the same transaction as the write, not by a constraint (DATABASE.md §7)
 - **Audit action:** `membership.registered`
@@ -355,6 +355,7 @@ Public self-registration (§16.1, `src/app/dang-ky/page.tsx`) — creates a `pen
   - `password_too_short` — "Mật khẩu cần ít nhất 8 ký tự."
   - `passwords_dont_match` — "Mật khẩu nhập lại không khớp."
   - `validation_failed` — "Vui lòng điền đầy đủ các trường bắt buộc."
+  - `thieu-so-dien-thoai` — "Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có." (an empty phone with no reason — §8)
   - `parish_unit_l1_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại."
   - `parish_unit_l2_not_found` — "Đơn vị bậc 2 đã chọn không tồn tại."
   - `parish_unit_l2_not_in_l1` — "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn."
@@ -471,16 +472,19 @@ This is the product owner's answer to the hole master plan §5 Q8 named, recorde
 
 It is not a weakening of INV-13. Whoever can set a reader's password (`SetReaderCredentials` above) can already sign in as that reader and propose anything as that reader, and the audit trail would then say a *reader* proposed it. The direct edit is the more truthful record, and it is the same trade BR §2 already makes for credentials: the mitigation for a power a manager needs is visibility, not withholding.
 
-- **Inputs:** `bookshelfId`, `membershipId`, new values for any subset of: saint name, full name, DOB, father's name, mother's name, phone, email, avatar URL. **Never a `userId`** — `users` carries no row-level security, so a caller-supplied user id would let a manager of one parish rewrite any person in the system; the reader is reached by joining out of a `memberships` row RLS has already scoped, exactly as `SetReaderCredentials` does.
-- **Caller:** `manager`
+**Post-review fix wave, item 1 (2026-08-13) — the same subject-role routing `ApproveProfileChange` documents below now gates this command too.** This command used to check only `requireManager` and nothing about *whose* record it was, which made §9's routing decorative: a manager could open a colleague from the ordinary "Bạn đọc" list — or their own record — and rewrite it directly, no approval, no colleague in the loop, the one thing `/quan-tri/doi-thong-tin` exists to route around. The check is identical to `ApproveProfileChange`'s first rule, derived fresh from the subject's current membership role: a `manager`/`admin` subject may only be corrected by a `super_admin`. Unlike the approval lifecycle, there is no separate self-decision rule to state — a manager correcting their own record already fails the first check, since their own membership role is exactly `manager`. `getReadersList` also now filters to `role = 'reader'`, so a manager or admin's own record no longer appears in that roster at all (§9's queue makes the identical call for the identical reason); the reader-detail screen still resolves a manager-subject membership id reached by a typed URL, and renders the edit control read-only rather than a button that opens, fills in and then refuses.
+
+- **Inputs:** `bookshelfId`, `membershipId`, new values for any subset of: saint name, full name, DOB, father's name, mother's name, phone, `phoneMissingReason` (added alongside `phone` — cleared automatically the moment a phone is supplied, same as everywhere else this pair travels together), email, avatar URL. **Never a `userId`** — `users` carries no row-level security, so a caller-supplied user id would let a manager of one parish rewrite any person in the system; the reader is reached by joining out of a `memberships` row RLS has already scoped, exactly as `SetReaderCredentials` does.
+- **Caller:** `manager` — a floor, not the whole rule; see the routing paragraph above
 - **Invariants enforced:** INV-8; INV-13 as restated in BR §6 — this is the second sanctioned write path to a person's verified details, and it is audited with before and after
 - **Audit action:** `profile.corrected`, with `before`/`after` carrying only the fields that actually changed. Deliberately not `profile_change.approved` (a different act, by a manager who was shown a proposal) — §14 wants a name the audit browser can filter on, and the thing a super administrator must be able to filter for is exactly "a manager changed someone's details without an approval step", the same oversight need `credentials.set` serves (BR §2, §13.2). (This used to also be contrasted with `membership.updated`, which `UpdateOwnProfile` wrote for the now-retired leaderboard toggle; that command and its audit action are gone — see the retirement note below — so the contrast no longer applies.)
 - **Failure modes:**
   - `membership_not_found` — "Không tìm thấy bạn đọc này."
+  - `not_permitted` — "Bạn không có quyền thực hiện việc này." (also raised, since 2026-08-13, for a `manager`/`admin` subject corrected by anyone but a `super_admin` — the routing paragraph above)
   - `required_fields_missing` — "Vui lòng điền đầy đủ các trường bắt buộc." (saint name, full name, father's name and mother's name are `not null` — **saint name added 2026-08-12**, `docs/superpowers/specs/2026-08-12-po-feedback-design.md` §8; `REQUIRED_PROFILE_FIELDS` lists it first — so blanking any of the four is a named refusal rather than a constraint violation)
   - `validation_failed` — "Vui lòng kiểm tra lại thông tin."
+  - `thieu-so-dien-thoai` — "Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có." (an empty phone with no reason on file — §8)
   - `empty_proposal` — "Vui lòng thay đổi ít nhất một trường." (an edit that changes nothing must not write an audit entry claiming it did)
-  - `not_permitted` — "Bạn không có quyền thực hiện việc này."
 
 > **Open question — the Vietnamese this command needs that this document does not have.** Two sentences that exist nowhere: what a manager reads above the edit form, and how the audit browser renders `profile.corrected` (§14 requires a readable Vietnamese sentence per entry). Both were written by the implementing slice rather than left blank, and both are marked in the code as newly authored rather than quoted — `PROFILE_CORRECTED_COPY` in `src/domain/members/profile-copy.ts`. They are the product owner's to approve or replace; nothing else in that slice's Vietnamese is new.
 
@@ -493,12 +497,13 @@ A membership's parish-unit fields (BR §5.6) are still read-only from the reader
 #### `ProposeProfileChange`
 A reader proposes new values for their own verified details (§2: "Changing your own details is a request, not an edit"; §7.4). **Every field requires approval** — the product owner's explicit decision, including the phone number — so this command never writes to the person record; it only ever creates or replaces a `ProfileChangeRequest`. The existing values remain in force, and are what every other query and screen keeps showing, until a manager approves the proposal (§5.4: "Storing the previous values alongside the proposed ones means a manager reviewing a week-old request sees what it would actually change").
 
-- **Inputs:** `bookshelfId` (the shelf whose manager will decide, per §5.4), `membershipId`, proposed values for any subset of: saint name, full name, DOB, father's name, mother's name, phone, email
+- **Inputs:** `bookshelfId` (the shelf whose manager will decide, per §5.4), `membershipId`, proposed values for any subset of: saint name, full name, DOB, father's name, mother's name, phone, `phoneMissingReason`, email
 - **Caller:** `reader` (self only)
 - **Invariants enforced:** INV-13 — at most one pending request per person. Proposing again while one is already pending **replaces** it rather than creating a second: this is normal, specified behavior, not a failure — the new proposal simply supersedes the old one and takes a fresh snapshot of "values at the time of proposing" (§5.4). INV-8.
 - **Audit action:** `profile_change.proposed`
 - **Failure modes:**
   - `validation_failed` — "Vui lòng kiểm tra lại thông tin."
+  - `thieu-so-dien-thoai` — "Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có." (checked against the record this proposal would *produce* if approved unchanged, overlaying the merged proposal onto the current values — §8; `ApproveProfileChange` below keeps its own copy of this check as the backstop for a request written before this rule existed)
   - `empty_proposal` — "Vui lòng thay đổi ít nhất một trường." (nothing differs from the current values)
 
 **The avatar requires approval too.** It was queried and the product owner confirmed *every* field, naming the photograph explicitly. That is consistent with why the photograph exists at all: §5.3 collects it so a manager can tell two children apart, which makes it a fact the manager verified rather than a decoration the reader owns.
@@ -519,6 +524,7 @@ A manager approves a pending change; the proposed values are written to the pers
 - **Failure modes:**
   - `not_pending` — "Yêu cầu này đã được xử lý."
   - `not_permitted` — a `manager`/`admin`-subject change approved by anyone but a `super_admin`, or any decider approving their own proposal (added 2026-08-12, routing rule above)
+  - `thieu-so-dien-thoai` — "Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có." (the backstop for a proposal written before `ProposeProfileChange` carried its own copy of this check, or by a caller that bypasses that command entirely — §8)
   - `parish_unit_l1_not_found` — "Đơn vị bậc 1 đã chọn không tồn tại."
   - `parish_unit_l2_not_found` — "Đơn vị bậc 2 đã chọn không tồn tại."
   - `parish_unit_l2_not_in_l1` — "Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn."
@@ -734,6 +740,8 @@ Provisions a new tenant (§16.4: "Create and edit shelves, including the slug th
 - **Failure modes:**
   - `slug_taken` — "Đường dẫn này đã được dùng cho tủ sách khác."
   - `validation_failed` — "Vui lòng điền đầy đủ các trường bắt buộc."
+  - `contact_position_1_required` — "Vui lòng nhập người liên hệ thứ nhất." (a missing or empty contacts array — position 1 is the one mandatory contact)
+  - `contact_name_required` — "Vui lòng nhập tên người liên hệ." (a contact block with a phone or role label typed in but no name)
 
 > **Open question.** No dedicated "new bookshelf" screen exists among the 47 built pages (only the edit form at `/quan-tri/tu-sach/[id]`); this command is included because §16.4 explicitly describes creation as part of this page's job.
 
@@ -747,6 +755,8 @@ Edits a shelf's profile and lending policy together, in one save (the built sett
 - **Failure modes:**
   - `slug_immutable` — "Đường dẫn tủ sách không thể thay đổi."
   - `validation_failed` — "Vui lòng kiểm tra lại thông tin."
+  - `contact_position_1_required` — "Vui lòng nhập người liên hệ thứ nhất." (same rule as `CreateBookshelf` above — contacts are written as a set, and position 1 must be present in it)
+  - `contact_name_required` — "Vui lòng nhập tên người liên hệ."
 
 > **Open question.** The manager-facing settings page (`src/app/.../quan-ly/cai-dat/page.tsx`) is read-only and states "Chỉ quản trị viên mới đổi được các mục này" ("only the *quản trị viên* can change these"). Vietnamese "quản trị viên" is used in this codebase both for the shelf-level `admin` role (labelled "Quản trị tủ sách" in the managers list) and for the global `super_admin` role (labelled "Quản trị viên" there too). The only settings-*edit* screen actually built lives under the super-admin-only `/quan-tri` route tree, not under any shelf-scoped route a shelf `admin` could reach. Whether a shelf's own `admin` role is meant to have an equivalent in-shelf settings-edit screen — matching the role hierarchy's implication that `admin ⊃ manager` should include *more* than a manager, not the same read-only view — is unresolved by the built UI. This document restricts `UpdateBookshelfSettings` to `super_admin` to match what's actually built, but flags this as very likely a gap: a shelf `admin` role with no privilege beyond a `manager` (read-only settings) makes the role distinction in §13.1 pointless.
 
