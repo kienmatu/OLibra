@@ -704,7 +704,9 @@ Ordered by value to this specific project rather than by novelty.
 
 **Near term**
 
-- **QR labels per copy.** Print a label per copy carrying its code; a manager scans with the phone camera to lend or return. This is the single largest UX improvement available, and the copies model already supports it.
+- ~~**QR labels per copy.**~~ **Shipped, 2026-08-13.** Print a label per copy carrying its code; a manager scans with the phone camera to lend or return. This was the single largest UX improvement available, and the copies model already supported it. What shipped goes slightly further than this line asked for: a reader may scan a book on the shelf too, and the request that follows names the *copy* in their hands rather than only the title. Design: `docs/superpowers/specs/2026-08-13-qr-labels-design.md`.
+
+  Two constraints that shipped with it and are not free to change later, because they are printed on paper glued to books: the QR carries the copy's **UUID** (a copy *code* is unique only within one shelf), and the sheet is laid out inside the **186 × 255.4mm** that A4 and US Letter share, so one file prints correctly on either paper.
 - **CSV and Excel import.** Cataloguing a hundred existing books by hand is the biggest barrier to adoption. Export ships in Phase 1; import should follow close behind.
 - **Printable borrow slips and shelf labels.** Paper still matters where phones do not reach.
 

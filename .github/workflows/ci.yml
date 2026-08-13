@@ -80,6 +80,13 @@ jobs:
           echo "minio never came up after 30 attempts" >&2
           docker logs minio >&2
           exit 1
+      # `tests/lib/qr-labels-decode.test.ts` rasterises a generated label sheet
+      # with `pdftoppm` and decodes the QR symbols back. That test exists
+      # because two real layout bugs in this feature were invisible to every
+      # other kind of check; without poppler here it would be skipped exactly
+      # where it matters most.
+      - name: Install poppler
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: 1.3.14 }
       - run: bun install --frozen-lockfile

@@ -11,6 +11,26 @@ const nextConfig: NextConfig = {
    */
   output: "standalone",
 
+  /**
+   * The vendored Lexend faces, forced into the standalone build.
+   *
+   * `src/lib/qr-labels.ts` reads two `.ttf` files from disk at request time to
+   * draw the QR label sheet — it has to, because pdf-lib's built-in fonts
+   * cannot render Vietnamese and `next/font` emits woff2, which fontkit does
+   * not read. Next's tracer follows `import`s; it cannot see a path assembled
+   * for `readFileSync`, so without this entry the files are simply absent from
+   * the image.
+   *
+   * The failure that causes is the nastiest kind: the route works perfectly
+   * under `bun run dev`, where the whole repository is on disk, and throws
+   * ENOENT the first time a volunteer presses "In mã QR" in production. No
+   * test on a developer's machine can catch it, which is why it is written
+   * down here rather than left to be rediscovered.
+   */
+  outputFileTracingIncludes: {
+    "/tu-sach/[shelf]/quan-ly/xuat/ma-qr": ["./src/lib/fonts/*.ttf"],
+  },
+
   experimental: {
     serverActions: {
       /**

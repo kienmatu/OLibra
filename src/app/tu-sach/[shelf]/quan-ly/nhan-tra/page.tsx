@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AlertCircle, CheckCircle2, HelpCircle, Search } from "lucide-react";
+import { CopyScanField } from "@/components/copy-scan-field";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { Pill } from "@/components/ui/pill";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -10,6 +12,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ConditionPicker } from "@/components/condition-picker";
 import { type CopyCondition } from "@/domain/catalogue/policy";
 import { messageFor } from "@/domain/kernel/errors";
+import { resolveCopyById } from "@/domain/catalogue/queries/resolve-copy-by-id";
 import { getBorrowRequestQueue } from "@/domain/circulation/queries/get-borrow-request-queue";
 import { searchLoansForReturn } from "@/domain/circulation/queries/search-loans-for-return";
 import { formatDueDate, formatInstant } from "@/lib/dates";
@@ -82,13 +85,16 @@ export default async function NhanTraPage({
   const search = await searchParams;
   const query = param(search, "q") ?? "";
   const muon = param(search, "muon");
+  // BR §19's QR labels: a copy's UUID, put there by the scanner, never typed.
+  const scanned = param(search, "ban");
 
-  const { shelf, viewer, counts, loans, queues } = await loadPage(
+  const { shelf, viewer, counts, loans, queues, scannedCopy } = await loadPage(
     slug,
     async (tx, ctx, viewer) => {
       const loans = await searchLoansForReturn(tx, ctx, { q: query });
       const chosen = muon ? loans.find((l) => l.loanId === muon) : undefined;
       return {
+        scannedCopy: scanned ? await resolveCopyById(tx, ctx, scanned) : null,
         shelf: await readShelf(tx, ctx),
         viewer,
         counts: await getManagerBadgeCounts(tx, ctx),
@@ -113,6 +119,19 @@ export default async function NhanTraPage({
   const refused = refusalFrom(search);
 
   const base = `/tu-sach/${slug}/quan-ly`;
+
+  // A scan re-enters this same screen as an ordinary search for that copy's
+  // code — the search this page already does, folded the way it already folds.
+  // The alternative, a second lookup path keyed on the copy id, would be two
+  // ways of answering "which loan?" that could disagree.
+  if (scannedCopy) {
+    redirect(`${base}/nhan-tra?q=${encodeURIComponent(scannedCopy.code)}`);
+  }
+
+  const scanRefusal = scanned
+    ? "Mã này không thuộc tủ sách của bạn. Bạn tìm theo tên sách hoặc mã bản giúp nhé."
+    : null;
+
   const carrying = (extra: Record<string, string>) =>
     new URLSearchParams({ ...(query ? { q: query } : {}), ...extra }).toString();
 
@@ -149,6 +168,16 @@ export default async function NhanTraPage({
           className="h-14 text-[17px]"
         />
       </form>
+
+      {/* BR §19's QR labels. Beside the search box, never instead of it. */}
+      <div className="mt-4 max-w-xl">
+        <CopyScanField basePath={`${base}/nhan-tra`} />
+        {scanRefusal ? (
+          <p role="alert" className="mt-2 text-[15px] text-brick">
+            {scanRefusal}
+          </p>
+        ) : null}
+      </div>
 
       {loans.length > 0 ? (
         <ul className="mt-6 max-w-2xl space-y-3">

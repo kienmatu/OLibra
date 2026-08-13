@@ -779,6 +779,12 @@ create table book_copies (
   retired_at      timestamptz,
   retired_reason  text,
   lost_reported_at timestamptz,
+  -- QR label printing. The count is not redundant with the timestamp: the
+  -- "Chưa in nhãn" filter has to tell a copy that has never been labelled from
+  -- one whose sticker fell off and was reprinted, and a boolean conflates them.
+  -- See 20260813_01_copy_qr_print.sql.
+  qr_printed_at   timestamptz,                -- last label print; null = never
+  qr_print_count  integer not null default 0, -- a reprint is not a first print
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
   deleted_at      timestamptz,

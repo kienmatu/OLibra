@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, QrCode, Search } from "lucide-react";
 import { ButtonLink, Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/ui/card";
 import { BookCover, BookTitle } from "@/components/ui/book";
@@ -165,10 +165,20 @@ export default async function ManagerBooksPage({
         title="Sách"
         subtitle={`${NUMBER.format(page.total)} đầu sách`}
         action={
-          <ButtonLink href={`${base}/sach/moi`} variant="primary" size="lg">
-            <Plus aria-hidden className="size-5" strokeWidth={1.75} />
-            Thêm sách
-          </ButtonLink>
+          // Two controls, one primary. "Thêm sách" keeps the solid terracotta
+          // — BR §17.3 allows exactly one — and "In mã QR" is quiet beside
+          // it, which is also the honest ranking: cataloguing comes first and
+          // labelling follows it.
+          <div className="flex flex-wrap gap-3">
+            <ButtonLink href={`${base}/ma-qr`} variant="quiet" size="lg">
+              <QrCode aria-hidden className="size-5" strokeWidth={1.75} />
+              In mã QR
+            </ButtonLink>
+            <ButtonLink href={`${base}/sach/moi`} variant="primary" size="lg">
+              <Plus aria-hidden className="size-5" strokeWidth={1.75} />
+              Thêm sách
+            </ButtonLink>
+          </div>
         }
       />
 
