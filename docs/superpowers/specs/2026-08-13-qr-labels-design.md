@@ -301,11 +301,23 @@ permanently broken.
 - **PDF bytes** — built, streamed, discarded. Nothing written to `./data`, no S3
   object, `Cache-Control: no-store, private`. There is no cache to invalidate
   because there is no cache.
-- **A scan confirmation** — a `scannedAt` hidden field, refused server-side past
-  five minutes with *Mã đã cũ, mời quét lại*. It is **unsigned on purpose**:
-  forging it buys a stale scan and nothing else, because the command
-  re-validates the copy's actual state when it runs. Signing it would be
-  ceremony protecting nothing.
+- **A scan confirmation** — a `luc` hidden field, refused server-side outside a
+  five-minute window with _Mã đã cũ, mời quét lại_.
+
+  **Stamped by the server when the confirmation renders, from `ctx.clock`.** The
+  first implementation stamped it with the browser's `Date.now()` and compared
+  it against the server's, which made the window depend on a phone's clock being
+  right to within five minutes. Phone clocks routinely are not, and both
+  failures were silent: a slow phone had every scan arrive already expired,
+  advising "quét lại" — which could never help — and a fast one disabled the
+  window entirely, because the difference went negative. Caught in review, not
+  by a test. One clock decides, and a negative age is refused as well as an
+  excessive one.
+
+  It is **unsigned on purpose**: forging it buys a stale confirmation and
+  nothing else, because the command re-validates the copy, the title, the
+  membership's standing and the reader's existing requests when it runs. Signing
+  it would be ceremony protecting nothing.
 - **The sticker itself does not expire.** It is glued to a book. Reprinting a
   parish's entire estate on a schedule is real work for volunteers in exchange
   for nothing, since the UUID grants no access on its own — every path through

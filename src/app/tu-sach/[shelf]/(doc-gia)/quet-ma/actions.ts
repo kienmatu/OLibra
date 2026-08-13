@@ -32,18 +32,29 @@ async function attempt(run: () => Promise<unknown>): Promise<string | null> {
 }
 
 /**
- * How long a scan stays good for.
+ * How long a confirmation stays good for.
  *
- * **The timestamp is deliberately unsigned, and that is a decision rather than
- * an omission.** Forging it buys a stale scan and nothing else:
- * `createBorrowRequest` re-reads the copy, the title, the membership's standing
- * and the reader's existing requests when it runs, so an old `luc` cannot
- * produce a request the command would otherwise have refused. Signing it would
- * be ceremony protecting nothing.
+ * **`luc` is stamped by the server when the confirmation renders, and compared
+ * here against the same clock.** It was the *browser's* `Date.now()` until this
+ * was reviewed, which made the window depend on the phone's clock agreeing with
+ * the server's to within five minutes. Phone clocks are routinely further out
+ * than that, and both failures were silent: a slow phone had every scan arrive
+ * already expired — advising "quét lại", which could never help — and a fast
+ * one made the check pass forever. One clock decides now.
+ *
+ * **Still deliberately unsigned.** Forging it buys a stale confirmation and
+ * nothing else: `createBorrowRequest` re-reads the copy, the title, the
+ * membership's standing and the reader's existing requests when it runs, so an
+ * old `luc` cannot produce a request the command would otherwise have refused.
+ * Signing it would be ceremony protecting nothing.
  *
  * The window exists for an ordinary reason, not a security one: a tab left open
  * on a phone after Sunday mass must not produce a request on Monday for a book
  * that went back on the shelf in between.
+ *
+ * A *future* `luc` is refused too. It cannot arise from the server's own stamp,
+ * so it means the field was edited, and letting a negative difference through
+ * would be the one input that disables the window entirely.
  */
 const WINDOW_MS = 5 * 60 * 1000;
 
@@ -66,7 +77,8 @@ export async function confirmScanBorrowAction(formData: FormData): Promise<void>
   const back = `${base}?ban=${encodeURIComponent(copyId)}`;
 
   const scannedAt = Number(formData.get("luc"));
-  if (!Number.isFinite(scannedAt) || Date.now() - scannedAt > WINDOW_MS) {
+  const age = Date.now() - scannedAt;
+  if (!Number.isFinite(scannedAt) || age < 0 || age > WINDOW_MS) {
     redirect(`${base}?qua-han=1`);
   }
 

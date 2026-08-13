@@ -50,13 +50,16 @@ export default async function QuetMaPage({
   const { shelf: slug } = await params;
   const search = await searchParams;
   const scanned = param(search, "ban");
-  const scannedAt = param(search, "luc");
   const expired = param(search, "qua-han") === "1";
   const refused = refusalFrom(search);
 
-  const { shelf, viewer, copy, membershipId } = await loadPage(
+  const { shelf, viewer, copy, membershipId, stampedAt } = await loadPage(
     slug,
     async (tx, ctx, viewer) => ({
+      // When this confirmation was drawn, from `ctx.clock` — the clock the
+      // whole domain reads, rather than a bare `Date.now()` (which
+      // `react-hooks/purity` refuses in a render, and rightly).
+      stampedAt: ctx.clock.now().getTime(),
       shelf: await readShelfIdentity(tx, ctx),
       viewer,
       // Taken from the context the seam already resolved, never from the URL —
@@ -138,9 +141,14 @@ export default async function QuetMaPage({
                 <input type="hidden" name="ban" value={copy.id} />
                 <input type="hidden" name="sach-id" value={copy.bookId} />
                 <input type="hidden" name="thanh-vien" value={membershipId ?? ""} />
-                {/* The moment of the scan. Refused past five minutes by the
-                    action — see its docstring for why it is unsigned. */}
-                <input type="hidden" name="luc" value={scannedAt ?? ""} />
+                {/* When this confirmation was drawn, from the **server's**
+                    clock — the same one the action compares it against five
+                    minutes later. It used to be the phone's, which is
+                    frequently wrong by more than the window itself; see
+                    `src/components/reader-scan.tsx` for what that broke. The
+                    page is `force-dynamic`, so this is stamped per render and
+                    never baked into a cached page. */}
+                <input type="hidden" name="luc" value={stampedAt} />
                 <SubmitButton>Xác nhận xin mượn bản này</SubmitButton>
               </form>
             ) : (
