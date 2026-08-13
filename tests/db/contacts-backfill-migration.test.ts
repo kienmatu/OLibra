@@ -71,11 +71,20 @@ test("backfills a contact whenever either keeper column has a value, archived sh
       ('shelf-neither',     'Neither',     null,          null,         null)
   `;
 
-  // Phase 2: the migration under test, applied from the real directory —
-  // by now it is the only pending file, since phase 1 already recorded
-  // every one before it in `schema_migrations`.
+  // Phase 2: the migration under test, applied from the real directory. Phase
+  // 1 recorded every file before it in `schema_migrations`, so it is the
+  // *first* thing still pending.
+  //
+  // `applied[0]`, not `toEqual([TARGET])`. This read `toEqual([TARGET])` until
+  // 2026-08-13, which quietly asserted that nothing would ever be added to
+  // `src/db/migrations/` after this file — so the next migration anybody wrote
+  // failed a test about parish contacts, for no reason connected to what it
+  // changed (`20260813_01_copy_qr_print.sql` is the one that found it). What
+  // this test is actually about is that `TARGET` runs against the dirty rows
+  // phase 1 left, and that is exactly what its position, not the list's
+  // length, establishes.
   const { applied } = await migrate(sql, MIGRATIONS_DIR);
-  expect(applied).toEqual([TARGET]);
+  expect(applied[0]).toBe(TARGET);
 
   const rows = await sql<
     {
