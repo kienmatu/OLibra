@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ChevronRight, Plus, Search } from "lucide-react";
+import { CopyScanField } from "@/components/copy-scan-field";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
@@ -7,6 +9,7 @@ import { BookCover, BookTitle } from "@/components/ui/book";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StepIndicator } from "@/components/ui/step-indicator";
 import { messageFor } from "@/domain/kernel/errors";
+import { resolveCopyById } from "@/domain/catalogue/queries/resolve-copy-by-id";
 import { searchBooksForLending } from "@/domain/catalogue/queries/search-books-for-lending";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
 import { loadPage } from "@/lib/page-data";
@@ -53,11 +56,17 @@ export default async function ChoMuonTimSachPage({
   searchParams: Promise<SearchParams>;
 }) {
   const { shelf: slug } = await params;
-  const query = param(await searchParams, "q") ?? "";
+  const resolved = await searchParams;
+  const query = param(resolved, "q") ?? "";
+  // BR §19's QR labels: `ban` is a copy's UUID, put there by the scanner
+  // (`CopyScanField`), never typed. Resolving it here rather than in the
+  // scanner keeps the tenancy answer where RLS can give it.
+  const scanned = param(resolved, "ban");
 
-  const { shelf, viewer, counts, results } = await loadPage(
+  const { shelf, viewer, counts, results, scannedCopy } = await loadPage(
     slug,
     async (tx, ctx, viewer) => ({
+      scannedCopy: scanned ? await resolveCopyById(tx, ctx, scanned) : null,
       // U1 Task 2 landed this as an inline `select` here, with a note that the
       // five remaining lending screens would each want the same two lines.
       // `readShelf` (`src/lib/shelf.ts`) is that extraction, and its docstring
@@ -81,6 +90,22 @@ export default async function ChoMuonTimSachPage({
   );
 
   const base = `/tu-sach/${slug}/quan-ly`;
+
+  // A scan that resolved goes straight to step 2, exactly where the title-level
+  // "Cho mượn" shortcut on the book page lands — the scan answered step 1's
+  // question, so making the volunteer look at a one-row result list and press
+  // it again would be the screen pretending not to know.
+  if (scannedCopy) {
+    redirect(`${base}/cho-muon/nguoi-doc?sach=${scannedCopy.bookSlug}`);
+  }
+
+  // A scan that resolved to nothing: another parish's sticker, a copy retired
+  // since it was labelled, or a QR from something that is not a book at all.
+  // One sentence for all of them (see `resolveCopyById`), and the search box
+  // above is still there.
+  const scanRefusal = scanned
+    ? "Mã này không thuộc tủ sách của bạn. Bạn tìm theo tên sách hoặc mã bản giúp nhé."
+    : null;
 
   return (
     <ManagerShell
@@ -124,6 +149,18 @@ export default async function ChoMuonTimSachPage({
           Không cần gõ dấu — gõ de men vẫn tìm ra Dế Mèn.
         </p>
       </form>
+
+      {/* BR §19's QR labels. The scanner sits beside the search box, never in
+          place of it: a cracked lens, a refused permission or a borrowed phone
+          are all ordinary, and typing the code stays a complete path. */}
+      <div className="mt-4 max-w-xl">
+        <CopyScanField basePath={`${base}/cho-muon`} />
+        {scanRefusal ? (
+          <p role="alert" className="mt-2 text-[15px] text-brick">
+            {scanRefusal}
+          </p>
+        ) : null}
+      </div>
 
       {results.length > 0 ? (
         <ul className="mt-8 max-w-2xl divide-y divide-hairline border-y border-hairline">

@@ -96,6 +96,10 @@ Reader full names on these pages are governed by the shelf's `public_name_displa
 | `GetStatistics` | Period-based shelf statistics (§16.3). | `bookshelfId`, `period` (`week` \| `month` \| `year` \| `all`) | Loan count, distinct borrowers, books added, books lost, daily/category charts, top books, top readers | `manager` | Every figure is computed for the period at query time — nothing here is a materialised counter |
 | `GetShelfSettings` (manager, read-only) | View this shelf's profile and lending policy. | `bookshelfId` | Profile fields, lending-policy values (§5.5) | `manager` | — |
 | `GetAuditLog` (shelf-scoped) | This shelf's audit trail. | `bookshelfId`, filters | Readable Vietnamese sentences per entry, raw before/after on expansion | `manager` | — |
+| `ListTitlesForLabels` | The QR-label selection accordion (§19's "QR labels per copy"). Grouped in the query, not on the page, so the "chưa in nhãn" filter can drop a title whose every copy is already printed rather than render a row that opens onto nothing. | `bookshelfId`, `onlyUnprinted` | Titles, each with its live copies and each copy's print count | `manager` | — |
+| `ListCopiesForLabels` | The copies a sheet is about to be printed for. `bookIds` and `copyIds` are a **union**, so a manager may tick a whole title and individual copies of another; expansion happens here, not in the browser, where the answer would be whatever the page was rendered with. | `bookshelfId`, `bookIds?`, `copyIds?`, `onlyUnprinted?` | Copy rows: id, code, title, print count — ordered by code | `manager` | — |
+| `ResolveCopyById` | A scanned QR label back to a copy. Takes the copy's **UUID**, never the printed payload — decoding lives outside the domain, so the label format can change without a query changing. Deliberately **not** manager-only: a reader scans a book on the shelf to ask for it (§16.1), and RLS is what keeps another parish's sticker unresolvable. | `bookshelfId`, `copyId` | Copy id, code, state, book id/slug/title/author — or nothing | `reader` | — |
+| `ExportLabelSheetPDF` | The printable sheet itself. A4 pages laid out inside the 186 × 255.4mm that A4 and US Letter share, 21 labels per page, so one file prints correctly on either paper. Writes `MarkCopiesPrinted` (§4.1) only once the bytes exist. | `bookshelfId`, `bookIds?`, `copyIds?` | PDF | `manager` | — |
 | `ExportBooksCSV` | Data-export insurance (§2). | `bookshelfId` | CSV of the book catalogue | `manager` | — |
 | `ExportReadersCSV` | — | `bookshelfId` | CSV of readers | `manager` | — |
 | `ExportLoansCSV` | — | `bookshelfId` | CSV of loan history | `manager` | — |
@@ -173,6 +177,19 @@ Adds more physical copies to an existing title, auto-generating the next sequent
   - `validation_failed` — "Số bản phải lớn hơn 0."
 
 **UI trigger:** the "Thêm bản" button beside the copies heading on the manager's book detail page (`src/app/tu-sach/[shelf]/quan-ly/sach/[id]/page.tsx`), per §16.3. It sits with the copies, not with "Sửa sách", because adding a physical object to the shelf is not editing the title's metadata — and a volunteer holding a newly donated second copy would not look under "edit book" for it.
+
+#### `MarkCopiesPrinted`
+Records that a QR label sheet was produced for a set of copies (§19's "QR labels per copy"). Stamps `qr_printed_at` and **increments** `qr_print_count` — the count exists precisely so a reprint, after a sticker falls off, stays distinguishable from a first print, which a single boolean or a timestamp read as one cannot do.
+
+- **Inputs:** `bookshelfId`, `copyIds`
+- **Caller:** `manager`
+- **Audit action:** `copy.qr_printed` — **one entry for the batch**, deliberately unlike `AddCopies` above. §5.4's "the record affected is singular per entry" is about copies coming into existence separately; a print run is one volunteer at one printer in one moment, and four hundred rows saying so would bury the log §14 exists to keep readable. The entry names the count.
+- **Failure modes:**
+  - `copy_selection_empty` — "Bạn chưa chọn bản sách nào để in nhãn."
+
+**A zero-row update is not a failure here**, and this is the one command in this document for which that is true. It is set-valued bookkeeping about a document that already exists — the route builds the PDF bytes *before* calling this — so an empty result is a fact to record, not a target that was missed. The reported count is what actually moved, not what was asked for.
+
+**UI trigger:** submitting the selection on `/quan-ly/nhan-qr`, which returns the sheet as a download.
 
 #### `AssessCondition`
 Records a manager's judgement of a copy's physical state at a point in time, independent of any loan (§5.4: "a manager may assess a copy at any time, not only at return").

@@ -89,6 +89,14 @@ Data lives in `./data` on the host, not inside the containers, so
 `docker compose down -v` cannot take the parish's records with it. Back up that
 one directory and you have backed up everything. `./data` is gitignored.
 
+**The QR scanner needs HTTPS in front of the app.** `getUserMedia` is only
+available in a secure context — HTTPS, or `localhost` during development. The
+compose stack terminates no TLS of its own, so over plain HTTP the "Quét mã
+bản" button reports in Vietnamese that the browser cannot open the camera and
+typing the copy code remains the only path. Nothing breaks; the feature is
+simply absent. Put a reverse proxy in front before telling volunteers the
+scanner works.
+
 **The application speaks S3, never MinIO.** MinIO is what runs in compose;
 production may be AWS S3, Cloudflare R2 or Backblaze B2, and switching is a
 change of environment variables. Never import a MinIO SDK, and never assume
@@ -163,6 +171,8 @@ and if something is missing, add it there rather than inline.**
 | A cover | `BookCover` |
 | A phone number | `PhoneLink` — never plain text |
 | Buttons | `Button` / `ButtonLink` / `BigActionLink` |
+| A selection checkbox in a list | `Checkbox` from `field.tsx` — never `Toggle`, which commits on change |
+| Reading a QR label with the camera | `QrScanner`, or `CopyScanField` where a screen already asks "which book?" |
 
 ## Language
 

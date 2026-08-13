@@ -18,6 +18,21 @@ export interface CreateBorrowRequestInput {
    * caller-supplied id is not a scope.
    */
   membershipId: string;
+  /**
+   * The physical copy in the reader's hands, when they scanned its QR label
+   * rather than pressing "Xin mượn" on a title (BR §19).
+   *
+   * **Optional, and it stays optional.** A request is a statement of intent
+   * about a *title* (§7.2) — the title-level button predates this and is
+   * unchanged. This records which copy prompted it, which is strictly more
+   * than the queue knew before: the manager sees the book that is actually in
+   * the child's hands, not merely which title was wanted.
+   *
+   * It is **not** a claim on that copy. `ApproveBorrowRequest` still chooses
+   * which copy to hand over, for the reason this command's own docstring gives
+   * below — nothing here reads a copy's state.
+   */
+  copyId?: string;
 }
 
 export interface CreateBorrowRequestResult {
@@ -144,12 +159,29 @@ export const createBorrowRequest: Command<
   `;
   if (existing) throw new RuleViolated("duplicate_request");
 
+  // A scanned copy must belong to the title being requested. It always does
+  // when the reader's own scan resolved it — the page reads the book *from* the
+  // copy — so this guards a caller that constructed the pair itself, and it
+  // guards it because the alternative is a row saying "wants DT-0142 of Hoàng
+  // Tử Bé" when DT-0142 is a copy of Dế Mèn: a contradiction a manager can only
+  // resolve by hand. RLS scopes the lookup, so another shelf's copy id and a
+  // copy id naming nothing are the same refusal.
+  if (input.copyId !== undefined) {
+    const [copy] = await tx<{ id: string }[]>`
+      select id from book_copies
+       where id = ${input.copyId}
+         and book_id = ${book.id}
+         and deleted_at is null
+    `;
+    if (!copy) throw new NotFound("copy_not_found");
+  }
+
   const [row] = await tx<{ id: string }[]>`
     insert into borrow_requests
-      (bookshelf_id, book_id, member_id, status, requested_at)
+      (bookshelf_id, book_id, copy_id, member_id, status, requested_at)
     values
-      (${ctx.bookshelfId}, ${book.id}, ${member.user_id}, 'pending',
-       ${ctx.clock.now()})
+      (${ctx.bookshelfId}, ${book.id}, ${input.copyId ?? null},
+       ${member.user_id}, 'pending', ${ctx.clock.now()})
     returning id
   `;
 
@@ -162,6 +194,9 @@ export const createBorrowRequest: Command<
     after: {
       status: "pending",
       book_id: book.id,
+      // Null when the request came from the title page rather than a scan. The
+      // key is always present so the two paths produce the same shape.
+      copy_id: input.copyId ?? null,
       // The title **as it is now**, stored rather than joined later (P1 §3.2a).
       title: book.title,
       // Both ids, for the reason `loan.created` stores both: `member_id` is

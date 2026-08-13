@@ -5,11 +5,7 @@ import { RuleViolated } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runQuery } from "../../../src/domain/kernel/unit-of-work";
 import { listTitlesForLabels } from "../../../src/domain/catalogue/queries/list-titles-for-labels";
-import {
-  makeBookWithCopies,
-  makeMember,
-  makeShelf,
-} from "../../support/factories";
+import { makeBookWithCopies, makeMember, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";
 
 beforeAll(() => migrate(sql));

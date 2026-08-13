@@ -97,7 +97,7 @@ export default async function NhanQrPage({
       />
 
       {titles.length === 0 ? (
-        <p className="text-meta mt-8 text-[16px]">
+        <p className="mt-8 text-[16px] text-meta">
           {onlyUnprinted
             ? "Mọi bản sách trong tủ đều đã in nhãn."
             : "Chưa có bản sách nào trong tủ."}
@@ -108,16 +108,15 @@ export default async function NhanQrPage({
           action={`${base}/xuat/nhan-qr`}
           className="mt-6 space-y-3"
         >
-          <p className="text-meta text-[15px]">
-            {NUMBER.format(titles.length)} đầu sách ·{" "}
-            {NUMBER.format(copyTotal)} bản
+          <p className="text-[15px] text-meta">
+            {NUMBER.format(titles.length)} đầu sách · {NUMBER.format(copyTotal)} bản
           </p>
 
           <ul className="space-y-2">
             {titles.map((title) => (
               <li
                 key={title.bookId}
-                className="rounded-card border-hairline bg-surface border"
+                className="rounded-card border border-hairline bg-surface"
               >
                 {/* The title's checkbox is a *sibling* of the `<details>`, not
                     a child of its `<summary>`. Nested inside, every tick of the
@@ -138,19 +137,19 @@ export default async function NhanQrPage({
                         <BookTitle className="block text-[17px]">
                           {title.title}
                         </BookTitle>
-                        <span className="text-meta block text-[14px]">
+                        <span className="block text-[14px] text-meta">
                           {title.author ? `${title.author} · ` : ""}
                           {NUMBER.format(title.copies.length)} bản
                         </span>
                       </span>
                       <ChevronDown
                         aria-hidden
-                        className="text-meta size-5 shrink-0 transition-transform group-open:rotate-180"
+                        className="size-5 shrink-0 text-meta transition-transform group-open:rotate-180"
                         strokeWidth={1.75}
                       />
                     </summary>
 
-                    <ul className="border-hairline mt-2 space-y-1 border-t pt-2">
+                    <ul className="mt-2 space-y-1 border-t border-hairline pt-2">
                       {title.copies.map((copy) => (
                         <li key={copy.id}>
                           <Checkbox
@@ -175,7 +174,7 @@ export default async function NhanQrPage({
           <SubmitButton icon={<Printer aria-hidden className="size-5" />}>
             In nhãn QR
           </SubmitButton>
-          <p className="text-meta text-[14px]">
+          <p className="text-[14px] text-meta">
             Mỗi trang A4 in được 21 nhãn. Tệp in vừa cả khổ A4 và khổ Letter.
           </p>
         </form>
