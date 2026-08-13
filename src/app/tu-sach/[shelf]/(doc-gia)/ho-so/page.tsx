@@ -11,7 +11,7 @@ import { atLeast } from "@/domain/kernel/tenant";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
-import { formatDate } from "@/lib/dates";
+import { formatInstant } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
 import { readShelf } from "@/lib/shelf";
@@ -432,9 +432,21 @@ export default async function ReaderProfilePage({
           </p>
         </form>
 
+        {/* `formatInstant`, never `formatDate` — the same distinction
+            `nguoi-doc/[id]/page.tsx` carries for `approved_at`, and this is
+            where getting it wrong actually shipped. `decided_at` is a
+            `timestamptz` (`0008_profile_changes.sql:17`) that
+            `getMyProfileChangeRequest` hands over as `decided_at::text`, so
+            the value is `2026-08-13 12:57:55.697401+00` — an instant, not the
+            `YYYY-MM-DD` `formatDate` documents itself for. `formatDate`
+            appended `T00:00:00Z` to that, got an Invalid Date, and
+            `Intl.DateTimeFormat.format` threw `RangeError` — a 500 on the
+            reader's own page, for every reader whose request had been
+            decided. `tests/lib/profile-page-shows-a-decided-request.test.tsx`
+            renders this paragraph so it cannot come back. */}
         {pending?.decidedAt ? (
           <p className="mt-10 text-[13px] text-meta">
-            Đề nghị gần nhất được xử lý ngày {formatDate(pending.decidedAt)}.
+            Đề nghị gần nhất được xử lý ngày {formatInstant(pending.decidedAt)}.
           </p>
         ) : null}
       </main>
