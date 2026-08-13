@@ -171,6 +171,19 @@ function flag(bag: Record<string, unknown> | null, key: string): boolean | null 
   return typeof value === "boolean" ? value : null;
 }
 
+/**
+ * A number at `key`, or `null` — the same `Object.hasOwn` rule as `str`.
+ *
+ * `Number.isFinite` and not merely `typeof`: `NaN` and the infinities are
+ * numbers, and `String(NaN)` in the middle of a Vietnamese sentence is exactly
+ * the class of output `str`'s docstring above refuses to produce.
+ */
+function num(bag: Record<string, unknown> | null, key: string): number | null {
+  if (!bag || !Object.hasOwn(bag, key)) return null;
+  const value = bag[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 /** " vì <lý do>", or nothing at all — never " vì undefined". */
 function because(reason: string | null): string {
   return reason ? ` vì ${reason}` : "";
@@ -240,6 +253,21 @@ const ACTIONS = {
   "copy.found": {
     group: "sach",
     phrase: () => "tìm lại được một bản sách đã mất",
+  },
+  // One entry for a whole print run, not one per copy — unlike `copy.added`
+  // above, which OPS §4.1 requires to be singular because each copy genuinely
+  // came into existence separately. A print run is one volunteer at one printer
+  // in one moment, and four hundred rows saying so would bury the log BR §14
+  // exists to keep readable. The count is the sentence's subject, which is why
+  // this is the one phrase in this file that reads a number.
+  "copy.qr_printed": {
+    group: "sach",
+    phrase: (f) => {
+      const count = num(f.after, "count");
+      return count === null
+        ? "in nhãn QR cho bản sách"
+        : `in nhãn QR cho ${count} bản sách`;
+    },
   },
 
   // — mượn và trả —
