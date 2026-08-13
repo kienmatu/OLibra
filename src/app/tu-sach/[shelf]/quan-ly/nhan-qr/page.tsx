@@ -1,4 +1,5 @@
 import { ChevronDown, Printer } from "lucide-react";
+import { SelectAllCopies } from "@/components/select-all-copies";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { BookTitle } from "@/components/ui/book";
 import { PageHeading } from "@/components/ui/card";
@@ -14,13 +15,24 @@ import { readShelf } from "@/lib/shelf";
 /** U1 §2. See `../cho-muon/page.tsx` for the long version. */
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "In nhãn QR — Quản lý tủ sách OLibra" };
+export const metadata = { title: "In mã QR — Quản lý tủ sách OLibra" };
 
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
 /** `?loc=tat-ca` widens the list; anything else, including absent, means unprinted only. */
 const FILTER = "loc";
 const ALL = "tat-ca";
+
+/**
+ * Named so `SelectAllCopies` can find the form it belongs to.
+ *
+ * A `document.getElementById` rather than a ref, because the button is a client
+ * component and the form around it is server-rendered — there is no shared
+ * React tree to pass a ref through, and lifting the whole form into a client
+ * component to gain one would trade a screen that works without JavaScript for
+ * a convenience.
+ */
+const FORM_ID = "chon-ban-in-nhan";
 
 /**
  * BR §19's "QR labels per copy", the screen a manager picks from.
@@ -39,7 +51,7 @@ const ALL = "tat-ca";
  * is stale the moment another manager adds a copy. So the absence of that
  * behaviour is the design, not a limitation being apologised for.
  *
- * **`Chưa in nhãn` is the default filter** because it is the common case after
+ * **`Chưa in mã` is the default filter** because it is the common case after
  * the first print run: a volunteer who catalogued three books on Sunday wants
  * three stickers, not four hundred. `qr_print_count` — not a boolean — is what
  * makes that filter honest about a reprint.
@@ -76,7 +88,7 @@ export default async function NhanQrPage({
       counts={counts}
     >
       <PageHeading
-        title="In nhãn QR"
+        title="In mã QR"
         subtitle="Chọn sách hoặc từng bản, tải tệp PDF về rồi in và dán lên bìa sách."
       />
 
@@ -85,7 +97,7 @@ export default async function NhanQrPage({
         options={[
           {
             href: `${base}/nhan-qr`,
-            label: "Chưa in nhãn",
+            label: "Chưa in mã",
             active: onlyUnprinted,
           },
           {
@@ -99,18 +111,23 @@ export default async function NhanQrPage({
       {titles.length === 0 ? (
         <p className="mt-8 text-[16px] text-meta">
           {onlyUnprinted
-            ? "Mọi bản sách trong tủ đều đã in nhãn."
+            ? "Mọi bản sách trong tủ đều đã in mã QR."
             : "Chưa có bản sách nào trong tủ."}
         </p>
       ) : (
         <form
+          id={FORM_ID}
           method="post"
           action={`${base}/xuat/nhan-qr`}
           className="mt-6 space-y-3"
         >
-          <p className="text-[15px] text-meta">
-            {NUMBER.format(titles.length)} đầu sách · {NUMBER.format(copyTotal)} bản
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[15px] text-meta">
+              {NUMBER.format(titles.length)} đầu sách · {NUMBER.format(copyTotal)}{" "}
+              bản
+            </p>
+            <SelectAllCopies formId={FORM_ID} />
+          </div>
 
           <ul className="space-y-2">
             {titles.map((title) => (
@@ -159,7 +176,7 @@ export default async function NhanQrPage({
                             hint={
                               copy.printCount > 0
                                 ? `Đã in ${NUMBER.format(copy.printCount)} lần`
-                                : "Chưa in nhãn"
+                                : "Chưa in mã"
                             }
                           />
                         </li>
@@ -172,10 +189,10 @@ export default async function NhanQrPage({
           </ul>
 
           <SubmitButton icon={<Printer aria-hidden className="size-5" />}>
-            In nhãn QR
+            In mã QR
           </SubmitButton>
           <p className="text-[14px] text-meta">
-            Mỗi trang A4 in được 21 nhãn. Tệp in vừa cả khổ A4 và khổ Letter.
+            Mỗi trang A4 in được 21 mã. Tệp in vừa cả khổ A4 và khổ Letter.
           </p>
         </form>
       )}

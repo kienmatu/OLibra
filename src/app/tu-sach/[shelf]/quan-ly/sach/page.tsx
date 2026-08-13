@@ -166,13 +166,13 @@ export default async function ManagerBooksPage({
         subtitle={`${NUMBER.format(page.total)} đầu sách`}
         action={
           // Two controls, one primary. "Thêm sách" keeps the solid terracotta
-          // — BR §17.3 allows exactly one — and "In nhãn QR" is quiet beside
+          // — BR §17.3 allows exactly one — and "In mã QR" is quiet beside
           // it, which is also the honest ranking: cataloguing comes first and
           // labelling follows it.
           <div className="flex flex-wrap gap-3">
             <ButtonLink href={`${base}/nhan-qr`} variant="quiet" size="lg">
               <QrCode aria-hidden className="size-5" strokeWidth={1.75} />
-              In nhãn QR
+              In mã QR
             </ButtonLink>
             <ButtonLink href={`${base}/sach/moi`} variant="primary" size="lg">
               <Plus aria-hidden className="size-5" strokeWidth={1.75} />

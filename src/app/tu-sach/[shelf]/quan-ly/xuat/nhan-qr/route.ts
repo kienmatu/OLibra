@@ -1,6 +1,5 @@
 import { markCopiesPrinted } from "@/domain/catalogue/commands/mark-copies-printed";
 import { listCopiesForLabels } from "@/domain/catalogue/queries/list-copies-for-labels";
-import { attachmentHeader } from "@/lib/csv";
 import { loadFile, submitCommand } from "@/lib/page-data";
 import { buildLabelSheet } from "@/lib/qr-labels";
 import { readShelf } from "@/lib/shelf";
@@ -99,16 +98,27 @@ export async function POST(
     copyIds: found.copies.map((c) => c.id),
   });
 
-  const date = today();
+  // One slugged, ASCII-only filename — no `filename*` twin.
+  //
+  // The CSV exports next door carry two spellings because their real name holds
+  // the shelf's own *name*: "Bạn đọc — Tủ sách Đồng Tháp — 2026-08-13.csv"
+  // cannot survive a `filename=` parameter, so RFC 6266's `filename*` carries
+  // it and an ASCII fold trails behind as the fallback. This file is named from
+  // the shelf's **slug**, which `olibra_fold` already guarantees is ASCII —
+  // `dong-thap`, never `đồng-tháp` — so there is nothing for the second
+  // spelling to rescue, and a name that survives every filesystem, every
+  // `ls` and every phone's download list unchanged is worth more here than a
+  // prettier one.
+  //
+  // Sorted-friendly on purpose: the date is last and in `YYYY-MM-DD`, so a
+  // folder of print runs sorts chronologically within a shelf.
+  const name = `QR-in-sach-${slug}-${today()}.pdf`;
 
   return new Response(body.buffer as ArrayBuffer, {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": attachmentHeader(
-        `nhan-qr-${slug}-${date}.pdf`,
-        `Nhãn QR — ${found.shelf.name} — ${date}.pdf`,
-      ),
+      "Content-Disposition": `attachment; filename="${name}"`,
       // Built, streamed, discarded. There is no temporary file and no cache,
       // here or anywhere between here and the browser.
       "Cache-Control": "no-store, private",

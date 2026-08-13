@@ -265,8 +265,8 @@ const ACTIONS = {
     phrase: (f) => {
       const count = num(f.after, "count");
       return count === null
-        ? "in nhãn QR cho bản sách"
-        : `in nhãn QR cho ${count} bản sách`;
+        ? "in mã QR cho bản sách"
+        : `in mã QR cho ${count} bản sách`;
     },
   },
 

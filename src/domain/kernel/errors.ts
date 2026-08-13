@@ -43,7 +43,7 @@ export const ERROR_MESSAGES = {
   // below gives about CreateBook and AddCopies: one code is one sentence, and
   // "Vui lòng kiểm tra lại thông tin" tells a volunteer who submitted an empty
   // label selection nothing about what to do next.
-  copy_selection_empty: "Bạn chưa chọn bản sách nào để in nhãn.",
+  copy_selection_empty: "Bạn chưa chọn bản sách nào để in mã QR.",
   // — catalogue: added by B1 —
   // OPS §4.1 gives `validation_failed` three different sentences across
   // CreateBook, UpdateBook and AddCopies. One code maps to one sentence, so
