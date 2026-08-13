@@ -59,12 +59,29 @@ create trigger bookshelf_contacts_set_updated_at
   before update on bookshelf_contacts
   for each row execute function set_updated_at();
 
--- The keeper becomes contact 1. A shelf with no keeper name gets no row and
--- is flagged as incomplete in /quan-tri/tu-sach instead.
+-- The keeper becomes contact 1. Carried whenever *either* column has a
+-- value (post-review fix wave, item 2) — both columns were nullable, so a
+-- shelf holding a phone with a blank name is representable data, and the
+-- original `where keeper_name is not null …` alone dropped that phone
+-- number on the floor rather than carrying it forward. `deleted_at is null`
+-- is gone from the predicate for the same reason: an archived shelf's
+-- keeper is real information about a real shelf, and filtering it out here
+-- meant a shelf restored later could never get its contact back — this
+-- migration runs once, and there is no second chance at the columns it is
+-- about to drop.
+--
+-- `coalesce(nullif(keeper_name, ''), 'Chưa có tên')` is what lets `name`
+-- stay `not null` without inventing a person: 'Chưa có tên' is this
+-- codebase's own idiom for "on file as missing" (`reader.saintName ??
+-- "Chưa có"`, `parishLine || "Chưa có"`, …), applied to the one column here
+-- that cannot itself be null. It marks a record the parish must complete,
+-- not a guess at who the person is.
 insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
-select id, 1, keeper_name, keeper_phone, 'Người giữ chìa khoá'
+select id, 1, coalesce(nullif(keeper_name, ''), 'Chưa có tên'), keeper_phone,
+       'Người giữ chìa khoá'
   from bookshelves
- where keeper_name is not null and keeper_name <> '' and deleted_at is null;
+ where (keeper_name is not null and keeper_name <> '')
+    or (keeper_phone is not null and keeper_phone <> '');
 
 alter table bookshelves drop column keeper_name;
 alter table bookshelves drop column keeper_phone;
