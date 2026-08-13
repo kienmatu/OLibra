@@ -382,7 +382,13 @@ export default async function ManagerBookDetailPage({
             cannot drift apart. `book.onLoan` is Task 11's own addition to
             `getBookDetailManager`'s return shape; the SQL had always counted
             it for `deriveAvailability` and no screen had ever seen the
-            number. */}
+            number.
+
+            Post-review fix wave, item 7: `book.book.copiesTotal` now excludes
+            both `retired` and `lost` copies (the query fix, above this
+            page), so "N bản trong tủ" is true for a lost copy — it plainly is
+            not in the cupboard — and the heading three lines down uses this
+            exact number too, so the two no longer disagree. */}
         <p className="text-[15px] text-meta">
           {copyCountLine({
             copiesAvailable: book.book.copiesAvailable,
@@ -398,8 +404,18 @@ export default async function ManagerBookDetailPage({
             once opened, and centring against it left the heading floating
             in the middle of that height instead of sitting at the top. */}
         <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+          {/* Post-review fix wave, item 7: this used to be
+              `book.copies.length`, which counts every row the table below
+              renders — retired and lost copies included, since a manager's
+              page shows those with their reason (unlike a reader's). That
+              made this heading disagree with the summary line above it: one
+              retired copy read "3 bản trong tủ" here and "Các bản sách (4)"
+              three lines down, over a four-row table. `book.book.copiesTotal`
+              is the number the line above already uses, so the two now
+              agree — the table itself is unchanged and still lists every
+              copy, retired and lost ones included. */}
           <h2 className="pt-2.5 text-xl font-semibold">
-            Các bản sách ({NUMBER.format(book.copies.length)})
+            Các bản sách ({NUMBER.format(book.book.copiesTotal)})
           </h2>
           {/* A <details> disclosure, not a separate page: adding more copies
               to a title already catalogued is only two fields beyond the

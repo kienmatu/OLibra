@@ -14,15 +14,25 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * SQL already shows a copy-pasted shape can.
  *
  * **`copiesAvailable + onLoan` need not equal `copiesTotal`, and that is not a
- * bug to fix here.** A lost or retired copy is in neither count — `held` copies
- * are not in `onLoan` either — so the three numbers can undercount the total
- * by however many copies are in one of those other states. That is exactly why
- * the third number is worded "bản trong tủ" (copies in the shelf's records)
- * rather than presented as a sum the first two add up to. Do not "correct" the
- * arithmetic by deriving `copiesTotal` from the other two, or by deriving one
- * of the other two from `copiesTotal` minus the rest — each is its own count
- * off its own `book_copies` rows, and a title with a lost copy is the ordinary
+ * bug to fix here.** `held` copies are counted in neither `copiesAvailable`
+ * nor `onLoan`, so the two can undercount the total by however many copies are
+ * currently held for a waiting reader. Do not "correct" the arithmetic by
+ * deriving `copiesTotal` from the other two, or one of the other two from
+ * `copiesTotal` minus the rest — each is its own count off its own
+ * `book_copies` rows, and a title with a copy held for someone is the ordinary
  * case this sentence has to stay honest about.
+ *
+ * **`copiesTotal` itself excludes `lost` and `retired` copies, both of
+ * them** — `get-book-detail.ts` and `get-book-detail-manager.ts` compute it
+ * that way (post-review fix wave, item 7). That is what makes "bản trong tủ"
+ * (copies in the shelf's records) a true sentence: a lost copy is, by
+ * definition, not in the cupboard, and neither is a retired one. Before this
+ * fix the query excluded only `retired`, so a single lost copy inflated this
+ * number by one and the manager page's own copy-count heading — built from a
+ * different total that *did* include retired copies — disagreed with this
+ * line outright. Callers pass a query's own `copies_total`/`copiesTotal`
+ * straight through; this function does not re-derive or re-filter it, so the
+ * guarantee lives at the one or two places that compute it, not here.
  */
 export function copyCountLine(counts: {
   copiesAvailable: number;

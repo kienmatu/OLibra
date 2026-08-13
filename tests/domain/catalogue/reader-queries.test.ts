@@ -428,6 +428,32 @@ test("book detail resolves by slug and reports the queue and the holder", async 
   expect(detail.currentLoan?.daysRemaining).toBe(12);
 });
 
+/**
+ * Post-review fix wave, item 7. `copiesTotal` used to exclude only `retired`
+ * copies, so a lost one inflated the number `copyCountLine` (`src/lib/
+ * catalogue.ts`) renders as "N bản trong tủ" on this page — a lost copy is,
+ * definitionally, not in the cupboard. `get-book-detail-manager.ts` carries
+ * the identical fix, pinned by its own test.
+ */
+test("copiesTotal excludes a lost copy, the same way it already excludes a retired one", async () => {
+  const { readerCtx, ids } = await shelfWithCatalogue();
+  const bookId = ids["Dế Mèn Phiêu Lưu Ký"];
+  const [copy] = await sql<{ id: string }[]>`
+    select id from book_copies where book_id = ${bookId} order by code limit 1
+  `;
+  await sql`
+    update book_copies set state = 'lost', lost_reported_at = now()
+    where id = ${copy.id}
+  `;
+
+  const detail = await runQuery(sql, readerCtx, (tx) =>
+    getBookDetail(tx, readerCtx, { bookSlug: "de-men-phieu-luu-ky" }),
+  );
+
+  expect(detail.copiesTotal).toBe(1);
+  expect(detail.copiesAvailable).toBe(1);
+});
+
 test("public_show_current_borrower off withholds the holder, keeps the availability", async () => {
   // BR §5.5. The panel still says the book is out; it just does not say with
   // whom.

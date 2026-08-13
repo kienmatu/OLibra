@@ -94,7 +94,12 @@ export async function getBookDetail(
       b.id as book_id, b.slug, b.title, b.author, b.cover_url,
       c.name as category, b.publisher, b.published_year, b.page_count,
       b.isbn, b.description, b.language,
-      count(cp.id) as copies_total,
+      -- Post-review fix wave, item 7 — same fix as get-book-detail-manager
+      -- .ts's twin query. cp already excludes retired copies (the join
+      -- predicate below); until this fix it still counted lost ones into
+      -- copies_total, so a single lost copy made "N bản trong tủ" claim a
+      -- location for a book that is, definitionally, not there.
+      count(cp.id) filter (where cp.state <> 'lost') as copies_total,
       count(av.id) as copies_available,
       count(cp.id) filter (where cp.state = 'on_loan') as on_loan,
       count(cp.id) filter (where cp.state = 'held')    as held,
