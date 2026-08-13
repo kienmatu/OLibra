@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { CheckCircle2, Info } from "lucide-react";
-import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
+import { Field, Input, ReadOnlyValue, Textarea } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
@@ -77,7 +78,13 @@ export default async function RegisterPage({
   if (!shelf) {
     return (
       <>
-        <ShelfHeader shelfName="OLibra" shelfSlug="" viewerName={null} />
+        <ShelfHeader
+          shelfName="OLibra"
+          shelfSlug=""
+          viewerName={null}
+          canManage={false}
+          isSuperAdmin={false}
+        />
         <main className="mx-auto max-w-xl px-6 py-16">
           <h1 className="text-[28px] leading-tight font-semibold">
             Đăng ký làm bạn đọc
@@ -110,6 +117,8 @@ export default async function RegisterPage({
         shelfName={shelf.name}
         shelfSlug={shelf.slug}
         viewerName={null}
+        canManage={false}
+        isSuperAdmin={false}
       />
 
       <main className="mx-auto max-w-xl px-6 py-16">
@@ -138,6 +147,7 @@ export default async function RegisterPage({
         ) : null}
 
         <form
+          id="dang-ky-form"
           action={registerMembershipAction}
           // QA remediation T27: the browser's own required/pattern validation
           // messages ("Please fill out this field") come out in whatever
@@ -227,10 +237,17 @@ export default async function RegisterPage({
 
             <Field
               label="Tên thánh"
+              required
               htmlFor="ten-thanh"
-              hint="Ghi nếu có, để quản lý dễ nhận ra bạn."
+              hint="Theo sổ giáo xứ, để quản lý dễ nhận ra bạn."
+              invalidHint="Vui lòng nhập tên thánh."
             >
-              <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
+              <Input
+                id="ten-thanh"
+                name="ten-thanh"
+                required
+                placeholder="vd: Maria"
+              />
             </Field>
 
             <Field
@@ -296,15 +313,15 @@ export default async function RegisterPage({
               label="Số điện thoại liên hệ"
               required
               htmlFor="dien-thoai"
-              hint="Số của cha mẹ cũng được. Dùng khi cần nhắc trả sách."
+              hint="Số của cha mẹ cũng được. Để trống thì cần cho biết lý do bên dưới."
               // The same sentence `phone_invalid` already gives a manager
               // editing this same shape of field elsewhere — reused rather
               // than newly written, per `errors.ts`'s own rule that a screen
               // borrows the domain's wording instead of inventing its own for
-              // a rule it did not define. It covers both an empty box
-              // (`required`) and a malformed one (`pattern`): `:user-invalid`
-              // does not distinguish which constraint failed, so the message
-              // has to fit either.
+              // a rule it did not define. Only ever the *malformed* case now
+              // (PO feedback round 1, Task 8): the `<Input>` below carries no
+              // HTML `required`, so `:user-invalid` never fires on an empty
+              // box, only on one holding digits `pattern` rejects.
               invalidHint={messageFor("phone_invalid")}
             >
               <Input
@@ -313,10 +330,36 @@ export default async function RegisterPage({
                 type="tel"
                 inputMode="numeric"
                 pattern={PHONE_PATTERN}
-                required
+                // Not HTML `required` — see this `Field`'s own `invalidHint`
+                // comment. The real rule is "a phone, or a reason", and
+                // `register()` is what enforces it now.
                 placeholder="vd: 09xx xxx xxx"
               />
             </Field>
+
+            {/* PO feedback round 1, Task 8. A brand-new registration has no
+                record to consult, so this starts hidden — `PhoneConfirmDialog`
+                fills it in on confirm — and only becomes a visible, required
+                box once a `thieu-so-dien-thoai` refusal has actually happened:
+                the no-JavaScript path this whole feature has to survive
+                without. */}
+            {refusal === "thieu-so-dien-thoai" ? (
+              <Field
+                label="Lý do chưa có số điện thoại"
+                required
+                htmlFor="ly-do-thieu-sdt"
+                hint="Ví dụ: em bé chưa có điện thoại riêng, sẽ bổ sung sau."
+              >
+                <Textarea
+                  id="ly-do-thieu-sdt"
+                  name="ly-do-thieu-sdt"
+                  required
+                  rows={3}
+                />
+              </Field>
+            ) : (
+              <input type="hidden" name="ly-do-thieu-sdt" />
+            )}
           </section>
 
           <section className="space-y-6">
@@ -363,6 +406,7 @@ export default async function RegisterPage({
             </Link>
           </p>
         </form>
+        <PhoneConfirmDialog formId="dang-ky-form" />
       </main>
 
       <SiteFooter contact={contact} />

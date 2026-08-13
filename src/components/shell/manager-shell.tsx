@@ -514,53 +514,104 @@ export type AdminNavKey =
   | "tu-sach"
   | "the-loai"
   | "quan-ly-vien"
+  | "doi-thong-tin"
   | "nhat-ky"
   | "gop-y"
   | "cai-dat";
 
-const ADMIN_NAV: { key: AdminNavKey; label: string; icon: LucideIcon }[] = [
+/**
+ * The counts `AdminShell`'s sidebar can honestly show.
+ *
+ * Two fields as of Task 10 (PO feedback round 1) — `unreadFeedback` shipped
+ * with B4a and `pendingManagerChanges` is `/quan-tri/doi-thong-tin`'s own
+ * queue, the super-admin half of §9's routing table
+ * (`get-pending-manager-changes.ts`). Shaped like `ManagerShell`'s own
+ * `ShellCounts` for the identical reason: a nav entry names which count it
+ * shows rather than being handed one, so a hard-coded number is not
+ * expressible here either.
+ */
+export interface AdminShellCounts {
+  unreadFeedback: number;
+  pendingManagerChanges: number;
+}
+
+const ADMIN_NAV: {
+  key: AdminNavKey;
+  label: string;
+  icon: LucideIcon;
+  badge?: keyof AdminShellCounts;
+}[] = [
   { key: "tong-quan", label: "Tổng quan", icon: LayoutDashboard },
   { key: "tu-sach", label: "Tủ sách", icon: Archive },
   // Task 2 (QA remediation). Global reference data, so it sits with the other
   // cross-shelf administration screens rather than under any one shelf.
   { key: "the-loai", label: "Thể loại", icon: Tags },
   { key: "quan-ly-vien", label: "Quản lý viên", icon: KeyRound },
+  // Task 10. Sits beside "Quản lý viên" rather than at the end of the list —
+  // both are about the people who run a shelf, not about its books or its
+  // settings, and a queue nobody can find is the defect Task 9 left behind.
+  {
+    key: "doi-thong-tin",
+    label: "Đổi thông tin quản lý",
+    icon: UserPen,
+    badge: "pendingManagerChanges",
+  },
   { key: "nhat-ky", label: "Nhật ký", icon: ScrollText },
-  { key: "gop-y", label: "Góp ý", icon: MessageSquare },
+  { key: "gop-y", label: "Góp ý", icon: MessageSquare, badge: "unreadFeedback" },
   { key: "cai-dat", label: "Cài đặt", icon: Cog },
 ];
 
 /**
+ * The number to print beside an admin nav entry, or `null` for no badge at
+ * all — `badgeFor` above, restated over `AdminShellCounts` because the two
+ * shells' nav arrays are different types and cannot share one function
+ * without losing the compile-time check that a nav entry's `badge` names a
+ * real field.
+ */
+function adminBadgeFor(
+  entry: (typeof ADMIN_NAV)[number],
+  counts: AdminShellCounts | null,
+): number | null {
+  if (!entry.badge || !counts) return null;
+  const value = counts[entry.badge];
+  return value > 0 ? value : null;
+}
+
+/**
  * Super-admin chrome — the whole network, not one shelf.
  *
- * **`viewer` and `unreadFeedback` are `null` on a page that has not been wired**,
+ * **`viewer` and `counts` are `null` on a page that has not been wired**,
  * exactly as `ManagerShell`'s two are, and for the reason its `ShellViewer`
- * docstring gives: an unwired page must not be able to invent either. B4a wires
- * `gop-y` and leaves the other six as they are, so both shapes have to admit
- * "this page knows nothing" as a value rather than as a default.
+ * docstring gives: an unwired page must not be able to invent either. B4a
+ * wires `gop-y` and Task 10 wires `doi-thong-tin`, leaving the other five as
+ * they are — every shape here has to admit "this page knows nothing" as a
+ * value rather than as a default.
  *
- * The badge is `unreadFeedback` alone rather than a `ShellCounts`-shaped bag.
- * `ADMIN_NAV` has six entries and exactly one of them has a queue that can be
- * behind — every other administration page is a list of things that exist, not
- * of things waiting. A record keyed by nav key would be five nulls and a number.
+ * **`counts` is a bag, not a bare `unreadFeedback: number | null`.** This
+ * shipped with the single field, on the argument that "`ADMIN_NAV` has six
+ * entries and exactly one of them has a queue that can be behind" — true when
+ * it was written and false the moment Task 10 gave `doi-thong-tin` a queue of
+ * its own. Two counts are two things that can each be wired or not, and a
+ * page that queries one but not the other (a mistake nothing before this
+ * would have caught) now fails to compile rather than silently rendering one
+ * badge and treating the second queue as permanently empty.
  */
 export function AdminShell({
   active,
   viewer,
-  unreadFeedback,
+  counts,
   children,
 }: {
   active: AdminNavKey;
   /** `null` on a page that has not been wired to `loadAdminPage` yet. */
   viewer: ShellViewer | null;
-  /** `null` on a page that has not counted them. Never a written-in number. */
-  unreadFeedback: number | null;
+  /** `null` on a page that has not queried either count yet. Never invented. */
+  counts: AdminShellCounts | null;
   children: React.ReactNode;
 }) {
   // Same rule as `ManagerShell`: the last word of a Vietnamese name is the
-  // given name, and a badge is absent rather than `0` when the queue is empty.
+  // given name.
   const initial = viewer?.name?.split(" ").at(-1)?.charAt(0) ?? null;
-  const badge = unreadFeedback && unreadFeedback > 0 ? unreadFeedback : null;
 
   return (
     // The sidebar is sticky and the document scrolls normally. The previous
@@ -573,15 +624,15 @@ export function AdminShell({
         title="OLibra"
         titleHref="/"
         subtitle="Quản trị hệ thống"
-        items={ADMIN_NAV.map(({ key, label, icon }) => ({
-          href: key === "tong-quan" ? "/quan-tri" : `/quan-tri/${key}`,
-          label,
-          icon,
-          count: key === "gop-y" ? badge : null,
+        items={ADMIN_NAV.map((entry) => ({
+          href: entry.key === "tong-quan" ? "/quan-tri" : `/quan-tri/${entry.key}`,
+          label: entry.label,
+          icon: entry.icon,
+          count: adminBadgeFor(entry, counts),
         }))}
         // Only where there is a session to end — the same condition the
         // manager shell uses, and the reason it is a condition rather than a
-        // constant: six of these seven pages are still unwired and resolve no
+        // constant: six of these eight pages are still unwired and resolve no
         // viewer at all.
         signOut={Boolean(viewer?.name)}
       />
@@ -595,8 +646,10 @@ export function AdminShell({
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2">
-          {ADMIN_NAV.map(({ key, label, icon: Icon }) => {
+          {ADMIN_NAV.map((entry) => {
+            const { key, label, icon: Icon } = entry;
             const isActive = key === active;
+            const badge = adminBadgeFor(entry, counts);
             return (
               <Link
                 key={key}
@@ -617,7 +670,7 @@ export function AdminShell({
                 ) : null}
                 <Icon aria-hidden className="size-5 shrink-0" strokeWidth={1.75} />
                 <span className="flex-1 truncate">{label}</span>
-                {key === "gop-y" && badge !== null ? (
+                {badge !== null ? (
                   <span className="rounded-control bg-surface px-1.5 text-[13px] font-semibold text-leather">
                     {NUMBER.format(badge)}
                   </span>

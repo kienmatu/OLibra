@@ -41,8 +41,8 @@ async function borrower(
   over: { fullName?: string; phone?: string | null } = {},
 ) {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values (${over.fullName ?? "Trần Minh"}, 'Giuse Trần Văn A',
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Phêrô', ${over.fullName ?? "Trần Minh"}, 'Giuse Trần Văn A',
             'Maria Nguyễn Thị B',
             ${over.phone === undefined ? "0912345678" : over.phone})
     returning id

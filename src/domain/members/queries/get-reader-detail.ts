@@ -12,6 +12,14 @@ export interface ReaderDetail extends ReaderRow {
   fatherName: string;
   motherName: string;
   phone: string | null;
+  /**
+   * PO feedback round 1, Task 8: `users.phone_missing_reason`, rendered
+   * beside the empty phone so the next volunteer to open this record reads
+   * *why* rather than assuming an oversight, and pre-filled into "Sửa hồ
+   * sơ"'s own reason box so resubmitting the edit form without retyping it
+   * preserves it rather than silently clearing it.
+   */
+  phoneMissingReason: string | null;
   email: string | null;
   avatarUrl: string | null;
   hasCredentials: boolean;
@@ -32,7 +40,6 @@ export interface ReaderDetail extends ReaderRow {
    * this file's own docstring gives for keeping the hash off every screen.
    */
   username: string | null;
-  leaderboardOptIn: boolean;
   managerNotes: string | null;
   rejectionReason: string | null;
   suspensionReason: string | null;
@@ -114,11 +121,11 @@ export async function getReaderDetail(
       father_name: string;
       mother_name: string;
       phone: string | null;
+      phone_missing_reason: string | null;
       email: string | null;
       avatar_url: string | null;
       has_credentials: boolean;
       username: string | null;
-      leaderboard_opt_in: boolean;
       manager_notes: string | null;
       rejection_reason: string | null;
       suspension_reason: string | null;
@@ -130,11 +137,12 @@ export async function getReaderDetail(
       m.user_id,
       m.status, m.role,
       m.parish_unit_l1_id, m.parish_unit_l2_id,
-      m.leaderboard_opt_in, m.manager_notes,
+      m.manager_notes,
       m.rejection_reason, m.suspension_reason,
       m.approved_at::text as approved_at,
       u.full_name, u.saint_name, u.date_of_birth::text as date_of_birth,
-      u.father_name, u.mother_name, u.phone, u.email, u.avatar_url,
+      u.father_name, u.mother_name, u.phone, u.phone_missing_reason,
+      u.email, u.avatar_url,
       -- INV-14: username and password_hash are paired or both null — never
       -- the hash itself, only whether one exists.
       (u.username is not null) as has_credentials,
@@ -204,11 +212,11 @@ export async function getReaderDetail(
     fatherName: row.father_name,
     motherName: row.mother_name,
     phone: row.phone,
+    phoneMissingReason: row.phone_missing_reason,
     email: row.email,
     avatarUrl: row.avatar_url,
     hasCredentials: row.has_credentials,
     username: row.username,
-    leaderboardOptIn: row.leaderboard_opt_in,
     managerNotes: row.manager_notes,
     rejectionReason: row.rejection_reason,
     suspensionReason: row.suspension_reason,

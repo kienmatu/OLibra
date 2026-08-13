@@ -106,6 +106,13 @@ export default async function ManagerReadersPage({
   const input: ReadersListInput = {
     q: query,
     status,
+    // Post-review fix wave, item 1: this screen is "Người đọc" — readers —
+    // and a shelf's own managers and admins no longer appear here, the same
+    // way `/quan-ly/doi-thong-tin`'s queue narrows to reader subjects. See
+    // `ReadersListInput.role`'s own docstring for why this is the one caller
+    // of `getReadersList` that passes it — the donor picker on the two book
+    // forms deliberately does not.
+    role: "reader",
     page: pageNumber(param(search, PAGE)),
   };
 

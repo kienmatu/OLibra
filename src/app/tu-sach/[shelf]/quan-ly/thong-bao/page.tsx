@@ -283,7 +283,7 @@ export default async function AnnouncementsManagePage({
                           <input type="hidden" name="tu-sach" value={slug} />
                           <input type="hidden" name="thong-bao" value={a.id} />
                           <SubmitButton variant="ghost" size="sm">
-                            {a.isPinned ? "Bỏ ghim" : "Ghim"}
+                            {a.isPinned ? "Bỏ ghim" : "Ghim lên đầu"}
                           </SubmitButton>
                         </form>
                       ) : null}

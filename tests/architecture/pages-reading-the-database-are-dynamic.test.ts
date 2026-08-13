@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
-import { filesUnder } from "../support/source-text";
+import { filesUnder, isServerActionModule } from "../support/source-text";
 
 /**
  * U1 §2. **A cached render is a cross-tenant leak that no database test can
@@ -200,11 +200,11 @@ function resolveLocal(fromFile: string, specifier: string): string | null {
  * called from the client), no page in this repository does it, and closing it
  * would mean telling a call site apart from a `form` attribute in source text.
  * Stated rather than papered over, in the same spirit as the limits at the top.
+ *
+ * `isServerActionModule` itself moved to `../support/source-text.ts`
+ * (2026-08-12) once it gained a second caller — see that module for the full
+ * account of what "directive position" means and why it matters.
  */
-function isServerActionModule(source: string): boolean {
-  return /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*["']use server["']/.test(source);
-}
-
 function namesADatabaseModule(specifier: string): boolean {
   return DATABASE_REACHING_IMPORTS.some((fragment) =>
     specifier.replace(/\\/g, "/").includes(fragment),

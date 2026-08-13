@@ -32,13 +32,33 @@ import {
  * and the `/tu-sach/x/ho-so/thong-bao` case red with `[]` — see the task 9
  * report for the exact output.
  */
-function renderNav(active: Parameters<typeof ShelfHeader>[0]["active"]) {
+/**
+ * PO feedback round 1, Task 5 — extended (not duplicated) for the topbar's
+ * new `canManage`/`isSuperAdmin` props and its mobile search/avatar-panel
+ * markup, rather than growing a second render helper beside this one.
+ * `shelfSlug` moved from `"x"` to `"dong-thap"` so the same helper can assert
+ * on real hrefs (`/tu-sach/dong-thap/quan-ly`, the search form's `action`)
+ * without a caller having to know the slug is otherwise arbitrary.
+ */
+function renderShelfHeader({
+  active,
+  viewerName = "Nguyễn Văn A",
+  canManage = false,
+  isSuperAdmin = false,
+}: {
+  active?: Parameters<typeof ShelfHeader>[0]["active"];
+  viewerName?: string | null;
+  canManage?: boolean;
+  isSuperAdmin?: boolean;
+} = {}) {
   return renderToStaticMarkup(
     <ShelfHeader
       shelfName="Thư viện Đồng Tháp"
-      shelfSlug="x"
-      viewerName="Nguyễn Văn A"
+      shelfSlug="dong-thap"
+      viewerName={viewerName}
       active={active}
+      canManage={canManage}
+      isSuperAdmin={isSuperAdmin}
     />,
   );
 }
@@ -61,17 +81,23 @@ function activeLabels(html: string): string[] {
 // in the task 9 report) — the pathname documents which page passes that
 // value, not something `ShelfHeader` reads directly, since it takes an
 // explicit `active` key rather than deriving one from a URL.
+//
+// `/tu-sach/dong-thap/danh-muc` still passes `active="danh-muc"` (PO
+// feedback round 1, Task 5), but the nav no longer carries a "Danh mục" link
+// — Task 4 gave the shelf home the one catalogue link — so that page now
+// lights up nothing, which is the one row below asserting `[]` rather than a
+// label.
 test.each([
-  ["/tu-sach/x/danh-muc", "danh-muc", "Danh mục"],
-  ["/tu-sach/x/thong-bao", "thong-bao", "Bản tin"],
-  ["/tu-sach/x/ho-so/tong-quan", "toi", "Trang của tôi"],
-  ["/tu-sach/x/ho-so/thong-bao", "thong-bao-cua-toi", "Thông báo"],
-  ["/tu-sach/x/tim-kiem", "tim-kiem", "Tìm kiếm"],
+  ["/tu-sach/dong-thap/danh-muc", "danh-muc", []],
+  ["/tu-sach/dong-thap/thong-bao", "thong-bao", ["Bản tin"]],
+  ["/tu-sach/dong-thap/ho-so/tong-quan", "toi", ["Trang của tôi"]],
+  ["/tu-sach/dong-thap/ho-so/thong-bao", "thong-bao-cua-toi", ["Thông báo"]],
+  ["/tu-sach/dong-thap/tim-kiem", "tim-kiem", ["Tìm kiếm"]],
 ] as const)(
-  "%s (active=%s) marks exactly %s active",
-  (_pathname, active, label) => {
-    const html = renderNav(active);
-    expect(activeLabels(html)).toEqual([label]);
+  "%s (active=%s) marks exactly %j active",
+  (_pathname, active, labels) => {
+    const html = renderShelfHeader({ active });
+    expect(activeLabels(html)).toEqual(labels);
   },
 );
 
@@ -97,6 +123,25 @@ function hrefsFor(html: string, label: string): string[] {
 }
 
 const MINE = "Tủ sách của tôi";
+
+/**
+ * PO feedback round 1, Task 5, fix round 1. Scopes an assertion to the mobile
+ * `<details>…</details>` panel rather than the whole rendered string.
+ *
+ * The finding this exists for: `toContain("Quản lý tủ sách")` against the
+ * *whole* `html` string passes whether that link is in the desktop `<nav>`,
+ * the mobile panel, or both — `ShelfHeader` renders both in one
+ * `renderToStaticMarkup` call, so a bug that left the panel empty (shipped in
+ * fix round 0) was invisible to an assertion that did not first narrow to the
+ * panel's own markup. There is exactly one `<details>` in any `ShelfHeader`
+ * render (`MobileMenu` is the only caller of it), so a single non-greedy match
+ * is unambiguous.
+ */
+function mobilePanelHtml(html: string): string {
+  const match = html.match(/<details\b[\s\S]*?<\/details>/);
+  if (!match) throw new Error("renderShelfHeader produced no mobile panel");
+  return match[0];
+}
 
 test("FrontDoorHeader links a member of one shelf straight to that shelf", () => {
   const html = renderToStaticMarkup(
@@ -156,6 +201,8 @@ test.each([["Nguyễn Văn A"], [null]] as const)(
         shelfName="Thư viện Đồng Tháp"
         shelfSlug="x"
         viewerName={viewerName}
+        canManage={false}
+        isSuperAdmin={false}
       />,
     );
 
@@ -170,3 +217,161 @@ test.each([["Nguyễn Văn A"], [null]] as const)(
     expect(hrefsFor(html, "OLibra — trang chủ")).toEqual(["/"]);
   },
 );
+
+/**
+ * PO feedback round 1, Task 5: the search box, the avatar panel and the two
+ * management links.
+ */
+test("Danh mục is no longer in the reader nav", () => {
+  const html = renderShelfHeader({
+    viewerName: "Maria Nguyễn Thị Lan",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).not.toContain("Danh mục");
+  expect(html).toContain("Bản tin");
+  expect(html).toContain("Tìm kiếm");
+});
+
+test("a manager gets a link into the manager area", () => {
+  const html = renderShelfHeader({
+    viewerName: "Giuse Trần Minh",
+    canManage: true,
+    isSuperAdmin: false,
+  });
+  expect(html).toContain("Quản lý tủ sách");
+  expect(html).toContain("/tu-sach/dong-thap/quan-ly");
+  expect(html).not.toContain("Quản trị hệ thống");
+});
+
+test("a super admin also gets the system admin link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Quản trị viên",
+    canManage: true,
+    isSuperAdmin: true,
+  });
+  expect(html).toContain("Quản trị hệ thống");
+  expect(html).toContain('href="/quan-tri"');
+});
+
+test("an ordinary reader gets neither management link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Anna Phạm Thu Hà",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).not.toContain("Quản lý tủ sách");
+  expect(html).not.toContain("Quản trị hệ thống");
+});
+
+/**
+ * Design spec §6: "Both appear in the desktop nav and inside the mobile
+ * panel (§7)." Fix round 1 — the three tests above assert against the whole
+ * `html` string, which cannot tell "in the desktop nav" from "in the panel
+ * too" apart; they passed against fix round 0's shipped bug, where
+ * `managementLinks` reached the desktop `<nav>` only. These three narrow to
+ * `mobilePanelHtml` specifically, so they fail again if that regresses.
+ */
+test("a manager's mobile panel also carries the management link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Giuse Trần Minh",
+    canManage: true,
+    isSuperAdmin: false,
+  });
+  const panel = mobilePanelHtml(html);
+  expect(panel).toContain("Quản lý tủ sách");
+  expect(panel).toContain("/tu-sach/dong-thap/quan-ly");
+  expect(panel).not.toContain("Quản trị hệ thống");
+});
+
+test("a super admin's mobile panel also carries the system admin link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Quản trị viên",
+    canManage: true,
+    isSuperAdmin: true,
+  });
+  const panel = mobilePanelHtml(html);
+  expect(panel).toContain("Quản trị hệ thống");
+  expect(panel).toContain('href="/quan-tri"');
+});
+
+test("an ordinary reader's mobile panel carries neither management link", () => {
+  const html = renderShelfHeader({
+    viewerName: "Anna Phạm Thu Hà",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  const panel = mobilePanelHtml(html);
+  expect(panel).not.toContain("Quản lý tủ sách");
+  expect(panel).not.toContain("Quản trị hệ thống");
+});
+
+test("the mobile search form posts into the search page", () => {
+  const html = renderShelfHeader({
+    viewerName: "Maria Nguyễn Thị Lan",
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).toContain('action="/tu-sach/dong-thap/tim-kiem"');
+  expect(html).toContain('name="q"');
+});
+
+/**
+ * Fix round 1. The original version of this test asserted
+ * `toContain("/ho-so/tong-quan")` and `toContain("Trang của tôi")` against the
+ * whole `html` string — and both strings already existed in `ShelfHeader`'s
+ * pre-Task-5 `links` array (the plain reader nav link to "Trang của tôi"),
+ * which renders into the panel's link list with or without the new profile
+ * block. The test passed byte-for-byte against the pre-Task-5 header and
+ * proved nothing about the block this task adds.
+ *
+ * Both the profile block and the plain reader-nav link point at
+ * `/ho-so/tong-quan`, so this narrows to the panel and asserts on what is
+ * unique to the *block*: the reader's own name appears inside the anchor
+ * (the plain nav link never carries a name), and the block carries the
+ * avatar circle (`rounded-full`) the plain nav link does not.
+ */
+test("the mobile panel's profile block names the reader and links to their own page", () => {
+  const name = "Maria Nguyễn Thị Lan";
+  const html = renderShelfHeader({
+    viewerName: name,
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  const panel = mobilePanelHtml(html);
+  const anchorsToProfile = [
+    ...panel.matchAll(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g),
+  ].filter((m) => m[1] === "/tu-sach/dong-thap/ho-so/tong-quan");
+
+  // Two anchors point here: the profile block itself, first in document
+  // order, and the plain "Trang của tôi" reader-nav link below it — both
+  // real, both expected, and only the first carries the reader's name.
+  expect(anchorsToProfile).toHaveLength(2);
+  const [profileBlock, readerNavLink] = anchorsToProfile;
+
+  expect(profileBlock[2]).toContain(name);
+  expect(profileBlock[2]).toContain("Trang của tôi");
+  // The avatar circle — markup no plain nav link in this panel has.
+  expect(profileBlock[0]).toContain("rounded-full");
+
+  // The plain reader-nav link, by contrast, carries no name — confirming the
+  // two anchors are genuinely distinct rather than one being a stray extra
+  // match of the other.
+  expect(readerNavLink[2].replace(/<[^>]*>/g, "").trim()).toBe("Trang của tôi");
+  expect(readerNavLink[0]).not.toContain(name);
+});
+
+test("a signed-out visitor gets no search box and no panel", () => {
+  const html = renderShelfHeader({
+    viewerName: null,
+    canManage: false,
+    isSuperAdmin: false,
+  });
+  expect(html).not.toContain('name="q"');
+  // "no panel", stated in the test's own name, was previously unverified —
+  // this render skips `MobileMenu` entirely for `viewerName === null`
+  // (`ShelfHeader`'s own `viewerName === null` branch), so there is no
+  // `<details>` at all, not merely an empty one.
+  expect(html).not.toContain("<details");
+  expect(html).toContain("Đăng nhập");
+});

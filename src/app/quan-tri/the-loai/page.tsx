@@ -5,6 +5,7 @@ import { Field, Input } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { messageFor } from "@/domain/kernel/errors";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
+import { countPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
 import { getCategoriesAdmin } from "@/domain/catalogue/queries/get-categories-admin";
 import { loadAdminPage } from "@/lib/page-data";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -55,16 +56,20 @@ export default async function AdminCategoriesPage({
 }) {
   const refusal = refusalFrom(await searchParams);
 
-  const { viewer, unreadFeedback, categories } = await loadAdminPage(
-    async (tx, ctx, v) => ({
+  const { viewer, unreadFeedback, pendingManagerChanges, categories } =
+    await loadAdminPage(async (tx, ctx, v) => ({
       viewer: v,
       unreadFeedback: await countUnreadFeedback(tx, ctx),
+      pendingManagerChanges: await countPendingManagerChanges(tx, ctx),
       categories: await getCategoriesAdmin(tx, ctx),
-    }),
-  );
+    }));
 
   return (
-    <AdminShell active="the-loai" viewer={viewer} unreadFeedback={unreadFeedback}>
+    <AdminShell
+      active="the-loai"
+      viewer={viewer}
+      counts={{ unreadFeedback, pendingManagerChanges }}
+    >
       <PageHeading
         title="Thể loại"
         subtitle={`${NUMBER.format(categories.length)} thể loại trong hệ thống.`}

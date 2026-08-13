@@ -7,6 +7,7 @@ import {
   type CatalogueInput,
   getCatalogue,
 } from "@/domain/catalogue/queries/get-catalogue";
+import { atLeast } from "@/domain/kernel/tenant";
 import { readCatalogueCategories } from "@/lib/catalogue";
 import { loadPage } from "@/lib/page-data";
 import { pageNumber, param, type SearchParams } from "@/lib/search-params";
@@ -134,6 +135,8 @@ export default async function CataloguePage({
         active="danh-muc"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-6xl px-6 py-10">

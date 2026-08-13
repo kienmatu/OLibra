@@ -1,12 +1,13 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
-import { requireIdentifiedActor } from "../../kernel/tenant";
+import { atLeast, requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command, Tx } from "../../kernel/unit-of-work";
 import { loadParishContext } from "../parish-context";
 import { validateSelection } from "../parish-taxonomy";
 import { avatarObjectOf } from "../pending-proposal";
-import { requireManager } from "../policy";
+import { requireManager, type MembershipRole } from "../policy";
 import {
   applyProfileFields,
+  assertPhoneOrReason,
   diffProfileFields,
   lockPerson,
   normaliseProfilePatch,
@@ -136,10 +137,11 @@ export const approveProfileChange: Command<
       proposed_values: unknown;
       parish_unit_l1_id: string | null;
       parish_unit_l2_id: string | null;
+      subject_role: MembershipRole;
     }[]
   >`
     select r.id, r.status, r.proposed_values,
-           m.parish_unit_l1_id, m.parish_unit_l2_id
+           m.parish_unit_l1_id, m.parish_unit_l2_id, m.role as subject_role
       from profile_change_requests r
       join memberships m on m.id = ${subject.membershipId}
      where r.id = ${input.profileChangeRequestId}
@@ -147,6 +149,31 @@ export const approveProfileChange: Command<
   if (!request) throw new NotFound("write_target_not_found");
   if (request.status !== "pending") {
     throw new RuleViolated("profile_change_not_pending");
+  }
+
+  // §9 of docs/superpowers/specs/2026-08-12-po-feedback-design.md. Who may
+  // decide follows from *whose* record it is, not from the queue the request
+  // was found in — a rule derived at decision time needs no column and cannot
+  // drift out of step with a membership that changed role since the proposal.
+  //
+  // A manager's own details are a manager's own power: the phone a shelf rings
+  // and the name on every audit entry they write. A colleague of equal rank
+  // approving that is the same person signing both halves in a parish with two
+  // volunteers, which is most of them. `m.role` above is the *subject's*
+  // membership — the same row `subject.membershipId` already resolved through
+  // `subjectOfProfileChange`'s tenant-scoped join — so reading it here is not a
+  // second copy of that security check, only a second column off an already
+  // -validated row.
+  const subjectIsManager = atLeast(request.subject_role, "manager");
+  if (subjectIsManager && ctx.actor.role !== "super_admin") {
+    throw new RuleViolated("not_permitted");
+  }
+  // Self-approval is refused at every rank, super admin included. Rank is not
+  // the question; being both parties to the decision is. Compared against
+  // `subject.userId` — the person the request names, not the membership id —
+  // per Task 9's brief.
+  if (subject.userId === ctx.actor.userId) {
+    throw new RuleViolated("not_permitted");
   }
 
   const hasL1 = input.parishUnitL1Id !== undefined;
@@ -196,6 +223,17 @@ export const approveProfileChange: Command<
   }
   const { before, after } = await applyProfileFields(tx, subject.userId, proposed);
   const diff = diffProfileFields(before, after);
+
+  // PO feedback round 1, Task 8: "a manager approving ... a profile change
+  // whose phone is empty" — this is that check. A follow-up fix to the same
+  // task ("Fix round 1", `../propose-profile-change.ts`) later added the same
+  // check there too, so this is no longer the only gate — but it stays as
+  // the backstop for a request written before that fix, or by a caller that
+  // bypasses `ProposeProfileChange` entirely, and the record this approval
+  // would actually produce is what gets asked either way, not the proposal
+  // alone: a reason already on file — from an earlier decision, untouched by
+  // this proposal — answers it without anyone retyping anything.
+  assertPhoneOrReason(after);
 
   // Read *after* the write, off the authoritative before/after, rather than
   // from `proposed_values` — so an approval that did not actually move the

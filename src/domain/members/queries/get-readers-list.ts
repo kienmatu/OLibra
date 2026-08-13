@@ -27,6 +27,21 @@ export interface ReaderRow {
 export interface ReadersListInput {
   q?: string;
   status?: MembershipStatus;
+  /**
+   * Post-review fix wave, item 1. `undefined` (every caller but one) returns
+   * every role, unfiltered — this query is not only the "Bạn đọc" roster:
+   * `sach/moi/page.tsx` and `quan-ly/sach/[id]/page.tsx` both call it for the
+   * donor picker, and a donor is any active member handing over a book, a
+   * manager or admin included (`DonorFields`' own rule is `status: "active"`,
+   * nothing about role). Only `nguoi-doc/page.tsx` passes `role: "reader"`,
+   * to keep a manager's or admin's own record out of a list built to edit
+   * reader profiles directly and without approval
+   * (`../commands/update-reader-profile.ts`'s note 5) — narrowing this query
+   * itself, rather than filtering its one caller's rows in TypeScript, so a
+   * future caller cannot forget the same filter the way the donor pickers
+   * would have been broken by narrowing it unconditionally.
+   */
+  role?: MembershipRole;
   parishUnitId?: string;
   page?: number;
   pageSize?: number;
@@ -71,6 +86,27 @@ export interface ReadersListPage {
  *   rows twice and skipped others. U2 measured that on the catalogue: 304
  *   titles collected over a paged walk, 229 distinct. `m.id` is the primary
  *   key, so it ends the order and cannot tie.
+ *
+ * **The optional `role` filter, added in the post-review fix wave.** See
+ * `ReadersListInput.role`'s own docstring for why this is a parameter rather
+ * than a hardcoded `and m.role = 'reader'` — the donor picker on the two book
+ * forms calls this same query for every active member, role and all.
+ * `nguoi-doc/page.tsx` is the one caller that narrows it, because that screen
+ * is titled *Người đọc* — readers — and every row used to include every
+ * membership regardless of role, which put a shelf's own managers and admins
+ * in a list built to edit them with no approval step
+ * (`../commands/update-reader-profile.ts`, item 1 of that wave). Narrowing
+ * there is the same move `/quan-ly/doi-thong-tin`'s queue already makes for
+ * the identical reason (§9 of `docs/superpowers/specs/2026-08-12-po-feedback
+ * -design.md`: "filters to reader subjects, so a manager's pending change
+ * does not sit in a queue where nobody present can decide it") — a manager or
+ * admin does not stop being a person with a shelf-scoped `users` row, but
+ * this particular roster is not where their record belongs. Nothing here
+ * hides them from the system: `getReaderDetail` still resolves a manager- or
+ * admin-subject membership id typed directly into the URL, and the detail
+ * page renders their edit control read-only rather than refusing a submit
+ * (`nguoi-doc/[id]/page.tsx`), so a colleague who reaches the row by URL sees
+ * an honest screen either way.
  */
 export async function getReadersList(
   tx: Tx,
@@ -115,6 +151,7 @@ export async function getReadersList(
     join users u on u.id = m.user_id and u.deleted_at is null
     left join loans_current l on l.borrower_id = u.id
     where m.deleted_at is null
+      and (${input.role ?? null}::membership_role is null or m.role = ${input.role ?? null})
       and (${input.status ?? null}::membership_status is null or m.status = ${input.status ?? null})
       and (
         ${input.parishUnitId ?? null}::uuid is null

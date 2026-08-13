@@ -159,19 +159,11 @@ export async function getStatistics(
   `;
 
   /**
-   * **A reader who opted out is absent, not anonymised.**
-   *
-   * BR §16.2's toggle is on the reader's own profile and its shipped words are
-   * "Hiện tên bạn trong bảng bạn đọc chăm nhất — nếu tắt, tên bạn sẽ không xuất
-   * hiện công khai." This screen's heading is that phrase. A manager can of
-   * course see every loan through the lending screens and the audit log, so
-   * hiding a name here withholds nothing they could not reach — which is the
-   * argument for showing it, and it is the weaker one. The child was told their
-   * name would not appear in this list. It does not.
-   *
-   * Absent rather than counted as "Ẩn danh": a row saying somebody borrowed
-   * eleven books is most of the disclosure on a shelf of thirty children, and
-   * pairing it with the one name missing from the list is not hard.
+   * The list counts every borrower — there is no opt-out any more (PO
+   * feedback, `docs/superpowers/specs/2026-08-12-po-feedback-design.md` §13).
+   * This screen stays manager-facing, and a manager can already see every
+   * loan through the lending screens and the audit log, so nothing is
+   * disclosed here that was not already reachable.
    */
   const topReaders = await tx<{ name: string; n: number }[]>`
     select coalesce(nullif(u.display_name, ''), u.full_name) as name,
@@ -181,7 +173,6 @@ export async function getStatistics(
       join memberships m on m.user_id = u.id and m.deleted_at is null
      where l.lent_at >= ${since}::timestamptz::timestamptz
        and l.status <> 'voided'
-       and m.leaderboard_opt_in
      group by u.id, name
      order by n desc, name asc, u.id asc
      limit 5

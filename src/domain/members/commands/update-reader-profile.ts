@@ -1,14 +1,15 @@
 import { NotFound, RuleViolated } from "../../kernel/errors";
-import { requireIdentifiedActor } from "../../kernel/tenant";
+import { atLeast, requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
 import { requireManager } from "../policy";
 import {
   applyProfileFields,
+  assertPhoneOrReason,
   diffProfileFields,
   normaliseProfilePatch,
   type ProfilePatch,
 } from "../profile-fields";
-import { userOfMembership } from "../scoped-user";
+import { userAndRoleOfMembership } from "../scoped-user";
 
 export interface UpdateReaderProfileInput {
   /**
@@ -93,17 +94,27 @@ export interface UpdateReaderProfileInput {
  * six identical on both sides, says "a manager rewrote this person" when a
  * manager fixed a phone number.
  *
+ * **5. A manager's or admin's own record is not this command's to write.**
+ * Added in the post-review fix wave that followed this command's first
+ * review: §9 of `docs/superpowers/specs/2026-08-12-po-feedback-design.md`
+ * routes a `manager`/`admin`-subject profile change through a `super_admin`
+ * at `/quan-tri/doi-thong-tin` (`./approve-profile-change.ts:167-170`), and
+ * this command wrote the identical nine columns with no such check — a
+ * manager could open a colleague from the ordinary "Bạn đọc" list, or their
+ * own record (the check is the same either way: a manager's own membership
+ * role is `manager`), and rewrite it in one click, no approval, no colleague
+ * in the loop. `userAndRoleOfMembership` (`../scoped-user.ts`) resolves the
+ * subject's role in the same scoped join that resolves their id, so this is
+ * one more column off an already-validated row, not a second permission
+ * check to keep in step with the first.
+ *
  * ── The action name ──────────────────────────────────────────────────────
  *
- * `profile.corrected`, and deliberately neither of the two names already in
- * use. Not `membership.updated`, which `./update-own-profile.ts` uses for the
- * leaderboard toggle — a reader flipping their own visibility and a manager
- * rewriting a child's date of birth are not the same event and BR §13.2's
- * Oversight view must be able to tell them apart. Not
- * `profile_change.approved`, which is a manager who was *shown a proposal*
- * ruling on it. The thing a super administrator must be able to filter for is
- * precisely "a manager changed someone's details with no approval step", the
- * same oversight need `credentials.set` serves.
+ * `profile.corrected`, and deliberately not `profile_change.approved`, which
+ * is a manager who was *shown a proposal* ruling on it. The thing a super
+ * administrator must be able to filter for is precisely "a manager changed
+ * someone's details with no approval step", the same oversight need
+ * `credentials.set` serves.
  *
  * Its Vietnamese label and sentence did not exist anywhere and are newly
  * authored — see `../profile-copy.ts`, which is flagged for the product owner.
@@ -130,12 +141,27 @@ export const updateReaderProfile: Command<UpdateReaderProfileInput, void> = asyn
     throw new RuleViolated("empty_proposal");
   }
 
-  // `userOfMembership` is the *only* way to obtain the `ScopedUserId` that
-  // `applyProfileFields` will accept, and that is the whole point: it performs
-  // the shelf-scoped join itself, so a command cannot reach a person any other
-  // way without the compiler saying so. See `../scoped-user.ts`.
-  const userId = await userOfMembership(tx, input.membershipId);
-  if (userId === null) throw new NotFound("membership_not_found");
+  // `userAndRoleOfMembership` is the *only* way to obtain the `ScopedUserId`
+  // that `applyProfileFields` will accept, and that is the whole point: it
+  // performs the shelf-scoped join itself, so a command cannot reach a
+  // person any other way without the compiler saying so. See
+  // `../scoped-user.ts`.
+  const subject = await userAndRoleOfMembership(tx, input.membershipId);
+  if (subject === null) throw new NotFound("membership_not_found");
+  const { userId, role: subjectRole } = subject;
+
+  // Note 5 above. Mirrors `approveProfileChange`'s identical check
+  // (`./approve-profile-change.ts:167-170`), same error code, derived fresh
+  // from the subject's *current* membership role rather than a stored value —
+  // a membership promoted or demoted since the last write is routed
+  // correctly with nothing to update. This also refuses a manager editing
+  // their own record: their own membership role is exactly `manager`, so no
+  // separate self-check is needed the way `approveProfileChange` needs one
+  // for self-*approval* (this command has no queue to route a self-edit
+  // through in the first place — refusing the write is the whole of it).
+  if (atLeast(subjectRole, "manager") && ctx.actor.role !== "super_admin") {
+    throw new RuleViolated("not_permitted");
+  }
 
   const { before, after } = await applyProfileFields(tx, userId, patch);
   const diff = diffProfileFields(before, after);
@@ -146,6 +172,14 @@ export const updateReaderProfile: Command<UpdateReaderProfileInput, void> = asyn
   if (diff.changed.length === 0) {
     throw new RuleViolated("empty_proposal");
   }
+
+  // PO feedback round 1, Task 8. Checked after `applyProfileFields`, on the
+  // same authoritative `after` the diff above reads — so a reason already on
+  // file (inherited from `prev` because this call named neither field) answers
+  // this without the manager retyping it, and only a record that ends up
+  // genuinely silent on both is refused. Rolls the whole transaction back,
+  // same as `empty_proposal` just above.
+  assertPhoneOrReason(after);
 
   return {
     result: undefined,

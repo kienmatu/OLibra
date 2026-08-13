@@ -11,6 +11,7 @@ import {
   getFeedbackDetail,
   getFeedbackInbox,
 } from "@/domain/admin/queries/get-feedback-inbox";
+import { countPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
 import { loadAdminPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
 import { param, refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -61,8 +62,8 @@ export default async function AdminFeedbackPage({
   const selectedId = param(search, "tin") ?? null;
   const refusal = refusalFrom(search);
 
-  const { viewer, unread, messages, open } = await loadAdminPage(
-    async (tx, ctx, v) => {
+  const { viewer, unread, pendingManagerChanges, messages, open } =
+    await loadAdminPage(async (tx, ctx, v) => {
       const messages = await getFeedbackInbox(tx, ctx, { status });
       // Nothing chosen, or a `?tin=` naming nothing: fall back to the top of
       // the list, which is the unread message the administrator came for.
@@ -85,11 +86,11 @@ export default async function AdminFeedbackPage({
       return {
         viewer: v,
         unread: await countUnreadFeedback(tx, ctx),
+        pendingManagerChanges: await countPendingManagerChanges(tx, ctx),
         messages,
         open: chosen,
       };
-    },
-  );
+    });
 
   const hrefFor = (next: { status?: string | null; tin?: string }) => {
     const q = new URLSearchParams();
@@ -101,7 +102,11 @@ export default async function AdminFeedbackPage({
   };
 
   return (
-    <AdminShell active="gop-y" viewer={viewer} unreadFeedback={unread}>
+    <AdminShell
+      active="gop-y"
+      viewer={viewer}
+      counts={{ unreadFeedback: unread, pendingManagerChanges }}
+    >
       <div className="flex min-h-[calc(100vh-6.5rem)] flex-col border border-hairline md:flex-row">
         <aside className="flex flex-col border-hairline md:w-[340px] md:shrink-0 md:border-r">
           <div className="border-b border-hairline p-5">

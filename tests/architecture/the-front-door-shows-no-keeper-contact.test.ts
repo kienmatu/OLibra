@@ -71,15 +71,50 @@ function isFrontDoor(path: string): boolean {
 }
 
 /**
- * `keeper` is the field name and the column name (`keeper_name`,
- * `keeper_phone`, `ShelfIdentity.keeperName`, the fixture's `shelf.keeper`), so
- * it catches the name half however it is spelled.
+ * Four tokens, none of them an innocent guess at a spelling, each closing off
+ * a different way a shelf's contact could reach a front-door route.
  *
- * `PhoneLink` is the phone half, and it is named separately because the
- * fixture's field was plain `phone` — a token far too common to forbid, and one
- * the removed line did not need in order to publish a `tel:` link.
+ * `keeper` is the old field and column name (`keeper_name`, `keeper_phone`,
+ * the fixture's `shelf.keeper`) — gone from `ShelfIdentity` since PO feedback
+ * round 1 Task 2, but `src/lib/fixtures.ts` still carries `shelf.keeper` for
+ * whatever still reads that fixture, and IMPORTANT 3's own bug (see this
+ * file's header docstring) is a fixture field reaching a page nobody gated,
+ * not a query. Kept for that reason, not because any current page reads it.
+ *
+ * `PhoneLink` is the phone half, still true today, and named separately
+ * because the fixture's own field was plain `phone` — a token far too common
+ * to forbid on its own.
+ *
+ * **The name half of the *current* shape has no `keeper` token to catch it.**
+ * Task 2 replaced `keeper_name`/`keeper_phone` with `bookshelf_contacts`, and
+ * Task 11 replaced `ShelfIdentity.keeperName` with `ShelfIdentity.contacts` —
+ * `shelf.contacts.find((c) => c.position === 1) ?? shelf.contacts[0]` on the
+ * book page today. A front-door route that rendered `primaryContact.name` in
+ * plain text, with no `PhoneLink` and no literal `"keeper"`, sailed through
+ * this list undetected until this pair of tokens was added. Rather than guess
+ * at a variable name (`primaryContact`, or whatever the next refactor calls
+ * it, is page-local and not a stable target), these two forbid the
+ * *mechanism* instead:
+ *
+ * - `readShelfIdentity` — the one gated read (`requireReader`) anywhere in
+ *   `src/lib/` that returns a shelf's contacts. Nothing legitimate on a
+ *   front-door route calls it: every caller today is one of the four member
+ *   pages under `tu-sach/[shelf]/(doc-gia)/`, all excluded by `GATED_TREES`.
+ * - `ContactList` — the one component (`src/components/ui/contact-list.tsx`)
+ *   anywhere in `src/` that renders a contact array. Its one caller today is
+ *   the shelf home page, also gated.
+ *
+ * A front-door route naming either is wrong by construction, whatever it
+ * calls the variable it puts the name in — the same argument `keeper`/
+ * `PhoneLink` made for the shape this replaces, applied to the shape that
+ * replaced it.
  */
-const FORBIDDEN_ON_THE_FRONT_DOOR = ["keeper", "PhoneLink"];
+const FORBIDDEN_ON_THE_FRONT_DOOR = [
+  "keeper",
+  "PhoneLink",
+  "readShelfIdentity",
+  "ContactList",
+];
 
 /**
  * `/lien-he` is the contact page, and the number on it is the *administration's*,
@@ -112,7 +147,16 @@ test("the check can see both halves of what it compares", () => {
   );
   expect(bookPage).toBeDefined();
   expect(isFrontDoor(bookPage!.path)).toBe(false);
-  expect(bookPage!.source).toContain("keeper");
+  // `PhoneLink` rather than `keeper`: PO feedback round 1 Task 11 replaced
+  // `shelf.keeperName`/`keeperPhone` on this very page with
+  // `shelf.contacts.find((c) => c.position === 1) ?? shelf.contacts[0]`, so
+  // the literal token "keeper" no longer appears in its non-comment source at
+  // all (it survives only inside this file's own stripped-out prose above).
+  // `PhoneLink` is still the component the contact line renders the number
+  // with, and it is a member of `FORBIDDEN_ON_THE_FRONT_DOOR` in its own
+  // right, so this keeps proving the same thing the "keeper" check did: that
+  // `routes()` found real, non-empty source for the page BR §16.1 names.
+  expect(bookPage!.source).toContain("PhoneLink");
 });
 
 test("no front-door route renders a shelf's keeper contact", () => {

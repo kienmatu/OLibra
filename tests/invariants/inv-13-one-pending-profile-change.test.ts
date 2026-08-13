@@ -285,12 +285,18 @@ test("INV-13b: every field is writable through BOTH sanctioned paths, asserted p
   // not writable through the other and nothing raises. Driven per field rather
   // than per path, so the assertion that fails names the field.
   const values: Record<string, string> = {
-    saint_name: "Maria",
+    // Not "Maria": `makeMember` -> `makeUser` seeds every reader with that
+    // saint name already (PO feedback round 1, Task 1), so proposing it again
+    // would be an edit that changes nothing and `updateReaderProfile` would
+    // refuse it with `empty_proposal` before this test ever reached the
+    // property it is actually driving.
+    saint_name: "Giuse",
     full_name: "Nguyễn Thị Mai",
     date_of_birth: "2014-01-31",
     father_name: "Giuse Nguyễn Văn C",
     mother_name: "Anna Lê Thị D",
     phone: "0987654321",
+    phone_missing_reason: "Em bé chưa có điện thoại",
     email: "mai@vd.vn",
     avatar_url: "https://vd.vn/anh.jpg",
   };

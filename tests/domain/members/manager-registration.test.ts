@@ -27,6 +27,7 @@ afterAll(closeAll);
 const clock = fixedClock("2026-08-08T03:00:00Z");
 
 const FAMILY: RegistrationInput = {
+  saintName: "Giuse",
   fullName: "Trần Minh",
   dateOfBirth: "2015-04-02",
   fatherName: "Giuse Trần Văn A",

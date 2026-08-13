@@ -15,8 +15,9 @@ import {
   type ProfileFields,
   type ProfilePatch,
 } from "../../../src/domain/members/profile-fields";
+import { updateReaderProfile } from "../../../src/domain/members/commands/update-reader-profile";
 import { closeAll, resetDatabase, sql } from "../../support/db";
-import { makeShelf, makeUser } from "../../support/factories";
+import { makeMember, makeShelf, makeUser } from "../../support/factories";
 import type { ScopedUserId } from "../../../src/domain/members/scoped-user";
 
 /**
@@ -69,9 +70,30 @@ async function apply(bookshelfId: string, userId: string, patch: ProfilePatch) {
   );
 }
 
+/**
+ * A shelf, a manager, and a reader the manager may correct — the setup
+ * `updateReaderProfile` itself needs (a `membershipId`, never a bare
+ * `userId`; see that command's own docstring). Same shape as
+ * `update-reader-profile.test.ts`'s own `shelfWithReader`, kept local here
+ * because this file's tests below drive `updateReaderProfile` for what it
+ * does to `saint_name` and `phone_missing_reason` specifically, not for the
+ * audit properties that file already owns.
+ */
+async function aReaderWithAProfile() {
+  const shelf = await makeShelf(sql);
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const reader = await makeMember(sql, shelf.id, { status: "active" });
+  const ctx: TenantContext = {
+    bookshelfId: shelf.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock,
+  };
+  return { membershipId: reader.id, userId: reader.userId, ctx };
+}
+
 // — the allowlist is data, and the allowlist is the whole of it —
 
-test("PROFILE_FIELDS names exactly the eight verified details, and no credential", () => {
+test("PROFILE_FIELDS names exactly the nine verified details, and no credential", () => {
   // The list is the security boundary, not a convenience. `username` and
   // `password_hash` are BR §2's separate power with separate audit rules;
   // `is_super_admin` is a grant. A field added to this array becomes writable
@@ -84,6 +106,7 @@ test("PROFILE_FIELDS names exactly the eight verified details, and no credential
     "father_name",
     "mother_name",
     "phone",
+    "phone_missing_reason",
     "email",
     "avatar_url",
   ]);
@@ -92,7 +115,7 @@ test("PROFILE_FIELDS names exactly the eight verified details, and no credential
   }
 });
 
-test("pickProfileFields drops every key that is not one of the eight", () => {
+test("pickProfileFields drops every key that is not one of the nine", () => {
   // `proposed_values` is jsonb with no check constraint behind it
   // (DATABASE.md §4.11), so this is the boundary between an arbitrary stored
   // object and an `update users`.
@@ -150,23 +173,37 @@ test("`undefined` means untouched and `null` means cleared", () => {
   });
 });
 
-test("the three not-null columns refuse to be blanked, by name", () => {
-  for (const field of ["full_name", "father_name", "mother_name"] as const) {
+test("the four not-null columns refuse to be blanked, by name", () => {
+  for (const field of [
+    "saint_name",
+    "full_name",
+    "father_name",
+    "mother_name",
+  ] as const) {
     expect(() => normaliseProfilePatch({ [field]: "  " })).toThrow(/điền đầy đủ/);
     expect(() => normaliseProfilePatch({ [field]: null })).toThrow(/điền đầy đủ/);
   }
   // And the five nullable ones really are clearable, so the loop above is
   // asserting a distinction rather than a blanket refusal.
   for (const field of [
-    "saint_name",
     "date_of_birth",
     "phone",
+    "phone_missing_reason",
     "email",
     "avatar_url",
   ] as const) {
     expect(normaliseProfilePatch({ [field]: null })).toEqual({ [field]: null });
   }
   // And the code, not merely the sentence — a screen branches on the code.
+  try {
+    normaliseProfilePatch({ saint_name: "" });
+    throw new Error("expected a refusal");
+  } catch (e) {
+    expect(e).toMatchObject({
+      code: "required_fields_missing",
+      field: "saint_name",
+    });
+  }
   try {
     normaliseProfilePatch({ full_name: "" });
     throw new Error("expected a refusal");
@@ -230,8 +267,8 @@ test("only the named columns move; every other one keeps its value", async () =>
 });
 
 test("every field in PROFILE_FIELDS is actually writable through the one writer", async () => {
-  // Table-driven over the array rather than a hand-written list, so a ninth
-  // entry added to PROFILE_FIELDS and forgotten in the statement's eight arms
+  // Table-driven over the array rather than a hand-written list, so a tenth
+  // entry added to PROFILE_FIELDS and forgotten in the statement's nine arms
   // fails here. That is the whole reason the allowlist is data.
   const shelf = await makeShelf(sql);
   const values: ProfileFields = {
@@ -241,6 +278,7 @@ test("every field in PROFILE_FIELDS is actually writable through the one writer"
     father_name: "Giuse Nguyễn Văn C",
     mother_name: "Anna Lê Thị D",
     phone: "0987654321",
+    phone_missing_reason: "Em bé chưa có điện thoại",
     email: "mai@vd.vn",
     avatar_url: "https://vd.vn/anh.jpg",
   };
@@ -274,7 +312,7 @@ test("diffProfileFields reports nothing when nothing differs", async () => {
   expect(diffProfileFields(before, after).changed).toEqual([]);
 });
 
-test("readProfileFields returns the same eight, and null for a soft-deleted person", async () => {
+test("readProfileFields returns the same nine, and null for a soft-deleted person", async () => {
   const shelf = await makeShelf(sql);
   const user = await makeUser(sql);
   const ctx: TenantContext = {
@@ -317,4 +355,100 @@ test("writing to a soft-deleted person is refused by the kernel's zero-row guard
   await expect(
     apply(shelf.id, user.id, { phone: "0912345678" }),
   ).rejects.toMatchObject({ code: "write_target_not_found" });
+});
+
+// — PO feedback round 1, Task 7: saint_name joins the not-null four, and a
+// reason may travel with an absent phone —
+
+test("clearing a saint name is refused by name, not by the driver", async () => {
+  // Driven through the real command, not `normaliseProfilePatch` directly —
+  // "the same way `updateReaderProfile` will hit it" is the property this
+  // test is really after, and the unit-level refusal is already covered
+  // above ("the four not-null columns refuse to be blanked, by name").
+  const { membershipId, ctx } = await aReaderWithAProfile();
+  await expect(
+    runCommand(sql, ctx, updateReaderProfile, {
+      membershipId,
+      fields: { saint_name: null },
+    }),
+  ).rejects.toMatchObject({ code: "required_fields_missing", field: "saint_name" });
+});
+
+test("a reason may be recorded when the phone is left empty", async () => {
+  // `phone` itself stays nullable and outside REQUIRED_PROFILE_FIELDS on
+  // purpose — some readers are children with no phone of their own, and the
+  // reason is how the record says so rather than leaving it looking like an
+  // oversight.
+  const { membershipId, userId, ctx } = await aReaderWithAProfile();
+  await runCommand(sql, ctx, updateReaderProfile, {
+    membershipId,
+    fields: {
+      phone: null,
+      phone_missing_reason: "Em bé chưa có điện thoại, mẹ sẽ bổ sung sau",
+    },
+  });
+  const [row] = await sql`
+    select phone, phone_missing_reason from users where id = ${userId}
+  `;
+  expect(row.phone).toBeNull();
+  expect(row.phone_missing_reason).toBe(
+    "Em bé chưa có điện thoại, mẹ sẽ bổ sung sau",
+  );
+});
+
+test("giving a phone clears the reason it was missing", async () => {
+  const { membershipId, userId, ctx } = await aReaderWithAProfile();
+  await runCommand(sql, ctx, updateReaderProfile, {
+    membershipId,
+    fields: { phone: null, phone_missing_reason: "Chưa có" },
+  });
+  await runCommand(sql, ctx, updateReaderProfile, {
+    membershipId,
+    fields: { phone: "0912345678" },
+  });
+  const [row] = await sql`
+    select phone_missing_reason from users where id = ${userId}
+  `;
+  expect(row.phone_missing_reason).toBeNull();
+});
+
+// — PO feedback round 1, Task 8: the interface's own rule, enforced by the
+// two callers of `applyProfileFields` rather than by `applyProfileFields`
+// itself (whose own test above, "a nullable field can be cleared", clears
+// `phone` with no reason at all and must keep succeeding — this is a raw
+// write, not a decision) —
+
+test("clearing the phone with no reason on file is refused, not silently written", async () => {
+  const { membershipId, userId, ctx } = await aReaderWithAProfile();
+  await expect(
+    runCommand(sql, ctx, updateReaderProfile, {
+      membershipId,
+      fields: { phone: null },
+    }),
+  ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
+
+  // Refused, and the transaction rolled back — the phone is untouched.
+  const [row] = await sql`select phone from users where id = ${userId}`;
+  expect(row.phone).not.toBeNull();
+});
+
+test("clearing the phone when a reason is already on file is not refused", async () => {
+  const { membershipId, userId, ctx } = await aReaderWithAProfile();
+  await runCommand(sql, ctx, updateReaderProfile, {
+    membershipId,
+    fields: { phone: null, phone_missing_reason: "Chưa có, sẽ bổ sung sau" },
+  });
+
+  // A later, unrelated edit that does not touch either field — the reason
+  // already on file is what answers the question, not anything typed now.
+  await runCommand(sql, ctx, updateReaderProfile, {
+    membershipId,
+    fields: { email: "moi@vd.vn" },
+  });
+
+  const [row] = await sql<
+    { phone: string | null; email: string | null }[]
+  >`select phone, email from users where id = ${userId}`;
+  expect(row.phone).toBeNull();
+  expect(row.email).toBe("moi@vd.vn");
 });

@@ -58,8 +58,8 @@ test("olibra_pool is provably not a superuser and does not bypass row level secu
 
 async function signedInMemberOf(shelfId: string, role = "reader") {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Giuse Trần Minh', 'A', 'B', '0900000000', 'tranminh', ${await hashPassword("x")})
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Giuse', 'Giuse Trần Minh', 'A', 'B', '0900000000', 'tranminh', ${await hashPassword("x")})
     returning id
   `;
   await sql`

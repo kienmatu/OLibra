@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { migrate } from "../../../src/db/migrate";
 import { fixedClock } from "../../../src/domain/kernel/clock";
-import { NotFound, RuleViolated } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
 import { proposeProfileChange } from "../../../src/domain/members/commands/propose-profile-change";
-import { updateOwnProfile } from "../../../src/domain/members/commands/update-own-profile";
 import { updateReaderProfile } from "../../../src/domain/members/commands/update-reader-profile";
 import { getMyProfile } from "../../../src/domain/members/queries/get-my-profile";
 import { getPendingProfileChanges } from "../../../src/domain/members/queries/get-pending-profile-changes";
@@ -13,10 +11,14 @@ import { closeAll, resetDatabase, sql } from "../../support/db";
 import { makeMember, makeParishUnits, makeShelf } from "../../support/factories";
 
 /**
- * The three units B2b declared and did not build — `UpdateOwnProfile`,
- * `GetMyProfile` and `GetPendingProfileChanges` (plan §1, §3.5, §5 tasks 4–5).
+ * Two of the three units B2b declared and did not build — `GetMyProfile` and
+ * `GetPendingProfileChanges` (plan §1, §3.5, §5 tasks 4–5). The third,
+ * `UpdateOwnProfile`, carried BR §16.2's leaderboard toggle and was retired
+ * along with it (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`
+ * §13).
  *
- * The third is the one that mattered most and is the reason this file exists at
+ * The second of these two is the one that mattered most and is the reason this
+ * file exists at
  * all: **§3.5's entire protection against `UpdateReaderProfile` making a pending
  * request's `previous_values` lie was `GetPendingProfileChanges` rendering the
  * current column live from `users`.** With no query there was no mechanism, and
@@ -47,98 +49,9 @@ async function shelfWithReader(slug = "dong-thap") {
   return { shelf, manager, reader, managerCtx, readerCtx };
 }
 
-const auditRows = () =>
-  sql<{ action: string; entity_id: string; before: unknown; after: unknown }[]>`
-    select action, entity_id, before, after from audit_log order by occurred_at
-  `;
-
-const optInOf = (membershipId: string) =>
-  sql<{ leaderboard_opt_in: boolean }[]>`
-    select leaderboard_opt_in from memberships where id = ${membershipId}
-  `.then((r) => r[0].leaderboard_opt_in);
-
-// — UpdateOwnProfile —
-
-test("a reader turns their own leaderboard entry off, and the audit says who", async () => {
-  // BR §16.2's one immediate change: "neither is a fact about the person that a
-  // manager verified". `leaderboard_opt_in` defaults to true.
-  const { reader, readerCtx } = await shelfWithReader();
-  expect(await optInOf(reader.id)).toBe(true);
-
-  await runCommand(sql, readerCtx, updateOwnProfile, {
-    membershipId: reader.id,
-    leaderboardOptIn: false,
-  });
-
-  expect(await optInOf(reader.id)).toBe(false);
-  const [entry] = await auditRows();
-  expect(entry.action).toBe("membership.updated");
-  expect(entry.entity_id).toBe(reader.id);
-  expect(entry.before).toEqual({ leaderboard_opt_in: true });
-  expect(entry.after).toEqual({ leaderboard_opt_in: false });
-});
-
-test("setting the toggle to the value it already has writes no audit entry", async () => {
-  // OPS §4.3 lists no failure mode here beyond not-found, so this must not
-  // *refuse* — a reader tapping a switch twice has done nothing wrong. But an
-  // audit entry claiming a change nobody made is what `empty_proposal` exists
-  // to prevent elsewhere in this slice, and BR §14 renders every entry as a
-  // sentence somebody reads.
-  const { reader, readerCtx } = await shelfWithReader();
-
-  await runCommand(sql, readerCtx, updateOwnProfile, {
-    membershipId: reader.id,
-    leaderboardOptIn: true,
-  });
-
-  expect(await optInOf(reader.id)).toBe(true);
-  expect(await auditRows()).toHaveLength(0);
-});
-
-test("a reader may not toggle somebody else's leaderboard entry", async () => {
-  // `requireSelfOrManager` compares `ctx.actor.membershipId`, resolved from the
-  // session by `contextFor` and never supplied by a caller — so a rewritten
-  // form posting a neighbour's membership id is refused rather than obeyed.
-  const { shelf, readerCtx } = await shelfWithReader();
-  const other = await makeMember(sql, shelf.id, { status: "active" });
-
-  await expect(
-    runCommand(sql, readerCtx, updateOwnProfile, {
-      membershipId: other.id,
-      leaderboardOptIn: false,
-    }),
-  ).rejects.toThrow(RuleViolated);
-  expect(await optInOf(other.id)).toBe(true);
-});
-
-test("a manager of another shelf sees membership_not_found, not somebody else's toggle", async () => {
-  // Because RLS filtered the select to zero rows, not because anyone compared
-  // two shelf ids — the plan's acceptance wording.
-  const { reader } = await shelfWithReader();
-  const otherShelf = await makeShelf(sql, { slug: "cao-lanh" });
-  const otherManager = await makeMember(sql, otherShelf.id, { role: "manager" });
-
-  await expect(
-    runCommand(
-      sql,
-      {
-        bookshelfId: otherShelf.id,
-        actor: {
-          userId: otherManager.userId,
-          membershipId: otherManager.id,
-          role: "manager",
-        },
-        clock,
-      },
-      updateOwnProfile,
-      { membershipId: reader.id, leaderboardOptIn: false },
-    ),
-  ).rejects.toThrow(NotFound);
-});
-
 // — GetMyProfile —
 
-test("a reader's own profile carries the eight fields, the parish line and the toggle", async () => {
+test("a reader's own profile carries the nine fields and the parish line", async () => {
   // OPS §3.2's return list. The parish line is rendered with *this shelf's*
   // labels rather than a hard-coded word — the same `describeSelection` the
   // manager's reader page uses, so the two cannot describe one child two ways.
@@ -166,12 +79,36 @@ test("a reader's own profile carries the eight fields, the parish line and the t
 
   expect(profile.fields.saint_name).toBe("Maria");
   expect(profile.fields.phone).toBe("0900000000");
-  expect(Object.keys(profile.fields)).toHaveLength(8);
+  expect(Object.keys(profile.fields)).toHaveLength(9);
   expect(profile.parishUnitL1Name).toBe("Giáo họ Thánh Tâm");
   expect(profile.parishUnitL2Name).toBe("Tổ 2");
   expect(profile.parishLine).toContain("Tổ 2");
-  expect(profile.leaderboardOptIn).toBe(true);
   expect(profile.pendingChange).toBeNull();
+});
+
+test("a reader's own profile carries the phone-missing reason on file, not a hardcoded null", async () => {
+  // The assertion `toHaveLength(9)` above cannot make: a query that forgot to
+  // select `phone_missing_reason` still returns a nine-key object (`row[f] ??
+  // null` fills the gap with `null`), and a length check cannot tell that
+  // apart from a query that genuinely read an empty reason. This stores a
+  // real one and reads it back through the same command a manager actually
+  // uses, then checks the exact string.
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+  await runCommand(sql, managerCtx, updateReaderProfile, {
+    membershipId: reader.id,
+    fields: {
+      phone: null,
+      phone_missing_reason: "Em bé chưa có điện thoại, mẹ sẽ bổ sung sau",
+    },
+  });
+
+  const profile = await runQuery(sql, readerCtx, (tx, ctx) =>
+    getMyProfile(tx, ctx, { membershipId: reader.id }),
+  );
+
+  expect(profile.fields.phone_missing_reason).toBe(
+    "Em bé chưa có điện thoại, mẹ sẽ bổ sung sau",
+  );
 });
 
 test("a reader's own profile shows the pending proposal beside the values still in force", async () => {
@@ -279,4 +216,24 @@ test("a phone corrected by UpdateReaderProfile shows as current, and previous_va
   >`select status, previous_values from profile_change_requests`;
   expect(stored.status).toBe("pending");
   expect(stored.previous_values.phone).toBe("0900000000");
+});
+
+test("the queue's current values carry the phone-missing reason on file, not a hardcoded null", async () => {
+  // The same property `getMyProfile`'s own test above proves, for
+  // `currentValues` — read live from `users` in this query too, through the
+  // same `PROFILE_FIELDS.map((f) => [f, row[f] ?? null])` idiom, and just as
+  // silently wrong if the `select` list ever drifts from the array again.
+  const { reader, readerCtx, managerCtx } = await shelfWithReader();
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { phone: "0912345678" },
+  });
+  await runCommand(sql, managerCtx, updateReaderProfile, {
+    membershipId: reader.id,
+    fields: { phone: null, phone_missing_reason: "Chưa có, sẽ bổ sung sau" },
+  });
+
+  const [row] = await runQuery(sql, managerCtx, getPendingProfileChanges);
+
+  expect(row.currentValues.phone_missing_reason).toBe("Chưa có, sẽ bổ sung sau");
 });

@@ -7,6 +7,7 @@ import { messageFor } from "@/domain/kernel/errors";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getSystemSettings } from "@/domain/admin/queries/get-admin-overview";
+import { countPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
 import { loadAdminPage } from "@/lib/page-data";
 import {
   ACTION_DONE_PARAM,
@@ -60,16 +61,20 @@ export default async function AdminSettingsPage({
   const refusal = refusalFrom(search);
   const saved = param(search, ACTION_DONE_PARAM);
 
-  const { viewer, unreadFeedback, settings } = await loadAdminPage(
-    async (tx, ctx, v) => ({
+  const { viewer, unreadFeedback, pendingManagerChanges, settings } =
+    await loadAdminPage(async (tx, ctx, v) => ({
       viewer: v,
       unreadFeedback: await countUnreadFeedback(tx, ctx),
+      pendingManagerChanges: await countPendingManagerChanges(tx, ctx),
       settings: await getSystemSettings(tx, ctx),
-    }),
-  );
+    }));
 
   return (
-    <AdminShell active="cai-dat" viewer={viewer} unreadFeedback={unreadFeedback}>
+    <AdminShell
+      active="cai-dat"
+      viewer={viewer}
+      counts={{ unreadFeedback, pendingManagerChanges }}
+    >
       <PageHeading
         title="Cài đặt hệ thống"
         subtitle="Thông tin liên hệ và các giá trị mặc định của hệ thống."

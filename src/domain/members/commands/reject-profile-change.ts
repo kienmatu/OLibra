@@ -1,8 +1,8 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
-import { requireIdentifiedActor } from "../../kernel/tenant";
+import { atLeast, requireIdentifiedActor } from "../../kernel/tenant";
 import type { Command } from "../../kernel/unit-of-work";
 import { avatarObjectOf } from "../pending-proposal";
-import { blank, requireManager } from "../policy";
+import { blank, requireManager, type MembershipRole } from "../policy";
 import { lockPerson } from "../profile-fields";
 import { subjectOfProfileChange } from "../scoped-user";
 
@@ -73,19 +73,43 @@ export const rejectProfileChange: Command<
 
   // Read again under the lock, so the status this decision turns on is the
   // status as it is rather than as it was a moment ago — the same re-read
-  // `./approve-profile-change.ts` performs, and for the same reason. The
-  // `join memberships` that used to be here is gone: `subjectOfProfileChange`
-  // already made that check, and a second copy of a tenant predicate is correct
-  // only for as long as somebody keeps writing it.
+  // `./approve-profile-change.ts` performs, and for the same reason.
+  //
+  // The `join memberships` is back (PO feedback round 1, Task 9), but it is
+  // not the tenant check that used to live here — `subjectOfProfileChange`
+  // already made that check, and this join reaches it only by
+  // `subject.membershipId`, the id that check already resolved, to read the
+  // one column §9's routing rule needs: the subject's current role.
   const [request] = await tx<
-    { id: string; status: string; proposed_values: unknown }[]
+    {
+      id: string;
+      status: string;
+      proposed_values: unknown;
+      subject_role: MembershipRole;
+    }[]
   >`
-      select id, status, proposed_values from profile_change_requests
-       where id = ${input.profileChangeRequestId}
+      select r.id, r.status, r.proposed_values, m.role as subject_role
+        from profile_change_requests r
+        join memberships m on m.id = ${subject.membershipId}
+       where r.id = ${input.profileChangeRequestId}
     `;
   if (!request) throw new NotFound("write_target_not_found");
   if (request.status !== "pending") {
     throw new RuleViolated("profile_change_not_pending");
+  }
+
+  // The identical pair of checks `./approve-profile-change.ts` applies, and
+  // for the same reason its docstring gives at length: a rejection is a
+  // decision too, and a rule enforced on only one of the two paths is not
+  // enforced. The `join memberships` above is not a second copy of the tenant
+  // check — `subject.membershipId` already came out of
+  // `subjectOfProfileChange`'s scoped join — it only reads that row's `role`.
+  const subjectIsManager = atLeast(request.subject_role, "manager");
+  if (subjectIsManager && ctx.actor.role !== "super_admin") {
+    throw new RuleViolated("not_permitted");
+  }
+  if (subject.userId === ctx.actor.userId) {
+    throw new RuleViolated("not_permitted");
   }
 
   await tx`

@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Pin } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getAnnouncements } from "@/domain/community/queries/get-announcements";
+import { atLeast } from "@/domain/kernel/tenant";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
@@ -10,6 +12,11 @@ import { formatInstant } from "@/lib/dates";
 /**
  * The shelf's announcements. OPS §3.2's `GetAnnouncementsList`, BR §16.1's
  * "pinned first, most recent next".
+ *
+ * Task 12's **Ghim** marker is `Pill icon={Pin} label="Ghim"`, the exact
+ * treatment the shelf home's announcement card already carries
+ * (`(doc-gia)/page.tsx`) — one visual language for "this notice is pinned"
+ * rather than a second one invented for this list.
  *
  * **An announcement lapses on read, and this page does not know that.** The
  * query compares `expires_at` against `olibra_now()`, so a notice about last
@@ -51,6 +58,8 @@ export default async function AnnouncementsPage({
         active="thong-bao"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
@@ -68,27 +77,25 @@ export default async function AnnouncementsPage({
                 key={a.id}
                 className="rounded-card border border-hairline bg-surface p-5"
               >
-                <div className="flex items-start gap-2">
-                  {a.isPinned ? (
-                    <Pin className="mt-1 size-4 shrink-0 text-meta" aria-hidden />
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`${base}/thong-bao/${a.slug}`}
-                      className="text-[17px] leading-snug font-semibold hover:underline"
-                    >
-                      {a.title}
-                    </Link>
-                    <p className="mt-2 text-[14px] leading-relaxed text-meta">
-                      {a.excerpt}
-                    </p>
-                    {a.publishedAt ? (
-                      <p className="mt-3 text-[13px] text-meta">
-                        {formatInstant(a.publishedAt)}
-                      </p>
-                    ) : null}
+                {a.isPinned ? (
+                  <div className="mb-2">
+                    <Pill icon={Pin} label="Ghim" />
                   </div>
-                </div>
+                ) : null}
+                <Link
+                  href={`${base}/thong-bao/${a.slug}`}
+                  className="text-[17px] leading-snug font-semibold hover:underline"
+                >
+                  {a.title}
+                </Link>
+                <p className="mt-2 text-[14px] leading-relaxed text-meta">
+                  {a.excerpt}
+                </p>
+                {a.publishedAt ? (
+                  <p className="mt-3 text-[13px] text-meta">
+                    {formatInstant(a.publishedAt)}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>

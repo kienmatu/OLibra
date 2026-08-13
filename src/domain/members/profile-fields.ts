@@ -1,4 +1,4 @@
-import { ValidationFailed } from "../kernel/errors";
+import { RuleViolated, ValidationFailed } from "../kernel/errors";
 import type { Tx } from "../kernel/unit-of-work";
 import { assertPhone } from "./policy";
 import type { ScopedUserId } from "./scoped-user";
@@ -48,9 +48,11 @@ import type { ScopedUserId } from "./scoped-user";
  */
 
 /**
- * The eight columns of `users` that are a person's *verified details* — the
+ * The nine columns of `users` that are a person's *verified details* — the
  * subject of BR §5.3's registration form and of every proposal a reader may
- * make (OPS §4.3), plus the photograph.
+ * make (OPS §4.3), plus the photograph and the one column that explains
+ * rather than states a fact: `phone_missing_reason` (PO feedback round 1,
+ * Task 7).
  *
  * Spelled as the database spells them, snake_case, because both callers put
  * these names into `profile_change_requests.proposed_values` (a `jsonb` shadow
@@ -64,29 +66,38 @@ export const PROFILE_FIELDS = [
   "father_name",
   "mother_name",
   "phone",
+  "phone_missing_reason",
   "email",
   "avatar_url",
 ] as const;
 
 export type ProfileField = (typeof PROFILE_FIELDS)[number];
 
-/** All eight, as they stand. `date_of_birth` is an ISO `YYYY-MM-DD` string. */
+/** All nine, as they stand. `date_of_birth` is an ISO `YYYY-MM-DD` string. */
 export type ProfileFields = Record<ProfileField, string | null>;
 
 /** A subset: exactly the fields a caller named, and nothing else. */
 export type ProfilePatch = Partial<ProfileFields>;
 
 /**
- * The three that are `not null` on the table (`0003_identity.sql:16-19`).
+ * The four that are `not null` on the table (`0003_identity.sql:16-19`,
+ * `20260812_01_contacts_profile_and_hours.sql`).
  *
  * Blanking one has to be a named refusal — OPS §4.3's
  * `required_fields_missing` — rather than a `23502` out of the driver, which
  * OPS §2 forbids ("a command never fails with a bare 500 or an unstructured
- * exception"). `saint_name`, `phone`, `email`, `date_of_birth` and `avatar_url`
- * are all nullable and clearing one is a legitimate edit: a family that never
- * gave a phone number is a real row.
+ * exception"). `phone`, `phone_missing_reason`, `email` and `avatar_url` are
+ * all nullable and clearing one is a legitimate edit: a family that never gave
+ * a phone number is a real row. `date_of_birth` is nullable too — clearing it
+ * is not itself refused, though `assertStorableDate` below still guards any
+ * value supplied. `saint_name` joined this list in PO feedback round 1, Task
+ * 7: "a parish register with no saint name is not a parish register" — the
+ * column became `not null` in the same migration that added
+ * `phone_missing_reason`, and this array is what turns that column-level fact
+ * into the named refusal OPS §2 asks for, rather than a bare `23502`.
  */
 export const REQUIRED_PROFILE_FIELDS: readonly ProfileField[] = [
+  "saint_name",
   "full_name",
   "father_name",
   "mother_name",
@@ -174,7 +185,7 @@ function named(patch: ProfilePatch, field: ProfileField): boolean {
 }
 
 /**
- * Keeps only the eight allowed keys out of an untrusted bag, and drops
+ * Keeps only the nine allowed keys out of an untrusted bag, and drops
  * everything else silently.
  *
  * The untrusted bag is real: `proposed_values` is `jsonb` with no check
@@ -252,11 +263,11 @@ export function normaliseProfilePatch(patch: ProfilePatch): ProfilePatch {
 }
 
 /**
- * Which of the eight actually differ, and what they were and became.
+ * Which of the nine actually differ, and what they were and became.
  *
  * OPS §4.3 wants `profile.corrected`'s audit entry to carry "only the fields
  * that actually changed", and BR §14 wants an audit browser that can say what
- * happened. An entry listing all eight, six of them identical on both sides,
+ * happened. An entry listing all nine, seven of them identical on both sides,
  * says "a manager rewrote this person" when a manager fixed a phone number.
  */
 export function diffProfileFields(
@@ -335,7 +346,7 @@ export async function applyProfileFields(
   const avatarObject =
     (patch as { avatar_object?: string | null }).avatar_object ?? null;
 
-  // The eight arms below are the only place `PROFILE_FIELDS` is spelled a
+  // The nine arms below are the only place `PROFILE_FIELDS` is spelled a
   // second time — the driver takes a tagged template, so a column list cannot
   // be composed from the array without dropping out of the guarded `tx` the
   // kernel hands every command. What holds the two spellings in step is the
@@ -347,8 +358,8 @@ export async function applyProfileFields(
   >`
     with prev as (
       select id, saint_name, full_name, date_of_birth::text as date_of_birth,
-             father_name, mother_name, phone, email, avatar_url,
-             avatar_object
+             father_name, mother_name, phone, phone_missing_reason, email,
+             avatar_url, avatar_object
         from users
        where id = ${userId} and deleted_at is null
          for update
@@ -360,6 +371,17 @@ export async function applyProfileFields(
       father_name   = case when ${has("father_name")}   then ${val("father_name")}           else prev.father_name end,
       mother_name   = case when ${has("mother_name")}   then ${val("mother_name")}           else prev.mother_name end,
       phone         = case when ${has("phone")}         then ${val("phone")}                 else prev.phone end,
+      -- PO feedback round 1, Task 7: a phone that arrives clears the reason
+      -- it was missing — the reason describes an absence, and a present
+      -- number makes it stale rather than true. A caller may still name
+      -- phone_missing_reason on its own (recording or updating why, with no
+      -- phone supplied this time), which the second arm covers. (No
+      -- backticks in this comment: it is inside a tagged template and one
+      -- would end the literal.)
+      phone_missing_reason = case
+        when ${has("phone")} and ${val("phone")}::text is not null then null
+        when ${has("phone_missing_reason")} then ${val("phone_missing_reason")}
+        else prev.phone_missing_reason end,
       email         = case when ${has("email")}         then ${val("email")}                 else prev.email end,
       avatar_url    = case when ${has("avatar_url")}    then ${val("avatar_url")}            else prev.avatar_url end,
       -- B6. The storage key travels with the URL and is NOT a ProfileField:
@@ -380,6 +402,8 @@ export async function applyProfileFields(
       prev.father_name   as before_father_name,   u.father_name   as after_father_name,
       prev.mother_name   as before_mother_name,   u.mother_name   as after_mother_name,
       prev.phone         as before_phone,         u.phone         as after_phone,
+      prev.phone_missing_reason as before_phone_missing_reason,
+      u.phone_missing_reason    as after_phone_missing_reason,
       prev.email         as before_email,         u.email         as after_email,
       prev.avatar_url    as before_avatar_url,    u.avatar_url    as after_avatar_url,
       prev.avatar_object as before_avatar_object, u.avatar_object as after_avatar_object
@@ -394,6 +418,53 @@ export async function applyProfileFields(
     ) as ProfileFields;
 
   return { before: side("before"), after: side("after") };
+}
+
+/**
+ * Refuses a write — or, since fix round 1, a *proposal* — that would leave
+ * the subject with neither a phone number nor a stated reason for lacking
+ * one. PO feedback round 1, Task 8, and its own fix round 1.
+ *
+ * **Checked against the resulting record, never the patch alone.** That is
+ * what makes "a reason already on file counts" true: a caller that touches
+ * an unrelated field and leaves both `phone` and `phone_missing_reason`
+ * exactly as they were inherits whatever the record already carries, and
+ * only a record that is *genuinely* silent on both — no number, no reason,
+ * on the row as it now stands — is refused. `applyProfileFields` itself
+ * stays unconditional (its own test drives `{ phone: null }` with no reason
+ * and expects it to succeed) precisely so this rule can live one level up.
+ *
+ * The parameter is `Pick<ProfileFields, "phone" | "phone_missing_reason">`
+ * rather than the full nine-key `ProfileFields`, because it now has three
+ * callers with three different shapes of "the resulting record" in hand:
+ *
+ * - `./commands/update-reader-profile.ts` and
+ *   `./commands/approve-profile-change.ts` pass `after`, the authoritative
+ *   post-write row `applyProfileFields` returns — a `ProfileFields`, which
+ *   satisfies this narrower type structurally.
+ * - `./commands/propose-profile-change.ts` passes a two-key object built
+ *   from the merged proposal overlaid on the person as they stand now — see
+ *   that command for why the check belongs there and not only at approval:
+ *   a reader may leave the phone blank with no reason on a screen with no
+ *   phone box at all (`ApproveProfileChange`'s), and a refusal nobody on
+ *   that screen can answer is not a refusal, it is a dead end.
+ * - `register()` (`../registration.ts`) raises the identical code directly,
+ *   for the two registration write paths, where there is no existing record
+ *   to overlay at all.
+ *
+ * `ApproveProfileChange`'s own call stays in place as the backstop it always
+ * was — a request written before this fix, or by a caller that bypasses
+ * `ProposeProfileChange` entirely (`profile_change_requests` is `jsonb` with
+ * no check constraint, DATABASE.md §4.11's own price for the design), still
+ * cannot be approved into a phone-less, reason-less record.
+ */
+export function assertPhoneOrReason(
+  result: Pick<ProfileFields, "phone" | "phone_missing_reason">,
+): void {
+  const reason = result.phone_missing_reason;
+  if (result.phone === null && (reason === null || reason.trim() === "")) {
+    throw new RuleViolated("thieu-so-dien-thoai");
+  }
 }
 
 /**
@@ -456,7 +527,7 @@ export async function lockPerson(tx: Tx, userId: ScopedUserId): Promise<void> {
 }
 
 /**
- * The eight fields as they stand, without writing anything.
+ * The nine fields as they stand, without writing anything.
  *
  * `ProposeProfileChange` needs them for `previous_values` — BR §5.4's snapshot,
  * "so a manager reviewing a week-old request sees what it would actually
@@ -469,7 +540,8 @@ export async function readProfileFields(
 ): Promise<ProfileFields | null> {
   const [row] = await tx<ProfileFields[]>`
     select saint_name, full_name, date_of_birth::text as date_of_birth,
-           father_name, mother_name, phone, email, avatar_url
+           father_name, mother_name, phone, phone_missing_reason, email,
+           avatar_url
       from users
      where id = ${userId} and deleted_at is null
   `;

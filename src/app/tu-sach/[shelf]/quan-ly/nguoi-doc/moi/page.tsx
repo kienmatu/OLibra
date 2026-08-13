@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { AlertCircle, ArrowLeft, Info } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { Field, Input } from "@/components/ui/field";
+import { Field, Input, Textarea } from "@/components/ui/field";
+import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { ParishUnitFields } from "@/components/parish-unit-fields";
 import { messageFor } from "@/domain/kernel/errors";
@@ -157,6 +158,7 @@ export default async function RegisterReaderOnBehalfPage({
       ) : null}
 
       <form
+        id="nguoi-doc-moi-form"
         action={registerReaderOnBehalfAction}
         // QA remediation T27. See `Field`'s `invalidHint` docstring
         // (`src/components/ui/field.tsx`): the browser's own validation
@@ -171,8 +173,18 @@ export default async function RegisterReaderOnBehalfPage({
         <div className="space-y-6">
           <GroupHeading>Bản thân</GroupHeading>
 
-          <Field label="Tên thánh" htmlFor="ten-thanh">
-            <Input id="ten-thanh" name="ten-thanh" placeholder="vd: Maria" />
+          <Field
+            label="Tên thánh"
+            required
+            htmlFor="ten-thanh"
+            invalidHint="Vui lòng nhập tên thánh."
+          >
+            <Input
+              id="ten-thanh"
+              name="ten-thanh"
+              required
+              placeholder="vd: Maria"
+            />
           </Field>
 
           <Field
@@ -244,22 +256,44 @@ export default async function RegisterReaderOnBehalfPage({
             label="Số điện thoại"
             required
             htmlFor="dien-thoai"
-            hint="Số của cha mẹ cũng được. Đây là cách tủ sách liên lạc khi cần nhắc trả sách."
+            hint="Số của cha mẹ cũng được. Để trống thì cần cho biết lý do bên dưới."
             // Same reused sentence `/dang-ky` pairs with this field's own
             // shape — see that page's comment on why `messageFor` rather
-            // than new copy.
+            // than new copy. PO feedback round 1, Task 8: no HTML `required`
+            // below any more, so this only ever fires on a malformed number,
+            // never a blank one — see `/dang-ky`'s identical note.
             invalidHint={messageFor("phone_invalid")}
           >
             <Input
               id="dien-thoai"
               name="dien-thoai"
-              required
               type="tel"
               inputMode="numeric"
               pattern={PHONE_PATTERN}
               placeholder="vd: 09xx xxx xxx"
             />
           </Field>
+
+          {/* PO feedback round 1, Task 8 — see `/dang-ky` for the identical
+              reasoning: hidden until a `thieu-so-dien-thoai` refusal shows
+              this is a brand-new profile with nothing on file yet. */}
+          {refused === "thieu-so-dien-thoai" ? (
+            <Field
+              label="Lý do chưa có số điện thoại"
+              required
+              htmlFor="ly-do-thieu-sdt"
+              hint="Ví dụ: em bé chưa có điện thoại riêng, sẽ bổ sung sau."
+            >
+              <Textarea
+                id="ly-do-thieu-sdt"
+                name="ly-do-thieu-sdt"
+                required
+                rows={3}
+              />
+            </Field>
+          ) : (
+            <input type="hidden" name="ly-do-thieu-sdt" />
+          )}
         </div>
 
         <div className="space-y-6">
@@ -301,6 +335,7 @@ export default async function RegisterReaderOnBehalfPage({
 
         <SubmitButton className="w-full">Tạo hồ sơ chờ duyệt</SubmitButton>
       </form>
+      <PhoneConfirmDialog formId="nguoi-doc-moi-form" />
     </ManagerShell>
   );
 }

@@ -73,22 +73,37 @@ export async function seed(sql: Sql): Promise<void> {
       };
       const [row] = await tx<{ id: string }[]>`
         insert into bookshelves (
-          slug, name, location, opening_hours, keeper_name, keeper_phone, settings
+          slug, name, location, settings
         )
         values (
-          ${s.slug}, ${s.name}, ${s.location}, ${s.hours}, ${s.keeper}, ${s.phone},
-          ${tx.json(settings)}
+          ${s.slug}, ${s.name}, ${s.location}, ${tx.json(settings)}
         )
         on conflict (slug) where deleted_at is null do update set
           name          = excluded.name,
           location      = excluded.location,
-          opening_hours = excluded.opening_hours,
-          keeper_name   = excluded.keeper_name,
-          keeper_phone  = excluded.keeper_phone,
           settings      = excluded.settings
         returning id
       `;
       bookshelfIdBySlug.set(s.slug, row.id);
+
+      // PO feedback round 1, Task 1: `keeper_name`/`keeper_phone` are gone
+      // from `bookshelves` — up to three ordered `bookshelf_contacts` replace
+      // the single keeper (`20260812_01_contacts_profile_and_hours.sql`).
+      // `fixtures.ts` still carries only one contact per shelf, so this seed
+      // still writes only position 1, the mandatory one — matching the
+      // migration's own backfill, which turned every shelf's `keeper_name`
+      // into exactly this row. `on conflict` targets the same soft-delete
+      // -aware position index `createBookshelf`/`updateBookshelfSettings`
+      // write against, so rerunning the seed updates the one row rather than
+      // colliding with it.
+      await tx`
+        insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+        values (${row.id}, 1, ${s.keeper}, ${s.phone}, 'Người giữ chìa khoá')
+        on conflict (bookshelf_id, position) where deleted_at is null do update set
+          name       = excluded.name,
+          phone      = excluded.phone,
+          role_label = excluded.role_label
+      `;
     }
     const dongThapId = bookshelfIdBySlug.get(primaryShelf.slug)!;
 
@@ -329,13 +344,14 @@ export async function seed(sql: Sql): Promise<void> {
     // .mjs` crawls as this account for exactly that reason.
     //
     // Only this shelf's keeper, and only on her own shelf. Not because the
-    // other three name no keeper — the loop above writes `keeper_name` for all
-    // four, from `fixtures.ts`'s `shelf.keeper` — but because those three
-    // keepers are not seeded *accounts*. `fixtures.ts` gives each of the other
-    // shelves one reader, and none of them is the person named as its keeper,
-    // so there is no membership to promote and promoting somebody else would
-    // be inventing a manager the fixtures never described. Đồng Tháp is the
-    // one shelf where the two coincide: its `keeper_name` is "Maria Nguyễn Thị
+    // other three name no keeper — the loop above writes a position-1
+    // `bookshelf_contacts` row for all four, from `fixtures.ts`'s
+    // `shelf.keeper` — but because those three keepers are not seeded
+    // *accounts*. `fixtures.ts` gives each of the other shelves one reader,
+    // and none of them is the person named as its keeper, so there is no
+    // membership to promote and promoting somebody else would be inventing a
+    // manager the fixtures never described. Đồng Tháp is the one shelf where
+    // the two coincide: its position-1 contact's name is "Maria Nguyễn Thị
     // Lan", and she is also reader "lan", the account this promotes.
     await tx`
       update memberships
@@ -377,11 +393,15 @@ export async function seed(sql: Sql): Promise<void> {
     // for children, and an administrator is the one row it did not anticipate.
     // Empty rather than invented: no constraint forbids it, and a blank says
     // "not recorded" where "Không có" would be a fact nobody established.
+    // `saint_name` joins that same reasoning as of PO feedback round 1, Task
+    // 7 — `not null` now, so this row needs a value too, and an empty string
+    // is the honest one for the same reason as the two names above.
     await tx`
       insert into users (
-        username, password_hash, full_name, father_name, mother_name, is_super_admin
+        username, password_hash, saint_name, full_name, father_name, mother_name,
+        is_super_admin
       )
-      values ('admin', ${SEED_PASSWORD_HASH}, 'Quản trị viên', '', '', true)
+      values ('admin', ${SEED_PASSWORD_HASH}, '', 'Quản trị viên', '', '', true)
       on conflict ((lower(username))) where deleted_at is null and username is not null
       do update set is_super_admin = true
     `;

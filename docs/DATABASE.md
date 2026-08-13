@@ -317,9 +317,9 @@ Each of those decisions was right while every caller was tenant-scoped. `runPubl
 
 So the boundary moved from policies to privileges. `20260809_01_public_role.sql` creates `olibra_public`: no `login` (nothing connects as it; it is only ever reached through `set local role` from an `olibra_pool` connection), not a superuser, not `bypassrls`, and **not a member of `olibra_app`** — membership there would hand back exactly what this role exists to withhold. It holds `usage` on the schema and a *column-level* `select` on five columns of `bookshelves` (`slug`, `name`, `location`, plus the `status` and `deleted_at` that `listPublicShelves` names in its own `where` clause), and nothing else anywhere. A policy has to be written per table and so fails open for the table nobody thought about; a grant is absent by default and so fails closed for every table a later migration adds.
 
-The column grants are the second half, and they close something §4.2 flags as unprotectable at the row level: `bookshelves_public_read` admits the whole row, so until now the column surface was entirely the query's job, guarded by a regex over source text (`tests/db/bookshelves-public-columns.test.ts`). As `olibra_public`, `select keeper_phone from bookshelves` and `select b.* from bookshelves b` both raise `42501` regardless of what any regex matched. `tests/db/public-role-privileges.test.ts` is the evidence, and it discovers its subjects from `pg_class` and `information_schema.columns` rather than from a list — the test it replaces sampled three tables, which is precisely how a check comes to agree with a false premise.
+The column grants are the second half, and they close something §4.2 flags as unprotectable at the row level: `bookshelves_public_read` admits the whole row, so until now the column surface was entirely the query's job, guarded by a regex over source text (`tests/db/bookshelves-public-columns.test.ts`). As `olibra_public`, `select keeper_phone from bookshelves` and `select b.* from bookshelves b` both raise `42501` regardless of what any regex matched. (`keeper_phone` itself was dropped from `bookshelves` on 2026-08-12, above — the example is left as the live reproduction actually run, and the same 42501 now applies to the whole of `bookshelf_contacts`, which holds what `keeper_phone` used to.) `tests/db/public-role-privileges.test.ts` is the evidence, and it discovers its subjects from `pg_class` and `information_schema.columns` rather than from a list — the test it replaces sampled three tables, which is precisely how a check comes to agree with a false premise.
 
-**Correction:** an earlier draft of this sentence — and the S3 plan bullet built on it (`docs/superpowers/plans/2026-08-07-s3-identity-session.md`, Task 4) — stated this as already true. It was not. `0010_rls.sql`'s own `grant select, insert, update on all tables in schema public to olibra_app` runs against *every* table that exists at that point in the migration, `bookshelves` included — the bespoke `bookshelves_tenant` policy right above it only scopes *which rows* an `insert`/`update` may touch, not *whether* `olibra_app` may `insert` at all. Verified live: `has_table_privilege('olibra_app', 'bookshelves', 'INSERT')` returned `true`, and an `olibra_app` session scoped to an id of its own choosing successfully inserted a bookshelf row carrying that id — `bookshelves_tenant`'s `with check (id = ...)` only requires the new row's id to match the session GUC, which the caller controls completely before the row exists. `20260808_08_revoke_bookshelves_insert_from_app.sql` closes the gap with an explicit `revoke insert on bookshelves from olibra_app`, so the sentence above is now enforced rather than aspirational. `update` is deliberately left granted: a shelf legitimately edits its own row (name, opening hours, `settings`) as `olibra_app`, scoped by the same `with check` every other tenant table's self-service write already relies on — only the act of creating a new row is reserved for `olibra_admin`.
+**Correction:** an earlier draft of this sentence — and the S3 plan bullet built on it (`docs/superpowers/plans/2026-08-07-s3-identity-session.md`, Task 4) — stated this as already true. It was not. `0010_rls.sql`'s own `grant select, insert, update on all tables in schema public to olibra_app` runs against *every* table that exists at that point in the migration, `bookshelves` included — the bespoke `bookshelves_tenant` policy right above it only scopes *which rows* an `insert`/`update` may touch, not *whether* `olibra_app` may `insert` at all. Verified live: `has_table_privilege('olibra_app', 'bookshelves', 'INSERT')` returned `true`, and an `olibra_app` session scoped to an id of its own choosing successfully inserted a bookshelf row carrying that id — `bookshelves_tenant`'s `with check (id = ...)` only requires the new row's id to match the session GUC, which the caller controls completely before the row exists. `20260808_08_revoke_bookshelves_insert_from_app.sql` closes the gap with an explicit `revoke insert on bookshelves from olibra_app`, so the sentence above is now enforced rather than aspirational. `update` is deliberately left granted: a shelf legitimately edits its own row (name, `settings`, and — at the time this was written — opening hours, since dropped, above) as `olibra_app`, scoped by the same `with check` every other tenant table's self-service write already relies on — only the act of creating a new row is reserved for `olibra_admin`.
 
 ---
 
@@ -334,12 +334,13 @@ create table users (
   id              uuid primary key default gen_random_uuid(),
   username        text,                    -- optional; see the note below
   password_hash   text,
-  saint_name      text,                    -- tên thánh
+  saint_name      text not null,           -- tên thánh; not null since 2026-08-12, see below
   full_name       text not null,
   date_of_birth   date,
   father_name     text not null,
   mother_name     text not null,
   phone           text,
+  phone_missing_reason text,               -- set when phone is genuinely absent; cleared once phone is filled in — see below
   email           text,                    -- optional; §4 assumption 2, no outbound email in v1
   display_name    text,
   locale          text not null default 'vi',
@@ -382,6 +383,10 @@ record about it.
 `email` is nullable on purpose. §4 assumption 2 states there is no outbound email in v1 and manager-issued password reset is the only recovery path; collecting the address anyway means email reset can be switched on later without touching existing accounts.
 
 `father_name` and `mother_name` are `not null`. §5.3 is explicit that both are required, and the reason is practical rather than bureaucratic: they are how a manager tells apart two children who share a name.
+
+**Added 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §8; `20260812_01_contacts_profile_and_hours.sql`). **`saint_name set not null`, with no backfill step** — the product owner's explicit, one-time instruction, recorded in full at the top of the design document, because the development database is dropped and reseeded and this decision cannot be taken again once a parish has real data in the table. `REQUIRED_PROFILE_FIELDS` (`src/domain/members/profile-fields.ts`) gains `saint_name` so the domain refuses with a named error rather than the driver raising `23502`.
+
+**`phone` stays nullable; `phone_missing_reason` is new.** The column cannot honestly be `not null` — some readers are children with no phone of their own, and a placeholder number is a tap that dials a stranger — so `phone` does **not** join `REQUIRED_PROFILE_FIELDS`; its requirement lives in the interface, not the schema. Submitting a form with an empty phone raises a danger-styled confirmation requiring a typed reason, stored in `phone_missing_reason` and cleared automatically the moment a phone is filled in. **Enforced in the domain**, not in any one action: `register()` and `assertPhoneOrReason` (`src/domain/members/profile-fields.ts`), called from `updateReaderProfile`, `proposeProfileChange` and `approveProfileChange`, so the rule cannot be satisfied by one write path and skipped by another.
 
 `avatar_url` is populated at registration, not left for later. §16.1 lists the photograph among the fields collected on the registration form itself, under *Bản thân*, because a volunteer meeting forty children on a Sunday recognises a face faster than a name.
 
@@ -452,7 +457,6 @@ create table memberships (
   rejection_reason  text,
   suspension_reason text,
   manager_notes     text,                  -- private to managers
-  leaderboard_opt_in boolean not null default true,
 
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
@@ -475,6 +479,8 @@ create unique index memberships_one_per_shelf
   on memberships (bookshelf_id, user_id)
   where deleted_at is null;
 ```
+
+**Dropped 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §13; `20260812_01_contacts_profile_and_hours.sql`): this table used to carry `leaderboard_opt_in boolean not null default true`, gating who could appear in *Bạn đọc chăm nhất* on the manager's statistics page. The column is gone; the leaderboard now counts every borrower with no acknowledgement step. §4.11, below, records what this took with it.
 
 `memberships_one_per_shelf` enforces §4 assumption 8: **a person has at most one role per bookshelf.** Roles are hierarchical (`admin` ⊃ `manager` ⊃ `reader`), so one row with the highest role is sufficient and two rows would be ambiguous.
 
@@ -531,9 +537,6 @@ create table bookshelves (
   description   text,
   location      text,                      -- physical location, shown publicly
   address       text,
-  keeper_name   text,
-  keeper_phone  text,                      -- shown publicly, tappable
-  opening_hours text,                      -- free text: "Mở sau lễ Chúa nhật · 9:00 đến 11:00"
   cover_url     text,
   timezone      text not null default 'Asia/Ho_Chi_Minh',
   locale        text not null default 'vi',
@@ -555,6 +558,8 @@ create unique index bookshelves_slug_unique
   on bookshelves (slug)
   where deleted_at is null;
 ```
+
+**Changed 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §1 and §3; `20260812_01_contacts_profile_and_hours.sql`): this table used to also carry `keeper_name`, `keeper_phone` and `opening_hours`. All three are dropped. A shelf's contact is now up to three rows on `bookshelf_contacts`, below, rather than two nullable columns here — see that table for the migration path and why the mandatory-first-contact rule lives in the domain rather than in a constraint. `opening_hours` was not moved anywhere; BR:179 no longer lists it as a shelf field.
 
 **`slug` is immutable after creation** (§16.4) because it appears in links people have already shared. Enforce with a trigger, not trusting the UI — and the trigger must actually be attached, not merely defined:
 
@@ -597,7 +602,51 @@ create policy bookshelves_public_read on bookshelves
 
 **A second, additive policy, not a replacement.** PostgreSQL ORs together every permissive policy that covers the same command, so this one only ever *widens* what `select` can see — it plays no part in an `insert` or `update`, which stays governed exclusively by `bookshelves_tenant`'s `with check`, unchanged. Restricted to active, undeleted rows: an archived or soft-deleted shelf has no business being discoverable by slug. This is also a product requirement in its own right, not only a fix for how RLS composes: §1.2 specifies the Portal surface as a "searchable directory of bookshelves — name and address only. Public, because someone who has no account yet must be able to find their parish's shelf in order to register for it."
 
-**What this policy stops protecting, and what has to protect it instead.** Row Level Security is row-level: once a policy admits a `bookshelves` row, every column on it is readable through that same query, not only `name` and `location`. §16.1 withholds book counts, reader counts and keeper contact from the portal precisely because "a person with no membership has no business knowing them" — and now that a stranger can read the row at all, that restriction is entirely the query's job, not the policy's. OPERATIONS.md §3.1 already forbids the shortcut this invites: a query built for the portal selects only the two public columns; it must not join the rest in and trim it client-side, which would put it on the wire regardless of what the page then chooses to render. A reviewer who sees `select *` against `bookshelves` from a public code path should treat it as a defect, not a style question.
+**What this policy stops protecting, and what has to protect it instead.** Row Level Security is row-level: once a policy admits a `bookshelves` row, every column on it is readable through that same query, not only `name` and `location`. §16.1 withholds book counts and reader counts from the portal precisely because "a person with no membership has no business knowing them" — and now that a stranger can read the row at all, that restriction is entirely the query's job, not the policy's. OPERATIONS.md §3.1 already forbids the shortcut this invites: a query built for the portal selects only the two public columns; it must not join the rest in and trim it client-side, which would put it on the wire regardless of what the page then chooses to render. A reviewer who sees `select *` against `bookshelves` from a public code path should treat it as a defect, not a style question.
+
+**Added 2026-08-12 — `bookshelf_contacts`** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §1; `20260812_01_contacts_profile_and_hours.sql`). A shelf's contact used to be two nullable columns on `bookshelves` itself, `keeper_name` and `keeper_phone` (now dropped, above). A parish that runs its shelf with three volunteers had no way to say so, and the one name it could record was labelled *Người giữ chìa khoá* whether or not that was what the person did.
+
+```sql
+create table bookshelf_contacts (
+  id            uuid primary key default gen_random_uuid(),
+  bookshelf_id  uuid not null references bookshelves(id) on delete restrict,
+  position      smallint not null check (position between 1 and 3),
+  name          text not null,
+  phone         text,
+  role_label    text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  deleted_at    timestamptz
+);
+
+-- Soft-delete-aware, the same shape as bookshelves_slug_unique above: a
+-- retired contact must not block the position it used to hold.
+create unique index bookshelf_contacts_position
+  on bookshelf_contacts (bookshelf_id, position)
+  where deleted_at is null;
+
+create index bookshelf_contacts_by_shelf
+  on bookshelf_contacts (bookshelf_id)
+  where deleted_at is null;
+
+alter table bookshelf_contacts enable row level security;
+alter table bookshelf_contacts force row level security;
+
+create policy bookshelf_contacts_tenant on bookshelf_contacts
+  using (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid)
+  with check (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid);
+
+grant select, insert, update on bookshelf_contacts to olibra_app;
+grant all on bookshelf_contacts to olibra_admin;
+```
+
+`position` carries the ordering rather than a free `sort_order`: the product decision is one mandatory contact and two optional ones, and a column constrained to 1–3 says that in the schema. **Position 1's mandatoriness is a domain rule, not a database constraint** — `contact_position_1_required`, enforced where a shelf's contacts are written, not by a `not null` or a `check` here — because a shelf onboarded before this table existed may have no contacts at all, and inventing a volunteer for it is worse than an incomplete row. The migration backfilled position 1 from every shelf's old `keeper_name`/`keeper_phone` and dropped both columns in the same file; a shelf with no keeper at the time gets no row, and is flagged incomplete on `/quan-tri/tu-sach`. `role_label` is free text — a parish names its own volunteers' jobs; an enum here would be a guess this project has no basis for.
+
+**No grant to `olibra_public`, deliberately, and this is the load-bearing line.** Ordinary tenant reads are `bookshelf_contacts_tenant`, exactly the shape §3 gives every other shelf-scoped table — reads are scoped to members of the shelf, as `readShelfIdentity` already gated `keeper_name`/`keeper_phone` behind `requireReader`. But unlike `bookshelves`, which needed the column-level grant described just above because the *whole row* is admitted to `olibra_public` by `bookshelves_public_read`, this table receives **no grant to `olibra_public` at all** — not even a column-level one. `select phone from bookshelf_contacts` as `olibra_public` raises `42501` before any policy is even consulted. BR §16.1 — "a person with no membership has no business knowing them" — is the same rule §4.2's public-role note draws for `bookshelves`; here it is enforced as a table-level privilege rather than a column list, because nothing about a shelf's contacts belongs on the front door at all.
+
+**Corrected, post-review fix wave, item 4.** This passage used to name `tests/architecture/the-front-door-shows-no-keeper-contact.test.ts` and `tests/db/bookshelves-public-columns.test.ts` as the two checks that "must keep passing unchanged … if either needs editing to keep passing, the leak is real." Neither claim survives a look at what those two files actually do. `bookshelves-public-columns.test.ts` walks source for a `select` whose `from` clause matches `\bfrom\s+bookshelves\b` (`selectsWildcardFromBookshelves`, that file's own function) and checks the column list against `WITHHELD_COLUMNS` — a name that lists no contact column, on a regex that never matches `from bookshelf_contacts` in the first place. A portal query selecting `name, phone from bookshelf_contacts` would pass this test green, because the test is structurally incapable of seeing a second table. And `the-front-door-shows-no-keeper-contact.test.ts` — despite its name — *was* edited on this branch, to follow the contact strip §1 moved onto the shelf home; a guard that changed with the very feature it is supposed to gate is not the guard holding the boundary.
+
+**The check that actually covers this table is `tests/db/public-role-privileges.test.ts`.** It does not name tables at all — it discovers every relation in `pg_class` and asserts `olibra_public`'s privileges against whatever it finds, so a table this document forgot to mention is exactly as covered as one it names. That is why the boundary genuinely holds: not because two files were told to watch `bookshelf_contacts`, but because one file watches everything in the catalog, this table included, without having to be told it exists.
 
 ### 4.3 Categories
 
@@ -1100,7 +1149,7 @@ create unique index profile_change_requests_one_pending
   where status = 'pending';
 ```
 
-**Every field requires approval — there is no split between "verified" and "self-service" columns.** That was the product owner's explicit decision, not a technical default: the whole reason this table exists is that a manager personally knows each family, and letting a reader silently rewrite even one field would undo the trust that makes the record reliable (§2). Password and leaderboard visibility are the only things a reader changes directly, and §16.2 explains why: neither is a fact about the person that a manager ever verified, so they write straight to `users` and `memberships` and never pass through this table.
+**Every field requires approval — there is no split between "verified" and "self-service" columns.** That was the product owner's explicit decision, not a technical default: the whole reason this table exists is that a manager personally knows each family, and letting a reader silently rewrite even one field would undo the trust that makes the record reliable (§2). **Password is the only thing a reader changes directly** — the profile page's leaderboard-visibility toggle this paragraph used to name beside it is gone (§13; §4.1's memberships note, above), and with it the `UpdateOwnProfile` command that wrote nothing else, so this is no longer a pair — and §16.2 explains why even the one survivor bypasses this table: it is not a fact about the person that a manager ever verified, so it writes straight to `users` and never passes through here.
 
 **`proposed_values` and `previous_values` are `jsonb`, not a pair of nullable columns per field on `users`.** The alternative — `proposed_full_name`, `previous_full_name`, `proposed_phone`, `previous_phone`, and so on for every column a reader may propose changing — was considered and rejected, for the same reason §4.2 gives for `bookshelves.settings`: a new field on `users` would otherwise mean two new columns here plus a migration, for a table whose only job is to shadow another table's shape. The trade-off is real and worth naming rather than hiding:
 
@@ -1509,6 +1558,6 @@ Three things that are easy to get wrong and painful later:
 
 ## 13. Open questions
 
-1. **Full name display.** §4 assumption 6 makes public name display a per-shelf setting so it can be tightened later. The schema supports it; whether the default should be `full_name` deserves revisiting once real children's names are on a public leaderboard (§20).
+1. **Full name display.** §4 assumption 6 makes public name display a per-shelf setting so it can be tightened later. The schema supports it; whether the default should be `full_name` deserves revisiting *if* the manager-facing leaderboard at `/quan-ly/thong-ke` (BUSINESS-REQUIREMENTS.md §16.2, 2026-08-12) is ever made reader-facing (§20). (Corrected, post-review fix wave, item 5: this used to say "once … are on a public leaderboard" — the leaderboard is not public and staying manager-facing is the point of §16.2's own reasoning.)
 2. **Retention.** Nothing in the requirements says how long audit records are kept. Append-only plus unbounded growth is fine for years at this volume, but the question should be answered before it becomes urgent.
 3. **`guest_hash` salt rotation.** Rate limiting by hashed identifier is specified; how the salt is managed is not. Rotating it resets everyone's limit, which may be acceptable.

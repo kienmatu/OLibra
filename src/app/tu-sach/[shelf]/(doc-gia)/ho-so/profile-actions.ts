@@ -7,7 +7,6 @@ import { redirect } from "next/navigation";
 import { cancelProfileChange } from "../../../../../domain/members/commands/cancel-profile-change";
 import { changeOwnPassword } from "../../../../../domain/members/commands/change-own-password";
 import { proposeProfileChange } from "../../../../../domain/members/commands/propose-profile-change";
-import { updateOwnProfile } from "../../../../../domain/members/commands/update-own-profile";
 import { DomainError } from "../../../../../domain/kernel/errors";
 import {
   decideAndDiscardAvatar,
@@ -216,34 +215,21 @@ export async function proposeProfileChangeAction(form: FormData): Promise<void> 
         father_name: value("ten-cha"),
         mother_name: value("ten-me"),
         phone: value("dien-thoai"),
+        // PO feedback round 1, Task 8. Nothing in this file gains a new
+        // refusal — Task 8's brief does not list this action among the ones
+        // that enforce `thieu-so-dien-thoai` — but the field is `PROPOSABLE`
+        // (`../../../../domain/members/profile-proposals.ts` filters
+        // `PROFILE_FIELDS` by excluding only `avatar_url`), so a reader who
+        // types a reason here has it travel with the proposal. The rule
+        // itself is enforced in the domain, not here: `proposeProfileChange`
+        // calls `assertPhoneOrReason` directly (Task 8's fix), and
+        // `approveProfileChange` calls it again on the resulting record, so
+        // a proposal that would leave the person with neither a phone nor a
+        // reason is refused with `thieu-so-dien-thoai` whether the gap shows
+        // up at the moment of proposing or only becomes apparent at approval.
+        phone_missing_reason: value("ly-do-thieu-sdt"),
         email: value("email"),
       },
-    });
-  });
-  back(shelfSlug, code);
-}
-
-/**
- * OPS §4.3's `UpdateOwnProfile` — BR §16.2's leaderboard toggle, the one thing
- * on this page that takes effect without a manager.
- *
- * A checkbox posts its name only when checked, so the absent case *is* the
- * value `false` rather than a missing field — `form.has` is what distinguishes
- * "unchecked" from "this form does not have the control", and the two produce
- * the same `FormData` entry (none). The submit is the whole form, so unchecked
- * genuinely means off.
- */
-export async function updateOwnProfileAction(form: FormData): Promise<void> {
-  const shelfSlug = field(form, "tu-sach");
-  const membershipId = field(form, "thanh-vien");
-  if (shelfSlug === "" || membershipId === "") {
-    back(shelfSlug, "validation_failed");
-  }
-
-  const code = await attempt(async () => {
-    await submitCommand(shelfSlug, updateOwnProfile, {
-      membershipId,
-      leaderboardOptIn: form.has("bang-xep-hang"),
     });
   });
   back(shelfSlug, code);

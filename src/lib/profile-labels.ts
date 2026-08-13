@@ -24,9 +24,13 @@ import {
  *   `quan-ly/nguoi-doc/[id]`'s profile table and from the registration form.
  * - `avatar_url` → **Ảnh đại diện** — the label the fixture version of this
  *   very queue used for its photograph row.
+ * - `phone_missing_reason` → **Lý do chưa có số điện thoại** — new copy, PO
+ *   feedback round 1 Task 7: the interface requires a phone even though the
+ *   column stays nullable, and this is the label for the reason a manager
+ *   types when one genuinely is not there.
  *
  * A total `Record<ProfileField, string>` rather than a lookup that may miss, so
- * a ninth field added to `PROFILE_FIELDS` is a compile error here instead of a
+ * a tenth field added to `PROFILE_FIELDS` is a compile error here instead of a
  * card that renders a change with no name on it. `tests/lib/profile-labels.test
  * .ts` asserts the two lists agree, because the compiler cannot see a label
  * that has quietly become the wrong word.
@@ -38,6 +42,7 @@ export const PROFILE_FIELD_LABELS: Record<ProfileField, string> = {
   father_name: "Tên cha",
   mother_name: "Tên mẹ",
   phone: "Số điện thoại",
+  phone_missing_reason: "Lý do chưa có số điện thoại",
   email: "Email",
   avatar_url: "Ảnh đại diện",
 };

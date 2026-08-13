@@ -65,12 +65,17 @@ export async function registerMembershipAction(form: FormData): Promise<void> {
       // silently changes the secret.
       password: raw(form, "mat-khau"),
       passwordConfirm: raw(form, "nhap-lai-mat-khau"),
-      saintName: optional(form, "ten-thanh"),
+      saintName: field(form, "ten-thanh"),
       fullName: field(form, "ho-ten"),
       dateOfBirth: field(form, "ngay-sinh"),
       fatherName: field(form, "ten-cha"),
       motherName: field(form, "ten-me"),
       phone: field(form, "dien-thoai"),
+      // PO feedback round 1, Task 8: the interface requires a phone; the
+      // column does not. `register()` refuses `thieu-so-dien-thoai` when
+      // both this and `phone` above are blank — see that function's own
+      // docstring.
+      phoneMissingReason: optional(form, "ly-do-thieu-sdt"),
       email: optional(form, "email"),
       // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
       parishUnitL1Id: optional(form, "parishUnitL1Id"),

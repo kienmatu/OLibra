@@ -4,6 +4,7 @@ import type { Command } from "../../kernel/unit-of-work";
 import { readPendingProposal, writePendingProposal } from "../pending-proposal";
 import { requireSelfOrManager } from "../policy";
 import {
+  assertPhoneOrReason,
   normaliseProfilePatch,
   readProfileFields,
   type ProfileField,
@@ -75,7 +76,7 @@ export const proposeProfileChange: Command<
   // above on rank alone — the defect `requireIdentifiedActor` records.
   requireIdentifiedActor(ctx);
 
-  // Narrowed to the seven before validation, so a caller that sends
+  // Narrowed to the eight before validation, so a caller that sends
   // `avatar_url` gets it dropped rather than quietly bypassing
   // `ProposeAvatarChange`'s size and content-type policy, which lives at the
   // surface and cannot be enforced from here.
@@ -106,6 +107,28 @@ export const proposeProfileChange: Command<
 
   const pending = await readPendingProposal(tx, userId);
   const next = mergeProposal(pending?.contents ?? null, incoming, current);
+
+  // Fix round 1 (PO feedback round 1, Task 8). This screen has the reason
+  // box (`ho-so/page.tsx` renders it, visible and pre-filled, exactly when
+  // this check would matter) and `ApproveProfileChange`'s does not — its own
+  // form carries only the request id. A refusal raised only at approval, on
+  // a screen with nowhere to answer it, is not a refusal a manager can act
+  // on; rejecting would be the only exit. So the record this proposal would
+  // *produce*, if approved unchanged right now, is asked here — overlaying
+  // `next.proposed` (this proposal, merged with whatever was already
+  // pending) onto `current` for exactly the two fields that matter, the
+  // same "resulting record, not the patch alone" rule `assertPhoneOrReason`
+  // already applies at the two direct-write callers. `ApproveProfileChange`
+  // keeps its own call as the backstop: a request written before this fix,
+  // or by a caller that bypasses this command entirely, is still refused
+  // rather than approved into a phone-less, reason-less record.
+  assertPhoneOrReason({
+    phone: "phone" in next.proposed ? (next.proposed.phone ?? null) : current.phone,
+    phone_missing_reason:
+      "phone_missing_reason" in next.proposed
+        ? (next.proposed.phone_missing_reason ?? null)
+        : current.phone_missing_reason,
+  });
 
   // The pending row's `avatar_object` is carried through unchanged. This
   // command never proposes a photograph and never withdraws one, and

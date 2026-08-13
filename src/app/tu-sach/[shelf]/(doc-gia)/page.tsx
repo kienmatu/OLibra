@@ -1,19 +1,15 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import {
-  BookOpen,
-  Building2,
-  Clock,
-  KeyRound,
-  Library,
-  MapPin,
-} from "lucide-react";
+import { HeartHandshake, Library, MessageSquare, Pin } from "lucide-react";
 import { BigActionLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { BookCard } from "@/components/ui/book";
-import { PhoneLink } from "@/components/ui/phone-link";
+import { ContactList } from "@/components/ui/contact-list";
 import { ShelfHeader } from "@/components/shell/public-header";
+import { getAnnouncements } from "@/domain/community/queries/get-announcements";
 import { getCatalogue } from "@/domain/catalogue/queries/get-catalogue";
+import { atLeast } from "@/domain/kernel/tenant";
 import { loadPage } from "@/lib/page-data";
 import { readShelfIdentity } from "@/lib/shelf";
 import { statusForAvailability } from "@/lib/status";
@@ -22,8 +18,8 @@ import { statusForAvailability } from "@/lib/status";
  * U1 §2, and U2 §3.3 for why this page in particular is not cached.
  *
  * A shelf's home page looks like the most cacheable thing in the application —
- * every member of one parish sees the same shelf name, the same opening hours
- * and the same six covers. It is not cached anyway, and the reason is worth
+ * every member of one parish sees the same shelf name, the same contacts and
+ * the same six covers. It is not cached anyway, and the reason is worth
  * writing down rather than rediscovering: the cache key would have to include
  * the shelf *and* the viewer, because this page carries the viewer's own name
  * in its header, and it stays correct only until somebody adds one more
@@ -75,49 +71,33 @@ const RECENT_COVERS = 6;
  * BR:496 — "the most important page for a member, and the first thing seen
  * after signing in. **Not public.**"
  *
- * The order down the page is that section's numbered list, and this page
- * follows it rather than an arrangement of its own. Three of its seven items
- * cannot be built in this slice, and each is left out rather than faked:
+ * PO feedback round 1, Task 4 rewrote this page around the shelf's contacts
+ * rather than its full identity block. `ShelfHeader` already carries the
+ * shelf's name three lines above, in the topbar every reader page shares —
+ * so a second, 30px repetition of it here (the old item 1, a `Card` headed
+ * by `<h1>{shelf.name}</h1>` with location, address and a single keeper
+ * underneath) was wasted vertical space repeating a fact the reader had
+ * already been told. What is genuinely new information at the top of this
+ * page is *who to contact*, so `ContactList` (Task 2's `bookshelf_contacts`,
+ * up to three per shelf) is what the identity block shrank to, and the
+ * document's own `<h1>` moved to `sr-only` rather than being deleted — the
+ * page still needs exactly one heading, it just does not need to spend pixels
+ * on it a second time.
  *
- * - **2, announcements** and **6, latest approved comments** — both are B3's,
- *   and U2's own scope note excludes them. There is no `announcements` or
- *   `comments` query in `src/domain/`, and the fixture card this page used to
- *   render ("Nghỉ hè — tủ sách mở thêm chiều thứ Bảy") is content from
- *   `src/lib/fixtures.ts`, not from any parish.
- * - **4, most-borrowed books** — nothing counts loans per title. **OPS §3.2's
- *   `GetShelfHome` (`OPERATIONS.md:59`) does ask for it**, explicitly: it
- *   returns "most-borrowed row, most-active readers, latest approved comments",
- *   with "Most-borrowed ranking" listed as Derived on read. There is simply no
- *   query, and writing one is a domain change this task is not making. What the
- *   row shows instead is the shelf's most recently added titles, under the
- *   heading the catalogue's own sort control already uses for that ordering
- *   ("Mới thêm"). A row of six covers under "Sách được mượn nhiều nhất" would
- *   have been the same six covers and a false claim.
+ * The space that freed up carries the two things a member most needs after
+ * "who do I call": the shelf's own pinned or most recent announcement
+ * (`getAnnouncements`, already ordered pinned-first by BR §16.1), and the two
+ * quiet links out — "Tặng sách" and "Góp ý" — that were pulled in the
+ * fixture-era cleanup (IMPORTANT 4, fix-report 2026-08-09-u2-shelf-and-portal)
+ * because neither route was wired yet. Both are now real pages reading the
+ * database, so they come back beside a real shelf's real content rather than
+ * pointing into another parish's invented one.
  *
- *   (Minor 10, fix-report 2026-08-09-u2-shelf-and-portal: this used to cite
- *   "OPS §3.1 defines no such operation". §3.1 is the *guest* section, so that
- *   is true and says nothing — a reader would conclude BR never asked for the
- *   row. The substitution stands; the citation was pointing at the wrong
- *   section. The missing queries are recorded against their slice in
- *   `docs/superpowers/plans/2026-08-07-olibra-backend-master.md`.)
- * - **5, most-active readers** — the same gap, named in the same `GetShelfHome`
- *   row, with a privacy edge on top: BR §5.4 makes the leaderboard opt-in per
- *   membership, so the query does not merely not exist, it has a rule attached
- *   that nothing in this slice implements.
- *
- * Item 1 (identity) and 3 (the two large buttons) are here and are real.
- *
- * **Item 7, the quiet links out, was here and is gone** (IMPORTANT 4,
- * fix-report, 2026-08-09-u2-shelf-and-portal). "Tặng sách cho tủ sách" and
- * "Gửi góp ý cho ban quản trị" pointed at `${base}/tang-sach` and
- * `${base}/gop-y`, and neither route is wired — both render `src/lib/fixtures
- * .ts`. So this page, whose whole point is that it is the first *real* thing a
- * member sees, ended with two links into another parish's invented content.
- * That is the same class of defect as items 2, 4, 5 and 6 above, arriving by a
- * different route: not faked *on* the page, but reachable in one tap *from* it,
- * which is not a distinction the person tapping can make. `ShelfHeader` carries
- * the same decision for "Thông báo" and "Trang của tôi", and the long version
- * of why the links go rather than the pages getting gated.
+ * The one primary action stays a single `BigActionLink` into the catalogue,
+ * carrying both counts ("Sách có sẵn" and "Toàn bộ tủ sách" used to be two
+ * separate buttons; one link into the same destination with both numbers in
+ * its sublabel says the same thing without asking a member to choose between
+ * two doors that lead to one room). The "Mới thêm" cover row is unchanged.
  */
 export default async function ShelfHomePage({
   params,
@@ -126,25 +106,31 @@ export default async function ShelfHomePage({
 }) {
   const { shelf: slug } = await params;
 
-  const { shelf, viewer, available, recent } = await loadPage(
+  const { shelf, viewer, available, recent, announcements } = await loadPage(
     slug,
     async (tx, ctx, viewer) => ({
       shelf: await readShelfIdentity(tx, ctx),
       viewer,
-      // Two reads rather than one, because the two big buttons are counting
-      // different things: "Sách có sẵn" is titles with a borrowable copy right
-      // now, "Toàn bộ tủ sách" is every published title. `getCatalogue`'s
-      // `total` is a window count over the whole filtered set, so the second
-      // one carries the six covers as well without a third query.
+      // Two reads rather than one, because the primary link's sublabel is
+      // counting two different things: "có thể mượn hôm nay" is titles with a
+      // borrowable copy right now, the total is every published title.
+      // `getCatalogue`'s `total` is a window count over the whole filtered
+      // set, so the second one carries the six "Mới thêm" covers as well
+      // without a third query.
       available: await getCatalogue(tx, ctx, { scope: "available", pageSize: 1 }),
       recent: await getCatalogue(tx, ctx, {
         scope: "all",
         sort: "recent",
         pageSize: RECENT_COVERS,
       }),
+      // `getAnnouncements` already orders `is_pinned desc, published_at desc`
+      // (BR §16.1) — the first row is the pinned one when there is one and
+      // the newest otherwise, so no second query or ordering is needed here.
+      announcements: await getAnnouncements(tx, ctx),
     }),
   );
 
+  const announcement = announcements[0] ?? null;
   const base = `/tu-sach/${slug}`;
 
   return (
@@ -154,111 +140,76 @@ export default async function ShelfHomePage({
         shelfSlug={slug}
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
-        {/* 1. Shelf identity: where it is, when it opens, who holds the key.
-            Every row below the name is conditional, because every column
-            behind it is nullable — a parish onboarded last Sunday may have a
-            name and nothing else, and a "Giờ mở cửa" label over a blank value
-            is worse than no row at all. */}
-        <Card className="p-8">
-          <h1 className="text-[30px] leading-tight font-semibold">{shelf.name}</h1>
+        {/* `ShelfHeader` already carries the shelf's name; this heading exists
+            so the document still has exactly one, for anything that walks the
+            markup by heading rather than by eye. */}
+        <h1 className="sr-only">{shelf.name}</h1>
 
-          {shelf.location ||
-          shelf.address ||
-          shelf.openingHours ||
-          shelf.keeperName ? (
-            <dl className="mt-6 space-y-4">
-              {shelf.location ? (
-                <div className="flex gap-3">
-                  <MapPin
-                    aria-hidden
-                    className="mt-1 size-5 shrink-0 text-leather"
-                    strokeWidth={1.75}
-                  />
-                  <div>
-                    <dt className="text-[14px] text-meta">Địa điểm</dt>
-                    <dd className="text-[16px]">{shelf.location}</dd>
-                  </div>
-                </div>
-              ) : null}
-              {/* Below "Địa điểm" and separate from it (QA remediation Task
-                  22): `location` is the landmark a reader navigates by
-                  ("Nhà xứ Thánh Tâm"), `address` is the street address BR:179
-                  lists as its own field. Omitted when empty, the same as
-                  every row here — most shelves onboarded before this task had
-                  a `location` typed in and no reason yet to fill in the
-                  other. */}
-              {shelf.address ? (
-                <div className="flex gap-3">
-                  <Building2
-                    aria-hidden
-                    className="mt-1 size-5 shrink-0 text-leather"
-                    strokeWidth={1.75}
-                  />
-                  <div>
-                    <dt className="text-[14px] text-meta">Địa chỉ</dt>
-                    <dd className="text-[16px]">{shelf.address}</dd>
-                  </div>
-                </div>
-              ) : null}
-              {shelf.openingHours ? (
-                <div className="flex gap-3">
-                  <Clock
-                    aria-hidden
-                    className="mt-1 size-5 shrink-0 text-leather"
-                    strokeWidth={1.75}
-                  />
-                  <div>
-                    <dt className="text-[14px] text-meta">Giờ mở cửa</dt>
-                    <dd className="text-[16px]">{shelf.openingHours}</dd>
-                  </div>
-                </div>
-              ) : null}
-              {shelf.keeperName ? (
-                <div className="flex gap-3">
-                  <KeyRound
-                    aria-hidden
-                    className="mt-1 size-5 shrink-0 text-leather"
-                    strokeWidth={1.75}
-                  />
-                  <div>
-                    <dt className="text-[14px] text-meta">Người giữ chìa khoá</dt>
-                    <dd className="text-[16px]">{shelf.keeperName}</dd>
-                    {/* The phone is its own row and only when there is one:
-                        `keeper_phone` is nullable independently of
-                        `keeper_name`, and a `tel:` link to an empty string is
-                        a tap that opens the dialler on nothing. */}
-                    {shelf.keeperPhone ? (
-                      <dd className="mt-0.5">
-                        <PhoneLink phone={shelf.keeperPhone} size="md" />
-                      </dd>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-            </dl>
-          ) : null}
-        </Card>
+        {shelf.contacts.length > 0 ? (
+          <Card className="p-6">
+            <ContactList contacts={shelf.contacts} />
+          </Card>
+        ) : null}
 
-        {/* 3. The two primary actions. Impossible to miss (BR:499). The counts
+        {announcement ? (
+          <Card className="mt-8 p-6">
+            <div className="flex items-center gap-2">
+              {announcement.isPinned ? <Pill icon={Pin} label="Ghim" /> : null}
+              <span className="text-[14px] text-meta">Bản tin</span>
+            </div>
+            <h2 className="mt-2 text-[20px] font-semibold">{announcement.title}</h2>
+            <p className="mt-2 line-clamp-3 text-[16px]">{announcement.excerpt}</p>
+            <Link
+              href={`${base}/thong-bao/${announcement.slug}`}
+              className="mt-3 inline-flex min-h-11 items-center text-[15px] text-leather"
+            >
+              Đọc tiếp
+            </Link>
+          </Card>
+        ) : null}
+
+        {/* The one primary action. Impossible to miss (BR:499). The counts
             are titles — "đầu sách" — not copies: `getCatalogue` aggregates one
             row per title, so "cuốn", which the fixture page used, would have
             been the wrong noun over the right number. */}
-        <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+        <div className="mt-8">
           <BigActionLink
             href={`${base}/danh-muc`}
-            icon={BookOpen}
-            label="Sách có sẵn"
-            sublabel={`${NUMBER.format(available.total)} đầu sách có thể mượn hôm nay`}
+            icon={Library}
+            label="Xem toàn bộ tủ sách"
+            sublabel={`${NUMBER.format(recent.total)} đầu sách · ${NUMBER.format(available.total)} có thể mượn hôm nay`}
             variant="primary"
           />
+        </div>
+
+        {/* The quiet links out, restored (IMPORTANT 4, fix-report,
+            2026-08-09-u2-shelf-and-portal, reversed): they pointed at
+            `${base}/tang-sach` and `${base}/gop-y` and neither route was
+            wired, so this page — real books, real shelf, real member's name —
+            ended with two links into another parish's invented content. Both
+            routes read the database now (`/gop-y` posts through
+            `submitFeedbackAction`; `/tang-sach` redirects to the wired
+            `ho-so/tang-sach`), so the links come back beside a page that
+            works. `tests/architecture/a-wired-page-renders-no-fixtures.test.ts`
+            is what would catch either regressing to a fixture again. */}
+        <div className="mt-4 flex flex-col gap-4 sm:flex-row">
           <BigActionLink
-            href={`${base}/danh-muc?loc=tat-ca`}
-            icon={Library}
-            label="Toàn bộ tủ sách"
-            sublabel={`${NUMBER.format(recent.total)} đầu sách`}
+            href={`${base}/tang-sach`}
+            icon={HeartHandshake}
+            label="Tặng sách"
+            sublabel="Góp sách cho tủ sách của giáo xứ"
+            variant="outline"
+          />
+          <BigActionLink
+            href={`${base}/gop-y`}
+            icon={MessageSquare}
+            label="Góp ý"
+            sublabel="Gửi ý kiến cho ban quản trị"
             variant="outline"
           />
         </div>
@@ -285,19 +236,6 @@ export default async function ShelfHomePage({
             </div>
           </section>
         ) : null}
-
-        {/* 7. **The quiet links out are gone** (IMPORTANT 4, fix-report,
-            2026-08-09-u2-shelf-and-portal). They pointed at `${base}/tang-sach`
-            and `${base}/gop-y`, and neither route is wired: both render
-            `src/lib/fixtures.ts`, so this page — real books, real shelf, real
-            member's name — handed a member two links into another parish's
-            invented content. `ShelfHeader` carries the same decision for
-            "Thông báo" and "Trang của tôi", and the long version of why the
-            links go rather than the pages getting gated.
-
-            "Tặng sách" was already off BR:503's list, which names only
-            feedback; both come back with their own slice, next to a page that
-            works. */}
       </main>
     </>
   );

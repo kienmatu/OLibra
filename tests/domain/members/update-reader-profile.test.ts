@@ -135,7 +135,7 @@ test("two fields at once, including one cleared to null", async () => {
   expect(after.email).toBeNull();
   const [entry] = await auditRows();
   expect(entry.after).toEqual({ saint_name: "Giuse", email: null });
-  expect(entry.before).toEqual({ saint_name: null, email: "cu@vd.vn" });
+  expect(entry.before).toEqual({ saint_name: "Maria", email: "cu@vd.vn" });
 });
 
 test("a field this call never named survives a concurrent correction to it", async () => {

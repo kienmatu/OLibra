@@ -14,8 +14,8 @@ afterAll(closeAll);
 test("INV-8: an audit record names actor, time, before and after", async () => {
   const shelf = await makeShelf(sql);
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values ('Maria Lan', 'A', 'B', '0900000001') returning id
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Maria', 'Maria Lan', 'A', 'B', '0900000001') returning id
   `;
   const clock = fixedClock("2026-08-03T07:32:00Z"); // 14:32 in Ho Chi Minh City
 

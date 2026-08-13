@@ -39,8 +39,8 @@ function contextFor(
 
 async function borrower(shelfId: string, fullName = "Trần Minh") {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone)
-    values (${fullName}, 'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0912345678')
+    insert into users (saint_name, full_name, father_name, mother_name, phone)
+    values ('Phêrô', ${fullName}, 'Giuse Trần Văn A', 'Maria Nguyễn Thị B', '0912345678')
     returning id
   `;
   const [row] = await sql<{ id: string }[]>`

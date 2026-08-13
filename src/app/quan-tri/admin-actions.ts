@@ -28,6 +28,7 @@ import { createCategory } from "../../domain/catalogue/commands/create-category"
 import { renameCategory } from "../../domain/catalogue/commands/rename-category";
 import { submitAdminCommand } from "../../lib/page-data";
 import { ACTION_DONE_PARAM, ACTION_ERROR_PARAM } from "../../lib/search-params";
+import { contactsFromForm } from "./contacts-from-form";
 
 /**
  * OPS §4.5's writes — the administration surface's own commands.
@@ -155,9 +156,7 @@ export async function createBookshelfAction(form: FormData): Promise<void> {
       slug: optional(form, "dia-chi-web") ?? undefined,
       location: optional(form, "dia-diem"),
       address: optional(form, "dia-chi"),
-      keeperName: optional(form, "nguoi-giu"),
-      keeperPhone: optional(form, "dien-thoai"),
-      openingHours: optional(form, "gio-mo-cua"),
+      contacts: contactsFromForm(form),
     }),
   );
   back("/quan-tri/tu-sach", code);
@@ -186,9 +185,7 @@ export async function updateBookshelfSettingsAction(form: FormData): Promise<voi
           name: field(form, "ten"),
           location: optional(form, "dia-diem"),
           address: optional(form, "dia-chi"),
-          keeperName: optional(form, "nguoi-giu"),
-          keeperPhone: optional(form, "dien-thoai"),
-          openingHours: optional(form, "gio-mo-cua"),
+          contacts: contactsFromForm(form),
         },
         loanDays: count(form, "so-ngay-muon"),
         maxConcurrentLoans: count(form, "so-sach-cung-luc"),

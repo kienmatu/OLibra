@@ -461,6 +461,40 @@ function afterCommentDecision(
 }
 
 /**
+ * Where a pin/unpin decision lands when it was made somewhere other than the
+ * manager's list — today, Task 12's control on the announcement's own
+ * reader-facing detail page (`/tu-sach/{slug}/thong-bao/{annSlug}`), added so
+ * a manager reading a notice is not yanked into the admin console just for
+ * pinning it.
+ *
+ * `src/lib/return-path.ts`'s `safeReturnPath` was the first thing checked for
+ * this and does not fit: it is built for the pre-auth guest redirect — an
+ * unauthenticated `GET` landing on `/dang-nhap`, willing to honour *any*
+ * same-origin path. This is a `"use server"` action anyone can `POST` to
+ * directly, which is exactly the distinction `afterCommentDecision` immediately
+ * above already draws for this same file (its own docstring: "A `ve=` carrying
+ * a return path would be an open redirect on a `"use server"` action reachable
+ * by anyone who can post to it"). So this follows `afterCommentDecision`'s
+ * shape instead of inventing a third one: **a slug, never a path** — the field
+ * names which announcement to return to, not where to go, and the URL is built
+ * from a closed template with exactly two shapes.
+ *
+ * Absent means the manager list, so its existing control (which posts no
+ * `thong-bao-slug`) is untouched.
+ */
+function afterPinDecision(
+  shelfSlug: string,
+  announcementSlug: string | null,
+  outcome: { ok: true } | { ok: false; code: string },
+): never {
+  if (!announcementSlug) backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+  const suffix = outcome.ok ? "" : `?${ACTION_ERROR_PARAM}=${outcome.code}`;
+  redirect(
+    `/tu-sach/${encodeURIComponent(shelfSlug)}/thong-bao/${encodeURIComponent(announcementSlug)}${suffix}`,
+  );
+}
+
+/**
  * What a reject action returns when its reason box was left empty — the
  * command's own code, so the sentence a volunteer reads is `errors.ts`'s
  * ("Vui lòng ghi lý do từ chối.") rather than a second wording invented here.
@@ -572,6 +606,19 @@ export async function rejectProfileChangeAction(form: FormData): Promise<void> {
  * the guarded region and a storage fault propagates as a fault, exactly like a
  * `PostgresError`. It is not a refusal a volunteer can act on, and dressing it
  * as one would tell them their decision failed when the decision committed.
+ *
+ * **Widened to `ValidationFailed`, post-review fix wave, item 3.** This used
+ * to catch `RuleViolated` only, which was enough the day it was written —
+ * `approveProfileChange` raised nothing else. It now reaches
+ * `normaliseProfilePatch` on the way to writing the person record, and that
+ * throws `ValidationFailed("required_fields_missing", "saint_name")` for any
+ * proposal written before saint name became mandatory (§8) and blanked it,
+ * which was legal when it was written. Narrow to `RuleViolated` meant that
+ * threw straight past this `catch`, out of the server action, and into Next's
+ * generic error page — on a request the deciding manager or super admin can
+ * otherwise only *reject*, which OPS §2's "no bare 500" rule exists to
+ * prevent. Same shape `attemptTyped` above already uses for the identical
+ * reason.
  */
 async function attemptDiscardingAvatar<I>(
   shelfSlug: string,
@@ -582,7 +629,9 @@ async function attemptDiscardingAvatar<I>(
     await decideAndDiscardAvatar(shelfSlug, command, input);
     return { ok: true };
   } catch (err) {
-    if (err instanceof RuleViolated) return { ok: false, code: err.code };
+    if (err instanceof RuleViolated || err instanceof ValidationFailed) {
+      return { ok: false, code: err.code };
+    }
     throw err;
   }
 }
@@ -733,12 +782,16 @@ export async function createBookAction(form: FormData): Promise<void> {
 export async function registerReaderOnBehalfAction(form: FormData): Promise<void> {
   const shelfSlug = field(form, "tu-sach");
   const outcome = await attemptTyped(shelfSlug, registerMemberOnBehalf, {
-    saintName: optional(form, "ten-thanh"),
+    saintName: field(form, "ten-thanh"),
     fullName: field(form, "ho-ten"),
     dateOfBirth: field(form, "ngay-sinh"),
     fatherName: field(form, "ten-cha"),
     motherName: field(form, "ten-me"),
     phone: field(form, "dien-thoai"),
+    // PO feedback round 1, Task 8: same rule as `dang-ky/actions.ts`'s
+    // `registerMembershipAction` — `register()` refuses `thieu-so-dien-thoai`
+    // when this and `phone` above are both blank.
+    phoneMissingReason: optional(form, "ly-do-thieu-sdt"),
     // `ParishUnitFields` posts these names, and posts "" for "— Không chọn —".
     parishUnitL1Id: optional(form, "parishUnitL1Id"),
     parishUnitL2Id: optional(form, "parishUnitL2Id"),
@@ -1020,7 +1073,7 @@ export async function pinAnnouncementAction(form: FormData): Promise<void> {
       })
     : INCOMPLETE;
 
-  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+  afterPinDecision(shelfSlug, optional(form, "thong-bao-slug"), outcome);
 }
 
 export async function unpinAnnouncementAction(form: FormData): Promise<void> {
@@ -1031,7 +1084,7 @@ export async function unpinAnnouncementAction(form: FormData): Promise<void> {
       })
     : INCOMPLETE;
 
-  backToQueue(managerBase(shelfSlug), "thong-bao", outcome);
+  afterPinDecision(shelfSlug, optional(form, "thong-bao-slug"), outcome);
 }
 
 /**
@@ -1453,6 +1506,14 @@ export async function updateReaderProfileAction(form: FormData): Promise<void> {
           father_name: optional(form, "ten-cha"),
           mother_name: optional(form, "ten-me"),
           phone: optional(form, "dien-thoai"),
+          // PO feedback round 1, Task 8: `applyProfileFields`'s two callers
+          // both call `assertPhoneOrReason` on the resulting record — see
+          // `../../../../domain/members/profile-fields.ts`. This form always
+          // sends the field (see `EditProfileDisclosure`'s hidden/visible
+          // `ly-do-thieu-sdt` input), pre-filled with whatever is already on
+          // file, so leaving it untouched preserves an existing reason rather
+          // than silently clearing it.
+          phone_missing_reason: optional(form, "ly-do-thieu-sdt"),
           email: optional(form, "email"),
         },
       })

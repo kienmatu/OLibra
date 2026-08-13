@@ -76,8 +76,8 @@ function redirectTarget(err: unknown): string | null {
 async function seedMember(shelfSlug: string) {
   const shelf = await makeShelf(sql, { slug: shelfSlug });
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000000', 'lan.nguyen',
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Maria', 'Maria Nguyễn Thị Lan', 'A', 'B', '0900000000', 'lan.nguyen',
             ${await hashPassword("olibra-dev")})
     returning id
   `;
@@ -98,11 +98,11 @@ async function seedMember(shelfSlug: string) {
 async function seedSuperAdmin(username: string) {
   await sql<{ id: string }[]>`
     insert into users (
-      full_name, father_name, mother_name, phone, username, password_hash,
+      saint_name, full_name, father_name, mother_name, phone, username, password_hash,
       is_super_admin
     )
     values (
-      'Quản trị viên hệ thống', 'A', 'B', '0900000001', ${username},
+      '', 'Quản trị viên hệ thống', 'A', 'B', '0900000001', ${username},
       ${await hashPassword("olibra-dev")}, true
     )
     returning id
@@ -112,8 +112,8 @@ async function seedSuperAdmin(username: string) {
 /** A reader with no active membership of any shelf, and no admin flag either. */
 async function seedUnaffiliatedReader(username: string) {
   await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000000', ${username},
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Maria', 'Maria Nguyễn Thị Lan', 'A', 'B', '0900000000', ${username},
             ${await hashPassword("olibra-dev")})
     returning id
   `;

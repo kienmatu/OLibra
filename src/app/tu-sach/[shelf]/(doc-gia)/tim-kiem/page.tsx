@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/field";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getCatalogue } from "@/domain/catalogue/queries/get-catalogue";
 import { searchCatalogue } from "@/domain/catalogue/queries/search-catalogue";
+import { atLeast } from "@/domain/kernel/tenant";
 import { loadPage } from "@/lib/page-data";
 import { param, type SearchParams } from "@/lib/search-params";
 import { readShelfIdentity } from "@/lib/shelf";
@@ -92,6 +93,8 @@ export default async function SearchPage({
         active="tim-kiem"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-3xl px-6 py-10">

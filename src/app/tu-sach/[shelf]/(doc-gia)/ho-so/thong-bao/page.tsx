@@ -4,6 +4,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
+import { atLeast } from "@/domain/kernel/tenant";
 import { getMyNotifications } from "@/domain/notifications/queries/get-my-notifications";
 import { isMemberlessSuperAdmin } from "@/lib/reader-area";
 import { readShelf } from "@/lib/shelf";
@@ -69,6 +70,8 @@ export default async function ReaderNotificationsPage({
         active="thong-bao-cua-toi"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
       <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/thong-bao`} />
     </>

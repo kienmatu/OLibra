@@ -17,8 +17,11 @@ import {
  */
 
 /**
- * The seven fields `ProposeProfileChange` accepts — `PROFILE_FIELDS` without
- * the photograph.
+ * The eight fields `ProposeProfileChange` accepts — `PROFILE_FIELDS` without
+ * the photograph. (Seven until `phone_missing_reason` joined `PROFILE_FIELDS`
+ * as its ninth field; this filter picked it up automatically, which is the
+ * whole point of deriving rather than writing the list out again — see
+ * below.)
  *
  * Derived from that array rather than written out again, so the two cannot
  * drift: a ninth verified field becomes proposable automatically, which is the

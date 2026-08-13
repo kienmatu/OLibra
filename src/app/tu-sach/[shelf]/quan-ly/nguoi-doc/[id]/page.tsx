@@ -18,8 +18,10 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Pill } from "@/components/ui/pill";
 import { PhoneLink } from "@/components/ui/phone-link";
+import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ManagerShell } from "@/components/shell/manager-shell";
 import { messageFor } from "@/domain/kernel/errors";
+import { atLeast } from "@/domain/kernel/tenant";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { getParishUnits } from "@/domain/members/queries/get-parish-units";
@@ -110,9 +112,25 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
 function ReaderActions({
   shelfSlug,
   reader,
+  refused,
+  canEditProfile,
 }: {
   shelfSlug: string;
   reader: ReaderDetail;
+  /** PO feedback round 1, Task 8: whether `?loi=thieu-so-dien-thoai` is showing. */
+  refused: boolean;
+  /**
+   * Post-review fix wave, item 1. `updateReaderProfile` now refuses a
+   * `manager`/`admin` subject unless the actor is `super_admin`
+   * (`update-reader-profile.ts`'s note 5) — this is that same fact, resolved
+   * once by the page from `viewer.role` and `reader.role`, so
+   * `EditProfileDisclosure` renders a form that can actually save rather than
+   * one that always looks enabled and sometimes is not. Display only: the
+   * command re-checks this for itself regardless of what renders here, the
+   * same split `co-cau/page.tsx`'s own `canEdit` documents for the identical
+   * reason (BR §13.3 — the interface is never the security control).
+   */
+  canEditProfile: boolean;
 }) {
   return (
     <section className="mt-10 max-w-2xl space-y-4">
@@ -137,7 +155,12 @@ function ReaderActions({
           </li>
         ) : null}
         <li className="p-4">
-          <EditProfileDisclosure shelfSlug={shelfSlug} reader={reader} />
+          <EditProfileDisclosure
+            shelfSlug={shelfSlug}
+            reader={reader}
+            refused={refused}
+            canEdit={canEditProfile}
+          />
         </li>
       </ul>
     </section>
@@ -395,28 +418,75 @@ function MarkLeftDisclosure({
  * Always rendered, in every status: nothing about this command reads
  * `status`, so a manager can correct a suspended or departed reader's phone
  * number exactly as freely as an active one's.
+ *
+ * **Except when `canEdit` is false** (post-review fix wave, item 1). A
+ * `manager`/`admin` subject viewed by anyone but a `super_admin` used to get
+ * the identical form regardless — a button that opened, filled in and then
+ * refused on submit, which is worse than no control: "Do not leave a button
+ * that refuses" is the brief this satisfies. The reader of this screen sees a
+ * plain sentence naming who decides instead, matching the `<details>` shape
+ * every other disclosure on this list already renders inside its own `<li>`.
  */
 function EditProfileDisclosure({
   shelfSlug,
   reader,
+  refused,
+  canEdit,
 }: {
   shelfSlug: string;
   reader: ReaderDetail;
+  refused: boolean;
+  canEdit: boolean;
 }) {
   const idFor = (name: string) => `${name}-${reader.membershipId}`;
+  const formId = `sua-ho-so-${reader.membershipId}`;
+
+  if (!canEdit) {
+    return (
+      <div>
+        <p className="text-[14px] font-medium">Sửa hồ sơ</p>
+        <p className="mt-1 max-w-sm text-[14px] text-meta">
+          Đây là hồ sơ của một quản lý hoặc quản trị tủ sách. Chỉ quản trị viên hệ
+          thống mới sửa được, để không ai tự sửa hồ sơ của mình hay của đồng nghiệp.
+        </p>
+      </div>
+    );
+  }
+
+  // PO feedback round 1, Task 8. Unlike the two registration forms, this one
+  // already knows the record: a reader with no phone on file gets the reason
+  // box up front inside the form, pre-filled with whatever is already there,
+  // rather than waiting for a first refusal to reveal it. `refused` widens
+  // it: a manager who *clears* the phone on a reader who had one sees the
+  // box appear the moment that refusal comes back, exactly as the two
+  // registration forms do.
+  const showReason = !reader.phone || refused;
+  // Fix round 1: this used to be `open={showReason || undefined}`, which
+  // pinned "Sửa hồ sơ" permanently expanded for every phone-less reader —
+  // every one of them, on every visit, whether or not anyone was editing
+  // anything. The reason is now readable without opening this disclosure at
+  // all (the read-only row above), so the only remaining reason to force it
+  // open is a *live* refusal from this exact form — the manager was mid-edit
+  // a moment ago and needs to see what they typed, not every reader who
+  // simply lacks a phone.
   return (
-    <details>
+    <details open={refused || undefined}>
       <summary className="cursor-pointer list-none text-[14px] underline [&::-webkit-details-marker]:hidden">
         Sửa hồ sơ
       </summary>
-      <form action={updateReaderProfileAction} className="mt-3 max-w-sm space-y-4">
+      <form
+        id={formId}
+        action={updateReaderProfileAction}
+        className="mt-3 max-w-sm space-y-4"
+      >
         <input type="hidden" name="tu-sach" value={shelfSlug} />
         <input type="hidden" name="thanh-vien" value={reader.membershipId} />
 
-        <Field label="Tên thánh" htmlFor={idFor("ten-thanh")}>
+        <Field label="Tên thánh" required htmlFor={idFor("ten-thanh")}>
           <Input
             id={idFor("ten-thanh")}
             name="ten-thanh"
+            required
             defaultValue={reader.saintName ?? ""}
           />
         </Field>
@@ -455,16 +525,61 @@ function EditProfileDisclosure({
           />
         </Field>
 
-        <Field label="Số điện thoại" htmlFor={idFor("dien-thoai")}>
+        <Field
+          label="Số điện thoại"
+          required
+          htmlFor={idFor("dien-thoai")}
+          hint={!reader.phone ? "Để trống thì cần ghi lý do bên dưới." : undefined}
+        >
           <Input
             id={idFor("dien-thoai")}
             name="dien-thoai"
             type="tel"
             inputMode="numeric"
             pattern={PHONE_PATTERN}
+            // PO feedback round 1, Task 8: not HTML `required` — the real
+            // rule is "a phone, or a reason", and a native `required` here
+            // would block the browser from ever submitting the second half
+            // of that. `Field`'s own `required` prop still shows the "Bắt
+            // buộc" pill; only the constraint that would stop submission is
+            // gone. `PhoneConfirmDialog` and `updateReaderProfile`'s
+            // `assertPhoneOrReason` are what actually enforce it.
             defaultValue={reader.phone ?? ""}
           />
         </Field>
+
+        {/* PO feedback round 1, Task 8. Visible whenever the record already
+            has no phone (pre-filled with what is on file) or a refusal just
+            said so; a hidden carrier otherwise, for `PhoneConfirmDialog` to
+            fill in. */}
+        {showReason ? (
+          <Field
+            label="Lý do chưa có số điện thoại"
+            required
+            htmlFor={idFor("ly-do-thieu-sdt")}
+          >
+            {/* Fix round 1: not HTML `required` — this form carries neither
+                `noValidate` nor an `invalidHint` on any field (unlike
+                `/dang-ky` and `nguoi-doc/moi`), so a manager who types a
+                phone and then clears this now-unneeded box would have hit
+                the browser's own English validation bubble instead of
+                submitting. `updateReaderProfile`'s `assertPhoneOrReason` is
+                the real check; `Field`'s `required` prop above still shows
+                the "Bắt buộc" pill. */}
+            <Textarea
+              id={idFor("ly-do-thieu-sdt")}
+              name="ly-do-thieu-sdt"
+              rows={3}
+              defaultValue={reader.phoneMissingReason ?? ""}
+            />
+          </Field>
+        ) : (
+          <input
+            type="hidden"
+            name="ly-do-thieu-sdt"
+            defaultValue={reader.phoneMissingReason ?? ""}
+          />
+        )}
 
         <Field label="Email" htmlFor={idFor("email")}>
           <Input
@@ -482,6 +597,7 @@ function EditProfileDisclosure({
           Lưu thay đổi
         </SubmitButton>
       </form>
+      <PhoneConfirmDialog formId={formId} />
     </details>
   );
 }
@@ -561,6 +677,14 @@ export default async function ManagerReaderDetailPage({
   // The last word of a Vietnamese name is the given name — the same line the
   // manager sidebar and the public header both carry.
   const initial = reader.fullName.split(" ").at(-1)?.charAt(0) ?? "";
+  // Post-review fix wave, item 1: `updateReaderProfile` now refuses a
+  // `manager`/`admin` subject unless the actor is `super_admin` — see that
+  // command's note 5. `reader.role` no longer appears among ordinary rows on
+  // this list (`getReadersList` now filters to `role = 'reader'`), but the
+  // detail page stays reachable by a typed URL for any membership id RLS
+  // resolves, so this page still has to ask the question for itself.
+  const canEditProfile =
+    viewer.role === "super_admin" || !atLeast(reader.role, "manager");
 
   /**
    * Rows for the shelf's own parish levels — only for a level that actually has
@@ -611,10 +735,24 @@ export default async function ManagerReaderDetailPage({
     { label: "Tên mẹ", value: reader.motherName, private: true },
     {
       label: "Số điện thoại",
+      // Fix round 1 (PO feedback round 1, Task 8). Spec §8's own words: the
+      // reason "renders on the reader's manager-facing detail page beside
+      // the empty phone, so the next volunteer to open the record reads why
+      // rather than assuming an oversight." It was only reachable before as
+      // a prefilled value inside the "Sửa hồ sơ" disclosure — a volunteer
+      // has to open and not touch an edit form to read it, which is not
+      // "beside the empty phone" by any reading. This is that row.
       value: reader.phone ? (
         <PhoneLink phone={reader.phone} size="sm" />
       ) : (
-        "Chưa có"
+        <span className="flex flex-col items-end gap-0.5">
+          <span>Chưa có</span>
+          {reader.phoneMissingReason ? (
+            <span className="max-w-[220px] text-[13px] text-meta">
+              {reader.phoneMissingReason}
+            </span>
+          ) : null}
+        </span>
       ),
       private: true,
     },
@@ -747,7 +885,12 @@ export default async function ManagerReaderDetailPage({
         </dl>
       </section>
 
-      <ReaderActions shelfSlug={slug} reader={reader} />
+      <ReaderActions
+        shelfSlug={slug}
+        reader={reader}
+        refused={refused === "thieu-so-dien-thoai"}
+        canEditProfile={canEditProfile}
+      />
 
       <section className="mt-10 max-w-2xl">
         <h2 className="text-xl font-semibold">

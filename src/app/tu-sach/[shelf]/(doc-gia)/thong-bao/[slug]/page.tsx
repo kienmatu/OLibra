@@ -1,12 +1,20 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { Pin } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { getAnnouncementDetail } from "@/domain/community/queries/get-announcements";
+import { atLeast } from "@/domain/kernel/tenant";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
 import { formatInstant } from "@/lib/dates";
+import {
+  pinAnnouncementAction,
+  unpinAnnouncementAction,
+} from "../../../quan-ly/actions";
 
 /**
  * One announcement in full. OPS §3.2's `GetAnnouncementDetail`.
@@ -62,6 +70,9 @@ export default async function AnnouncementDetailPage({
   if (!announcement) notFound();
 
   const base = `/tu-sach/${shelfSlug}`;
+  // Task 5's seam, resolved once and reused for both the header prop and the
+  // pin control below rather than a second `atLeast` call.
+  const canManage = atLeast(viewer.role, "manager");
 
   return (
     <>
@@ -71,15 +82,46 @@ export default async function AnnouncementDetailPage({
         active="thong-bao"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={canManage}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
 
       <main className="mx-auto max-w-2xl px-6 py-10">
+        {announcement.isPinned ? (
+          <div className="mb-3">
+            <Pill icon={Pin} label="Ghim" />
+          </div>
+        ) : null}
+
         <PageHeading
           title={announcement.title}
           subtitle={
             announcement.publishedAt
               ? formatInstant(announcement.publishedAt)
               : undefined
+          }
+          action={
+            canManage ? (
+              <form
+                action={
+                  announcement.isPinned
+                    ? unpinAnnouncementAction
+                    : pinAnnouncementAction
+                }
+              >
+                <input type="hidden" name="tu-sach" value={shelfSlug} />
+                <input type="hidden" name="thong-bao" value={announcement.id} />
+                {/* Names which announcement to return to, not where to go —
+                    `afterPinDecision`'s own docstring is where the "slug,
+                    never a path" reasoning is made once. Its absence is what
+                    keeps the manager list's own control landing back on the
+                    queue, unchanged. */}
+                <input type="hidden" name="thong-bao-slug" value={slug} />
+                <SubmitButton variant="ghost" size="sm">
+                  {announcement.isPinned ? "Bỏ ghim" : "Ghim lên đầu"}
+                </SubmitButton>
+              </form>
+            ) : undefined
           }
         />
 

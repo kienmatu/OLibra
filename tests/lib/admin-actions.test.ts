@@ -65,6 +65,11 @@ const {
   updateSiteContactAction,
   updateSystemDefaultsAction,
 } = await import("../../src/app/quan-tri/admin-actions");
+// `contactsFromForm` moved out of `admin-actions.ts` on 2026-08-12 (PO
+// feedback round 1, Task 13's final check): a `"use server"` file may only
+// export async functions, and this pure form-parsing helper is not one.
+const { contactsFromForm } =
+  await import("../../src/app/quan-tri/contacts-from-form");
 const { pool } = await import("../../src/db/client");
 
 const clock = fixedClock("2026-08-10T03:00:00Z");
@@ -101,9 +106,10 @@ async function signInAsSuperAdmin() {
   const username = `admin-${Math.random().toString(36).slice(2, 10)}`;
   const [user] = await sql<{ id: string }[]>`
     insert into users (
-      full_name, father_name, mother_name, username, password_hash, is_super_admin
+      saint_name, full_name, father_name, mother_name, username, password_hash,
+      is_super_admin
     )
-    values ('Quản trị viên', '', '', ${username}, ${await hashPassword("x")}, true)
+    values ('', 'Quản trị viên', '', '', ${username}, ${await hashPassword("x")}, true)
     returning id
   `;
   const { token } = await signIn(sql, { username, password: "x", clock });
@@ -293,4 +299,49 @@ test("a refusal on either system-settings form still reports through `?loi=`, no
 
   expect(target).toBe("/quan-tri/cai-dat?loi=loan_days_out_of_range");
   expect(target).not.toContain("da-luu");
+});
+
+test("contactsFromForm reads three blocks and drops the empty ones", () => {
+  const form = new FormData();
+  form.set("lien-he-1-ten", "Maria Nguyễn Thị Lan");
+  form.set("lien-he-1-sdt", "0912345678");
+  form.set("lien-he-1-vai-tro", "Người giữ chìa khoá");
+  form.set("lien-he-2-ten", "  ");
+  form.set("lien-he-2-sdt", "");
+  form.set("lien-he-3-ten", "Giuse Trần Minh");
+  form.set("lien-he-3-sdt", "0987654321");
+
+  expect(contactsFromForm(form)).toEqual([
+    {
+      position: 1,
+      name: "Maria Nguyễn Thị Lan",
+      phone: "0912345678",
+      roleLabel: "Người giữ chìa khoá",
+    },
+    // Block 3's contact keeps position 3. Renumbering it to 2 would silently
+    // move a volunteer a super admin deliberately left in the third slot.
+    { position: 3, name: "Giuse Trần Minh", phone: "0987654321", roleLabel: null },
+  ]);
+});
+
+test("contactsFromForm reads a present-but-empty phone as null, not an empty string", () => {
+  // A block that survives (has a name) but whose phone box was submitted
+  // empty — distinct from block 2 in the test above, which is dropped
+  // entirely because its *name* is blank. `optional()` already turns `""`
+  // into `null`; this pins that `contactsFromForm` does not undo it, because
+  // an empty string in the `phone` column renders a `PhoneLink` that dials
+  // nothing rather than showing no phone at all.
+  const form = new FormData();
+  form.set("lien-he-1-ten", "Maria Nguyễn Thị Lan");
+  form.set("lien-he-1-sdt", "");
+  form.set("lien-he-1-vai-tro", "Người giữ chìa khoá");
+
+  expect(contactsFromForm(form)).toEqual([
+    {
+      position: 1,
+      name: "Maria Nguyễn Thị Lan",
+      phone: null,
+      roleLabel: "Người giữ chìa khoá",
+    },
+  ]);
 });

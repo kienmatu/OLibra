@@ -12,6 +12,7 @@ import {
   getMyDashboard,
   getMyLoanHistory,
 } from "@/domain/circulation/queries/get-my-dashboard";
+import { atLeast } from "@/domain/kernel/tenant";
 import { isMemberlessSuperAdmin } from "@/lib/reader-area";
 import { readShelf } from "@/lib/shelf";
 import { loadPage } from "@/lib/page-data";
@@ -90,6 +91,8 @@ export default async function ReaderDashboardPage({
         active="toi"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
       <ReaderTabs shelfSlug={slug} pathname={`${base}/ho-so/tong-quan`} />
     </>

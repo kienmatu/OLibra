@@ -236,6 +236,17 @@ export const ERROR_MESSAGES = {
   // show the shape rather than just say "invalid" — a volunteer correcting a
   // typo needs to know what "right" looks like, not just that this was wrong.
   phone_invalid: "Số điện thoại chưa đúng. Ghi 10 số, ví dụ 0912345678.",
+  // PO feedback round 1, Task 8. `phone` stays nullable on `users` — some
+  // readers are children with no phone of their own, and a placeholder number
+  // is a tap that dials a stranger — but the interface requires one anyway.
+  // So a blank phone is refused exactly once: the moment nobody has said why
+  // yet. `register()` (`../members/registration.ts`) and `applyProfileFields`'s
+  // two callers (`updateReaderProfile`, `approveProfileChange`, via
+  // `assertPhoneOrReason` in `../members/profile-fields.ts`) all raise this
+  // same code against the *resulting* record, never the patch alone, so a
+  // reason already on file answers it without being retyped.
+  "thieu-so-dien-thoai":
+    "Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có.",
 
   // — community: B3 —
   // OPS §4.4's own sentences. `comment_not_pending` is the **fifth** slice in a
@@ -263,6 +274,21 @@ export const ERROR_MESSAGES = {
   slug_taken: "Địa chỉ này đã có tủ sách khác dùng.",
   already_archived: "Tủ sách này đã được lưu trữ.",
   already_super_admin: "Người này đã là quản trị viên hệ thống.",
+  // PO feedback round 1, Task 2: `bookshelf_contacts` replaces the two
+  // `bookshelves.keeper_*` columns with up to three rows, each with its own
+  // `name`. A phone or a role label with nobody's name attached is not a
+  // contact — the same shape `assertSingleDonor` above refuses for a donor
+  // attribution split across two fields.
+  contact_name_required: "Vui lòng nhập tên người liên hệ.",
+  // PO feedback round 1, Task 3 fix round 1: position 1 is the mandatory
+  // contact (the design spec's own words) and that mandatory-ness is a
+  // domain rule, not a `not null` column — shelves onboarded before the
+  // migration may legitimately hold zero contacts, and inventing a volunteer
+  // for them is worse than an incomplete row (see the migration's own
+  // comment). So this refuses a *write* that leaves a shelf with no
+  // position-1 contact; it does not, and cannot, reach back and repair rows
+  // that already exist.
+  contact_position_1_required: "Vui lòng nhập người liên hệ thứ nhất.",
   // QA remediation Task 15: measured on 2026-08-10, `updateBookshelfSettings`
   // took `loanDays: 0` and wrote `settings.loan_days = 0` with no error —
   // every loan from that shelf then fell due the day it was made, and

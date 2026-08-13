@@ -114,8 +114,8 @@ function refusalIn(target: string): string | null {
 async function shelfWithQueue(copies = 1) {
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000001', 'lan.nguyen',
+    insert into users (saint_name, full_name, father_name, mother_name, phone, username, password_hash)
+    values ('Maria', 'Maria Nguyễn Thị Lan', 'A', 'B', '0900000001', 'lan.nguyen',
             ${await hashPassword("x")})
     returning id
   `;

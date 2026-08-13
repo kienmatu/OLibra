@@ -84,6 +84,14 @@ test("a new shelf inherits the system defaults, by value and not by reference", 
 
   const { bookshelfId, slug } = await runAdminCommand(sql, ctx, createBookshelf, {
     name: "Tủ sách Giáo xứ Vĩnh Long",
+    // Task 3 fix round 1: `createBookshelf` now refuses a write with no
+    // position-1 contact (`contact_position_1_required`) — see
+    // `shelf-contacts.test.ts` for that rule's own coverage. This test is
+    // about the lending-policy inheritance, so the contact here is the
+    // minimum that satisfies the rule, not itself the point of the test.
+    contacts: [
+      { position: 1, name: "Maria Nguyễn Thị Lan", phone: null, roleLabel: null },
+    ],
   });
   expect(slug).toBe("tu-sach-giao-xu-vinh-long");
 
@@ -125,6 +133,28 @@ test("a new shelf inherits the system defaults, by value and not by reference", 
   });
 });
 
+test("createBookshelf refuses a non-numeric contact phone", async () => {
+  // Fix round 1: the refactor from `bookshelves.keeper_phone` to
+  // `bookshelf_contacts` dropped `assertPhone` from this command, so
+  // `khong-phai-so` reached the table unchecked. Restored per contact — see
+  // `tests/domain/admin/shelf-contacts.test.ts` for the `updateBookshelfSettings`
+  // half of this pin.
+  const ctx = await admin();
+  await expect(
+    runAdminCommand(sql, ctx, createBookshelf, {
+      name: "Tủ sách mới",
+      contacts: [
+        {
+          position: 1,
+          name: "Maria Nguyễn Thị Lan",
+          phone: "khong-phai-so",
+          roleLabel: null,
+        },
+      ],
+    }),
+  ).rejects.toMatchObject({ code: "phone_invalid", field: "contact_1_phone" });
+});
+
 test("a slug already in use is refused by name, not by a raw 23505", async () => {
   const ctx = await admin();
   await makeShelf(sql, { slug: "dong-thap" });
@@ -143,7 +173,14 @@ test("creating a shelf writes a global audit row", async () => {
   // It has to be global: the shelf did not exist when the decision was made,
   // and `runAdminCommand` refuses a shelf-scoped entry under an empty scope.
   const ctx = await admin();
-  await runAdminCommand(sql, ctx, createBookshelf, { name: "Tủ sách mới" });
+  await runAdminCommand(sql, ctx, createBookshelf, {
+    name: "Tủ sách mới",
+    // Task 3 fix round 1: see the note on the earlier `createBookshelf` call
+    // in this file for why a position-1 contact is now required.
+    contacts: [
+      { position: 1, name: "Maria Nguyễn Thị Lan", phone: null, roleLabel: null },
+    ],
+  });
 
   const [row] = await sql<{ bookshelf_id: string | null; action: string }[]>`
     select bookshelf_id, action from audit_log where action = 'bookshelf.created'
@@ -176,9 +213,9 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
         name: "Tủ sách Đồng Tháp",
         location: "Nhà xứ",
         address: "Đồng Tháp",
-        keeperName: "Cô Lan",
-        keeperPhone: "0912345678",
-        openingHours: "Sau lễ Chúa nhật",
+        contacts: [
+          { position: 1, name: "Cô Lan", phone: "0912345678", roleLabel: null },
+        ],
       },
       loanDays: 21,
     },
@@ -187,11 +224,13 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
   let settings = await runQuery(sql, managerCtx, (tx, c) =>
     getShelfSettings(tx, c),
   );
-  expect(settings.profile.keeperName).toBe("Cô Lan");
+  expect(settings.profile.contacts).toEqual([
+    { position: 1, name: "Cô Lan", phone: "0912345678", roleLabel: null },
+  ]);
   expect(settings.policy.loanDays).toBe(21);
   expect(settings.policy.holdDays).toBe(3);
 
-  // Policy only, no profile. The keeper survives.
+  // Policy only, no profile. The contact survives.
   await runAdminCommand(
     sql,
     { ...ctx, bookshelfId: shelf.id },
@@ -202,11 +241,15 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
     },
   );
   settings = await runQuery(sql, managerCtx, (tx, c) => getShelfSettings(tx, c));
-  expect(settings.profile.keeperName).toBe("Cô Lan");
+  expect(settings.profile.contacts).toEqual([
+    { position: 1, name: "Cô Lan", phone: "0912345678", roleLabel: null },
+  ]);
   expect(settings.policy.loanDays).toBe(21);
   expect(settings.policy.holdDays).toBe(5);
 
-  // Profile only, with the phone cleared — the edit `coalesce` cannot express.
+  // Profile only, with the phone cleared — the edit `coalesce` cannot express,
+  // and `contacts` is a wholesale replace rather than a diff, so the whole
+  // block is resent with `phone: null`.
   await runAdminCommand(
     sql,
     { ...ctx, bookshelfId: shelf.id },
@@ -217,14 +260,12 @@ test("editing the policy leaves the profile alone, and the reverse", async () =>
         name: "Tủ sách Đồng Tháp",
         location: "Nhà xứ",
         address: "Đồng Tháp",
-        keeperName: "Cô Lan",
-        keeperPhone: null,
-        openingHours: "Sau lễ Chúa nhật",
+        contacts: [{ position: 1, name: "Cô Lan", phone: null, roleLabel: null }],
       },
     },
   );
   settings = await runQuery(sql, managerCtx, (tx, c) => getShelfSettings(tx, c));
-  expect(settings.profile.keeperPhone).toBeNull();
+  expect(settings.profile.contacts[0].phone).toBeNull();
   expect(settings.policy.holdDays).toBe(5);
 });
 

@@ -124,17 +124,32 @@ test("it returns the shelf's name, address and slug — and no other key", async
   // The withheld facts are real on this row, so an over-selecting query has
   // something to leak: BR §16.1 names book counts, reader counts and keeper
   // contact.
+  //
+  // **Rewritten, PO feedback round 1 Task 7.** `bookshelves.keeper_name` /
+  // `keeper_phone` are gone (Task 1's migration); the keeper contact this
+  // test used to plant on the row now lives in `bookshelf_contacts`, a
+  // separate table `olibra_public` holds no grant on at all — no
+  // `bookshelf_contacts_public_read` exists, unlike `bookshelves_public_read`
+  // (`tests/lib/shelf-pages.test.ts`'s "bookshelf_contacts is scoped by RLS…"
+  // test is where Task 2 first drew this same distinction for the
+  // member-facing read). "No other key" alone would now be true even of a
+  // careless `select b.*` that happened not to join the new table, so this
+  // adds the second half the old test got for free from the column list: a
+  // direct read of `bookshelf_contacts`, as this same public role, is
+  // refused outright — proving the contact is unreachable through this path
+  // rather than merely absent from one query's `select`.
   const shelf = await makePublicShelf(
     "dong-thap",
     "Tủ sách Đồng Tháp",
     "Nhà xứ Đồng Tháp, ấp Tân Hoà",
   );
   await sql`
-    update bookshelves
-    set keeper_name = 'Maria Nguyễn Thị Lan',
-        keeper_phone = '0912 345 678',
-        settings = '{"loan_days": 21}'::jsonb
+    update bookshelves set settings = '{"loan_days": 21}'::jsonb
     where id = ${shelf.id}
+  `;
+  await sql`
+    insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+    values (${shelf.id}, 1, 'Maria Nguyễn Thị Lan', '0912 345 678', 'Người giữ chìa khoá')
   `;
   await makeBookWithCopies(sql, shelf.id, 3);
   await makeMember(sql, shelf.id);
@@ -147,6 +162,14 @@ test("it returns the shelf's name, address and slug — and no other key", async
     name: "Tủ sách Đồng Tháp",
     location: "Nhà xứ Đồng Tháp, ấp Tân Hoà",
   });
+
+  const code = await runPublicQuery(sql, (tx) =>
+    tx.unsafe(`select 1 from "bookshelf_contacts" limit 1`),
+  ).then(
+    () => "ok",
+    (err: { code?: string }) => err.code,
+  );
+  expect(code).toBe("42501");
 });
 
 test("a shelf with no address is a row with a name, not a missing row", async () => {

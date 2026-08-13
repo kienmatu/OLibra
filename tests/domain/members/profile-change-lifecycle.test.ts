@@ -6,7 +6,11 @@ import {
   systemContext,
   type TenantContext,
 } from "../../../src/domain/kernel/tenant";
-import { runCommand, runQuery } from "../../../src/domain/kernel/unit-of-work";
+import {
+  runAdminCommand,
+  runCommand,
+  runQuery,
+} from "../../../src/domain/kernel/unit-of-work";
 import { approveProfileChange } from "../../../src/domain/members/commands/approve-profile-change";
 import { cancelProfileChange } from "../../../src/domain/members/commands/cancel-profile-change";
 import { proposeProfileChange } from "../../../src/domain/members/commands/propose-profile-change";
@@ -14,7 +18,13 @@ import { rejectProfileChange } from "../../../src/domain/members/commands/reject
 import { getMyProfileChangeRequest } from "../../../src/domain/members/queries/get-my-profile-change-request";
 import { PROPOSABLE_FIELDS } from "../../../src/domain/members/profile-proposals";
 import { closeAll, resetDatabase, sql } from "../../support/db";
-import { makeMember, makeShelf, makeParishUnits } from "../../support/factories";
+import {
+  makeMember,
+  makeShelf,
+  makeParishUnits,
+  makeUser,
+} from "../../support/factories";
+import { superAdminContext } from "../../support/scenarios";
 
 /**
  * OPS §4.3's profile-change lifecycle: propose, approve, reject, cancel, and
@@ -170,7 +180,7 @@ test("proposing again replaces the portion named and keeps the rest", async () =
   });
   expect(rows[0].previous_values).toEqual({
     phone: "0900000000",
-    saint_name: null,
+    saint_name: "Maria",
   });
 });
 
@@ -282,6 +292,92 @@ test("approval writes the proposed values and audits against the person", async 
   expect(rows[1].actor_id).toBe(manager.userId);
 });
 
+// — PO feedback round 1, Task 8, and its own fix round 1: the rule moved to
+// `ProposeProfileChange` — the screen with the reason box — with
+// `ApproveProfileChange`'s own check kept as a backstop for a request that
+// bypassed it entirely —
+
+test("proposing to clear the phone with no reason on file is refused, before anything is written", async () => {
+  // Reviewer-found critical: raising this only at approval put the refusal
+  // on a screen (`doi-thong-tin`) whose form carries no phone or reason box
+  // at all — a manager could never approve it, only reject it. `ho-so
+  // /page.tsx` has the box; `ProposeProfileChange` is where the check now
+  // lives, so the reader who submitted it is the one asked.
+  const { readerCtx, reader } = await shelfWithReader();
+  await expect(
+    runCommand(sql, readerCtx, proposeProfileChange, {
+      membershipId: reader.id,
+      fields: { phone: null },
+    }),
+  ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
+
+  // Nothing was written — no pending request sits around half-answered.
+  expect(await requestsOf(reader.userId)).toHaveLength(0);
+  const person = await personOf(reader.userId);
+  expect(person.phone).not.toBeNull();
+});
+
+test("ApproveProfileChange's own check is a backstop for a request ProposeProfileChange never touched", async () => {
+  // `profile_change_requests.proposed_values` is `jsonb` with no check
+  // constraint (DATABASE.md §4.11's own price for the design) — a row can
+  // exist without ever going through `ProposeProfileChange`, the same fact
+  // "approval re-validates the stored proposal rather than trusting it"
+  // (above) already exercises for a blank `full_name`. `assertPhoneOrReason`
+  // still runs inside `ApproveProfileChange` for exactly this reason.
+  const { ctx, reader, shelf } = await shelfWithReader();
+  await sql`
+    insert into profile_change_requests
+      (user_id, bookshelf_id, proposed_values, previous_values, status)
+    values (${reader.userId}, ${shelf.id}, '{"phone":null}', '{}', 'pending')
+  `;
+  const [row] = await sql<
+    { id: string }[]
+  >`select id from profile_change_requests where user_id = ${reader.userId}`;
+
+  await expect(
+    runCommand(sql, ctx, approveProfileChange, {
+      profileChangeRequestId: row.id,
+    }),
+  ).rejects.toMatchObject({ code: "thieu-so-dien-thoai" });
+
+  // Refused before anything committed — the phone is exactly what it was,
+  // and the request is still pending for a manager to reject or ask again.
+  const person = await personOf(reader.userId);
+  expect(person.phone).not.toBeNull();
+  const [after] = await requestsOf(reader.userId);
+  expect(after.status).toBe("pending");
+});
+
+test("a reason already on file answers it, even though the proposal names only the phone", async () => {
+  const { readerCtx, ctx, ctxWith, reader } = await shelfWithReader();
+  // The record already carries a reason, from an earlier, unrelated decision
+  // — a manager's own direct correction, not this proposal.
+  await runCommand(sql, ctxWith(clock), approveProfileChange, {
+    profileChangeRequestId: (
+      await runCommand(sql, readerCtx, proposeProfileChange, {
+        membershipId: reader.id,
+        fields: { phone: null, phone_missing_reason: "Chưa có, sẽ bổ sung sau" },
+      })
+    ).profileChangeRequestId,
+  });
+
+  // A second, unrelated proposal — the field it never mentions is
+  // phone_missing_reason, so approving it must not ask the question again.
+  await runCommand(sql, readerCtx, proposeProfileChange, {
+    membershipId: reader.id,
+    fields: { saint_name: "Anna" },
+  });
+  const [, second] = await requestsOf(reader.userId);
+
+  await runCommand(sql, ctxWith(laterClock), approveProfileChange, {
+    profileChangeRequestId: second.id,
+  });
+
+  const person = await personOf(reader.userId);
+  expect(person.phone).toBeNull();
+  expect(person.saint_name).toBe("Anna");
+});
+
 test("approval can set the parish placement in the same action, and validates it", async () => {
   // BR §5.6's rule, through the shared `validateSelection` — the only code path
   // this slice shares with B2a, and shared as an import rather than restated.
@@ -328,6 +424,85 @@ test("approval can set the parish placement in the same action, and validates it
   >`select parish_unit_l1_id, parish_unit_l2_id from memberships where id = ${reader.id}`;
   expect(m.parish_unit_l1_id).toBe(thanhTam);
   expect(m.parish_unit_l2_id).toBe(to1);
+});
+
+test("the admin queue's approval scopes the subject to the request's own shelf, not any other membership the subject holds", async () => {
+  // Fix round 1: `subjectOfProfileChange` (`../../../src/domain/members
+  // /scoped-user.ts`) used to join `memberships` on `user_id` alone, no
+  // `bookshelf_id` predicate, and relied on RLS to narrow it to one shelf.
+  // `/quan-tri/actions.ts`'s admin queue reaches this same command through
+  // `runAdminCommand`, which runs as `olibra_admin` with `bypassrls` — RLS
+  // never narrows anything there — so a subject holding manager membership
+  // at more than one parish (ordinary, per `../../../src/domain/admin
+  // /commands/managers.ts`) could have this resolve to *either* membership.
+  // Proven here the way the parish-placement write makes observable: the
+  // manager holds a second, unrelated membership at shelf B, and approving
+  // a request proposed at shelf A must move shelf A's placement, never
+  // shelf B's — regardless of `ctx.bookshelfId`, since `subjectOfProfileChange`
+  // takes no `ctx` at all and the join itself is what has to narrow it now.
+  const a = await makeShelf(sql, { slug: "dong-thap-multi" });
+  const b = await makeShelf(sql, { slug: "an-giang-multi" });
+  const user = await makeUser(sql);
+  // Which of the two rows an *unfiltered* join would have returned is a
+  // Postgres planner detail this test does not try to control (verified: it
+  // is not simply insertion order — an index on `memberships` can make the
+  // unpatched query land on the right row by accident on any given run,
+  // which is exactly the "arbitrary" this fix's own docstring names, not a
+  // reliable one). What this test actually pins is the fix's real contract:
+  // `m.bookshelf_id = r.bookshelf_id` excludes shelf B's row from the query
+  // outright, not merely deprioritises it, so the assertions below hold
+  // deterministically under the current code regardless of row order —
+  // unlike the code before this fix, which could not make that promise.
+  await sql`
+    insert into memberships (bookshelf_id, user_id, role, status)
+    values (${b.id}, ${user.id}, 'manager', 'active')
+  `;
+  const [aRow] = await sql<{ id: string }[]>`
+    insert into memberships (bookshelf_id, user_id, role, status)
+    values (${a.id}, ${user.id}, 'manager', 'active')
+    returning id
+  `;
+  const manager = { id: aRow.id, userId: user.id };
+  const managerCtx: TenantContext = {
+    bookshelfId: a.id,
+    actor: { userId: manager.userId, membershipId: manager.id, role: "manager" },
+    clock,
+  };
+  await runCommand(sql, managerCtx, proposeProfileChange, {
+    membershipId: manager.id,
+    fields: { phone: "0912345678" },
+  });
+  const [request] = await requestsOf(manager.userId);
+
+  const units = await makeParishUnits(
+    sql,
+    a.id,
+    { levels: 1, nested: false, level1Label: "Giáo họ", level2Label: "Giáo họ" },
+    [{ level: 1, name: "Giáo họ Thánh Tâm" }],
+  );
+  const thanhTam = units.get("Giáo họ Thánh Tâm")!;
+
+  const { ctx: superCtx } = await superAdminContext(sql, "2026-08-09T02:00:00Z");
+  await runAdminCommand(
+    sql,
+    { ...superCtx, bookshelfId: a.id },
+    approveProfileChange,
+    {
+      profileChangeRequestId: request.id,
+      parishUnitL1Id: thanhTam,
+    },
+  );
+
+  const [rowA] = await sql<{ parish_unit_l1_id: string | null }[]>`
+    select parish_unit_l1_id from memberships where id = ${manager.id}
+  `;
+  expect(rowA.parish_unit_l1_id).toBe(thanhTam);
+
+  const [rowB] = await sql<{ parish_unit_l1_id: string | null }[]>`
+    select parish_unit_l1_id from memberships
+     where bookshelf_id = ${b.id} and user_id = ${manager.userId}
+  `;
+  expect(rowB.parish_unit_l1_id).toBeNull();
 });
 
 test("moving only the level-1 unit is checked against the level-2 unit already there", async () => {

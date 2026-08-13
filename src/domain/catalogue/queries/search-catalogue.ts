@@ -61,7 +61,10 @@ export async function searchCatalogue(
     select
       b.id as book_id, b.slug, b.title, b.author, b.cover_url,
       c.name as category,
-      count(cp.id)  as copies_total,
+      -- Post-review fix wave, item 7 (round 2): see get-books-list.ts's twin
+      -- comment. copies_total excludes lost copies everywhere it is emitted
+      -- under that name.
+      count(cp.id) filter (where cp.state <> 'lost') as copies_total,
       count(av.id)  as copies_available,
       count(cp.id) filter (where cp.state = 'on_loan') as on_loan,
       count(cp.id) filter (where cp.state = 'held')    as held,

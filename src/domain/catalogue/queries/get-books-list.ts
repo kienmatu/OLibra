@@ -89,7 +89,13 @@ export async function getBooksList(
         b.created_at,
         b.is_published,
         c.name          as category,
-        count(cp.id)                                              as copies_total,
+        -- Post-review fix wave, item 7 (round 2): copies_total must mean the
+        -- same thing everywhere it is emitted under that name, and until this
+        -- fix it did not — get-book-detail.ts and get-book-detail-manager.ts
+        -- already excluded lost copies (same fix wave, item 7), but this list
+        -- still counted them, so a title with a lost copy showed one number
+        -- here and a smaller one a click away on its own detail page.
+        count(cp.id) filter (where cp.state <> 'lost')            as copies_total,
         count(av.id)                                              as copies_available,
         count(cp.id) filter (where cp.state = 'on_loan')          as on_loan,
         count(cp.id) filter (where cp.state = 'held')             as held,

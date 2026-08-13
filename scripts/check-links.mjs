@@ -358,14 +358,6 @@ const roots = [...SEEDS, ...HOSTILE];
 const rootSet = new Set(roots);
 const reached = await crawl(roots, { signedIn: true });
 
-const seedBad = [];
-const dead = [];
-for (const [path, { status, from }] of reached) {
-  if (status === 200) continue;
-  if (rootSet.has(path)) seedBad.push({ seed: path, status });
-  else dead.push({ path, status, from: [...from] });
-}
-
 // ── Redirects: a URL this app published must keep working ─────────────────
 /**
  * Paths that answer 3xx by design, and where each must point.
@@ -377,6 +369,23 @@ for (const [path, { status, from }] of reached) {
  * application itself published still works.
  */
 const REDIRECTS = [[`${S}/tang-sach`, `${S}/ho-so/tang-sach`]];
+const REDIRECT_SOURCES = new Set(REDIRECTS.map(([from]) => from));
+
+const seedBad = [];
+const dead = [];
+for (const [path, { status, from }] of reached) {
+  if (status === 200) continue;
+  // A path in REDIRECTS answers 3xx by design and is validated below, by
+  // Location header rather than by "did it reach 200" — reporting it here
+  // too would be the same fact told twice, once correctly and once as a
+  // false "dead link" for a URL that is working exactly as built. PO
+  // feedback round 1, Task 4 restored the shelf home's link to this path
+  // (§2 of the design), which is what made the crawler reach it at all and
+  // is what surfaced this double-report.
+  if (REDIRECT_SOURCES.has(path)) continue;
+  if (rootSet.has(path)) seedBad.push({ seed: path, status });
+  else dead.push({ path, status, from: [...from] });
+}
 
 const misdirected = [];
 for (const [from, to] of REDIRECTS) {

@@ -1,11 +1,13 @@
 import { Camera, KeyRound, Lock } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
-import { Field, Input, ReadOnlyValue } from "@/components/ui/field";
+import { Field, Input, ReadOnlyValue, Textarea } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
 import { NotAReaderNotice } from "@/components/shell/reader-not-a-member";
 import { messageFor } from "@/domain/kernel/errors";
+import { atLeast } from "@/domain/kernel/tenant";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
@@ -19,26 +21,22 @@ import {
   changeOwnPasswordAction,
   proposeAvatarAction,
   proposeProfileChangeAction,
-  updateOwnProfileAction,
 } from "./profile-actions";
 
 /**
  * The reader's own profile — BR §2's "changing your own details is a request,
  * not an edit", as a screen.
  *
- * **Three forms, because there are three different rules**, and putting them in
+ * **Two forms, because there are two different rules**, and putting them in
  * one would be the screen claiming they are the same act:
  *
  * - The verified details go through `proposeProfileChange` and wait for a
  *   manager. The current values stay in force meanwhile, which is why the
  *   pending block below says the *old* phone number is still the one being used.
- * - The leaderboard toggle is `updateOwnProfile` and takes effect immediately —
- *   BR §16.2, and `update-own-profile.ts` argues at length that this is not a
- *   fact a manager verifies.
- * - The password is `changeOwnPassword`, immediate for the same reason: "chỉ là
- *   chìa khoá để bạn tự đăng nhập".
+ * - The password is `changeOwnPassword`, immediate: "chỉ là chìa khoá để bạn tự
+ *   đăng nhập".
  *
- * The fixture version had all three inside one `<form>` with one submit button,
+ * The fixture version had both inside one `<form>` with one submit button,
  * which would have proposed a password change to a manager for approval.
  *
  * **The pending block reads whatever the last request was, not only a pending
@@ -93,6 +91,8 @@ export default async function ReaderProfilePage({
         active="toi"
         viewerName={viewer.name}
         unreadNotifications={viewer.unreadNotifications}
+        canManage={atLeast(viewer.role, "manager")}
+        isSuperAdmin={atLeast(viewer.role, "super_admin")}
       />
       <ReaderTabs shelfSlug={slug} pathname={`/tu-sach/${slug}/ho-so`} />
     </>
@@ -209,16 +209,21 @@ export default async function ReaderProfilePage({
           </div>
         ) : null}
 
-        <form action={proposeProfileChangeAction} className="mt-10 space-y-6">
+        <form
+          id="ho-so-form"
+          action={proposeProfileChangeAction}
+          className="mt-10 space-y-6"
+        >
           <input type="hidden" name="tu-sach" value={slug} />
           <input type="hidden" name="thanh-vien" value={profile.membershipId} />
 
           <h2 className="text-xl font-semibold">Thông tin cá nhân</h2>
 
-          <Field label="Tên thánh" htmlFor="ten-thanh">
+          <Field label="Tên thánh" required htmlFor="ten-thanh">
             <Input
               id="ten-thanh"
               name="ten-thanh"
+              required
               defaultValue={fields.saint_name ?? ""}
             />
           </Field>
@@ -264,8 +269,13 @@ export default async function ReaderProfilePage({
 
           <Field
             label="Số điện thoại"
+            required
             htmlFor="dien-thoai"
-            hint="Quản lý dùng số này khi cần nhắc trả sách."
+            hint={
+              fields.phone
+                ? "Quản lý dùng số này khi cần nhắc trả sách."
+                : "Để trống thì cần ghi lý do bên dưới."
+            }
           >
             <Input
               id="dien-thoai"
@@ -273,9 +283,46 @@ export default async function ReaderProfilePage({
               type="tel"
               inputMode="numeric"
               pattern={PHONE_PATTERN}
+              // PO feedback round 1, Task 8: not HTML `required` — see
+              // `nguoi-doc/[id]/page.tsx`'s identical note. The real rule is
+              // "a phone, or a reason", enforced by `PhoneConfirmDialog` and,
+              // on the server, by `proposeProfileChange`'s own
+              // `assertPhoneOrReason` call — fired right here, the moment
+              // this very form is submitted, not deferred to a manager's
+              // later approval. (`approveProfileChange` calls it again on the
+              // resulting record, as a second, independent check — see
+              // `profile-actions.ts`'s identical note on that call.)
               defaultValue={fields.phone ?? ""}
             />
           </Field>
+
+          {/* PO feedback round 1, Task 8 — see `nguoi-doc/[id]/page.tsx`'s
+              identical reasoning: visible and pre-filled whenever this
+              reader's own record already has no phone, or a refusal just
+              said so; a hidden carrier otherwise. */}
+          {!fields.phone || refusal === "thieu-so-dien-thoai" ? (
+            <Field
+              label="Lý do chưa có số điện thoại"
+              required
+              htmlFor="ly-do-thieu-sdt"
+            >
+              {/* Fix round 1: not HTML `required` — see `nguoi-doc/[id]
+                  /page.tsx`'s identical note. `ProposeProfileChange`'s
+                  `assertPhoneOrReason` is the real check. */}
+              <Textarea
+                id="ly-do-thieu-sdt"
+                name="ly-do-thieu-sdt"
+                rows={3}
+                defaultValue={fields.phone_missing_reason ?? ""}
+              />
+            </Field>
+          ) : (
+            <input
+              type="hidden"
+              name="ly-do-thieu-sdt"
+              defaultValue={fields.phone_missing_reason ?? ""}
+            />
+          )}
 
           <Field
             label="Email"
@@ -300,6 +347,7 @@ export default async function ReaderProfilePage({
             </p>
           </div>
         </form>
+        <PhoneConfirmDialog formId="ho-so-form" />
 
         {showL1 || showL2 ? (
           <section className="mt-10 space-y-4 border-t border-hairline pt-8">
@@ -338,44 +386,6 @@ export default async function ReaderProfilePage({
             </p>
           </section>
         ) : null}
-
-        <form
-          action={updateOwnProfileAction}
-          className="mt-10 space-y-4 border-t border-hairline pt-8"
-        >
-          <input type="hidden" name="tu-sach" value={slug} />
-          <input type="hidden" name="thanh-vien" value={profile.membershipId} />
-          <h2 className="text-xl font-semibold">Riêng tư</h2>
-          <p className="text-[14px] text-meta">
-            Có hiệu lực ngay, không cần quản lý duyệt — đây không phải một thông tin
-            quản lý cần xác minh.
-          </p>
-
-          {/* A real checkbox, not the fixture's `role="switch"` span. The
-              shipped decoration had `aria-checked="true"` written in, so it
-              announced itself as on to a screen reader regardless of the
-              setting and could not be changed by anyone. */}
-          <label className="flex items-center justify-between gap-4 rounded-card border border-hairline bg-surface p-4">
-            <span className="min-w-0">
-              <span className="block text-[16px] font-medium">
-                Hiện tên bạn trong bảng bạn đọc chăm nhất
-              </span>
-              <span className="mt-1 block text-[14px] text-meta">
-                Nếu tắt, tên bạn sẽ không xuất hiện công khai.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              name="bang-xep-hang"
-              defaultChecked={profile.leaderboardOptIn}
-              className="size-6 shrink-0"
-            />
-          </label>
-
-          <SubmitButton variant="quiet" size="md">
-            Lưu lựa chọn
-          </SubmitButton>
-        </form>
 
         <form
           action={changeOwnPasswordAction}

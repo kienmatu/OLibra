@@ -4,8 +4,8 @@ import { NotFound, RuleViolated } from "../../src/domain/kernel/errors";
 import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import { createBook } from "../../src/domain/catalogue/commands/create-book";
-import { readCatalogueCategories } from "../../src/lib/catalogue";
-import { readShelfIdentity } from "../../src/lib/shelf";
+import { copyCountLine, readCatalogueCategories } from "../../src/lib/catalogue";
+import { readShelfAddressForFooter, readShelfIdentity } from "../../src/lib/shelf";
 import { statusForAvailability } from "../../src/lib/status";
 import { migrate } from "../../src/db/migrate";
 import { makeMember, makeShelf } from "../support/factories";
@@ -24,9 +24,11 @@ afterAll(closeAll);
  * `tests/domain/catalogue/` already answers for every query these pages call,
  * but the three things a *surface* helper can get wrong on its own:
  *
- * 1. **The disclosure gate.** `readShelfIdentity` names `keeper_name` and
- *    `keeper_phone`, the two columns BR §16.1 withholds from anyone without a
- *    membership and the two `tests/db/bookshelves-public-columns.test.ts`
+ * 1. **The disclosure gate.** `readShelfIdentity` names the shelf's
+ *    contacts — `bookshelf_contacts` since PO feedback round 1's Task 1 and
+ *    Task 2, replacing the `keeper_name`/`keeper_phone` pair that used to sit
+ *    directly on `bookshelves` — which BR §16.1 withholds from anyone without
+ *    a membership, and which `tests/db/bookshelves-public-columns.test.ts`
  *    exists for. That file lets this one through on the argument that the read
  *    refuses a non-member itself. This is where that argument is a fact.
  * 2. **Agreement with the query beside it.** The catalogue's category filter
@@ -40,13 +42,18 @@ afterAll(closeAll);
 
 const clock = fixedClock("2026-08-08T03:00:00Z");
 
+interface ShelfContactOverride {
+  position: number;
+  name: string;
+  phone: string | null;
+  roleLabel: string | null;
+}
+
 async function shelfWith(
   over: Partial<{
     location: string | null;
     address: string | null;
-    openingHours: string | null;
-    keeperName: string | null;
-    keeperPhone: string | null;
+    contacts: ShelfContactOverride[];
   }> = {},
 ) {
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
@@ -56,13 +63,24 @@ async function shelfWith(
     given === undefined ? fallback : given;
   await sql`
     update bookshelves set
-      location      = ${or(over.location, "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú")},
-      address       = ${or(over.address, "12 Nguyễn Huệ, Phường Bến Nghé")},
-      opening_hours = ${or(over.openingHours, "Mở sau lễ Chúa nhật · 9:00 đến 11:00")},
-      keeper_name   = ${or(over.keeperName, "Maria Nguyễn Thị Lan")},
-      keeper_phone  = ${or(over.keeperPhone, "0912 345 678")}
+      location = ${or(over.location, "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú")},
+      address  = ${or(over.address, "12 Nguyễn Huệ, Phường Bến Nghé")}
     where id = ${shelf.id}
   `;
+  const contacts = or(over.contacts, [
+    {
+      position: 1,
+      name: "Maria Nguyễn Thị Lan",
+      phone: "0912 345 678",
+      roleLabel: null,
+    },
+  ]);
+  for (const c of contacts) {
+    await sql`
+      insert into bookshelf_contacts (bookshelf_id, position, name, phone, role_label)
+      values (${shelf.id}, ${c.position}, ${c.name}, ${c.phone}, ${c.roleLabel})
+    `;
+  }
   const manager = await makeMember(sql, shelf.id, { role: "manager" });
   const reader = await makeMember(sql, shelf.id);
   const managerCtx: TenantContext = {
@@ -86,7 +104,9 @@ async function shelfWith(
 test("a member gets the keeper's name and number, which is what the page shows", async () => {
   // BR:497, shelf home item 1: "name, where it is, when it is open, who holds
   // the key with a tappable phone number." BR:511 puts the same pair in the
-  // book page's contact line, word for word.
+  // book page's contact line, word for word. PO feedback round 1's Task 1 and
+  // Task 2 moved that pair into `bookshelf_contacts` and dropped the free-text
+  // `opening_hours` column entirely.
   const { readerCtx } = await shelfWith();
 
   const shelf = await runQuery(sql, readerCtx, (tx, c) => readShelfIdentity(tx, c));
@@ -95,9 +115,14 @@ test("a member gets the keeper's name and number, which is what the page shows",
     name: "Tủ sách dong-thap",
     location: "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú",
     address: "12 Nguyễn Huệ, Phường Bến Nghé",
-    openingHours: "Mở sau lễ Chúa nhật · 9:00 đến 11:00",
-    keeperName: "Maria Nguyễn Thị Lan",
-    keeperPhone: "0912 345 678",
+    contacts: [
+      {
+        position: 1,
+        name: "Maria Nguyễn Thị Lan",
+        phone: "0912 345 678",
+        roleLabel: null,
+      },
+    ],
   });
 });
 
@@ -121,15 +146,14 @@ test("a guest is refused the keeper's contact details, by this read and not by t
 });
 
 test("a shelf that has filled in nothing but its name is rows the page omits, not nulls it prints", async () => {
-  // Every column but the name is nullable, and a parish onboarded on a Sunday
-  // afternoon has filled in what it knew. The page keys each row on these being
-  // null; returning "" instead would print a "Giờ mở cửa" label over a blank.
+  // `location`/`address` are nullable, and a parish onboarded on a Sunday
+  // afternoon has filled in what it knew. `contacts` is empty rather than a
+  // row of nulls for the identical reason — the page keys its render on these
+  // being absent; returning "" instead would print a label over a blank.
   const { readerCtx } = await shelfWith({
     location: null,
     address: null,
-    openingHours: null,
-    keeperName: null,
-    keeperPhone: null,
+    contacts: [],
   });
 
   const shelf = await runQuery(sql, readerCtx, (tx, c) => readShelfIdentity(tx, c));
@@ -138,9 +162,7 @@ test("a shelf that has filled in nothing but its name is rows the page omits, no
     name: "Tủ sách dong-thap",
     location: null,
     address: null,
-    openingHours: null,
-    keeperName: null,
-    keeperPhone: null,
+    contacts: [],
   });
 });
 
@@ -159,37 +181,90 @@ test("a shelf id naming nothing is shelf_not_found, not a TypeError", async () =
   ).rejects.toBeInstanceOf(NotFound);
 });
 
-test("RLS is not what withholds the keeper's contact — the gate inside this read is", async () => {
-  // The fact `tests/db/bookshelves-public-columns.test.ts` is built on, asserted
-  // instead of assumed, because it is counter-intuitive and it decides where
-  // the check has to live.
+test("bookshelf_contacts is scoped by RLS, unlike the old keeper columns on bookshelves — and requireReader still stops a guest either way", async () => {
+  // The predecessor of this test (pre-PO-feedback-round-1) pinned the
+  // opposite fact for `bookshelves.keeper_phone`: `bookshelves_public_read`
+  // (20260808_12) is a *permissive* `for select` policy over every active,
+  // undeleted shelf, and Postgres ORs permissive policies together — so
+  // `bookshelves_tenant`'s `id = <the GUC>` did not narrow `bookshelves` at
+  // all, and a plain select of another shelf's `keeper_phone`, scoped to this
+  // one, returned it anyway. The column list plus `readShelfIdentity`'s own
+  // refusal were the whole of what protected it — never the tenant policy.
   //
-  // `bookshelves_public_read` (20260808_12) is a *permissive* `for select`
-  // policy over every active, undeleted shelf, and Postgres ORs permissive
-  // policies together — so `bookshelves_tenant`'s `id = <the GUC>` does not
-  // narrow `bookshelves` at all. Inside a transaction scoped to Đồng Tháp, a
-  // plain select of Cần Thơ's `keeper_phone` returns it. That is deliberate
-  // (it is what lets `resolveShelfId` and the portal work before anybody has a
-  // membership), and it means the column list plus an explicit refusal are the
-  // whole of what protects those two columns — never the tenant policy.
+  // `bookshelf_contacts` (Task 1) is not that shape: it carries only the
+  // plain `<table>_tenant` policy and no second, permissive one — there is no
+  // `bookshelf_contacts_public_read` — so this is now a strictly stronger
+  // guarantee, worth pinning in its own right rather than deleting the test
+  // that used to prove the weaker one.
   const { readerCtx, guestCtx } = await shelfWith();
   const theirs = await makeShelf(sql, { slug: "can-tho" });
-  await sql`update bookshelves set keeper_phone = '0909 000 111' where id = ${theirs.id}`;
+  await sql`
+    insert into bookshelf_contacts (bookshelf_id, position, name, phone)
+    values (${theirs.id}, 1, 'Người khác', '0909 000 111')
+  `;
 
   const reachable = await runQuery(
     sql,
     readerCtx,
-    (tx) => tx<{ keeper_phone: string }[]>`
-      select keeper_phone from bookshelves where id = ${theirs.id}
+    (tx) => tx<{ phone: string | null }[]>`
+      select phone from bookshelf_contacts where bookshelf_id = ${theirs.id}
     `,
   );
-  expect(reachable).toEqual([{ keeper_phone: "0909 000 111" }]);
+  expect(reachable).toEqual([]);
 
-  // And this is what actually stops a stranger seeing it: not the policy, but
-  // `requireReader` at the top of the function that names the column.
+  // `requireReader` at the top of the function is still what stops a
+  // stranger of *this* shelf, RLS aside.
   await expect(
     runQuery(sql, guestCtx, (tx, c) => readShelfIdentity(tx, c)),
   ).rejects.toBeInstanceOf(RuleViolated);
+});
+
+// — the footer's address, item 8 of the post-review fix wave —
+
+test("readShelfAddressForFooter hands a member's location and address to the footer", async () => {
+  const { readerCtx } = await shelfWith();
+
+  const result = await runQuery(sql, readerCtx, (tx, c) =>
+    readShelfAddressForFooter(tx, c),
+  );
+
+  expect(result).toEqual({
+    location: "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú",
+    address: "12 Nguyễn Huệ, Phường Bến Nghé",
+  });
+});
+
+test("readShelfAddressForFooter answers null for a guest, rather than throwing", async () => {
+  // The whole point of this function over calling `readShelfIdentity`
+  // directly from the layout: `/gop-y` is reachable by a guest
+  // (`submitFeedback`'s own docstring — no `requireReader`, no
+  // `requireIdentifiedActor`), and that page's layout renders this footer
+  // too. A throw here would reach `loadPage`'s own catch and redirect that
+  // guest to sign in before they ever see the feedback form — a page they
+  // were always entitled to reach. `null` is the footer's own "nothing to
+  // show", not a refusal bubbling up.
+  const { guestCtx } = await shelfWith();
+
+  await expect(
+    runQuery(sql, guestCtx, (tx, c) => readShelfAddressForFooter(tx, c)),
+  ).resolves.toBeNull();
+});
+
+test("readShelfAddressForFooter still 404s for a shelf id naming nothing, rather than swallowing it", async () => {
+  // Only `not_permitted` is caught. `readShelfIdentity`'s own
+  // `NotFound("shelf_not_found")` — a different code, from a different
+  // situation — must still propagate, exactly as it does for every other
+  // caller of that function, so `loadPage` renders the 404 this case is for
+  // rather than a footer with nothing to say about it.
+  const { readerCtx } = await shelfWith();
+  const gone: TenantContext = {
+    ...readerCtx,
+    bookshelfId: "00000000-0000-4000-8000-000000000000",
+  };
+
+  await expect(
+    runQuery(sql, gone, (tx) => readShelfAddressForFooter(tx, gone)),
+  ).rejects.toBeInstanceOf(NotFound);
 });
 
 // — the catalogue's category filter —
@@ -322,4 +397,36 @@ test("a title with no live copies gets no badge rather than the nearest one", ()
   expect(statusForAvailability("held")).toBe("held");
   expect(statusForAvailability("lost")).toBe("lost");
   expect(statusForAvailability("retired")).toBe("retired");
+});
+
+// — the copy-count sentence both book pages show (PO feedback round 1, Task 11) —
+
+test("the copy line shows all three counts even for a single copy", () => {
+  // BR:508's old rule hid this sentence entirely when `copiesTotal` was 1,
+  // which is exactly why a single-copy book's page read as though the
+  // information were missing rather than simply small. SDD §10 drops that
+  // gate.
+  const line = copyCountLine({ copiesAvailable: 1, onLoan: 0, copiesTotal: 1 });
+  expect(line).toBe("1 bản có sẵn · 0 đang cho mượn · 1 bản trong tủ");
+});
+
+test("lost and retired copies are counted in the total only", () => {
+  // 3 available + 2 on loan = 5, one short of the 6 total: the missing copy
+  // is lost or retired, which is neither "có sẵn" nor "đang cho mượn". That
+  // gap is correct and must not be "fixed" by deriving one count from the
+  // other two — see `copyCountLine`'s own docstring.
+  const line = copyCountLine({ copiesAvailable: 3, onLoan: 2, copiesTotal: 6 });
+  expect(line).toBe("3 bản có sẵn · 2 đang cho mượn · 6 bản trong tủ");
+});
+
+test('the counts format through Intl.NumberFormat("vi-VN"), not string interpolation', () => {
+  // SDD §6.6 forbids hand-written number formatting; a four-digit count is
+  // the case that would expose a raw `${n}` (no thousands separator) if this
+  // helper ever stopped calling the formatter.
+  const line = copyCountLine({
+    copiesAvailable: 1234,
+    onLoan: 0,
+    copiesTotal: 1234,
+  });
+  expect(line).toBe("1.234 bản có sẵn · 0 đang cho mượn · 1.234 bản trong tủ");
 });

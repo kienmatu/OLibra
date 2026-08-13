@@ -86,8 +86,10 @@ afterAll(async () => {
 
 async function signInAs(bookshelfId: string, role: string, username: string) {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (full_name, father_name, mother_name, phone, username, password_hash)
-    values ('Maria Nguyễn Thị Lan', 'A', 'B', '0900000001', ${username},
+    insert into users (
+      saint_name, full_name, father_name, mother_name, phone, username, password_hash
+    )
+    values ('Maria', 'Maria Nguyễn Thị Lan', 'A', 'B', '0900000001', ${username},
             ${await hashPassword("x")})
     returning id
   `;
@@ -388,7 +390,11 @@ test("correcting a reader's profile writes the change, and resubmitting unchange
   const fields = {
     "tu-sach": "dong-thap",
     "thanh-vien": membership.id,
-    "ten-thanh": "",
+    // `makePerson`'s own default (PO feedback round 1, Task 7: saint_name is
+    // now `not null`, so an empty box here would clear it and be refused
+    // with `required_fields_missing` rather than exercise the phone
+    // correction this test is actually about).
+    "ten-thanh": "Maria",
     "ho-ten": "Giuse Trần Minh",
     "ngay-sinh": "2015-04-02",
     "ten-cha": "Giuse Trần Văn A",

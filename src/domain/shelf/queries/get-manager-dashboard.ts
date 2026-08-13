@@ -27,7 +27,11 @@ import { countQueuedRequests } from "../../circulation/queries/get-borrow-reques
  *   `status = 'pending'`.
  * - `pendingProfileChanges` mirrors `getPendingProfileChanges` — including its
  *   join through `memberships`, which is what makes a request belong to *this*
- *   shelf's queue rather than merely carrying its `bookshelf_id`.
+ *   shelf's queue rather than merely carrying its `bookshelf_id`, and
+ *   (PO feedback round 1, Task 9) its `m.role = 'reader'` filter: the queue
+ *   this badge links to shows reader subjects only, a manager's own pending
+ *   change having moved to the super-admin queue at `/quan-tri/doi-thong-tin`,
+ *   so counting it here would promise a decision this screen cannot make.
  * - `overdue` reads `loans_current.is_overdue`, which BR §8 derives on read
  *   against `olibra_now()` (`20260808_14_olibra_now.sql`) — never a stored
  *   flag, never a job.
@@ -161,7 +165,7 @@ export async function getManagerBadgeCounts(
         from profile_change_requests r
         join memberships m on m.user_id = r.user_id and m.deleted_at is null
         join users u       on u.id = r.user_id and u.deleted_at is null
-        where r.status = 'pending'
+        where r.status = 'pending' and m.role = 'reader'
       )::int as pending_profile_changes,
       (
         -- BR §8: derived on read, against the injected clock. Never a column.

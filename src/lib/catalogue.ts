@@ -2,6 +2,52 @@ import { requireManager, requireReader } from "../domain/catalogue/policy";
 import type { TenantContext } from "../domain/kernel/tenant";
 import type { Tx } from "../domain/kernel/unit-of-work";
 
+const NUMBER = new Intl.NumberFormat("vi-VN");
+
+/**
+ * The three copy counts, in the one wording both book pages use — the
+ * reader's `sach/[slug]` and the manager's `quan-ly/sach/[id]` (SDD §10, PO
+ * feedback round 1 Task 11).
+ *
+ * One function rather than the sentence written out twice, so the wording
+ * cannot drift the way `getBookDetail`/`getBookDetailManager`'s near-identical
+ * SQL already shows a copy-pasted shape can.
+ *
+ * **`copiesAvailable + onLoan` need not equal `copiesTotal`, and that is not a
+ * bug to fix here.** `held` copies are counted in neither `copiesAvailable`
+ * nor `onLoan`, so the two can undercount the total by however many copies are
+ * currently held for a waiting reader. Do not "correct" the arithmetic by
+ * deriving `copiesTotal` from the other two, or one of the other two from
+ * `copiesTotal` minus the rest — each is its own count off its own
+ * `book_copies` rows, and a title with a copy held for someone is the ordinary
+ * case this sentence has to stay honest about.
+ *
+ * **`copiesTotal` excludes `lost` and `retired` copies, both of them, and
+ * this holds everywhere the name `copies_total`/`copiesTotal` is emitted** —
+ * `get-book-detail.ts`, `get-book-detail-manager.ts`, `get-books-list.ts`,
+ * `get-catalogue.ts`, `search-catalogue.ts` and `search-books-for-lending.ts`
+ * all compute it the same way (post-review fix wave, item 7, and its round 2
+ * that closed the same gap on the four queries that fix wave missed). That is
+ * what makes "bản trong tủ" (copies in the shelf's records) a true sentence: a
+ * lost copy is, by definition, not in the cupboard, and neither is a retired
+ * one — and it is what lets a manager's list, search result and detail page
+ * show the same title's copy count without one disagreeing with the others a
+ * click away. Before item 7, every one of those queries excluded only
+ * `retired`, so a single lost copy inflated the number by one wherever it was
+ * read. Callers pass a query's own `copies_total`/`copiesTotal` straight
+ * through; this function does not re-derive or re-filter it, so the guarantee
+ * lives at the queries that compute it, not here.
+ */
+export function copyCountLine(counts: {
+  copiesAvailable: number;
+  onLoan: number;
+  copiesTotal: number;
+}): string {
+  return `${NUMBER.format(counts.copiesAvailable)} bản có sẵn · ${NUMBER.format(
+    counts.onLoan,
+  )} đang cho mượn · ${NUMBER.format(counts.copiesTotal)} bản trong tủ`;
+}
+
 /**
  * What the catalogue's filter bar needs and no query provides: the categories
  * *this shelf actually stocks*.
