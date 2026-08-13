@@ -2,12 +2,6 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data
-// .ts` records at the top of its own imports: `tests/components/phone
-// -confirm-dialog.test.tsx` (fix round 1) imports this module directly and
-// `vitest.config.ts` has no `resolve.alias` for `@/` — `field.tsx`,
-// `parish-unit-fields.tsx`, `reader-tabs.tsx` and `public-header.tsx` all
-// carry the identical note for the identical reason.
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/field";
 

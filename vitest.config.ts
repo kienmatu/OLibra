@@ -10,17 +10,24 @@ export default defineConfig({
   resolve: {
     // `@/` → `src/`, matching `tsconfig.json`'s own `paths`.
     //
-    // **This is new, and it does not retract the notes it appears to.** Half a
-    // dozen modules under `src/components/` and `src/app/` carry a comment
-    // saying they import relatively because "Vitest resolves no alias"; those
-    // comments were accurate and the workaround they describe still works
-    // unchanged. What they were paying for is a *page* being untestable: a
-    // `page.tsx` is written for Next, imports `@/` freely, and is not going to
-    // be rewritten into relative specifiers just so a test can load it. The
-    // first test that renders one
+    // **Added for the first test that renders a page component**
     // (`tests/lib/profile-page-shows-a-decided-request.test.tsx`, which pins a
-    // crash that only existed in JSX) needed this, and every future page test
-    // needs it too.
+    // 500 that existed only in JSX). A `page.tsx` is written for Next and
+    // imports `@/` freely; it was never going to be rewritten into relative
+    // specifiers just so a test could load it, and every future page test
+    // needs this line too.
+    //
+    // **It also retired a workaround that had spread to twenty-six files.**
+    // Modules under `src/app/`, `src/components/` and `src/lib/` used to
+    // import relatively — `../../../../../domain/kernel/errors` — each with a
+    // comment explaining that Vitest resolved no alias, so an `@/` import
+    // would make the module unloadable by the suite rather than merely
+    // untested. The split ran through single directories: `ui/card.tsx` said
+    // `@/lib/utils` and `ui/field.tsx` said `../../lib/utils`, the same import
+    // twice, divided only by whether a test happened to reach the file. Those
+    // files now say `@/` like everything else and the twenty-six comments are
+    // gone; `src/domain/` stays fully relative, which is a different rule for
+    // a different reason (SDD §3.1 — it must run outside this pipeline).
     //
     // **An anchored `RegExp`, and the object shorthand `{ "@/": ".../src/" }`
     // is not an acceptable simplification of it.** That shorthand was written

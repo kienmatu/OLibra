@@ -1,11 +1,5 @@
 import Link from "next/link";
-// Relative, not the `@/` alias — this file is exercised by
-// `tests/components/site-footer.test.tsx` and `vitest.config.ts` configures no
-// `resolve.alias` for `@/`. `public-header.tsx`, `reader-tabs.tsx` and
-// `ui/phone-link.tsx` all carry the identical note for the identical reason: an
-// alias import here would make the component unimportable under Vitest, not
-// merely untested.
-import { PhoneLink } from "../ui/phone-link";
+import { PhoneLink } from "@/components/ui/phone-link";
 
 /**
  * What the footer can say about the people who run the installation.

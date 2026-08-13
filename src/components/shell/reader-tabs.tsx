@@ -1,10 +1,5 @@
 import Link from "next/link";
-// Relative, not `@/lib/utils`: this component is exercised by
-// `tests/components/reader-tabs.test.tsx`, and `vitest.config.ts` has no
-// `resolve.alias` for `@/` (deliberately, per the branch's QA-remediation
-// constraints) — an alias import here would make the component unimportable
-// under Vitest, not just untested.
-import { cn } from "../../lib/utils";
+import { cn } from "@/lib/utils";
 
 const TABS = [
   { key: "trang-cua-toi", label: "Trang của tôi", path: "ho-so/tong-quan" },

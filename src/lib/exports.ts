@@ -1,14 +1,9 @@
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports: the suite imports this module directly
-// and Vitest resolves no alias. It matters more here than there — these are
-// *value* imports, which an erased `import type` would have hidden the problem
-// for.
-import type { MembershipRole } from "../domain/members/policy";
+import type { MembershipRole } from "@/domain/members/policy";
 import type {
   BookExportRow,
   LoanExportRow,
   ReaderExportRow,
-} from "../domain/shelf/queries/exports";
+} from "@/domain/shelf/queries/exports";
 import { MEMBERSHIP_STATUS } from "./membership-status";
 import { PROFILE_FIELD_LABELS } from "./profile-labels";
 import { roleLabel } from "./roles";

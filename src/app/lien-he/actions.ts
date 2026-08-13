@@ -1,17 +1,10 @@
 "use server";
 
 import { redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias: `tests/lib/site-feedback-action
-// .test.ts` imports this module directly, and Vitest resolves no alias — the
-// same reason `src/lib/page-data.ts` and `src/app/quan-tri/admin-actions.ts`
-// give for the identical choice. `src/app/tu-sach/[shelf]/community-actions
-// .ts` (this file's sibling for the *shelf-scoped* forms) has since joined
-// them, for the same reason and on the same terms: U6 §1 gave it a test that
-// reaches it directly.
-import { RuleViolated, ValidationFailed } from "../../domain/kernel/errors";
-import { submitFeedback } from "../../domain/community/commands/feedback";
-import { submitPublicCommand } from "../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../lib/search-params";
+import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
+import { submitFeedback } from "@/domain/community/commands/feedback";
+import { submitPublicCommand } from "@/lib/page-data";
+import { ACTION_ERROR_PARAM } from "@/lib/search-params";
 
 /**
  * `/lien-he`'s site-wide góp ý form — Task 17 (2026-08-10 QA remediation),

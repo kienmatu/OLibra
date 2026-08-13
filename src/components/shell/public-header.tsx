@@ -1,14 +1,8 @@
 import Link from "next/link";
 import { Book, LogOut, Menu, Search } from "lucide-react";
-// Relative, not the `@/` alias: this file is exercised by
-// `tests/components/public-header.test.tsx`, and `vitest.config.ts` has no
-// `resolve.alias` for `@/` (deliberately, per the branch's QA-remediation
-// constraints — `reader-tabs.tsx` carries the identical note for the
-// identical reason). An alias import here would make the component
-// unimportable under Vitest, not just untested.
-import { ButtonLink } from "../ui/button";
-import { Input } from "../ui/field";
-import { signOutAction } from "../../app/dang-nhap/actions";
+import { ButtonLink } from "@/components/ui/button";
+import { Input } from "@/components/ui/field";
+import { signOutAction } from "@/app/dang-nhap/actions";
 
 /**
  * The last word of a Vietnamese name is the given name — "Maria Nguyễn Thị

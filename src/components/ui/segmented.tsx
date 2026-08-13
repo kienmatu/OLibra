@@ -1,10 +1,5 @@
 import Link from "next/link";
-// Relative, not the `@/` alias: `Chip` below is exercised by
-// `tests/components/filter-chips.test.tsx` through `filter-chips.tsx`, and
-// `vitest.config.ts` has no `resolve.alias` for `@/` (deliberately, per the
-// branch's QA-remediation constraints — `reader-tabs.tsx` and
-// `public-header.tsx` carry the identical note for the identical reason).
-import { cn } from "../../lib/utils";
+import { cn } from "@/lib/utils";
 
 /**
  * A segmented control, not a dropdown — the đang có / toàn bộ toggle is the

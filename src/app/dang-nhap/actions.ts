@@ -2,23 +2,17 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias, for the reason
-// `src/app/tu-sach/[shelf]/quan-ly/actions.ts` and `src/lib/page-data.ts` both
-// record: `tests/lib/sign-in-return-path.test.ts` imports this module and
-// Vitest resolves no alias. U2 §3.1 makes this function the last thing between
-// a hand-edited `?tiep=` and a redirect off this site, and that refusal is only
-// worth writing down if it is the *shipped* function a test can reach.
-import { pool } from "../../db/client";
-import { RuleViolated } from "../../domain/kernel/errors";
-import { systemClock } from "../../domain/kernel/clock";
-import { isSuperAdminUser, landingShelfFor } from "../../auth/guards";
-import { signIn, signOut } from "../../auth/session";
-import { RETURN_TO_PARAM, safeReturnPath } from "../../lib/return-path";
+import { pool } from "@/db/client";
+import { RuleViolated } from "@/domain/kernel/errors";
+import { systemClock } from "@/domain/kernel/clock";
+import { isSuperAdminUser, landingShelfFor } from "@/auth/guards";
+import { signIn, signOut } from "@/auth/session";
+import { RETURN_TO_PARAM, safeReturnPath } from "@/lib/return-path";
 import {
   SESSION_COOKIE,
   SIGN_IN_FAILED,
   cookieOptions,
-} from "../../lib/session-cookie";
+} from "@/lib/session-cookie";
 
 // A "use server" file may only export async functions, so the `?loi=`
 // marker itself lives in session-cookie.ts and is only re-used here.

@@ -1,23 +1,20 @@
 import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias: `tests/lib/page-data.test.ts`
-// imports this module, and Vitest resolves no alias (see any file under
-// `src/auth/`, which the suite has always imported the same way).
 import {
   adminContextFor,
   contextFor,
   frontDoorViewerFor,
   type MembershipShelf,
-} from "../auth/guards";
-import { resolveSession } from "../auth/session";
-import { pool } from "../db/client";
+} from "@/auth/guards";
+import { resolveSession } from "@/auth/session";
+import { pool } from "@/db/client";
 import {
   getSiteContact,
   type SiteContact,
-} from "../domain/admin/queries/get-admin-overview";
-import { systemClock } from "../domain/kernel/clock";
-import { NotFound, RuleViolated } from "../domain/kernel/errors";
-import type { Role, TenantContext } from "../domain/kernel/tenant";
+} from "@/domain/admin/queries/get-admin-overview";
+import { systemClock } from "@/domain/kernel/clock";
+import { NotFound, RuleViolated } from "@/domain/kernel/errors";
+import type { Role, TenantContext } from "@/domain/kernel/tenant";
 import {
   type Command,
   runAdminCommand,
@@ -27,7 +24,7 @@ import {
   runPublicQuery,
   runQuery,
   type Tx,
-} from "../domain/kernel/unit-of-work";
+} from "@/domain/kernel/unit-of-work";
 import { ensureCryptoWired } from "./crypto-wiring";
 import { REQUEST_PATH_HEADER, signInPathFor } from "./return-path";
 import { SESSION_COOKIE } from "./session-cookie";

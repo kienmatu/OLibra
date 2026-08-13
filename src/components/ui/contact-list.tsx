@@ -1,10 +1,5 @@
 import { ChevronRight, UserRound } from "lucide-react";
-// Relative, not the `@/` alias: this file is exercised by
-// `tests/components/contact-list.test.tsx`, and `vitest.config.ts` has no
-// `resolve.alias` for `@/` — the same note `phone-link.tsx` and
-// `public-header.tsx` carry for the identical reason. An alias import here
-// would make the component unimportable under Vitest, not just untested.
-import type { ShelfContact } from "../../domain/shelf/queries/get-shelf-settings";
+import type { ShelfContact } from "@/domain/shelf/queries/get-shelf-settings";
 import { PhoneLink } from "./phone-link";
 
 /**

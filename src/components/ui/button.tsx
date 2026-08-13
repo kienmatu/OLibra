@@ -1,10 +1,5 @@
 import Link from "next/link";
-// Relative, not the `@/` alias: `tests/components/public-header.test.tsx`
-// imports `ShelfHeader`, whose module-level `ButtonLink` import reaches this
-// file regardless of which branch actually renders (ES module imports are
-// eager), and `vitest.config.ts` has no `resolve.alias` for `@/`
-// (`reader-tabs.tsx` carries the identical note for the identical reason).
-import { cn } from "../../lib/utils";
+import { cn } from "@/lib/utils";
 
 /**
  * One primary action per screen. `primary` is solid terracotta and is meant to

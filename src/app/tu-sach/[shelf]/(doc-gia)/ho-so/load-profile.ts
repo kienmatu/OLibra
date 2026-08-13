@@ -1,19 +1,12 @@
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports and `./profile-actions.ts` already
-// carries in this same directory: `tests/lib/profile-page-without-membership
-// .test.ts` imports this module directly, and Vitest resolves no alias.
-import type { TenantContext } from "../../../../../domain/kernel/tenant";
-import type { Tx } from "../../../../../domain/kernel/unit-of-work";
+import type { TenantContext } from "@/domain/kernel/tenant";
+import type { Tx } from "@/domain/kernel/unit-of-work";
 import {
   getMyProfile,
   type MyProfile,
-} from "../../../../../domain/members/queries/get-my-profile";
-import { loadParishContext } from "../../../../../domain/members/parish-context";
-import type {
-  ParishTaxonomy,
-  ParishUnit,
-} from "../../../../../domain/members/parish-taxonomy";
-import { isMemberlessSuperAdmin } from "../../../../../lib/reader-area";
+} from "@/domain/members/queries/get-my-profile";
+import { loadParishContext } from "@/domain/members/parish-context";
+import type { ParishTaxonomy, ParishUnit } from "@/domain/members/parish-taxonomy";
+import { isMemberlessSuperAdmin } from "@/lib/reader-area";
 
 /**
  * Either a real profile to render, or nothing to show because the viewer is

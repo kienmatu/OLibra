@@ -1,7 +1,4 @@
-// Relative specifier, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports: the suite imports this module directly
-// and Vitest resolves no alias (`vitest.config.ts` declares none).
-import type { Role } from "../domain/kernel/tenant";
+import type { Role } from "@/domain/kernel/tenant";
 
 /**
  * The Vietnamese word for a role, for the one place a role is *displayed*: the

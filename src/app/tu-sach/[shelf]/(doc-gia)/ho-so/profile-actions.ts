@@ -1,20 +1,17 @@
 "use server";
 
 import { redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports: the suite imports this module and
-// Vitest resolves no alias.
-import { cancelProfileChange } from "../../../../../domain/members/commands/cancel-profile-change";
-import { changeOwnPassword } from "../../../../../domain/members/commands/change-own-password";
-import { proposeProfileChange } from "../../../../../domain/members/commands/propose-profile-change";
-import { DomainError } from "../../../../../domain/kernel/errors";
+import { cancelProfileChange } from "@/domain/members/commands/cancel-profile-change";
+import { changeOwnPassword } from "@/domain/members/commands/change-own-password";
+import { proposeProfileChange } from "@/domain/members/commands/propose-profile-change";
+import { DomainError } from "@/domain/kernel/errors";
 import {
   decideAndDiscardAvatar,
   proposeAvatar,
   type UploadedFile,
-} from "../../../../../lib/avatar";
-import { submitCommand } from "../../../../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../../../../lib/search-params";
+} from "@/lib/avatar";
+import { submitCommand } from "@/lib/page-data";
+import { ACTION_ERROR_PARAM } from "@/lib/search-params";
 
 /**
  * The reader's profile actions — and the project's **first server action that
@@ -218,7 +215,7 @@ export async function proposeProfileChangeAction(form: FormData): Promise<void> 
         // PO feedback round 1, Task 8. Nothing in this file gains a new
         // refusal — Task 8's brief does not list this action among the ones
         // that enforce `thieu-so-dien-thoai` — but the field is `PROPOSABLE`
-        // (`../../../../domain/members/profile-proposals.ts` filters
+        // (`@/domain/members/profile-proposals.ts` filters
         // `PROFILE_FIELDS` by excluding only `avatar_url`), so a reader who
         // types a reason here has it travel with the proposal. The rule
         // itself is enforced in the domain, not here: `proposeProfileChange`

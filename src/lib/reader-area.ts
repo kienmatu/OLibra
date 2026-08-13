@@ -1,8 +1,4 @@
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports: `tests/lib/profile-page-without
-// -membership.test.ts` imports this module directly, and Vitest resolves no
-// alias (`vitest.config.ts` declares none).
-import type { TenantContext } from "../domain/kernel/tenant";
+import type { TenantContext } from "@/domain/kernel/tenant";
 
 /**
  * Whether `ctx` is the one caller `src/auth/guards.ts`'s `contextFor` can
