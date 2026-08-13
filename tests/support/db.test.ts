@@ -1,5 +1,26 @@
-import { afterAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { migrate } from "../../src/db/migrate";
 import { closeAll, resetDatabase, sql, withTwoConnections } from "./db";
+
+// Every other file that touches the database migrates first, and this one has
+// to as well even though its tests only ever use the `harness_probe` scratch
+// table below and never read an application table. `resetDatabase` ends by
+// restoring `system_settings`' single row, so it only works against a migrated
+// schema — and `migrate.test.ts` and `contacts-backfill-migration.test.ts`
+// legitimately `drop schema public cascade` and rebuild to a chosen migration,
+// which is exactly why the convention is for the *next* file to put the schema
+// back rather than to assume it was left whole.
+//
+// Without this the file was green only because something else had migrated
+// earlier in the run. Against a freshly dropped schema it failed four of five
+// tests, and in a way that hid the cause: the first test passed, because
+// `resetDatabase` finds no tables at all and returns before reaching the
+// `system_settings` insert. That test then creates `harness_probe`, so from
+// the second test onwards there is a table to truncate, the insert is reached,
+// and every remaining test dies on `relation "system_settings" does not exist`.
+beforeAll(async () => {
+  await migrate(sql);
+});
 
 beforeEach(resetDatabase);
 
