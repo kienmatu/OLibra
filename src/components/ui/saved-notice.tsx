@@ -4,11 +4,13 @@ import { CheckCircle2 } from "lucide-react";
  * A sage-toned confirmation strip — "the tap took" — for a write that used to
  * complete silently.
  *
- * **QA remediation Task 16.** "Lưu cài đặt" (shelf settings), "Xác nhận cho
- * mượn" and "Xác nhận nhận trả" all redirected on success with nothing on the
- * next screen to say so — the settings form re-rendered identically, and a
- * manager had no way to tell a save had taken effect from a page that had
- * simply not changed. `/tu-sach/[shelf]/gop-y` already had the right idea —
+ * **QA remediation Task 16.** "Lưu cài đặt" (shelf settings — since fix round
+ * 2, `/quan-tri/tu-sach`'s two independent saves, "Lưu thông tin tủ sách" and
+ * "Lưu quy định cho mượn"), "Xác nhận cho mượn" and "Xác nhận nhận trả" all
+ * redirected on success with nothing on the next screen to say so — the
+ * settings form re-rendered identically, and a manager had no way to tell a
+ * save had taken effect from a page that had simply not changed.
+ * `/tu-sach/[shelf]/gop-y` already had the right idea —
  * "Đã gửi rồi, cảm ơn bạn nhé." beside a `CheckCircle2` — this is that same
  * shape, pulled out so the other three call sites do not each invent their
  * own markup for it. `src/lib/search-params.ts`'s `ACTION_DONE_PARAM` is the

@@ -91,6 +91,22 @@ export async function userOfMembership(
  * Reading the role off a second, separate query would be a second, un-scoped
  * chance to name the wrong row; one join answers both questions from the one
  * row RLS already scoped.
+ *
+ * Also used by `CancelProfileChange` (fix round, §9 routing) for the
+ * identical reason.
+ *
+ * **"RLS already scoped" is doing real work in that sentence — this query
+ * carries no `bookshelf_id` predicate of its own**, unlike
+ * `subjectOfProfileChange` below, which review found needed exactly that
+ * predicate added once its own callers grew a `bypassrls` path
+ * (`runAdminCommand`'s cross-shelf queue). `m.id = membershipId` names one
+ * row by primary key regardless of scope, so the guarantee that row belongs
+ * to the caller's shelf comes entirely from RLS having narrowed `memberships`
+ * before this `select` runs — true on both current callers' one surface each
+ * (ordinary tenant-scoped `runCommand`/`attemptTyped`), false the moment
+ * either is reached through `olibra_admin`. Add a `bookshelf_id` predicate
+ * here (this function would need `ctx` or an explicit `bookshelfId` to do
+ * it) before wiring either command into an admin path.
  */
 export async function userAndRoleOfMembership(
   tx: Tx,

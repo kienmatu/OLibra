@@ -19,6 +19,7 @@ import {
 import { loadAdminPage } from "@/lib/page-data";
 import {
   ACTION_DONE_PARAM,
+  ACTION_SCOPE_PARAM,
   param,
   refusalFrom,
   type SearchParams,
@@ -26,8 +27,10 @@ import {
 import {
   archiveBookshelfAction,
   createBookshelfAction,
-  updateBookshelfSettingsAction,
+  updateBookshelfPolicyAction,
+  updateBookshelfProfileAction,
 } from "../admin-actions";
+import { BOOKSHELF_FORM_SCOPE } from "./form-scope";
 import { EDITABLE_POLICY_FIELDS } from "./policy-fields";
 
 /**
@@ -130,10 +133,26 @@ const POLICY_FIELD_META: Record<
  * `20260808_02_bookshelf_slug_immutable.sql` is what makes it a legitimate
  * key at all, the same guarantee `resolveShelfId` (`src/auth/guards.ts`)
  * already leans on — and it is the one thing on this page a person could
- * actually recognise in the address bar. `updateBookshelfSettingsAction`
- * still receives the real id (a hidden field, `selected.row.bookshelfId`,
- * never in a URL): only the query string that names *which* shelf's editor
- * to open changed, not what `updateBookshelfSettings` is called with.
+ * actually recognise in the address bar. `updateBookshelfProfileAction` and
+ * `updateBookshelfPolicyAction` both still receive the real id (a hidden
+ * field, `selected.row.bookshelfId`, never in a URL): only the query string
+ * that names *which* shelf's editor to open changed, not what
+ * `updateBookshelfSettings` is called with.
+ *
+ * **The identity/contacts form and the lending-policy form are two `<form>`s,
+ * not one (Fix round 2).** They used to be a single form that always posted a
+ * `profile` — contacts included — alongside the policy numbers, so a shelf the
+ * migration deliberately left with no contact rows (its own note: "inventing
+ * a volunteer is worse than an incomplete record") could not change its loan
+ * period without a super admin first naming somebody, because contact 1 is
+ * mandatory and every save carried the whole form. Splitting the `<form>` is
+ * what makes `updateBookshelfPolicyAction` free of `profile` entirely, so a
+ * policy-only save never trips `contact_position_1_required`. Each keeps its
+ * own `ACTION_SCOPE_PARAM` scope (`BOOKSHELF_FORM_SCOPE.profile` /
+ * `.policy`, `./form-scope.ts`) on both the success and the refusal
+ * redirect, so a refusal from one form never renders beside the other's
+ * fields — see `admin-actions.ts`'s `back()` for where that scope is
+ * attached.
  */
 export const dynamic = "force-dynamic";
 
@@ -149,11 +168,32 @@ export default async function AdminBookshelvesPage({
   const search = await searchParams;
   const selectedSlug = param(search, "tu-sach") ?? null;
   const refusal = refusalFrom(search);
-  // QA remediation Task 16: `updateBookshelfSettingsAction` now marks its own
-  // success (`admin-actions.ts`'s `back(..., true)`). A bare presence check,
-  // like `/gop-y`'s own `da-gui`, rather than reading a value — this page has
-  // exactly one thing behind `?tu-sach=` that could just have been saved.
-  const saved = param(search, ACTION_DONE_PARAM) === "1";
+  // Fix round 2: which of the two forms below a refusal or a save belongs to
+  // — `admin-actions.ts`'s `back()` writes the identical value
+  // (`BOOKSHELF_FORM_SCOPE.profile` / `.policy`) as the refusal's
+  // `ACTION_SCOPE_PARAM` and as the success `ACTION_DONE_PARAM` value, so
+  // each form reads one field to answer both "did I just fail?" and "did I
+  // just succeed?" without the other form's result leaking into it.
+  // `createBookshelfAction`'s own refusal carries neither param.
+  const doneValue = param(search, ACTION_DONE_PARAM);
+  const refusalScope = param(search, ACTION_SCOPE_PARAM);
+  const profileRefusal =
+    refusalScope === BOOKSHELF_FORM_SCOPE.profile ? refusal : null;
+  const profileSaved = doneValue === BOOKSHELF_FORM_SCOPE.profile;
+  const policyRefusal =
+    refusalScope === BOOKSHELF_FORM_SCOPE.policy ? refusal : null;
+  const policySaved = doneValue === BOOKSHELF_FORM_SCOPE.policy;
+  // Neither form above claims this refusal — either it is
+  // `createBookshelfAction`'s own (no scope at all, the ordinary case), or
+  // `refusalScope` names something that is not a `BookshelfFormScope` at all
+  // (a hand-edited `?pham-vi=`). Both fall back to the banner below rather
+  // than vanishing: a refusal that matches no known scope must still render
+  // *somewhere*, not nowhere.
+  const unscopedRefusal =
+    refusalScope !== BOOKSHELF_FORM_SCOPE.profile &&
+    refusalScope !== BOOKSHELF_FORM_SCOPE.policy
+      ? refusal
+      : null;
 
   const { viewer, unreadFeedback, pendingManagerChanges, shelves, selected } =
     await loadAdminPage(async (tx, ctx, v) => {
@@ -190,9 +230,17 @@ export default async function AdminBookshelvesPage({
         subtitle={`${NUMBER.format(shelves.length)} tủ sách trong hệ thống.`}
       />
 
-      {refusal ? (
+      {/* Not conditioned on `selected` — it renders whenever a refusal
+          matches neither form's scope below, which in the ordinary case is
+          `createBookshelfAction`'s own refusal (no `ACTION_SCOPE_PARAM` at
+          all, and `selected` is null because that action never redirects
+          with `?tu-sach=`) and, as a fallback rather than a silent swallow,
+          any refusal whose `ACTION_SCOPE_PARAM` names something that is not
+          a `BookshelfFormScope` — a hand-edited URL, since neither form ever
+          writes one. */}
+      {unscopedRefusal ? (
         <p className="mt-6 max-w-2xl rounded-card border border-hairline bg-surface px-4 py-3 text-[15px] text-ink">
-          {messageFor(refusal)}
+          {messageFor(unscopedRefusal)}
         </p>
       ) : null}
 
@@ -359,13 +407,19 @@ export default async function AdminBookshelvesPage({
             ← Về danh sách tủ sách
           </Link>
 
-          {saved ? <SavedNotice>Đã lưu cài đặt.</SavedNotice> : null}
-
-          <form action={updateBookshelfSettingsAction} className="mt-6 space-y-12">
+          {/* Fix round 2: identity + contacts, and lending policy, are two
+              independent forms now — each with its own submit, its own
+              refusal rendered beside its own fields, and its own success
+              notice — so a policy save never carries a `profile` (contacts
+              included) and never trips `contact_position_1_required` for a
+              shelf the migration deliberately left with none. See this
+              page's own docstring above and `admin-actions.ts`'s two actions
+              for the reasoning. */}
+          <form action={updateBookshelfProfileAction} className="mt-6 space-y-12">
             <input type="hidden" name="tu-sach" value={selected.row.bookshelfId} />
             {/* QA remediation T27: the id above is what `updateBookshelfSettings`
                 needs to find the row — that has not changed. This is what
-                `updateBookshelfSettingsAction` redirects back to afterwards,
+                `updateBookshelfProfileAction` redirects back to afterwards,
                 now that `?tu-sach=` on this page names a slug rather than the
                 id; the slug cannot change mid-request (it is immutable), so
                 carrying it as a second hidden field is exactly as reliable as
@@ -375,6 +429,15 @@ export default async function AdminBookshelvesPage({
               name="tu-sach-slug"
               value={selected.settings.profile.slug}
             />
+
+            {profileRefusal ? (
+              <p className="rounded-card border border-hairline bg-surface px-4 py-3 text-[15px] text-ink">
+                {messageFor(profileRefusal)}
+              </p>
+            ) : null}
+            {profileSaved ? (
+              <SavedNotice>Đã lưu thông tin tủ sách.</SavedNotice>
+            ) : null}
 
             <section className="space-y-6">
               <h2 className="text-xl font-semibold">Thông tin chung</h2>
@@ -476,7 +539,41 @@ export default async function AdminBookshelvesPage({
               })}
             </section>
 
-            <section className="space-y-6 border-t border-hairline pt-10">
+            <div className="border-t border-hairline pt-10">
+              <SubmitButton variant="outline" size="lg">
+                Lưu thông tin tủ sách
+              </SubmitButton>
+            </div>
+          </form>
+
+          {/* A second, independent `<form>` — see the note above the first
+              one. `variant="outline"` above and `variant="primary"` below are
+              a deliberate choice, not a default: BR §17/AGENTS.md's "one
+              primary action per screen" means solid terracotta may appear
+              only once here, and the lending policy — the save this whole fix
+              is about freeing from the contact rule — is the one that keeps
+              it. */}
+          <form
+            action={updateBookshelfPolicyAction}
+            className="mt-12 space-y-12 border-t border-hairline pt-12"
+          >
+            <input type="hidden" name="tu-sach" value={selected.row.bookshelfId} />
+            <input
+              type="hidden"
+              name="tu-sach-slug"
+              value={selected.settings.profile.slug}
+            />
+
+            {policyRefusal ? (
+              <p className="rounded-card border border-hairline bg-surface px-4 py-3 text-[15px] text-ink">
+                {messageFor(policyRefusal)}
+              </p>
+            ) : null}
+            {policySaved ? (
+              <SavedNotice>Đã lưu quy định cho mượn.</SavedNotice>
+            ) : null}
+
+            <section className="space-y-6">
               <h2 className="text-xl font-semibold">Quy định cho mượn</h2>
               <p className="text-[15px] text-meta">
                 Áp dụng ngay cho tủ sách này. Quản lý tủ sách xem được nhưng không
@@ -543,7 +640,7 @@ export default async function AdminBookshelvesPage({
 
             <div className="border-t border-hairline pt-10">
               <SubmitButton variant="primary" size="lg">
-                Lưu cài đặt
+                Lưu quy định cho mượn
               </SubmitButton>
             </div>
           </form>

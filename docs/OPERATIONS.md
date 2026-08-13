@@ -547,11 +547,12 @@ A manager rejects a pending change with a reason, which the reader then sees (§
 The reader withdraws their own proposal before a decision is made (§7.4's diagram: `pending ──► cancelled (reader withdrew before a decision)`).
 
 - **Inputs:** `membershipId`, `profileChangeRequestId`
-- **Caller:** `requireSelfOrManager` (`src/domain/members/commands/cancel-profile-change.ts:61`) — the requester themselves, **or any manager/admin of the shelf**, not "reader (own request only)" as an earlier draft of this entry said. **Known gap, recorded 2026-08-13:** this lets a manager cancel a colleague's pending change as well as their own, which nothing in this document or the design spec calls for; it also predates §9's routing rule (a manager's/admin's own change is decided by a `super_admin`) without being brought into line with it, so a manager can withdraw a request that same rule would otherwise route above their own rank to decide. Left as documentation only — narrowing the permission is a product decision outside this branch's authorised scope, for the product owner to make.
+- **Caller:** the subject may always cancel their own request — a withdrawal, not a decision, so it is never routed away from them, at any rank. Anyone else is governed by the identical subject-role routing `ApproveProfileChange` (§9, `docs/superpowers/specs/2026-08-12-po-feedback-design.md`) documents above: a `reader` subject's request may be cancelled by any `manager`/`admin` of the shelf, a `manager`/`admin` subject's only by a `super_admin`. **Updated 2026-08-13:** this closes the gap an earlier draft of this entry recorded as a "known gap" — `requireSelfOrManager` alone let any manager cancel a colleague's pending change, including a peer manager's own, which defeated §9's routing by a different verb before a super admin ever saw the request. The self-cancel exception is deliberate and does not extend to approving or rejecting: `ApproveProfileChange`/`RejectProfileChange` refuse self-decision at every rank because deciding your own change is signing both halves nobody else reviewed, while withdrawing your own request has no second party to it at all.
 - **Invariants enforced:** INV-8
 - **Audit action:** `profile_change.cancelled`
 - **Failure modes:**
   - `not_own_request` — "Bạn không thể huỷ yêu cầu của người khác." (should be structurally unreachable via UI, but the command must still check)
+  - `not_permitted` — a `manager`/`admin`-subject change cancelled by anyone but the subject themselves or a `super_admin` (added 2026-08-13, routing rule above)
   - `not_pending` — "Yêu cầu này đã được xử lý."
 
 > **Open question — notification gap.** §15's list of reader-facing notifications does not mention a profile-change decision at all (it covers registration and borrowing outcomes only). This document does not invent one: `ApproveProfileChange` and `RejectProfileChange` write no row into the notification system described in §7 below, so a reader only learns the outcome by revisiting `GetMyProfileChangeRequest` (or, on rejection, by whatever surfaces the reason on the profile page). Whether that silence is intentional or a gap in §15 is for the product owner to say.
@@ -746,9 +747,33 @@ Provisions a new tenant (§16.4: "Create and edit shelves, including the slug th
 > **Open question.** No dedicated "new bookshelf" screen exists among the 47 built pages (only the edit form at `/quan-tri/tu-sach/[id]`); this command is included because §16.4 explicitly describes creation as part of this page's job.
 
 #### `UpdateBookshelfSettings`
-Edits a shelf's profile and lending policy together, in one save (the built settings form submits both under a single "Lưu cài đặt" button).
+Edits a shelf's profile and its lending policy — independently, not together.
 
-- **Inputs:** `bookshelfId`, changed profile fields (name, description, location — **not** the slug), the shelf's full set of up to three contacts (**changed 2026-08-12**, same source as `CreateBookshelf` above — this used to be `hours, keeper name/phone`; opening hours are gone entirely and contacts are now written as a set, all-or-nothing, rather than as two scalar columns), changed lending-policy values (§5.5)
+**Updated 2026-08-13 (fix round 2).** The command's own `profile` input was
+already optional; what changed is the built surface. `/quan-tri/tu-sach` used
+to submit both halves in one `<form>` under a single "Lưu cài đặt" button, so
+every save — even one that only touched a loan-period number — carried a
+`profile`, contacts included. Since `contact_position_1_required` (below) is
+a rule the command applies whenever `profile` is present, a shelf the 2026
+migration deliberately left with no contact rows ("inventing a volunteer is
+worse than an incomplete record") could not change so much as its loan
+period without a super admin first naming somebody. The page now renders two
+independent forms — "Lưu thông tin tủ sách" for the profile and contacts,
+"Lưu quy định cho mượn" for the six lending-policy numbers and the two
+comment toggles — each calling this same command with only its own half
+filled in, so a policy-only save never carries a `profile` and never reaches
+the contact rule at all. A contact edit still requires contact 1, on both
+this form and `CreateBookshelf`'s own — the rule itself did not change,
+only which saves are capable of tripping it.
+
+- **Inputs:** `bookshelfId`, an *optional* profile patch (name, location,
+  address, the shelf's full set of up to three contacts — **changed
+  2026-08-12**, same source as `CreateBookshelf` above; this used to be
+  `hours, keeper name/phone`, opening hours are gone entirely and contacts
+  are now written as a set, all-or-nothing, whenever `profile` is supplied
+  at all), and/or changed lending-policy values (§5.5). Supplying neither
+  half leaves it untouched — omitting `profile` entirely, not sending an
+  empty one, is what a policy-only save does.
 - **Caller:** `super_admin` — see the open question below on whether a shelf's own `admin` role should also be able to call this
 - **Invariants enforced:** INV-8; the slug is immutable after creation ("Đường dẫn không đổi được sau khi tạo") — attempting to change it is a validation failure, not silently ignored
 - **Audit action:** `bookshelf.updated`

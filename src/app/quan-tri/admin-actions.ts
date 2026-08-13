@@ -27,8 +27,13 @@ import { archiveCategory } from "../../domain/catalogue/commands/archive-categor
 import { createCategory } from "../../domain/catalogue/commands/create-category";
 import { renameCategory } from "../../domain/catalogue/commands/rename-category";
 import { submitAdminCommand } from "../../lib/page-data";
-import { ACTION_DONE_PARAM, ACTION_ERROR_PARAM } from "../../lib/search-params";
+import {
+  ACTION_DONE_PARAM,
+  ACTION_ERROR_PARAM,
+  ACTION_SCOPE_PARAM,
+} from "../../lib/search-params";
 import { contactsFromForm } from "./contacts-from-form";
+import { BOOKSHELF_FORM_SCOPE } from "./tu-sach/form-scope";
 
 /**
  * OPS §4.5's writes — the administration surface's own commands.
@@ -88,11 +93,11 @@ function count(form: FormData, name: string): number | undefined {
  * `done` says this caller wants a success confirmed.
  *
  * **`&`, not always `?`, when `path` already carries a query string.**
- * `updateBookshelfSettingsAction` below has redirected to
- * `` `/quan-tri/tu-sach?tu-sach=${slug}` `` since QA remediation T27 (before
- * it, the same shape with `${bookshelfId}` — see that task's own note on
- * `tu-sach/page.tsx` for why `?tu-sach=` there now names a slug), and a
- * refusal from that action — `updateBookshelfSettings` throws
+ * `updateBookshelfProfileAction` and `updateBookshelfPolicyAction` below both
+ * redirect to `` `/quan-tri/tu-sach?tu-sach=${slug}` `` since QA remediation
+ * T27 (before it, the same shape with `${bookshelfId}` — see that task's own
+ * note on `tu-sach/page.tsx` for why `?tu-sach=` there now names a slug), and
+ * a refusal from either — `updateBookshelfSettings` throws
  * `validation_failed` for a negative policy number, among others — used to
  * reach this function with a `path` that already had a `?` in it, producing
  * `/quan-tri/tu-sach?tu-sach=<id>?loi=<code>` (the id, not the slug — this
@@ -117,27 +122,55 @@ function count(form: FormData, name: string): number | undefined {
  * here** (QA remediation Task 16). `createBookshelfAction` and
  * `archiveBookshelfAction` both already land on a page that visibly changed —
  * a new row in the list, an "Đã lưu trữ" pill — so a confirmation strip on
- * top would be telling a manager something the page already shows. Only
- * `updateBookshelfSettingsAction` passes it: that is the one redirect in this
- * file whose destination page can render identically whether the save just
- * happened or the administrator merely navigated back to it.
+ * top would be telling a manager something the page already shows.
+ * `updateBookshelfProfileAction` and `updateBookshelfPolicyAction` both pass
+ * it: each is a redirect back to a destination page that can render
+ * identically whether its own save just happened or the administrator merely
+ * navigated back to it.
  *
  * **`done` may also be a string, not only `true`** — carried over into Task
  * 17 (2026-08-10 QA remediation) from that same review round, which flagged
  * `updateSiteContactAction` and `updateSystemDefaultsAction` below as the two
  * remaining silent saves Task 16 did not reach. Both redirect to the
- * identical `/quan-tri/cai-dat`, which `updateBookshelfSettingsAction`'s
- * single caller never had to worry about — a bare `?da-luu=1` on that page
- * cannot say *which* of its two forms just saved, the same ambiguity
+ * identical `/quan-tri/cai-dat`, and a bare `?da-luu=1` there cannot say
+ * *which* of its two forms just saved — the same ambiguity
  * `ACTION_DONE_PARAM`'s own docstring (`src/lib/search-params.ts`) already
- * solved for `lendCopyAction`/`receiveReturnAction` sharing one dashboard.
- * `back(path, code, true)` still writes the bare `1` unchanged, so
- * `updateBookshelfSettingsAction` needed no edit.
+ * solved for `lendCopyAction`/`receiveReturnAction` sharing one dashboard, and
+ * the shape `updateBookshelfProfileAction`/`updateBookshelfPolicyAction` reuse
+ * below (Fix round 2) once `/quan-tri/tu-sach` grew the identical problem: one
+ * page, two forms sharing one URL.
+ *
+ * **`scope`, added alongside `done` in the same round, is the identical idea
+ * for the *refusal* branch — `?loi=` carries no such marker on its own.** A
+ * page with two independently-submittable forms needs to know not only that
+ * something failed but which form's fields the failure is about, so its
+ * refusal renders beside that form rather than in one banner a person has to
+ * guess the meaning of. `` `?tu-sach=<slug>&loi=contact_position_1_required
+ * &${ACTION_SCOPE_PARAM}=${BOOKSHELF_FORM_SCOPE.profile}` `` is unambiguous in
+ * a way `?loi=contact_position_1_required` alone on a page with a policy form
+ * right below it is not — that field does not exist on the policy form, and
+ * the refusal would otherwise sit above both with no way to tell a reader
+ * which one to look at.
+ *
+ * **`scope` itself stays a bare `string | undefined`** — this helper is
+ * generic over every caller in this file, most of which pass no fourth
+ * argument at all — but the two callers that do pass one
+ * (`updateBookshelfProfileAction`/`updateBookshelfPolicyAction`, below) pass a
+ * `BookshelfFormScope` from `BOOKSHELF_FORM_SCOPE`
+ * (`./tu-sach/form-scope.ts`), never a retyped literal. That file's own
+ * docstring records the silent-swallow failure a mismatched literal caused
+ * here before the type existed.
  */
-function back(path: string, code: string | null, done?: true | string): never {
+function back(
+  path: string,
+  code: string | null,
+  done?: true | string,
+  scope?: string,
+): never {
   if (code !== null) {
     const join = path.includes("?") ? "&" : "?";
-    redirect(`${path}${join}${ACTION_ERROR_PARAM}=${code}`);
+    const scoped = scope ? `&${ACTION_SCOPE_PARAM}=${scope}` : "";
+    redirect(`${path}${join}${ACTION_ERROR_PARAM}=${code}${scoped}`);
   }
   if (done) {
     const join = path.includes("?") ? "&" : "?";
@@ -162,31 +195,85 @@ export async function createBookshelfAction(form: FormData): Promise<void> {
   back("/quan-tri/tu-sach", code);
 }
 
-export async function updateBookshelfSettingsAction(form: FormData): Promise<void> {
+/**
+ * QA remediation T27: carried alongside a form's `bookshelfId` purely to
+ * redirect back to the right editor — `?tu-sach=` on `/quan-tri/tu-sach`
+ * names a slug now, not the shelf's id (see that page's own docstring). The
+ * slug is immutable (`20260808_02_bookshelf_slug_immutable.sql`) and
+ * `updateBookshelfSettings` cannot change it, so it is exactly as safe to
+ * trust here as `bookshelfId` itself already was — a refusal still redirects
+ * to the same shelf's editor because nothing about *which* shelf this is
+ * could have changed between the form loading and the action running. Shared
+ * by both actions below, which is why it is pulled out rather than repeated.
+ */
+function slugTarget(form: FormData): string {
+  return `/quan-tri/tu-sach?tu-sach=${encodeURIComponent(field(form, "tu-sach-slug"))}`;
+}
+
+/**
+ * Fix round 2: the shelf's identity and its three contact blocks, split out
+ * of the single all-fields form `/quan-tri/tu-sach` used to post
+ * (`updateBookshelfSettingsAction`, before this split). `UpdateBookshelf
+ * SettingsInput.profile` was already optional — the domain command never
+ * required a policy change to carry a profile, and never required a profile
+ * change to carry a policy — so this and `updateBookshelfPolicyAction` below
+ * are two independent submits over the one command, not two new commands.
+ *
+ * **Why the split exists at all.** Contact 1 is mandatory
+ * (`contact_position_1_required`, the command's own rule). Before this split,
+ * a shelf the migration deliberately left with zero contacts — "inventing a
+ * volunteer is worse than an incomplete record", the migration's own
+ * argument — could not change so much as its loan period without a super
+ * admin first naming somebody, because the one `<form>` covering both
+ * sections meant every save carried a `profile`, contacts included. This form
+ * carries the contacts and the rule that binds them; `updateBookshelfPolicy
+ * Action` carries none of it, ever.
+ */
+export async function updateBookshelfProfileAction(form: FormData): Promise<void> {
   const bookshelfId = field(form, "tu-sach");
-  // QA remediation T27: carried alongside the id purely to redirect back to
-  // the right editor — `?tu-sach=` on `/quan-tri/tu-sach` names a slug now,
-  // not this shelf's id (see that page's own docstring). The slug is
-  // immutable (`20260808_02_bookshelf_slug_immutable.sql`) and
-  // `updateBookshelfSettings` cannot change it, so it is exactly as safe to
-  // trust here as `bookshelfId` itself already was — a refusal below still
-  // redirects to the same shelf's editor because nothing about *which* shelf
-  // this is could have changed between the form loading and this action
-  // running.
-  const slug = field(form, "tu-sach-slug");
   const code = await attempt(() =>
     submitAdminCommand(
       updateBookshelfSettings,
       {
         bookshelfId,
-        // All six together — see the command for why the profile is
-        // all-or-nothing while the policy is field-by-field.
         profile: {
           name: field(form, "ten"),
           location: optional(form, "dia-diem"),
           address: optional(form, "dia-chi"),
           contacts: contactsFromForm(form),
         },
+      },
+      bookshelfId,
+    ),
+  );
+  // `BOOKSHELF_FORM_SCOPE.profile` both as the done-value (QA remediation
+  // Task 16's pattern) and as the refusal scope (this round's `back()`
+  // addition) — the same value either way, so the page reads one query param
+  // to know which form a result belongs to regardless of whether it
+  // succeeded or was refused.
+  back(
+    slugTarget(form),
+    code,
+    BOOKSHELF_FORM_SCOPE.profile,
+    BOOKSHELF_FORM_SCOPE.profile,
+  );
+}
+
+/**
+ * Fix round 2: the six lending-policy numbers and the two comment toggles,
+ * split out of the same form `updateBookshelfProfileAction`'s own docstring
+ * describes. **Never sends `profile`** — that is the whole point of the
+ * split, not an incidental omission: a shelf with no contacts at all can
+ * still change how long a book may be borrowed, because this submit carries
+ * nothing `contact_position_1_required` has any opinion about.
+ */
+export async function updateBookshelfPolicyAction(form: FormData): Promise<void> {
+  const bookshelfId = field(form, "tu-sach");
+  const code = await attempt(() =>
+    submitAdminCommand(
+      updateBookshelfSettings,
+      {
+        bookshelfId,
         loanDays: count(form, "so-ngay-muon"),
         maxConcurrentLoans: count(form, "so-sach-cung-luc"),
         maxRenewals: count(form, "so-lan-gia-han"),
@@ -200,10 +287,12 @@ export async function updateBookshelfSettingsAction(form: FormData): Promise<voi
       bookshelfId,
     ),
   );
-  // QA remediation Task 16: "Lưu cài đặt" used to redirect here with nothing
-  // to say the save took — the form re-rendered identically whether it had
-  // just been submitted or the page was freshly opened.
-  back(`/quan-tri/tu-sach?tu-sach=${encodeURIComponent(slug)}`, code, true);
+  back(
+    slugTarget(form),
+    code,
+    BOOKSHELF_FORM_SCOPE.policy,
+    BOOKSHELF_FORM_SCOPE.policy,
+  );
 }
 
 export async function archiveBookshelfAction(form: FormData): Promise<void> {
@@ -261,9 +350,9 @@ export async function assignManagerAction(form: FormData): Promise<void> {
   // several readers of the same parish in a row (the realistic fresh-install
   // case `getManagerCandidates`' own docstring is about) does not make the
   // administrator re-pick the shelf after every single one. The same shape
-  // `updateBookshelfSettingsAction` above already uses for its own target;
-  // `back`'s docstring is where the `?`-collision this could have repeated is
-  // recorded and fixed.
+  // `updateBookshelfProfileAction`/`updateBookshelfPolicyAction` above already
+  // use for their own targets; `back`'s docstring is where the `?`-collision
+  // this could have repeated is recorded and fixed.
   back(`/quan-tri/quan-ly-vien?tu-sach=${bookshelfId}`, code);
 }
 
