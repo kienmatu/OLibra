@@ -1,10 +1,4 @@
-// Relative specifier, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports: the suite imports modules under
-// `src/lib/` directly and Vitest resolves no alias.
-import {
-  PROFILE_FIELDS,
-  type ProfileField,
-} from "../domain/members/profile-fields";
+import { PROFILE_FIELDS, type ProfileField } from "@/domain/members/profile-fields";
 
 /**
  * The Vietnamese label for each of `PROFILE_FIELDS`, for the one screen that

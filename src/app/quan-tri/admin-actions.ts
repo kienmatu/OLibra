@@ -1,37 +1,30 @@
 "use server";
 
 import { redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`,
-// `src/app/dang-nhap/actions.ts` and `src/app/tu-sach/[shelf]/quan-ly/actions.ts`
-// all already record: Vitest resolves no alias, and `tests/lib/admin-actions
-// .test.ts` (added in the Task 5 QA-remediation review round that found the
-// `back()` defect below) imports this module directly. This file was the one
-// action file in the app still on `@/`, which is exactly why no test had ever
-// been able to reach it.
-import { RuleViolated, ValidationFailed } from "../../domain/kernel/errors";
+import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
 import {
   archiveBookshelf,
   createBookshelf,
   updateBookshelfSettings,
-} from "../../domain/admin/commands/bookshelves";
+} from "@/domain/admin/commands/bookshelves";
 import {
   assignManager,
   promoteSuperAdmin,
   revokeManager,
-} from "../../domain/admin/commands/managers";
+} from "@/domain/admin/commands/managers";
 import {
   updateSiteContact,
   updateSystemDefaults,
-} from "../../domain/admin/commands/system-settings";
-import { archiveCategory } from "../../domain/catalogue/commands/archive-category";
-import { createCategory } from "../../domain/catalogue/commands/create-category";
-import { renameCategory } from "../../domain/catalogue/commands/rename-category";
-import { submitAdminCommand } from "../../lib/page-data";
+} from "@/domain/admin/commands/system-settings";
+import { archiveCategory } from "@/domain/catalogue/commands/archive-category";
+import { createCategory } from "@/domain/catalogue/commands/create-category";
+import { renameCategory } from "@/domain/catalogue/commands/rename-category";
+import { submitAdminCommand } from "@/lib/page-data";
 import {
   ACTION_DONE_PARAM,
   ACTION_ERROR_PARAM,
   ACTION_SCOPE_PARAM,
-} from "../../lib/search-params";
+} from "@/lib/search-params";
 import { contactsFromForm } from "./contacts-from-form";
 import { BOOKSHELF_FORM_SCOPE } from "./tu-sach/form-scope";
 

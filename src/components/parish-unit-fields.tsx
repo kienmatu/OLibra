@@ -2,20 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-// Relative, not the `@/` alias: this component is exercised by
-// `tests/components/parish-unit-fields.test.tsx` (QA remediation's final fix
-// wave), and `vitest.config.ts` has no `resolve.alias` for `@/` (deliberately,
-// per the branch's QA-remediation constraints — `reader-tabs.tsx`,
-// `filter-chips.tsx` and `public-header.tsx` carry the identical note for the
-// identical reason). An alias import here would make this component
-// unimportable under Vitest, not just untested.
 import { Field, Select } from "./ui/field";
 import {
   hasVisibleLevel2,
   unitOptions,
   type ParishTaxonomy,
   type ParishUnit,
-} from "../domain/members/parish-taxonomy";
+} from "@/domain/members/parish-taxonomy";
 
 /**
  * Zero, one or two `<select>`s for a shelf's parish taxonomy (design §6, §6.1).

@@ -1,14 +1,6 @@
 import { cloneElement, isValidElement } from "react";
 import { AlertCircle } from "lucide-react";
-// Relative, not the `@/` alias: this component is now reached by
-// `parish-unit-fields.tsx`, which `tests/components/parish-unit-fields
-// .test.tsx` (QA remediation's final fix wave) exercises directly, and
-// `vitest.config.ts` has no `resolve.alias` for `@/` (deliberately, per the
-// branch's QA-remediation constraints — `reader-tabs.tsx`, `filter-chips.tsx`
-// and `public-header.tsx` carry the identical note for the identical reason).
-// Only this file's own import changes; nothing about how the other 35 files
-// that import `field.tsx` do so is affected.
-import { cn } from "../../lib/utils";
+import { cn } from "@/lib/utils";
 
 /**
  * Forms are single-column, always. Labels sit above inputs, never beside.

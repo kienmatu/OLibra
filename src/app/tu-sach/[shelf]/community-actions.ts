@@ -1,19 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias: `tests/lib/comment-action.test.ts`
-// imports this module directly, and Vitest resolves no alias — the same reason
-// `src/lib/page-data.ts`, `src/app/quan-tri/admin-actions.ts` and
-// `src/app/lien-he/actions.ts` each give for the identical choice. That last
-// file's own note used to end "…this file's sibling for the shelf-scoped form
-// stayed on `@/` because no test has ever needed to reach it directly"; U6 §1
-// is the test that needed to.
-import { RuleViolated, ValidationFailed } from "../../../domain/kernel/errors";
-import { submitFeedback } from "../../../domain/community/commands/feedback";
-import { offerDonation } from "../../../domain/community/commands/donations";
-import { createComment } from "../../../domain/community/commands/comment-moderation";
-import { submitCommand } from "../../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../../lib/search-params";
+import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
+import { submitFeedback } from "@/domain/community/commands/feedback";
+import { offerDonation } from "@/domain/community/commands/donations";
+import { createComment } from "@/domain/community/commands/comment-moderation";
+import { submitCommand } from "@/lib/page-data";
+import { ACTION_ERROR_PARAM } from "@/lib/search-params";
 
 /**
  * The three community writes a reader makes from a shelf page.

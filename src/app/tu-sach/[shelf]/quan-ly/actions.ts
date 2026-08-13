@@ -1,12 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports: `tests/lib/lending-actions.test.ts`
-// imports this module and Vitest resolves no alias. The distinction these three
-// functions are built around — a refusal is a sentence, a fault still throws —
-// is only worth writing down if it is the *shipped* function a test can reach.
-import { RuleViolated, ValidationFailed } from "../../../../domain/kernel/errors";
+import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
 import {
   createAnnouncement,
   hideAnnouncement,
@@ -14,51 +9,48 @@ import {
   publishAnnouncement,
   unpinAnnouncement,
   updateAnnouncement,
-} from "../../../../domain/community/commands/announcements";
+} from "@/domain/community/commands/announcements";
 import {
   approveComment,
   hideComment,
   rejectComment,
-} from "../../../../domain/community/commands/comment-moderation";
+} from "@/domain/community/commands/comment-moderation";
 import {
   declineDonation,
   receiveDonation,
-} from "../../../../domain/community/commands/donations";
-import { addCopies } from "../../../../domain/catalogue/commands/add-copies";
-import { assessCondition } from "../../../../domain/catalogue/commands/assess-condition";
-import { createBook } from "../../../../domain/catalogue/commands/create-book";
-import { markCopyFound } from "../../../../domain/catalogue/commands/mark-copy-found";
-import { reportCopyLost } from "../../../../domain/catalogue/commands/report-copy-lost";
-import { retireCopy } from "../../../../domain/catalogue/commands/retire-copy";
-import { updateBook } from "../../../../domain/catalogue/commands/update-book";
-import { approveBorrowRequest } from "../../../../domain/circulation/commands/approve-borrow-request";
-import { handoverRequest } from "../../../../domain/circulation/commands/handover-request";
-import { lendCopy } from "../../../../domain/circulation/commands/lend-copy";
-import { receiveReturn } from "../../../../domain/circulation/commands/receive-return";
-import { rejectBorrowRequest } from "../../../../domain/circulation/commands/reject-borrow-request";
-import { approveMembership } from "../../../../domain/members/commands/approve-membership";
-import { approveProfileChange } from "../../../../domain/members/commands/approve-profile-change";
-import { createParishUnit } from "../../../../domain/members/commands/create-parish-unit";
-import { deleteParishUnit } from "../../../../domain/members/commands/delete-parish-unit";
-import { markMembershipLeft } from "../../../../domain/members/commands/mark-membership-left";
-import { reactivateMembership } from "../../../../domain/members/commands/reactivate-membership";
-import { registerMemberOnBehalf } from "../../../../domain/members/commands/register-member-on-behalf";
-import { rejectMembership } from "../../../../domain/members/commands/reject-membership";
-import { rejectProfileChange } from "../../../../domain/members/commands/reject-profile-change";
-import { renameParishUnit } from "../../../../domain/members/commands/rename-parish-unit";
-import { reorderParishUnits } from "../../../../domain/members/commands/reorder-parish-units";
-import { setReaderCredentials } from "../../../../domain/members/commands/set-reader-credentials";
-import { suspendMembership } from "../../../../domain/members/commands/suspend-membership";
-import { updateParishTaxonomy } from "../../../../domain/members/commands/update-parish-taxonomy";
-import { updateReaderProfile } from "../../../../domain/members/commands/update-reader-profile";
-import type { CopyCondition } from "../../../../domain/catalogue/policy";
-import type { Command } from "../../../../domain/kernel/unit-of-work";
-import { decideAndDiscardAvatar } from "../../../../lib/avatar";
-import { submitCommand } from "../../../../lib/page-data";
-import {
-  ACTION_DONE_PARAM,
-  ACTION_ERROR_PARAM,
-} from "../../../../lib/search-params";
+} from "@/domain/community/commands/donations";
+import { addCopies } from "@/domain/catalogue/commands/add-copies";
+import { assessCondition } from "@/domain/catalogue/commands/assess-condition";
+import { createBook } from "@/domain/catalogue/commands/create-book";
+import { markCopyFound } from "@/domain/catalogue/commands/mark-copy-found";
+import { reportCopyLost } from "@/domain/catalogue/commands/report-copy-lost";
+import { retireCopy } from "@/domain/catalogue/commands/retire-copy";
+import { updateBook } from "@/domain/catalogue/commands/update-book";
+import { approveBorrowRequest } from "@/domain/circulation/commands/approve-borrow-request";
+import { handoverRequest } from "@/domain/circulation/commands/handover-request";
+import { lendCopy } from "@/domain/circulation/commands/lend-copy";
+import { receiveReturn } from "@/domain/circulation/commands/receive-return";
+import { rejectBorrowRequest } from "@/domain/circulation/commands/reject-borrow-request";
+import { approveMembership } from "@/domain/members/commands/approve-membership";
+import { approveProfileChange } from "@/domain/members/commands/approve-profile-change";
+import { createParishUnit } from "@/domain/members/commands/create-parish-unit";
+import { deleteParishUnit } from "@/domain/members/commands/delete-parish-unit";
+import { markMembershipLeft } from "@/domain/members/commands/mark-membership-left";
+import { reactivateMembership } from "@/domain/members/commands/reactivate-membership";
+import { registerMemberOnBehalf } from "@/domain/members/commands/register-member-on-behalf";
+import { rejectMembership } from "@/domain/members/commands/reject-membership";
+import { rejectProfileChange } from "@/domain/members/commands/reject-profile-change";
+import { renameParishUnit } from "@/domain/members/commands/rename-parish-unit";
+import { reorderParishUnits } from "@/domain/members/commands/reorder-parish-units";
+import { setReaderCredentials } from "@/domain/members/commands/set-reader-credentials";
+import { suspendMembership } from "@/domain/members/commands/suspend-membership";
+import { updateParishTaxonomy } from "@/domain/members/commands/update-parish-taxonomy";
+import { updateReaderProfile } from "@/domain/members/commands/update-reader-profile";
+import type { CopyCondition } from "@/domain/catalogue/policy";
+import type { Command } from "@/domain/kernel/unit-of-work";
+import { decideAndDiscardAvatar } from "@/lib/avatar";
+import { submitCommand } from "@/lib/page-data";
+import { ACTION_DONE_PARAM, ACTION_ERROR_PARAM } from "@/lib/search-params";
 
 /**
  * Every button on the manager's surface that writes something — the three
@@ -1508,7 +1500,7 @@ export async function updateReaderProfileAction(form: FormData): Promise<void> {
           phone: optional(form, "dien-thoai"),
           // PO feedback round 1, Task 8: `applyProfileFields`'s two callers
           // both call `assertPhoneOrReason` on the resulting record — see
-          // `../../../../domain/members/profile-fields.ts`. This form always
+          // `@/domain/members/profile-fields.ts`. This form always
           // sends the field (see `EditProfileDisclosure`'s hidden/visible
           // `ly-do-thieu-sdt` input), pre-filled with whatever is already on
           // file, so leaving it untouched preserves an existing reason rather

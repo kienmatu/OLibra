@@ -1,13 +1,10 @@
 "use server";
 
 import { redirect } from "next/navigation";
-// Relative specifiers, not the `@/` alias, for the reason `src/lib/page-data.ts`
-// records at the top of its own imports: the suite imports these modules
-// directly and Vitest resolves no alias.
-import { RuleViolated, ValidationFailed } from "../../domain/kernel/errors";
-import { registerMembership } from "../../domain/members/commands/register-membership";
-import { submitCommand } from "../../lib/page-data";
-import { ACTION_ERROR_PARAM } from "../../lib/search-params";
+import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
+import { registerMembership } from "@/domain/members/commands/register-membership";
+import { submitCommand } from "@/lib/page-data";
+import { ACTION_ERROR_PARAM } from "@/lib/search-params";
 
 /**
  * OPS §4.3's `RegisterMembership` — the form a stranger fills in, and the one

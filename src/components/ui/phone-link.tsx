@@ -1,6 +1,6 @@
 import { Phone } from "lucide-react";
-import { isValidPhone } from "../../domain/members/policy";
-import { cn } from "../../lib/utils";
+import { isValidPhone } from "@/domain/members/policy";
+import { cn } from "@/lib/utils";
 
 /**
  * That phone call is the actual mechanism by which books come back, so a
@@ -17,11 +17,6 @@ import { cn } from "../../lib/utils";
  * itself and falls back to plain text — no `tel:`, no phone icon suggesting a
  * call will do anything — so a manager reading a profile sees that the number
  * on file is wrong instead of a working-looking link that silently is not.
- *
- * Relative imports throughout, not the `@/` alias: this file is exercised by
- * `tests/components/phone-link.test.tsx`, and Vitest has no alias configured
- * (`vitest.config.ts`) — the same reason `ui/button.tsx` and `ui/segmented.tsx`
- * already import `cn` this way.
  */
 export function PhoneLink({
   phone,

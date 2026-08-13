@@ -1,24 +1,16 @@
 "use server";
 
-// Relative specifiers, not the `@/` alias: `tests/lib/borrow-actions.test.ts`
-// imports this module directly, and Vitest resolves no alias — the same reason
-// `src/lib/page-data.ts`, `src/app/lien-he/actions.ts` and
-// `src/app/tu-sach/[shelf]/community-actions.ts` each give for the identical
-// choice. U8 is the test that needed it here.
 import { redirect } from "next/navigation";
-import {
-  RuleViolated,
-  ValidationFailed,
-} from "../../../../../domain/kernel/errors";
-import { renewLoan } from "../../../../../domain/circulation/commands/renew-loan";
-import { createBorrowRequest } from "../../../../../domain/circulation/commands/create-borrow-request";
-import { cancelOwnRequest } from "../../../../../domain/circulation/commands/cancel-own-request";
+import { RuleViolated, ValidationFailed } from "@/domain/kernel/errors";
+import { renewLoan } from "@/domain/circulation/commands/renew-loan";
+import { createBorrowRequest } from "@/domain/circulation/commands/create-borrow-request";
+import { cancelOwnRequest } from "@/domain/circulation/commands/cancel-own-request";
 import {
   markAllNotificationsRead,
   markNotificationRead,
-} from "../../../../../domain/notifications/commands/mark-notification-read";
-import { submitCommand } from "../../../../../lib/page-data";
-import { ACTION_ERROR_PARAM, isUuid } from "../../../../../lib/search-params";
+} from "@/domain/notifications/commands/mark-notification-read";
+import { submitCommand } from "@/lib/page-data";
+import { ACTION_ERROR_PARAM, isUuid } from "@/lib/search-params";
 
 /**
  * The reader's own writes. Same contract every action in this app follows

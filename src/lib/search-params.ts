@@ -1,7 +1,4 @@
-// Relative specifiers, not the `@/` alias, for the reason
-// `src/lib/page-data.ts` records at the top of its own imports: the suite
-// imports this module directly and Vitest resolves no alias.
-import { type ErrorCode, ERROR_MESSAGES } from "../domain/kernel/errors";
+import { type ErrorCode, ERROR_MESSAGES } from "@/domain/kernel/errors";
 
 /**
  * What the App Router actually hands a page, rather than what a page would
