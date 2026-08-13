@@ -19,6 +19,7 @@ import {
 import { loadAdminPage } from "@/lib/page-data";
 import {
   ACTION_DONE_PARAM,
+  ACTION_SCOPE_PARAM,
   param,
   refusalFrom,
   type SearchParams,
@@ -29,6 +30,7 @@ import {
   updateBookshelfPolicyAction,
   updateBookshelfProfileAction,
 } from "../admin-actions";
+import { BOOKSHELF_FORM_SCOPE } from "./form-scope";
 import { EDITABLE_POLICY_FIELDS } from "./policy-fields";
 
 /**
@@ -146,9 +148,10 @@ const POLICY_FIELD_META: Record<
  * mandatory and every save carried the whole form. Splitting the `<form>` is
  * what makes `updateBookshelfPolicyAction` free of `profile` entirely, so a
  * policy-only save never trips `contact_position_1_required`. Each keeps its
- * own `?pham-vi=` scope (`ho-so` / `chinh-sach`) on both the success and the
- * refusal redirect, so a refusal from one form never renders beside the
- * other's fields — see `admin-actions.ts`'s `back()` for where that scope is
+ * own `ACTION_SCOPE_PARAM` scope (`BOOKSHELF_FORM_SCOPE.profile` /
+ * `.policy`, `./form-scope.ts`) on both the success and the refusal
+ * redirect, so a refusal from one form never renders beside the other's
+ * fields — see `admin-actions.ts`'s `back()` for where that scope is
  * attached.
  */
 export const dynamic = "force-dynamic";
@@ -167,18 +170,30 @@ export default async function AdminBookshelvesPage({
   const refusal = refusalFrom(search);
   // Fix round 2: which of the two forms below a refusal or a save belongs to
   // — `admin-actions.ts`'s `back()` writes the identical value
-  // (`"ho-so"` / `"chinh-sach"`) as the refusal's `?pham-vi=` and as the
-  // success `?da-luu=` value, so each form reads one field to answer both
-  // "did I just fail?" and "did I just succeed?" without the other form's
-  // result leaking into it. `createBookshelfAction`'s own refusal carries
-  // neither param — see the top-of-list banner below, which is scoped to the
-  // list view (`selected === null`) instead.
+  // (`BOOKSHELF_FORM_SCOPE.profile` / `.policy`) as the refusal's
+  // `ACTION_SCOPE_PARAM` and as the success `ACTION_DONE_PARAM` value, so
+  // each form reads one field to answer both "did I just fail?" and "did I
+  // just succeed?" without the other form's result leaking into it.
+  // `createBookshelfAction`'s own refusal carries neither param.
   const doneValue = param(search, ACTION_DONE_PARAM);
-  const refusalScope = param(search, "pham-vi");
-  const profileRefusal = refusalScope === "ho-so" ? refusal : null;
-  const profileSaved = doneValue === "ho-so";
-  const policyRefusal = refusalScope === "chinh-sach" ? refusal : null;
-  const policySaved = doneValue === "chinh-sach";
+  const refusalScope = param(search, ACTION_SCOPE_PARAM);
+  const profileRefusal =
+    refusalScope === BOOKSHELF_FORM_SCOPE.profile ? refusal : null;
+  const profileSaved = doneValue === BOOKSHELF_FORM_SCOPE.profile;
+  const policyRefusal =
+    refusalScope === BOOKSHELF_FORM_SCOPE.policy ? refusal : null;
+  const policySaved = doneValue === BOOKSHELF_FORM_SCOPE.policy;
+  // Neither form above claims this refusal — either it is
+  // `createBookshelfAction`'s own (no scope at all, the ordinary case), or
+  // `refusalScope` names something that is not a `BookshelfFormScope` at all
+  // (a hand-edited `?pham-vi=`). Both fall back to the banner below rather
+  // than vanishing: a refusal that matches no known scope must still render
+  // *somewhere*, not nowhere.
+  const unscopedRefusal =
+    refusalScope !== BOOKSHELF_FORM_SCOPE.profile &&
+    refusalScope !== BOOKSHELF_FORM_SCOPE.policy
+      ? refusal
+      : null;
 
   const { viewer, unreadFeedback, pendingManagerChanges, shelves, selected } =
     await loadAdminPage(async (tx, ctx, v) => {
@@ -215,12 +230,17 @@ export default async function AdminBookshelvesPage({
         subtitle={`${NUMBER.format(shelves.length)} tủ sách trong hệ thống.`}
       />
 
-      {/* `createBookshelfAction`'s own refusal only — it carries no
-          `?pham-vi=`, unlike the two forms below `selected`'s editor, whose
-          refusals render next to their own fields instead of here. */}
-      {refusal && !refusalScope ? (
+      {/* Not conditioned on `selected` — it renders whenever a refusal
+          matches neither form's scope below, which in the ordinary case is
+          `createBookshelfAction`'s own refusal (no `ACTION_SCOPE_PARAM` at
+          all, and `selected` is null because that action never redirects
+          with `?tu-sach=`) and, as a fallback rather than a silent swallow,
+          any refusal whose `ACTION_SCOPE_PARAM` names something that is not
+          a `BookshelfFormScope` — a hand-edited URL, since neither form ever
+          writes one. */}
+      {unscopedRefusal ? (
         <p className="mt-6 max-w-2xl rounded-card border border-hairline bg-surface px-4 py-3 text-[15px] text-ink">
-          {messageFor(refusal)}
+          {messageFor(unscopedRefusal)}
         </p>
       ) : null}
 

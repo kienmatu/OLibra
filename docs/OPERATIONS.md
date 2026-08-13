@@ -747,9 +747,33 @@ Provisions a new tenant (§16.4: "Create and edit shelves, including the slug th
 > **Open question.** No dedicated "new bookshelf" screen exists among the 47 built pages (only the edit form at `/quan-tri/tu-sach/[id]`); this command is included because §16.4 explicitly describes creation as part of this page's job.
 
 #### `UpdateBookshelfSettings`
-Edits a shelf's profile and lending policy together, in one save (the built settings form submits both under a single "Lưu cài đặt" button).
+Edits a shelf's profile and its lending policy — independently, not together.
 
-- **Inputs:** `bookshelfId`, changed profile fields (name, description, location — **not** the slug), the shelf's full set of up to three contacts (**changed 2026-08-12**, same source as `CreateBookshelf` above — this used to be `hours, keeper name/phone`; opening hours are gone entirely and contacts are now written as a set, all-or-nothing, rather than as two scalar columns), changed lending-policy values (§5.5)
+**Updated 2026-08-13 (fix round 2).** The command's own `profile` input was
+already optional; what changed is the built surface. `/quan-tri/tu-sach` used
+to submit both halves in one `<form>` under a single "Lưu cài đặt" button, so
+every save — even one that only touched a loan-period number — carried a
+`profile`, contacts included. Since `contact_position_1_required` (below) is
+a rule the command applies whenever `profile` is present, a shelf the 2026
+migration deliberately left with no contact rows ("inventing a volunteer is
+worse than an incomplete record") could not change so much as its loan
+period without a super admin first naming somebody. The page now renders two
+independent forms — "Lưu thông tin tủ sách" for the profile and contacts,
+"Lưu quy định cho mượn" for the six lending-policy numbers and the two
+comment toggles — each calling this same command with only its own half
+filled in, so a policy-only save never carries a `profile` and never reaches
+the contact rule at all. A contact edit still requires contact 1, on both
+this form and `CreateBookshelf`'s own — the rule itself did not change,
+only which saves are capable of tripping it.
+
+- **Inputs:** `bookshelfId`, an *optional* profile patch (name, location,
+  address, the shelf's full set of up to three contacts — **changed
+  2026-08-12**, same source as `CreateBookshelf` above; this used to be
+  `hours, keeper name/phone`, opening hours are gone entirely and contacts
+  are now written as a set, all-or-nothing, whenever `profile` is supplied
+  at all), and/or changed lending-policy values (§5.5). Supplying neither
+  half leaves it untouched — omitting `profile` entirely, not sending an
+  empty one, is what a policy-only save does.
 - **Caller:** `super_admin` — see the open question below on whether a shelf's own `admin` role should also be able to call this
 - **Invariants enforced:** INV-8; the slug is immutable after creation ("Đường dẫn không đổi được sau khi tạo") — attempting to change it is a validation failure, not silently ignored
 - **Audit action:** `bookshelf.updated`

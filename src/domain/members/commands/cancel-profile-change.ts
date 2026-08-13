@@ -91,6 +91,25 @@ export const cancelProfileChange: Command<
   // `../scoped-user.ts`'s join, carrying the subject's role alongside their
   // id — the same fact `./approve-profile-change.ts` reads off its own
   // `subject_role` column, resolved here rather than restated.
+  //
+  // **This carries no `bookshelf_id` predicate of its own — unlike
+  // `subjectOfProfileChange`, which review found needed exactly that fix for
+  // the identical shape of query (see that function's own docstring).** Safe
+  // today only because this command's one surface
+  // (`src/app/tu-sach/[shelf]/(doc-gia)/ho-so/profile-actions.ts`) always
+  // calls it through the ordinary tenant-scoped `runCommand`/`attemptTyped`
+  // path, where RLS narrows `memberships` to `ctx.bookshelfId` before this
+  // query ever runs — `m.id = input.membershipId` then names at most one row,
+  // and it is already the right shelf's. **That guarantee is RLS's, not this
+  // query's own**, and it evaporates the day cancel is reached the way
+  // `approveProfileChange` now is — through `runAdminCommand`'s
+  // `bypassrls` `olibra_admin` role, e.g. a future cross-shelf queue for
+  // manager/admin-subject cancellations. `userAndRoleOfMembership` is shared
+  // with `update-reader-profile.ts`, which carries the identical exposure for
+  // the identical reason, so fixing it here alone would not close the gap;
+  // whoever wires either command into an admin path needs to add the
+  // predicate to `userAndRoleOfMembership` itself (it would need `ctx` or an
+  // explicit `bookshelfId` to do it) before that path can be trusted.
   const subject = await userAndRoleOfMembership(tx, input.membershipId);
   if (subject === null) throw new NotFound("membership_not_found");
 

@@ -79,6 +79,25 @@ async function aShelfWithAShelfAdmin() {
 }
 
 /**
+ * A manager and a shelf admin of the same shelf — the pairing the cancelling
+ * section needs to prove `atLeast(subject.role, "manager")` is the actual
+ * check, not an equality on the literal `"manager"`. `admin` is the one rank
+ * that distinguishes the two: it satisfies `atLeast(…, "manager")` and would
+ * therefore be routed correctly, but a bug written as
+ * `subject.role === "manager"` would let a mere manager cancel a shelf
+ * admin's own change — the exact colleague-of-equal-or-higher-rank gap this
+ * whole fix closes, just one rank up from where the other tests already
+ * catch it.
+ */
+async function aShelfWithAManagerAndAShelfAdmin() {
+  const shelf = await makeShelf(sql);
+  const reader = await makeMember(sql, shelf.id, { status: "active" });
+  const manager = await makeMember(sql, shelf.id, { role: "manager" });
+  const shelfAdmin = await makeMember(sql, shelf.id, { role: "admin" });
+  return { shelf, reader, manager, shelfAdmin };
+}
+
+/**
  * A reader and two managers of the same shelf, plus a super admin who is
  * *also* a member of this shelf — as `admin`, mirroring what `contextFor`
  * (`src/auth/guards.ts:107`) actually builds for such a person: a super admin
@@ -315,6 +334,54 @@ test("a super admin cancels a manager's change", async () => {
       profileChangeRequestId,
     }),
   ).resolves.toBeDefined();
+});
+
+test("a shelf admin cancels a reader's change", async () => {
+  const { shelf, reader, shelfAdmin } = await aShelfWithAManagerAndAShelfAdmin();
+  const { profileChangeRequestId } = await propose(
+    ctxFor(shelf.id, reader, "reader"),
+    reader.id,
+    "0912345678",
+  );
+
+  await expect(
+    runCommand(sql, ctxFor(shelf.id, shelfAdmin, "admin"), cancelProfileChange, {
+      membershipId: reader.id,
+      profileChangeRequestId,
+    }),
+  ).resolves.toBeDefined();
+});
+
+test("a shelf admin may not cancel a manager's change", async () => {
+  const { shelf, manager, shelfAdmin } = await aShelfWithAManagerAndAShelfAdmin();
+  const { profileChangeRequestId } = await propose(
+    ctxFor(shelf.id, manager, "manager"),
+    manager.id,
+    "0912345678",
+  );
+
+  await expect(
+    runCommand(sql, ctxFor(shelf.id, shelfAdmin, "admin"), cancelProfileChange, {
+      membershipId: manager.id,
+      profileChangeRequestId,
+    }),
+  ).rejects.toMatchObject({ code: "not_permitted" });
+});
+
+test('a manager may not cancel a shelf admin\'s own change — atLeast, not an equality on "manager"', async () => {
+  const { shelf, manager, shelfAdmin } = await aShelfWithAManagerAndAShelfAdmin();
+  const { profileChangeRequestId } = await propose(
+    ctxFor(shelf.id, shelfAdmin, "admin"),
+    shelfAdmin.id,
+    "0912345678",
+  );
+
+  await expect(
+    runCommand(sql, ctxFor(shelf.id, manager, "manager"), cancelProfileChange, {
+      membershipId: shelfAdmin.id,
+      profileChangeRequestId,
+    }),
+  ).rejects.toMatchObject({ code: "not_permitted" });
 });
 
 test("unlike approve and reject, a manager may cancel their own change", async () => {

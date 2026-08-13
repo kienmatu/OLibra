@@ -27,8 +27,13 @@ import { archiveCategory } from "../../domain/catalogue/commands/archive-categor
 import { createCategory } from "../../domain/catalogue/commands/create-category";
 import { renameCategory } from "../../domain/catalogue/commands/rename-category";
 import { submitAdminCommand } from "../../lib/page-data";
-import { ACTION_DONE_PARAM, ACTION_ERROR_PARAM } from "../../lib/search-params";
+import {
+  ACTION_DONE_PARAM,
+  ACTION_ERROR_PARAM,
+  ACTION_SCOPE_PARAM,
+} from "../../lib/search-params";
 import { contactsFromForm } from "./contacts-from-form";
+import { BOOKSHELF_FORM_SCOPE } from "./tu-sach/form-scope";
 
 /**
  * OPS §4.5's writes — the administration surface's own commands.
@@ -140,11 +145,21 @@ function count(form: FormData, name: string): number | undefined {
  * page with two independently-submittable forms needs to know not only that
  * something failed but which form's fields the failure is about, so its
  * refusal renders beside that form rather than in one banner a person has to
- * guess the meaning of. `?tu-sach=<slug>&loi=contact_position_1_required
- * &pham-vi=ho-so` is unambiguous in a way `?loi=contact_position_1_required`
- * alone on a page with a policy form right below it is not — that field does
- * not exist on the policy form, and the refusal would otherwise sit above
- * both with no way to tell a reader which one to look at.
+ * guess the meaning of. `` `?tu-sach=<slug>&loi=contact_position_1_required
+ * &${ACTION_SCOPE_PARAM}=${BOOKSHELF_FORM_SCOPE.profile}` `` is unambiguous in
+ * a way `?loi=contact_position_1_required` alone on a page with a policy form
+ * right below it is not — that field does not exist on the policy form, and
+ * the refusal would otherwise sit above both with no way to tell a reader
+ * which one to look at.
+ *
+ * **`scope` itself stays a bare `string | undefined`** — this helper is
+ * generic over every caller in this file, most of which pass no fourth
+ * argument at all — but the two callers that do pass one
+ * (`updateBookshelfProfileAction`/`updateBookshelfPolicyAction`, below) pass a
+ * `BookshelfFormScope` from `BOOKSHELF_FORM_SCOPE`
+ * (`./tu-sach/form-scope.ts`), never a retyped literal. That file's own
+ * docstring records the silent-swallow failure a mismatched literal caused
+ * here before the type existed.
  */
 function back(
   path: string,
@@ -154,7 +169,7 @@ function back(
 ): never {
   if (code !== null) {
     const join = path.includes("?") ? "&" : "?";
-    const scoped = scope ? `&pham-vi=${scope}` : "";
+    const scoped = scope ? `&${ACTION_SCOPE_PARAM}=${scope}` : "";
     redirect(`${path}${join}${ACTION_ERROR_PARAM}=${code}${scoped}`);
   }
   if (done) {
@@ -231,11 +246,17 @@ export async function updateBookshelfProfileAction(form: FormData): Promise<void
       bookshelfId,
     ),
   );
-  // "ho-so" both as the done-value (QA remediation Task 16's pattern) and as
-  // the refusal scope (this round's `back()` addition) — the same string
-  // either way, so the page reads one query param to know which form a
-  // result belongs to regardless of whether it succeeded or was refused.
-  back(slugTarget(form), code, "ho-so", "ho-so");
+  // `BOOKSHELF_FORM_SCOPE.profile` both as the done-value (QA remediation
+  // Task 16's pattern) and as the refusal scope (this round's `back()`
+  // addition) — the same value either way, so the page reads one query param
+  // to know which form a result belongs to regardless of whether it
+  // succeeded or was refused.
+  back(
+    slugTarget(form),
+    code,
+    BOOKSHELF_FORM_SCOPE.profile,
+    BOOKSHELF_FORM_SCOPE.profile,
+  );
 }
 
 /**
@@ -266,7 +287,12 @@ export async function updateBookshelfPolicyAction(form: FormData): Promise<void>
       bookshelfId,
     ),
   );
-  back(slugTarget(form), code, "chinh-sach", "chinh-sach");
+  back(
+    slugTarget(form),
+    code,
+    BOOKSHELF_FORM_SCOPE.policy,
+    BOOKSHELF_FORM_SCOPE.policy,
+  );
 }
 
 export async function archiveBookshelfAction(form: FormData): Promise<void> {

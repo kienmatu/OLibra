@@ -192,15 +192,24 @@ export function refusalFrom(search: SearchParams): ErrorCode | null {
  * had just happened or a manager had simply navigated there. This is that
  * same pattern, named once so a fourth save does not reinvent it a third way.
  *
- * **A value, not only a presence check**, unlike `da-gui`. `updateBookshelf
- * SettingsAction` redirects to a page with exactly one thing that could have
- * just happened, so `?da-luu=1` (a bare marker) says enough. `lendCopyAction`
+ * **A value, not only a presence check**, unlike `da-gui`. `lendCopyAction`
  * and `receiveReturnAction` both redirect to the *same* manager dashboard —
  * the one screen in this application two different confirmations land on —
  * so that page needs to know *which* save just happened before it can pick
  * between "Đã cho mượn…" and "Đã nhận lại…". `da-luu=cho-muon` and
  * `da-luu=nhan-tra` carry that, mirroring `ACTION_ERROR_PARAM` above, whose
  * value is already a code rather than a bare marker for the identical reason.
+ *
+ * `/quan-tri/tu-sach` needed the identical value-carrying shape for the
+ * identical reason once fix round 2 split its one settings form into two
+ * (`updateBookshelfProfileAction`, `updateBookshelfPolicyAction`, both in
+ * `src/app/quan-tri/admin-actions.ts`): a bare `?da-luu=1` could no longer
+ * say which of the two forms had just saved, so both redirect with a value
+ * from `BOOKSHELF_FORM_SCOPE` (`src/app/quan-tri/tu-sach/form-scope.ts`) —
+ * `back()`'s `scope` parameter there also writes the identical value into
+ * `ACTION_SCOPE_PARAM` below on a refusal, so each form reads one query
+ * value to answer "did I just succeed?" and a second to answer "did I just
+ * fail?" without the other form's result leaking into it.
  *
  * **Never a person's name.** `2fb0ee8` (this branch) reverted exactly that
  * mistake for two other forms — a child's date of birth, both parents' names
@@ -213,3 +222,26 @@ export function refusalFrom(search: SearchParams): ErrorCode | null {
  * `lendCopyAction` for why that is not an oversight.
  */
 export const ACTION_DONE_PARAM = "da-luu";
+
+/**
+ * Which of two or more forms sharing one URL a `?loi=`/`?da-luu=` result
+ * belongs to — `/quan-tri/tu-sach`'s one caller, so far.
+ *
+ * A sibling of `ACTION_ERROR_PARAM`/`ACTION_DONE_PARAM` above rather than a
+ * bare `"pham-vi"` literal repeated at each call site, for the reason both of
+ * those are named constants in the first place: two independent spellings of
+ * the same query parameter is how one of them drifts. Review found exactly
+ * that shape being risked here — `admin-actions.ts`'s `back()` (the write
+ * side) and `page.tsx` (the read side) each held their own `"pham-vi"`
+ * literal — and the failure mode is not a crash, it is silence: a typo on
+ * either side means a refusal never matches its form's scope, and because the
+ * page's top-of-page banner is deliberately scoped *away* from any
+ * `pham-vi`-bearing refusal, that refusal would then render nowhere on the
+ * page at all.
+ *
+ * `BOOKSHELF_FORM_SCOPE` (`src/app/quan-tri/tu-sach/form-scope.ts`) is the
+ * other half of the same fix — the *value* this parameter carries, typed as a
+ * union rather than as another bare string, so a mismatched value is a
+ * compile error rather than a query parameter that simply never matches.
+ */
+export const ACTION_SCOPE_PARAM = "pham-vi";
