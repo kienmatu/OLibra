@@ -5,7 +5,7 @@ import type { TenantContext } from "../../src/domain/kernel/tenant";
 import { runCommand, runQuery } from "../../src/domain/kernel/unit-of-work";
 import { createBook } from "../../src/domain/catalogue/commands/create-book";
 import { copyCountLine, readCatalogueCategories } from "../../src/lib/catalogue";
-import { readShelfIdentity } from "../../src/lib/shelf";
+import { readShelfAddressForFooter, readShelfIdentity } from "../../src/lib/shelf";
 import { statusForAvailability } from "../../src/lib/status";
 import { migrate } from "../../src/db/migrate";
 import { makeMember, makeShelf } from "../support/factories";
@@ -217,6 +217,54 @@ test("bookshelf_contacts is scoped by RLS, unlike the old keeper columns on book
   await expect(
     runQuery(sql, guestCtx, (tx, c) => readShelfIdentity(tx, c)),
   ).rejects.toBeInstanceOf(RuleViolated);
+});
+
+// — the footer's address, item 8 of the post-review fix wave —
+
+test("readShelfAddressForFooter hands a member's location and address to the footer", async () => {
+  const { readerCtx } = await shelfWith();
+
+  const result = await runQuery(sql, readerCtx, (tx, c) =>
+    readShelfAddressForFooter(tx, c),
+  );
+
+  expect(result).toEqual({
+    location: "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú",
+    address: "12 Nguyễn Huệ, Phường Bến Nghé",
+  });
+});
+
+test("readShelfAddressForFooter answers null for a guest, rather than throwing", async () => {
+  // The whole point of this function over calling `readShelfIdentity`
+  // directly from the layout: `/gop-y` is reachable by a guest
+  // (`submitFeedback`'s own docstring — no `requireReader`, no
+  // `requireIdentifiedActor`), and that page's layout renders this footer
+  // too. A throw here would reach `loadPage`'s own catch and redirect that
+  // guest to sign in before they ever see the feedback form — a page they
+  // were always entitled to reach. `null` is the footer's own "nothing to
+  // show", not a refusal bubbling up.
+  const { guestCtx } = await shelfWith();
+
+  await expect(
+    runQuery(sql, guestCtx, (tx, c) => readShelfAddressForFooter(tx, c)),
+  ).resolves.toBeNull();
+});
+
+test("readShelfAddressForFooter still 404s for a shelf id naming nothing, rather than swallowing it", async () => {
+  // Only `not_permitted` is caught. `readShelfIdentity`'s own
+  // `NotFound("shelf_not_found")` — a different code, from a different
+  // situation — must still propagate, exactly as it does for every other
+  // caller of that function, so `loadPage` renders the 404 this case is for
+  // rather than a footer with nothing to say about it.
+  const { readerCtx } = await shelfWith();
+  const gone: TenantContext = {
+    ...readerCtx,
+    bookshelfId: "00000000-0000-4000-8000-000000000000",
+  };
+
+  await expect(
+    runQuery(sql, gone, (tx) => readShelfAddressForFooter(tx, gone)),
+  ).rejects.toBeInstanceOf(NotFound);
 });
 
 // — the catalogue's category filter —

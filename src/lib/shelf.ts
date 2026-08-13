@@ -1,5 +1,5 @@
 import { requireReader } from "../domain/catalogue/policy";
-import { NotFound } from "../domain/kernel/errors";
+import { NotFound, RuleViolated } from "../domain/kernel/errors";
 import type { TenantContext } from "../domain/kernel/tenant";
 import type { Tx } from "../domain/kernel/unit-of-work";
 import type { ShelfContact } from "../domain/shelf/queries/get-shelf-settings";
@@ -239,4 +239,47 @@ export async function readShelfIdentity(
       roleLabel: c.role_label,
     })),
   };
+}
+
+/**
+ * `readShelfIdentity`'s `location`/`address`, or `null` for anyone
+ * `readShelfIdentity` would refuse — built for the site footer (post-review
+ * fix wave, item 8), which shows a shelf's address only to a signed-in member
+ * of that shelf.
+ *
+ * **Why this exists instead of calling `readShelfIdentity` directly from the
+ * layout.** `src/app/tu-sach/[shelf]/(doc-gia)/layout.tsx` wraps *every*
+ * reader-route page under a shelf, and not all of them require a membership:
+ * `/gop-y`'s own page reads the shelf through `readShelf` (no gate at all),
+ * because `submitFeedback`'s own docstring is explicit that this command
+ * takes neither `requireReader` nor `requireIdentifiedActor` — a visitor with
+ * no membership may send a message to the shelf that keeps the books. If the
+ * layout called `readShelfIdentity` (and, through it, `requireReader`)
+ * unconditionally and let `RuleViolated("not_permitted")` reach `loadPage`'s
+ * own catch, a guest visiting `/gop-y` to leave feedback would be redirected
+ * to sign in before ever seeing the form — a real regression this fix must
+ * not cause, introduced by a footer wanting an address nobody asked it to
+ * gate a whole page behind.
+ *
+ * So this function asks the domain the same question `readShelfIdentity`
+ * already asks (BR §16.1's membership rule), and answers `null` for the one
+ * refusal that question can produce instead of letting it propagate. Nothing
+ * about the security boundary moves: `requireReader` still runs, inside
+ * `readShelfIdentity`, exactly as it does for the four member pages that call
+ * it directly — this only changes what a *non*-member's request does next.
+ * Anything other than `not_permitted` — a fault, a vanished shelf — still
+ * propagates, the same "everything else keeps throwing" rule `loadPage`'s own
+ * docstring states for itself.
+ */
+export async function readShelfAddressForFooter(
+  tx: Tx,
+  ctx: TenantContext,
+): Promise<{ location: string | null; address: string | null } | null> {
+  try {
+    const identity = await readShelfIdentity(tx, ctx);
+    return { location: identity.location, address: identity.address };
+  } catch (err) {
+    if (err instanceof RuleViolated && err.code === "not_permitted") return null;
+    throw err;
+  }
 }

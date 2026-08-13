@@ -61,6 +61,68 @@ test("SiteFooter renders no contact block on a fresh installation", () => {
   expect(html).not.toContain(HEADING);
 });
 
+// — the shelf's own address, post-review fix wave item 8 —
+
+test("SiteFooter shows the shelf's address when a signed-in member is looking", () => {
+  const html = renderToStaticMarkup(
+    <SiteFooter
+      contact={null}
+      shelfAddress={{
+        location: "Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú",
+        address: "12 Nguyễn Huệ, Phường Bến Nghé",
+      }}
+    />,
+  );
+
+  expect(html).toContain("Địa chỉ tủ sách");
+  expect(html).toContain("Nhà xứ Đồng Tháp, ấp Tân Hoà, xã Tân Phú");
+  expect(html).toContain("12 Nguyễn Huệ, Phường Bến Nghé");
+});
+
+test("SiteFooter renders no address block on a front-door page, which never passes the prop", () => {
+  // Every one of the six front-door routes (`/`, `/tu-sach`, `/lien-he`,
+  // `/dang-nhap`, `/dang-ky`, `/loi`) calls `<SiteFooter contact={...} />`
+  // with no `shelfAddress` at all — there is no shelf on any of them. This is
+  // that call, and it must render exactly what it always did.
+  const html = renderToStaticMarkup(<SiteFooter contact={null} />);
+
+  expect(html).not.toContain("Địa chỉ tủ sách");
+});
+
+test("SiteFooter renders no address block for a shelf page whose viewer is not a member", () => {
+  // `readShelfAddressForFooter` (`src/lib/shelf.ts`) answers `null` rather
+  // than throwing for a guest or a non-member, and this is the footer's own
+  // half of that: `null` and "did not ask" must look identical on the page.
+  const html = renderToStaticMarkup(
+    <SiteFooter contact={null} shelfAddress={null} />,
+  );
+
+  expect(html).not.toContain("Địa chỉ tủ sách");
+});
+
+test("SiteFooter renders no address block for a shelf that has filled in neither field", () => {
+  const html = renderToStaticMarkup(
+    <SiteFooter contact={null} shelfAddress={{ location: null, address: null }} />,
+  );
+
+  expect(html).not.toContain("Địa chỉ tủ sách");
+});
+
+test("SiteFooter shows the shelf's address and the administrator's contact together", () => {
+  // The two blocks are independent — a shelf page for a signed-in member
+  // renders both, side by side, neither one crowding the other out.
+  const html = renderToStaticMarkup(
+    <SiteFooter
+      contact={{ name: "Giuse Trần Quốc Anh", phone: "0912345678", hours: null }}
+      shelfAddress={{ location: "Nhà xứ Đồng Tháp", address: null }}
+    />,
+  );
+
+  expect(html).toContain("Liên hệ ban quản trị");
+  expect(html).toContain("Địa chỉ tủ sách");
+  expect(html).toContain("Nhà xứ Đồng Tháp");
+});
+
 test("SiteFooter shows a contact with a name and no telephone", () => {
   // Both columns are nullable and an administrator may fill in one of them.
   // The block appears, and there is simply no number in it — not an empty

@@ -1,5 +1,6 @@
 import { SiteFooter } from "@/components/shell/site-footer";
-import { siteContact } from "@/lib/page-data";
+import { loadPage, siteContact } from "@/lib/page-data";
+import { readShelfAddressForFooter } from "@/lib/shelf";
 
 /**
  * U1 §2, and required by
@@ -33,18 +34,37 @@ export const dynamic = "force-dynamic";
  *
  * `flex min-h-dvh flex-col` with the children growing, so the footer sits at
  * the bottom of a short page rather than halfway up it.
+ *
+ * **`shelfAddress` (post-review fix wave, item 8) is resolved here, once, the
+ * same way `contact` already is** — never inside `SiteFooter` itself, which
+ * must not import anything that reaches Postgres (that component's own
+ * docstring, and `tests/architecture/pages-reading-the-database-are-dynamic
+ * .test.ts`, which would otherwise put every page rendering it, `/loi`
+ * included, in the closure of a database read). `readShelfAddressForFooter`
+ * (`src/lib/shelf.ts`) is what turns "may this viewer see it" into `null`
+ * instead of a redirect for the one page in this group a guest may reach —
+ * calling `readShelfIdentity` here directly would gate every page in this
+ * group on a membership, and `/gop-y` (`submitFeedback`'s own docstring)
+ * is explicitly not gated that way; see that function's own docstring for
+ * the full argument.
  */
 export default async function ReaderLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
+  params: Promise<{ shelf: string }>;
 }) {
-  const contact = await siteContact();
+  const { shelf: slug } = await params;
+  const [contact, shelfAddress] = await Promise.all([
+    siteContact(),
+    loadPage(slug, (tx, ctx) => readShelfAddressForFooter(tx, ctx)),
+  ]);
 
   return (
     <div className="flex min-h-dvh flex-col">
       <div className="flex-1">{children}</div>
-      <SiteFooter contact={contact} />
+      <SiteFooter contact={contact} shelfAddress={shelfAddress} />
     </div>
   );
 }
