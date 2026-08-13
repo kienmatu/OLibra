@@ -436,6 +436,42 @@ const ACTIONS = {
     group: "nguoi-doc",
     phrase: (f) => `đánh dấu ${who(f.subject)} đã rời tủ sách`,
   },
+  // **Retired 2026-08-12, restored 2026-08-13 (post-review fix wave, item 6).**
+  // `updateOwnProfile` was this action's only writer, and it wrote nothing but
+  // the reader's own leaderboard-visibility toggle. It was retired — command,
+  // server action, the profile form's "Riêng tư" block, and this entry — in
+  // the same change that dropped `memberships.leaderboard_opt_in`
+  // (`docs/superpowers/specs/2026-08-12-po-feedback-design.md` §13;
+  // `docs/OPERATIONS.md`'s own retirement note for `UpdateOwnProfile`).
+  //
+  // Removing the *entry* was the part that did not survive review.
+  // `audit_log` is append-only (DATABASE.md §11) — no row this command ever
+  // wrote went anywhere — and without a sentence, `auditSentence` fell back to
+  // "thực hiện một thao tác hệ thống chưa được mô tả" for every one of them:
+  // technically true and strictly worse for whoever reads that history later,
+  // and those rows also stopped appearing under the *Bạn đọc* filter group
+  // entirely, since `auditGroupOf` returns `null` for an action with no entry.
+  // Keeping the sentence costs nothing and a command writing it again would
+  // not compile — `AuditEntry.action` is `keyof typeof ACTIONS`, and nothing
+  // outside this map can mint a value naming a command that no longer exists.
+  //
+  // `RETIRED_ACTIONS` below is the one-line carve-out this needed in
+  // `tests/domain/kernel/audit-actions.test.ts`'s "no dead sentence" rule —
+  // see that constant's own docstring for why a set beats deleting the rule.
+  "membership.updated": {
+    group: "nguoi-doc",
+    // `updateOwnProfile` was the only writer and it changed one field, so the
+    // sentence says which way it went rather than that "something changed".
+    // "bảng bạn đọc chăm nhất" is the shipped wording from the reader's own
+    // profile form, not a new name for the leaderboard.
+    phrase: (f) => {
+      const on = flag(f.after, "leaderboard_opt_in");
+      if (on === null) return "đổi cài đặt tài khoản của mình";
+      return on
+        ? "chọn hiện tên trong bảng bạn đọc chăm nhất"
+        : "chọn ẩn tên khỏi bảng bạn đọc chăm nhất";
+    },
+  },
   "credentials.set": {
     group: "nguoi-doc",
     // BR §2, and the reason this action exists at all: "this manager set or
@@ -610,6 +646,28 @@ export type AuditAction = keyof typeof ACTIONS;
 
 /** The same object, widened for iteration. `ACTIONS` keeps the literal keys. */
 export const AUDIT_ACTIONS: Record<AuditAction, AuditActionSpec> = ACTIONS;
+
+/**
+ * Actions no command writes any more, kept in `ACTIONS` anyway because
+ * `audit_log` is append-only and rows naming them already exist — see
+ * `"membership.updated"` above for the one member today and the full
+ * reasoning.
+ *
+ * **Why a set rather than deleting the "no dead sentence" rule.** That rule
+ * (`tests/domain/kernel/audit-actions.test.ts`, "every sentence describes an
+ * action a command still writes") is what P1 §3.1 calls "the shape that makes
+ * a stale map look maintained" — thirty-odd sentences where a reader cannot
+ * tell which describe something that still happens. Deleting the rule to let
+ * `"membership.updated"` back in would lose that for everything else too. A
+ * named, explicit carve-out keeps the rule's intent — a sentence with no
+ * writer is either *retired on purpose*, listed here, or a bug the test still
+ * catches — while keeping the one entry this codebase has a real reason to
+ * hold onto. Retiring an action is now a decision with one line beside it,
+ * not a silent gap in a test.
+ */
+export const RETIRED_ACTIONS: ReadonlySet<AuditAction> = new Set([
+  "membership.updated",
+]);
 
 /** Every action name, as data — what a group filter turns into a `where`. */
 export const AUDIT_ACTION_NAMES = Object.keys(ACTIONS) as AuditAction[];

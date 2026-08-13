@@ -9,6 +9,7 @@ import {
   type AuditFacts,
   type AuditGroup,
   auditSentence,
+  RETIRED_ACTIONS,
 } from "../../../src/domain/kernel/audit-actions";
 import { filesUnder, stripCommentsAndStrings } from "../../support/source-text";
 
@@ -106,11 +107,33 @@ test("every action a command writes has a Vietnamese sentence", () => {
   expect(uncovered, `no sentence for: ${uncovered.join(", ")}`).toEqual([]);
 });
 
-test("every sentence describes an action a command still writes", () => {
+test("every sentence describes an action a command still writes, or is named as retired", () => {
+  // Post-review fix wave, item 6: `RETIRED_ACTIONS` is the named exception to
+  // this rule, for a sentence `audit_log`'s append-only history still needs
+  // even though no command writes it any more — see that constant's own
+  // docstring. Everything *not* in it is held to the original rule exactly as
+  // before: a map entry with no writer and no explanation is a stale map.
   const written = new Set(actionsWrittenInSource().map((f) => f.action));
-  const dead = AUDIT_ACTION_NAMES.filter((a) => !written.has(a));
+  const dead = AUDIT_ACTION_NAMES.filter(
+    (a) => !written.has(a) && !RETIRED_ACTIONS.has(a),
+  );
 
   expect(dead, `sentence with no writer: ${dead.join(", ")}`).toEqual([]);
+});
+
+test("RETIRED_ACTIONS names only actions that genuinely have no writer", () => {
+  // The other direction of the same honesty check: an action listed as
+  // retired that some command actually still writes would silently escape
+  // the "every action a command writes has a sentence" test above (it
+  // already has one) and the "no dead sentence" test just above (it is
+  // exempted) — so nothing would ever catch a stale `RETIRED_ACTIONS` entry
+  // without this.
+  const written = new Set(actionsWrittenInSource().map((f) => f.action));
+  const revived = [...RETIRED_ACTIONS].filter((a) => written.has(a));
+  expect(
+    revived,
+    `listed as retired but still written: ${revived.join(", ")}`,
+  ).toEqual([]);
 });
 
 test("no action is left out of a group, and no group is empty", () => {
