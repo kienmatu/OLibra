@@ -38,6 +38,12 @@ export const ERROR_MESSAGES = {
   not_lost: "Bản sách này hiện không ở trạng thái đã mất.",
   copy_on_loan:
     "Không thể ngừng dùng bản sách đang được mượn. Hãy nhận trả hoặc báo mất trước.",
+  // — catalogue: QR labels —
+  // Its own code rather than `validation_failed`, for the reason the note
+  // below gives about CreateBook and AddCopies: one code is one sentence, and
+  // "Vui lòng kiểm tra lại thông tin" tells a volunteer who submitted an empty
+  // label selection nothing about what to do next.
+  copy_selection_empty: "Bạn chưa chọn bản sách nào để in nhãn.",
   // — catalogue: added by B1 —
   // OPS §4.1 gives `validation_failed` three different sentences across
   // CreateBook, UpdateBook and AddCopies. One code maps to one sentence, so

@@ -73,8 +73,7 @@ export function uuidFromPayload(payload: string): string | null {
   ].join("-");
 }
 
-const ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /**
  * Hand-rolled rather than `Buffer.from(...).toString("base64url")`.

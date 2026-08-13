@@ -45,8 +45,7 @@ const QR_SIDE = 25;
 const PAD = 3;
 
 const marginX =
-  (SHEET.pageW - (SHEET.cols * SHEET.labelW + (SHEET.cols - 1) * SHEET.gapX)) /
-  2;
+  (SHEET.pageW - (SHEET.cols * SHEET.labelW + (SHEET.cols - 1) * SHEET.gapX)) / 2;
 const marginY =
   (SHEET.pageH - SHEET.safeH) / 2 + (SHEET.safeH - SHEET.rows * SHEET.cellY) / 2;
 

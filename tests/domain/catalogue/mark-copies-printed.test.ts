@@ -5,11 +5,7 @@ import { RuleViolated, ValidationFailed } from "../../../src/domain/kernel/error
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runCommand } from "../../../src/domain/kernel/unit-of-work";
 import { markCopiesPrinted } from "../../../src/domain/catalogue/commands/mark-copies-printed";
-import {
-  makeBookWithCopies,
-  makeMember,
-  makeShelf,
-} from "../../support/factories";
+import { makeBookWithCopies, makeMember, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";
 
 beforeAll(() => migrate(sql));

@@ -64,41 +64,33 @@ function cropQr(png: PNG, xMm: number, yMm: number) {
   return { out, side };
 }
 
-test(
-  "every printed label decodes back to its own copy id at 300dpi",
-  async () => {
-    const bytes = await buildLabelSheet(COPIES, "Tủ sách Đồng Tháp");
+test("every printed label decodes back to its own copy id at 300dpi", async () => {
+  const bytes = await buildLabelSheet(COPIES, "Tủ sách Đồng Tháp");
 
-    const dir = mkdtempSync(path.join(tmpdir(), "olibra-qr-"));
-    dirs.push(dir);
-    const pdf = path.join(dir, "sheet.pdf");
-    writeFileSync(pdf, bytes);
-    execFileSync("pdftoppm", [
-      "-png",
-      "-r",
-      String(DPI),
-      "-f",
-      "1",
-      "-l",
-      "1",
-      pdf,
-      path.join(dir, "page"),
-    ]);
+  const dir = mkdtempSync(path.join(tmpdir(), "olibra-qr-"));
+  dirs.push(dir);
+  const pdf = path.join(dir, "sheet.pdf");
+  writeFileSync(pdf, bytes);
+  execFileSync("pdftoppm", [
+    "-png",
+    "-r",
+    String(DPI),
+    "-f",
+    "1",
+    "-l",
+    "1",
+    pdf,
+    path.join(dir, "page"),
+  ]);
 
-    const png = PNG.sync.read(readFileSync(path.join(dir, "page-1.png")));
-    const boxes = labelBoxes(COPIES.length);
+  const png = PNG.sync.read(readFileSync(path.join(dir, "page-1.png")));
+  const boxes = labelBoxes(COPIES.length);
 
-    const decoded = boxes.map((box) => {
-      const { out, side } = cropQr(
-        png,
-        box.x + QR_OFFSET.x,
-        box.y + QR_OFFSET.y,
-      );
-      const result = jsQR(out, side, side);
-      return result ? uuidFromPayload(result.data) : null;
-    });
+  const decoded = boxes.map((box) => {
+    const { out, side } = cropQr(png, box.x + QR_OFFSET.x, box.y + QR_OFFSET.y);
+    const result = jsQR(out, side, side);
+    return result ? uuidFromPayload(result.data) : null;
+  });
 
-    expect(decoded).toEqual(COPIES.map((c) => c.id));
-  },
-  60_000,
-);
+  expect(decoded).toEqual(COPIES.map((c) => c.id));
+}, 60_000);

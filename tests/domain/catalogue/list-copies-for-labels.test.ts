@@ -5,11 +5,7 @@ import { RuleViolated } from "../../../src/domain/kernel/errors";
 import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runQuery } from "../../../src/domain/kernel/unit-of-work";
 import { listCopiesForLabels } from "../../../src/domain/catalogue/queries/list-copies-for-labels";
-import {
-  makeBookWithCopies,
-  makeMember,
-  makeShelf,
-} from "../../support/factories";
+import { makeBookWithCopies, makeMember, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";
 
 beforeAll(() => migrate(sql));
@@ -30,8 +26,10 @@ async function onTheShelf(copies = 3, slug = "dong-thap") {
   return { shelf, manager, ctx, bookId, copyIds };
 }
 
-const read = (ctx: TenantContext, input: Parameters<typeof listCopiesForLabels>[2]) =>
-  runQuery(sql, ctx, (tx, scoped) => listCopiesForLabels(tx, scoped, input));
+const read = (
+  ctx: TenantContext,
+  input: Parameters<typeof listCopiesForLabels>[2],
+) => runQuery(sql, ctx, (tx, scoped) => listCopiesForLabels(tx, scoped, input));
 
 const codesOf = async (
   ctx: TenantContext,

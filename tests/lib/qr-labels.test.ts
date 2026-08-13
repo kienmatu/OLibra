@@ -30,8 +30,7 @@ const copyAt = (i: number) => ({
 
 describe("SHEET", () => {
   it("fits the A4-and-Letter intersection", () => {
-    const across =
-      SHEET.cols * SHEET.labelW + (SHEET.cols - 1) * SHEET.gapX;
+    const across = SHEET.cols * SHEET.labelW + (SHEET.cols - 1) * SHEET.gapX;
     expect(across).toBeLessThanOrEqual(SAFE_W);
     expect(SHEET.rows * SHEET.cellY).toBeLessThanOrEqual(SAFE_H);
   });
@@ -112,7 +111,9 @@ describe("buildLabelSheet", () => {
 
   it("puts a full sheet on one page and one more on a second", async () => {
     const full = Array.from({ length: SHEET.perPage }, (_, i) => copyAt(i));
-    expect(await pageCountOf(await buildLabelSheet(full, "Tủ sách Đồng Tháp"))).toBe(1);
+    expect(
+      await pageCountOf(await buildLabelSheet(full, "Tủ sách Đồng Tháp")),
+    ).toBe(1);
 
     const overflow = [...full, copyAt(SHEET.perPage)];
     expect(

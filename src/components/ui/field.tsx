@@ -271,3 +271,59 @@ export function Toggle({
     </span>
   );
 }
+
+/**
+ * A selection checkbox.
+ *
+ * **Not `Toggle`, which sits directly above it in this file**, and the two must
+ * never be substituted for each other: a switch commits a setting the moment it
+ * moves, while a checkbox marks a row for an action taken later, when a button
+ * is pressed. They look different because they mean different things, and a
+ * volunteer who has learned that a switch takes effect immediately would be
+ * misled by one that does not.
+ *
+ * The whole row is the label, so the 44px target BR §17 requires belongs to the
+ * text as well as the box — this control is used in a long list, on a phone,
+ * held by somebody standing at a shelf.
+ *
+ * Uncontrolled (`defaultChecked`, no `onChange`): every use of it so far is
+ * inside a plain `<form>` that posts, so the browser owns the state and there
+ * is no client component anywhere in the tree.
+ */
+export function Checkbox({
+  name,
+  value,
+  label,
+  hint,
+  defaultChecked,
+  className,
+}: {
+  name?: string;
+  value?: string;
+  /** The visible word beside the box. Never omit it — an unlabelled box is unusable. */
+  label: string;
+  hint?: string;
+  defaultChecked?: boolean;
+  className?: string;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex min-h-11 cursor-pointer items-center gap-3 py-1",
+        className,
+      )}
+    >
+      <input
+        type="checkbox"
+        name={name}
+        value={value}
+        defaultChecked={defaultChecked}
+        className="size-5 shrink-0 rounded-[0.25rem] border border-hairline accent-terracotta"
+      />
+      <span className="flex min-w-0 flex-col">
+        <span className="text-[15px] leading-tight">{label}</span>
+        {hint ? <span className="text-[13px] text-meta">{hint}</span> : null}
+      </span>
+    </label>
+  );
+}

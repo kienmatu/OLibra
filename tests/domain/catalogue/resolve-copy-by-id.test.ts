@@ -5,11 +5,7 @@ import type { TenantContext } from "../../../src/domain/kernel/tenant";
 import { runQuery } from "../../../src/domain/kernel/unit-of-work";
 import { resolveCopyById } from "../../../src/domain/catalogue/queries/resolve-copy-by-id";
 import { payloadFor, uuidFromPayload } from "../../../src/lib/qr";
-import {
-  makeBookWithCopies,
-  makeMember,
-  makeShelf,
-} from "../../support/factories";
+import { makeBookWithCopies, makeMember, makeShelf } from "../../support/factories";
 import { closeAll, resetDatabase, sql } from "../../support/db";
 
 beforeAll(() => migrate(sql));
@@ -73,9 +69,7 @@ test("answers null for a soft-deleted copy", async () => {
 test("answers null for a uuid naming nothing", async () => {
   const { ctx } = await onTheShelf();
 
-  expect(
-    await resolve(ctx, "00000000-0000-4000-a000-000000000000"),
-  ).toBeNull();
+  expect(await resolve(ctx, "00000000-0000-4000-a000-000000000000")).toBeNull();
 });
 
 /**

@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  payloadFor,
-  QR_PREFIX,
-  tokenFor,
-  uuidFromPayload,
-} from "../../src/lib/qr";
+import { payloadFor, QR_PREFIX, tokenFor, uuidFromPayload } from "../../src/lib/qr";
 
 const UUID = "892219cc-85e8-4d78-af28-5a66e0fc7cc4";
 
