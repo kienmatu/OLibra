@@ -92,10 +92,16 @@ export async function searchBooksForLending(
   >`
     select
       b.id as book_id, b.slug, b.title, b.author, b.cover_url,
-      -- Unchanged: the count the management screens show, which has always
-      -- excluded retired copies. The filter moved off the join and onto this
-      -- aggregate so the two counts below can see every copy the title has.
-      count(cp.id) filter (where cp.state <> 'retired') as copies_total,
+      -- The count the management screens show. Post-review fix wave, item 7
+      -- (round 2): now excludes lost copies too, alongside retired, so this
+      -- number agrees with get-books-list.ts's and never disagrees with a
+      -- title's own detail page one click away — see that file's comment for
+      -- the failure this closes. The filter is on this aggregate rather than
+      -- the join below (unlike the other four queries) because copies_total
+      -- is not the only thing counted here: copies_returnable and
+      -- copies_recorded need to see every state, including retired and lost,
+      -- to tell "some copies are out" from "all copies are lost or retired".
+      count(cp.id) filter (where cp.state <> 'retired' and cp.state <> 'lost') as copies_total,
       count(av.id)                                      as copies_available,
       -- The copies that can still come back to the shelf. Zero of these with
       -- at least one copy recorded is the only shape that means lost/retired

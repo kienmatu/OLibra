@@ -163,7 +163,11 @@ export async function getCatalogue(
         b.cover_url,
         b.created_at,
         c.name          as category,
-        count(cp.id)                                              as copies_total,
+        -- Post-review fix wave, item 7 (round 2): see get-books-list.ts's
+        -- twin comment. copies_total excludes lost copies everywhere it is
+        -- emitted under that name, so this and the manager list can never
+        -- disagree about the same title.
+        count(cp.id) filter (where cp.state <> 'lost')            as copies_total,
         count(av.id)                                              as copies_available,
         count(cp.id) filter (where cp.state = 'on_loan')          as on_loan,
         count(cp.id) filter (where cp.state = 'held')             as held,

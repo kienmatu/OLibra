@@ -387,8 +387,10 @@ export default async function ManagerBookDetailPage({
             Post-review fix wave, item 7: `book.book.copiesTotal` now excludes
             both `retired` and `lost` copies (the query fix, above this
             page), so "N bản trong tủ" is true for a lost copy — it plainly is
-            not in the cupboard — and the heading three lines down uses this
-            exact number too, so the two no longer disagree. */}
+            not in the cupboard. Round 2 of that same fix wave gave the
+            heading three lines down its own count instead of this one — see
+            that comment for why the two numbers are deliberately not the
+            same. */}
         <p className="text-[15px] text-meta">
           {copyCountLine({
             copiesAvailable: book.book.copiesAvailable,
@@ -404,18 +406,20 @@ export default async function ManagerBookDetailPage({
             once opened, and centring against it left the heading floating
             in the middle of that height instead of sitting at the top. */}
         <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-          {/* Post-review fix wave, item 7: this used to be
-              `book.copies.length`, which counts every row the table below
-              renders — retired and lost copies included, since a manager's
-              page shows those with their reason (unlike a reader's). That
-              made this heading disagree with the summary line above it: one
-              retired copy read "3 bản trong tủ" here and "Các bản sách (4)"
-              three lines down, over a four-row table. `book.book.copiesTotal`
-              is the number the line above already uses, so the two now
-              agree — the table itself is unchanged and still lists every
-              copy, retired and lost ones included. */}
+          {/* Post-review fix wave, item 7 (round 2): item 7 itself made this
+              `book.book.copiesTotal` so it would agree with the summary line
+              above — but that number now excludes lost copies everywhere
+              it's read (this file's other comment, above), while the table
+              beneath this heading still lists every copy, retired and lost
+              included with their reasons. A lost copy made the two disagree
+              again, just in the other direction: "2 bản trong tủ" above a
+              three-row table headed "Các bản sách (2)". This heading labels
+              that table, so it counts the table's own rows —
+              `book.copies.length` — and the summary line above keeps
+              `copiesTotal`. Each number is true of what it sits next to; they
+              are not the same count and are not meant to be. */}
           <h2 className="pt-2.5 text-xl font-semibold">
-            Các bản sách ({NUMBER.format(book.book.copiesTotal)})
+            Các bản sách ({NUMBER.format(book.copies.length)})
           </h2>
           {/* A <details> disclosure, not a separate page: adding more copies
               to a title already catalogued is only two fields beyond the

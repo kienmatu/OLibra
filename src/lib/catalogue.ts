@@ -22,17 +22,21 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * `book_copies` rows, and a title with a copy held for someone is the ordinary
  * case this sentence has to stay honest about.
  *
- * **`copiesTotal` itself excludes `lost` and `retired` copies, both of
- * them** — `get-book-detail.ts` and `get-book-detail-manager.ts` compute it
- * that way (post-review fix wave, item 7). That is what makes "bản trong tủ"
- * (copies in the shelf's records) a true sentence: a lost copy is, by
- * definition, not in the cupboard, and neither is a retired one. Before this
- * fix the query excluded only `retired`, so a single lost copy inflated this
- * number by one and the manager page's own copy-count heading — built from a
- * different total that *did* include retired copies — disagreed with this
- * line outright. Callers pass a query's own `copies_total`/`copiesTotal`
- * straight through; this function does not re-derive or re-filter it, so the
- * guarantee lives at the one or two places that compute it, not here.
+ * **`copiesTotal` excludes `lost` and `retired` copies, both of them, and
+ * this holds everywhere the name `copies_total`/`copiesTotal` is emitted** —
+ * `get-book-detail.ts`, `get-book-detail-manager.ts`, `get-books-list.ts`,
+ * `get-catalogue.ts`, `search-catalogue.ts` and `search-books-for-lending.ts`
+ * all compute it the same way (post-review fix wave, item 7, and its round 2
+ * that closed the same gap on the four queries that fix wave missed). That is
+ * what makes "bản trong tủ" (copies in the shelf's records) a true sentence: a
+ * lost copy is, by definition, not in the cupboard, and neither is a retired
+ * one — and it is what lets a manager's list, search result and detail page
+ * show the same title's copy count without one disagreeing with the others a
+ * click away. Before item 7, every one of those queries excluded only
+ * `retired`, so a single lost copy inflated the number by one wherever it was
+ * read. Callers pass a query's own `copies_total`/`copiesTotal` straight
+ * through; this function does not re-derive or re-filter it, so the guarantee
+ * lives at the queries that compute it, not here.
  */
 export function copyCountLine(counts: {
   copiesAvailable: number;

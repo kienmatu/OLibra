@@ -266,10 +266,11 @@ test("loan history survives the copy being retired", async () => {
  * Post-review fix wave, item 7. `book.copiesTotal` used to exclude only
  * `retired` copies, which left a `lost` one inflating the count the manager
  * page's summary line renders as "N bản trong tủ" — "in the cupboard" is the
- * one thing a lost copy is not. It also disagreed with the page's own
- * "Các bản sách (N)" heading, which is now built from this same field
- * (`quan-ly/sach/[id]/page.tsx`) rather than `detail.copies.length` — so this
- * test pins the one number both parts of the page now share.
+ * one thing a lost copy is not. Round 2 of that fix wave gave the page's own
+ * "Các bản sách (N)" heading its own count (`detail.copies.length`) instead
+ * of this field, once `copiesTotal` started excluding lost copies too and the
+ * heading — which labels a table that still lists lost and retired rows —
+ * would otherwise have undercounted its own table.
  */
 test("copiesTotal excludes both lost and retired copies, but the copies table still lists every one", async () => {
   const { ctx, bookId } = await shelf();
@@ -296,6 +297,40 @@ test("copiesTotal excludes both lost and retired copies, but the copies table st
   // retired copy, with their reasons, alongside the one that is actually on
   // the shelf.
   expect(detail.copies).toHaveLength(3);
+});
+
+/**
+ * Post-review fix wave, item 7, round 2. Item 7 filtered `copies_total` on
+ * `get-book-detail.ts` and `get-book-detail-manager.ts` only, so a title with
+ * a lost copy showed one number on `/quan-ly/sach` (`getBooksList`, unfiltered)
+ * and a smaller one a click away on its own detail page
+ * (`getBookDetailManager`, filtered) — the exact cross-screen inconsistency
+ * the review that produced item 7 was raised to remove, reappearing between
+ * the two queries item 7 did not touch. This pins the invariant directly,
+ * rather than the incident: the same title's `copiesTotal` from the list and
+ * from the detail path must be the same number, not merely each internally
+ * consistent.
+ */
+test("a lost copy leaves the manager list and the manager detail page reporting the same copiesTotal", async () => {
+  const { ctx, bookId } = await shelf();
+  const [copy] = await sql<{ id: string }[]>`
+    select id from book_copies where book_id = ${bookId} order by code limit 1
+  `;
+  await sql`
+    update book_copies set state = 'lost', lost_reported_at = now()
+    where id = ${copy.id}
+  `;
+
+  const list = await runQuery(sql, ctx, (tx) => getBooksList(tx, ctx, {}));
+  const listRow = list.rows.find((r) => r.bookId === bookId)!;
+
+  const detail = await runQuery(sql, ctx, (tx) =>
+    getBookDetailManager(tx, ctx, { bookId }),
+  );
+
+  expect(listRow.copiesTotal).toBe(2);
+  expect(detail.book.copiesTotal).toBe(2);
+  expect(listRow.copiesTotal).toBe(detail.book.copiesTotal);
 });
 
 test("a title with every copy out is blocked, with the reason the command would throw", async () => {
