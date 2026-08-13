@@ -1189,7 +1189,7 @@ export async function updateTaxonomyAction(form: FormData): Promise<void> {
     levels: field(form, "so-bac") === "2" ? 2 : 1,
     // An unchecked box posts nothing at all — `form.has` is the right read,
     // the same one `createBookAction`'s "hien-thi" and
-    // `updateBookshelfSettingsAction`'s two comment toggles already use.
+    // `updateBookshelfPolicyAction`'s two comment toggles already use.
     nested: form.has("long-nhau"),
     level1Label: field(form, "ten-bac-1"),
     level2Label: field(form, "ten-bac-2"),

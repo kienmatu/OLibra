@@ -14,7 +14,7 @@ import { testDatabaseUrl } from "../support/env";
  *
  * `admin-actions.ts`'s `back(path, code)` used to append `?loi=<code>`
  * unconditionally, which is correct only when `path` carries no query string
- * of its own. `updateBookshelfSettingsAction` has redirected to a
+ * of its own. `updateBookshelfPolicyAction` has redirected to a
  * `?tu-sach=`-bearing `path` since this file was written, and a refusal from
  * it — reachable any day a manager types a negative loan period — produced
  * `/quan-tri/tu-sach?tu-sach=<id>?loi=<code>`: two `?` in one URL, where
@@ -27,7 +27,7 @@ import { testDatabaseUrl } from "../support/env";
  * have carried the same defect into a second action rather than only fixing
  * the first.
  *
- * **Why this file tests `updateBookshelfSettingsAction`'s refusal rather than
+ * **Why this file tests `updateBookshelfPolicyAction`'s refusal rather than
  * `assignManagerAction`'s**, even though the latter is the action this
  * defect was caught while changing. `assignManager` (`src/domain/admin
  * /commands/managers.ts`) has exactly three throw sites: one
@@ -38,7 +38,7 @@ import { testDatabaseUrl } from "../support/env";
  * *before* `back()` is ever reached — a 404, not a `?loi=` redirect. So
  * there is no input, malformed or otherwise, that drives
  * `assignManagerAction`'s own `code` to a non-null value through `back()`.
- * `updateBookshelfSettingsAction` is the sibling action that already shared
+ * `updateBookshelfPolicyAction` is the sibling action that already shared
  * `back()`'s exact hazard (a `?`-bearing target) and can genuinely refuse (a
  * negative loan period), which is what makes it the real, exercised proof
  * that the join logic itself is correct — `assignManagerAction`'s own success
@@ -60,8 +60,10 @@ vi.mock("next/headers", () => ({
 
 const {
   assignManagerAction,
+  createBookshelfAction,
   revokeManagerAction,
-  updateBookshelfSettingsAction,
+  updateBookshelfPolicyAction,
+  updateBookshelfProfileAction,
   updateSiteContactAction,
   updateSystemDefaultsAction,
 } = await import("../../src/app/quan-tri/admin-actions");
@@ -174,25 +176,28 @@ test("a refusal on a target that already carries a query string joins with '&', 
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
 
   const target = await redirectedTo(
-    updateBookshelfSettingsAction(
+    updateBookshelfPolicyAction(
       form({
         "tu-sach": shelf.id,
         // QA remediation T27: `?tu-sach=` on `/quan-tri/tu-sach` names a
-        // slug now, not this shelf's id — `updateBookshelfSettingsAction`
+        // slug now, not this shelf's id — `updateBookshelfPolicyAction`
         // still needs the id (above) to find the row, but redirects using
         // this second field. Omitting it here is exactly the gap that broke
         // this test the day T27 landed: `field(form, "tu-sach-slug")` reads
         // `""` from a `FormData` that never set it, silently.
         "tu-sach-slug": shelf.slug,
-        ten: "Tủ sách Đồng Tháp",
+        // No `ten` here (Fix round 2): `updateBookshelfPolicyAction` never
+        // sends a `profile`, so the shelf's name is not this form's business
+        // — proving exactly that is half of what this test is for now.
         "so-ngay-muon": "-1", // updateBookshelfSettings refuses a negative loan period.
       }),
     ),
   );
 
-  // Before the fix this was `/quan-tri/tu-sach?tu-sach=<id>?loi=validation_failed`
-  // — two `?`, and `refusalIn` (the same parse `search-params.ts`'s own
-  // `param`/`refusalFrom` do against a real request) finds nothing, because
+  // Before the original fix this was
+  // `/quan-tri/tu-sach?tu-sach=<id>?loi=validation_failed` — two `?`, and
+  // `refusalIn` (the same parse `search-params.ts`'s own `param`/
+  // `refusalFrom` do against a real request) finds nothing, because
   // everything after the *first* `?` is one query string and `loi` is buried
   // inside the value of `tu-sach`.
   //
@@ -205,8 +210,12 @@ test("a refusal on a target that already carries a query string joins with '&', 
   // `shelf.slug`, not `shelf.id` (QA remediation T27): the admin shelf list
   // and its editor now resolve `?tu-sach=` against a slug — see
   // `quan-tri/tu-sach/page.tsx`'s own docstring for why.
+  //
+  // `&pham-vi=chinh-sach` (Fix round 2): `back()`'s scope, so the page can
+  // render this refusal beside the lending-policy form rather than beside
+  // the identity/contacts one sharing the same URL.
   expect(target).toBe(
-    `/quan-tri/tu-sach?tu-sach=${shelf.slug}&loi=loan_days_out_of_range`,
+    `/quan-tri/tu-sach?tu-sach=${shelf.slug}&loi=loan_days_out_of_range&pham-vi=chinh-sach`,
   );
   expect(refusalIn(target)).toBe("loan_days_out_of_range");
 });
@@ -233,14 +242,91 @@ test("a refusal on a target with no existing query string still gets exactly one
   expect(target).toBe("/quan-tri/quan-ly-vien?loi=not_permitted");
 });
 
+// Fix round 2: `/quan-tri/tu-sach` splits its one settings form into
+// `updateBookshelfProfileAction` (identity + contacts) and
+// `updateBookshelfPolicyAction` (the six lending-policy numbers and the two
+// comment toggles), each independently submittable, so a policy save never
+// carries a `profile` and never trips `contact_position_1_required` for a
+// shelf that has none. `createBookshelfAction` is unchanged and still
+// requires contact 1 — the third test below pins that the split left it
+// alone.
+
+test("updateBookshelfPolicyAction saves a shelf that has no contacts at all", async () => {
+  // The failure this fix closes: the migration deliberately leaves some
+  // shelves with zero `bookshelf_contacts` rows rather than inventing a
+  // volunteer ("inventing a volunteer is worse than an incomplete record",
+  // the migration's own words) — built here by hand, the same shape, rather
+  // than through `createBookshelfAction`, which would refuse it. Before this
+  // split such a shelf could not change its loan period at all: the one
+  // `<form>` always posted a `profile`, contacts included, and
+  // `contact_position_1_required` blocked every save.
+  await signInAsSuperAdmin();
+  const shelf = await makeShelf(sql, { slug: "khong-co-lien-he" });
+
+  const target = await redirectedTo(
+    updateBookshelfPolicyAction(
+      form({
+        "tu-sach": shelf.id,
+        "tu-sach-slug": shelf.slug,
+        "so-ngay-muon": "21",
+        "so-sach-cung-luc": "3",
+        "so-lan-gia-han": "1",
+        "so-ngay-gia-han": "7",
+        "so-ngay-giu-cho": "3",
+        "so-ngay-bao-truoc": "3",
+      }),
+    ),
+  );
+
+  expect(target).toBe(`/quan-tri/tu-sach?tu-sach=${shelf.slug}&da-luu=chinh-sach`);
+  const [row] = await sql<{ settings: { loan_days: number } }[]>`
+    select settings from bookshelves where id = ${shelf.id}
+  `;
+  expect(row.settings.loan_days).toBe(21);
+});
+
+test("updateBookshelfProfileAction still refuses saving contacts with no position 1", async () => {
+  // The rule the split does not weaken: a shelf actively editing its
+  // contacts must still name contact 1. Only the second block is posted
+  // here, mirroring a form whose first block was left empty.
+  await signInAsSuperAdmin();
+  const shelf = await makeShelf(sql, { slug: "dong-thap-ho-so" });
+
+  const target = await redirectedTo(
+    updateBookshelfProfileAction(
+      form({
+        "tu-sach": shelf.id,
+        "tu-sach-slug": shelf.slug,
+        ten: "Tủ sách Đồng Tháp",
+        "lien-he-2-ten": "Giuse Trần Minh",
+      }),
+    ),
+  );
+
+  expect(target).toBe(
+    `/quan-tri/tu-sach?tu-sach=${shelf.slug}&loi=contact_position_1_required&pham-vi=ho-so`,
+  );
+});
+
+test("createBookshelfAction still refuses a new shelf with no contact 1 — the split left it alone", async () => {
+  await signInAsSuperAdmin();
+
+  const target = await redirectedTo(
+    createBookshelfAction(form({ ten: "Tủ sách Không Có Người" })),
+  );
+
+  expect(target).toBe("/quan-tri/tu-sach?loi=contact_position_1_required");
+});
+
 // Task 17 (2026-08-10 QA remediation), carried over from Task 16's review
 // round: `updateSiteContactAction` and `updateSystemDefaultsAction` used to
 // redirect to `/quan-tri/cai-dat` with no `done` marker at all, saving as
 // silently as the three flows Task 16 fixed everywhere else. Both land on the
 // identical path, so `back`'s third argument has to be a *value*
-// (`"lien-he"`/`"mac-dinh"`), not the bare `?da-luu=1`
-// `updateBookshelfSettingsAction` above can afford — see `back`'s own
-// docstring for why.
+// (`"lien-he"`/`"mac-dinh"`) — the same reason `updateBookshelfProfileAction`
+// and `updateBookshelfPolicyAction` share `/quan-tri/tu-sach` and need
+// `"ho-so"`/`"chinh-sach"` rather than the bare `?da-luu=1` a lone form on a
+// page could afford. See `back`'s own docstring for why.
 test("saving the contact block redirects with its own done-value, not the bare marker", async () => {
   await signInAsSuperAdmin();
 
@@ -286,7 +372,7 @@ test("a refusal on either system-settings form still reports through `?loi=`, no
 
   // updateSystemDefaults refuses a loan period out of `checkPolicyBound`'s
   // 1–365 range (`src/domain/admin/policy.ts`) — the same family of refusal
-  // `updateBookshelfSettingsAction`'s own test above exercises.
+  // `updateBookshelfPolicyAction`'s own test above exercises.
   const target = await redirectedTo(
     updateSystemDefaultsAction(
       form({
