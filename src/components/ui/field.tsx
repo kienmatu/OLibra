@@ -294,14 +294,27 @@ export function Checkbox({
   name,
   value,
   label,
+  labelHidden,
   hint,
   defaultChecked,
   className,
 }: {
   name?: string;
   value?: string;
-  /** The visible word beside the box. Never omit it — an unlabelled box is unusable. */
+  /**
+   * The word beside the box. **Always required, even when `labelHidden`** — an
+   * unlabelled checkbox is unusable with a screen reader, and "the title is
+   * right there next to it" is a sighted reader's argument.
+   */
   label: string;
+  /**
+   * Keep the label for assistive technology but take it out of the visual flow.
+   *
+   * For the one case where the visible text beside the box is richer than a
+   * string — a serif `BookTitle` with an author and a count under it — so the
+   * box still announces itself without the page rendering the title twice.
+   */
+  labelHidden?: boolean;
   hint?: string;
   defaultChecked?: boolean;
   className?: string;
@@ -320,7 +333,7 @@ export function Checkbox({
         defaultChecked={defaultChecked}
         className="size-5 shrink-0 rounded-[0.25rem] border border-hairline accent-terracotta"
       />
-      <span className="flex min-w-0 flex-col">
+      <span className={cn("flex min-w-0 flex-col", labelHidden && "sr-only")}>
         <span className="text-[15px] leading-tight">{label}</span>
         {hint ? <span className="text-[13px] text-meta">{hint}</span> : null}
       </span>
