@@ -455,8 +455,9 @@ test("a file that is not one of the four image types is refused", async () => {
   // `invalid_image` — "Tệp này không phải là ảnh hợp lệ." An allow-list on the
   // content type, not a sanitiser on the filename: `AVATAR_TYPES`
   // (`src/lib/avatar.ts`) is built from `AVATAR_ACCEPT`
-  // (`src/lib/avatar-limits.ts`), the same four types offered as `accept` on
-  // the file input — JPEG, PNG, WebP and AVIF. A PDF is none of them.
+  // (`src/lib/avatar-limits.ts`) — JPEG, PNG, WebP and AVIF — which is what the
+  // server accepts. The file input's own `accept` attribute is not wired to
+  // this list yet (a later task's job); a PDF is refused here regardless.
   const { reader } = await shelfWithReader();
   const pdf = new File([PNG], "anh.pdf", { type: "application/pdf" });
 

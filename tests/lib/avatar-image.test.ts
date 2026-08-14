@@ -62,19 +62,23 @@ test("EXIF orientation is applied, so an off-centre marker moves under rotation"
     info.channels;
 
   const topRight = at(0.9, 0.12);
-  expect(data[topRight + 1], "marker green channel should be at top-right").toBeGreaterThan(
-    150,
-  );
-  expect(data[topRight + 2], "marker blue channel should be low at top-right").toBeLessThan(
-    150,
-  );
+  expect(
+    data[topRight + 1],
+    "marker green channel should be at top-right",
+  ).toBeGreaterThan(150);
+  expect(
+    data[topRight + 2],
+    "marker blue channel should be low at top-right",
+  ).toBeLessThan(150);
 
   const topLeft = at(0.12, 0.12);
   expect(
     data[topLeft + 2],
     "top-left should now be the background blue, not the marker",
   ).toBeGreaterThan(150);
-  expect(data[topLeft + 1], "top-left green channel should be low").toBeLessThan(150);
+  expect(data[topLeft + 1], "top-left green channel should be low").toBeLessThan(
+    150,
+  );
 });
 
 test("metadata is stripped by the encode — a regression guard, not proof this module strips anything", async () => {

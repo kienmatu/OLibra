@@ -62,8 +62,8 @@ const nextConfig: NextConfig = {
        * (`tests/lib/registration-over-http.test.ts` is the other, sharing the
        * same harness, `tests/support/http.ts`).
        *
-       * Strictly above `AVATAR_MAX_BYTES` (5 MB, `src/lib/avatar.ts`) and not
-       * equal to it: a multipart body is larger than the file inside it, so a
+       * Strictly above `AVATAR_MAX_BYTES` (5 MB, `src/lib/avatar-limits.ts`) and
+       * not equal to it: a multipart body is larger than the file inside it, so a
        * limit set *at* the application's own number refuses a maximum-size
        * photograph before any application code runs — and the reader gets a
        * framework error instead of "Ảnh vượt quá 5 MB."

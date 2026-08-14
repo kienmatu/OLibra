@@ -50,13 +50,16 @@ test("jpegMarkedTopLeftWithOrientation carries the tag and the marker, unrotated
     info.channels;
 
   const topLeft = at(0.12, 0.12);
-  expect(data[topLeft + 1], "marker green channel at top-left").toBeGreaterThan(150);
+  expect(data[topLeft + 1], "marker green channel at top-left").toBeGreaterThan(
+    150,
+  );
   expect(data[topLeft + 2], "marker blue channel at top-left").toBeLessThan(150);
 
   const bottomRight = at(0.9, 0.9);
-  expect(data[bottomRight + 2], "field blue channel away from the marker").toBeGreaterThan(
-    150,
-  );
+  expect(
+    data[bottomRight + 2],
+    "field blue channel away from the marker",
+  ).toBeGreaterThan(150);
 });
 
 test("jpegOfAtLeast reaches the byte count asked for", async () => {
