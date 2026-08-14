@@ -25,7 +25,7 @@ One deployment hosts many bookshelves, each reached by its own slug.
 | Database | **Settled** — PostgreSQL |
 | Object storage | **Settled** — any S3-compatible service. MinIO runs it locally |
 | Deployment | **Settled** — Docker Compose; data bind-mounted to `./data` on the host |
-| Hosting | **Open** |
+| Hosting | **Settled** — a single VPS, Caddy in front, `./deploy.sh`. See [DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
 UI design came first; the technical design follows the screens, not the other way round.
 
@@ -38,6 +38,7 @@ UI design came first; the technical design follows the screens, not the other wa
 | [SDD.md](docs/SDD.md) | Software design: layers, where each invariant is enforced, cross-cutting concerns, and what any candidate backend stack must be able to do. |
 | [DATABASE.md](docs/DATABASE.md) | The schema, and which guarantees live in the database rather than in application code. |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Every command and query the system performs, transport-neutral. |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Standing the system up on a VPS: first deploy, routine deploys, backups, restores, rollback, troubleshooting. |
 | [AGENTS.md](AGENTS.md) | Conventions for working in this repository. |
 
 ## History
