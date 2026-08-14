@@ -61,13 +61,23 @@ function appService(compose: string): string {
   return (end === -1 ? rest : rest.slice(0, end)).join("\n");
 }
 
-test("compose passes every S3 variable to the app service", () => {
-  const service = appService(readFileSync("compose.yaml", "utf8"));
-  const missing = STORAGE_ENV.filter(
-    (name) => !new RegExp(`^\\s+${name}:`, "m").test(service),
-  );
-  expect(missing).toEqual([]);
-});
+/**
+ * **Both compose files** (2026-08-14, VPS deployment). A production `app`
+ * missing one of the seven is a 500 on the first avatar upload, inside the
+ * container, which is the worst place to find out — and `S3_PUBLIC_URL` in
+ * particular is the one whose absence leaves every image on the live site
+ * broken while the server logs nothing at all.
+ */
+test.each(["compose.yaml", "compose.prod.yaml"])(
+  "%s passes every S3 variable to the app service",
+  (file) => {
+    const service = appService(readFileSync(file, "utf8"));
+    const missing = STORAGE_ENV.filter(
+      (name) => !new RegExp(`^\\s+${name}:`, "m").test(service),
+    );
+    expect(missing).toEqual([]);
+  },
+);
 
 test("the list this test guards is the one s3ConfigFromEnv actually reads", () => {
   // Keeps the literal above honest. `s3ConfigFromEnv` is the only function in
