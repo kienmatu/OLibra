@@ -236,8 +236,10 @@ test("a proposed photograph is in the bucket, fetchable, while the request is pe
 
   // The stored key is always `.webp` now — `objectKey("avatars", "webp")` is a
   // constant call, regardless of what the upload's own content type was (here
-  // `image/png`). The bytes themselves are not re-encoded until the pipeline is
-  // wired into this path (next task); only the key's extension changed here.
+  // `image/png`). The bytes are re-encoded to that format by `processAvatar`;
+  // this test asserts only the key's shape and that the object is fetchable —
+  // "what is stored is a 512×512 WebP, whatever was uploaded" below is what
+  // pins the re-encoding itself.
   const request = await proposedValues();
   expect(request.proposed_values.avatar_object).toMatch(
     /^avatars\/[0-9a-f-]+\.webp$/,
