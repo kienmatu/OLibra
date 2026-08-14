@@ -43,6 +43,38 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# `next.config.ts` reads APP_DOMAIN to admit the production host into Server
+# Actions' `allowedOrigins`, and it is evaluated *here*, while `next build`
+# runs — not at runtime in the `runner` stage below.
+#
+# That distinction is the whole reason this line exists rather than a runtime
+# environment variable. A value supplied only to the running container arrives
+# after the decision has been compiled into the build, and the resulting failure
+# has no symptom at all until the first form on the live site is submitted and
+# Next answers "Invalid Server Actions request" — a site that renders perfectly
+# and cannot be used.
+#
+# Deliberately unset for a plain `docker build` and for CI's
+# `--target smoke`: neither serves the production host, and `next.config.ts`
+# filters an empty value out rather than admitting `undefined` into the list.
+ARG APP_DOMAIN
+ENV APP_DOMAIN=${APP_DOMAIN}
+
+# Caps Node's own heap below the host's real ceiling.
+#
+# On the 2 GB VPS this project deploys to, `next build` peaks near 2 GB while a
+# running Postgres and MinIO already hold ~400 MB, so this is the one command in
+# a deploy likely to exhaust memory. What the cap buys is not survival — it is a
+# JavaScript heap-out-of-memory trace naming the phase that failed, instead of
+# the kernel's OOM killer removing the process and leaving a bare `Killed`.
+#
+# Scoped to this stage on purpose. The runtime is Bun, not Node, so an inherited
+# NODE_OPTIONS there would be at best ignored and at worst a warning on every
+# boot, carrying a heap ceiling that describes a build machine.
+ARG NODE_OPTIONS
+ENV NODE_OPTIONS=${NODE_OPTIONS}
+
 RUN npm run build
 
 
