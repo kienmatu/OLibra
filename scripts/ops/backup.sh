@@ -105,24 +105,35 @@ chmod 600 "$DUMP"
 success "Database dumped: $DUMP ($(du -h "$DUMP" | cut -f1))"
 
 # ─── Object store ─────────────────────────────────────────────────────────────
-# A throwaway `mc` container on the stack's own network, so this needs no mc on
-# the host and no published MinIO port. `--overwrite` rather than `--remove`:
-# an object deleted from the bucket stays in the mirror, which is what you want
-# from a backup and not what you want from a sync.
+# A throwaway container off the `storage-init` service, so this needs no `mc` on
+# the host and no published MinIO port.
+#
+# **`compose run` on an existing service, not `docker run`.** The mirror has to
+# reach `http://storage:9000`, which only resolves on the stack's own network —
+# and a bare `docker run` would have to find that network's name by inspecting a
+# container and reading its NetworkSettings, which breaks the moment the project
+# name or the container numbering changes. `storage-init` is already defined
+# against the right network with the right image pin, so borrowing it is both
+# shorter and one less thing to keep in sync.
+#
+# `--no-deps` because the mirror needs `storage` to be up, which it already is
+# by the time this runs, and starting dependencies here would restart it.
+#
+# `--overwrite` rather than `--remove`: an object deleted from the bucket stays
+# in the mirror. That is what you want from a backup, and not what you want from
+# a sync.
 info "Mirroring bucket '$S3_BUCKET' ..."
-NETWORK=$("${COMPOSE[@]}" ps --format '{{.Name}}' storage 2>/dev/null | head -n1)
-if [[ -z "$NETWORK" ]]; then
+if ! "${COMPOSE[@]}" ps --status running --format '{{.Name}}' storage 2>/dev/null | grep -q .; then
   warn "The storage service is not running — skipping the object mirror. The database dump above is complete."
 else
-  if docker run --rm \
-      --network "$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$NETWORK")" \
+  if "${COMPOSE[@]}" run --rm --no-deps \
       -v "$PWD/$BACKUP_DIR/storage:/mirror" \
       --entrypoint /bin/sh \
-      minio/mc:RELEASE.2025-04-16T18-13-26Z -c "
+      storage-init -c "
         set -e
         mc alias set olibra http://storage:9000 '$S3_ACCESS_KEY_ID' '$S3_SECRET_ACCESS_KEY' >/dev/null
         mc mirror --overwrite --quiet olibra/$S3_BUCKET /mirror
-      " 2>/dev/null; then
+      " >/dev/null 2>&1; then
     success "Objects mirrored: $BACKUP_DIR/storage ($(du -sh "$BACKUP_DIR/storage" | cut -f1))"
   else
     warn "The object mirror failed. The database dump above is complete and usable."
