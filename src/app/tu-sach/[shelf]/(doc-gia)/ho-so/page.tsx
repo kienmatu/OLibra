@@ -114,6 +114,10 @@ export default async function ReaderProfilePage({
   const showL2 = hasVisibleLevel2(taxonomy, units);
   const pending = profile.pendingChange;
   const fields = profile.fields;
+  // Read once: `AvatarProposal` below and the pending block further down
+  // both need the reader's current avatar URL, and `avatarUrl` was being
+  // called twice for the identical value.
+  const currentAvatarSrc = avatarUrl(fields.avatar_object);
 
   return (
     <>
@@ -134,7 +138,7 @@ export default async function ReaderProfilePage({
         <AvatarProposal
           action={proposeAvatarAction}
           slug={slug}
-          currentAvatarUrl={avatarUrl(fields.avatar_object)}
+          currentAvatarUrl={currentAvatarSrc}
           // The last word of a Vietnamese name is the given name.
           initial={fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
         />
@@ -147,55 +151,81 @@ export default async function ReaderProfilePage({
             <ul className="mt-2 space-y-1 text-[14px]">
               {proposedFields(pending.proposedValues).map((f) =>
                 f === "avatar_object" ? (
-                  // The one field that is not text, for the same reason
-                  // `AvatarCompareRow` on the manager's approval screen is
-                  // not: a storage key printed as `{label}: {value}` is
-                  // meaningless to a reader, where the URL it replaced
-                  // (Task 5) was merely ugly. `alt` is meaningful rather
-                  // than empty, unlike `AvatarCompareRow`, because these two
-                  // images have no adjacent label naming each one.
-                  <li key={f}>
-                    {PROFILE_FIELD_LABELS[f]}
-                    <span className="mt-2 flex items-center gap-3">
-                      <span className="flex size-16 items-center justify-center overflow-hidden rounded-full bg-paper text-[18px] font-semibold text-leather">
-                        {avatarUrl(fields.avatar_object) ? (
-                          // A plain <img>, deliberately: `next.config.ts`
-                          // configures no image optimizer for the object
-                          // store's host, so `next/image` would refuse the
-                          // URL outright. `AvatarCompareRow`
-                          // (`quan-ly/doi-thong-tin/page.tsx`) is the same
-                          // pattern on the manager's decision screen.
-                          // eslint-disable-next-line @next/next/no-img-element
+                  pending.status === "pending" ? (
+                    // The one field that is not text, for the same reason
+                    // `AvatarCompareRow` on the manager's approval screen is
+                    // not: a storage key printed as `{label}: {value}` is
+                    // meaningless to a reader, where the URL it replaced
+                    // (Task 5) was merely ugly. `alt` is meaningful rather
+                    // than empty, unlike `AvatarCompareRow`, because these two
+                    // images have no adjacent label naming each one.
+                    //
+                    // Gated to "pending" only: once a request is decided,
+                    // neither <img> below can be trusted to still resolve.
+                    // Rejected and cancelled proposals have their proposed
+                    // object deleted outright by `decideAndDiscardAvatar`
+                    // (`src/lib/avatar.ts`), so its URL 404s. An approved
+                    // proposal instead has its *old* object deleted and the
+                    // proposed key promoted to `users.avatar_object` — the
+                    // "current" image above would then just duplicate the
+                    // photo already shown at the top of this page, with no
+                    // label here explaining that. The `else` branch below
+                    // states the fact in words for every decided status.
+                    <li key={f}>
+                      {PROFILE_FIELD_LABELS[f]}
+                      <span className="mt-2 flex items-center gap-3">
+                        <span className="flex size-16 items-center justify-center overflow-hidden rounded-full bg-paper text-[18px] font-semibold text-leather">
+                          {currentAvatarSrc ? (
+                            // A plain <img>, deliberately: `next.config.ts`
+                            // configures no image optimizer for the object
+                            // store's host, so `next/image` would refuse the
+                            // URL outright. `AvatarCompareRow`
+                            // (`quan-ly/doi-thong-tin/page.tsx`) is the same
+                            // pattern on the manager's decision screen.
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={currentAvatarSrc}
+                              alt="Ảnh hiện tại"
+                              className="size-full object-cover"
+                            />
+                          ) : (
+                            <span aria-hidden>
+                              {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
+                            </span>
+                          )}
+                        </span>
+                        <ArrowRight
+                          aria-hidden
+                          className="size-4 shrink-0 text-leather"
+                          strokeWidth={2}
+                        />
+                        <span className="flex size-16 items-center justify-center overflow-hidden rounded-full border-2 border-terracotta bg-terracotta/10">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={avatarUrl(fields.avatar_object) ?? ""}
-                            alt="Ảnh hiện tại"
+                            src={
+                              avatarUrl(
+                                pending.proposedValues.avatar_object ?? null,
+                              ) ?? ""
+                            }
+                            alt="Ảnh bạn đề nghị"
                             className="size-full object-cover"
                           />
-                        ) : (
-                          <span aria-hidden>
-                            {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
-                          </span>
-                        )}
+                        </span>
                       </span>
-                      <ArrowRight
-                        aria-hidden
-                        className="size-4 shrink-0 text-leather"
-                        strokeWidth={2}
-                      />
-                      <span className="flex size-16 items-center justify-center overflow-hidden rounded-full border-2 border-terracotta bg-terracotta/10">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={
-                            avatarUrl(
-                              pending.proposedValues.avatar_object ?? null,
-                            ) ?? ""
-                          }
-                          alt="Ảnh bạn đề nghị"
-                          className="size-full object-cover"
-                        />
-                      </span>
-                    </span>
-                  </li>
+                    </li>
+                  ) : (
+                    // A decided request: the object this row would have
+                    // pointed at is gone (rejected/cancelled) or already
+                    // shown above as the current photo (approved) — either
+                    // way an <img> here would either 404 or silently
+                    // duplicate the photo at the top of the page. The
+                    // reader still needs to know *which* field this line is
+                    // about, so it falls back to the bare label rather than
+                    // a `{label}: {value}` pair — a storage key printed as
+                    // the value would be meaningless to a reader, same as
+                    // the comment above records for the "pending" case.
+                    <li key={f}>{PROFILE_FIELD_LABELS[f]}</li>
+                  )
                 ) : (
                   <li key={f}>
                     {PROFILE_FIELD_LABELS[f]}:{" "}

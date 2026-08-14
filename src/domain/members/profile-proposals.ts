@@ -61,8 +61,22 @@ export const PROPOSABLE_FIELDS: readonly ProfileField[] = PROFILE_FIELDS.filter(
  * So this slice reads `:480` as *replace the portion you named*, and merges the
  * rest. `"merge"` is the reading; `"replace"` is `:480` taken literally. The
  * product owner may prefer the literal one — B2b's plan §8 flags it as the one
- * question it answers on a reading rather than on a source — and reversing it
- * is this constant plus the test named in its comment, nothing else.
+ * question it answers on a reading rather than on a source.
+ *
+ * **Reversing it is no longer "this constant plus the test named in its
+ * comment, nothing else".** That was true on `main`, where `carryAvatar`
+ * unconditionally grafted `avatar_object` back onto `proposed_values` after
+ * every merge, so a `"replace"` that dropped the key here got it restored a
+ * step later. This branch deleted `carryAvatar` (correctly — `avatar_object`
+ * is an ordinary `ProfileField` now, kept by `pickProfileFields` like any
+ * other, so a second graft would be redundant). Under `"replace"`,
+ * `mergeProposal` now returns `{ proposed: { ...incoming } }` outright: a
+ * phone-only `ProposeProfileChange` while a photograph is still pending would
+ * silently drop `avatar_object` from `proposed_values`, and nothing would
+ * ever name that key again for `decideAndDiscardAvatar` to delete on
+ * rejection or cancellation — an orphaned photograph left behind forever in a
+ * public-read bucket. Flipping this constant today requires restoring that
+ * graft (or an equivalent) alongside it, not flipping it alone.
  *
  * Typed as the union rather than inferred as its value on purpose: without the
  * annotation TypeScript narrows this to the literal `"merge"` and then reports

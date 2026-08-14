@@ -55,12 +55,17 @@ import { ValidationFailed } from "../domain/kernel/errors";
  * `ValidationFailed`, so whoever debugs a spike in this refusal still has the
  * real exception to read rather than a single flattened sentence.
  *
- * Output size is governed by this encode and not by the input, so the ~50 KB a
- * 2000×1500 field of pure noise produces is effectively the ceiling for any
- * accepted upload — measured against `tests/support/images.ts`'s `noise()`,
- * which fills bytes from a deterministic hash rather than true randomness and
- * so compresses somewhat better than a genuinely random source would. The
- * product owner asked for 800 KB; the margin is about 16×, and
+ * Output size is governed by this encode and not by the input, so the ~104 KB
+ * (measured: 105,998 bytes) a 2000×1500 field of genuinely random noise
+ * produces is effectively the ceiling for any accepted upload — measured
+ * against `tests/support/images.ts`'s `noise()`, which fills every byte from
+ * a seeded PRNG (`mulberry32`) rather than deriving it from the byte's own
+ * index, so the bytes carry no shorter description than themselves and the
+ * figure is an honest one rather than an optimistic one. (An earlier version
+ * of `noise()` filled bytes with `(i * 2654435761) % 256`, a formula that
+ * reduces to a 256-byte-periodic ramp and compresses far better than real
+ * noise; it produced ~50 KB, and this comment used to quote that number.) The
+ * product owner asked for 800 KB; the margin is about 7.7×, and
  * `tests/lib/avatar-image.test.ts` pins it so a later change to either
  * constant fails loudly rather than quietly.
  */

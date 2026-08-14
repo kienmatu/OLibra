@@ -138,7 +138,8 @@ export function AvatarProposal({
           />
         </label>
         <p className="mt-1.5 text-[13px] text-meta">
-          Ảnh JPG, PNG hoặc WEBP, tối đa 5 MB. Ảnh sẽ được cắt vuông và thu nhỏ.
+          Ảnh JPG, PNG, WEBP hoặc AVIF, tối đa 5 MB. Ảnh sẽ được cắt vuông và thu
+          nhỏ.
         </p>
         <p className="mt-1 text-[13px] text-meta">
           Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị.

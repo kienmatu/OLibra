@@ -6,6 +6,7 @@ import {
   centreMarkedPng,
   jpegMarkedTopLeftWithOrientation,
   jpegWithOrientation,
+  realAvif,
   realJpeg,
   realPng,
 } from "../support/images";
@@ -101,11 +102,13 @@ test("worst-case noise still lands far under 800 KB", async () => {
   // Noise is close to incompressible and therefore close to the honest upper
   // bound: the output size is governed by the 512x512 encode, not by the
   // input, so this is effectively the ceiling for any accepted upload.
-  // Measured at ~50 KB (50,738 bytes) against `tests/support/images.ts`'s
-  // `noise()`, which fills bytes from a deterministic hash rather than true
-  // randomness — a genuinely random source compresses somewhat worse, so a
-  // real-world worst case may land a bit higher than this figure, though
-  // still nowhere near the 800 KB ceiling being asserted.
+  // `tests/support/images.ts`'s `noise()` fills every byte from a seeded PRNG
+  // (`mulberry32`), so this is a genuinely high-entropy source rather than a
+  // formula (`(i * 2654435761) % 256`, the fixture's earlier version) that
+  // reduces to a 256-byte-periodic ramp and compresses far better than real
+  // noise. Measured at ~104 KB (105,998 bytes) — margin about 7.7× under the
+  // product owner's 800 KB ceiling — where the old, falsely-"incompressible"
+  // fixture measured ~50 KB and overstated the margin at ~16×.
   const out = await processAvatar(
     await realJpeg({ width: 2000, height: 1500, noise: true }),
   );
@@ -152,4 +155,19 @@ test("png and jpeg both arrive at the same output shape", async () => {
     expect(meta.format).toBe("webp");
     expect(meta.width).toBe(AVATAR_EDGE);
   }
+});
+
+test("AVIF decodes to a 512x512 WebP, same as every other accepted type", async () => {
+  // AVIF is the fourth entry in `AVATAR_ACCEPT` (`src/lib/avatar-limits.ts`)
+  // and, before this test, had no automated coverage at all — it had been
+  // let into the allow-list on one manual check during design. `realAvif`
+  // (`tests/support/images.ts`) encodes real AVIF bytes with sharp's own
+  // libheif build, so this exercises the actual decode path a hostile or
+  // merely unusual upload would take, not a stand-in for one.
+  const out = await processAvatar(await realAvif({ width: 800, height: 600 }));
+  const meta = await sharp(out).metadata();
+
+  expect(meta.format).toBe("webp");
+  expect(meta.width).toBe(AVATAR_EDGE);
+  expect(meta.height).toBe(AVATAR_EDGE);
 });

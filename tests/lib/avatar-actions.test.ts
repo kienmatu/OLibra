@@ -473,8 +473,11 @@ test("a file that is not one of the four image types is refused", async () => {
   // content type, not a sanitiser on the filename: `AVATAR_TYPES`
   // (`src/lib/avatar.ts`) is built from `AVATAR_ACCEPT`
   // (`src/lib/avatar-limits.ts`) — JPEG, PNG, WebP and AVIF — which is what the
-  // server accepts. The file input's own `accept` attribute is not wired to
-  // this list yet (a later task's job); a PDF is refused here regardless.
+  // server accepts. `src/components/avatar-proposal.tsx`'s file input wires its
+  // own `accept` attribute to this same list (`accept={AVATAR_ACCEPT.join(",")}`)
+  // so a browser offers the identical four types; that is a courtesy the OS file
+  // picker may or may not enforce, not a security boundary, so this server-side
+  // check is what actually refuses a PDF regardless of what the browser let through.
   const { reader } = await shelfWithReader();
   const pdf = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "anh.pdf", {
     type: "application/pdf",

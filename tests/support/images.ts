@@ -25,13 +25,44 @@ function flat(width: number, height: number) {
 }
 
 /**
- * Random RGB noise. Incompressible, which is what makes it the worst case for
- * any encoder — used where a test needs either a large file or an honest
- * upper bound on output size.
+ * A small, fast, deterministic pseudo-random generator (mulberry32) —
+ * deterministic on purpose, so the bytes `noise()` below produces, and every
+ * measurement taken against them, are the same on every run. `Math.random()`
+ * would make the suite's own worst-case-size assertion flaky by construction:
+ * a passing run today would say nothing about tomorrow's.
+ */
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return function next(): number {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return (t ^ (t >>> 14)) >>> 0;
+  };
+}
+
+/**
+ * Genuinely high-entropy RGB noise — used where a test needs either a large
+ * file or an honest upper bound on output size.
+ *
+ * **This used to be `(i * 2654435761) % 256`**, which reduces to `(i * 177) %
+ * 256`: an exactly 256-byte-periodic ramp (`raw[0:256]` equals
+ * `raw[256:512]`, byte for byte), trivially compressible, and not remotely
+ * the "worst case for any encoder" the comment above it used to claim. A
+ * seeded PRNG closes the gap while keeping the determinism true randomness
+ * would have cost: `mulberry32` above passes the same periodicity check the
+ * old generator failed (`raw.subarray(0, 256).equals(raw.subarray(256, 512))`
+ * is `false`), and every byte is fed from the generator's own output rather
+ * than from an index-derived formula, so there is no shorter description of
+ * the buffer than the buffer itself — which is what "close to incompressible"
+ * actually requires. See `src/lib/avatar-image.ts` for the measurement this
+ * fixture's honesty was blocking.
  */
 function noise(width: number, height: number) {
   const raw = Buffer.alloc(width * height * 3);
-  for (let i = 0; i < raw.length; i++) raw[i] = (i * 2654435761) % 256;
+  const rand = mulberry32(0x9e3779b9);
+  for (let i = 0; i < raw.length; i++) raw[i] = rand() & 0xff;
   return sharp(raw, { raw: { width, height, channels: 3 } });
 }
 
@@ -55,6 +86,22 @@ export async function realWebp(
 ): Promise<Buffer> {
   const { width = 800, height = 600 } = opts;
   return flat(width, height).webp().toBuffer();
+}
+
+/**
+ * A real, decodable AVIF — the fourth member of `AVATAR_ACCEPT`
+ * (`src/lib/avatar-limits.ts`) and, until this fixture, the only one with no
+ * automated coverage anywhere (`grep -rn avif tests/` was empty): it had been
+ * accepted into the allow-list on the strength of one manual check during
+ * design. `sharp` encodes AVIF through the same libvips/libheif build it
+ * decodes with, so `.avif({ quality: 50 })` here and `processAvatar`'s decode
+ * of the result exercise the real codec, not a stub.
+ */
+export async function realAvif(
+  opts: { width?: number; height?: number } = {},
+): Promise<Buffer> {
+  const { width = 800, height = 600 } = opts;
+  return flat(width, height).avif({ quality: 50 }).toBuffer();
 }
 
 /**
