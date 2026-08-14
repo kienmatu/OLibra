@@ -148,3 +148,22 @@ RUN bun server.js & \
       console.error("smoke: Bun never served the landing page"); \
       process.exit(1); \
     '
+
+# Uploads decode, crop and re-encode through sharp, a native binding. The
+# landing page renders without ever loading it, so a linux binary that is
+# missing or built for the wrong platform would pass the probe above and fail
+# the first reader who tried to change their photograph. This encodes a real
+# image under Bun, which is the runtime that actually serves requests.
+RUN bun -e ' \
+      const sharp = (await import("sharp")).default; \
+      const out = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c56b4a" } }) \
+        .resize(32, 32, { fit: "cover", position: "centre" }) \
+        .webp({ quality: 82 }) \
+        .toBuffer(); \
+      const meta = await sharp(out).metadata(); \
+      if (meta.format !== "webp" || meta.width !== 32) { \
+        console.error(`smoke: sharp produced ${meta.format} ${meta.width}px`); \
+        process.exit(1); \
+      } \
+      console.log("smoke: sharp encoded a WebP under Bun"); \
+    '
