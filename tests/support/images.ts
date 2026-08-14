@@ -70,6 +70,54 @@ export async function jpegWithOrientation(orientation: number): Promise<Buffer> 
 }
 
 /**
+ * A square field with a distinctly-coloured 100×100 marker block pinned to
+ * the top-left corner, carrying an EXIF orientation tag.
+ *
+ * `jpegWithOrientation` above is a *uniform* field — rotating a flat colour
+ * is pixel-identical to not rotating it, so no assertion about its output
+ * can tell "the tag was applied" apart from "the tag was ignored and sharp
+ * merely stripped it as usual". This fixture exists to make that assertion
+ * possible: the marker sits off-centre, so a 90° rotation moves it to a
+ * different corner, and a pipeline that skips `.rotate()` leaves it exactly
+ * where it started.
+ *
+ * The field is square (400×400) so that `processAvatar`'s `resize(..., {
+ * fit: "cover" })` only scales it — a square input needs no cropping to
+ * reach a square output — keeping the geometry to "rotate, then scale
+ * uniformly" instead of "rotate, then scale, then crop", which is what
+ * `tests/lib/avatar-image.test.ts` walks through pixel by pixel.
+ */
+export async function jpegMarkedTopLeftWithOrientation(
+  orientation: number,
+): Promise<Buffer> {
+  const edge = 400;
+  const markerEdge = 100;
+  const marker = await sharp({
+    create: {
+      width: markerEdge,
+      height: markerEdge,
+      channels: 3,
+      background: { r: 34, g: 197, b: 94 }, // green — distinct from the field below
+    },
+  })
+    .png()
+    .toBuffer();
+
+  return sharp({
+    create: {
+      width: edge,
+      height: edge,
+      channels: 3,
+      background: { r: 30, g: 30, b: 230 }, // blue field
+    },
+  })
+    .composite([{ input: marker, top: 0, left: 0 }])
+    .withMetadata({ orientation })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+}
+
+/**
  * A genuinely decodable JPEG of at least `bytes`, grown by enlarging a noise
  * field rather than by padding — trailing bytes after a JPEG's end marker are
  * tolerated by some decoders and rejected by others, which would make the test

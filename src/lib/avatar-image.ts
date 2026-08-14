@@ -46,10 +46,22 @@ import { ValidationFailed } from "../domain/kernel/errors";
  * byte limit to 5 MB, closed by the library's default rather than by anything
  * written here.
  *
- * Output size is governed by this encode and not by the input, so the ~105 KB a
+ * The `catch` is deliberately broad rather than narrowed to a decode error:
+ * sharp does not expose a reliable way to tell "not an image" apart from an
+ * internal fault (an out-of-memory condition, say, or a future typo in the
+ * resize options), and refusing to decode is genuinely the common case a
+ * reader should see as "Tệp này không phải là ảnh hợp lệ." either way. What
+ * changes is that the original error is preserved as `cause` on the thrown
+ * `ValidationFailed`, so whoever debugs a spike in this refusal still has the
+ * real exception to read rather than a single flattened sentence.
+ *
+ * Output size is governed by this encode and not by the input, so the ~50 KB a
  * 2000×1500 field of pure noise produces is effectively the ceiling for any
- * accepted upload. The product owner asked for 800 KB; the margin is about 8×,
- * and `tests/lib/avatar-image.test.ts` pins it so a later change to either
+ * accepted upload — measured against `tests/support/images.ts`'s `noise()`,
+ * which fills bytes from a deterministic hash rather than true randomness and
+ * so compresses somewhat better than a genuinely random source would. The
+ * product owner asked for 800 KB; the margin is about 16×, and
+ * `tests/lib/avatar-image.test.ts` pins it so a later change to either
  * constant fails loudly rather than quietly.
  */
 
@@ -66,7 +78,13 @@ export async function processAvatar(input: Uint8Array): Promise<Uint8Array> {
       .resize(AVATAR_EDGE, AVATAR_EDGE, { fit: "cover", position: "centre" })
       .webp({ quality: AVATAR_QUALITY })
       .toBuffer();
-  } catch {
-    throw new ValidationFailed("invalid_image", "avatar");
+  } catch (cause) {
+    const failure = new ValidationFailed("invalid_image", "avatar");
+    // `ValidationFailed`'s constructor takes only `(code, field)` — adding a
+    // third parameter would change its public shape for every other call
+    // site. `cause` is a plain, optional property every `Error` already
+    // carries (ES2022), so it is set here instead, after construction.
+    failure.cause = cause;
+    throw failure;
   }
 }
