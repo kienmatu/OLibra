@@ -1,4 +1,10 @@
-import { cn } from "@/lib/utils";
+// Relative, not the `@/` alias: `avatar-proposal.tsx` is the first client
+// component to pull this file into a test's import graph
+// (`tests/components/avatar-proposal.test.tsx`), and `vitest.config.ts` has
+// no `resolve.alias` for `@/`. `./button.tsx`, `./phone-link.tsx`,
+// `./field.tsx` and `./segmented.tsx` already made this same switch for the
+// identical reason.
+import { cn } from "../../lib/utils";
 
 /**
  * A tinted pill carrying an icon, a Vietnamese word and a colour — together,

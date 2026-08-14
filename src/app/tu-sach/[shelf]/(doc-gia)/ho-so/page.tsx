@@ -1,7 +1,8 @@
-import { Camera, KeyRound, Lock } from "lucide-react";
+import { KeyRound, Lock } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue, Textarea } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AvatarProposal } from "@/components/avatar-proposal";
 import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
@@ -11,6 +12,7 @@ import { atLeast } from "@/domain/kernel/tenant";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
+import { avatarUrl } from "@/lib/avatar-url";
 import { formatInstant } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -129,36 +131,13 @@ export default async function ReaderProfilePage({
           </p>
         ) : null}
 
-        <div className="mt-8 flex items-center gap-4">
-          <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-paper text-[26px] font-semibold text-leather">
-            {/* The last word of a Vietnamese name is the given name. */}
-            {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
-          </div>
-          {/* B2b's avatar upload, unchanged. The form posts no identity:
-              `proposeAvatarChange` takes the membership from
-              `ctx.actor.membershipId`, which is a stronger position than
-              posting one and comparing it — there is nothing in the request to
-              rewrite. */}
-          <form action={proposeAvatarAction}>
-            <input type="hidden" name="tu-sach" value={slug} />
-            <label className="inline-flex cursor-pointer items-center gap-2 text-[15px] font-medium text-leather">
-              <Camera aria-hidden className="size-[18px]" strokeWidth={1.75} />
-              Đề nghị đổi ảnh
-              <input
-                type="file"
-                name="anh"
-                accept="image/jpeg,image/png,image/webp"
-                className="sr-only"
-              />
-            </label>
-            <p className="mt-1.5 text-[13px] text-meta">
-              Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị.
-            </p>
-            <SubmitButton variant="quiet" size="sm" className="mt-2">
-              Gửi ảnh
-            </SubmitButton>
-          </form>
-        </div>
+        <AvatarProposal
+          action={proposeAvatarAction}
+          slug={slug}
+          currentAvatarUrl={avatarUrl(fields.avatar_object)}
+          // The last word of a Vietnamese name is the given name.
+          initial={fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
+        />
 
         {pending ? (
           <div className="mt-8 rounded-card border border-hairline bg-paper p-4">
