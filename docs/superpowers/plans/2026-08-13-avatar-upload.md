@@ -1388,17 +1388,20 @@ test("a proposal about a phone number leaves a pending photograph's key alone", 
 });
 ```
 
-- [ ] **Step 11: Reset the database and run everything**
+- [ ] **Step 11: Migrate in place and run everything**
+
+**Do not run `docker compose down -v`.** An earlier draft of this step did, and the product owner revoked it on 2026-08-13 once it emerged that a second session is working in this repository: `down -v` destroys the dev database *and* the MinIO bucket, which is not this plan's to take from another piece of work. The migration is a single `drop column` and applies perfectly well in place.
 
 ```bash
-docker compose down -v
-docker compose up -d
 bun run db:migrate
-bun run db:seed
 ```
+
+Dropping `users.avatar_url` in place orphans nothing: `src/db/seed.ts` writes no avatars, and no caller has ever supplied `RegistrationInput.avatarUrl`, so no existing row holds a URL without a key. If `db:migrate` reports the column is already gone, the migration has already run — check `schema_migrations` rather than re-running.
 
 Then: `bun run check`
 Expected: PASS.
+
+**Verification will be noisy through no fault of this task.** A separate Claude Code session is running its own suite against the same `olibra_test` database, and both suites truncate the same tables between tests. Failures whose signature is foreign-key violations, duplicate keys, or `PostgresError: deadlock detected` spread across whole files are that contention, not this change. When you see it: re-run once, and if it repeats identically, fall back to `bun run typecheck` plus targeted `bun run test <file>` runs and say so in your report. `typecheck` is database-independent and is the gate that matters most here — this task is a compiler-driven rename, so a missed site is a type error, not a silent bug.
 
 - [ ] **Step 12: Update DATABASE.md**
 
