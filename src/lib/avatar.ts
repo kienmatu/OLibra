@@ -2,6 +2,7 @@ import { proposeAvatarChange } from "../domain/members/commands/propose-avatar-c
 import { ValidationFailed } from "../domain/kernel/errors";
 import type { Command } from "../domain/kernel/unit-of-work";
 import { objectKey } from "../storage/s3";
+import { processAvatar } from "./avatar-image";
 import { AVATAR_ACCEPT, AVATAR_MAX_BYTES } from "./avatar-limits";
 import { objectStore } from "./object-store";
 import { submitCommand } from "./page-data";
@@ -121,17 +122,16 @@ export interface UploadedFile {
 /**
  * Applies OPS §4.3's three failure modes and puts the bytes.
  *
- * **`invalid_image` is a content-type check and not a decode.** The sentence is
- * "Tệp này không phải là ảnh hợp lệ." and the honest reading of it here is: this
- * is not a kind of file we serve as a photograph. Decoding the image to prove it
- * is really a PNG would be a stronger claim and a different dependency; what the
- * bucket is protected by instead is that the key never carries the uploaded
- * name, never ends `.html`, and is served from a bucket whose only public grant
- * is `s3:GetObject` (`tests/architecture/compose-grants-only-get-object.test.ts`).
- * The `nosniff` a browser also receives is **MinIO's**, not this application's,
- * and AWS S3 does not send it — recorded on `ObjectStore` in
- * `src/storage/s3.ts`, because a defence that moves with the provider must not
- * be counted as one of ours.
+ * **`invalid_image` is a decode.** `./avatar-image.ts` re-encodes every upload,
+ * so a file that is not an image fails there and earns the refusal — the
+ * header a browser attached is no longer the whole of the claim. What the
+ * bucket is protected by *in addition* is unchanged and still load-bearing:
+ * the key never carries the uploaded name, never ends `.html`, and is served
+ * from a bucket whose only public grant is `s3:GetObject`
+ * (`tests/architecture/compose-grants-only-get-object.test.ts`). The `nosniff`
+ * a browser also receives is **MinIO's**, not this application's, and AWS S3
+ * does not send it — recorded on `ObjectStore` in `src/storage/s3.ts`, because
+ * a defence that moves with the provider must not be counted as one of ours.
  *
  * **The size is checked before `arrayBuffer()`, which is not the same as before
  * the bytes arrive.** This function refuses an oversize file without
@@ -146,13 +146,10 @@ export interface UploadedFile {
  * *above* `AVATAR_MAX_BYTES` so that the sentence below is the one a reader
  * sees for anything in between.
  *
- * **No aspect-ratio check.** OPS §4.3 says "≤2 MB, square, per the profile
- * screen's own copy" and that copy does not exist: `2 MB`, `MB`, `vuông` and
- * `square` appear nowhere under `src/app/` or `src/components/`. The size limit
- * is implementable because `file_too_large`'s sentence names the number;
- * "square" has no sentence, no code and no source anywhere, so the B2b plan §8
- * asks the product owner for it rather than this module inventing a refusal with
- * a Vietnamese sentence nobody wrote.
+ * **Every photograph is square, and none is refused for not being.** OPS §4.3
+ * asked for "≤2 MB, square" and B2b recorded that "square" had no sentence, no
+ * code and no source. `./avatar-image.ts` centre-crops instead, which answers
+ * the requirement without inventing a refusal nobody wrote — see that module.
  */
 export async function storeProposedAvatar(
   file: UploadedFile,
@@ -164,9 +161,11 @@ export async function storeProposedAvatar(
     throw new ValidationFailed("file_too_large", "avatar");
   }
 
+  const processed = await processAvatar(new Uint8Array(await file.arrayBuffer()));
+
   const store = objectStore();
   const key = objectKey("avatars", "webp");
-  await store.put(key, new Uint8Array(await file.arrayBuffer()), file.type);
+  await store.put(key, processed, "image/webp");
   return { avatarUrl: store.url(key), avatarObject: key };
 }
 
