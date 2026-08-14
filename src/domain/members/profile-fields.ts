@@ -472,7 +472,10 @@ export function assertPhoneOrReason(
  * deletable by no code path — which is a retention failure, not a storage one
  * (`src/storage/s3.ts` on why name-plus-face is the most identifying pair here).
  * That is precisely the failure `carryAvatar` was written to prevent; it
- * prevented it sequentially and not concurrently.
+ * prevented it sequentially and not concurrently. (`carryAvatar` itself was
+ * deleted on 2026-08-13, when `avatar_object` became a `ProfileField` and there
+ * was no longer a second fact to graft back on — see `./pending-proposal.ts`.
+ * The lock below is what stopped the concurrent form and is unaffected.)
  *
  * **A deadlock that escaped as a raw `PostgresError`.** `ApproveProfileChange`
  * held `for update` on the reader's `users` row (via `applyProfileFields`) and
