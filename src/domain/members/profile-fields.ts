@@ -197,7 +197,7 @@ function named(patch: ProfilePatch, field: ProfileField): boolean {
  * other. It used to be dropped here: `users` held a URL and the key travelled
  * beside it out of band, so a key reaching `applyProfileFields` would have been
  * a write to a column nobody had sanctioned. `users.avatar_url` is gone
- * (`20260813_01_avatar_object_only.sql`) and the key is the whole of what a row
+ * (`20260813_02_avatar_object_only.sql`) and the key is the whole of what a row
  * keeps, so the field is ordinary now. The name is not: `avatar_object` rather
  * than the more obvious `avatar_key`, because `kernel/audit.ts`'s `FORBIDDEN`
  * list matches `key` as a whole token, so an `avatar_key` in an audited payload

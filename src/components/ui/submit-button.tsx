@@ -2,11 +2,6 @@
 
 import { LoaderCircle } from "lucide-react";
 import { useFormStatus } from "react-dom";
-// Relative, not the `@/` alias: `avatar-proposal.tsx` is the first client
-// component to pull this file into a test's import graph
-// (`tests/components/avatar-proposal.test.tsx`), and `vitest.config.ts` has
-// no `resolve.alias` for `@/` — `./button.tsx`'s own note records the
-// identical reason.
 import { Button } from "./button";
 
 /**

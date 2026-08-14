@@ -152,7 +152,7 @@ no caller passes a value: the three references to it under `src/app` and
 The state `avatar_url` was preserved to represent has never occurred.
 
 ```sql
--- 20260813_01_avatar_object_only.sql
+-- 20260813_02_avatar_object_only.sql
 alter table users drop column avatar_url;
 
 comment on column users.avatar_object is
@@ -510,6 +510,13 @@ Imports use relative specifiers, not the `@/` alias, for the reason
 `resolve.alias` for `@/`, and `tests/components/*.test.tsx` import these modules
 directly.
 
+_(Superseded 2026-08-13 by `a519ed4`, which added `resolve.alias` for `@/` to
+`vitest.config.ts`, and `32e00f5`, which records the resulting convention:
+`@/` when an import leaves its file's own top-level directory, relative
+within it — `src/domain/` stays fully relative regardless, for a different
+reason (SDD §3.1). `avatar-proposal.tsx` as committed imports
+`@/domain/kernel/errors` and `@/lib/avatar-limits`.)_
+
 ### 5.2 It degrades to exactly today's form
 
 `src/components/phone-confirm-dialog.tsx:31` states the pattern: with JavaScript
@@ -703,7 +710,7 @@ reader who tries to change their photograph.
 
 **New**
 
-- `src/db/migrations/20260813_01_avatar_object_only.sql`
+- `src/db/migrations/20260813_02_avatar_object_only.sql`
 - `src/lib/avatar-image.ts` — `processAvatar`, `AVATAR_EDGE`, `AVATAR_QUALITY`
 - `src/lib/avatar-url.ts` — the one read-time derivation
 - `src/components/avatar-proposal.tsx` — the island

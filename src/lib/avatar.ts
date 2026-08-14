@@ -62,7 +62,7 @@ import { submitCommand } from "./page-data";
  * and cancel paths do, and `decideAndDiscardAvatar` below deletes it. It reads
  * the key straight off the `users` row it just rewrote, which it could not do
  * while that row held a URL — the version before
- * `20260813_01_avatar_object_only.sql` had to hunt through earlier approved
+ * `20260813_02_avatar_object_only.sql` had to hunt through earlier approved
  * requests for one whose proposed URL matched, and a photograph set at
  * *registration* was never in such a request at all and so could never be
  * removed by anything. Master plan §7.14, **B6 · Avatar retention**, is closed

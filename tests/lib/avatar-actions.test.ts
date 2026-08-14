@@ -214,7 +214,7 @@ const proposedValues = () =>
  *
  * Derived from the stored key rather than read off the row: `proposed_values`
  * carries `avatar_object` and nothing else about the image since
- * `20260813_01_avatar_object_only.sql`, and `avatarUrl()` is the one place that
+ * `20260813_02_avatar_object_only.sql`, and `avatarUrl()` is the one place that
  * turns a key into an address — which is exactly the property that makes
  * changing `S3_PUBLIC_URL` a change of environment and nothing else.
  */

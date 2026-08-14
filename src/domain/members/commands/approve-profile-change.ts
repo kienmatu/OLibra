@@ -76,7 +76,7 @@ export interface ApproveProfileChangeInput {
  *
  * **Where the key comes from, now that there is only one.** `users.avatar_object`
  * is the photograph — the URL column is gone
- * (`20260813_01_avatar_object_only.sql`) — so the superseded key is simply the
+ * (`20260813_02_avatar_object_only.sql`) — so the superseded key is simply the
  * `before` half of this command's own write, and every avatar is deletable
  * whatever put it there. This paragraph used to describe a lookup through old
  * approved requests, plus the one photograph that lookup could never reach: one

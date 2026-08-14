@@ -24,7 +24,7 @@ import { makeMember, makeShelf } from "../../support/factories";
  * storage key, copied to `users.avatar_object` on approval like any other
  * proposed field. It used to be two — a URL beside the key — and every
  * mechanism that kept the pair in step is gone with the URL column
- * (`20260813_01_avatar_object_only.sql`). The address a browser fetches is
+ * (`20260813_02_avatar_object_only.sql`). The address a browser fetches is
  * derived from the key at read time, at the surface, in `src/lib/avatar-url.ts`.
  *
  * The key living in the pending row is also what lets a rejected or cancelled

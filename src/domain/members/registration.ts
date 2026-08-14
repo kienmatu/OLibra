@@ -68,7 +68,7 @@ export interface RegistrationInput {
    * records that the readers here are children and that name-plus-face is the
    * most identifying pair of facts in the system — and master plan §7.14,
    * **B6 · Avatar retention**, closed it by dropping `users.avatar_url`
-   * (`20260813_01_avatar_object_only.sql`). The address a browser fetches is
+   * (`20260813_02_avatar_object_only.sql`). The address a browser fetches is
    * derived from this key at read time, in `src/lib/avatar-url.ts`.
    */
   avatarObject?: string | null;

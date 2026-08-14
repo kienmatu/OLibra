@@ -17,6 +17,7 @@
 - **All user-facing copy is Vietnamese with full diacritics.** Never English in the interface, never lorem ipsum, plain words over jargon.
 - **No user-facing string is invented outside `src/domain/kernel/errors.ts`.** Refusal sentences come from `messageFor`; never retype one.
 - **Never `@/` aliases in `src/components/`.** `vitest.config.ts` has no `resolve.alias`, and `tests/components/*.test.tsx` import these modules directly. Use relative specifiers.
+  _(Superseded 2026-08-13 by `a519ed4`, which added `resolve.alias` for `@/` to `vitest.config.ts`, and `32e00f5`, which records the resulting convention: `@/` when an import leaves its file's own top-level directory, relative within it — `src/domain/` stays fully relative regardless, for a different reason (SDD §3.1). This constraint no longer holds.)_
 - **`AVATAR_MAX_BYTES` is `5 * 1024 * 1024`** — the binary megabyte, everywhere, including the Vietnamese sentence.
 - **`next.config.ts`'s `bodySizeLimit` must stay strictly above `AVATAR_MAX_BYTES`.** `"6mb"`.
 - **The field is named `avatar_object`, never `avatar_key`.** `src/domain/kernel/audit.ts`'s `FORBIDDEN` list matches `key` as a whole token and `ProposeAvatarChange` audits this payload — `avatar_key` throws `RuleViolated("audit_forbidden_field")` at the first audit write.
@@ -1048,7 +1049,7 @@ git commit -m "feat: xử lý ảnh trên máy chủ trước khi lưu, và inva
 The largest task, and mostly deletion. `users.avatar_url` is dropped, `avatar_object` takes its place in `PROFILE_FIELDS`, and four mechanisms that existed only to keep a URL and a key in step are removed. The compiler drives most of it: renaming a member of `PROFILE_FIELDS` breaks the total label record, the write arms, the approval carry-across and the screens, all at once.
 
 **Files:**
-- Create: `src/db/migrations/20260813_01_avatar_object_only.sql`
+- Create: `src/db/migrations/20260813_02_avatar_object_only.sql`
 - Create: `src/lib/avatar-url.ts`
 - Modify: `src/domain/members/profile-fields.ts:71,89,344-347,362,386-395,408,544`
 - Modify: `src/lib/profile-labels.ts:25,47`
@@ -1157,7 +1158,7 @@ import { objectStore } from "./object-store";
  * It added the column and stopped. `ObjectStore.url()` then had exactly one
  * caller in the entire codebase, in `./avatar.ts`, at *write* time — so the key
  * was stored, deletion worked, and every approval still wrote a row carrying a
- * host. `20260813_01_avatar_object_only.sql` drops the URL column; this
+ * host. `20260813_02_avatar_object_only.sql` drops the URL column; this
  * function is what makes that possible.
  *
  * Server-side only, which every call site already is: `objectStore()` reads
@@ -1179,7 +1180,7 @@ Expected: PASS, 2 tests.
 
 - [ ] **Step 5: Write the migration**
 
-Create `src/db/migrations/20260813_01_avatar_object_only.sql`:
+Create `src/db/migrations/20260813_02_avatar_object_only.sql`:
 
 ```sql
 -- The key is the only stored fact. `users.avatar_url` is dropped.
@@ -1506,6 +1507,8 @@ Run: `bun run test tests/components/avatar-proposal.test.tsx`
 Expected: FAIL — `Cannot find module '../../src/components/avatar-proposal'`.
 
 - [ ] **Step 3: Write the island**
+
+_(Superseded 2026-08-13 by `a519ed4`/`32e00f5` — see the note on the "Never `@/` aliases" constraint above. The code below reflects the rule as it stood when this plan was written; the file as actually committed imports `@/domain/kernel/errors` and `@/lib/avatar-limits`, with no comment about the alias.)_
 
 Create `src/components/avatar-proposal.tsx`:
 

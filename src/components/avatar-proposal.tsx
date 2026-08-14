@@ -2,16 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Camera, Clock } from "lucide-react";
-// Relative specifiers, not the `@/` alias, for the reason
-// `./phone-confirm-dialog.tsx` records: `vitest.config.ts` has no
-// `resolve.alias` for `@/`, and `tests/components/*.test.tsx` import this
-// module directly.
-import { messageFor, type ErrorCode } from "../domain/kernel/errors";
-// `../lib/avatar-limits`, never `../lib/avatar`: that module reaches
+import { messageFor, type ErrorCode } from "@/domain/kernel/errors";
+// `@/lib/avatar-limits`, never `@/lib/avatar`: that module reaches
 // `next/headers`, `next/navigation` and the Postgres pool through
 // `./page-data`, none of which a client component may import.
 // `errors.ts` is safe here — it imports nothing at all.
-import { AVATAR_ACCEPT, AVATAR_MAX_BYTES } from "../lib/avatar-limits";
+import { AVATAR_ACCEPT, AVATAR_MAX_BYTES } from "@/lib/avatar-limits";
 import { Pill } from "./ui/pill";
 import { SubmitButton } from "./ui/submit-button";
 

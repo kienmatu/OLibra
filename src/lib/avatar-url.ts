@@ -14,7 +14,7 @@ import { objectStore } from "./object-store";
  * It added the column and stopped. `ObjectStore.url()` then had exactly one
  * caller in the entire codebase, in `./avatar.ts`, at *write* time — so the key
  * was stored, deletion worked, and every approval still wrote a row carrying a
- * host. `20260813_01_avatar_object_only.sql` drops the URL column; this
+ * host. `20260813_02_avatar_object_only.sql` drops the URL column; this
  * function is what makes that possible.
  *
  * Server-side only, which every call site already is: `objectStore()` reads
