@@ -614,9 +614,123 @@ In `src/domain/kernel/errors.ts`, replace the `file_too_large` line and its prec
 
 If `ErrorCode` is a union declared separately from `ERROR_MESSAGES`, add `heic_not_supported` to it in the same position. If it is derived with `keyof typeof ERROR_MESSAGES`, nothing else is needed — check before editing.
 
-- [ ] **Step 4: Raise the limit and turn the allow-list into a set**
+- [ ] **Step 4a: Move the two client-safe constants to their own module**
 
-In `src/lib/avatar.ts`, replace lines 72-99 (the `AVATAR_MAX_BYTES` docblock through the end of `AVATAR_TYPES`) with:
+The island in Task 6 needs the limit and the accept list, and **must not import `src/lib/avatar.ts` to get them**: that module imports `./page-data`, which imports `next/headers`, `next/navigation` and the postgres pool. A `"use client"` module importing any of those is a build failure.
+
+Create `src/lib/avatar-limits.ts`:
+
+```ts
+/**
+ * The two facts about an avatar upload that both sides of the network need.
+ *
+ * Separate from `./avatar.ts` because the profile screen's island
+ * (`src/components/avatar-proposal.tsx`) is a client component and `./avatar.ts`
+ * is not importable from one: it reaches `next/headers`, `next/navigation` and
+ * the Postgres pool through `./page-data`. Two hand-kept copies of a limit is
+ * how a screen ends up stating a number the server does not enforce, so the
+ * constants live here and both sides import them.
+ *
+ * Nothing in this file may import anything that is not also client-safe.
+ */
+
+/**
+ * OPS §4.3's `file_too_large` names the number: "Ảnh vượt quá 5 MB."
+ *
+ * Raised from 2 MB on 2026-08-13. Two megabytes refused the ordinary case —
+ * any phone made in the last decade exceeds it — and the limit was affordable
+ * only because nothing shrank the photograph. `./avatar-image.ts` now
+ * centre-crops and re-encodes every upload to a 512×512 WebP of around 40 KB,
+ * so what this number bounds is the *upload*, not what is kept.
+ *
+ * 5 MB is read as the binary megabyte, because that is what every file manager
+ * a volunteer might check the size in reports.
+ *
+ * `serverActions.bodySizeLimit` in `next.config.ts` must stay strictly above
+ * this — see `storeProposedAvatar`.
+ */
+export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * The content types accepted, ordered, for the file input's `accept` attribute
+ * as well as the server's own gate.
+ *
+ * **`image/avif` is here and `image/heic` is not, and the difference is the
+ * codec rather than the container.** The prebuilt `@img/sharp-libvips-*`
+ * binaries link libheif but ship no HEVC decoder, for patent reasons; AVIF is
+ * AV1 and royalty-free, so it decodes. `sharp.format.heif.input` reports `true`
+ * for both, which is a fact about the container and would have shipped a broken
+ * path if it had been trusted — verified against a real HEVC file, which fails
+ * with "bad seek", while an AVIF round-trips.
+ *
+ * **Never add HEIC to this list.** It is what a browser is handed as `accept`,
+ * and iOS Safari transcodes a HEIC photograph to JPEG on upload *because* this
+ * list omits it. Adding it tells iOS to send the original, which nothing here
+ * can decode — an attribute that looks like a convenience filter is in fact
+ * what makes the iPhone path work.
+ *
+ * `image/jpg` is not here. It is not a real media type — browsers send
+ * `image/jpeg` for a `.jpg` — and accepting a type nothing emits would only
+ * widen what a hand-rolled request can claim to be.
+ */
+export const AVATAR_ACCEPT: readonly string[] = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+];
+```
+
+- [ ] **Step 4b: Raise the limit and turn the allow-list into a set**
+
+In `src/lib/avatar.ts`, replace lines 72-99 (the `AVATAR_MAX_BYTES` docblock through the end of `AVATAR_TYPES`) with a re-export and the set built from the shared list:
+
+```ts
+// Re-exported so existing importers (`tests/lib/avatar-over-http.test.ts` among
+// them) keep working, and so this module still reads as the place the policy
+// lives even though the two constants are now shared with a client component.
+export { AVATAR_MAX_BYTES } from "./avatar-limits";
+
+/**
+ * The content types accepted, as a set for the server's own gate.
+ *
+ * An allow-list keyed on the type rather than on the uploaded filename, which
+ * is attacker-controlled and, for a Vietnamese reader, frequently full of
+ * diacritics `objectKey` exists to keep out of a URL.
+ *
+ * **A set rather than the type→extension map this used to be.** Every stored
+ * object is now WebP whatever arrived, so `objectKey("avatars", "webp")` is a
+ * constant call and the old table's extension half has no reader left. What
+ * that table protected — that it "can never ask `objectKey` for an extension it
+ * will refuse" — reduces from four extensions agreeing to one and stops being
+ * able to drift.
+ *
+ * Built from `AVATAR_ACCEPT` (`./avatar-limits.ts`) so the control a reader
+ * sees and the gate the server applies cannot disagree.
+ */
+const AVATAR_TYPES: ReadonlySet<string> = new Set(AVATAR_ACCEPT);
+```
+
+with `import { AVATAR_ACCEPT, AVATAR_MAX_BYTES } from "./avatar-limits";` added to the imports, then append `refusalFor` beneath it:
+
+```ts
+/**
+ * Which refusal an unacceptable content type earns.
+ *
+ * HEIC gets its own sentence because it is a photograph and a valid one, just
+ * in a codec we cannot decode — "Tệp này không phải là ảnh hợp lệ." would be a
+ * false statement shown to somebody holding a perfectly good picture of their
+ * child.
+ */
+function refusalFor(type: string): "heic_not_supported" | "invalid_image" {
+  return type === "image/heic" || type === "image/heif"
+    ? "heic_not_supported"
+    : "invalid_image";
+}
+```
+
+<details>
+<summary>Superseded single-module version of Step 4 — do not implement</summary>
 
 ```ts
 /**
@@ -683,6 +797,8 @@ function refusalFor(type: string): "heic_not_supported" | "invalid_image" {
     : "invalid_image";
 }
 ```
+
+</details>
 
 - [ ] **Step 5: Use the set in `storeProposedAvatar`**
 
@@ -980,13 +1096,27 @@ test("the rendered address follows S3_PUBLIC_URL, not the row", async () => {
   const key = "avatars/9f2c1e3a-4b5d-4e6f-8a9b-0c1d2e3f4a5b.webp";
   const before = process.env.S3_PUBLIC_URL;
 
+  // `objectStore()` caches on `globalThis` behind `Symbol.for` — deliberately,
+  // so a hot reload cannot strand a client nothing can look up again
+  // (`src/lib/object-store.ts`). Clearing that key is what a process restart
+  // does in production, which is the moment an operator's new `S3_PUBLIC_URL`
+  // actually takes effect. Simulating the restart is the honest way to observe
+  // the property; weakening the assertion is not.
+  const cacheKey = Symbol.for("olibra.storage.object-store");
+  const clearStore = () => {
+    delete (globalThis as Record<symbol, unknown>)[cacheKey];
+  };
+
   process.env.S3_PUBLIC_URL = "https://anh-mot.example.org";
+  clearStore();
   const first = avatarUrl(key);
 
   process.env.S3_PUBLIC_URL = "https://anh-hai.example.org";
+  clearStore();
   const second = avatarUrl(key);
 
   process.env.S3_PUBLIC_URL = before;
+  clearStore();
 
   expect(first).not.toBe(second);
   expect(first).toContain("anh-mot.example.org");
@@ -999,7 +1129,7 @@ test("no key is no photograph", () => {
 });
 ```
 
-If `objectStore()` memoises its config, this test will read a stale value — check `src/lib/object-store.ts` first. If it caches, the fix is for `avatarUrl` to call `objectStore()` per invocation and for the test to reset whatever the module caches; do not weaken the assertion.
+The cache-clearing is not optional and not a test smell: `objectStore()` memoises on `globalThis` and the test would otherwise read one URL twice and pass against an implementation that hard-coded the host.
 
 - [ ] **Step 2: Run it to make sure it fails**
 
@@ -1293,7 +1423,7 @@ The eighth client island. Everything it adds is additive over a form that alread
 - Test: `tests/components/avatar-proposal.test.tsx`
 
 **Interfaces:**
-- Consumes: `avatarUrl` (Task 5), `messageFor`/`ErrorCode` from `src/domain/kernel/errors`, `AVATAR_MAX_BYTES` from `src/lib/avatar`, `Pill`, `SubmitButton`.
+- Consumes: `avatarUrl` (Task 5), `messageFor`/`ErrorCode` from `src/domain/kernel/errors`, `AVATAR_MAX_BYTES` and `AVATAR_ACCEPT` from `src/lib/avatar-limits` (Task 3), `Pill`, `SubmitButton`.
 - Produces: `AvatarProposal({ action, slug, currentAvatarUrl, initial })`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1386,7 +1516,11 @@ import { AlertTriangle, Camera, Clock } from "lucide-react";
 // `resolve.alias` for `@/`, and `tests/components/*.test.tsx` import this
 // module directly.
 import { messageFor, type ErrorCode } from "../domain/kernel/errors";
-import { AVATAR_MAX_BYTES, AVATAR_ACCEPT } from "../lib/avatar";
+// `../lib/avatar-limits`, never `../lib/avatar`: that module reaches
+// `next/headers`, `next/navigation` and the Postgres pool through
+// `./page-data`, none of which a client component may import.
+// `errors.ts` is safe here — it imports nothing at all.
+import { AVATAR_ACCEPT, AVATAR_MAX_BYTES } from "../lib/avatar-limits";
 import { Pill } from "./ui/pill";
 import { SubmitButton } from "./ui/submit-button";
 
@@ -1533,27 +1667,12 @@ export function AvatarProposal({
 }
 ```
 
-- [ ] **Step 4: Export the accept list**
+- [ ] **Step 4: Confirm the island imports nothing server-only**
 
-The island and the server must agree on which types are acceptable, and the island needs them as an ordered array for the `accept` attribute. In `src/lib/avatar.ts`, add beside `AVATAR_TYPES`:
+`AVATAR_ACCEPT` and `AVATAR_MAX_BYTES` already live in `src/lib/avatar-limits.ts` as of Task 3 Step 4a; no new export is needed here. Verify the island's import graph is client-safe before running the tests:
 
-```ts
-/**
- * The same allow-list, ordered, for the file input's `accept` attribute.
- *
- * Derived from one source so the control cannot offer a type the server
- * refuses. `AVATAR_TYPES` stays the set the server tests against; this is the
- * spelling a browser wants.
- */
-export const AVATAR_ACCEPT: readonly string[] = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/avif",
-];
-```
-
-and rebuild `AVATAR_TYPES` from it: `const AVATAR_TYPES: ReadonlySet<string> = new Set(AVATAR_ACCEPT);`
+Run: `grep -n "^import" src/components/avatar-proposal.tsx`
+Expected: only `react`, `lucide-react`, `../domain/kernel/errors`, `../lib/avatar-limits`, `./ui/pill`, `./ui/submit-button`. **`../lib/avatar` must not appear** — it reaches `next/headers` and the Postgres pool through `./page-data`, and a client component importing it fails the build.
 
 - [ ] **Step 5: Run the tests and make sure they pass**
 
