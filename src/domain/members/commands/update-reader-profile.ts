@@ -108,6 +108,39 @@ export interface UpdateReaderProfileInput {
  * one more column off an already-validated row, not a second permission
  * check to keep in step with the first.
  *
+ * **6. `avatar_object` rides along in `patch` with no avatar-specific
+ * handling at all, and that is currently safe but only by accident of what
+ * calls this command, not by anything enforced here.** `input.fields` is a
+ * raw `ProfilePatch` — see `../profile-fields.ts`, "the allowlist is
+ * `PROFILE_FIELDS`, data, not a chain of `if`s" — and `PROFILE_FIELDS`'s ninth
+ * entry is the photograph, so nothing in this file's types stops a caller
+ * from writing `avatar_object` directly through `applyProfileFields`, the
+ * same statement every other field goes through. Every other path that can
+ * replace a photograph — `ProposeAvatarChange`/`ApproveProfileChange`,
+ * `RejectProfileChange`, `CancelProfileChange` — is wrapped in
+ * `decideAndDiscardAvatar` (`../../../lib/avatar.ts`) precisely so the object
+ * a new key supersedes gets deleted from the bucket rather than orphaned;
+ * this command has no such wrapper on its path at all, because it has never
+ * needed one. It is safe today for one reason and one only:
+ * `updateReaderProfileAction` (`quan-ly/actions.ts`), the sole caller, builds
+ * its `fields` object by hand from eight named form inputs and does not
+ * include a ninth for the photograph — `avatar_object` is never `named()` in
+ * any patch this command actually receives, so the `case when … else
+ * prev.avatar_object end` arm in `applyProfileFields`'s statement always
+ * takes its `else`. That is a fact about the one caller today, not a
+ * constraint this command enforces on itself. A future caller — a bulk-edit
+ * screen, an API route, a second admin form — that assembles its own patch
+ * and includes `avatar_object` would write a bare storage key straight onto
+ * `users` with nothing deleting whatever key it replaced: a photograph
+ * orphaned in a public-read bucket, silently, with an audit entry that
+ * (correctly) says the field changed and nothing that says a file was
+ * leaked. Per this file's own docstring and `INV-13b`, that gap is left open
+ * deliberately rather than closed defensively here — the fix, if one is ever
+ * needed, is for the *new* caller to route its avatar writes through
+ * `decideAndDiscardAvatar` the way every other avatar-touching path already
+ * does, not for this command to grow a special case for a field it has never
+ * had to think about.
+ *
  * ── The action name ──────────────────────────────────────────────────────
  *
  * `profile.corrected`, and deliberately not `profile_change.approved`, which

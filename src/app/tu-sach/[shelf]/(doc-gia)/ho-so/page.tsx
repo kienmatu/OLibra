@@ -1,7 +1,8 @@
-import { Camera, KeyRound, Lock } from "lucide-react";
+import { ArrowRight, KeyRound, Lock } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue, Textarea } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AvatarProposal } from "@/components/avatar-proposal";
 import { PhoneConfirmDialog } from "@/components/phone-confirm-dialog";
 import { ShelfHeader } from "@/components/shell/public-header";
 import { ReaderTabs } from "@/components/shell/reader-tabs";
@@ -11,6 +12,7 @@ import { atLeast } from "@/domain/kernel/tenant";
 import { hasVisibleLevel2, unitOptions } from "@/domain/members/parish-taxonomy";
 import { PHONE_PATTERN } from "@/domain/members/policy";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
+import { avatarUrl } from "@/lib/avatar-url";
 import { formatInstant } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
 import { refusalFrom, type SearchParams } from "@/lib/search-params";
@@ -45,9 +47,9 @@ import {
  * reader learns they were refused — and a query that returned only pending rows
  * would make the rejection reason unreachable the moment it was written.
  *
- * **`avatar_url` is not among the fields the form posts.** It is
+ * **`avatar_object` is not among the fields the form posts.** It is
  * `ProposeAvatarChange`'s, and `proposeProfileChange` narrows it out anyway
- * ("so a caller that sends `avatar_url` gets it dropped rather than quietly
+ * ("so a caller that sends `avatar_object` gets it dropped rather than quietly
  * bypassing the size and content-type policy").
  */
 export const dynamic = "force-dynamic";
@@ -112,6 +114,10 @@ export default async function ReaderProfilePage({
   const showL2 = hasVisibleLevel2(taxonomy, units);
   const pending = profile.pendingChange;
   const fields = profile.fields;
+  // Read once: `AvatarProposal` below and the pending block further down
+  // both need the reader's current avatar URL, and `avatarUrl` was being
+  // called twice for the identical value.
+  const currentAvatarSrc = avatarUrl(fields.avatar_object);
 
   return (
     <>
@@ -129,36 +135,13 @@ export default async function ReaderProfilePage({
           </p>
         ) : null}
 
-        <div className="mt-8 flex items-center gap-4">
-          <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-paper text-[26px] font-semibold text-leather">
-            {/* The last word of a Vietnamese name is the given name. */}
-            {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
-          </div>
-          {/* B2b's avatar upload, unchanged. The form posts no identity:
-              `proposeAvatarChange` takes the membership from
-              `ctx.actor.membershipId`, which is a stronger position than
-              posting one and comparing it — there is nothing in the request to
-              rewrite. */}
-          <form action={proposeAvatarAction}>
-            <input type="hidden" name="tu-sach" value={slug} />
-            <label className="inline-flex cursor-pointer items-center gap-2 text-[15px] font-medium text-leather">
-              <Camera aria-hidden className="size-[18px]" strokeWidth={1.75} />
-              Đề nghị đổi ảnh
-              <input
-                type="file"
-                name="anh"
-                accept="image/jpeg,image/png,image/webp"
-                className="sr-only"
-              />
-            </label>
-            <p className="mt-1.5 text-[13px] text-meta">
-              Ảnh mới sẽ gửi cho quản lý xem và duyệt trước khi hiển thị.
-            </p>
-            <SubmitButton variant="quiet" size="sm" className="mt-2">
-              Gửi ảnh
-            </SubmitButton>
-          </form>
-        </div>
+        <AvatarProposal
+          action={proposeAvatarAction}
+          slug={slug}
+          currentAvatarUrl={currentAvatarSrc}
+          // The last word of a Vietnamese name is the given name.
+          initial={fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
+        />
 
         {pending ? (
           <div className="mt-8 rounded-card border border-hairline bg-paper p-4">
@@ -166,20 +149,135 @@ export default async function ReaderProfilePage({
               {STATUS_LABEL[pending.status] ?? pending.status}
             </p>
             <ul className="mt-2 space-y-1 text-[14px]">
-              {proposedFields(pending.proposedValues).map((f) => (
-                <li key={f}>
-                  {PROFILE_FIELD_LABELS[f]}:{" "}
-                  <span className="font-semibold">
-                    {pending.proposedValues[f] ?? "(bỏ trống)"}
-                  </span>
-                  {pending.previousValues[f] !== undefined ? (
-                    <span className="text-meta">
-                      {" "}
-                      · hiện tại {pending.previousValues[f] ?? "chưa có"}
+              {proposedFields(pending.proposedValues).map((f) =>
+                f === "avatar_object" ? (
+                  pending.status === "pending" ? (
+                    // The one field that is not text, for the same reason
+                    // `AvatarCompareRow` on the manager's approval screen is
+                    // not: a storage key printed as `{label}: {value}` is
+                    // meaningless to a reader, where the URL it replaced
+                    // (Task 5) was merely ugly. `alt` is meaningful rather
+                    // than empty, unlike `AvatarCompareRow`, because these two
+                    // images have no adjacent label naming each one.
+                    //
+                    // Gated to "pending" only: once a request is decided,
+                    // neither <img> below can be trusted to still resolve.
+                    // Rejected and cancelled proposals have their proposed
+                    // object deleted outright by `decideAndDiscardAvatar`
+                    // (`src/lib/avatar.ts`), so its URL 404s. An approved
+                    // proposal instead has its *old* object deleted and the
+                    // proposed key promoted to `users.avatar_object` — the
+                    // "current" image above would then just duplicate the
+                    // photo already shown at the top of this page, with no
+                    // label here explaining that. The `else` branch below
+                    // states the fact in words for every decided status.
+                    <li key={f}>
+                      {PROFILE_FIELD_LABELS[f]}
+                      <span className="mt-2 flex items-center gap-3">
+                        <span className="flex size-16 items-center justify-center overflow-hidden rounded-full bg-paper text-[18px] font-semibold text-leather">
+                          {currentAvatarSrc ? (
+                            // A plain <img>, deliberately: `next.config.ts`
+                            // configures no image optimizer for the object
+                            // store's host, so `next/image` would refuse the
+                            // URL outright. `AvatarCompareRow`
+                            // (`quan-ly/doi-thong-tin/page.tsx`) is the same
+                            // pattern on the manager's decision screen.
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={currentAvatarSrc}
+                              alt="Ảnh hiện tại"
+                              className="size-full object-cover"
+                            />
+                          ) : (
+                            <span aria-hidden>
+                              {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
+                            </span>
+                          )}
+                        </span>
+                        <ArrowRight
+                          aria-hidden
+                          className="size-4 shrink-0 text-leather"
+                          strokeWidth={2}
+                        />
+                        <span className="flex size-16 items-center justify-center overflow-hidden rounded-full border-2 border-terracotta bg-terracotta/10">
+                          {pending.proposedValues.avatar_object === null ? (
+                            // A proposal to remove the photograph rather than
+                            // replace it — `avatar_object: null`, distinct
+                            // from `undefined` (`proposedFields`'s own filter,
+                            // `src/lib/profile-labels.ts`), which is what puts
+                            // this arm inside the loop at all.
+                            //
+                            // No path in this application writes that today:
+                            // `ProposeAvatarChange` is the only writer of
+                            // `avatar_object` (`ProposeProfileChange` excludes
+                            // it via `PROPOSABLE_FIELDS`), and its own
+                            // `isUploadedFile` guard requires `size > 0`
+                            // (`./profile-actions.ts`) — so this arm is
+                            // unreachable through the UI, exactly as
+                            // `AvatarCompareRow` on the manager's decision
+                            // screen (`quan-ly/doi-thong-tin/page.tsx`) notes
+                            // for its own matching arm. Kept anyway, for the
+                            // same reason that screen keeps it and the same
+                            // reason `ApproveProfileChange` re-validates a
+                            // stored proposal rather than trusting it
+                            // (`profile-change-lifecycle.test.ts`): a row with
+                            // no check constraint behind `proposed_values`
+                            // (DATABASE.md §4.11) can hold this shape even
+                            // though nothing proposes it today, and the
+                            // alternative — an `<img src="">` with a token
+                            // `?? ""` fallback — is a broken-image icon on a
+                            // reader's own page rather than a sentence.
+                            <span aria-hidden>
+                              {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
+                            </span>
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={
+                                avatarUrl(
+                                  pending.proposedValues.avatar_object ?? null,
+                                ) ?? ""
+                              }
+                              alt="Ảnh bạn đề nghị"
+                              className="size-full object-cover"
+                            />
+                          )}
+                        </span>
+                      </span>
+                      {pending.proposedValues.avatar_object === null ? (
+                        <p className="mt-2 text-[14px] text-meta">
+                          Bạn đề nghị bỏ ảnh hiện tại.
+                        </p>
+                      ) : null}
+                    </li>
+                  ) : (
+                    // A decided request: the object this row would have
+                    // pointed at is gone (rejected/cancelled) or already
+                    // shown above as the current photo (approved) — either
+                    // way an <img> here would either 404 or silently
+                    // duplicate the photo at the top of the page. The
+                    // reader still needs to know *which* field this line is
+                    // about, so it falls back to the bare label rather than
+                    // a `{label}: {value}` pair — a storage key printed as
+                    // the value would be meaningless to a reader, same as
+                    // the comment above records for the "pending" case.
+                    <li key={f}>{PROFILE_FIELD_LABELS[f]}</li>
+                  )
+                ) : (
+                  <li key={f}>
+                    {PROFILE_FIELD_LABELS[f]}:{" "}
+                    <span className="font-semibold">
+                      {pending.proposedValues[f] ?? "(bỏ trống)"}
                     </span>
-                  ) : null}
-                </li>
-              ))}
+                    {pending.previousValues[f] !== undefined ? (
+                      <span className="text-meta">
+                        {" "}
+                        · hiện tại {pending.previousValues[f] ?? "chưa có"}
+                      </span>
+                    ) : null}
+                  </li>
+                ),
+              )}
             </ul>
             {pending.status === "pending" ? (
               <>

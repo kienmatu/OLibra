@@ -18,9 +18,12 @@ export interface ProposeAvatarChangeInput {
    * safest available value rather than a convenience.
    */
   membershipId?: string;
-  /** What a browser will fetch — `ObjectStore.url(key)`, resolved at the surface. */
-  avatarUrl: string;
-  /** The storage key the surface just wrote the bytes to. Never copied onto `users`. */
+  /**
+   * The storage key the surface just wrote the bytes to — and the whole of what
+   * a photograph is here. `users.avatar_object` takes this value on approval;
+   * the address a browser fetches is derived from it at read time
+   * (`src/lib/avatar-url.ts`).
+   */
   avatarObject: string;
 }
 
@@ -37,28 +40,30 @@ export interface ProposeAvatarChangeInput {
  * importing `src/storage/` or `@aws-sdk/*`, and it names the tempting wrong move
  * in its own comment: a command that stored the file inside its own transaction
  * would leave an object nobody references the moment that transaction rolled
- * back. So the surface puts the bytes, and hands this command two strings.
+ * back. So the surface puts the bytes, and hands this command the key.
  *
- * That split is also why `file_too_large` and `invalid_image` — the two failure
- * modes OPS §4.3 lists for this command — are not raised here. Both are facts
- * about bytes this command is forbidden to hold. They are raised by
- * `src/lib/avatar.ts`, with the domain's own codes, before anything is stored.
- * **No aspect-ratio check is enforced anywhere.** OPS §4.3 says "≤2 MB, square,
- * per the profile screen's own copy"; the size has a sentence
- * (`file_too_large`, "Ảnh vượt quá 2 MB.") and is therefore implementable from
- * the sentence, while "square" has no sentence, no code and no source — the
- * profile screen's copy says only that a new photograph goes to a manager for
- * approval. The B2b plan §8 asks the product owner for it rather than inventing
- * a refusal a reader would have no way to understand.
+ * That split is also why `file_too_large`, `heic_not_supported` and
+ * `invalid_image` — the three failure modes OPS §4.3 lists for this command —
+ * are not raised here. All three are facts about bytes this command is
+ * forbidden to hold. They are raised by `src/lib/avatar.ts`, with the domain's
+ * own codes, before anything is stored.
+ * **Every photograph is square, and none is refused for not being.** OPS §4.3
+ * asked for "≤2 MB, square, per the profile screen's own copy"; the size has a
+ * sentence (`file_too_large`, "Ảnh vượt quá 5 MB.") and "square" never had one,
+ * nor a source beyond that line. `src/lib/avatar-image.ts` centre-crops every
+ * upload to a square instead, which answers the requirement without inventing a
+ * refusal a reader would have no way to understand.
  *
  * ── What is stored, and the one name that is not arbitrary ───────────────
  *
- * `proposed_values` carries **both** `avatar_url` (copied to `users.avatar_url`
- * on approval, like any other proposed field) and `avatar_object` (the storage
- * key, never copied anywhere). The key is there so that rejecting or cancelling
- * the request can delete the object rather than leave it orphaned, which OPS
- * §4.3 requires: "a rejected or cancelled proposal's image is deleted rather
- * than left orphaned in storage."
+ * `proposed_values` carries `avatar_object`, the storage key, and nothing else
+ * about the photograph. It is an ordinary proposed field: `applyProfileFields`
+ * copies it to `users.avatar_object` on approval exactly as it copies `phone`,
+ * and the address a browser fetches is derived from that key at read time
+ * (`src/lib/avatar-url.ts`). The key being in the pending row is also what lets
+ * rejecting or cancelling delete the object rather than leave it orphaned,
+ * which OPS §4.3 requires: "a rejected or cancelled proposal's image is deleted
+ * rather than left orphaned in storage."
  *
  * It is called `avatar_object` and not `avatar_key` because `kernel/audit.ts`
  * forbids `key` as a whole token, and this command audits the payload. See
@@ -110,14 +115,11 @@ export const proposeAvatarChange: Command<
   // above on rank alone — the defect `requireIdentifiedActor` records.
   requireIdentifiedActor(ctx);
 
-  // Not `validation_failed` being generous: an empty url or key is a surface
-  // that called this without storing anything, and writing it would produce a
+  // Not `validation_failed` being generous: an empty key is a surface that
+  // called this without storing anything, and writing it would produce a
   // request proposing a photograph that does not exist. OPS §4.3 lists no code
   // for it, and `validation_failed` — "Vui lòng kiểm tra lại thông tin." — is
   // the catalogue's own sentence for input this command cannot act on.
-  if (blank(input.avatarUrl)) {
-    throw new ValidationFailed("validation_failed", "avatarUrl");
-  }
   if (blank(input.avatarObject)) {
     throw new ValidationFailed("validation_failed", AVATAR_OBJECT);
   }
@@ -136,7 +138,7 @@ export const proposeAvatarChange: Command<
   const pending = await readPendingProposal(tx, userId);
   const next = mergeProposal(
     pending?.contents ?? null,
-    { avatar_url: input.avatarUrl.trim() },
+    { avatar_object: input.avatarObject.trim() },
     current,
   );
 
@@ -144,7 +146,6 @@ export const proposeAvatarChange: Command<
     userId,
     pending,
     next,
-    avatarObject: input.avatarObject.trim(),
   });
 
   // Only when it is a *different* object. A surface that retried the same
@@ -167,16 +168,13 @@ export const proposeAvatarChange: Command<
       action: "profile_change.proposed",
       entityType: "profile_change_request",
       entityId: requestId,
-      before: { avatar_url: next.previous.avatar_url ?? null },
-      // The storage key is audited as well as the URL. It is the only durable
-      // record of which object a decided request once pointed at — the row's
-      // own `proposed_values` is overwritten by the next proposal, while INV-12
+      before: { avatar_object: next.previous.avatar_object ?? null },
+      // The storage key is audited. It is the only durable record of which
+      // object a decided request once pointed at — the row's own
+      // `proposed_values` is overwritten by the next proposal, while INV-12
       // makes the audit append-only. This is also the payload whose field name
       // `kernel/audit.ts` would have rejected as `avatar_key`.
-      after: {
-        avatar_url: input.avatarUrl.trim(),
-        [AVATAR_OBJECT]: input.avatarObject.trim(),
-      },
+      after: { [AVATAR_OBJECT]: input.avatarObject.trim() },
     },
   };
 };

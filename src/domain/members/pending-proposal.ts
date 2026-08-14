@@ -2,7 +2,7 @@ import type { JSONValue } from "postgres";
 import { isUniqueViolation, RuleViolated } from "../kernel/errors";
 import type { TenantContext } from "../kernel/tenant";
 import type { Tx } from "../kernel/unit-of-work";
-import { lockPerson, pickProfileFields, type ProfilePatch } from "./profile-fields";
+import { lockPerson, pickProfileFields } from "./profile-fields";
 import type { ProposalContents } from "./profile-proposals";
 import type { ScopedUserId } from "./scoped-user";
 
@@ -27,17 +27,11 @@ import type { ScopedUserId } from "./scoped-user";
  * sentence for a case OPS never described, so no new Vietnamese is written.
  *
  * **2. `avatar_object` surviving a proposal that is not about the photograph.**
- * This is the failure that made the extraction necessary rather than merely
- * tidy. `proposed_values` carries the proposed image's storage key so that
- * rejecting or cancelling the request can delete the object instead of leaving
- * it orphaned (OPS §4.3). `pickProfileFields` deliberately drops that key — it
- * is not a column of `users` and must never be written to one — so a command
- * that rebuilt `proposed_values` out of `pickProfileFields`' result alone would
- * silently *erase* the key while keeping the `avatar_url` that names the same
- * object. A reader who proposes a photograph and then corrects their phone
- * number would leave behind an image nothing can ever delete. `carryAvatar`
- * below is the answer, and it is one function rather than a rule two commands
- * have to remember.
+ * This was the failure that made the extraction necessary. It is no longer
+ * possible: `avatar_object` is a `ProfileField` as of 2026-08-13, so
+ * `pickProfileFields` keeps it like any other and there is nothing to carry.
+ * `carryAvatar` — the function that used to graft the key back on — is gone
+ * with the second fact it existed to reconcile.
  *
  * **3. The same erasure, arrived at concurrently.** `carryAvatar` closed (2)
  * for one command at a time and not for two, which review found and the suite
@@ -70,7 +64,11 @@ export const AVATAR_OBJECT = "avatar_object";
 export interface PendingProposal {
   id: string;
   contents: ProposalContents;
-  /** Null when no photograph has been proposed, or when one arrived as a bare URL. */
+  /**
+   * Null when this proposal is not about the photograph, or when the bag holds
+   * nothing usable under that name — see `avatarObjectOf` below, which is
+   * deliberately defensive about a `jsonb` column no constraint guards.
+   */
   avatarObject: string | null;
 }
 
@@ -143,16 +141,6 @@ export function avatarObjectOf(raw: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-/** `proposed_values` as it is stored: the patch, plus the photograph's key. */
-function carryAvatar(
-  proposed: ProfilePatch,
-  avatarObject: string | null,
-): JSONValue {
-  return avatarObject === null
-    ? { ...proposed }
-    : { ...proposed, [AVATAR_OBJECT]: avatarObject };
-}
-
 /**
  * Replaces the pending row, or inserts one — OPS §4.3's "proposing again while
  * one is pending **replaces** it rather than creating a second… this is normal,
@@ -173,11 +161,10 @@ export async function writePendingProposal(
     userId: ScopedUserId;
     pending: PendingProposal | null;
     next: ProposalContents;
-    avatarObject: string | null;
   },
 ): Promise<string> {
   const now = ctx.clock.now();
-  const proposed = carryAvatar(args.next.proposed, args.avatarObject);
+  const proposed = args.next.proposed as JSONValue;
 
   if (args.pending) {
     await tx`

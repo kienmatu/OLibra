@@ -2,6 +2,8 @@ import { proposeAvatarChange } from "../domain/members/commands/propose-avatar-c
 import { ValidationFailed } from "../domain/kernel/errors";
 import type { Command } from "../domain/kernel/unit-of-work";
 import { objectKey } from "../storage/s3";
+import { processAvatar } from "./avatar-image";
+import { AVATAR_ACCEPT, AVATAR_MAX_BYTES } from "./avatar-limits";
 import { objectStore } from "./object-store";
 import { submitCommand } from "./page-data";
 
@@ -47,7 +49,7 @@ import { submitCommand } from "./page-data";
  * strictly the better half of the trade, and it is the half this module chooses
  * deliberately.
  *
- * ── The one photograph this application still cannot delete ────────────────
+ * ── Every photograph is deletable, which took a migration ──────────────────
  *
  * *Approving* a replacement used to orphan the previous photograph as well, and
  * "orphaned storage" was the wrong name for it. `src/storage/s3.ts` argues that
@@ -56,47 +58,54 @@ import { submitCommand } from "./page-data";
  * or asks the parish to take it down, must not leave every earlier version
  * answering 200 from a public bucket forever. That is retention, not storage.
  *
- * `ApproveProfileChange` now returns the superseded object the same way the
- * reject and cancel paths do, and `decideAndDiscardAvatar` below deletes it —
- * it finds the key in the approved request that put the old photograph there.
- *
- * **What remains, and it is not a comment's worth.** A photograph set at
- * *registration* arrives as a bare `avatarUrl` with no key anywhere
- * (`src/domain/members/registration.ts`), so nothing in this codebase can remove
- * it — not a replacement, not a request from the family. Closing that needs a
- * key column on `users` and a migration, which is bigger than this module, so it
- * is recorded as a slice with an owner: master plan §7.14, **B6 · Avatar
- * retention**.
+ * `ApproveProfileChange` returns the superseded object the same way the reject
+ * and cancel paths do, and `decideAndDiscardAvatar` below deletes it. It reads
+ * the key straight off the `users` row it just rewrote, which it could not do
+ * while that row held a URL — the version before
+ * `20260813_02_avatar_object_only.sql` had to hunt through earlier approved
+ * requests for one whose proposed URL matched, and a photograph set at
+ * *registration* was never in such a request at all and so could never be
+ * removed by anything. Master plan §7.14, **B6 · Avatar retention**, is closed
+ * by that migration: the key is the only stored fact, and every avatar has one.
  */
 
-/**
- * OPS §4.3's `file_too_large` names the number: "Ảnh vượt quá 2 MB." The
- * sentence is the source — the profile screen's copy that OPS attributes it to
- * does not exist, and the B2b plan §8 records that. 2 MB is read as the binary
- * megabyte, because that is what every file manager a volunteer might check the
- * size in reports.
- */
-export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+// Re-exported so existing importers (`tests/lib/avatar-over-http.test.ts` among
+// them) keep working, and so this module still reads as the place the policy
+// lives even though the two constants are now shared with a client component.
+export { AVATAR_MAX_BYTES } from "./avatar-limits";
 
 /**
- * The content types accepted, and the extension each one becomes.
+ * The content types accepted, as a set for the server's own gate.
  *
- * An allow-list keyed on the type rather than on the uploaded filename, which is
- * attacker-controlled and, for a Vietnamese reader, frequently full of diacritics
- * `objectKey` exists to keep out of a URL. The four extensions are exactly the
- * four `objectKey` allows (`src/storage/s3.ts`), so this table can never ask it
- * for one it will refuse; a fifth added here without adding it there throws a
- * plain `Error` at the call below rather than storing something.
+ * An allow-list keyed on the type rather than on the uploaded filename, which
+ * is attacker-controlled and, for a Vietnamese reader, frequently full of
+ * diacritics `objectKey` exists to keep out of a URL.
  *
- * `image/jpg` is not here. It is not a real media type — browsers send
- * `image/jpeg` for a `.jpg` — and accepting a type nothing emits would only
- * widen what a hand-rolled request can claim to be.
+ * **A set rather than the type→extension map this used to be.** Every stored
+ * object is now WebP whatever arrived, so `objectKey("avatars", "webp")` is a
+ * constant call and the old table's extension half has no reader left. What
+ * that table protected — that it "can never ask `objectKey` for an extension it
+ * will refuse" — reduces from four extensions agreeing to one and stops being
+ * able to drift.
+ *
+ * Built from `AVATAR_ACCEPT` (`./avatar-limits.ts`) so the control a reader
+ * sees and the gate the server applies cannot disagree.
  */
-const AVATAR_TYPES: Readonly<Record<string, string>> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
+const AVATAR_TYPES: ReadonlySet<string> = new Set(AVATAR_ACCEPT);
+
+/**
+ * Which refusal an unacceptable content type earns.
+ *
+ * HEIC gets its own sentence because it is a photograph and a valid one, just
+ * in a codec we cannot decode — "Tệp này không phải là ảnh hợp lệ." would be a
+ * false statement shown to somebody holding a perfectly good picture of their
+ * child.
+ */
+function refusalFor(type: string): "heic_not_supported" | "invalid_image" {
+  return type === "image/heic" || type === "image/heif"
+    ? "heic_not_supported"
+    : "invalid_image";
+}
 
 /**
  * The parts of a `File` this module needs, spelled out so the policy can be
@@ -109,19 +118,18 @@ export interface UploadedFile {
 }
 
 /**
- * Applies OPS §4.3's two failure modes and puts the bytes.
+ * Applies OPS §4.3's three failure modes and puts the bytes.
  *
- * **`invalid_image` is a content-type check and not a decode.** The sentence is
- * "Tệp này không phải là ảnh hợp lệ." and the honest reading of it here is: this
- * is not a kind of file we serve as a photograph. Decoding the image to prove it
- * is really a PNG would be a stronger claim and a different dependency; what the
- * bucket is protected by instead is that the key never carries the uploaded
- * name, never ends `.html`, and is served from a bucket whose only public grant
- * is `s3:GetObject` (`tests/architecture/compose-grants-only-get-object.test.ts`).
- * The `nosniff` a browser also receives is **MinIO's**, not this application's,
- * and AWS S3 does not send it — recorded on `ObjectStore` in
- * `src/storage/s3.ts`, because a defence that moves with the provider must not
- * be counted as one of ours.
+ * **`invalid_image` is a decode.** `./avatar-image.ts` re-encodes every upload,
+ * so a file that is not an image fails there and earns the refusal — the
+ * header a browser attached is no longer the whole of the claim. What the
+ * bucket is protected by *in addition* is unchanged and still load-bearing:
+ * the key never carries the uploaded name, never ends `.html`, and is served
+ * from a bucket whose only public grant is `s3:GetObject`
+ * (`tests/architecture/compose-grants-only-get-object.test.ts`). The `nosniff`
+ * a browser also receives is **MinIO's**, not this application's, and AWS S3
+ * does not send it — recorded on `ObjectStore` in `src/storage/s3.ts`, because
+ * a defence that moves with the provider must not be counted as one of ours.
  *
  * **The size is checked before `arrayBuffer()`, which is not the same as before
  * the bytes arrive.** This function refuses an oversize file without
@@ -136,29 +144,27 @@ export interface UploadedFile {
  * *above* `AVATAR_MAX_BYTES` so that the sentence below is the one a reader
  * sees for anything in between.
  *
- * **No aspect-ratio check.** OPS §4.3 says "≤2 MB, square, per the profile
- * screen's own copy" and that copy does not exist: `2 MB`, `MB`, `vuông` and
- * `square` appear nowhere under `src/app/` or `src/components/`. The size limit
- * is implementable because `file_too_large`'s sentence names the number;
- * "square" has no sentence, no code and no source anywhere, so the B2b plan §8
- * asks the product owner for it rather than this module inventing a refusal with
- * a Vietnamese sentence nobody wrote.
+ * **Every photograph is square, and none is refused for not being.** OPS §4.3
+ * asked for "≤2 MB, square" and B2b recorded that "square" had no sentence, no
+ * code and no source. `./avatar-image.ts` centre-crops instead, which answers
+ * the requirement without inventing a refusal nobody wrote — see that module.
  */
-export async function storeProposedAvatar(
-  file: UploadedFile,
-): Promise<{ avatarUrl: string; avatarObject: string }> {
-  const extension = AVATAR_TYPES[file.type];
-  if (extension === undefined) {
-    throw new ValidationFailed("invalid_image", "avatar");
+export async function storeProposedAvatar(file: UploadedFile): Promise<string> {
+  if (!AVATAR_TYPES.has(file.type)) {
+    throw new ValidationFailed(refusalFor(file.type), "avatar");
   }
   if (file.size > AVATAR_MAX_BYTES) {
     throw new ValidationFailed("file_too_large", "avatar");
   }
 
-  const store = objectStore();
-  const key = objectKey("avatars", extension);
-  await store.put(key, new Uint8Array(await file.arrayBuffer()), file.type);
-  return { avatarUrl: store.url(key), avatarObject: key };
+  const processed = await processAvatar(new Uint8Array(await file.arrayBuffer()));
+
+  const key = objectKey("avatars", "webp");
+  await objectStore().put(key, processed, "image/webp");
+  // The key, and only the key. An address is derived from it wherever one is
+  // needed (`./avatar-url.ts`); returning a URL here as well is what used to
+  // bake `S3_PUBLIC_URL` into every row that stored one.
+  return key;
 }
 
 /**
@@ -193,14 +199,14 @@ export async function proposeAvatar(
   membershipId: string | undefined,
   file: UploadedFile,
 ): Promise<void> {
-  const { avatarUrl, avatarObject } = await storeProposedAvatar(file);
+  const avatarObject = await storeProposedAvatar(file);
 
   let superseded: string | null;
   try {
     ({ supersededAvatarObject: superseded } = await submitCommand(
       shelfSlug,
       proposeAvatarChange,
-      { membershipId, avatarUrl, avatarObject },
+      { membershipId, avatarObject },
     ));
   } catch (err) {
     try {

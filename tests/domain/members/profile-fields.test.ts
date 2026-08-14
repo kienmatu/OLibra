@@ -108,7 +108,7 @@ test("PROFILE_FIELDS names exactly the nine verified details, and no credential"
     "phone",
     "phone_missing_reason",
     "email",
-    "avatar_url",
+    "avatar_object",
   ]);
   for (const forbidden of ["username", "password_hash", "is_super_admin"]) {
     expect(PROFILE_FIELDS as readonly string[]).not.toContain(forbidden);
@@ -119,16 +119,21 @@ test("pickProfileFields drops every key that is not one of the nine", () => {
   // `proposed_values` is jsonb with no check constraint behind it
   // (DATABASE.md §4.11), so this is the boundary between an arbitrary stored
   // object and an `update users`.
+  // `avatar_object` is *kept*: it became the ninth `ProfileField` on
+  // 2026-08-13, when `users.avatar_url` was dropped and the key became the only
+  // stored fact about a photograph. It is listed here rather than left out so
+  // that a reader of this test sees the distinction being drawn is membership
+  // of `PROFILE_FIELDS`, not "looks like a storage identifier".
   expect(
     pickProfileFields({
       phone: "0912345678",
       username: "kelely",
       password_hash: "$argon2id$stolen",
       is_super_admin: true,
-      avatar_object: "avatars/abc.jpg",
+      avatar_object: "avatars/abc.webp",
       nonsense: { deep: 1 },
     }),
-  ).toEqual({ phone: "0912345678" });
+  ).toEqual({ phone: "0912345678", avatar_object: "avatars/abc.webp" });
 
   expect(pickProfileFields(null)).toEqual({});
   expect(pickProfileFields(["full_name"])).toEqual({});
@@ -190,7 +195,7 @@ test("the four not-null columns refuse to be blanked, by name", () => {
     "phone",
     "phone_missing_reason",
     "email",
-    "avatar_url",
+    "avatar_object",
   ] as const) {
     expect(normaliseProfilePatch({ [field]: null })).toEqual({ [field]: null });
   }
@@ -280,7 +285,7 @@ test("every field in PROFILE_FIELDS is actually writable through the one writer"
     phone: "0987654321",
     phone_missing_reason: "Em bé chưa có điện thoại",
     email: "mai@vd.vn",
-    avatar_url: "https://vd.vn/anh.jpg",
+    avatar_object: "avatars/9f2c1e3a-4b5d-4e6f-8a9b-0c1d2e3f4a5b.webp",
   };
 
   for (const field of PROFILE_FIELDS) {

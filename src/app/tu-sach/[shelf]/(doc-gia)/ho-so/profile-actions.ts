@@ -41,13 +41,14 @@ import { ACTION_ERROR_PARAM } from "@/lib/search-params";
  * The circulation actions catch `RuleViolated` and rethrow everything else,
  * because a `ValidationFailed` there names a condition grade their form cannot
  * submit — a fault dressed as an answer. Here `ValidationFailed` is the *normal*
- * outcome of the two failure modes OPS §4.3 lists for `ProposeAvatarChange`:
- * `file_too_large` ("Ảnh vượt quá 2 MB.") and `invalid_image` ("Tệp này không
- * phải là ảnh hợp lệ.") are things a reader did and can undo by choosing another
- * file, and both are raised by `storeProposedAvatar` before any command runs. So
- * this action catches `DomainError` — the common parent of `RuleViolated`,
- * `ValidationFailed`, `NotFound` and `NotWired` — and matches on the class, not
- * on a code list that would go stale.
+ * outcome of the three failure modes OPS §4.3 lists for `ProposeAvatarChange`:
+ * `file_too_large` ("Ảnh vượt quá 5 MB."), `heic_not_supported` and
+ * `invalid_image` ("Tệp này không phải là ảnh hợp lệ.") are things a reader did
+ * and can undo by choosing another file, and all three are raised by
+ * `storeProposedAvatar` before any command runs. So this action catches
+ * `DomainError` — the common parent of `RuleViolated`, `ValidationFailed`,
+ * `NotFound` and `NotWired` — and matches on the class, not on a code list that
+ * would go stale.
  *
  * `NotFound` never reaches the catch: `submitCommand` has already turned it into
  * `notFound()`, except for `write_target_not_found`, which is a fault. `NotWired`
@@ -216,7 +217,7 @@ export async function proposeProfileChangeAction(form: FormData): Promise<void> 
         // refusal — Task 8's brief does not list this action among the ones
         // that enforce `thieu-so-dien-thoai` — but the field is `PROPOSABLE`
         // (`@/domain/members/profile-proposals.ts` filters
-        // `PROFILE_FIELDS` by excluding only `avatar_url`), so a reader who
+        // `PROFILE_FIELDS` by excluding only `avatar_object`), so a reader who
         // types a reason here has it travel with the proposal. The rule
         // itself is enforced in the domain, not here: `proposeProfileChange`
         // calls `assertPhoneOrReason` directly (Task 8's fix), and

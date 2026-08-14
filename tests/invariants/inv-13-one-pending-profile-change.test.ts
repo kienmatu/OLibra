@@ -298,7 +298,7 @@ test("INV-13b: every field is writable through BOTH sanctioned paths, asserted p
     phone: "0987654321",
     phone_missing_reason: "Em bé chưa có điện thoại",
     email: "mai@vd.vn",
-    avatar_url: "https://vd.vn/anh.jpg",
+    avatar_object: "avatars/9f2c1e3a-4b5d-4e6f-8a9b-0c1d2e3f4a5b.webp",
   };
 
   const shelf = await makeShelf(sql);
@@ -321,7 +321,7 @@ test("INV-13b: every field is writable through BOTH sanctioned paths, asserted p
     });
 
     // Path 2 — an approved request. Inserted directly rather than proposed,
-    // because `avatar_url` deliberately does not go through
+    // because `avatar_object` deliberately does not go through
     // `ProposeProfileChange` (it is `ProposeAvatarChange`'s, a later wave) —
     // and it is `ApproveProfileChange`'s handling of `proposed_values` that is
     // under test here, not the reader's route into it.

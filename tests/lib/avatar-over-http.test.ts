@@ -21,8 +21,8 @@ import { startTestServer, type TestServer } from "../support/http";
  * does to a request body. Next applies a body-size limit of its own before the
  * action is invoked — `defaultBodySizeLimit = '1 MB'` in
  * `next/dist/server/app-render/action-handler.js` — and nothing in this project
- * configured it, so for a long time the number the profile screen states (2 MB,
- * `AVATAR_MAX_BYTES`, and OPS §4.3's `file_too_large`: "Ảnh vượt quá 2 MB.")
+ * configured it, so for a long time the number the profile screen states (5 MB,
+ * `AVATAR_MAX_BYTES`, and OPS §4.3's `file_too_large`: "Ảnh vượt quá 5 MB.")
  * was not the number that decided.
  *
  * Measured over HTTP before `next.config.ts` set `serverActions.bodySizeLimit`:
@@ -179,35 +179,33 @@ async function postPhotograph(bytes: number, type: string): Promise<Posted> {
   };
 }
 
-test("a photograph in the 1–2 MB band reaches application code", async () => {
-  // The regression. 1.6 MB is between Next's default limit and this
-  // application's own, which is where every phone photograph of a child lands,
-  // and where the framework used to answer with an untranslated 500 before the
-  // action ran.
+test("a photograph in the 4–5 MB band reaches application code", async () => {
+  // The regression, at the new limit. 4.6 MB is between Next's default body
+  // limit and this application's own, which is where a modern phone photograph
+  // lands, and where the framework would answer with an untranslated 500 if
+  // `bodySizeLimit` had not moved with `AVATAR_MAX_BYTES`.
   //
   // Posted as `application/pdf` on purpose: it makes the application's verdict
-  // *deterministic without an object store*, because `storeProposedAvatar`
-  // checks the content type first and refuses before it reads a byte or reaches
-  // MinIO. What is under test is not the content type — `avatar-actions.test.ts`
-  // covers that — but that a body this size gets as far as the code that
-  // decides. `invalid_image` is proof that it did; `Body exceeded` would be
-  // proof that it did not.
-  const posted = await postPhotograph(1_600_000, "application/pdf");
+  // deterministic without an object store, because `storeProposedAvatar`
+  // checks the content type first and refuses before it reads a byte or
+  // reaches MinIO. `invalid_image` is proof the body got as far as the code
+  // that decides; "Body exceeded" would be proof that it did not.
+  const posted = await postPhotograph(4_600_000, "application/pdf");
 
   expect(posted.body).not.toContain("Body exceeded");
   expect(posted.status).toBe(303);
   expect(posted.refusal).toBe("invalid_image");
 }, 60_000);
 
-test("the domain's own 2 MB rule is the one that refuses an oversize photograph", async () => {
+test("the domain's own 5 MB rule is the one that refuses an oversize photograph", async () => {
   // One byte over `AVATAR_MAX_BYTES`, as an image this time, so the only thing
   // left to refuse it is the size check — and the refusal has to be
-  // `file_too_large`, whose sentence a reader can act on ("Ảnh vượt quá 2 MB."),
+  // `file_too_large`, whose sentence a reader can act on ("Ảnh vượt quá 5 MB."),
   // rather than the framework's.
   //
   // This is the assertion that fails if `serverActions.bodySizeLimit` is
   // lowered to the domain's own number, or removed: a multipart body is bigger
-  // than the file inside it, so a framework limit set *at* 2 MB refuses this
+  // than the file inside it, so a framework limit set *at* 5 MB refuses this
   // request before the domain can, and the sentence disappears again in a
   // narrower band.
   const posted = await postPhotograph(AVATAR_MAX_BYTES + 1, "image/png");
@@ -219,10 +217,10 @@ test("the domain's own 2 MB rule is the one that refuses an oversize photograph"
 
 test("the framework limit is still a backstop for a body nobody should buffer", async () => {
   // The other half of the trade, asserted so that "raise the limit" is not read
-  // as "remove it". Well over `bodySizeLimit`, so Next refuses it while the
-  // bytes are still streaming and no redirect is issued — the request never
-  // becomes this application's problem.
-  const posted = await postPhotograph(5 * 1024 * 1024, "image/png");
+  // as "remove it". Well over `bodySizeLimit` (6 MB), so Next refuses it while
+  // the bytes are still streaming and no redirect is issued — the request
+  // never becomes this application's problem.
+  const posted = await postPhotograph(7 * 1024 * 1024, "image/png");
 
   expect(posted.refusal).toBeNull();
   expect(posted.status).not.toBe(303);

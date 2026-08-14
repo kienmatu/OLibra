@@ -97,7 +97,7 @@ export async function getMyProfile(
     select
       u.saint_name, u.full_name, u.date_of_birth::text as date_of_birth,
       u.father_name, u.mother_name, u.phone, u.phone_missing_reason, u.email,
-      u.avatar_url, m.parish_unit_l1_id, m.parish_unit_l2_id
+      u.avatar_object, m.parish_unit_l1_id, m.parish_unit_l2_id
     from memberships m
     join users u on u.id = m.user_id and u.deleted_at is null
     where m.id = ${membershipId} and m.deleted_at is null

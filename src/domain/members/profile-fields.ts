@@ -68,7 +68,7 @@ export const PROFILE_FIELDS = [
   "phone",
   "phone_missing_reason",
   "email",
-  "avatar_url",
+  "avatar_object",
 ] as const;
 
 export type ProfileField = (typeof PROFILE_FIELDS)[number];
@@ -86,7 +86,7 @@ export type ProfilePatch = Partial<ProfileFields>;
  * Blanking one has to be a named refusal — OPS §4.3's
  * `required_fields_missing` — rather than a `23502` out of the driver, which
  * OPS §2 forbids ("a command never fails with a bare 500 or an unstructured
- * exception"). `phone`, `phone_missing_reason`, `email` and `avatar_url` are
+ * exception"). `phone`, `phone_missing_reason`, `email` and `avatar_object` are
  * all nullable and clearing one is a legitimate edit: a family that never gave
  * a phone number is a real row. `date_of_birth` is nullable too — clearing it
  * is not itself refused, though `assertStorableDate` below still guards any
@@ -190,14 +190,19 @@ function named(patch: ProfilePatch, field: ProfileField): boolean {
  *
  * The untrusted bag is real: `proposed_values` is `jsonb` with no check
  * constraint behind it (DATABASE.md §4.11 names that as the price of the
- * design), and the avatar wave will put **`avatar_object`** into it — the
- * storage key of the proposed image, which is never copied onto `users` and
- * must therefore never reach `applyProfileFields`. That field is called
- * `avatar_object` rather than the more obvious `avatar_key` because
- * `kernel/audit.ts`'s `FORBIDDEN` list matches `key` as a whole token, so an
- * `avatar_key` in an audited payload throws `audit_forbidden_field` the moment
- * a command audits `proposed_values`. Naming avoids the landmine; remembering
- * would not have.
+ * design), so a row may hold any key at all — one written by an older version
+ * of this application, or by hand.
+ *
+ * **`avatar_object` is one of the nine as of 2026-08-13**, and is kept like any
+ * other. It used to be dropped here: `users` held a URL and the key travelled
+ * beside it out of band, so a key reaching `applyProfileFields` would have been
+ * a write to a column nobody had sanctioned. `users.avatar_url` is gone
+ * (`20260813_02_avatar_object_only.sql`) and the key is the whole of what a row
+ * keeps, so the field is ordinary now. The name is not: `avatar_object` rather
+ * than the more obvious `avatar_key`, because `kernel/audit.ts`'s `FORBIDDEN`
+ * list matches `key` as a whole token, so an `avatar_key` in an audited payload
+ * throws `audit_forbidden_field` the moment a command audits `proposed_values`.
+ * Naming avoids the landmine; remembering would not have.
  *
  * Dropping rather than throwing, because the caller is a historical row: a
  * request written by an older version of the application, or one carrying a
@@ -338,13 +343,6 @@ export async function applyProfileFields(
 ): Promise<{ before: ProfileFields; after: ProfileFields }> {
   const has = (f: ProfileField): boolean => named(patch, f);
   const val = (f: ProfileField): string | null => patch[f] ?? null;
-  /**
-   * B6's companion column. Not a `ProfileField` — nothing proposes a storage
-   * key — so it is read off the patch directly, and only ever written in the
-   * same arm as `avatar_url`.
-   */
-  const avatarObject =
-    (patch as { avatar_object?: string | null }).avatar_object ?? null;
 
   // The nine arms below are the only place `PROFILE_FIELDS` is spelled a
   // second time — the driver takes a tagged template, so a column list cannot
@@ -359,7 +357,7 @@ export async function applyProfileFields(
     with prev as (
       select id, saint_name, full_name, date_of_birth::text as date_of_birth,
              father_name, mother_name, phone, phone_missing_reason, email,
-             avatar_url, avatar_object
+             avatar_object
         from users
        where id = ${userId} and deleted_at is null
          for update
@@ -383,16 +381,7 @@ export async function applyProfileFields(
         when ${has("phone_missing_reason")} then ${val("phone_missing_reason")}
         else prev.phone_missing_reason end,
       email         = case when ${has("email")}         then ${val("email")}                 else prev.email end,
-      avatar_url    = case when ${has("avatar_url")}    then ${val("avatar_url")}            else prev.avatar_url end,
-      -- B6. The storage key travels with the URL and is NOT a ProfileField:
-      -- nothing proposes a key, and giving it an entry in PROFILE_FIELDS would
-      -- demand a Vietnamese label for a storage identifier no reader ever sees
-      -- -- which profile-labels.ts refused to compile, correctly. So it moves
-      -- exactly when avatar_url moves, from the same patch, and a row can never
-      -- hold a URL and a key naming different objects. (No backticks in a SQL
-      -- comment here: this is inside a tagged template and one would end the
-      -- literal.)
-      avatar_object = case when ${has("avatar_url")}    then ${avatarObject}                     else prev.avatar_object end
+      avatar_object = case when ${has("avatar_object")} then ${val("avatar_object")}           else prev.avatar_object end
       from prev
      where u.id = prev.id
     returning
@@ -405,7 +394,6 @@ export async function applyProfileFields(
       prev.phone_missing_reason as before_phone_missing_reason,
       u.phone_missing_reason    as after_phone_missing_reason,
       prev.email         as before_email,         u.email         as after_email,
-      prev.avatar_url    as before_avatar_url,    u.avatar_url    as after_avatar_url,
       prev.avatar_object as before_avatar_object, u.avatar_object as after_avatar_object
   `;
 
@@ -484,7 +472,10 @@ export function assertPhoneOrReason(
  * deletable by no code path — which is a retention failure, not a storage one
  * (`src/storage/s3.ts` on why name-plus-face is the most identifying pair here).
  * That is precisely the failure `carryAvatar` was written to prevent; it
- * prevented it sequentially and not concurrently.
+ * prevented it sequentially and not concurrently. (`carryAvatar` itself was
+ * deleted on 2026-08-13, when `avatar_object` became a `ProfileField` and there
+ * was no longer a second fact to graft back on — see `./pending-proposal.ts`.
+ * The lock below is what stopped the concurrent form and is unaffected.)
  *
  * **A deadlock that escaped as a raw `PostgresError`.** `ApproveProfileChange`
  * held `for update` on the reader's `users` row (via `applyProfileFields`) and
@@ -541,7 +532,7 @@ export async function readProfileFields(
   const [row] = await tx<ProfileFields[]>`
     select saint_name, full_name, date_of_birth::text as date_of_birth,
            father_name, mother_name, phone, phone_missing_reason, email,
-           avatar_url
+           avatar_object
       from users
      where id = ${userId} and deleted_at is null
   `;

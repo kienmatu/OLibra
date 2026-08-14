@@ -56,7 +56,7 @@ JavaScript Tailwind config; add colours and radii as CSS variables there.
 
 ### Version pins — do not "upgrade" these without checking
 
-Two dependencies are deliberately held back. Both were found the hard way.
+Three dependencies are pinned deliberately. All were found the hard way.
 
 - **`typescript` is pinned to `^5.9`, not 7.** `typescript@latest` now resolves
   to the TypeScript 7 native port, which `typescript-eslint` does not support
@@ -64,6 +64,13 @@ Two dependencies are deliberately held back. Both were found the hard way.
 - **`eslint` is pinned to `^9`, not 10.** `typescript-eslint@8`, which
   `eslint-config-next` depends on, ships a scope manager missing
   `addGlobals`, so ESLint 10 throws on every file.
+- **`sharp` is declared directly at `^0.35.3`, matching Next 16's own
+  `optionalDependency`.** Avatar uploads decode, crop and re-encode through it
+  (`src/lib/avatar-image.ts`). Relying on Next's transitive copy would mean a
+  Next upgrade that dropped or moved the optional dependency broke uploads in
+  production rather than `bun install` in CI. The prebuilt binaries carry
+  libheif but **no HEVC codec**, so AVIF decodes and HEIC does not — see
+  `src/lib/avatar.ts` on why `accept` must never list HEIC.
 
 Also: `eslint-config-next` v16 exports a **native flat-config array**. Spread
 it directly in `eslint.config.mjs`. Do not wrap it in `@eslint/eslintrc`'s

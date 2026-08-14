@@ -8,6 +8,7 @@ import { messageFor } from "@/domain/kernel/errors";
 import type { ProfileField } from "@/domain/members/profile-fields";
 import { getPendingProfileChanges } from "@/domain/members/queries/get-pending-profile-changes";
 import { getManagerBadgeCounts } from "@/domain/shelf/queries/get-manager-dashboard";
+import { avatarUrl } from "@/lib/avatar-url";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { loadPage } from "@/lib/page-data";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
@@ -249,12 +250,14 @@ export default async function PendingProfileChangesPage({
 
               <div className="divide-y divide-hairline border-y border-hairline">
                 {fields.map((field) =>
-                  field === "avatar_url" ? (
+                  field === "avatar_object" ? (
                     <AvatarCompareRow
                       key={field}
                       label={PROFILE_FIELD_LABELS[field]}
-                      current={request.currentValues.avatar_url}
-                      proposed={request.proposedValues.avatar_url ?? null}
+                      current={avatarUrl(request.currentValues.avatar_object)}
+                      proposed={avatarUrl(
+                        request.proposedValues.avatar_object ?? null,
+                      )}
                       initial={initial}
                     />
                   ) : (

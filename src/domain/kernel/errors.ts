@@ -341,8 +341,8 @@ export const ERROR_MESSAGES = {
   // được xử lý."
   empty_description: "Vui lòng mô tả sách bạn muốn tặng.",
   donation_not_pending: "Đề nghị tặng sách này đã được xử lý.",
-  // OPS §4.3's two failure modes for ProposeAvatarChange (`:567`, `:568`),
-  // quoted. Neither is raised by a command: both are facts about *bytes*, and
+  // OPS §4.3's three failure modes for ProposeAvatarChange (`:578`-`:580`),
+  // quoted. None is raised by a command: all three are facts about *bytes*, and
   // `tests/architecture/boundaries.test.ts` forbids `src/domain/` from touching
   // any. They are raised by `src/lib/avatar.ts` before the command runs, with
   // these codes, so the sentence a reader sees is the catalogue's rather than
@@ -350,15 +350,21 @@ export const ERROR_MESSAGES = {
   // `ERROR_MESSAGES` lives in the domain and not beside a screen.
   //
   // `file_too_large`'s sentence names the number, which is what makes the limit
-  // implementable: OPS attributes both "≤2 MB" and "square" to "the profile
-  // screen's own copy", and that copy does not exist — `2 MB`, `MB`, `vuông`
-  // and `square` appear nowhere under `src/app/` or `src/components/`. So the
-  // size is enforced from this sentence and **no aspect-ratio check exists
-  // anywhere**: "square" has no sentence, no code and no source, and B2b's plan
-  // §8 asks the product owner for it rather than inventing a refusal with
-  // Vietnamese nobody wrote.
-  file_too_large: "Ảnh vượt quá 2 MB.",
+  // implementable: OPS attributed both "≤2 MB" and "square" to "the profile
+  // screen's own copy", and that copy did not exist. Both are now real. The
+  // size is stated on the screen and enforced from this sentence; "square" is
+  // no longer a refusal at all, because `src/lib/avatar-image.ts` centre-crops
+  // every upload instead of rejecting one that is not square.
+  file_too_large: "Ảnh vượt quá 5 MB.",
   invalid_image: "Tệp này không phải là ảnh hợp lệ.",
+  // A photograph, and a valid one — just in a codec the prebuilt sharp
+  // binaries cannot decode (HEVC, for patent reasons). Telling a reader their
+  // iPhone photo "is not a valid image" would be wrong as well as unhelpful,
+  // so this sentence says what to do instead. Reached only from the Files-app
+  // route: uploading from the Photo Library makes iOS Safari transcode to
+  // JPEG, which is why `accept` must never list HEIC.
+  heic_not_supported:
+    "Ảnh iPhone (HEIC) chưa dùng được. Bạn hãy chọn ảnh từ thư viện ảnh, hoặc lưu lại dạng JPG.",
 
   // — access —
   not_authenticated: "Bạn cần đăng nhập để tiếp tục.",

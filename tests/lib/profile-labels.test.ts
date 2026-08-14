@@ -33,7 +33,7 @@ test("the labels are the words already shipped elsewhere in the app", () => {
     phone: "Số điện thoại",
     phone_missing_reason: "Lý do chưa có số điện thoại",
     email: "Email",
-    avatar_url: "Ảnh đại diện",
+    avatar_object: "Ảnh đại diện",
   });
 });
 

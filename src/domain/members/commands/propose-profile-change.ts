@@ -77,7 +77,7 @@ export const proposeProfileChange: Command<
   requireIdentifiedActor(ctx);
 
   // Narrowed to the eight before validation, so a caller that sends
-  // `avatar_url` gets it dropped rather than quietly bypassing
+  // `avatar_object` gets it dropped rather than quietly bypassing
   // `ProposeAvatarChange`'s size and content-type policy, which lives at the
   // surface and cannot be enforced from here.
   const named = onlyProposable(input.fields);
@@ -130,18 +130,17 @@ export const proposeProfileChange: Command<
         : current.phone_missing_reason,
   });
 
-  // The pending row's `avatar_object` is carried through unchanged. This
-  // command never proposes a photograph and never withdraws one, and
-  // `pickProfileFields` — which `readPendingProposal` runs the stored bag
-  // through — drops that key by design, so rebuilding `proposed_values` from
-  // the patch alone would erase the storage key of an image the same row still
-  // proposes by URL. Nothing would then be able to delete it on a reject.
-  // `../pending-proposal.ts` holds the whole of that reasoning.
+  // A pending row's `avatar_object` survives this command without anything
+  // being done about it. That took a `carryAvatar` helper and an extra argument
+  // until 2026-08-13, because `pickProfileFields` dropped the key and a
+  // `proposed_values` rebuilt from the patch alone therefore erased it —
+  // leaving an image nothing could delete on a reject. The key is a
+  // `ProfileField` now, so `readPendingProposal` keeps it and `mergeProposal`
+  // carries it forward for the same reason it carries `email`.
   const requestId = await writePendingProposal(tx, ctx, {
     userId,
     pending,
     next,
-    avatarObject: pending?.avatarObject ?? null,
   });
 
   return {
@@ -160,7 +159,7 @@ export const proposeProfileChange: Command<
   };
 };
 
-/** The seven, and nothing else — see `PROPOSABLE_FIELDS`. */
+/** The eight, and nothing else — see `PROPOSABLE_FIELDS`. */
 function onlyProposable(fields: ProfilePatch): ProfilePatch {
   return Object.fromEntries(
     PROPOSABLE_FIELDS.filter((f) => fields[f] !== undefined).map((f) => [

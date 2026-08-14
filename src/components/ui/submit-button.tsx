@@ -2,7 +2,7 @@
 
 import { LoaderCircle } from "lucide-react";
 import { useFormStatus } from "react-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "./button";
 
 /**
  * A confirm button that disables itself while its form is in flight.

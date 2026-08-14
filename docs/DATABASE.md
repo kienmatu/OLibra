@@ -344,7 +344,7 @@ create table users (
   email           text,                    -- optional; §4 assumption 2, no outbound email in v1
   display_name    text,
   locale          text not null default 'vi',
-  avatar_url      text,
+  avatar_object   text,                    -- object storage key; every URL is derived from it — see below
   is_super_admin  boolean not null default false,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
@@ -388,7 +388,14 @@ record about it.
 
 **`phone` stays nullable; `phone_missing_reason` is new.** The column cannot honestly be `not null` — some readers are children with no phone of their own, and a placeholder number is a tap that dials a stranger — so `phone` does **not** join `REQUIRED_PROFILE_FIELDS`; its requirement lives in the interface, not the schema. Submitting a form with an empty phone raises a danger-styled confirmation requiring a typed reason, stored in `phone_missing_reason` and cleared automatically the moment a phone is filled in. **Enforced in the domain**, not in any one action: `register()` and `assertPhoneOrReason` (`src/domain/members/profile-fields.ts`), called from `updateReaderProfile`, `proposeProfileChange` and `approveProfileChange`, so the rule cannot be satisfied by one write path and skipped by another.
 
-`avatar_url` is populated at registration, not left for later. §16.1 lists the photograph among the fields collected on the registration form itself, under *Bản thân*, because a volunteer meeting forty children on a Sunday recognises a face faster than a name.
+§16.1 asks for the photograph at registration rather than later — it lists it among the fields collected on the registration form itself, under *Bản thân*, because a volunteer meeting forty children on a Sunday recognises a face faster than a name. **The shipped system does not do this yet, and the column is empty at registration.** Neither registration form renders a photograph field and nothing supplies `RegistrationInput.avatarObject`; the only uploader in the codebase is `proposeAvatar` (`src/lib/avatar.ts`), which needs a membership that does not exist until the form succeeds, so the field would be a file input with nowhere to send bytes. Every photograph in the system therefore arrives through `ProposeAvatarChange` on the profile screen. That gap is also what makes the no-backfill decision below safe: no row was ever written with a URL and no key.
+
+**`avatar_object` is a storage key, and it is the only fact a row keeps about a photograph.** The column was `avatar_url text` — a full public address — until `20260813_02_avatar_object_only.sql` dropped it in favour of the key `20260809_02_avatar_object.sql` had added beside it a few days earlier. Two reasons, both of which the earlier migration states and neither of which it could act on while a URL column remained:
+
+- **A URL cannot be deleted.** `ObjectStore.delete` takes a key, so a row holding only an address did not know what to remove. A family asking the parish to take their child's photograph down had no answer, and `src/storage/s3.ts` argues at length that a child's face is the most identifying thing this system stores. Master plan §7.14's **B6 · Avatar retention** owned closing that.
+- **A stored URL bakes `S3_PUBLIC_URL` into every row.** SDD §6.8 claims that changing provider "is a change of environment variables … and nothing else"; a stored absolute URL made that false — moving to R2, or putting a CDN in front, would have stranded every avatar already written.
+
+Every address a browser fetches is now derived from the key at read time, by `avatarUrl()` in `src/lib/avatar-url.ts`. Deriving it is the **surface's** job and never a query's: `url()` lives in `src/storage/`, which `tests/architecture/boundaries.test.ts` forbids `src/domain/` from importing, so queries hand back keys and screens turn them into addresses. No backfill was written for the drop, and none was needed: the development database is reset (the same standing instruction the 2026-08-12 spec records), and no caller ever supplied `RegistrationInput`'s old `avatarUrl`, so no row held a URL without a key.
 
 **How a parish subdivides its people is per-shelf configuration, not a fixed shape.** BR §5.6 covers the reasoning: a shelf may use one level or two, name each level whatever its own parish calls it, and — with two levels — either nest the smaller inside the bigger or not. One self-referencing table serves all of that; nesting is a fact about the data (whether `parent_id` is set), not a different schema for a different shelf.
 
@@ -1163,6 +1170,10 @@ create unique index profile_change_requests_one_pending
 - **What is gained.** Adding a proposable field is additive on the application side only — no migration here, and no risk of this table's column list drifting out of step with `users` the way two parallel sets of typed columns inevitably would. Because **every** field on the person can be proposed, the columned alternative is not a handful of extra columns but a near-duplicate of the whole of `users`, kept in step by hand, twice.
 
 A column-per-field design would have suited a small, fixed set of proposable fields. It does not suit "every field", which is what was decided here, so `jsonb` is the closer fit to the actual rule rather than merely the cheaper option.
+
+**`proposed_values` carries the photograph as `avatar_object` — an ordinary profile field, copied to `users.avatar_object` on approval like any other.** It used to be a companion rather than a field: the bag held `avatar_url` (which approval copied) *beside* `avatar_object` (the storage key, which approval threw away), and keeping those two in step took four separate mechanisms, one of which recovered a settled photograph's key by matching an old request's proposed URL. `20260813_02_avatar_object_only.sql` dropped `users.avatar_url` and all four went with it. The key is written by `ProposeAvatarChange` rather than `ProposeProfileChange`, because it is the one proposable field that is a **file** and its size and content-type policy therefore belongs to the surface that received the bytes — `PROPOSABLE_FIELDS` (`src/domain/members/profile-proposals.ts`) excludes it for that reason and no other.
+
+It is spelled `avatar_object` rather than the more obvious `avatar_key` because `src/domain/kernel/audit.ts`'s forbidden-field list matches `key` as a whole token, and `ProposeAvatarChange` audits this payload — so the obvious name would throw `audit_forbidden_field` at the first audit write.
 
 `profile_change_requests_one_pending` is INV-13's database half: a partial unique index makes "at most one pending request per person" structural, in the same spirit as `loans_one_active_per_copy` (§7.1). It cannot enforce the other half of INV-13 — that a value on `users` is never written silently — because that is a property of which code paths are allowed to write to `users`, not of any single row here. §7 marks that half as application discipline for exactly this reason.
 

@@ -13,6 +13,7 @@ import { publicReadPolicy } from "../support/bucket-policy";
 import { closeAll, resetDatabase, sql } from "../support/db";
 import { makeShelf } from "../support/factories";
 import { testDatabaseUrl, testS3Config } from "../support/env";
+import { jpegOfExactly, realJpeg, realPng } from "../support/images";
 
 /**
  * The avatar, end to end: a real multipart-shaped upload, a real MinIO, a real
@@ -59,14 +60,12 @@ const { proposeProfileChange } =
 const { rejectProfileChange } =
   await import("../../src/domain/members/commands/reject-profile-change");
 const { pool } = await import("../../src/db/client");
+const { avatarUrl } = await import("../../src/lib/avatar-url");
 
 const clock = fixedClock("2026-08-09T06:00:00Z");
 
 const STORE_KEY = Symbol.for("olibra.storage.object-store");
 const POOL_KEY = Symbol.for("olibra.db.pool");
-
-/** An eight-byte PNG signature. Enough to be a real object; nothing decodes it. */
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 const previous: Record<string, string | undefined> = {};
 
@@ -181,7 +180,11 @@ function uploadForm(fields: Record<string, string>, file?: File): FormData {
   return data;
 }
 
-const png = (name = "anh.png") => new File([PNG], name, { type: "image/png" });
+// Real, decodable bytes. This was an eight-byte PNG *signature* until the
+// pipeline began decoding — sufficient while `invalid_image` was a header
+// check, and worthless the moment it became a real one.
+const png = async (name = "anh.png") =>
+  new File([new Uint8Array(await realPng())], name, { type: "image/png" });
 
 /** See `lending-actions.test.ts`: the real `NEXT_REDIRECT` digest, not a mock. */
 async function redirectedTo(run: Promise<void>): Promise<string> {
@@ -206,7 +209,18 @@ const proposedValues = () =>
     select id, proposed_values from profile_change_requests where status = 'pending'
   `.then((r) => r[0]);
 
-/** What a browser would get from the URL the store handed out. */
+/**
+ * The address a browser would fetch for a proposal's photograph.
+ *
+ * Derived from the stored key rather than read off the row: `proposed_values`
+ * carries `avatar_object` and nothing else about the image since
+ * `20260813_02_avatar_object_only.sql`, and `avatarUrl()` is the one place that
+ * turns a key into an address — which is exactly the property that makes
+ * changing `S3_PUBLIC_URL` a change of environment and nothing else.
+ */
+const urlOf = (values: Record<string, string>) => avatarUrl(values.avatar_object)!;
+
+/** What a browser would get from that address. */
 const statusOf = (url: string) => fetch(url).then((r) => r.status);
 
 async function shelfWithReader() {
@@ -226,17 +240,23 @@ test("a proposed photograph is in the bucket, fetchable, while the request is pe
     proposeAvatarAction(
       uploadForm(
         { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
-        png(),
+        await png(),
       ),
     ),
   );
   expect(refusalIn(target)).toBeNull();
 
+  // The stored key is always `.webp` now — `objectKey("avatars", "webp")` is a
+  // constant call, regardless of what the upload's own content type was (here
+  // `image/png`). The bytes are re-encoded to that format by `processAvatar`;
+  // this test asserts only the key's shape and that the object is fetchable —
+  // "what is stored is a 512×512 WebP, whatever was uploaded" below is what
+  // pins the re-encoding itself.
   const request = await proposedValues();
   expect(request.proposed_values.avatar_object).toMatch(
-    /^avatars\/[0-9a-f-]+\.png$/,
+    /^avatars\/[0-9a-f-]+\.webp$/,
   );
-  expect(await statusOf(request.proposed_values.avatar_url)).toBe(200);
+  expect(await statusOf(urlOf(request.proposed_values))).toBe(200);
 });
 
 test("cancelling deletes the image rather than leaving it orphaned", async () => {
@@ -247,12 +267,12 @@ test("cancelling deletes the image rather than leaving it orphaned", async () =>
     proposeAvatarAction(
       uploadForm(
         { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
-        png(),
+        await png(),
       ),
     ),
   );
   const request = await proposedValues();
-  const url = request.proposed_values.avatar_url;
+  const url = urlOf(request.proposed_values);
   expect(await statusOf(url)).toBe(200);
 
   await redirectedTo(
@@ -279,12 +299,12 @@ test("rejecting deletes the image too", async () => {
     proposeAvatarAction(
       uploadForm(
         { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
-        png(),
+        await png(),
       ),
     ),
   );
   const request = await proposedValues();
-  const url = request.proposed_values.avatar_url;
+  const url = urlOf(request.proposed_values);
   expect(await statusOf(url)).toBe(200);
 
   await signInAs(shelf.id, "manager", "lan.nguyen");
@@ -303,11 +323,11 @@ test("a second photograph deletes the first", async () => {
   const { reader } = await shelfWithReader();
   const fields = { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId };
 
-  await redirectedTo(proposeAvatarAction(uploadForm(fields, png("mot.png"))));
-  const first = (await proposedValues()).proposed_values.avatar_url;
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("mot.png"))));
+  const first = urlOf((await proposedValues()).proposed_values);
 
-  await redirectedTo(proposeAvatarAction(uploadForm(fields, png("hai.png"))));
-  const second = (await proposedValues()).proposed_values.avatar_url;
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("hai.png"))));
+  const second = urlOf((await proposedValues()).proposed_values);
 
   expect(second).not.toBe(first);
   expect(await statusOf(first)).toBe(404);
@@ -321,18 +341,19 @@ test("approving a replacement deletes the photograph it replaced", async () => {
   // bucket forever is not a storage cost — it is a family's request the
   // software cannot honour. Approving used to leave exactly that behind.
   //
-  // The key is not on `users`, which holds a URL; `ApproveProfileChange` finds
-  // it in the approved request that put the old photograph there. So this test
-  // needs two full rounds — propose, approve, propose, approve — and the
-  // assertion is that the first URL, which answered 200 through both of them,
-  // answers 404 once the second is approved.
+  // The key is on `users` now, so `ApproveProfileChange` reads the superseded
+  // one straight off the `before` half of its own write. It used to have to
+  // hunt for it in the approved request that put the old photograph there.
+  // Either way this test needs two full rounds — propose, approve, propose,
+  // approve — and the assertion is that the first URL, which answered 200
+  // through both of them, answers 404 once the second is approved.
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
   const reader = await signInAs(shelf.id, "reader", "minh.tran");
   const fields = { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId };
 
-  await redirectedTo(proposeAvatarAction(uploadForm(fields, png("mot.png"))));
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("mot.png"))));
   const first = await proposedValues();
-  const firstUrl = first.proposed_values.avatar_url;
+  const firstUrl = urlOf(first.proposed_values);
 
   await signInAs(shelf.id, "manager", "lan.nguyen");
   await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
@@ -341,9 +362,9 @@ test("approving a replacement deletes the photograph it replaced", async () => {
   expect(await statusOf(firstUrl)).toBe(200);
 
   await switchTo("minh.tran");
-  await redirectedTo(proposeAvatarAction(uploadForm(fields, png("hai.png"))));
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("hai.png"))));
   const second = await proposedValues();
-  const secondUrl = second.proposed_values.avatar_url;
+  const secondUrl = urlOf(second.proposed_values);
   expect(secondUrl).not.toBe(firstUrl);
 
   await switchTo("lan.nguyen");
@@ -364,9 +385,9 @@ test("approving a change that is not about the photograph deletes nothing", asyn
   const reader = await signInAs(shelf.id, "reader", "minh.tran");
   const fields = { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId };
 
-  await redirectedTo(proposeAvatarAction(uploadForm(fields, png())));
+  await redirectedTo(proposeAvatarAction(uploadForm(fields, await png())));
   const proposal = await proposedValues();
-  const url = proposal.proposed_values.avatar_url;
+  const url = urlOf(proposal.proposed_values);
 
   await signInAs(shelf.id, "manager", "lan.nguyen");
   await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
@@ -391,14 +412,14 @@ test("approving a change that is not about the photograph deletes nothing", asyn
   expect(await statusOf(url)).toBe(200);
 });
 
-test("a file over 2 MB is refused, and nothing is stored", async () => {
-  // OPS §4.3's `file_too_large` — "Ảnh vượt quá 2 MB." The size is checked
-  // before the buffer is read, so the bytes are never materialised; a real 2 MB
-  // `File` is constructed here anyway, because a test that declared a size it
-  // did not have would pass against an implementation reading
+test("a file over 5 MB is refused, and nothing is stored", async () => {
+  // OPS §4.3's `file_too_large` — "Ảnh vượt quá 5 MB." The size is checked
+  // before the buffer is read, so the bytes are never materialised; a real
+  // oversize `File` is constructed anyway, because a test that declared a size
+  // it did not have would pass against an implementation reading
   // `(await arrayBuffer()).byteLength` too late.
   const { reader } = await shelfWithReader();
-  const tooBig = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "to.png", {
+  const tooBig = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "to.png", {
     type: "image/png",
   });
 
@@ -415,12 +436,95 @@ test("a file over 2 MB is refused, and nothing is stored", async () => {
   expect(await proposedValues()).toBeUndefined();
 });
 
+test("a file of exactly AVATAR_MAX_BYTES is accepted", async () => {
+  // The boundary half of §7's claim in the design spec — "Exactly
+  // AVATAR_MAX_BYTES passes; one byte over raises file_too_large" — the test
+  // above only ever covered the second half. `storeProposedAvatar`'s check is
+  // `file.size > AVATAR_MAX_BYTES`, strictly greater, so a file of exactly the
+  // limit must go through; a test that only ever tried "one byte over" would
+  // pass equally well against a `>=` typo that quietly rejected the boundary
+  // itself.
+  //
+  // `jpegOfExactly` (`tests/support/images.ts`) is what makes this a genuine
+  // case rather than a declared-but-false one: it builds a real, decodable
+  // JPEG of precisely `AVATAR_MAX_BYTES` bytes by padding a small base image
+  // with JPEG comment segments, rather than a `File` whose declared `.size`
+  // does not match its actual byte length the way the oversize test above
+  // deliberately does need to (there the bytes are never read, so a
+  // mismatched declared size is fine; here the bytes *are* decoded by
+  // `processAvatar`, so they have to be real).
+  const { AVATAR_MAX_BYTES } = await import("../../src/lib/avatar");
+  const { reader } = await shelfWithReader();
+  const exact = new File(
+    [new Uint8Array(await jpegOfExactly(AVATAR_MAX_BYTES))],
+    "vua-khit.jpg",
+    { type: "image/jpeg" },
+  );
+  expect(exact.size).toBe(AVATAR_MAX_BYTES);
+
+  const target = await redirectedTo(
+    proposeAvatarAction(
+      uploadForm(
+        { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
+        exact,
+      ),
+    ),
+  );
+
+  expect(refusalIn(target)).toBeNull();
+  const request = await proposedValues();
+  expect(request.proposed_values.avatar_object).toMatch(
+    /^avatars\/[0-9a-f-]+\.webp$/,
+  );
+  expect(await statusOf(urlOf(request.proposed_values))).toBe(200);
+});
+
+test("an iPhone HEIC is refused with a sentence that says what to do", async () => {
+  // The prebuilt sharp binaries carry libheif but no HEVC codec, so HEIC
+  // cannot be decoded. `invalid_image` — "Tệp này không phải là ảnh hợp lệ." —
+  // would be both wrong and baffling for a photograph that plainly is one.
+  const { reader } = await shelfWithReader();
+  const heic = new File([new Uint8Array(2048)], "IMG_0001.HEIC", {
+    type: "image/heic",
+  });
+
+  const target = await redirectedTo(
+    proposeAvatarAction(
+      uploadForm(
+        { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
+        heic,
+      ),
+    ),
+  );
+
+  expect(refusalIn(target)).toBe("heic_not_supported");
+  expect(await proposedValues()).toBeUndefined();
+});
+
+test("the refusal sentence names five megabytes", async () => {
+  // The number a reader is shown and the number enforced are the same fact.
+  // Two copies is how one of them survives the next change to the limit.
+  const { messageFor } = await import("../../src/domain/kernel/errors");
+  const { AVATAR_MAX_BYTES } = await import("../../src/lib/avatar");
+
+  expect(AVATAR_MAX_BYTES).toBe(5 * 1024 * 1024);
+  expect(messageFor("file_too_large")).toContain("5 MB");
+});
+
 test("a file that is not one of the four image types is refused", async () => {
   // `invalid_image` — "Tệp này không phải là ảnh hợp lệ." An allow-list on the
-  // content type, not a sanitiser on the filename: `objectKey` accepts four
-  // extensions and this table maps onto exactly those.
+  // content type, not a sanitiser on the filename: `AVATAR_TYPES`
+  // (`src/lib/avatar.ts`) is built from `AVATAR_ACCEPT`
+  // (`src/lib/avatar-limits.ts`) — JPEG, PNG, WebP and AVIF — which is what the
+  // server accepts. `src/components/avatar-proposal.tsx`'s file input wires its
+  // own `accept` attribute to this same list (`accept={AVATAR_ACCEPT.join(",")}`)
+  // so a browser offers the identical four types; that is a courtesy the OS file
+  // picker may or may not enforce, not a security boundary, so this server-side
+  // check is what actually refuses a PDF regardless of what the browser let through.
   const { reader } = await shelfWithReader();
-  const pdf = new File([PNG], "anh.pdf", { type: "application/pdf" });
+  const pdf = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "anh.pdf", {
+    type: "application/pdf",
+  });
 
   const target = await redirectedTo(
     proposeAvatarAction(
@@ -465,7 +569,7 @@ test("a reader may not propose a photograph for somebody else, and nothing is le
     proposeAvatarAction(
       uploadForm(
         { "tu-sach": "dong-thap", "thanh-vien": other.membershipId },
-        png(),
+        await png(),
       ),
     ),
   );
@@ -473,6 +577,67 @@ test("a reader may not propose a photograph for somebody else, and nothing is le
   expect(refusalIn(target)).toBe("not_permitted");
   expect(await proposedValues()).toBeUndefined();
   expect(await keysInBucket()).toEqual(before);
+});
+
+test("what is stored is a 512×512 WebP, whatever was uploaded", async () => {
+  // The upload is a 2000×1500 JPEG; the object is a square WebP. Fetched over
+  // HTTP from the real bucket rather than asserted on a return value, because
+  // what a manager and a reader actually see is the object, not the call.
+  const sharp = (await import("sharp")).default;
+  const { reader } = await shelfWithReader();
+  const photo = new File(
+    [new Uint8Array(await realJpeg({ width: 2000, height: 1500 }))],
+    "anh.jpg",
+    { type: "image/jpeg" },
+  );
+
+  // `proposeAvatarAction` redirects on every outcome, success included — see
+  // `back()` in `profile-actions.ts` — so the call is caught the same way
+  // every other test in this file catches it, not awaited bare.
+  const target = await redirectedTo(
+    proposeAvatarAction(
+      uploadForm(
+        { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
+        photo,
+      ),
+    ),
+  );
+  expect(refusalIn(target)).toBeNull();
+
+  const values = await proposedValues();
+  const url = urlOf(values.proposed_values);
+  expect(url).toMatch(/\.webp$/);
+
+  const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const meta = await sharp(bytes).metadata();
+  expect(meta.format).toBe("webp");
+  expect(meta.width).toBe(512);
+  expect(meta.height).toBe(512);
+  expect(bytes.length).toBeLessThan(800 * 1024);
+});
+
+test("a file wearing an image content-type but holding no image is refused", async () => {
+  // `invalid_image` is a decode now, not a header check. Before this it was
+  // possible to store an HTML document as long as the browser labelled it a
+  // PNG — the module's own docstring conceded as much.
+  const { reader } = await shelfWithReader();
+  const liar = new File(
+    [new TextEncoder().encode("<!doctype html><script>alert(1)</script>")],
+    "anh.png",
+    { type: "image/png" },
+  );
+
+  const target = await redirectedTo(
+    proposeAvatarAction(
+      uploadForm(
+        { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
+        liar,
+      ),
+    ),
+  );
+
+  expect(refusalIn(target)).toBe("invalid_image");
+  expect(await proposedValues()).toBeUndefined();
 });
 
 /**

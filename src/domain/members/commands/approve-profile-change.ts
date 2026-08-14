@@ -1,9 +1,8 @@
 import { NotFound, RuleViolated, ValidationFailed } from "../../kernel/errors";
 import { atLeast, requireIdentifiedActor } from "../../kernel/tenant";
-import type { Command, Tx } from "../../kernel/unit-of-work";
+import type { Command } from "../../kernel/unit-of-work";
 import { loadParishContext } from "../parish-context";
 import { validateSelection } from "../parish-taxonomy";
-import { avatarObjectOf } from "../pending-proposal";
 import { requireManager, type MembershipRole } from "../policy";
 import {
   applyProfileFields,
@@ -75,16 +74,15 @@ export interface ApproveProfileChangeInput {
  * `decideAndDiscardAvatar` in `src/lib/avatar.ts` takes all three without
  * knowing which decision it is running.
  *
- * **What it recovers, and what it cannot.** The key is not on `users` — that
- * column holds a URL — so it is read back out of the request that *put* the old
- * photograph there, whose `proposed_values` still carries its `avatar_object`
- * and which `audit_log` and the request table both keep forever. Every avatar
- * that arrived through this lifecycle is therefore deletable. One does not:
- * a photograph set at registration arrives as a bare `avatarUrl` with no key
- * anywhere (`../registration.ts`), so no code path can remove it. That needs a
- * key column on `users` and a migration, and it is recorded as its own slice —
- * master plan §7.14, **B6 · Avatar retention** — rather than as a comment,
- * because it is a promise to a family that the software cannot currently keep.
+ * **Where the key comes from, now that there is only one.** `users.avatar_object`
+ * is the photograph — the URL column is gone
+ * (`20260813_02_avatar_object_only.sql`) — so the superseded key is simply the
+ * `before` half of this command's own write, and every avatar is deletable
+ * whatever put it there. This paragraph used to describe a lookup through old
+ * approved requests, plus the one photograph that lookup could never reach: one
+ * set at registration, which arrived as a bare URL with no key anywhere. B6 ·
+ * Avatar retention (master plan §7.14) closes with that column drop; a
+ * registration photograph is a key like any other now.
  */
 export const approveProfileChange: Command<
   ApproveProfileChangeInput,
@@ -202,25 +200,9 @@ export const approveProfileChange: Command<
   // the design), and a row written by an older version of this application —
   // or by hand — could hold a blanked `full_name` or a date in a shape
   // `::date` will misread.
-  //
-  // **`avatar_object` is carried across explicitly, and B6 is why.**
-  // `pickProfileFields` drops it — correctly, since it is not a `ProfileField`
-  // and nothing proposes a storage key on its own — but `users.avatar_object`
-  // is now the stored fact a photograph is addressed and *deleted* by, with the
-  // URL derived from it (`20260809_02_avatar_object.sql`). Before this it was
-  // written into `proposed_values` and then thrown away at approval, which is
-  // exactly how a child's photograph became undeletable: the row kept a URL and
-  // the key was lost at the one moment it was in hand. It rides beside
-  // `avatar_url` and `applyProfileFields` writes the two in the same arm, so a
-  // row can never hold a URL and a key naming different objects.
-  const proposed: Record<string, string | null> = normaliseProfilePatch(
+  const proposed = normaliseProfilePatch(
     pickProfileFields(request.proposed_values),
   );
-  if (proposed.avatar_url !== undefined) {
-    const key = (request.proposed_values as { avatar_object?: unknown })
-      .avatar_object;
-    proposed.avatar_object = typeof key === "string" && key ? key : null;
-  }
   const { before, after } = await applyProfileFields(tx, subject.userId, proposed);
   const diff = diffProfileFields(before, after);
 
@@ -235,14 +217,15 @@ export const approveProfileChange: Command<
   // this proposal — answers it without anyone retyping anything.
   assertPhoneOrReason(after);
 
-  // Read *after* the write, off the authoritative before/after, rather than
-  // from `proposed_values` — so an approval that did not actually move the
-  // photograph (the same URL re-proposed, a proposal about a phone number)
-  // hands back nothing to delete. The same reasoning as `empty_proposal` on
-  // `./update-reader-profile.ts`: one statement decides what changed.
+  // Read off the authoritative before/after rather than from `proposed_values`,
+  // so an approval that did not move the photograph hands back nothing to
+  // delete. This used to need a lookup — `avatarObjectBehind` searched earlier
+  // approved requests for one whose proposed URL matched the person's current
+  // one, because `users` kept only a URL and a settled photograph therefore had
+  // no key beside it. The key is on the row now, so the lookup is the answer.
   const supersededAvatar =
-    before.avatar_url !== null && after.avatar_url !== before.avatar_url
-      ? await avatarObjectBehind(tx, request.id, subject.userId, before.avatar_url)
+    before.avatar_object !== null && after.avatar_object !== before.avatar_object
+      ? before.avatar_object
       : null;
 
   await tx`
@@ -272,42 +255,3 @@ export const approveProfileChange: Command<
     },
   };
 };
-
-/**
- * The storage key of the object a person's *current* `avatar_url` names, found
- * in the request that put it there.
- *
- * `users` keeps only the URL — DATABASE.md §4.11's `jsonb` argument is what made
- * a key column unnecessary for the *pending* image, and the price is that a
- * *settled* one has no key beside it. It is recoverable anyway, because
- * `profile_change_requests` is never deleted: the approved row that set this URL
- * still carries the `avatar_object` the surface wrote. So this is a lookup, not
- * a derivation — nothing here reconstructs a key out of a URL, which would be a
- * guess that quietly stops matching the day `S3_PUBLIC_URL` changes and would
- * happily hand back a key for a URL this application never issued.
- *
- * `null` is the ordinary answer for a photograph that arrived at registration as
- * a bare URL (`../registration.ts`), for one set at another shelf (RLS scopes
- * this select), and for an `avatar_url` pointing anywhere else at all. The
- * caller treats "no key" as "nothing to delete", which is honest: what is
- * missing is the ability to delete it, not the intention. Master plan §7.14,
- * **B6 · Avatar retention**, owns closing that.
- */
-async function avatarObjectBehind(
-  tx: Tx,
-  exceptRequestId: string,
-  userId: string,
-  avatarUrl: string,
-): Promise<string | null> {
-  const [row] = await tx<{ proposed_values: unknown }[]>`
-    select proposed_values
-      from profile_change_requests
-     where user_id = ${userId}
-       and id <> ${exceptRequestId}
-       and status = 'approved'
-       and proposed_values->>'avatar_url' = ${avatarUrl}
-     order by decided_at desc nulls last
-     limit 1
-  `;
-  return row ? avatarObjectOf(row.proposed_values) : null;
-}

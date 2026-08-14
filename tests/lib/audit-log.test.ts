@@ -22,16 +22,16 @@ test("every audit family has a mark, and the mark is never colour alone", () => 
 test("the expansion tells 'not recorded' from 'recorded as nothing'", () => {
   // The distinction an investigation depends on. `markCopyFound`'s `before`
   // names only `state`, so every other field of that entry was never written;
-  // `proposeAvatarChange`'s `before.avatar_url` is genuinely `null` when the
+  // `proposeAvatarChange`'s `before.avatar_object` is genuinely `null` when the
   // person had no photograph. A renderer that showed both as blank would be a
   // different log.
   const rows = payloadRows(
-    { state: "lost", avatar_url: null },
+    { state: "lost", avatar_object: null },
     { state: "available", note: "tìm thấy trong hộp" },
   );
 
-  expect(rows.map((r) => r.field)).toEqual(["avatar_url", "note", "state"]);
-  expect(rows[0]).toEqual({ field: "avatar_url", before: "null", after: "—" });
+  expect(rows.map((r) => r.field)).toEqual(["avatar_object", "note", "state"]);
+  expect(rows[0]).toEqual({ field: "avatar_object", before: "null", after: "—" });
   expect(rows[1]).toEqual({
     field: "note",
     before: "—",
