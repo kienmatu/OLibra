@@ -1,4 +1,4 @@
-import { KeyRound, Lock } from "lucide-react";
+import { ArrowRight, KeyRound, Lock } from "lucide-react";
 import { PageHeading } from "@/components/ui/card";
 import { Field, Input, ReadOnlyValue, Textarea } from "@/components/ui/field";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -145,20 +145,72 @@ export default async function ReaderProfilePage({
               {STATUS_LABEL[pending.status] ?? pending.status}
             </p>
             <ul className="mt-2 space-y-1 text-[14px]">
-              {proposedFields(pending.proposedValues).map((f) => (
-                <li key={f}>
-                  {PROFILE_FIELD_LABELS[f]}:{" "}
-                  <span className="font-semibold">
-                    {pending.proposedValues[f] ?? "(bỏ trống)"}
-                  </span>
-                  {pending.previousValues[f] !== undefined ? (
-                    <span className="text-meta">
-                      {" "}
-                      · hiện tại {pending.previousValues[f] ?? "chưa có"}
+              {proposedFields(pending.proposedValues).map((f) =>
+                f === "avatar_object" ? (
+                  // The one field that is not text, for the same reason
+                  // `AvatarCompareRow` on the manager's approval screen is
+                  // not: a storage key printed as `{label}: {value}` is
+                  // meaningless to a reader, where the URL it replaced
+                  // (Task 5) was merely ugly. `alt` is meaningful rather
+                  // than empty, unlike `AvatarCompareRow`, because these two
+                  // images have no adjacent label naming each one.
+                  <li key={f}>
+                    {PROFILE_FIELD_LABELS[f]}
+                    <span className="mt-2 flex items-center gap-3">
+                      <span className="flex size-16 items-center justify-center overflow-hidden rounded-full bg-paper text-[18px] font-semibold text-leather">
+                        {avatarUrl(fields.avatar_object) ? (
+                          // A plain <img>, deliberately: `next.config.ts`
+                          // configures no image optimizer for the object
+                          // store's host, so `next/image` would refuse the
+                          // URL outright. `AvatarCompareRow`
+                          // (`quan-ly/doi-thong-tin/page.tsx`) is the same
+                          // pattern on the manager's decision screen.
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={avatarUrl(fields.avatar_object) ?? ""}
+                            alt="Ảnh hiện tại"
+                            className="size-full object-cover"
+                          />
+                        ) : (
+                          <span aria-hidden>
+                            {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
+                          </span>
+                        )}
+                      </span>
+                      <ArrowRight
+                        aria-hidden
+                        className="size-4 shrink-0 text-leather"
+                        strokeWidth={2}
+                      />
+                      <span className="flex size-16 items-center justify-center overflow-hidden rounded-full border-2 border-terracotta bg-terracotta/10">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={
+                            avatarUrl(
+                              pending.proposedValues.avatar_object ?? null,
+                            ) ?? ""
+                          }
+                          alt="Ảnh bạn đề nghị"
+                          className="size-full object-cover"
+                        />
+                      </span>
                     </span>
-                  ) : null}
-                </li>
-              ))}
+                  </li>
+                ) : (
+                  <li key={f}>
+                    {PROFILE_FIELD_LABELS[f]}:{" "}
+                    <span className="font-semibold">
+                      {pending.proposedValues[f] ?? "(bỏ trống)"}
+                    </span>
+                    {pending.previousValues[f] !== undefined ? (
+                      <span className="text-meta">
+                        {" "}
+                        · hiện tại {pending.previousValues[f] ?? "chưa có"}
+                      </span>
+                    ) : null}
+                  </li>
+                ),
+              )}
             </ul>
             {pending.status === "pending" ? (
               <>

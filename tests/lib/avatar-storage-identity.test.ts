@@ -155,3 +155,17 @@ test("a proposal about a phone number leaves a pending photograph's key alone", 
   expect(row.proposed_values.avatar_object).toBe(key);
   expect(row.proposed_values.phone).toBe("0987654321");
 });
+
+test("a pending avatar proposal is named by key, so a screen must render it as an image", async () => {
+  // The reader's pending block prints `{label}: {value}` for every proposed
+  // field. When the value was a URL that was ugly; now it is a storage key,
+  // which is meaningless. This test pins the shape the screen has to handle —
+  // `proposedFields` lists the avatar, and its value is a key, not a URL.
+  const { proposedFields } = await import("../../src/lib/profile-labels");
+  const proposed = {
+    avatar_object: "avatars/9f2c1e3a-4b5d-4e6f-8a9b-0c1d2e3f4a5b.webp",
+  };
+
+  expect(proposedFields(proposed)).toContain("avatar_object");
+  expect(proposed.avatar_object).not.toMatch(/^https?:/);
+});
