@@ -72,11 +72,17 @@ export function AvatarProposal({
       setRefusal(null);
       return;
     }
-    if (file.size > AVATAR_MAX_BYTES) {
-      setPreview(null);
-      setRefusal("file_too_large");
-      return;
-    }
+    // Content type before size, deliberately matching the order
+    // `storeProposedAvatar` (`src/lib/avatar.ts`) checks in on the server —
+    // the type check runs first there, size second. The server is
+    // authoritative, so for a file that fails both at once (oversize *and*
+    // HEIC, say — an iPhone photo big enough to trip both rules), the
+    // sentence a reader sees before submitting has to be the same one the
+    // server would answer with after. Checking size first here used to show
+    // "Ảnh vượt quá 5 MB." for a file the server would instead refuse as
+    // `heic_not_supported` — not wrong, exactly, since both are true, but a
+    // different sentence than the one that follows if the reader shrinks the
+    // file and submits anyway.
     if (file.type === "image/heic" || file.type === "image/heif") {
       setPreview(null);
       setRefusal("heic_not_supported");
@@ -85,6 +91,11 @@ export function AvatarProposal({
     if (!AVATAR_ACCEPT.includes(file.type)) {
       setPreview(null);
       setRefusal("invalid_image");
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      setPreview(null);
+      setRefusal("file_too_large");
       return;
     }
 

@@ -13,7 +13,7 @@ import { publicReadPolicy } from "../support/bucket-policy";
 import { closeAll, resetDatabase, sql } from "../support/db";
 import { makeShelf } from "../support/factories";
 import { testDatabaseUrl, testS3Config } from "../support/env";
-import { realJpeg, realPng } from "../support/images";
+import { jpegOfExactly, realJpeg, realPng } from "../support/images";
 
 /**
  * The avatar, end to end: a real multipart-shaped upload, a real MinIO, a real
@@ -434,6 +434,49 @@ test("a file over 5 MB is refused, and nothing is stored", async () => {
 
   expect(refusalIn(target)).toBe("file_too_large");
   expect(await proposedValues()).toBeUndefined();
+});
+
+test("a file of exactly AVATAR_MAX_BYTES is accepted", async () => {
+  // The boundary half of §7's claim in the design spec — "Exactly
+  // AVATAR_MAX_BYTES passes; one byte over raises file_too_large" — the test
+  // above only ever covered the second half. `storeProposedAvatar`'s check is
+  // `file.size > AVATAR_MAX_BYTES`, strictly greater, so a file of exactly the
+  // limit must go through; a test that only ever tried "one byte over" would
+  // pass equally well against a `>=` typo that quietly rejected the boundary
+  // itself.
+  //
+  // `jpegOfExactly` (`tests/support/images.ts`) is what makes this a genuine
+  // case rather than a declared-but-false one: it builds a real, decodable
+  // JPEG of precisely `AVATAR_MAX_BYTES` bytes by padding a small base image
+  // with JPEG comment segments, rather than a `File` whose declared `.size`
+  // does not match its actual byte length the way the oversize test above
+  // deliberately does need to (there the bytes are never read, so a
+  // mismatched declared size is fine; here the bytes *are* decoded by
+  // `processAvatar`, so they have to be real).
+  const { AVATAR_MAX_BYTES } = await import("../../src/lib/avatar");
+  const { reader } = await shelfWithReader();
+  const exact = new File(
+    [new Uint8Array(await jpegOfExactly(AVATAR_MAX_BYTES))],
+    "vua-khit.jpg",
+    { type: "image/jpeg" },
+  );
+  expect(exact.size).toBe(AVATAR_MAX_BYTES);
+
+  const target = await redirectedTo(
+    proposeAvatarAction(
+      uploadForm(
+        { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
+        exact,
+      ),
+    ),
+  );
+
+  expect(refusalIn(target)).toBeNull();
+  const request = await proposedValues();
+  expect(request.proposed_values.avatar_object).toMatch(
+    /^avatars\/[0-9a-f-]+\.webp$/,
+  );
+  expect(await statusOf(urlOf(request.proposed_values))).toBe(200);
 });
 
 test("an iPhone HEIC is refused with a sentence that says what to do", async () => {

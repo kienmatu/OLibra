@@ -42,6 +42,20 @@ it names; nothing here is inferred from another document.
 | §3.5(b) cites "BR §16.1" for what a manager sees of a child | **§16.1 is *Public pages*** — landing, contact, portal, catalogue, book detail (`BUSINESS-REQUIREMENTS.md:488`). The section that governs is **§16.3, Readers**: "Detail view shows the full profile — including the manager-only fields" (`:561`) | The bound being invoked is real; the number was wrong, and a bound is only checkable against the section that states it. Corrected at all four sites it was written: `exports.ts`, `tests/domain/shelf/exports.test.ts`, this row's predecessor, and §3.5(b) below. |
 | §3.4: "Three exports over a few hundred books are small" | The seed writes 4 shelves; the largest catalogue in `src/db/seed.ts` is two orders of magnitude below anything that streams | Correct. The exports are unpaged and buffered, and §3.4's instruction is to *say so* rather than discover it — the limit and where it bites are stated in `src/lib/csv.ts`. |
 
+**Superseded, 2026-08-13.** The row above (`FORBIDDEN` / `avatar_object`)
+gives its conclusion two independent reasons. Reason (1) — "the same audit
+payload already stores the full public `avatar_url`, so the key discloses
+nothing the entry beside it does not" — no longer holds: the
+avatar-upload-preview-and-compression branch removed `avatar_url` from
+`propose-avatar-change.ts`'s payload, which now carries `avatar_object` alone
+(see that file's own docstring, "`proposed_values` carries `avatar_object`,
+the storage key, and nothing else"). Reason (2) — `decideAndDiscardAvatar`
+deletes the object as soon as the request is decided, so a key in a historical
+entry points at nothing — was not touched by that branch and still carries the
+row's conclusion on its own. The argument above is left as written, since it
+was true when made; this note is what keeps a later reader from trusting its
+first half.
+
 ### 3.2a — what the sentence resolves, and why it is not a re-derivation
 
 An entry stores two different kinds of thing, and they must be read

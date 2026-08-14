@@ -181,6 +181,81 @@ export async function jpegOfAtLeast(bytes: number): Promise<Buffer> {
 }
 
 /**
+ * A genuinely decodable JPEG of *exactly* `bytes` — the boundary
+ * `jpegOfAtLeast` cannot reach, because a JPEG encoder's output size is a
+ * function of its pixel content, not a dial: there is no width/height/quality
+ * that lands on an arbitrary byte count on the nose.
+ *
+ * The trick is padding rather than encoding: start from a small, real JPEG
+ * (`base`, always well under `bytes` for the sizes this suite asks for — a few
+ * KB against a multi-MB target) and splice in JPEG comment segments (`COM`,
+ * marker `0xFFFE`) right after the SOI marker to make up the exact difference.
+ * A `COM` segment is part of the format, not trailing junk appended after the
+ * end marker — `jpegOfAtLeast`'s own docstring is why that distinction
+ * matters, since some decoders tolerate trailing bytes and others reject them.
+ * Every decoder is required to skip an unrecognised `COM` segment, so the
+ * result decodes identically to `base` while weighing exactly `bytes`.
+ *
+ * A `COM` segment's minimum cost is 4 bytes (the `0xFF 0xFE` marker plus a
+ * 2-byte length field that counts itself), so a target fewer than 4 bytes
+ * above `base`'s own size cannot be hit exactly this way — not a concern for
+ * `AVATAR_MAX_BYTES` (multiple megabytes above `base`), which is the only
+ * caller today, but real enough that it throws rather than silently rounding.
+ */
+export async function jpegOfExactly(bytes: number): Promise<Buffer> {
+  // A small, cheap base — several sizes are tried because `noise`'s output
+  // size is a function of its exact pixel content and is not guaranteed on
+  // the first attempt to land under `bytes` (it should, by a wide margin, for
+  // every size this suite asks for, but a loop is what makes that a checked
+  // fact rather than an assumption).
+  let base: Buffer | null = null;
+  for (let edge = 48; edge < 512; edge += 8) {
+    const candidate = await noise(edge, edge).jpeg({ quality: 90 }).toBuffer();
+    if (candidate.length < bytes) {
+      base = candidate;
+      break;
+    }
+  }
+  if (!base) {
+    throw new Error(`could not build a base JPEG under ${bytes} bytes to pad from`);
+  }
+
+  const extraBytes = bytes - base.length;
+  if (extraBytes === 0) return base;
+  if (extraBytes < 4) {
+    throw new Error(
+      `cannot pad exactly ${extraBytes} bytes: a COM segment costs at least 4`,
+    );
+  }
+
+  // The length field of a single COM segment is 2 bytes and counts itself, so
+  // one segment carries at most 65533 bytes of data — 65537 including its own
+  // 4 bytes of overhead. Splitting the padding evenly across just enough
+  // segments to stay under that cap (rather than always maxing out each one)
+  // is what keeps every segment's cost, including the last, inside [4, 65537]
+  // — greedily maxing out every segment but the last can leave that last one
+  // needing between 1 and 3 bytes, which no segment can supply.
+  const MAX_SEGMENT_COST = 4 + 65533;
+  const segmentCount = Math.ceil(extraBytes / MAX_SEGMENT_COST);
+  const segments: Buffer[] = [];
+  let remaining = extraBytes;
+  for (let i = 0; i < segmentCount; i++) {
+    const segmentsLeft = segmentCount - i;
+    const cost = Math.ceil(remaining / segmentsLeft);
+    const segment = Buffer.alloc(cost);
+    segment[0] = 0xff;
+    segment[1] = 0xfe;
+    segment.writeUInt16BE(cost - 4 + 2, 2); // data length + the field's own 2 bytes
+    segments.push(segment);
+    remaining -= cost;
+  }
+
+  // Spliced in right after the SOI marker (`base`'s first two bytes), the one
+  // position every JPEG decoder accepts a comment segment.
+  return Buffer.concat([base.subarray(0, 2), ...segments, base.subarray(2)]);
+}
+
+/**
  * A blue 900×300 landscape field with a red square dead centre. A centre-crop
  * keeps the red; a squash or a top-left crop does not.
  */

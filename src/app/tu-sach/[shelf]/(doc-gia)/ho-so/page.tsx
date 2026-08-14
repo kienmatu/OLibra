@@ -200,18 +200,55 @@ export default async function ReaderProfilePage({
                           strokeWidth={2}
                         />
                         <span className="flex size-16 items-center justify-center overflow-hidden rounded-full border-2 border-terracotta bg-terracotta/10">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={
-                              avatarUrl(
-                                pending.proposedValues.avatar_object ?? null,
-                              ) ?? ""
-                            }
-                            alt="Ảnh bạn đề nghị"
-                            className="size-full object-cover"
-                          />
+                          {pending.proposedValues.avatar_object === null ? (
+                            // A proposal to remove the photograph rather than
+                            // replace it — `avatar_object: null`, distinct
+                            // from `undefined` (`proposedFields`'s own filter,
+                            // `src/lib/profile-labels.ts`), which is what puts
+                            // this arm inside the loop at all.
+                            //
+                            // No path in this application writes that today:
+                            // `ProposeAvatarChange` is the only writer of
+                            // `avatar_object` (`ProposeProfileChange` excludes
+                            // it via `PROPOSABLE_FIELDS`), and its own
+                            // `isUploadedFile` guard requires `size > 0`
+                            // (`./profile-actions.ts`) — so this arm is
+                            // unreachable through the UI, exactly as
+                            // `AvatarCompareRow` on the manager's decision
+                            // screen (`quan-ly/doi-thong-tin/page.tsx`) notes
+                            // for its own matching arm. Kept anyway, for the
+                            // same reason that screen keeps it and the same
+                            // reason `ApproveProfileChange` re-validates a
+                            // stored proposal rather than trusting it
+                            // (`profile-change-lifecycle.test.ts`): a row with
+                            // no check constraint behind `proposed_values`
+                            // (DATABASE.md §4.11) can hold this shape even
+                            // though nothing proposes it today, and the
+                            // alternative — an `<img src="">` with a token
+                            // `?? ""` fallback — is a broken-image icon on a
+                            // reader's own page rather than a sentence.
+                            <span aria-hidden>
+                              {fields.full_name?.split(" ").at(-1)?.charAt(0) ?? ""}
+                            </span>
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={
+                                avatarUrl(
+                                  pending.proposedValues.avatar_object ?? null,
+                                ) ?? ""
+                              }
+                              alt="Ảnh bạn đề nghị"
+                              className="size-full object-cover"
+                            />
+                          )}
                         </span>
                       </span>
+                      {pending.proposedValues.avatar_object === null ? (
+                        <p className="mt-2 text-[14px] text-meta">
+                          Bạn đề nghị bỏ ảnh hiện tại.
+                        </p>
+                      ) : null}
                     </li>
                   ) : (
                     // A decided request: the object this row would have

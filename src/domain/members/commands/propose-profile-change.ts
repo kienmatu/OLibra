@@ -159,7 +159,7 @@ export const proposeProfileChange: Command<
   };
 };
 
-/** The seven, and nothing else — see `PROPOSABLE_FIELDS`. */
+/** The eight, and nothing else — see `PROPOSABLE_FIELDS`. */
 function onlyProposable(fields: ProfilePatch): ProfilePatch {
   return Object.fromEntries(
     PROPOSABLE_FIELDS.filter((f) => fields[f] !== undefined).map((f) => [
