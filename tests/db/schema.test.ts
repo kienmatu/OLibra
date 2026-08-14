@@ -1,11 +1,24 @@
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { migrate } from "../../src/db/migrate";
-import { closeAll, sql } from "../support/db";
+import { closeAll, resetDatabase, sql } from "../support/db";
 import { makeShelf } from "../support/factories";
 
 beforeAll(async () => {
   await migrate(sql);
 });
+// This file was introspection-only when it was written: four tests reading
+// `information_schema`, no rows written, nothing to reset — the same reason
+// `folding.test.ts` and `copy-qr-print.test.ts` still carry no reset. PO
+// feedback round one added the two tests below that *do* write rows, and the
+// missing hook stopped being harmless at that moment: the file now both reads
+// whatever the previously-run file left in `bookshelves` and leaves its own
+// rows for the next one. `makeShelf`'s default slug is `shelf-N` off a counter
+// that Vitest restarts at 1 in every file, so `shelf-1` is generated over and
+// over across the suite, and whether this file hits 23505 on
+// `bookshelves_slug_unique` depends entirely on which file ran before it —
+// green or red purely by ordering. Truncation leaves the schema itself
+// standing, so the four introspection tests do not notice this.
+beforeEach(resetDatabase);
 afterAll(closeAll);
 
 // DATABASE.md §4 defines seventeen tables — count them by `create table`
