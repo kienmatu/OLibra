@@ -2,6 +2,7 @@ import { proposeAvatarChange } from "../domain/members/commands/propose-avatar-c
 import { ValidationFailed } from "../domain/kernel/errors";
 import type { Command } from "../domain/kernel/unit-of-work";
 import { objectKey } from "../storage/s3";
+import { AVATAR_ACCEPT, AVATAR_MAX_BYTES } from "./avatar-limits";
 import { objectStore } from "./object-store";
 import { submitCommand } from "./page-data";
 
@@ -69,34 +70,43 @@ import { submitCommand } from "./page-data";
  * retention**.
  */
 
-/**
- * OPS §4.3's `file_too_large` names the number: "Ảnh vượt quá 2 MB." The
- * sentence is the source — the profile screen's copy that OPS attributes it to
- * does not exist, and the B2b plan §8 records that. 2 MB is read as the binary
- * megabyte, because that is what every file manager a volunteer might check the
- * size in reports.
- */
-export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+// Re-exported so existing importers (`tests/lib/avatar-over-http.test.ts` among
+// them) keep working, and so this module still reads as the place the policy
+// lives even though the two constants are now shared with a client component.
+export { AVATAR_MAX_BYTES } from "./avatar-limits";
 
 /**
- * The content types accepted, and the extension each one becomes.
+ * The content types accepted, as a set for the server's own gate.
  *
- * An allow-list keyed on the type rather than on the uploaded filename, which is
- * attacker-controlled and, for a Vietnamese reader, frequently full of diacritics
- * `objectKey` exists to keep out of a URL. The four extensions are exactly the
- * four `objectKey` allows (`src/storage/s3.ts`), so this table can never ask it
- * for one it will refuse; a fifth added here without adding it there throws a
- * plain `Error` at the call below rather than storing something.
+ * An allow-list keyed on the type rather than on the uploaded filename, which
+ * is attacker-controlled and, for a Vietnamese reader, frequently full of
+ * diacritics `objectKey` exists to keep out of a URL.
  *
- * `image/jpg` is not here. It is not a real media type — browsers send
- * `image/jpeg` for a `.jpg` — and accepting a type nothing emits would only
- * widen what a hand-rolled request can claim to be.
+ * **A set rather than the type→extension map this used to be.** Every stored
+ * object is now WebP whatever arrived, so `objectKey("avatars", "webp")` is a
+ * constant call and the old table's extension half has no reader left. What
+ * that table protected — that it "can never ask `objectKey` for an extension it
+ * will refuse" — reduces from four extensions agreeing to one and stops being
+ * able to drift.
+ *
+ * Built from `AVATAR_ACCEPT` (`./avatar-limits.ts`) so the control a reader
+ * sees and the gate the server applies cannot disagree.
  */
-const AVATAR_TYPES: Readonly<Record<string, string>> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
+const AVATAR_TYPES: ReadonlySet<string> = new Set(AVATAR_ACCEPT);
+
+/**
+ * Which refusal an unacceptable content type earns.
+ *
+ * HEIC gets its own sentence because it is a photograph and a valid one, just
+ * in a codec we cannot decode — "Tệp này không phải là ảnh hợp lệ." would be a
+ * false statement shown to somebody holding a perfectly good picture of their
+ * child.
+ */
+function refusalFor(type: string): "heic_not_supported" | "invalid_image" {
+  return type === "image/heic" || type === "image/heif"
+    ? "heic_not_supported"
+    : "invalid_image";
+}
 
 /**
  * The parts of a `File` this module needs, spelled out so the policy can be
@@ -109,7 +119,7 @@ export interface UploadedFile {
 }
 
 /**
- * Applies OPS §4.3's two failure modes and puts the bytes.
+ * Applies OPS §4.3's three failure modes and puts the bytes.
  *
  * **`invalid_image` is a content-type check and not a decode.** The sentence is
  * "Tệp này không phải là ảnh hợp lệ." and the honest reading of it here is: this
@@ -147,16 +157,15 @@ export interface UploadedFile {
 export async function storeProposedAvatar(
   file: UploadedFile,
 ): Promise<{ avatarUrl: string; avatarObject: string }> {
-  const extension = AVATAR_TYPES[file.type];
-  if (extension === undefined) {
-    throw new ValidationFailed("invalid_image", "avatar");
+  if (!AVATAR_TYPES.has(file.type)) {
+    throw new ValidationFailed(refusalFor(file.type), "avatar");
   }
   if (file.size > AVATAR_MAX_BYTES) {
     throw new ValidationFailed("file_too_large", "avatar");
   }
 
   const store = objectStore();
-  const key = objectKey("avatars", extension);
+  const key = objectKey("avatars", "webp");
   await store.put(key, new Uint8Array(await file.arrayBuffer()), file.type);
   return { avatarUrl: store.url(key), avatarObject: key };
 }

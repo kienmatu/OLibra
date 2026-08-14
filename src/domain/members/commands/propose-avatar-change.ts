@@ -39,13 +39,14 @@ export interface ProposeAvatarChangeInput {
  * would leave an object nobody references the moment that transaction rolled
  * back. So the surface puts the bytes, and hands this command two strings.
  *
- * That split is also why `file_too_large` and `invalid_image` — the two failure
- * modes OPS §4.3 lists for this command — are not raised here. Both are facts
- * about bytes this command is forbidden to hold. They are raised by
- * `src/lib/avatar.ts`, with the domain's own codes, before anything is stored.
+ * That split is also why `file_too_large`, `heic_not_supported` and
+ * `invalid_image` — the three failure modes OPS §4.3 lists for this command —
+ * are not raised here. All three are facts about bytes this command is
+ * forbidden to hold. They are raised by `src/lib/avatar.ts`, with the domain's
+ * own codes, before anything is stored.
  * **No aspect-ratio check is enforced anywhere.** OPS §4.3 says "≤2 MB, square,
  * per the profile screen's own copy"; the size has a sentence
- * (`file_too_large`, "Ảnh vượt quá 2 MB.") and is therefore implementable from
+ * (`file_too_large`, "Ảnh vượt quá 5 MB.") and is therefore implementable from
  * the sentence, while "square" has no sentence, no code and no source — the
  * profile screen's copy says only that a new photograph goes to a manager for
  * approval. The B2b plan §8 asks the product owner for it rather than inventing

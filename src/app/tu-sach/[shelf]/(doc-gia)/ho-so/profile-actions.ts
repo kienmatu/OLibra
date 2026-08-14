@@ -41,13 +41,14 @@ import { ACTION_ERROR_PARAM } from "@/lib/search-params";
  * The circulation actions catch `RuleViolated` and rethrow everything else,
  * because a `ValidationFailed` there names a condition grade their form cannot
  * submit — a fault dressed as an answer. Here `ValidationFailed` is the *normal*
- * outcome of the two failure modes OPS §4.3 lists for `ProposeAvatarChange`:
- * `file_too_large` ("Ảnh vượt quá 2 MB.") and `invalid_image` ("Tệp này không
- * phải là ảnh hợp lệ.") are things a reader did and can undo by choosing another
- * file, and both are raised by `storeProposedAvatar` before any command runs. So
- * this action catches `DomainError` — the common parent of `RuleViolated`,
- * `ValidationFailed`, `NotFound` and `NotWired` — and matches on the class, not
- * on a code list that would go stale.
+ * outcome of the three failure modes OPS §4.3 lists for `ProposeAvatarChange`:
+ * `file_too_large` ("Ảnh vượt quá 5 MB."), `heic_not_supported` and
+ * `invalid_image` ("Tệp này không phải là ảnh hợp lệ.") are things a reader did
+ * and can undo by choosing another file, and all three are raised by
+ * `storeProposedAvatar` before any command runs. So this action catches
+ * `DomainError` — the common parent of `RuleViolated`, `ValidationFailed`,
+ * `NotFound` and `NotWired` — and matches on the class, not on a code list that
+ * would go stale.
  *
  * `NotFound` never reaches the catch: `submitCommand` has already turned it into
  * `notFound()`, except for `write_target_not_found`, which is a fault. `NotWired`

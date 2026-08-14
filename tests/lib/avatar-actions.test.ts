@@ -232,9 +232,13 @@ test("a proposed photograph is in the bucket, fetchable, while the request is pe
   );
   expect(refusalIn(target)).toBeNull();
 
+  // The stored key is always `.webp` now — `objectKey("avatars", "webp")` is a
+  // constant call, regardless of what the upload's own content type was (here
+  // `image/png`). The bytes themselves are not re-encoded until the pipeline is
+  // wired into this path (next task); only the key's extension changed here.
   const request = await proposedValues();
   expect(request.proposed_values.avatar_object).toMatch(
-    /^avatars\/[0-9a-f-]+\.png$/,
+    /^avatars\/[0-9a-f-]+\.webp$/,
   );
   expect(await statusOf(request.proposed_values.avatar_url)).toBe(200);
 });
@@ -391,14 +395,14 @@ test("approving a change that is not about the photograph deletes nothing", asyn
   expect(await statusOf(url)).toBe(200);
 });
 
-test("a file over 2 MB is refused, and nothing is stored", async () => {
-  // OPS §4.3's `file_too_large` — "Ảnh vượt quá 2 MB." The size is checked
-  // before the buffer is read, so the bytes are never materialised; a real 2 MB
-  // `File` is constructed here anyway, because a test that declared a size it
-  // did not have would pass against an implementation reading
+test("a file over 5 MB is refused, and nothing is stored", async () => {
+  // OPS §4.3's `file_too_large` — "Ảnh vượt quá 5 MB." The size is checked
+  // before the buffer is read, so the bytes are never materialised; a real
+  // oversize `File` is constructed anyway, because a test that declared a size
+  // it did not have would pass against an implementation reading
   // `(await arrayBuffer()).byteLength` too late.
   const { reader } = await shelfWithReader();
-  const tooBig = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "to.png", {
+  const tooBig = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "to.png", {
     type: "image/png",
   });
 
@@ -415,10 +419,44 @@ test("a file over 2 MB is refused, and nothing is stored", async () => {
   expect(await proposedValues()).toBeUndefined();
 });
 
+test("an iPhone HEIC is refused with a sentence that says what to do", async () => {
+  // The prebuilt sharp binaries carry libheif but no HEVC codec, so HEIC
+  // cannot be decoded. `invalid_image` — "Tệp này không phải là ảnh hợp lệ." —
+  // would be both wrong and baffling for a photograph that plainly is one.
+  const { reader } = await shelfWithReader();
+  const heic = new File([new Uint8Array(2048)], "IMG_0001.HEIC", {
+    type: "image/heic",
+  });
+
+  const target = await redirectedTo(
+    proposeAvatarAction(
+      uploadForm(
+        { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId },
+        heic,
+      ),
+    ),
+  );
+
+  expect(refusalIn(target)).toBe("heic_not_supported");
+  expect(await proposedValues()).toBeUndefined();
+});
+
+test("the refusal sentence names five megabytes", async () => {
+  // The number a reader is shown and the number enforced are the same fact.
+  // Two copies is how one of them survives the next change to the limit.
+  const { messageFor } = await import("../../src/domain/kernel/errors");
+  const { AVATAR_MAX_BYTES } = await import("../../src/lib/avatar");
+
+  expect(AVATAR_MAX_BYTES).toBe(5 * 1024 * 1024);
+  expect(messageFor("file_too_large")).toContain("5 MB");
+});
+
 test("a file that is not one of the four image types is refused", async () => {
   // `invalid_image` — "Tệp này không phải là ảnh hợp lệ." An allow-list on the
-  // content type, not a sanitiser on the filename: `objectKey` accepts four
-  // extensions and this table maps onto exactly those.
+  // content type, not a sanitiser on the filename: `AVATAR_TYPES`
+  // (`src/lib/avatar.ts`) is built from `AVATAR_ACCEPT`
+  // (`src/lib/avatar-limits.ts`), the same four types offered as `accept` on
+  // the file input — JPEG, PNG, WebP and AVIF. A PDF is none of them.
   const { reader } = await shelfWithReader();
   const pdf = new File([PNG], "anh.pdf", { type: "application/pdf" });
 

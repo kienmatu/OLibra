@@ -40,10 +40,10 @@ const nextConfig: NextConfig = {
        * Next's default is 1 MB — `defaultBodySizeLimit` in
        * `next/dist/server/app-render/action-handler.js`, applied to every server
        * action's request body before a byte of application code runs. This
-       * project's avatar rule is 2 MB (`AVATAR_MAX_BYTES` in `src/lib/avatar.ts`,
-       * which OPS §4.3's `file_too_large` states in Vietnamese: "Ảnh vượt quá
-       * 2 MB."). With the default in force those two numbers disagreed over the
-       * whole 1–2 MB band, and the framework won.
+       * project's avatar rule is 5 MB (`AVATAR_MAX_BYTES` in
+       * `src/lib/avatar-limits.ts`, which OPS §4.3's `file_too_large` states in
+       * Vietnamese: "Ảnh vượt quá 5 MB."). With the default in force those two
+       * numbers disagreed over the whole 1–5 MB band, and the framework won.
        *
        * Measured over real HTTP against `bun run dev`, before this setting
        * existed: a 1.6 MB multipart POST to the profile page's avatar form
@@ -53,13 +53,6 @@ const nextConfig: NextConfig = {
        * routinely; they would have been told nothing at all, by a screen that
        * says the limit is 2 MB.
        *
-       * **4 MB, not 2 MB**, because a multipart body is larger than the file
-       * inside it — boundaries, part headers, and the other form fields — so a
-       * limit set *at* the domain's number would refuse a 2 MB photograph the
-       * domain accepts, reintroducing the same disagreement in a narrower band.
-       * The headroom keeps the ordering unambiguous: everything the domain
-       * refuses is refused by the domain, with a sentence.
-       *
        * It is a backstop and not the rule. The rule stays in `src/lib/avatar.ts`,
        * where it can raise `file_too_large`; this only stops a body so large
        * that buffering it is itself the attack.
@@ -68,8 +61,14 @@ const nextConfig: NextConfig = {
        * through Next's own handler rather than calling the action function
        * (`tests/lib/registration-over-http.test.ts` is the other, sharing the
        * same harness, `tests/support/http.ts`).
+       *
+       * Strictly above `AVATAR_MAX_BYTES` (5 MB, `src/lib/avatar.ts`) and not
+       * equal to it: a multipart body is larger than the file inside it, so a
+       * limit set *at* the application's own number refuses a maximum-size
+       * photograph before any application code runs — and the reader gets a
+       * framework error instead of "Ảnh vượt quá 5 MB."
        */
-      bodySizeLimit: "4mb",
+      bodySizeLimit: "6mb",
 
       /**
        * Dev tunnels (VS Code / `devtunnels.ms`) proxy the app under a
