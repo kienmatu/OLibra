@@ -60,6 +60,7 @@ const { proposeProfileChange } =
 const { rejectProfileChange } =
   await import("../../src/domain/members/commands/reject-profile-change");
 const { pool } = await import("../../src/db/client");
+const { avatarUrl } = await import("../../src/lib/avatar-url");
 
 const clock = fixedClock("2026-08-09T06:00:00Z");
 
@@ -208,7 +209,18 @@ const proposedValues = () =>
     select id, proposed_values from profile_change_requests where status = 'pending'
   `.then((r) => r[0]);
 
-/** What a browser would get from the URL the store handed out. */
+/**
+ * The address a browser would fetch for a proposal's photograph.
+ *
+ * Derived from the stored key rather than read off the row: `proposed_values`
+ * carries `avatar_object` and nothing else about the image since
+ * `20260813_01_avatar_object_only.sql`, and `avatarUrl()` is the one place that
+ * turns a key into an address — which is exactly the property that makes
+ * changing `S3_PUBLIC_URL` a change of environment and nothing else.
+ */
+const urlOf = (values: Record<string, string>) => avatarUrl(values.avatar_object)!;
+
+/** What a browser would get from that address. */
 const statusOf = (url: string) => fetch(url).then((r) => r.status);
 
 async function shelfWithReader() {
@@ -244,7 +256,7 @@ test("a proposed photograph is in the bucket, fetchable, while the request is pe
   expect(request.proposed_values.avatar_object).toMatch(
     /^avatars\/[0-9a-f-]+\.webp$/,
   );
-  expect(await statusOf(request.proposed_values.avatar_url)).toBe(200);
+  expect(await statusOf(urlOf(request.proposed_values))).toBe(200);
 });
 
 test("cancelling deletes the image rather than leaving it orphaned", async () => {
@@ -260,7 +272,7 @@ test("cancelling deletes the image rather than leaving it orphaned", async () =>
     ),
   );
   const request = await proposedValues();
-  const url = request.proposed_values.avatar_url;
+  const url = urlOf(request.proposed_values);
   expect(await statusOf(url)).toBe(200);
 
   await redirectedTo(
@@ -292,7 +304,7 @@ test("rejecting deletes the image too", async () => {
     ),
   );
   const request = await proposedValues();
-  const url = request.proposed_values.avatar_url;
+  const url = urlOf(request.proposed_values);
   expect(await statusOf(url)).toBe(200);
 
   await signInAs(shelf.id, "manager", "lan.nguyen");
@@ -312,10 +324,10 @@ test("a second photograph deletes the first", async () => {
   const fields = { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId };
 
   await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("mot.png"))));
-  const first = (await proposedValues()).proposed_values.avatar_url;
+  const first = urlOf((await proposedValues()).proposed_values);
 
   await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("hai.png"))));
-  const second = (await proposedValues()).proposed_values.avatar_url;
+  const second = urlOf((await proposedValues()).proposed_values);
 
   expect(second).not.toBe(first);
   expect(await statusOf(first)).toBe(404);
@@ -329,18 +341,19 @@ test("approving a replacement deletes the photograph it replaced", async () => {
   // bucket forever is not a storage cost — it is a family's request the
   // software cannot honour. Approving used to leave exactly that behind.
   //
-  // The key is not on `users`, which holds a URL; `ApproveProfileChange` finds
-  // it in the approved request that put the old photograph there. So this test
-  // needs two full rounds — propose, approve, propose, approve — and the
-  // assertion is that the first URL, which answered 200 through both of them,
-  // answers 404 once the second is approved.
+  // The key is on `users` now, so `ApproveProfileChange` reads the superseded
+  // one straight off the `before` half of its own write. It used to have to
+  // hunt for it in the approved request that put the old photograph there.
+  // Either way this test needs two full rounds — propose, approve, propose,
+  // approve — and the assertion is that the first URL, which answered 200
+  // through both of them, answers 404 once the second is approved.
   const shelf = await makeShelf(sql, { slug: "dong-thap" });
   const reader = await signInAs(shelf.id, "reader", "minh.tran");
   const fields = { "tu-sach": "dong-thap", "thanh-vien": reader.membershipId };
 
   await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("mot.png"))));
   const first = await proposedValues();
-  const firstUrl = first.proposed_values.avatar_url;
+  const firstUrl = urlOf(first.proposed_values);
 
   await signInAs(shelf.id, "manager", "lan.nguyen");
   await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
@@ -351,7 +364,7 @@ test("approving a replacement deletes the photograph it replaced", async () => {
   await switchTo("minh.tran");
   await redirectedTo(proposeAvatarAction(uploadForm(fields, await png("hai.png"))));
   const second = await proposedValues();
-  const secondUrl = second.proposed_values.avatar_url;
+  const secondUrl = urlOf(second.proposed_values);
   expect(secondUrl).not.toBe(firstUrl);
 
   await switchTo("lan.nguyen");
@@ -374,7 +387,7 @@ test("approving a change that is not about the photograph deletes nothing", asyn
 
   await redirectedTo(proposeAvatarAction(uploadForm(fields, await png())));
   const proposal = await proposedValues();
-  const url = proposal.proposed_values.avatar_url;
+  const url = urlOf(proposal.proposed_values);
 
   await signInAs(shelf.id, "manager", "lan.nguyen");
   await decideAndDiscardAvatar("dong-thap", approveProfileChange, {
@@ -546,7 +559,7 @@ test("what is stored is a 512×512 WebP, whatever was uploaded", async () => {
   expect(refusalIn(target)).toBeNull();
 
   const values = await proposedValues();
-  const url = values.proposed_values.avatar_url;
+  const url = urlOf(values.proposed_values);
   expect(url).toMatch(/\.webp$/);
 
   const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());

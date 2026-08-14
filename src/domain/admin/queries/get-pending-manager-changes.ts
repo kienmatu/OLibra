@@ -122,7 +122,7 @@ export async function getPendingManagerChanges(
       b.id as bookshelf_id, b.slug as shelf_slug, b.name as shelf_name,
       u.saint_name, u.full_name, u.date_of_birth::text as date_of_birth,
       u.father_name, u.mother_name, u.phone, u.phone_missing_reason, u.email,
-      u.avatar_url
+      u.avatar_object
     from profile_change_requests r
     join memberships m  on m.user_id = r.user_id
                         and m.bookshelf_id = r.bookshelf_id

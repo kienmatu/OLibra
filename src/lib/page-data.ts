@@ -56,8 +56,9 @@ async function contextForRequest(shelfSlug: string): Promise<TenantContext> {
  * beside it. That prediction is now spent: U3 wave 1 added `role` here, and it
  * was the one line this shape promised it would be, against the forty-six-page
  * change widening a positional string parameter would have been. An
- * `avatarUrl` (`users.avatar_url` exists) is the next candidate and is not
- * added speculatively.
+ * `avatarObject` (`users.avatar_object` exists, and `src/lib/avatar-url.ts`
+ * turns one into an address) is the next candidate and is not added
+ * speculatively.
  */
 export interface Viewer {
   /**

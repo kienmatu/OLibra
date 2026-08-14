@@ -75,10 +75,10 @@ export async function getMyProfileChangeRequest(
     id: row.id,
     status: row.status,
     // Filtered through the allowlist on the way out too, not only on the way
-    // in. The avatar wave stores `avatar_object` — a storage key — alongside
-    // `avatar_url` in `proposed_values`, and a screen has no use for it; a
-    // query that handed back whatever `jsonb` happened to hold would be the
-    // place that leaked it.
+    // in. `proposed_values` is `jsonb` with no check constraint behind it
+    // (DATABASE.md §4.11), so it may hold anything a hand-written or older row
+    // put there; a query that handed back whatever it happened to hold would be
+    // the place that leaked it.
     proposedValues: pickProfileFields(row.proposed_values),
     previousValues: pickProfileFields(row.previous_values),
     rejectionReason: row.rejection_reason,

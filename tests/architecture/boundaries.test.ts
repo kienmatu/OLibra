@@ -44,9 +44,11 @@ test("the domain does not import src/auth", () => {
 });
 
 test("the domain does not import the object store", () => {
-  // B5. The domain records *URLs* and never touches bytes — which is why
-  // `src/domain/members/registration.ts` takes `avatarUrl` as a string and
-  // says so. Nothing enforced that until `src/storage/` existed to be
+  // B5. The domain records *storage keys* and never touches bytes — which is
+  // why `src/domain/members/registration.ts` takes `avatarObject` as a string
+  // and says so, and why no query derives an address from one: that is
+  // `src/lib/avatar-url.ts`'s job, at the surface, because `url()` lives in
+  // `src/storage/`. Nothing enforced that until `src/storage/` existed to be
   // imported, and the tempting wrong move for a future `ProposeAvatarChange`
   // is to have the command write the file itself, inside the transaction: a
   // rollback then leaves an object nobody references and no record that it was

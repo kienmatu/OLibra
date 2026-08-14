@@ -16,8 +16,12 @@ import { PROFILE_FIELDS, type ProfileField } from "@/domain/members/profile-fiel
  *   which is the screen these proposals are made on.
  * - `father_name` → **Tên cha**, `mother_name` → **Tên mẹ** — from
  *   `quan-ly/nguoi-doc/[id]`'s profile table and from the registration form.
- * - `avatar_url` → **Ảnh đại diện** — the label the fixture version of this
- *   very queue used for its photograph row.
+ * - `avatar_object` → **Ảnh đại diện** — the label names what the field is to
+ *   a reader, which is their photograph, not the storage identifier it holds.
+ *   `profile-fields.ts` once argued this field could not have a label because
+ *   it would "demand a Vietnamese label for a storage identifier no reader ever
+ *   sees"; that objection went with the URL it was weighed against, since a
+ *   reader never saw that either.
  * - `phone_missing_reason` → **Lý do chưa có số điện thoại** — new copy, PO
  *   feedback round 1 Task 7: the interface requires a phone even though the
  *   column stays nullable, and this is the label for the reason a manager
@@ -38,7 +42,7 @@ export const PROFILE_FIELD_LABELS: Record<ProfileField, string> = {
   phone: "Số điện thoại",
   phone_missing_reason: "Lý do chưa có số điện thoại",
   email: "Email",
-  avatar_url: "Ảnh đại diện",
+  avatar_object: "Ảnh đại diện",
 };
 
 /**

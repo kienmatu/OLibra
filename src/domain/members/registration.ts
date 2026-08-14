@@ -50,7 +50,7 @@ export interface RegistrationInput {
   phone: string;
   email?: string | null;
   /**
-   * An object **already** in storage, not bytes.
+   * The storage key of an object **already** in storage, not bytes.
    *
    * B5 has landed: `src/storage/s3.ts` is the `ObjectStore`. Nothing here
    * changes because of it — the domain records which object is this person's
@@ -59,19 +59,19 @@ export interface RegistrationInput {
    * than merely intended: `tests/architecture/boundaries.test.ts` fails if
    * anything under `src/domain/` imports the store.
    *
-   * **A URL and no key, which means this photograph can never be deleted.**
-   * Every other avatar in the system arrives through `ProposeAvatarChange`,
-   * which carries `avatar_object` — the storage key — in the request's
-   * `proposed_values`, so rejecting, cancelling or superseding one removes the
-   * object (`src/lib/avatar.ts`). One set here has no key anywhere, so a family
-   * that asks the parish to take their child's photograph down cannot be
-   * obliged by any code path. That is a **retention** gap, not a storage one:
-   * `src/storage/s3.ts` records that the readers here are children and that
-   * name-plus-face is the most identifying pair of facts in the system.
-   * Closing it means a key column on `users` and a migration — master plan
-   * §7.14, **B6 · Avatar retention**, owns it.
+   * **A key, so this photograph can be deleted like any other.** This used to
+   * be `avatarUrl`, a bare absolute URL with no key beside it, and it was the
+   * one avatar in the system no code path could remove: every other one arrives
+   * through `ProposeAvatarChange`, which carries the key, so rejecting,
+   * cancelling or superseding removes the object (`src/lib/avatar.ts`). That
+   * was a **retention** gap rather than a storage one — `src/storage/s3.ts`
+   * records that the readers here are children and that name-plus-face is the
+   * most identifying pair of facts in the system — and master plan §7.14,
+   * **B6 · Avatar retention**, closed it by dropping `users.avatar_url`
+   * (`20260813_01_avatar_object_only.sql`). The address a browser fetches is
+   * derived from this key at read time, in `src/lib/avatar-url.ts`.
    */
-  avatarUrl?: string | null;
+  avatarObject?: string | null;
   parishUnitL1Id?: string | null;
   parishUnitL2Id?: string | null;
   /**
@@ -298,12 +298,12 @@ export async function register(
     const [created] = await tx<{ id: string }[]>`
       insert into users (
         saint_name, full_name, date_of_birth, father_name, mother_name,
-        phone, phone_missing_reason, email, avatar_url, username, password_hash
+        phone, phone_missing_reason, email, avatar_object, username, password_hash
       ) values (
         ${trimmed(input.saintName)}, ${input.fullName.trim()},
         ${input.dateOfBirth.trim()}::date, ${input.fatherName.trim()},
         ${input.motherName.trim()}, ${phone}, ${phoneMissingReason},
-        ${trimmed(input.email)}, ${trimmed(input.avatarUrl)},
+        ${trimmed(input.email)}, ${trimmed(input.avatarObject)},
         ${credentials.username}, ${credentials.passwordHash}
       )
       returning id

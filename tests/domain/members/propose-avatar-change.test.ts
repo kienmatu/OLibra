@@ -19,12 +19,16 @@ import { makeMember, makeShelf } from "../../support/factories";
 /**
  * OPS §4.3's `ProposeAvatarChange`, at the domain layer — no bytes, no store.
  *
- * The photograph is the one proposable field that is a file, and the whole of
- * what that costs is visible here as two strings in a `jsonb` bag: the URL,
- * which is copied to `users.avatar_url` on approval like any other proposed
- * field, and the storage **key**, which is copied nowhere and exists only so
- * that a rejected or cancelled proposal can delete the object instead of leaving
- * it orphaned (OPS §4.3).
+ * The photograph is the one proposable field that is a file, and since
+ * 2026-08-13 the whole of what it costs is **one** string in a `jsonb` bag: the
+ * storage key, copied to `users.avatar_object` on approval like any other
+ * proposed field. It used to be two — a URL beside the key — and every
+ * mechanism that kept the pair in step is gone with the URL column
+ * (`20260813_01_avatar_object_only.sql`). The address a browser fetches is
+ * derived from the key at read time, at the surface, in `src/lib/avatar-url.ts`.
+ *
+ * The key living in the pending row is also what lets a rejected or cancelled
+ * proposal delete the object instead of leaving it orphaned (OPS §4.3).
  *
  * The key is named `avatar_object` and not `avatar_key`, and that is guarded
  * here rather than remembered: `kernel/audit.ts` forbids `key` as a whole token,
@@ -54,10 +58,7 @@ async function shelfWithReader(slug?: string) {
   return { shelf, manager, reader, readerCtx, managerCtx };
 }
 
-const upload = (n: number) => ({
-  avatarUrl: `http://localhost:9000/olibra/avatars/anh-${n}.jpg`,
-  avatarObject: `avatars/anh-${n}.jpg`,
-});
+const upload = (n: number) => ({ avatarObject: `avatars/anh-${n}.webp` });
 
 const requestOf = (userId: string) =>
   sql<
@@ -73,16 +74,16 @@ const requestOf = (userId: string) =>
   `.then((r) => r[0]);
 
 const avatarOf = (userId: string) =>
-  sql<{ avatar_url: string | null }[]>`
-    select avatar_url from users where id = ${userId}
-  `.then((r) => r[0].avatar_url);
+  sql<{ avatar_object: string | null }[]>`
+    select avatar_object from users where id = ${userId}
+  `.then((r) => r[0].avatar_object);
 
 const actions = () =>
   sql<{ action: string; after: Record<string, unknown> }[]>`
     select action, after from audit_log order by occurred_at
   `;
 
-test("a proposed photograph is stored as a URL and a key, and changes nothing yet", async () => {
+test("a proposed photograph is stored as a key, and changes nothing yet", async () => {
   const { readerCtx, reader } = await shelfWithReader();
   const image = upload(1);
 
@@ -102,10 +103,9 @@ test("a proposed photograph is stored as a URL and a key, and changes nothing ye
   expect(request.id).toBe(profileChangeRequestId);
   expect(request.status).toBe("pending");
   expect(request.proposed_values).toEqual({
-    avatar_url: image.avatarUrl,
     avatar_object: image.avatarObject,
   });
-  expect(request.previous_values).toEqual({ avatar_url: null });
+  expect(request.previous_values).toEqual({ avatar_object: null });
 
   const [entry] = await actions();
   expect(entry.action).toBe("profile_change.proposed");
@@ -152,7 +152,6 @@ test("a second photograph replaces the first and hands back the orphan", async (
   // returns it, and the surface deletes it after the commit.
   expect(supersededAvatarObject).toBe(first.avatarObject);
   expect((await requestOf(reader.userId)).proposed_values).toEqual({
-    avatar_url: second.avatarUrl,
     avatar_object: second.avatarObject,
   });
 });
@@ -184,11 +183,13 @@ test("a photograph and a phone number merge into one request, and the key surviv
   // moment they also sent a photograph. `PROPOSAL_ON_SECOND_PROPOSE` is the one
   // constant that reverses this reading.
   //
-  // The key: `pickProfileFields` drops `avatar_object` by design — it is not a
-  // column of `users`. So a `ProposeProfileChange` that rebuilt
-  // `proposed_values` from the profile patch alone would keep `avatar_url` and
-  // **erase the key that names the same object**, leaving an image nothing can
-  // ever delete. Nothing raises when that happens.
+  // The key: this used to be the failure `carryAvatar` existed to prevent.
+  // `pickProfileFields` dropped `avatar_object` — it was not a column of
+  // `users` — so a `ProposeProfileChange` that rebuilt `proposed_values` from
+  // the profile patch alone kept the URL and **erased the key that named the
+  // same object**, leaving an image nothing could ever delete, and nothing
+  // raised. The key is a `ProfileField` now, so it survives for the same
+  // reason `email` does and there is no helper left to forget to call.
   const { readerCtx, reader } = await shelfWithReader();
   const image = upload(1);
 
@@ -203,20 +204,19 @@ test("a photograph and a phone number merge into one request, and the key surviv
 
   const request = await requestOf(reader.userId);
   expect(request.proposed_values).toEqual({
-    avatar_url: image.avatarUrl,
     avatar_object: image.avatarObject,
     phone: "0912345678",
   });
   expect(request.previous_values).toEqual({
-    avatar_url: null,
+    avatar_object: null,
     phone: "0900000000",
   });
 });
 
-test("approval copies the URL onto the person and the key nowhere", async () => {
-  // `pickProfileFields` drops `avatar_object`, so `applyProfileFields` never
-  // sees it. `users` has eight writable columns and none of them is a storage
-  // key.
+test("approval copies the key onto the person, and no URL exists to disagree with it", async () => {
+  // `applyProfileFields` writes `avatar_object` in an ordinary arm now. There
+  // is no second column holding an address, so there is no pair to keep in
+  // step and no way for a row to name two different objects.
   const { readerCtx, managerCtx, reader } = await shelfWithReader();
   const image = upload(1);
   const { profileChangeRequestId } = await runCommand(
@@ -230,12 +230,13 @@ test("approval copies the URL onto the person and the key nowhere", async () => 
     profileChangeRequestId,
   });
 
-  expect(await avatarOf(reader.userId)).toBe(image.avatarUrl);
-  const [row] = await sql<{ n: number }[]>`
-    select count(*)::int as n from users
-     where id = ${reader.userId} and avatar_url = ${image.avatarObject}
+  expect(await avatarOf(reader.userId)).toBe(image.avatarObject);
+  // The column that used to hold an absolute URL is gone, not merely unused.
+  const [col] = await sql<{ n: number }[]>`
+    select count(*)::int as n from information_schema.columns
+     where table_name = 'users' and column_name = 'avatar_url'
   `;
-  expect(row.n).toBe(0);
+  expect(col.n).toBe(0);
 });
 
 test("rejecting and cancelling each hand the orphaned key back", async () => {
@@ -315,19 +316,17 @@ test("another shelf's membership is not found, because RLS filtered it", async (
   expect(await avatarOf(a.reader.userId)).toBeNull();
 });
 
-test("an empty URL or key is refused before anything is written", async () => {
+test("an empty key is refused before anything is written", async () => {
   const { readerCtx, reader } = await shelfWithReader();
   await expect(
     runCommand(sql, readerCtx, proposeAvatarChange, {
       membershipId: reader.id,
-      avatarUrl: "   ",
-      avatarObject: "avatars/x.jpg",
+      avatarObject: "   ",
     }),
   ).rejects.toMatchObject({ code: "validation_failed" });
   await expect(
     runCommand(sql, readerCtx, proposeAvatarChange, {
       membershipId: reader.id,
-      avatarUrl: "http://localhost:9000/olibra/avatars/x.jpg",
       avatarObject: "",
     }),
   ).rejects.toMatchObject({ code: "validation_failed" });
@@ -355,11 +354,10 @@ test("B6: approving a photograph keeps its storage key, so it can be deleted", a
     profileChangeRequestId: request.id,
   });
 
-  const [person] = await sql<
-    { avatar_url: string | null; avatar_object: string | null }[]
-  >`select avatar_url, avatar_object from users where id = ${reader.userId}`;
+  const [person] = await sql<{ avatar_object: string | null }[]>`
+    select avatar_object from users where id = ${reader.userId}
+  `;
 
-  expect(person.avatar_url).toBe(upload(7).avatarUrl);
   // The half that was missing, and the half that makes deletion possible.
   expect(person.avatar_object).toBe(upload(7).avatarObject);
 });

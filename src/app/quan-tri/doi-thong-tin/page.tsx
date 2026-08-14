@@ -9,6 +9,7 @@ import { messageFor } from "@/domain/kernel/errors";
 import type { ProfileField } from "@/domain/members/profile-fields";
 import { countUnreadFeedback } from "@/domain/admin/queries/get-feedback-inbox";
 import { getPendingManagerChanges } from "@/domain/admin/queries/get-pending-manager-changes";
+import { avatarUrl } from "@/lib/avatar-url";
 import { formatDate, formatInstant } from "@/lib/dates";
 import { loadAdminPage } from "@/lib/page-data";
 import { PROFILE_FIELD_LABELS, proposedFields } from "@/lib/profile-labels";
@@ -219,12 +220,14 @@ export default async function PendingManagerChangesPage({
 
               <div className="divide-y divide-hairline border-y border-hairline">
                 {fields.map((field) =>
-                  field === "avatar_url" ? (
+                  field === "avatar_object" ? (
                     <AvatarCompareRow
                       key={field}
                       label={PROFILE_FIELD_LABELS[field]}
-                      current={request.currentValues.avatar_url}
-                      proposed={request.proposedValues.avatar_url ?? null}
+                      current={avatarUrl(request.currentValues.avatar_object)}
+                      proposed={avatarUrl(
+                        request.proposedValues.avatar_object ?? null,
+                      )}
                       initial={initial}
                     />
                   ) : (

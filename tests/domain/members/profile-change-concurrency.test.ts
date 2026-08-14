@@ -111,8 +111,7 @@ test("two proposals landing together merge; neither is silently overwritten", as
 
     const photograph = runCommand(delayedA, readerCtx, proposeAvatarChange, {
       membershipId: reader.id,
-      avatarUrl: "http://localhost:9000/olibra/avatars/a.png",
-      avatarObject: "avatars/a.png",
+      avatarObject: "avatars/a.webp",
     });
     // Long enough for A's read to have been sent and its delayed resolution
     // queued, so B starts strictly inside A's window.
@@ -134,10 +133,7 @@ test("two proposals landing together merge; neither is silently overwritten", as
   const row = await pending(reader.userId);
   expect(row.proposed_values.saint_name).toBe("Giuse");
   expect(row.proposed_values.phone).toBe("0912345678");
-  expect(row.proposed_values.avatar_url).toBe(
-    "http://localhost:9000/olibra/avatars/a.png",
-  );
-  expect(row.proposed_values.avatar_object).toBe("avatars/a.png");
+  expect(row.proposed_values.avatar_object).toBe("avatars/a.webp");
 });
 
 /**

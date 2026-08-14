@@ -225,15 +225,17 @@ export default async function RegisterPage({
           <section className="space-y-6">
             <GroupHeading>Bản thân</GroupHeading>
 
-            {/* **No photograph here, and that is B6's gap surfacing.** The
-                fixture showed a "Chạm để chọn ảnh" tile. `RegistrationInput`
-                takes an `avatarUrl` and no storage key, so a photograph set at
-                registration can never be deleted by any code path — the
-                retention gap `registration.ts` records at length. A face is the
-                most identifying fact this system can hold about a child, and
-                offering to store one the parish cannot later remove is not a
-                feature. `ProposeAvatarChange`, on the profile page, carries the
-                key and is the way in until B6 closes this. */}
+            {/* **No photograph here, and the reason is no longer retention.**
+                The fixture showed a "Chạm để chọn ảnh" tile. B6 closed the
+                retention half on 2026-08-13: `RegistrationInput.avatarObject`
+                is a storage key now, so an avatar set this way is as deletable
+                as any other. What is still missing is a way to *get* the bytes
+                into storage from this form — `proposeAvatar`
+                (`src/lib/avatar.ts`) is the only uploader in the codebase and
+                it needs a membership, which does not exist until this form
+                succeeds. So the tile would be a file input with nowhere to send
+                anything. `ProposeAvatarChange`, on the profile page, is the way
+                in. */}
 
             <Field
               label="Tên thánh"

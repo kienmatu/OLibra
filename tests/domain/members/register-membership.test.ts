@@ -67,10 +67,10 @@ const person = (id: string) =>
       phone: string;
       username: string | null;
       password_hash: string | null;
-      avatar_url: string | null;
+      avatar_object: string | null;
       saint_name: string | null;
     }[]
-  >`select full_name, phone, username, password_hash, avatar_url, saint_name
+  >`select full_name, phone, username, password_hash, avatar_object, saint_name
       from users where id = ${id}`.then((r) => r[0]);
 
 // — the ordinary path —
@@ -131,16 +131,19 @@ test("credentials are optional, and set together when supplied", async () => {
   expect(await verifyPassword("matkhau123", p.password_hash!)).toBe(true);
 });
 
-test("an avatar is a URL the domain records, never bytes it stores", async () => {
-  // The plan's Avatars decision: B5 is not built, so nothing here uploads.
+test("an avatar is a storage key the domain records, never bytes it stores", async () => {
+  // The plan's Avatars decision, as it stands after B6: the domain records
+  // *which object* is this person's photograph and never touches the bytes.
+  // A key rather than a URL is what makes it deletable — and what keeps
+  // `S3_PUBLIC_URL` off the row, so the address is derived at read time
+  // (`src/lib/avatar-url.ts`) rather than frozen at write time.
+  const key = "avatars/9f2c1e3a-4b5d-4e6f-8a9b-0c1d2e3f4a5b.webp";
   const { ctx } = await guestAt("dong-thap");
   const { userId } = await runCommand(sql, ctx, registerMembership, {
     ...FAMILY,
-    avatarUrl: "https://cdn.example/olibra/avatars/abc.jpg",
+    avatarObject: key,
   });
-  expect((await person(userId)).avatar_url).toBe(
-    "https://cdn.example/olibra/avatars/abc.jpg",
-  );
+  expect((await person(userId)).avatar_object).toBe(key);
 });
 
 // — validation —

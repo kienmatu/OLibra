@@ -121,7 +121,7 @@ export async function getPendingProfileChanges(
       m.id as membership_id,
       u.saint_name, u.full_name, u.date_of_birth::text as date_of_birth,
       u.father_name, u.mother_name, u.phone, u.phone_missing_reason, u.email,
-      u.avatar_url
+      u.avatar_object
     from profile_change_requests r
     join memberships m on m.user_id = r.user_id and m.deleted_at is null
     join users u       on u.id = r.user_id and u.deleted_at is null
@@ -135,10 +135,13 @@ export async function getPendingProfileChanges(
     membershipId: row.membership_id,
     userId: row.user_id,
     requestedAt: row.requested_at,
-    // Filtered through the allowlist on the way out, not only on the way in:
-    // `proposed_values` also carries `avatar_object`, the proposed image's
-    // storage key, which a screen has no use for and which a query handing back
-    // raw `jsonb` would be the place that leaked.
+    // Filtered through the allowlist on the way out, not only on the way in.
+    // `proposed_values` is `jsonb` with no check constraint behind it
+    // (DATABASE.md §4.11), so it may hold a key written by an older version of
+    // this application or by hand; a query handing back the raw bag would be
+    // the place that leaked it to a screen. `avatar_object` survives the filter
+    // — it is a `ProfileField` as of 2026-08-13 — and the screen turns it into
+    // an address with `avatarUrl()`.
     proposedValues: pickProfileFields(row.proposed_values),
     currentValues: Object.fromEntries(
       PROFILE_FIELDS.map((f) => [f, row[f] ?? null]),

@@ -32,15 +32,14 @@ import {
  * of fact — OPS §4.3 is explicit that the product owner named the photograph
  * when confirming every field needs approval — it is the one proposable field
  * that is a **file**, and it therefore arrives through `ProposeAvatarChange`,
- * whose caller has already put the bytes in the object store and has a URL and
- * a storage key to hand. That command is a later wave; when it lands it writes
- * `avatar_url` **and `avatar_object`** into the same `proposed_values` this
- * module merges, and `avatar_object` is the name rather than `avatar_key`
- * because `kernel/audit.ts` forbids `key` as a whole token (see
- * `./profile-fields.ts`).
+ * whose caller has already put the bytes in the object store and has the
+ * storage key to hand. That command writes `avatar_object` into the same
+ * `proposed_values` this module merges, and `avatar_object` is the name rather
+ * than `avatar_key` because `kernel/audit.ts` forbids `key` as a whole token
+ * (see `./profile-fields.ts`).
  */
 export const PROPOSABLE_FIELDS: readonly ProfileField[] = PROFILE_FIELDS.filter(
-  (f) => f !== "avatar_url",
+  (f) => f !== "avatar_object",
 );
 
 /**

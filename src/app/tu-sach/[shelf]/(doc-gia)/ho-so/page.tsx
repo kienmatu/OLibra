@@ -45,9 +45,9 @@ import {
  * reader learns they were refused — and a query that returned only pending rows
  * would make the rejection reason unreachable the moment it was written.
  *
- * **`avatar_url` is not among the fields the form posts.** It is
+ * **`avatar_object` is not among the fields the form posts.** It is
  * `ProposeAvatarChange`'s, and `proposeProfileChange` narrows it out anyway
- * ("so a caller that sends `avatar_url` gets it dropped rather than quietly
+ * ("so a caller that sends `avatar_object` gets it dropped rather than quietly
  * bypassing the size and content-type policy").
  */
 export const dynamic = "force-dynamic";

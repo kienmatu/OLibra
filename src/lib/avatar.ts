@@ -49,7 +49,7 @@ import { submitCommand } from "./page-data";
  * strictly the better half of the trade, and it is the half this module chooses
  * deliberately.
  *
- * ── The one photograph this application still cannot delete ────────────────
+ * ── Every photograph is deletable, which took a migration ──────────────────
  *
  * *Approving* a replacement used to orphan the previous photograph as well, and
  * "orphaned storage" was the wrong name for it. `src/storage/s3.ts` argues that
@@ -58,17 +58,15 @@ import { submitCommand } from "./page-data";
  * or asks the parish to take it down, must not leave every earlier version
  * answering 200 from a public bucket forever. That is retention, not storage.
  *
- * `ApproveProfileChange` now returns the superseded object the same way the
- * reject and cancel paths do, and `decideAndDiscardAvatar` below deletes it —
- * it finds the key in the approved request that put the old photograph there.
- *
- * **What remains, and it is not a comment's worth.** A photograph set at
- * *registration* arrives as a bare `avatarUrl` with no key anywhere
- * (`src/domain/members/registration.ts`), so nothing in this codebase can remove
- * it — not a replacement, not a request from the family. Closing that needs a
- * key column on `users` and a migration, which is bigger than this module, so it
- * is recorded as a slice with an owner: master plan §7.14, **B6 · Avatar
- * retention**.
+ * `ApproveProfileChange` returns the superseded object the same way the reject
+ * and cancel paths do, and `decideAndDiscardAvatar` below deletes it. It reads
+ * the key straight off the `users` row it just rewrote, which it could not do
+ * while that row held a URL — the version before
+ * `20260813_01_avatar_object_only.sql` had to hunt through earlier approved
+ * requests for one whose proposed URL matched, and a photograph set at
+ * *registration* was never in such a request at all and so could never be
+ * removed by anything. Master plan §7.14, **B6 · Avatar retention**, is closed
+ * by that migration: the key is the only stored fact, and every avatar has one.
  */
 
 // Re-exported so existing importers (`tests/lib/avatar-over-http.test.ts` among
@@ -151,9 +149,7 @@ export interface UploadedFile {
  * code and no source. `./avatar-image.ts` centre-crops instead, which answers
  * the requirement without inventing a refusal nobody wrote — see that module.
  */
-export async function storeProposedAvatar(
-  file: UploadedFile,
-): Promise<{ avatarUrl: string; avatarObject: string }> {
+export async function storeProposedAvatar(file: UploadedFile): Promise<string> {
   if (!AVATAR_TYPES.has(file.type)) {
     throw new ValidationFailed(refusalFor(file.type), "avatar");
   }
@@ -163,10 +159,12 @@ export async function storeProposedAvatar(
 
   const processed = await processAvatar(new Uint8Array(await file.arrayBuffer()));
 
-  const store = objectStore();
   const key = objectKey("avatars", "webp");
-  await store.put(key, processed, "image/webp");
-  return { avatarUrl: store.url(key), avatarObject: key };
+  await objectStore().put(key, processed, "image/webp");
+  // The key, and only the key. An address is derived from it wherever one is
+  // needed (`./avatar-url.ts`); returning a URL here as well is what used to
+  // bake `S3_PUBLIC_URL` into every row that stored one.
+  return key;
 }
 
 /**
@@ -201,14 +199,14 @@ export async function proposeAvatar(
   membershipId: string | undefined,
   file: UploadedFile,
 ): Promise<void> {
-  const { avatarUrl, avatarObject } = await storeProposedAvatar(file);
+  const avatarObject = await storeProposedAvatar(file);
 
   let superseded: string | null;
   try {
     ({ supersededAvatarObject: superseded } = await submitCommand(
       shelfSlug,
       proposeAvatarChange,
-      { membershipId, avatarUrl, avatarObject },
+      { membershipId, avatarObject },
     ));
   } catch (err) {
     try {

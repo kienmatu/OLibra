@@ -164,22 +164,28 @@ test("a decided proposal leaves the queue", async () => {
   expect(await runQuery(sql, managerCtx, getPendingProfileChanges)).toHaveLength(0);
 });
 
-test("the queue's storage keys never reach a screen", async () => {
-  // `proposed_values` also carries `avatar_object`, and a query handing back raw
-  // `jsonb` is the place that would leak it. Filtered through the same allowlist
-  // on the way out as on the way in.
+test("the queue hands back nothing the allowlist does not name", async () => {
+  // `proposed_values` is `jsonb` with no check constraint behind it, so it may
+  // hold a key nothing sanctioned — and a query handing back the raw column is
+  // the place that would leak it. Filtered through the same allowlist on the
+  // way out as on the way in. `avatar_object` survives: it is a `ProfileField`
+  // as of 2026-08-13, and the screen turns it into an address with
+  // `avatarUrl()` rather than reading one off the row.
   const { reader, managerCtx } = await shelfWithReader();
   await sql`
     insert into profile_change_requests
       (user_id, bookshelf_id, proposed_values, previous_values, status)
     values (${reader.userId}, ${managerCtx.bookshelfId},
-            ${sql.json({ avatar_url: "http://s/a.png", avatar_object: "avatars/a.png" })},
-            ${sql.json({ avatar_url: null })}, 'pending')
+            ${sql.json({
+              avatar_object: "avatars/a.webp",
+              password_hash: "$argon2id$stolen",
+            })},
+            ${sql.json({ avatar_object: null })}, 'pending')
   `;
 
   const [row] = await runQuery(sql, managerCtx, getPendingProfileChanges);
-  expect(row.proposedValues).toEqual({ avatar_url: "http://s/a.png" });
-  expect(JSON.stringify(row)).not.toContain("avatars/a.png");
+  expect(row.proposedValues).toEqual({ avatar_object: "avatars/a.webp" });
+  expect(JSON.stringify(row)).not.toContain("argon2id");
 });
 
 test("a phone corrected by UpdateReaderProfile shows as current, and previous_values is untouched", async () => {

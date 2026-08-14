@@ -217,7 +217,7 @@ export async function proposeProfileChangeAction(form: FormData): Promise<void> 
         // refusal — Task 8's brief does not list this action among the ones
         // that enforce `thieu-so-dien-thoai` — but the field is `PROPOSABLE`
         // (`@/domain/members/profile-proposals.ts` filters
-        // `PROFILE_FIELDS` by excluding only `avatar_url`), so a reader who
+        // `PROFILE_FIELDS` by excluding only `avatar_object`), so a reader who
         // types a reason here has it travel with the proposal. The rule
         // itself is enforced in the domain, not here: `proposeProfileChange`
         // calls `assertPhoneOrReason` directly (Task 8's fix), and

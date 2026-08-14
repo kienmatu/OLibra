@@ -1460,7 +1460,7 @@ export async function markMembershipLeftAction(form: FormData): Promise<void> {
  * OPS §4.3's `UpdateReaderProfile` — "Sửa hồ sơ", the manager's direct
  * correction path INV-13b's restatement opened up, wrapping the identical
  * seven fields `proposeProfileChangeAction` above collects for the reader's
- * own proposal (`ho-so/profile-actions.ts`). Not the eighth, `avatar_url`: that
+ * own proposal (`ho-so/profile-actions.ts`). Not the eighth, `avatar_object`: that
  * one has its own proposal-and-approve lifecycle
  * (`ProposeAvatarChange`/`ApproveProfileChange`) and no direct-write
  * counterpart exists for a manager to reach through this command — sending it

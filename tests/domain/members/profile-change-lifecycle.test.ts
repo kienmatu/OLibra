@@ -139,14 +139,15 @@ test("a proposal that differs from nothing is refused", async () => {
 test("the photograph is not proposable through this command", async () => {
   // `ProposeAvatarChange` is a later wave and the reason is not taxonomy: it is
   // the one proposable field that is a file, so its size and content-type
-  // policy lives at the surface that received the bytes. Letting `avatar_url`
-  // through here would be a way round that policy.
+  // policy lives at the surface that received the bytes. Letting
+  // `avatar_object` through here would be a way round that policy — a reader
+  // could name any key in the bucket without uploading anything.
   const { readerCtx, reader } = await shelfWithReader();
-  expect([...PROPOSABLE_FIELDS]).not.toContain("avatar_url");
+  expect([...PROPOSABLE_FIELDS]).not.toContain("avatar_object");
   await expect(
     runCommand(sql, readerCtx, proposeProfileChange, {
       membershipId: reader.id,
-      fields: { avatar_url: "https://vd.vn/anh.jpg" },
+      fields: { avatar_object: "avatars/9f2c1e3a.webp" },
     }),
   ).rejects.toMatchObject({ code: "empty_proposal" });
 });
@@ -814,22 +815,25 @@ test("GetMyProfileChangeRequest survives the decision, so a rejection reason is 
   });
 });
 
-test("GetMyProfileChangeRequest hands back no storage key it happens to hold", async () => {
-  // The avatar wave stores `avatar_object` — an object-store key — alongside
-  // `avatar_url` in the same jsonb. A screen has no use for it, and a query
-  // returning the raw column would be the place it leaked.
+test("GetMyProfileChangeRequest hands back nothing the allowlist does not name", async () => {
+  // `proposed_values` is `jsonb` with no check constraint behind it
+  // (DATABASE.md §4.11), so a row written by hand or by an older version of
+  // this application may hold anything at all. A query returning the raw
+  // column would be the place that leaked it to a screen. `avatar_object` is a
+  // `ProfileField` as of 2026-08-13 and therefore survives; `password_hash`,
+  // which nothing has ever proposed, does not.
   const { readerCtx, reader, shelf } = await shelfWithReader();
   await sql`
     insert into profile_change_requests
       (user_id, bookshelf_id, proposed_values, previous_values, status)
     values (${reader.userId}, ${shelf.id},
-            '{"avatar_url":"https://vd.vn/a.jpg","avatar_object":"avatars/a.jpg"}',
-            '{"avatar_url":null}', 'pending')
+            '{"avatar_object":"avatars/a.webp","password_hash":"$argon2id$x"}',
+            '{"avatar_object":null}', 'pending')
   `;
   const seen = await runQuery(sql, readerCtx, (tx, c) =>
     getMyProfileChangeRequest(tx, c, { membershipId: reader.id }),
   );
-  expect(seen!.proposedValues).toEqual({ avatar_url: "https://vd.vn/a.jpg" });
+  expect(seen!.proposedValues).toEqual({ avatar_object: "avatars/a.webp" });
 });
 
 test("one reader cannot read another reader's proposal", async () => {

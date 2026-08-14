@@ -57,13 +57,14 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
  * **The photograph.** BR:167 (§5.3, beside the rule that makes parents' names
  * required) collects one at registration and gives the reason — a volunteer
  * meeting forty children on a Sunday recognises a face faster than a name —
- * and `RegistrationInput.avatarUrl` takes one. But it takes
- * a *URL to an object already in storage*, and the only thing in this codebase
- * that puts an object there is `proposeAvatarChange`, which needs a membership
- * that does not exist until this form succeeds. So the field would have been a
- * file input with nowhere to send bytes. `registration.ts` already records the
- * retention half of the same gap (an avatar set this way has no storage key and
- * can never be deleted), and master plan §7.14 owns it.
+ * and `RegistrationInput.avatarObject` takes one. But it takes the *key of an
+ * object already in storage*, and the only thing in this codebase that puts an
+ * object there is `proposeAvatar` (`src/lib/avatar.ts`), which needs a
+ * membership that does not exist until this form succeeds. So the field would
+ * have been a file input with nowhere to send bytes. The retention half of the
+ * same gap — that an avatar set this way had no key and could never be deleted
+ * — is closed: master plan §7.14's B6 dropped `users.avatar_url` on
+ * 2026-08-13 and the key is now the only stored fact.
  *
  * **The username and password.** The fixture form offered both, under copy
  * saying a manager can add them later. Nothing in the running application calls

@@ -94,7 +94,7 @@ export function payloadRows(
  * An **em dash** for a key the bag does not have at all, and the string `null`
  * for one it holds as null: the two are different facts. `markCopyFound`'s
  * `before` names only `state`, so every other field of that entry was never
- * recorded; `proposeAvatarChange`'s `before.avatar_url` may genuinely be
+ * recorded; `proposeAvatarChange`'s `before.avatar_object` may genuinely be
  * `null`, meaning the person had no photograph. An investigation that cannot
  * tell "not recorded" from "recorded as nothing" is reading a different log.
  *
