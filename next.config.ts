@@ -84,8 +84,36 @@ const nextConfig: NextConfig = {
        * no-op in that container, which is exactly the bug this replaces.
        * Revisit if a real public deployment, distinct from this local/QA
        * compose stack, is ever stood up.
+       *
+       * **The production domain, from the environment (2026-08-14).** The
+       * paragraph above asked to be revisited when a real public deployment
+       * was stood up;
+       * `docs/superpowers/specs/2026-08-14-vps-deployment-design.md` §7.1 is
+       * that deployment.
+       *
+       * `APP_DOMAIN` reaches this file through the Dockerfile's `builder`
+       * stage, as an `ARG`/`ENV` pair — **not** through the runtime
+       * environment. This file is evaluated during `next build`, so a value
+       * supplied only to the running container arrives after the decision has
+       * already been compiled in, and the compose service sets it in both
+       * places for that reason.
+       *
+       * Caddy's `reverse_proxy` sets `X-Forwarded-Host` by itself, so the
+       * origin check would most likely pass without this entry at all. It is
+       * here because "most likely" is the wrong standard for the check that
+       * decides whether every form on the site works: the failure is silent
+       * from the outside — pages render, images load, and nothing submits.
+       *
+       * Filtered rather than spread unconditionally, because an unset
+       * `APP_DOMAIN` would otherwise put `undefined` into the array, and
+       * neither `bun run dev` nor CI's `docker build --target smoke .` has any
+       * reason to set it.
        */
-      allowedOrigins: ["localhost:3001", "*.devtunnels.ms"],
+      allowedOrigins: [
+        "localhost:3001",
+        "*.devtunnels.ms",
+        ...(process.env.APP_DOMAIN ? [process.env.APP_DOMAIN] : []),
+      ],
     },
   },
 

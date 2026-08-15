@@ -28,13 +28,23 @@ next-env.d.ts
 # Vercel
 .vercel
 
-# Environment. .env.example is committed and documents every variable;
-# real values never are.
+# Environment. .env.example and .env.prod.example are committed and document
+# every variable; real values never are.
+#
+# `.env.prod` is listed explicitly. `.env.production` above does not cover it —
+# these are exact names, not prefixes — and the file it names is the one holding
+# the production superuser password, so the gap was worth closing by hand rather
+# than trusting the neighbouring line to look close enough.
 .env
 .env.local
 .env.*.local
 .env.backup
 .env.production
+.env.prod
+
+# Database dumps and mirrored objects. Never committed — a dump holds every
+# personal field in the system, including children's names and dates of birth.
+backups/
 
 # Test output
 /coverage

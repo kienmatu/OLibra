@@ -1,0 +1,371 @@
+# OLibra — production stack for a single VPS.
+#
+#   ./deploy.sh
+#
+# **Not a profile on compose.yaml**, and deliberately so. A profile cannot
+# change a port mapping, so `db`'s bindings would have to be simultaneously
+# right for a developer's laptop and for a machine on the public internet — and
+# the failure mode of getting that wrong is a Postgres superuser reachable from
+# anywhere. A second file makes the production stack something you read in one
+# piece, and makes `docker compose up -d` on a developer's machine incapable of
+# meaning the production thing by accident.
+#
+# **Only `caddy` publishes ports.** Everything else talks over this file's
+# default network by service name, which is the only address any of it needs.
+# The one exception is `db`'s loopback binding, explained where it appears.
+#
+# Data lives under ./data on the host, exactly as compose.yaml arranges it, so
+# the two stacks agree about where a bind mount goes. Note that ./data/postgres
+# is *not* a backup — see scripts/ops/backup.sh, which explains why copying a
+# live Postgres data directory produces something that restores corrupt.
+
+name: olibra-prod
+
+volumes:
+  # Issued certificates and the ACME account key.
+  #
+  # **Do not wipe this casually.** Let's Encrypt allows five duplicate
+  # certificates per registered domain per week, so a needless re-issue can cost
+  # a week of serving no TLS at all — which, unlike most deployment mistakes, no
+  # amount of redeploying fixes.
+  caddy-data:
+  caddy-config:
+  caddy-logs:
+
+services:
+  # ── Reverse proxy and TLS ──────────────────────────────────────────────────
+  # Caddy rather than nginx + certbot. It obtains and renews certificates
+  # in-process, which removes the reason nginx has to live on the host outside
+  # the stack: there is no ACME webroot to share, no options-ssl-nginx.conf to
+  # fetch from a raw GitHub URL, no DH params to generate, and no systemd timer
+  # whose reload target sits in a different lifecycle from everything else here.
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "80:80"
+      - "443:443"
+      # HTTP/3. Harmless if the host's firewall drops it; browsers fall back.
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - caddy-logs:/var/log/caddy
+    depends_on:
+      # `service_started`, not `service_healthy`, and the difference matters
+      # twice. A 502 from Caddy is a more honest answer than a refused
+      # connection when the application is down — and, more importantly, ACME
+      # renewal has to keep working *while* it is down, or a long outage
+      # silently becomes an expired certificate on top of an outage.
+      app:
+        condition: service_started
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16.10-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-olibra}
+      POSTGRES_USER: ${POSTGRES_USER:-olibra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      # The same locale compose.yaml pins, and for the same reason: Vietnamese
+      # text sorting is not something to leave to whatever the base image
+      # picked, and changing it later means a dump and reload.
+      POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    # The same DateStyle pin compose.yaml carries, with a sharper edge here. The
+    # image default is `ISO, MDY`, under which `02/04/2015` — 2 April 2015, as
+    # it is written in Vietnamese — is stored as `2015-02-03`. In a development
+    # database that is an annoyance; in this one it is a real child's date of
+    # birth, wrong, in the row a volunteer will later read back and believe.
+    #
+    # tests/architecture/compose-pins-datestyle.test.ts asserts one pin per
+    # Postgres service across both compose files.
+    command: ["postgres", "-c", "datestyle=ISO, YMD"]
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      # Loopback, written in full. `"${POSTGRES_PORT:-5435}:5432"` — without the
+      # 127.0.0.1 — binds 0.0.0.0, and is the exact mistake this line exists in
+      # order not to make. Reachable over an SSH tunnel for psql, and from
+      # nowhere else:
+      #
+      #   ssh -L 5435:localhost:5435 deploy@<vps>
+      - "127.0.0.1:${POSTGRES_PORT:-5435}:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-olibra} -d ${POSTGRES_DB:-olibra}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Object storage ─────────────────────────────────────────────────────────
+  # MinIO is an *implementation* of the S3 API, not the interface. The
+  # application only ever speaks S3, so swapping this for AWS S3, Cloudflare R2
+  # or Backblaze B2 is a change of environment variables and nothing else.
+  storage:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    mem_limit: 512m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env.prod}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env.prod}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    volumes:
+      - ./data/minio:/data
+    # **No published ports at all — not even the console on 9001.** The console
+    # is a login form for the root credentials directly above, which also hold
+    # every child's photograph, and the Caddyfile deliberately gives it no
+    # route. Reach it over an SSH tunnel; docs/DEPLOYMENT.md has the command.
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # Creates the bucket once and exits. Idempotent, so a restart is harmless.
+  storage-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      storage:
+        condition: service_healthy
+    # **Byte-identical to compose.yaml's**, and required to stay so by
+    # tests/architecture/compose-grants-only-get-object.test.ts, which reads the
+    # document out of both files and compares each against the single definition
+    # in tests/support/bucket-policy.ts.
+    #
+    # Written out in full with `anonymous set-json` rather than the shorthand
+    # `mc anonymous set download`, and that is the whole point of the verbosity.
+    # `download` is *not* read-only: it also grants `s3:ListBucket`, so an
+    # unauthenticated `GET /<bucket>/?list-type=2` answers 200 and paginates the
+    # key of every avatar, cover and condition photograph — and the avatars are
+    # photographs of children. Opaque UUID keys protect nothing once the keys
+    # can be enumerated. The application never lists a bucket, so the narrower
+    # policy costs nothing.
+    #
+    # List form rather than a folded string, because the policy contains double
+    # quotes and the shell-splitting compose applies to a bare string entrypoint
+    # is not somewhere to find out how it escapes them.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set olibra http://storage:9000 '${S3_ACCESS_KEY_ID}' '${S3_SECRET_ACCESS_KEY}'
+        mc mb --ignore-existing olibra/${S3_BUCKET:-olibra}
+        printf %s '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${S3_BUCKET:-olibra}/*"]}]}' > /tmp/public-read.json
+        mc anonymous set-json /tmp/public-read.json olibra/${S3_BUCKET:-olibra}
+        echo 'bucket ready: ${S3_BUCKET:-olibra}'
+    # **Not `unless-stopped`.** This container's job is to exit 0, and
+    # `unless-stopped` does not mean "unless it succeeded" — it restarts a clean
+    # exit as readily as a crash, so the sidecar would spin forever re-applying
+    # a policy nobody changed, burning a restart slot and filling the log it
+    # would be read from.
+    restart: "no"
+
+  # ── Application ────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Not the implicit last stage — that is `smoke`, whose RUN step boots the
+      # server with none of the environment a real boot has. compose.yaml
+      # carries the fuller explanation on its own identical line.
+      target: runner
+      args:
+        # Reaches next.config.ts during `next build`, which is where
+        # allowedOrigins is decided — see the Dockerfile's builder stage. A
+        # value supplied only at runtime arrives after that decision has already
+        # been compiled in.
+        APP_DOMAIN: ${APP_DOMAIN}
+        # The 2 GB box. Caps Node's own heap below the host's real ceiling so a
+        # build that runs out of memory says so, instead of being removed by the
+        # OOM killer with no message at all.
+        NODE_OPTIONS: --max-old-space-size=1536
+    image: olibra-app:prod
+    restart: unless-stopped
+    mem_limit: 700m
+    depends_on:
+      db:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+    environment:
+      # olibra_pool, never the superuser. A superuser connection bypasses row
+      # level security unconditionally (DATABASE.md §3), which would make every
+      # RLS policy in this project inert on the one connection that serves
+      # public requests — which is exactly what this project's connection used
+      # to be, and what CRITICAL 2 exists to have fixed.
+      DATABASE_URL: postgres://olibra_pool:${OLIBRA_POOL_PASSWORD:?set OLIBRA_POOL_PASSWORD in .env.prod}@db:5432/${POSTGRES_DB:-olibra}
+      #
+      # MIGRATION_DATABASE_URL is deliberately ABSENT here, unlike compose.yaml.
+      #
+      # It names the olibra superuser — able to create roles, disable row level
+      # security, and read every table regardless of policy — and the process
+      # serving anonymous HTTP requests has no business holding it. The
+      # `migrate` service at the bottom of this file carries it instead, which
+      # is also why deploy.sh runs `run --rm migrate` rather than
+      # `run --rm app`: a run against `app` would inherit this block.
+      #
+      # Safe to omit, verified rather than assumed. Of the four modules that
+      # read the variable (migrate-cli, seed-cli, sweep-cli, instrumentation),
+      # only src/instrumentation.ts runs inside the server, and its
+      # checkDatabaseUrlsForSwallowedComments guards it with `if (!value)
+      # continue`. Removing it skips a check that has nothing to check.
+      #
+      # The server reaches MinIO over this file's network; a browser does not.
+      # Routing the server's own traffic out to the public hostname and back
+      # would be slower, and would break the moment DNS was the thing that was
+      # wrong.
+      S3_ENDPOINT: http://storage:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-olibra}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      # MinIO addresses buckets by path; AWS S3 uses the host name. Configuration
+      # rather than an assumption, precisely so the provider can change without
+      # touching code.
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      # What ObjectStore.url() builds the URL a *browser* fetches from.
+      #
+      # Derived here rather than set in .env.prod, because the one thing this
+      # value must never say is `localhost` — which is what it says by default,
+      # and which renders every cover and avatar on the live site a broken image
+      # while the application works perfectly and the server log stays silent.
+      # deploy.sh's preflight refuses a .env.prod that sets it by hand to a
+      # localhost value anyway, as a second line of defence.
+      S3_PUBLIC_URL: https://storage.${APP_DOMAIN}
+      # Read by next.config.ts at runtime too, harmlessly; the value that
+      # actually matters was compiled in at build time from the build arg above.
+      APP_DOMAIN: ${APP_DOMAIN}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    healthcheck:
+      # **`bun -e`, not curl or wget.** oven/bun's image is not guaranteed to
+      # carry either, and a healthcheck whose binary is missing reports
+      # `unhealthy` forever — a failure that looks exactly like the application
+      # being broken, which is the worst possible disguise for it to wear.
+      #
+      # The Dockerfile's runner stage says "No HEALTHCHECK here — compose owns
+      # it, so the check and the dependency ordering live in one file rather
+      # than two." This is compose owning it. compose.yaml states the intent and
+      # never wrote this half, so `condition: service_healthy` against `app` and
+      # deploy.sh's health gate both had nothing to read.
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # 40s, not compose.yaml's absence of one: a cold start on a 2 GB box with
+      # swap in play is slower than on a developer's machine, and a start_period
+      # that expires early turns a normal boot into a restart loop.
+      start_period: 40s
+
+  # ── Reminder sweep ─────────────────────────────────────────────────────────
+  # BR §15's "nhắc trả sách" reminders — three days before a loan falls due and
+  # again once it lapses. Same image as `app` rather than a second Dockerfile, a
+  # shell loop rather than cron, once a day at 07:00. compose.yaml carries the
+  # full reasoning for all three decisions at length and none of it changes
+  # here.
+  sweep:
+    image: olibra-app:prod
+    restart: unless-stopped
+    mem_limit: 128m
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Not DATABASE_URL. The sweep's first statement is `set local role
+      # olibra_admin` because it spans every shelf, and olibra_pool is
+      # deliberately not a member of olibra_admin — under it that statement is
+      # `42501: permission denied to set role`, which is correct, and not a
+      # useful way to discover the requirement at 07:00.
+      MIGRATION_DATABASE_URL: postgres://${POSTGRES_USER:-olibra}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-olibra}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    # `$` is doubled throughout because this text goes through *two*
+    # substitution passes before a byte of it runs: compose interpolates
+    # `$VAR`/`${VAR}` in every string in this file first, and only what survives
+    # that pass reaches the container's own shell. A single `$` here is not "the
+    # shell will see this" — it is "compose will try to resolve this against its
+    # own variables first", and `$today`/`$now`/`$last_run` are not among those.
+    # The first draft of this script in compose.yaml silently ran with all three
+    # replaced by empty strings.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "sweep: scheduler started — runs \`bun run db:sweep\` once a day at 07:00 $$TZ"
+        last_run=""
+        while true; do
+          today=$$(date +%F)
+          now=$$(date +%H:%M)
+          if [ "$$now" = "07:00" ] && [ "$$last_run" != "$$today" ]; then
+            echo "sweep: 07:00 $$TZ reached — running for $$today"
+            if bun run db:sweep; then
+              echo "sweep: $$today run finished"
+            else
+              echo "sweep: $$today run FAILED (exit $$?) — will try again at 07:00 tomorrow"
+            fi
+            last_run="$$today"
+          fi
+          sleep 20
+        done
+
+  # ── Migrations ─────────────────────────────────────────────────────────────
+  # A one-off, run by deploy.sh between the build and the restart:
+  #
+  #   docker compose -f compose.prod.yaml --env-file .env.prod run --rm migrate
+  #
+  # **Its own service rather than `run --rm app`**, precisely so that `app`
+  # above can drop MIGRATION_DATABASE_URL — a run against `app` would inherit
+  # `app`'s environment, which is the environment the superuser was removed
+  # from. compose.yaml's `docker compose exec app bun run db:migrate` is the
+  # developer form of this, and production diverges from it deliberately.
+  #
+  # On a fresh VPS this step is not optional in a deeper sense than "the schema
+  # is missing": olibra_pool, the role DATABASE_URL names, is created by
+  # 20260808_13_pool_role.sql. Until that migration runs, the application cannot
+  # open a connection at all.
+  #
+  # Behind a profile so an ordinary `up -d` never starts it, and `restart: "no"`
+  # for the reason storage-init carries the same line: this container's job is
+  # to exit.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        APP_DOMAIN: ${APP_DOMAIN}
+        NODE_OPTIONS: --max-old-space-size=1536
+    image: olibra-app:prod
+    profiles: ["tools"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # The olibra superuser, deliberately: creating roles, enabling row level
+      # security and `force row level security`, and 0010_rls.sql's own `create
+      # role` statements all need privileges olibra_pool must never have.
+      MIGRATION_DATABASE_URL: postgres://${POSTGRES_USER:-olibra}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-olibra}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    command: ["bun", "run", "db:migrate"]

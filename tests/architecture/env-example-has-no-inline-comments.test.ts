@@ -43,14 +43,31 @@ import { expect, test } from "vitest";
  * carries an `S3_*` case, so this specific class of miss cannot reopen
  * silently again.
  */
-test("no line in .env.example hands out a trailing comment as a variable's value", () => {
-  const envExample = readFileSync(".env.example", "utf8");
-  const lines = envExample.split("\n");
+/**
+ * **Both templates, not just `.env.example`** (2026-08-14, VPS deployment).
+ *
+ * `.env.prod.example` carries the identical hazard with a worse blast radius:
+ * it is the file an operator copies to make the *production* `.env.prod`, so a
+ * swallowed comment there sets the real superuser password of the machine
+ * holding real readers' records — where the incident this test was written for
+ * merely did it to a developer's throwaway database.
+ *
+ * A list rather than two tests, so a third template cannot be added without
+ * this being the thing that notices it is unguarded.
+ */
+const TEMPLATES = [".env.example", ".env.prod.example"];
 
-  const offenders = lines.filter((line) => /^[A-Z0-9_]+=\s*#/.test(line));
+test.each(TEMPLATES)(
+  "no line in %s hands out a trailing comment as a variable's value",
+  (template) => {
+    const contents = readFileSync(template, "utf8");
+    const lines = contents.split("\n");
 
-  expect(offenders).toEqual([]);
-});
+    const offenders = lines.filter((line) => /^[A-Z0-9_]+=\s*#/.test(line));
+
+    expect(offenders).toEqual([]);
+  },
+);
 
 /**
  * The guard's own guard: a regex that matched nothing would pass the

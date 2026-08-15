@@ -30,12 +30,27 @@ import { expect, test } from "vitest";
  * multi-line scalars, while "the string appears once per Postgres service" is a
  * weaker claim that cannot itself be subtly wrong.
  */
-test("both Postgres services pin DateStyle rather than inheriting the image default", () => {
-  const compose = readFileSync("compose.yaml", "utf8");
+/**
+ * **Both compose files** (2026-08-14, VPS deployment). `compose.prod.yaml` has
+ * one Postgres service where `compose.yaml` has two, which is why the assertion
+ * is one pin per Postgres service *in this file* rather than a fixed count —
+ * what the original already meant, now that there is a second file for it to
+ * mean it about.
+ *
+ * Production inheriting `ISO, MDY` is this defect at its worst. The measured
+ * consequence above happened in a development database; the same misreading in
+ * the deployed one puts a wrong date of birth against a real child, in the row
+ * a volunteer will later read back and believe.
+ */
+test.each(["compose.yaml", "compose.prod.yaml"])(
+  "every Postgres service in %s pins DateStyle rather than inheriting the image default",
+  (file) => {
+    const compose = readFileSync(file, "utf8");
 
-  const postgresServices = compose.match(/image: postgres:/g) ?? [];
-  const pins = compose.match(/datestyle=ISO, YMD/gi) ?? [];
+    const postgresServices = compose.match(/image: postgres:/g) ?? [];
+    const pins = compose.match(/datestyle=ISO, YMD/gi) ?? [];
 
-  expect(postgresServices.length).toBeGreaterThan(0);
-  expect(pins).toHaveLength(postgresServices.length);
-});
+    expect(postgresServices.length).toBeGreaterThan(0);
+    expect(pins).toHaveLength(postgresServices.length);
+  },
+);
