@@ -89,10 +89,24 @@ symlink approach, since it is the design's preferred mechanism.
 
 ## The hashing decision
 
-Row 5 (`PASSWORD_ARGON2ID` defined?) is unanswered. Until the survey returns, Task 21
-assumes **`HASH_DRIVER=bcrypt`**, the spec's documented fallback, rather than
-argon2id. If the survey later confirms argon2id support, this can switch to
-`HASH_DRIVER=argon2id` per Task 16.
+Row 5 (`PASSWORD_ARGON2ID` defined?) is unanswered — for the **production host**
+only. Every other environment (local Docker, CI, and this repository's own
+`.env`/`.env.example`/`phpunit.xml` defaults) runs `HASH_DRIVER=argon2id`
+unconditionally: those runtimes are controlled by this repo and argon2id is
+known present there, the database is greenfield so no existing hash needs
+migrating, and `password_verify()` reads the algorithm from the hash's own
+prefix, so a later switch on any one environment is survivable without a
+rehash pass.
+
+`HASH_DRIVER=bcrypt` is a **production-only fallback**, and only if row 5
+comes back negative: until the survey runs against the real host, Task 21
+assumes **`HASH_DRIVER=bcrypt`** in production's `.env` as the conservative
+default, the spec's documented fallback, rather than assuming argon2id
+support it cannot yet confirm. If the survey later confirms argon2id
+support, Task 21's production `.env` switches to `HASH_DRIVER=argon2id` too,
+matching every other environment, per Task 16. Cost if this default turns
+out to be wrong in either direction: a one-line `.env` change at deploy, not
+a rehash.
 
 ## The deploy channel decision
 

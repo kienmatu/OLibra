@@ -45,10 +45,19 @@
             <server> entries are unconditional overwrites of $_SERVER
             (handleServerVariables(), no force attribute exists or is
             needed), so they close the gap the <env> block leaves open.
+
+            DB_URL is neutralised to empty, <env> and <server> both: Laravel's
+            ConfigurationUrlParser::parseConfiguration() merges a DB_URL's
+            database/host/user OVER the 'mariadb' connection array above at
+            connect time (config/database.php sets 'url' => env('DB_URL')). A
+            stray DB_URL would leave config('database.connections.mariadb.database')
+            reporting 'olibra_testing' correctly while the live connection
+            went wherever DB_URL pointed — config alone cannot see this,
+            which is why EnvironmentTest also asserts
+            DB::connection()->getDatabaseName().
         -->
         <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
-        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
         <env name="CACHE_STORE" value="array" force="true"/>
         <!--
             The real engine, not sqlite: generated columns, CHECK constraints,
@@ -57,16 +66,26 @@
         -->
         <env name="DB_CONNECTION" value="mariadb" force="true"/>
         <env name="DB_DATABASE" value="olibra_testing" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
         <env name="MAIL_MAILER" value="array" force="true"/>
         <env name="QUEUE_CONNECTION" value="sync" force="true"/>
         <env name="SESSION_DRIVER" value="array" force="true"/>
         <env name="HASH_DRIVER" value="argon2id" force="true"/>
+        <!--
+            BCRYPT_ROUNDS is dead weight under argon2id (this app hashes with
+            argon2id everywhere — see HASH_DRIVER above and docs/HOSTING.md
+            row 5). ARGON_MEMORY/ARGON_TIME are forced down from the 64
+            MiB/4-pass production defaults so every hashing-touching test in
+            the remaining 19 tasks doesn't pay full cost.
+        -->
+        <env name="ARGON_MEMORY" value="1024" force="true"/>
+        <env name="ARGON_TIME" value="1" force="true"/>
         <server name="APP_ENV" value="testing"/>
         <server name="APP_MAINTENANCE_DRIVER" value="file"/>
-        <server name="BCRYPT_ROUNDS" value="4"/>
         <server name="CACHE_STORE" value="array"/>
         <server name="DB_CONNECTION" value="mariadb"/>
         <server name="DB_DATABASE" value="olibra_testing"/>
+        <server name="DB_URL" value=""/>
         <server name="MAIL_MAILER" value="array"/>
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>

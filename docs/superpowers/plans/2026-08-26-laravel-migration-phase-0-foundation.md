@@ -346,9 +346,11 @@ QUEUE_CONNECTION=database
 HASH_DRIVER=argon2id
 ```
 
-`APP_TIMEZONE=UTC` is deliberate and differs from priest-liturgy: the spec stores UTC `DATETIME(6)` and renders in each shelf's `timezone` column (`Asia/Ho_Chi_Minh` default) — rendering is a front-end/date-helper concern, not a storage one. `HASH_DRIVER` is `argon2id` unless `docs/HOSTING.md` row 5 said bcrypt.
+`APP_TIMEZONE=UTC` is deliberate and differs from priest-liturgy: the spec stores UTC `DATETIME(6)` and renders in each shelf's `timezone` column (`Asia/Ho_Chi_Minh` default) — rendering is a front-end/date-helper concern, not a storage one. `HASH_DRIVER=argon2id` here, in `.env.example`, and in `phpunit.xml` regardless of `docs/HOSTING.md` row 5 — that row's `PASSWORD_ARGON2ID`-on-the-host question only ever gates **production's** `.env` (Task 21), not this repository's own defaults; see "The hashing decision" in `docs/HOSTING.md`.
 
-Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** line is load-bearing (see the comment; it is priest-liturgy's `known-gaps.md` trap written into the config rather than learned twice):
+Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** `<env>` line is load-bearing (see the comment; it is priest-liturgy's `known-gaps.md` trap written into the config rather than learned twice), but `force="true"` on `<env>` is not the whole guard. Laravel's `env()`/`config()` resolve through vlucas/phpdotenv's `Repository`, built with `ServerConstAdapter` (reads `$_SERVER`) checked **before** `EnvConstAdapter` (reads `$_ENV`). PHPUnit's `PhpHandler::handleEnvVariables()` only ever writes `putenv()`/`$_ENV` — it never writes `$_SERVER`, force or not — and PHP's CLI SAPI copies every real container environment variable into `$_SERVER` at process start. A stray `DB_DATABASE` already in the container's real environment therefore keeps winning through `$_SERVER` even with `force="true"` above. The fix is PHPUnit's separate `<server>` element (`handleServerVariables()`, an unconditional `$_SERVER` overwrite, no `force` attribute needed) — add a matching `<server name="..." value="..."/>` line for every `<env>` entry.
+
+Also neutralise `DB_URL`: `config/database.php` sets `'url' => env('DB_URL')` on the `mariadb` connection, and Laravel's `ConfigurationUrlParser::parseConfiguration()` merges a `DB_URL`'s `database`/`host`/`user` OVER that array at connect time — so a stray `DB_URL` points the live connection anywhere while `config('database.connections.mariadb.database')` still reports `olibra_testing`. Force `DB_URL` to empty, `<env>` and `<server>` both.
 
 ```xml
     <php>
@@ -359,10 +361,13 @@ Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** 
             DEVELOPMENT database with APP_ENV=local — silently, tests passing,
             data destroyed, CSRF no longer bypassed. EnvironmentTest asserts
             the outcome these lines exist to produce.
+
+            force="true" on <env> is not the whole guard: dotenv's default
+            adapters are ServerConst then EnvConst, and PHPUnit's <env> never
+            writes $_SERVER — see the <server> block below, which does.
         -->
         <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
-        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
         <env name="CACHE_STORE" value="array" force="true"/>
         <!--
             The real engine, not sqlite: generated columns, CHECK constraints,
@@ -371,10 +376,25 @@ Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** 
         -->
         <env name="DB_CONNECTION" value="mariadb" force="true"/>
         <env name="DB_DATABASE" value="olibra_testing" force="true"/>
+        <!-- ConfigurationUrlParser lets a stray DB_URL override database/host/user at connect time; neutralise it. -->
+        <env name="DB_URL" value="" force="true"/>
         <env name="MAIL_MAILER" value="array" force="true"/>
         <env name="QUEUE_CONNECTION" value="sync" force="true"/>
         <env name="SESSION_DRIVER" value="array" force="true"/>
         <env name="HASH_DRIVER" value="argon2id" force="true"/>
+        <!-- BCRYPT_ROUNDS is dead weight under argon2id; tune argon down instead so hashing tests stay cheap. -->
+        <env name="ARGON_MEMORY" value="1024" force="true"/>
+        <env name="ARGON_TIME" value="1" force="true"/>
+        <server name="APP_ENV" value="testing"/>
+        <server name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <server name="CACHE_STORE" value="array"/>
+        <server name="DB_CONNECTION" value="mariadb"/>
+        <server name="DB_DATABASE" value="olibra_testing"/>
+        <server name="DB_URL" value=""/>
+        <server name="MAIL_MAILER" value="array"/>
+        <server name="QUEUE_CONNECTION" value="sync"/>
+        <server name="SESSION_DRIVER" value="array"/>
+        <server name="HASH_DRIVER" value="argon2id"/>
     </php>
 ```
 
@@ -537,9 +557,15 @@ Create `tests/Feature/EnvironmentTest.php`:
 ```php
 <?php
 
+use Illuminate\Support\Facades\DB;
+
 it('never runs tests against the development database', function () {
+    // Asserts the LIVE connection, not just the config array: a stray DB_URL
+    // overrides database/host/user at connect time (ConfigurationUrlParser),
+    // which config('database.connections.mariadb.database') cannot see.
     expect(config('database.default'))->toBe('mariadb')
-        ->and(config('database.connections.mariadb.database'))->toBe('olibra_testing');
+        ->and(config('database.connections.mariadb.database'))->toBe('olibra_testing')
+        ->and(DB::connection()->getDatabaseName())->toBe('olibra_testing');
 });
 
 it('runs with the testing environment so csrf is bypassed', function () {
@@ -573,7 +599,7 @@ Expected: `[OK] No errors`
 Run: `bun run laravel:typecheck` and `bun run laravel:build`
 Expected: both exit 0.
 
-Also prove the guard has teeth once, by hand: `docker compose -f docker-compose.laravel.yml exec -e DB_DATABASE=olibra app php artisan test --filter=EnvironmentTest` must still report `olibra_testing` (the `force="true"` doing its job).
+Also prove the guard has teeth, by hand, twice: `docker compose -f docker-compose.laravel.yml exec -e DB_DATABASE=olibra app php artisan test --filter=EnvironmentTest` must still report `olibra_testing` (the `<server>` block doing its job), and `docker compose -f docker-compose.laravel.yml exec -e DB_URL="mysql://olibra:secret@mariadb:3306/olibra" app php artisan test --filter=EnvironmentTest` must also still pass (the `DB_URL` neutralisation and the live-connection assertion doing theirs).
 
 - [ ] **Step 7: Commit**
 

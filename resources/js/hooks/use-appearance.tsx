@@ -36,8 +36,10 @@ export function useAppearance() {
     };
 
     useEffect(() => {
-        const savedAppearance = localStorage.getItem("appearance") as Appearance | null;
-        updateAppearance(savedAppearance || "system");
+        const savedAppearance =
+            (localStorage.getItem("appearance") as Appearance | null) || "system";
+        setAppearance(savedAppearance);
+        applyTheme(savedAppearance);
 
         return () => mediaQuery.removeEventListener("change", handleSystemThemeChange);
     }, []);
