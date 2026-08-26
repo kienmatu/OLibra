@@ -18,10 +18,26 @@ namespace App\Support;
  * in PHP and 'k stner' in the database, a permanently unfindable author.
  * Anything not in MAP (CJK, marks, symbols) degrades to a space on BOTH
  * halves identically, which keeps BR §12's store==search invariant even
- * where the fold is lossy.
+ * where the fold is lossy. This includes input that arrives already in
+ * decomposed Unicode form (rare — macOS filenames, some IMEs): its
+ * combining marks fold to spaces on both halves identically instead of
+ * being stripped, so store==search still holds even though this differs
+ * from what src/domain/kernel/fold.ts would have produced there.
  *
  * đ needs its own entry and must not be removed: it is a distinct
  * Vietnamese letter, not a d carrying a diacritic.
+ *
+ * Second, separate divergence from the old TS/Postgres pipeline: `ß ø æ œ
+ * þ ð ħ ŋ ŧ ı ĳ ŀ ŉ` are distinct base letters, not accent+letter pairs, so
+ * NFD-decomposition never touches them — the old pipeline's
+ * `[^a-z0-9]+` step erased them to spaces (`Straße` → `stra e`, `Søren` →
+ * `s ren`). This table folds them to their ASCII letters instead
+ * (`straße` → `strasse`, `søren` → `soren`), which is deliberate and a
+ * better fold for search. It matters only if a corpus folded under the old
+ * rule is ever imported: those titles would re-fold differently here and
+ * need one re-fold pass. On a greenfield database — this system's actual
+ * starting point (no data migration; see the phase-0 spec's Out of Scope)
+ * — that cost is zero.
  */
 final class Fold
 {

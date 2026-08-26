@@ -3,8 +3,12 @@
 use App\Support\Fold;
 
 // The corpus tests/db/folding.test.ts pins today, verbatim, plus the shared
-// fixture names from AGENTS.md — real titles, real reader names.
-it('folds the corpus exactly as src/domain/kernel/fold.ts does', function (string $input, string $expected) {
+// fixture names from AGENTS.md — real titles, real reader names. Expected
+// values here are independently authored oracles, not derived from
+// Fold::MAP. This does NOT assert parity with src/domain/kernel/fold.ts —
+// see Fold's docblock for the characters (ß ø æ œ þ ð ħ ŋ ŧ ı ĳ ŀ ŉ) where
+// this table deliberately diverges from the TS/Postgres NFD pipeline.
+it('folds the corpus to these expected values', function (string $input, string $expected) {
     expect(Fold::fold($input))->toBe($expected);
 })->with([
     ['Dế Mèn Phiêu Lưu Ký', 'de men phieu luu ky'],
