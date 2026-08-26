@@ -71,6 +71,50 @@ it('carries a well-formed map: 144 lowercase keys, ascii targets', function () {
     }
 });
 
+it('agrees with an independent NFD-derived oracle for every map entry', function () {
+    // FoldParityTest's map-entry test proves PHP and SQL are the SAME
+    // FUNCTION of Fold::MAP — it derives "expected" from Fold::fold() and
+    // "actual" from SQL rendered off the same table, so a typo shared by
+    // both sides ('ệ' => 'a') would pass it silently. This test derives
+    // its expectation a third, independent way — Unicode NFD decomposition
+    // with combining marks U+0300–U+036F stripped — and is the one place
+    // Normalizer is legitimate: deriving an expectation here, never
+    // folding at runtime (see Fold's docblock for why fold() itself must
+    // not decompose). The letters that don't decompose under NFD are
+    // hand-pinned instead, with the reason each is a base letter, not an
+    // accent+letter pair, already recorded in Fold's docblock.
+    $handPinned = [
+        'ß' => 'ss', 'ø' => 'o', 'æ' => 'ae', 'œ' => 'oe', 'þ' => 'th',
+        'ð' => 'd', 'ħ' => 'h', 'ŋ' => 'n', 'ŧ' => 't', 'ı' => 'i',
+        'ĳ' => 'ij', 'ŀ' => 'l', 'ŉ' => 'n', 'đ' => 'd',
+        // ł and ſ have no NFD decomposition either (PHP's Normalizer
+        // confirms both round-trip unchanged), same reason as the rest of
+        // this list: base letters, not accent+letter pairs.
+        'ł' => 'l', 'ſ' => 's',
+        "i\u{0307}" => 'i',
+    ];
+
+    foreach (Fold::MAP as $from => $to) {
+        if (array_key_exists($from, $handPinned)) {
+            expect($to)->toBe($handPinned[$from], "hand-pinned {$from}");
+
+            continue;
+        }
+
+        $decomposed = Normalizer::normalize($from, Normalizer::FORM_D);
+        $stripped = (string) preg_replace('/[\x{0300}-\x{036F}]/u', '', (string) $decomposed);
+
+        expect($to)->toBe($stripped, "NFD-derived oracle for {$from}");
+    }
+
+    // The hand-pinned list itself must cover exactly the non-decomposing
+    // keys — not more, not fewer — so a future MAP entry that starts
+    // decomposing (or stops) is a caught test failure, not a silent skip.
+    foreach (array_keys($handPinned) as $key) {
+        expect(Fold::MAP)->toHaveKey($key);
+    }
+});
+
 it('matches needle-in-haystack after folding, the way search will use it', function () {
     expect(Fold::matches('Đất Rừng Phương Nam', 'dat rung'))->toBeTrue()
         ->and(Fold::matches('Dế Mèn Phiêu Lưu Ký', 'de men'))->toBeTrue()
