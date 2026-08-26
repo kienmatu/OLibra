@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <!--
+            force="true" everywhere or PHPUnit leaves any variable already
+            present in the real environment untouched, and a stray APP_ENV or
+            DB_DATABASE from the shell wins: the suite then runs against the
+            DEVELOPMENT database with APP_ENV=local — silently, tests passing,
+            data destroyed, CSRF no longer bypassed. EnvironmentTest asserts
+            the outcome these lines exist to produce.
+
+            force="true" on <env> is not the whole guard, though. Laravel's
+            env()/config() resolve through vlucas/phpdotenv's Repository,
+            which is built with ServerConstAdapter (reads $_SERVER) BEFORE
+            EnvConstAdapter (reads $_ENV) — see
+            vendor/vlucas/phpdotenv/src/Repository/RepositoryBuilder.php's
+            DEFAULT_ADAPTERS. PHP's CLI SAPI copies every real container
+            environment variable into $_SERVER at process start (that is what
+            an `environment:`/`env_file:` entry becomes), but PHPUnit's own
+            PhpHandler::handleEnvVariables() only ever touches getenv()/
+            putenv() and $_ENV — it never writes $_SERVER, force or not.
+            A stray DB_DATABASE already sitting in the container's real
+            environment therefore keeps winning through $_SERVER even with
+            force="true" above; verified by hand with a docker compose exec
+            that injects DB_DATABASE=olibra and filters php artisan test to
+            EnvironmentTest, which still failed until the <server> block
+            below was added.
+            <server> entries are unconditional overwrites of $_SERVER
+            (handleServerVariables(), no force attribute exists or is
+            needed), so they close the gap the <env> block leaves open.
+        -->
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <!--
+            The real engine, not sqlite: generated columns, CHECK constraints,
+            SIGNAL triggers and binary collations are the subject matter of
+            this phase, and only MariaDB exercises them.
+        -->
+        <env name="DB_CONNECTION" value="mariadb" force="true"/>
+        <env name="DB_DATABASE" value="olibra_testing" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="HASH_DRIVER" value="argon2id" force="true"/>
+        <server name="APP_ENV" value="testing"/>
+        <server name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <server name="BCRYPT_ROUNDS" value="4"/>
+        <server name="CACHE_STORE" value="array"/>
+        <server name="DB_CONNECTION" value="mariadb"/>
+        <server name="DB_DATABASE" value="olibra_testing"/>
+        <server name="MAIL_MAILER" value="array"/>
+        <server name="QUEUE_CONNECTION" value="sync"/>
+        <server name="SESSION_DRIVER" value="array"/>
+        <server name="HASH_DRIVER" value="argon2id"/>
+    </php>
+</phpunit>

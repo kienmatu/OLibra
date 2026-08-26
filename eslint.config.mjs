@@ -32,6 +32,20 @@ const config = [
       "build/**",
       "node_modules/**",
       "next-env.d.ts",
+      // The Laravel side of the repo (Task 2 onward). `resources/js` is
+      // Biome's job (biome.json), not ESLint's — the two tools use different
+      // rule sets and formatting conventions, and this config's TypeScript
+      // rules were never meant for it. `public/build/**` is Vite's compiled
+      // output for that same tree: minified, full of `eval`, same failure
+      // shape the `.claude/**` entry above already documents for `.next/**`.
+      "resources/**",
+      "public/build/**",
+      // Composer's dependency tree — some packages ship vendored JS (e.g.
+      // Laravel's exception renderer), which is not this repo's source any
+      // more than `node_modules/**` above is.
+      "vendor/**",
+      "storage/**",
+      "bootstrap/cache/**",
     ],
   },
   ...next,

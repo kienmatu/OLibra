@@ -65,3 +65,29 @@ yarn-error.log*
 # survive `docker compose down -v` — which also means they must never be
 # committed.
 /data/
+.DS_Store
+.env
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+/.fleet
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+/bootstrap/ssr
+/database/database.sqlite
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/vendor
+auth.json
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log

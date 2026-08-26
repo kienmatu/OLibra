@@ -4,3 +4,20 @@ node_modules
 bun.lock
 .artifacts
 *.md
+
+# The Laravel side of the repo (Task 2 onward). resources/js is Biome's job
+# (biome.json), with different formatting conventions than Prettier's here;
+# vendor/, storage/, bootstrap/cache/ and public/build are Composer/PHP
+# runtime and build output, not source either stack owns.
+resources
+vendor
+storage
+bootstrap/cache
+public/build
+tsconfig.laravel.json
+vite.config.ts
+biome.json
+components.json
+composer.json
+composer.lock
+phpstan.neon

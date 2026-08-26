@@ -1,0 +1,57 @@
+services:
+  app:
+    build: ./docker/php
+    restart: unless-stopped
+    volumes: [".:/app"]
+    ports: ["${LARAVEL_APP_PORT:-8100}:80"]
+    # Deliberately NO env_file. Laravel reads .env from the mounted volume;
+    # injecting the same values as real container environment variables makes
+    # them impossible for phpunit.xml to override, and that exact interaction
+    # silently ran priest-liturgy's suite against its development database.
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  scheduler:
+    build: ./docker/php
+    restart: unless-stopped
+    volumes: [".:/app"]
+    # schedule:work re-invokes schedule:run every minute — the same shape as
+    # production's cron line, so a job that only works under a daemon fails
+    # here too. Queue draining rides this tick (Task 21, routes/console.php).
+    command: php artisan schedule:work
+    depends_on: [app]
+
+  vite:
+    image: oven/bun:1.2
+    working_dir: /app
+    volumes: [".:/app"]
+    # PUPPETEER_SKIP_DOWNLOAD matches Dockerfile and ci.yml: puppeteer is a
+    # Next.js devDependency in the shared package.json, and its postinstall
+    # otherwise tries to fetch Chrome with no zip archiver in this image.
+    environment:
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+    command: sh -c "bun install && bun run laravel:dev -- --host 0.0.0.0"
+    ports: ["${LARAVEL_VITE_PORT:-5175}:5175"]
+
+  mariadb:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: olibra
+      MARIADB_USER: olibra
+      MARIADB_PASSWORD: secret
+      MARIADB_ROOT_PASSWORD: secret
+    volumes:
+      - mariadbdata:/var/lib/mysql
+      - ./docker/mariadb/init:/docker-entrypoint-initdb.d:ro
+    ports: ["${LARAVEL_DB_PORT:-3310}:3306"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  mariadbdata:
