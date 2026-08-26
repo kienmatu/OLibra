@@ -45,7 +45,7 @@ Three architectures were weighed.
 
 ### 1.4 The reference project
 
-Conventions come from `~/Documents/priest-liturgy`: Laravel 13 + Inertia v2 + React 19 + Tailwind v4 with shadcn/ui, Pint, Larastan level 8, Pest, Biome, single-purpose Action classes, thin controllers, UI copy in `resources/js/lib/copy.ts` and `lang/vi/`, and spec → plan → implementation with plans carrying checkbox tasks and a `Status:` header. Two deliberate divergences from it: priest-liturgy runs PostgreSQL 17 where this project runs MariaDB, and priest-liturgy uses Vietnamese URIs where this project deliberately does not (§6).
+Conventions come from `~/Documents/priest-liturgy`: Laravel 13 + Inertia v2 + React 19 + Tailwind v4 with shadcn/ui, Pint, Larastan level 8, Pest, Biome, single-purpose Action classes, thin controllers, UI copy in `resources/js/lib/copy.ts` and `lang/vi/`, and spec → plan → implementation with plans carrying checkbox tasks and a `Status:` header. Two deliberate divergences from it: priest-liturgy runs PostgreSQL 17 where this project runs MariaDB, and priest-liturgy uses Vietnamese URIs where this project deliberately does not (§6). **Everything else tracks it, versions included** — PHP `^8.4` and Laravel `^13.0` are pinned to that project rather than resolved independently, so the two codebases stay close enough that a habit learned in one transfers to the other. The implementation plan carries the full constraint list and names that project as the version of record.
 
 ---
 
@@ -214,7 +214,7 @@ The whole Docker story is dropped and replaced.
 - **Files.** `storage:link` for the local disk; the `s3` driver stays configured so moving uploads to R2 later is a `.env` change.
 - **Backups.** `mysqldump` on a cron, plus the `storage/` directory. This replaces "back up `./data` and you have backed up everything", which was genuinely one of the nicer properties of the current setup, and it does get worse here — §10 says so plainly.
 
-**Task one of the implementation plan, before any schema work** — confirm on the real host: PHP 8.3 or 8.4 selectable; `pdo_mysql`; `gd` or `imagick`; `zip`; `fileinfo`; `sodium` (for argon2id); and whether `symlink()` and `exec()` are disabled. Several of these change the design (the docroot fallback, the image library, the hashing algorithm) and all are cheap to check.
+**Task one of the implementation plan, before any schema work** — confirm on the real host: **PHP 8.4** selectable (pinned to match the reference project; there is no lower fallback, so its absence is a blocking finding rather than a downgrade); `pdo_mysql`; `gd` or `imagick`; `zip`; `fileinfo`; `sodium` (for argon2id); and whether `symlink()` and `exec()` are disabled. Several of these change the design (the docroot fallback, the image library, the hashing algorithm) and all are cheap to check.
 
 ---
 
