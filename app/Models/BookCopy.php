@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class BookCopy extends Model
@@ -37,5 +38,16 @@ class BookCopy extends Model
     public function book(): BelongsTo
     {
         return $this->belongsTo(Book::class);
+    }
+
+    /**
+     * Loan carries BelongsToBookshelf, so under the bound tenant this
+     * relation subquery is scoped as well as FK-tied.
+     *
+     * @return HasMany<Loan, $this>
+     */
+    public function loans(): HasMany
+    {
+        return $this->hasMany(Loan::class, 'copy_id');
     }
 }
