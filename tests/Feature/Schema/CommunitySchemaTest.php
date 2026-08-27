@@ -27,6 +27,29 @@ function communityUser(): string
     return $id;
 }
 
+/** A book on $shelf — comments.book_id now carries a real composite FK (Task 11). */
+function communityBook(string $shelf): string
+{
+    $id = (string) Str::uuid7();
+    DB::table('books')->insert([
+        'id' => $id, 'bookshelf_id' => $shelf,
+        'title' => 'Hoàng Tử Bé', 'slug' => 'hoang-tu-be-'.substr($id, -8),
+    ]);
+
+    return $id;
+}
+
+/** A membership on $shelf — book_donations.donor_membership_id now carries a real composite FK (Task 11). */
+function communityMembership(string $shelf): string
+{
+    $id = (string) Str::uuid7();
+    DB::table('memberships')->insert([
+        'id' => $id, 'bookshelf_id' => $shelf, 'user_id' => communityUser(),
+    ]);
+
+    return $id;
+}
+
 /**
  * Assert that $attempt() fails with the given CHECK constraint (MariaDB
  * errno 4025, SQLSTATE 23000), not merely with *some* QueryException — a
@@ -123,7 +146,7 @@ it('rejects a comments status outside the enum', function () {
 
     assertCheckViolation(fn () => DB::table('comments')->insert([
         'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf,
-        'book_id' => (string) Str::uuid7(), 'author_id' => $user,
+        'book_id' => communityBook($shelf), 'author_id' => $user,
         'body' => 'Hay quá', 'status' => 'not_a_real_status',
     ]), 'comments_status_check');
 });
@@ -135,7 +158,7 @@ it('accepts a comments row through the default pending status', function () {
     $id = (string) Str::uuid7();
     DB::table('comments')->insert([
         'id' => $id, 'bookshelf_id' => $shelf,
-        'book_id' => (string) Str::uuid7(), 'author_id' => $user,
+        'book_id' => communityBook($shelf), 'author_id' => $user,
         'body' => 'Hay quá',
     ]);
 
@@ -154,7 +177,7 @@ it('rejects a book_donations status outside the enum', function () {
 
     assertCheckViolation(fn () => DB::table('book_donations')->insert([
         'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf,
-        'donor_membership_id' => (string) Str::uuid7(),
+        'donor_membership_id' => communityMembership($shelf),
         'description' => '3 quyển truyện', 'status' => 'not_a_real_status',
     ]), 'book_donations_status_check');
 });
@@ -164,7 +187,7 @@ it('requires a decision_note when a donation is declined', function () {
 
     assertCheckViolation(fn () => DB::table('book_donations')->insert([
         'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf,
-        'donor_membership_id' => (string) Str::uuid7(),
+        'donor_membership_id' => communityMembership($shelf),
         'description' => '3 quyển truyện', 'status' => 'declined', 'decision_note' => null,
     ]), 'book_donations_declined_has_reason');
 
@@ -172,7 +195,7 @@ it('requires a decision_note when a donation is declined', function () {
     $id = (string) Str::uuid7();
     DB::table('book_donations')->insert([
         'id' => $id, 'bookshelf_id' => $shelf,
-        'donor_membership_id' => (string) Str::uuid7(),
+        'donor_membership_id' => communityMembership($shelf),
         'description' => '3 quyển truyện', 'status' => 'declined', 'decision_note' => 'sách hỏng',
     ]);
 
@@ -185,7 +208,7 @@ it('accepts a pending book_donations row with no decision_note', function () {
     $id = (string) Str::uuid7();
     DB::table('book_donations')->insert([
         'id' => $id, 'bookshelf_id' => $shelf,
-        'donor_membership_id' => (string) Str::uuid7(),
+        'donor_membership_id' => communityMembership($shelf),
         'description' => '3 quyển truyện',
     ]);
 
@@ -205,7 +228,7 @@ it('names the access-path indexes exactly, over information_schema', function ()
         ->toBe(['slug_key']);
 });
 
-it('carries exactly the expected foreign keys, and none on the Task-11 columns', function () {
+it('carries exactly the expected foreign keys, including the Task-11 composite ones', function () {
     $rows = DB::select("
         select table_name, column_name, referenced_table_name
         from information_schema.key_column_usage
@@ -218,13 +241,21 @@ it('carries exactly the expected foreign keys, and none on the Task-11 columns',
     $actual = collect($rows)
         ->map(fn ($r) => "{$r->table_name}.{$r->column_name}->{$r->referenced_table_name}")
         ->all();
+    sort($actual);
 
     $expected = [
         'announcements.author_id->users',
         'announcements.bookshelf_id->bookshelves',
+        // book_donations.donor_membership_id -> memberships (Task 11): a
+        // composite FK is listed twice — once per column of the pair.
         'book_donations.bookshelf_id->bookshelves',
+        'book_donations.bookshelf_id->memberships',
         'book_donations.decided_by->users',
+        'book_donations.donor_membership_id->memberships',
+        // comments.book_id -> books (Task 11), same shape.
         'comments.author_id->users',
+        'comments.book_id->books',
+        'comments.bookshelf_id->books',
         'comments.bookshelf_id->bookshelves',
         'comments.moderated_by->users',
         'feedback.bookshelf_id->bookshelves',
@@ -234,11 +265,6 @@ it('carries exactly the expected foreign keys, and none on the Task-11 columns',
     sort($expected);
 
     expect($actual)->toBe($expected);
-
-    // The Task-11 columns — deferred to the composite tenant-scoped FK
-    // migration — must carry no plain FK at all right now.
-    expect(collect($rows)->contains(fn ($r) => $r->table_name === 'comments' && $r->column_name === 'book_id'))->toBeFalse();
-    expect(collect($rows)->contains(fn ($r) => $r->table_name === 'book_donations' && $r->column_name === 'donor_membership_id'))->toBeFalse();
 });
 
 it('collates every enum-backed and uuid column ascii_bin', function () {
