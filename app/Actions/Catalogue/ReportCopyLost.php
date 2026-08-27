@@ -25,6 +25,17 @@ use Illuminate\Support\Facades\Gate;
  *
  * In 1c this command gains a second UI entry point — "Bạn đọc báo làm
  * mất" inside receive-return — with this contract unchanged.
+ *
+ * REVISED (review finding): re-reads $copy with `lockForUpdate` as the
+ * FIRST statement in the transaction, before `assert()`, for the identical
+ * reason and the identical choice given in RetireCopy's docblock — the
+ * route-bound $copy is a different, possibly stale, snapshot, and a plain
+ * `refresh()` would still leave a gap between the read and this
+ * transaction's own writes for a concurrent transaction to land in. See
+ * RetireCopy for the full REPEATABLE READ argument; it applies here
+ * unchanged because the shape of the bug is the same single-row
+ * read-modify-write, just against a different arrow in the transition
+ * table.
  */
 final class ReportCopyLost
 {
@@ -38,6 +49,10 @@ final class ReportCopyLost
         Gate::forUser($actor)->authorize('reportLost', $copy);
 
         DB::transaction(function () use ($actor, $copy, $note): void {
+            // FIRST statement, before assert() reads any state — see the
+            // class docblock.
+            $copy = BookCopy::query()->lockForUpdate()->findOrFail($copy->id);
+
             CopyStateMachine::assert($copy->state, CopyState::Lost);
 
             $before = ['state' => $copy->state->value];
