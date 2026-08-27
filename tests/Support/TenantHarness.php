@@ -121,4 +121,23 @@ final class TenantHarness
     {
         app(TenantContext::class)->set($shelf, null);
     }
+
+    /**
+     * The active reader membership `twoCollidingShelves()` already creates
+     * for the given shelf, resolved back to its `User` — for tests that
+     * need to `actingAs()` an approved member rather than a guest, now that
+     * PR #57 review follow-up 2 gates the reader area behind `role:reader`.
+     * `withoutGlobalScopes()` matches every other direct `Membership` read
+     * in this test suite (e.g. `EnsureShelfRoleTest`), since no tenant is
+     * bound outside a request here.
+     */
+    public static function readerFor(Bookshelf $shelf): User
+    {
+        $membership = Membership::query()->withoutGlobalScopes()
+            ->where('bookshelf_id', $shelf->id)
+            ->where('role', 'reader')
+            ->firstOrFail();
+
+        return User::query()->findOrFail($membership->user_id);
+    }
 }

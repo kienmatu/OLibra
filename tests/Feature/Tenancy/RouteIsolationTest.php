@@ -72,6 +72,8 @@ it('redirects a guest from manage urls to login', function () {
 
 it('never binds another shelf\'s book — scoped bindings, proven on a unique slug', function () {
     ['a' => $a, 'b' => $b] = TenantHarness::twoCollidingShelves();
+    $readerA = TenantHarness::readerFor($a);
+    $readerB = TenantHarness::readerFor($b);
 
     $context = app(TenantContext::class);
     $context->actSystemWide();
@@ -84,9 +86,12 @@ it('never binds another shelf\'s book — scoped bindings, proven on a unique sl
     // shelf B the binding resolves via $shelf->books() and finds nothing —
     // 404, not a cross-tenant hit. (Both shelves also hold the colliding
     // 'de-men-phieu-luu-ky'; each resolves to its OWN row, which the
-    // TenantIsolation model suite already pins.)
-    $this->get("/shelves/{$a->slug}/books/{$only->slug}")->assertOk();
-    $this->get("/shelves/{$b->slug}/books/{$only->slug}")->assertNotFound();
+    // TenantIsolation model suite already pins.) Each request acts as that
+    // shelf's own reader — PR #57 review follow-up 2 gates books/{book}
+    // behind role:reader, so a guest would be redirected before the
+    // binding is ever reached, proving nothing about the binding itself.
+    $this->actingAs($readerA)->get("/shelves/{$a->slug}/books/{$only->slug}")->assertOk();
+    $this->actingAs($readerB)->get("/shelves/{$b->slug}/books/{$only->slug}")->assertNotFound();
 });
 
 it('gives a non-super-admin 404 on the admin area', function () {

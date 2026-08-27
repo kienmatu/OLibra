@@ -9,18 +9,58 @@ it('serves the landing page', function () {
 
 it('serves the shelf directory and a shelf home by slug', function () {
     ['a' => $a] = TenantHarness::twoCollidingShelves();
+    $reader = TenantHarness::readerFor($a);
 
     $this->get('/shelves')->assertOk();
-    $this->get("/shelves/{$a->slug}")->assertOk();
+    // PR #57 review follow-up 2: the shelf home is now behind
+    // ['auth', 'role:reader'], so it takes an approved member to see it —
+    // /shelves/khong-ton-tai still 404s before that gate is ever reached
+    // (ResolveTenant refuses the unknown slug first).
+    $this->actingAs($reader)->get("/shelves/{$a->slug}")->assertOk();
     $this->get('/shelves/khong-ton-tai')->assertNotFound();
 });
 
-it('serves every guest-visible skeleton route', function () {
+it('redirects a guest from the reader area to login, on both a known and an unknown slug', function () {
+    // PR #57 review follow-up 2's own regression to guard, mirroring the
+    // /manage group's identical guest-redirect test in RouteIsolationTest:
+    // without 'auth' explicit on the route, a guest on an UNKNOWN slug
+    // would 404 straight out of ResolveTenant while a guest on a KNOWN
+    // slug still redirects via EnsureShelfRole's own guest branch — an
+    // unauthenticated existence oracle over the shelf URL space.
     ['a' => $a] = TenantHarness::twoCollidingShelves();
 
-    foreach (['catalogue', 'search', 'announcements', 'feedback', 'donate', 'scan'] as $path) {
-        $this->get("/shelves/{$a->slug}/{$path}")->assertOk();
+    $this->get("/shelves/{$a->slug}/catalogue")->assertRedirect('/login');
+    $this->get('/shelves/khong-ton-tai/catalogue')->assertRedirect('/login');
+});
+
+it('gives a signed-in non-member a 404 on the reader area', function () {
+    ['a' => $a] = TenantHarness::twoCollidingShelves();
+    $user = new User([
+        'saint_name' => 'Anna', 'full_name' => 'Phạm Thu Hà',
+        'father_name' => 'Cha', 'mother_name' => 'Mẹ',
+    ]);
+    $user->save();
+
+    $this->actingAs($user)->get("/shelves/{$a->slug}/catalogue")->assertNotFound();
+});
+
+it('serves every membership-gated reader-area route to an approved reader', function () {
+    ['a' => $a] = TenantHarness::twoCollidingShelves();
+    $reader = TenantHarness::readerFor($a);
+
+    foreach (['catalogue', 'search', 'announcements', 'donate', 'scan'] as $path) {
+        $this->actingAs($reader)->get("/shelves/{$a->slug}/{$path}")->assertOk();
     }
+});
+
+// `feedback` is the one deliberate exemption from the reader gate above —
+// routes/web.php's own comment explains why (guest-reachable in the
+// original, matching `submitFeedback`'s docstring) — so it is pinned on
+// its own, as guest-reachable, rather than folded into the loop above.
+it('serves feedback to a guest — the one reader-area route with no membership gate', function () {
+    ['a' => $a] = TenantHarness::twoCollidingShelves();
+
+    $this->get("/shelves/{$a->slug}/feedback")->assertOk();
 });
 
 it('serves the profile skeleton to a signed-in user, redirects a guest', function () {
@@ -64,8 +104,9 @@ it('shares is_super_admin on the bound user, true even with no membership on the
 
 it('shares the bound shelf and never a foreign one', function () {
     ['a' => $a, 'b' => $b] = TenantHarness::twoCollidingShelves();
+    $reader = TenantHarness::readerFor($a);
 
-    $response = $this->get("/shelves/{$a->slug}");
+    $response = $this->actingAs($reader)->get("/shelves/{$a->slug}");
 
     // Inertia's page object rides the root view's data in a full-page visit.
     $page = $response->viewData('page');

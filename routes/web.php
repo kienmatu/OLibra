@@ -16,14 +16,40 @@ Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index
 // SubstituteBindings would resolve {book} table-wide. RouteIsolationTest
 // carries the proof.
 Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeBindings()->group(function () {
-    Route::get('/', [ShellController::class, 'shelfHome'])->name('show');
-    Route::get('/catalogue', [ShellController::class, 'underConstruction'])->name('catalogue');
-    Route::get('/search', [ShellController::class, 'underConstruction'])->name('search');
-    Route::get('/books/{book}', [ShellController::class, 'book'])->name('books.show');
-    Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
+    // PR #57 review follow-up: BR §1.2 — "Everything about a shelf's books,
+    // readers and announcements sits behind a membership of that shelf" —
+    // and §13.1's `reader` role exist precisely to gate this group, but
+    // nothing here applied them. In the Next.js original, every one of
+    // these six pages (plus the shelf home) called `requireReader(ctx)`
+    // (`src/lib/shelf.ts:201`) before reading anything: a guest is
+    // redirected to sign in, a signed-in non-member gets a 404
+    // (EnsureShelfRole's own behaviour, mirrored here). Nothing leaks today
+    // because every one of these routes renders `under-construction`, but
+    // the gate has to exist before the first real reader screen does, or
+    // that screen ships open by default.
+    //
+    // `feedback` is deliberately excluded and stays outside this group:
+    // `src/app/tu-sach/[shelf]/(doc-gia)/gop-y` is the one page under the
+    // original's reader route group that reads the shelf with no
+    // `requireReader` at all (`readShelf`, not `readShelfIdentity`), because
+    // `submitFeedback`'s own docstring is explicit that it takes neither
+    // `requireReader` nor `requireIdentifiedActor` — a guest may leave
+    // feedback for a shelf they are not a member of. It is the only such
+    // exemption under that route group; every other reader page there
+    // (danh-muc, tim-kiem, sach/[slug], thong-bao, tang-sach, quet-ma, and
+    // the shelf page itself) calls `requireReader` directly or through a
+    // query that does.
+    Route::middleware(['auth', 'role:reader'])->group(function () {
+        Route::get('/', [ShellController::class, 'shelfHome'])->name('show');
+        Route::get('/catalogue', [ShellController::class, 'underConstruction'])->name('catalogue');
+        Route::get('/search', [ShellController::class, 'underConstruction'])->name('search');
+        Route::get('/books/{book}', [ShellController::class, 'book'])->name('books.show');
+        Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
+        Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
+        Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
+    });
+
     Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
-    Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
-    Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
 
     Route::prefix('profile')->name('profile.')->middleware('auth')->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('show');

@@ -87,6 +87,44 @@ it('puts a role: middleware on every route under /manage', function () {
     }
 });
 
+it('puts a role: middleware on every reader-area route under shelves/{shelf}', function () {
+    // PR #57 review follow-up 2, the mirror of the /manage assertion above:
+    // BR §1.2 gates everything about a shelf's books, readers and
+    // announcements behind a membership of that shelf, but nothing proved
+    // it at the routing level for the reader area the way the /manage test
+    // above does for the manager area. A Phase 1 screen landing directly in
+    // the shelves/{shelf} group (not under manage/, profile/, or the
+    // feedback route) with no role: gate would pass this suite silently
+    // before this test existed.
+    //
+    // Three segments are excluded, each for its own reason: `manage` has
+    // its own assertion above; `profile` carries only 'auth' today — a
+    // signed-in actor's own profile, not necessarily an approved shelf
+    // member, so role:reader is not the right gate for it and adding one
+    // is a Phase 1 decision, not this follow-up's; and `feedback` is
+    // deliberately guest-reachable (see routes/web.php's own comment on
+    // that route) and must never gain a role: gate.
+    $excludedSegments = ['manage', 'profile', 'feedback'];
+
+    $readerRoutes = collect(Route::getRoutes()->getRoutes())
+        ->filter(fn ($route) => str_starts_with($route->uri(), 'shelves/{shelf}'))
+        ->filter(fn ($route) => empty(array_intersect($excludedSegments, explode('/', $route->uri()))))
+        ->values();
+
+    // A loop with no matches passes vacuously — pin that the filter itself
+    // still finds routes, so a future refactor that renames the group away
+    // (or moves every reader route under a new excluded segment) fails
+    // loudly here instead of silently emptying this whole test.
+    expect($readerRoutes)->not->toBeEmpty();
+
+    foreach ($readerRoutes as $route) {
+        $middleware = $route->gatherMiddleware();
+        $hasRoleMiddleware = collect($middleware)->contains(fn (string $m) => str_starts_with($m, 'role:'));
+
+        expect($hasRoleMiddleware)->toBeTrue("reader-area route without a role: middleware: {$route->uri()}");
+    }
+});
+
 it('puts the super-admin middleware on every admin/-prefixed route', function () {
     $adminRoutes = collect(Route::getRoutes()->getRoutes())
         ->filter(fn ($route) => str_starts_with($route->uri(), 'admin/'))
