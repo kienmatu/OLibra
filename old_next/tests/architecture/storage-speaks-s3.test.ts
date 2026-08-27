@@ -32,7 +32,9 @@ test("no MinIO SDK is a dependency", () => {
   // The package.json half. A MinIO client that is merely installed is one
   // `import` away from being used, and the review that would have caught the
   // import is the same review that let the dependency in.
-  const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+  // `package.json` is shared with the Laravel app and lives at the repo
+  // root, one level up from this app's own directory (see AGENTS.md).
+  const pkg = JSON.parse(readFileSync("../package.json", "utf8")) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };

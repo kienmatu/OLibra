@@ -75,7 +75,9 @@ const MAX_OUTPUT = 8_000;
  * Spawns `next dev` on `port`, waits for it to answer, and returns a handle
  * to talk to and then tear it down.
  *
- * Spawned from `node_modules/.bin/next` rather than through `bun run dev`, so
+ * Spawned from `../node_modules/.bin/next` — `node_modules` is hoisted to the
+ * repo root, shared with the Laravel app (see AGENTS.md) — rather than
+ * through `bun run dev`, so
  * the port is an argument rather than an environment variable and so killing
  * the child kills the server rather than a shell that owns it. `port` is a
  * parameter rather than a constant here — each caller picks its own fixed
@@ -105,7 +107,7 @@ export async function startTestServer(port: number): Promise<TestServer> {
 
   const tsconfigBefore = readFileSync(TSCONFIG, "utf8");
   const child: ChildProcess = spawn(
-    "node_modules/.bin/next",
+    "../node_modules/.bin/next",
     ["dev", "-p", String(port)],
     {
       cwd: process.cwd(),

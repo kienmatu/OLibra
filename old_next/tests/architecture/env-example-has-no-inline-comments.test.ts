@@ -55,7 +55,10 @@ import { expect, test } from "vitest";
  * A list rather than two tests, so a third template cannot be added without
  * this being the thing that notices it is unguarded.
  */
-const TEMPLATES = [".env.example", ".env.prod.example"];
+// `.env.example` is shared with the Laravel app and lives at the repo root,
+// one level up from this app's own directory; `.env.prod.example` is this
+// app's own VPS-deploy file and lives alongside it (see AGENTS.md).
+const TEMPLATES = ["../.env.example", ".env.prod.example"];
 
 test.each(TEMPLATES)(
   "no line in %s hands out a trailing comment as a variable's value",

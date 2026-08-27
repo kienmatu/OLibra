@@ -410,6 +410,69 @@ the plain filesystem layout underneath it. Recorded here so the next
 dependency — or the next root-level directory either framework introduces —
 does not have to rediscover this by reading `find-pages-dir.js` again.
 
+**Resolved, the other direction from the one predicted above.** The product
+owner decided the Next.js tree is reference-only going forward — Phases 1–3
+diff against it, but nothing edits it again — so instead of giving Laravel its
+own subtree beside an equal Next.js, the Next.js tree moved wholesale to
+`old_next/` (`git mv src old_next/src`, and everything else that was
+Next-exclusive: `next.config.ts`, `vitest.config.ts`, the Next-side `tests/`,
+`compose*.yaml`, `Dockerfile`, `Caddyfile`, `deploy.sh`, the VPS-deploy half of
+`scripts/`, and the covers/favicon/logo/robots half of `public/`) and
+`laravel_app/` moved back to the idiomatic `app/`. `composer.json`,
+`phpstan.neon`, `phpunit.xml` and `bootstrap/app.php`'s `useAppPath()` override
+all reverted to naming `app/` directly — the override is gone entirely, not
+repointed, because there is nothing left at the root for `app/` to collide
+with. `package.json`/`bun.lock`/`node_modules`, `.env`/`.env.example`, `docs/`
+and `public/index.php`+`.htaccess` stayed shared at the root by deliberate
+choice, not oversight; see the repo root's `AGENTS.md` for the full list and
+`old_next/AGENTS.md` for how the reference app still runs from its new home.
+The `public/` collision this section predicted never had to be resolved by
+choosing one file over the other — Next's half of `public/` simply moved with
+the rest of Next into `old_next/public/`, leaving Laravel's `index.php` and
+`.htaccess` alone at the root with nothing left contesting the name. The CI
+workflow that ran the Next.js suite (`ci.yml`) was retired rather than
+retargeted at `old_next/`: nothing there is expected to change again, so a
+permanently-green check on frozen code bought nothing, and two of its
+architecture tests that asserted facts about `ci.yml` itself
+(`ci-pins-the-storage-image.test.ts`, `ci-supplies-required-env.test.ts`) were
+removed along with it rather than left failing against a file that no longer
+exists. Verified after: all 265 Pest tests, Pint and Larastan level 8 still
+pass; `old_next/`'s own full suite (178 files, 1635 tests, two fewer than
+before for the reason above) still passes from its new home, and `bun run
+build`/`bun run typecheck`/`bun run lint` all succeed against it too.
+
+**One rough edge this move left behind: `.env` is no longer reachable by
+default from `old_next/`.** `.env` stayed at the repo root, shared with
+Laravel — deliberately, see above — but `old_next/` is now one directory
+below it. `next dev`/`next build` load `.env` from their own project
+directory and have no "look one level up" flag, so a bare `bun run dev`
+there sees none of the shared secrets. `docker compose` is worse: it resolves
+`.env` from the directory it's invoked in, several of `compose.yaml`'s
+variables are hard-required (`${POSTGRES_PASSWORD:?…}`,
+`${S3_ACCESS_KEY_ID:?…}`), and `docker compose config`/`up` from inside
+`old_next/` with no further action fails immediately —
+`POSTGRES_PASSWORD variable is not set` — rather than degrading gracefully.
+The fix is `docker compose --env-file ../.env ...` (or
+`COMPOSE_ENV_FILES=../.env` once per shell), written down in
+`old_next/AGENTS.md`'s "Running the stack" and ".env reachability" sections;
+there is no equivalently clean fix for `next dev`/`next build` beyond copying
+or symlinking `.env` into `old_next/` by hand, also noted there. Not treated
+as a blocker — the reference app's install/typecheck/lint/format/test/build
+path (the thing actually verified after this move) never touches `.env` at
+all, and the container/dev-server path is a local convenience, not something
+anything else in the repo depends on.
+
+**The Docker image was rebuilt and run, not just reasoned about.** The
+`context: ..` / `dockerfile: old_next/Dockerfile` change, the new
+`outputFileTracingRoot`, and the rewritten `COPY`/`CMD` paths in the
+`runner` stage (`old_next/server.js`, `old_next/.next/standalone`) were all
+verified with a real `docker compose --env-file ../.env build app` from
+`old_next/`, followed by `docker run` against the resulting image: it served
+the real landing page (`curl` returned 200 and the page body) exactly as the
+pre-move image did. `docker build --target smoke .` was previously CI's own
+guard for this and is no longer run anywhere (`ci.yml` is gone) — running
+the equivalent by hand, as above, is now how that gets checked, on demand.
+
 ## Deliberately unfinished
 
 - **No absolute session lifetime.** Laravel's session shape offers only idle

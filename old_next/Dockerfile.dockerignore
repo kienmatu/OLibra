@@ -1,0 +1,59 @@
+# A Dockerfile-specific ignore file (Docker resolves `<path-to-dockerfile>.
+# dockerignore` before falling back to a plain `.dockerignore`), because this
+# build's context is the repo root (`context: ..` in compose.yaml), not this
+# directory — `package.json`/`bun.lock` live at the root, shared with the
+# Laravel app at `app/` (see AGENTS.md). Patterns below are root-relative.
+
+node_modules
+old_next/.next
+.git
+.github
+.artifacts
+.worktrees
+# Unanchored, deliberately, unlike the old_next/-anchored patterns above and
+# below: a pre-move checkout can still have a real, populated `data/` at the
+# repo root (see `.gitignore`) as well as (or instead of) `old_next/data/`.
+# With `context: ..`, either one is a multi-GB PostgreSQL cluster sitting in
+# the build context if this doesn't also match it there.
+data
+docs
+old_next/scripts
+.env
+.env.*
+!.env.example
+*.md
+!README.md
+.claude
+.superpowers
+
+# The Laravel side of the repo. None of it is reachable from old_next's own
+# source tree, so it only ever bloats this image's build context for no
+# benefit.
+app
+vendor
+storage
+resources
+bootstrap
+config
+database
+routes
+lang
+public/build
+public/index.php
+public/.htaccess
+composer.json
+composer.lock
+phpstan.neon
+phpunit.xml
+vite.config.ts
+tsconfig.laravel.json
+components.json
+biome.json
+docker
+docker-compose.laravel.yml
+deploy
+tests/Feature
+tests/Unit
+tests/Support
+tests/Pest.php
+tests/TestCase.php

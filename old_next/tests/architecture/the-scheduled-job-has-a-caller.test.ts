@@ -80,7 +80,9 @@ test("the one permitted scheduled job is imported by a runnable entry point", ()
 });
 
 test("and package.json exposes that entry point as a script", () => {
-  const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+  // `package.json` is shared with the Laravel app and lives at the repo
+  // root, one level up from this app's own directory (see AGENTS.md).
+  const pkg = JSON.parse(readFileSync("../package.json", "utf8")) as {
     scripts: Record<string, string>;
   };
 

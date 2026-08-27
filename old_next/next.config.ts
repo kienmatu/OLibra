@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -10,6 +11,20 @@ const nextConfig: NextConfig = {
    * dependency tree once the build is done.
    */
   output: "standalone",
+
+  /**
+   * This app lives at `old_next/`, one directory below the repo root, and
+   * `bun.lock`/`node_modules` are at the root — a single shared JS toolchain
+   * with the Laravel app now occupying `app/` (see AGENTS.md). Without this,
+   * Next's own "which lockfile is this a workspace of" heuristic would infer
+   * the parent directory as the tracing root anyway and print a warning; this
+   * makes that explicit rather than inferred, per Next's documented guidance
+   * for an app nested under a monorepo root. It changes `output: "standalone"`'s
+   * layout: the traced server lands at `.next/standalone/old_next/server.js`,
+   * not `.next/standalone/server.js` — see the Dockerfile's `runner` stage,
+   * which copies and runs it from that path.
+   */
+  outputFileTracingRoot: path.join(__dirname, ".."),
 
   /**
    * The vendored Lexend faces, forced into the standalone build.

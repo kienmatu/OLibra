@@ -16,6 +16,8 @@
 
 **Scope note:** Phase 0 is one plan, deliberately. Its 21 tasks are a single dependency chain (survey → scaffold → fold → schema → guarantees → models → tenancy → auth → shell → CI → deploy) with no seam where half a foundation would be a usable deliverable; splitting it would only manufacture a second plan whose first task is "finish the first plan". It is, however, the largest plan this repository will carry, and tasks must be committed one at a time as the header requires.
 
+**Path note (added after the fact, for later readers):** this plan was written and executed with Laravel at `laravel_app/` and the Next.js tree at the repository root. Both moved after Phase 0 landed — Laravel to the idiomatic `app/`, Next.js to `old_next/` — to resolve a root-level `app/` collision between the two (see `docs/known-gaps.md`). Every bare `src/...`, `next.config.ts`, `compose.yaml` and `tests/<lowercase>/...` reference below should be read as living under `old_next/` today; every `app/...` PHP reference should be read as the repository-root `app/`, not `laravel_app/`. The task history and reasoning below are left as written.
+
 ## Global Constraints
 
 - **Branch:** all work on the long-lived `laravel` branch off `main`. The Next.js tree (`src/`, `next.config.ts`, `compose.yaml`, `tests/`, …) is never modified, moved or deleted in this phase.

@@ -15,13 +15,14 @@
 
 # Dependencies
 /node_modules
+/old_next/node_modules
 .pnp
 .pnp.*
 
-# Build output
-/.next/
-/out/
-/build
+# Build output (old_next/, the Next.js reference app — see AGENTS.md)
+/old_next/.next/
+/old_next/out/
+/old_next/build
 next-env.d.ts
 *.tsbuildinfo
 
@@ -46,10 +47,10 @@ next-env.d.ts
 # personal field in the system, including children's names and dates of birth.
 backups/
 
-# Test output
-/coverage
-/playwright-report
-/test-results
+# Test output (old_next/)
+/old_next/coverage
+/old_next/playwright-report
+/old_next/test-results
 
 # Editors and OS
 /.fleet
@@ -61,10 +62,20 @@ backups/
 npm-debug.log*
 yarn-error.log*
 
-# Container data. Bind-mounted from compose.yaml so the parish's records
-# survive `docker compose down -v` — which also means they must never be
-# committed.
+# Container data. Bind-mounted from old_next/compose.yaml (the Next.js
+# reference app) so the parish's records survive `docker compose down -v` —
+# which also means they must never be committed.
+#
+# `/data/` (the pre-move location) is kept here too, deliberately not
+# replaced by `/old_next/data/` alone: every checkout that existed before
+# this move has a real, populated `data/postgres` at the repo root, and
+# `docker compose` there does not delete it — it just stops being pointed at
+# it once the compose file itself is under `old_next/`. Without this line,
+# `git status`/`git add .` on any such pre-existing checkout would offer up
+# a live PostgreSQL cluster (children's names and dates of birth) for commit.
+# See `old_next/AGENTS.md` for the one-time `mv data old_next/data`.
 /data/
+/old_next/data/
 .DS_Store
 .env
 .env.backup

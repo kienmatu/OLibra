@@ -174,8 +174,11 @@ services:
   # ── Application ────────────────────────────────────────────────────────────
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Context is the repo root, not this directory: package.json/bun.lock
+      # live there (shared with the Laravel app at app/, see AGENTS.md), and
+      # Dockerfile's `COPY package.json bun.lock ./` needs them in context.
+      context: ..
+      dockerfile: old_next/Dockerfile
       # Not the implicit last stage — see the identical `target: runner` on
       # `sweep`'s `build:` below for why `docker compose build`/`up --build`
       # must not fall through to the `smoke` stage by omission. Kept here too,
@@ -274,8 +277,11 @@ services:
   # rather than by dying.
   sweep:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Context is the repo root, not this directory: package.json/bun.lock
+      # live there (shared with the Laravel app at app/, see AGENTS.md), and
+      # Dockerfile's `COPY package.json bun.lock ./` needs them in context.
+      context: ..
+      dockerfile: old_next/Dockerfile
       # Not the implicit last stage. The Dockerfile's own comment on `smoke`
       # says it plainly: "Not part of the runtime image. Built explicitly in
       # CI" (`ci.yml`'s `image` job does exactly that: `docker build --target

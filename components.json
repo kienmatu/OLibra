@@ -1,6 +1,6 @@
 {
     "$schema": "https://ui.shadcn.com/schema.json",
-    "_hazard": "The @/* aliases below assume resources/js — that only holds when a shadcn CLI run resolves aliases through THIS repo's own tsconfig.laravel.json. Running `npx shadcn add ...` from the repo root instead resolves @/* through the root tsconfig.json, where it means src/* (the Next.js tree), and the CLI would deposit Laravel components there. Point the CLI's tsconfig explicitly (e.g. TS_NODE_PROJECT/--config, or a temporary root tsconfig.json swap) rather than running it bare.",
+    "_hazard": "The @/* aliases below assume resources/js — that only holds when a shadcn CLI run resolves aliases through THIS repo's own tsconfig.laravel.json. There is no longer a root tsconfig.json to collide with it (Next.js's own tsconfig.json now lives at old_next/tsconfig.json, where @/* means old_next/src/* instead — see AGENTS.md), but a shadcn CLI run from the repo root still has no tsconfig.json to find at all unless pointed explicitly at this one. Point the CLI's tsconfig explicitly (e.g. TS_NODE_PROJECT/--config) rather than running it bare.",
     "style": "default",
     "rsc": false,
     "tsx": true,
