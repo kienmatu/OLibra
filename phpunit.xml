@@ -90,5 +90,23 @@
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>
         <server name="HASH_DRIVER" value="argon2id"/>
+        <!--
+            Inertia ships INERTIA_SSR_ENABLED defaulting to true, and
+            Inertia\Ssr\HttpGateway::dispatch() only skips SSR when there is
+            no bundle WHEN Vite::isRunningHot() is false. docker-compose.laravel.yml
+            runs a continuous vite service, so public/hot exists for the whole
+            life of the container and isRunningHot() is true — the
+            bundle-exists check is skipped entirely and every Inertia render
+            POSTs to the vite dev server's /__inertia_ssr path, which is not a
+            rendering service. Feature tests that render an Inertia page would
+            hit that stray HTTP call with no idea why.
+
+            This belongs in <server> rather than <env> for the reason the note
+            above gives: <server> outranks whatever the container leaks, so a
+            developer who later sets INERTIA_SSR_ENABLED=true in the project
+            .env to work on SSR cannot silently reintroduce the failure.
+            InertiaSsrTest pins both the config value and the behaviour.
+        -->
+        <server name="INERTIA_SSR_ENABLED" value="false"/>
     </php>
 </phpunit>
