@@ -13,7 +13,7 @@
 - **1c Circulation** — quick-lend, return with condition, renewals, overdue, void, lost-copy entry from returns. Needs 1a and 1b.
 - **1d Oversight** — audit-log surfacing, manager dashboard, CSV export.
 
-Catalogue operations that belong to a later phase and are **deliberately absent here**: `MarkCopiesPrinted`, `ListTitlesForLabels`, `ListCopiesForLabels`, `ExportLabelSheetPDF`, `ResolveCopyById` (QR labels — Phase 2), `SearchBooksForLending` (1c), `ExportBooksCSV` (1d), and the super-admin category CRUD behind `/admin/categories` (`CreateCategory`/`RenameCategory`/`ArchiveCategory` — Phase 3's admin tooling; the six default categories are already seeded by Phase 0's `CategorySeeder`, so cataloguing never blocks on it).
+Catalogue operations that belong to a later phase and are **deliberately absent here**: `MarkCopiesPrinted`, `ListTitlesForLabels`, `ListCopiesForLabels`, `ExportLabelSheetPDF`, `ResolveCopyById` (QR labels — Phase 2), `SearchBooksForLending` (1c), `ExportBooksCSV` (1d), `GetShelfHome` (Phase 2 — its centerpiece card is the pinned-or-latest announcement, a Phase 2 entity; its catalogue-count link and *Mới thêm* row become computable with this phase's queries, but the page is deferred whole so it is built once against its full OPS §3.2 shape rather than rebuilt when announcements land), and the super-admin category CRUD behind `/admin/categories` (`CreateCategory`/`RenameCategory`/`ArchiveCategory` — Phase 3's admin tooling; the six default categories are already seeded by Phase 0's `CategorySeeder`, so cataloguing never blocks on it).
 
 **Architecture:** Per the spec's §1.3 carve-out: Eloquent models (Phase 0), single-purpose Action classes in `app/Actions/Catalogue/`, Form Requests in `app/Http/Requests/Catalogue/`, Policies in `app/Policies/`, thin controllers, Inertia pages. Pure functions with no I/O in `app/Support/Catalogue/`; read shapes in `app/Queries/`. Every command writes its audit rows in the same `DB::transaction` as its state change (OPS §1).
 
@@ -23,7 +23,7 @@ Catalogue operations that belong to a later phase and are **deliberately absent 
 
 **The reference implementation is the specification.** `old_next/src/domain/catalogue/` (commands, queries, `policy.ts`, `copy-codes.ts`) and `old_next/tests/domain/catalogue/` encode rules that took eleven fix-waves to get right. Every Action task below starts by reading the TypeScript test it ports. Where this plan diverges from the reference, the divergence is named inline with its reason — the same practice the Phase 0 plan followed. The divergences, collected:
 
-1. **`pg_advisory_xact_lock` → `SELECT … FOR UPDATE` on the shelf's own `bookshelves` row.** MariaDB's `GET_LOCK()` is connection-scoped, not transaction-scoped — a thrown exception between acquire and release would leak the lock for the life of the pooled connection. An InnoDB row lock on the shelf row inside the command's transaction serialises `CreateBook`/`AddCopies` per shelf exactly as the advisory lock did, releases on commit or rollback with nothing to remember, and two parishes never queue behind each other because they lock different rows. `book_copies_code_unique` (errno 1062) remains the guarantee either way, exactly as the reference's docstring says of its own lock.
+1. **`pg_advisory_xact_lock` → `SELECT … FOR UPDATE` on the shelf's own `bookshelves` row, taken as the transaction's FIRST statement.** MariaDB's `GET_LOCK()` is connection-scoped, not transaction-scoped — a thrown exception between acquire and release would leak the lock for the life of the pooled connection. An InnoDB row lock on the shelf row serialises `CreateBook`/`AddCopies` per shelf exactly as the advisory lock did, releases on commit or rollback with nothing to remember, and two parishes never queue behind each other because they lock different rows. The first-statement requirement is this port's own, and it is stricter than the reference's ordering: InnoDB's REPEATABLE READ pins the transaction's read view at its first consistent read, so any read ahead of the lock still sees a stale snapshot after the lock is granted — reproduced live on 10.11 during review (duplicate code, silently-committed ISBN duplicate, missed slug); Postgres's per-statement READ COMMITTED is why the reference could afford reads before its lock. `book_copies_code_unique` (errno 1062) remains the structural backstop for codes and slugs either way.
 2. **The reference's live two-connection race probes do not port.** `create-book.test.ts`'s "two concurrent CreateBook calls…" tests open a second database connection against committed fixture data; under Pest's `RefreshDatabase` every fixture lives inside an uncommitted transaction invisible to a second connection. The serialisation mechanism is therefore covered by (a) the behavioural tests that do port (sequential codes, gap preservation, LIKE-escape), (b) `DbGuaranteesTest`'s existing errno-1062 pin on `book_copies_code_unique`, and (c) a test that the allocator's generated SQL actually requests the row lock. Recorded in `docs/known-gaps.md` by Task 14 rather than papered over with a probe that proves nothing.
 3. **`copies_borrowable` (a Postgres view) becomes a shared Eloquent predicate** — spec §4's own row: views "encode read shapes, not invariants". One closure, `App\Queries\Concerns\CountsCopies::borrowable()`, used by every query that answers "can this be borrowed", so BR §8's rule keeps a single home the way `deriveAvailability` already gives the badge ladder one.
 4. **`duplicate_isbn`'s Vietnamese sentence and every other refusal sentence move to `lang/vi/rules.php`** (server copy — spec §7's convention), not a TS `ERROR_MESSAGES` map.
@@ -339,7 +339,9 @@ Every code any task in this plan throws, sentence verbatim from OPS §4.1 where 
 /**
  * Business-rule refusal sentences, keyed by RuleViolated code — OPS §2's
  * "stable, machine-readable code paired with the plain Vietnamese sentence
- * the UI shows". Sentences are OPS §4.1's verbatim where it names one.
+ * the UI shows". Sentences are OPS §4.1's verbatim where it names one, and
+ * the reference's ERROR_MESSAGES (old_next/src/domain/kernel/errors.ts)
+ * verbatim for the codes OPS does not tabulate.
  */
 return [
     'duplicate_isbn' => 'Mã ISBN này đã tồn tại trong tủ sách.',
@@ -349,9 +351,10 @@ return [
     'not_lost' => 'Bản sách này hiện không ở trạng thái đã mất.',
     'copy_on_loan' => 'Không thể ngừng dùng bản sách đang được mượn. Hãy nhận trả hoặc báo mất trước.',
     'copy_not_available' => 'Bản sách này đang được mượn hoặc đang giữ chỗ.',
-    'copy_not_on_loan' => 'Bản sách này không được ai mượn nên không thể báo mất theo cách này.',
-    'retire_reason_required' => 'Vui lòng ghi lý do ngừng dùng bản sách.',
-    'donor_ambiguous' => 'Chỉ chọn một trong hai: thành viên tặng sách hoặc tên người tặng.',
+    'copy_not_on_loan' => 'Chỉ có thể báo mất bản sách đang được mượn.',
+    'retire_reason_required' => 'Vui lòng ghi lý do ngừng dùng bản sách này.',
+    'donor_ambiguous' => 'Chọn bạn đọc hoặc gõ tên người tặng, không chọn cả hai.',
+    'copy_count_invalid' => 'Số bản phải lớn hơn 0.',
 ];
 ```
 
@@ -374,7 +377,7 @@ return [
     'in' => ':attribute không hợp lệ.',
     'exists' => ':attribute không tồn tại.',
     'uuid' => ':attribute không hợp lệ.',
-    'prohibited_with' => 'Không thể điền :attribute cùng lúc với :other.',
+    'prohibits' => 'Không thể điền :attribute cùng lúc với :other.',
 
     'attributes' => [
         'title' => 'tiêu đề',
@@ -1355,7 +1358,7 @@ git commit -m "feat: category query — stocked-by-shelf filter list and full op
 
 **Interfaces:**
 - Consumes: `App\Support\TenantContext` (`bookshelfId()`), `App\Support\Catalogue\CopyCodes` (Task 2), `App\Models\BookCopy` (scoped; `withTrashed()` for the scan).
-- Produces: `App\Actions\Catalogue\AllocateCopyCodes` with `execute(int $count): array` returning `list<string>` — the next `$count` codes on the bound shelf, in order. **Must be called inside the caller's `DB::transaction`** — the row lock it takes is what serialises `CreateBook`/`AddCopies` per shelf, and a lock outside a transaction releases immediately. The class docblock says so; `CreateBook` (Task 6) and `AddCopies` (Task 8) are the only callers.
+- Produces: `App\Actions\Catalogue\AllocateCopyCodes` with `execute(int $count): array` returning `list<string>` — the next `$count` codes on the bound shelf, in order. **Must be called inside the caller's `DB::transaction`, as its first statement — no read may precede it.** The row lock serialises `CreateBook`/`AddCopies` per shelf, and under InnoDB's REPEATABLE READ the transaction's read view is pinned at its *first consistent read*, so a lock taken after any earlier SELECT still reads a stale snapshot (reproduced live on 10.11 in this plan's review — duplicate code, silently-missed ISBN clash). The class docblock carries the full contract; `CreateBook` (Task 6) and `AddCopies` (Task 8) are the only callers.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1371,7 +1374,7 @@ use App\Models\Bookshelf;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\TenantHarness;
 
-function codesShelf(array $attributes = []): Bookshelf
+function catCodesShelf(array $attributes = []): Bookshelf
 {
     $shelf = Bookshelf::factory()->create(array_merge(['slug' => 'dong-thap', 'settings' => []], $attributes));
     TenantHarness::actAs($shelf);
@@ -1379,7 +1382,7 @@ function codesShelf(array $attributes = []): Bookshelf
     return $shelf;
 }
 
-function codesBookWithCopies(Bookshelf $shelf, array $codes): Book
+function catCodesBookWithCopies(Bookshelf $shelf, array $codes): Book
 {
     $book = Book::factory()->for($shelf)->create();
     foreach ($codes as $code) {
@@ -1390,11 +1393,11 @@ function codesBookWithCopies(Bookshelf $shelf, array $codes): Book
 }
 
 it('starts at 0001 on an empty shelf and continues the sequence', function () {
-    $shelf = codesShelf();
+    $shelf = catCodesShelf();
 
     expect(app(AllocateCopyCodes::class)->execute(2))->toBe(['DT-0001', 'DT-0002']);
 
-    codesBookWithCopies($shelf, ['DT-0001', 'DT-0002']);
+    catCodesBookWithCopies($shelf, ['DT-0001', 'DT-0002']);
 
     expect(app(AllocateCopyCodes::class)->execute(3))->toBe(['DT-0003', 'DT-0004', 'DT-0005']);
 });
@@ -1403,16 +1406,16 @@ it('a soft-deleted code is never handed out again', function () {
     // BR §5.4: a code is printed on a label stuck to a physical book —
     // handing it out twice is worse than a gap. The scan deliberately does
     // NOT filter deleted_at, even though the unique index does.
-    $shelf = codesShelf();
-    $book = codesBookWithCopies($shelf, ['DT-0001', 'DT-0002']);
+    $shelf = catCodesShelf();
+    $book = catCodesBookWithCopies($shelf, ['DT-0001', 'DT-0002']);
     BookCopy::query()->where('code', 'DT-0002')->get()->each->delete();
 
     expect(app(AllocateCopyCodes::class)->execute(1))->toBe(['DT-0003']);
 });
 
 it('a hand-imported code that does not end in digits does not break the sequence', function () {
-    $shelf = codesShelf();
-    codesBookWithCopies($shelf, ['DT-0007', 'DT-CU']);
+    $shelf = catCodesShelf();
+    catCodesBookWithCopies($shelf, ['DT-0007', 'DT-CU']);
 
     expect(app(AllocateCopyCodes::class)->execute(1))->toBe(['DT-0008']);
 });
@@ -1420,8 +1423,8 @@ it('a hand-imported code that does not end in digits does not break the sequence
 it('M7: a copy_code_prefix override containing an underscore is not a LIKE wildcard', function () {
     // Unescaped, 'KHO_1' matches 'KHOX1-9000' and inflates max past the
     // prefix's own sequence.
-    $shelf = codesShelf(['slug' => 'kho-sach', 'settings' => ['copy_code_prefix' => 'KHO_1']]);
-    codesBookWithCopies($shelf, ['KHOX1-9000', 'KHO_1-0002']);
+    $shelf = catCodesShelf(['slug' => 'kho-sach', 'settings' => ['copy_code_prefix' => 'KHO_1']]);
+    catCodesBookWithCopies($shelf, ['KHOX1-9000', 'KHO_1-0002']);
 
     expect(app(AllocateCopyCodes::class)->execute(1))->toBe(['KHO_1-0003']);
 });
@@ -1434,24 +1437,29 @@ it('another shelf\'s codes never enter this shelf\'s scan', function () {
     expect(app(AllocateCopyCodes::class)->execute(1))->toBe(['DT-0143']);
 });
 
-it('requests the shelf-row lock that serialises cataloguing per shelf', function () {
+it('takes the shelf-row lock as the FIRST statement of the transaction', function () {
     // Divergence 2 (plan header): a real two-connection race cannot run
-    // under RefreshDatabase, so pin the mechanism instead — the allocator
-    // must SELECT ... FOR UPDATE the bookshelves row inside the enclosing
-    // transaction. Dropping lockForUpdate() from the implementation turns
-    // this red; the errno-1062 backstop lives in DbGuaranteesTest.
-    $shelf = codesShelf();
+    // under RefreshDatabase — and no single-connection test ever could,
+    // because the suite's own outer transaction has already established a
+    // read view. So pin the mechanism, position included: under
+    // REPEATABLE READ the first consistent read pins the snapshot, and a
+    // lock taken after ANY read cannot un-pin it (reproduced live on
+    // 10.11 in this plan's review). The FOR UPDATE on bookshelves must
+    // therefore be query index 0 — a lock that merely EXISTS somewhere in
+    // the log certifies nothing. Dropping lockForUpdate(), or reading
+    // anything first, turns this red; the errno-1062 backstop lives in
+    // DbGuaranteesTest.
+    $shelf = catCodesShelf();
     DB::enableQueryLog();
 
     DB::transaction(fn () => app(AllocateCopyCodes::class)->execute(1));
 
-    $locking = collect(DB::getQueryLog())->first(
-        fn (array $entry) => str_contains($entry['query'], 'bookshelves')
-            && str_contains(strtolower($entry['query']), 'for update'),
-    );
+    $log = DB::getQueryLog();
     DB::disableQueryLog();
 
-    expect($locking)->not->toBeNull();
+    expect($log)->not->toBe([])
+        ->and(str_contains($log[0]['query'], 'bookshelves'))->toBeTrue('first query is not on bookshelves: '.$log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
 });
 ```
 
@@ -1476,17 +1484,25 @@ use RuntimeException;
  * Reserves the next $count copy codes on the bound shelf, in order — the
  * port of old_next/src/domain/catalogue/copy-codes.ts.
  *
- * MUST run inside the caller's DB::transaction. The SELECT ... FOR UPDATE
- * on the shelf's own bookshelves row is what serialises CreateBook and
- * AddCopies per shelf (the reference used pg_advisory_xact_lock; MariaDB's
- * GET_LOCK is connection-scoped and would leak on a thrown exception, an
- * InnoDB row lock releases on commit or rollback with nothing to
- * remember). The second transaction waits at the lock, then reads a max
- * that already includes the first one's codes. Keyed on the shelf row, so
- * two parishes never queue behind each other. book_copies_code_unique
- * (errno 1062) stays the guarantee; this lock only stops the guarantee
- * being experienced as an error message (BR §2: "must fail cleanly and
- * see a plain message").
+ * MUST run inside the caller's DB::transaction, AS ITS FIRST STATEMENT —
+ * no read may precede this call. The SELECT ... FOR UPDATE on the shelf's
+ * own bookshelves row is what serialises CreateBook and AddCopies per
+ * shelf (the reference used pg_advisory_xact_lock; MariaDB's GET_LOCK is
+ * connection-scoped and would leak on a thrown exception, an InnoDB row
+ * lock releases on commit or rollback with nothing to remember). The
+ * first-statement requirement is MariaDB-specific and non-negotiable:
+ * InnoDB's REPEATABLE READ pins the transaction's read view at its first
+ * consistent read, so a lock acquired after any earlier SELECT still
+ * reads the pinned, stale snapshot — reproduced live on 10.11 during this
+ * plan's review (duplicate code, silently-missed ISBN clash, missed
+ * slug). Postgres's READ COMMITTED refreshed per statement, which is why
+ * the reference could afford reads before its lock and this port cannot.
+ * The second transaction waits at the lock, then — its view established
+ * under the lock — reads a max that already includes the first one's
+ * codes. Keyed on the shelf row, so two parishes never queue behind each
+ * other. book_copies_code_unique (errno 1062) stays the guarantee; this
+ * lock only stops the guarantee being experienced as an error message
+ * (BR §2: "must fail cleanly and see a plain message").
  *
  * The scan deliberately does not filter deleted_at, even though the unique
  * index does: a soft-deleted DT-0215 is a code already printed on a label
@@ -1521,11 +1537,13 @@ final class AllocateCopyCodes
         $settings = $shelf->settings === null ? null : json_decode($shelf->settings, true);
         $prefix = CopyCodes::prefix($shelf->slug, is_array($settings) ? $settings : null);
 
-        // REGEXP_SUBSTR(code, '[0-9]+$') is NULL for a code not ending in
-        // digits; MAX ignores NULLs, so hand-imported codes leave the
-        // sequence intact. CAST AS UNSIGNED because REGEXP_SUBSTR returns
-        // text. MariaDB's default LIKE escape is backslash — CopyCodes::
-        // escapeLike's contract.
+        // REGEXP_SUBSTR(code, '[0-9]+$') returns '' (not NULL — NULL only
+        // for NULL input) for a code that does not end in digits;
+        // CAST('' AS UNSIGNED) is 0, which never wins MAX against a real
+        // sequence, so hand-imported codes leave the sequence intact.
+        // CAST AS UNSIGNED because REGEXP_SUBSTR returns text. MariaDB's
+        // default LIKE escape is backslash — CopyCodes::escapeLike's
+        // contract.
         $last = (int) BookCopy::query()
             ->withTrashed()
             ->where('code', 'like', CopyCodes::escapeLike($prefix).'-%')
@@ -1566,7 +1584,7 @@ git commit -m "feat: copy-code allocator — per-shelf row lock, gap-preserving 
 **Interfaces:**
 - Consumes: `AllocateCopyCodes::execute(int $count): array` (list of codes; must be called inside the caller's transaction — Task 5), `Slugs::fromTitle(string): string`, `Slugs::nextAvailable(string, array): string`, `Donor::assertSingle(?string, ?string): void` (Task 2), `Clock::today(): string`, `AuditRecorder::record(string $action, string $entityType, ?string $entityId, ?array $before, ?array $after): void`, `RuleViolated(string $code)` (Task 1), the `create` ability of `BookPolicy` (Task 3), models `Book`, `BookCopy`, `Category`.
 - Produces:
-  - `App\Actions\Catalogue\CreateBook` — `execute(User $actor, array $input): Book` where `$input` is `array{title: string, author: string, category_slug: string, publisher?: ?string, published_year?: ?int, page_count?: ?int, isbn?: ?string, description?: ?string, language?: ?string, is_published?: ?bool, copy_count: int, donor_membership_id?: ?string, donor_name?: ?string, acquired_on?: ?string}` — the returned `Book` has its `copies` relation loaded. Throws `AuthorizationException` (not a manager), `ValidationException` (`category_slug` names nothing live), `RuleViolated('duplicate_isbn' | 'donor_ambiguous')`.
+  - `App\Actions\Catalogue\CreateBook` — `execute(User $actor, array $input): Book` — the allocator's shelf-row `FOR UPDATE` is the **first statement** of its transaction, with the category, ISBN and slug reads all below it (see the Action's docblock for the MariaDB REPEATABLE READ reproduction that makes this non-negotiable) — where `$input` is `array{title: string, author: string, category_slug: string, publisher?: ?string, published_year?: ?int, page_count?: ?int, isbn?: ?string, description?: ?string, language?: ?string, is_published?: ?bool, copy_count: int, donor_membership_id?: ?string, donor_name?: ?string, acquired_on?: ?string}` — the returned `Book` has its `copies` relation loaded. Throws `AuthorizationException` (not a manager), `ValidationException` (`category_slug` names nothing live), `RuleViolated('duplicate_isbn' | 'donor_ambiguous')`.
   - `StoreBookRequest` — authorizes via `Gate::allows('create', Book::class)`; rules below. Used by Task 12's controller; the Action is also called directly by tests.
 - One audit entry, `book.created`, with the codes in `after` — the copies *are part of* the one cataloguing event (OPS §1: "a book with zero copies is not yet meaningfully catalogued"). `AddCopies` (Task 8) audits per copy; the asymmetry is OPS §4.1's own.
 
@@ -1589,6 +1607,7 @@ use App\Models\User;
 use App\Support\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 afterEach(fn () => Carbon::setTestNow());
@@ -1769,6 +1788,50 @@ it('a soft-deleted book frees its slug for exact reuse', function () {
     expect($second->slug)->toBe('de-men-phieu-luu-ky');
 });
 
+it('takes the shelf-row lock BEFORE any read — the first query of the transaction', function () {
+    // The load-bearing ordering, pinned by position: under REPEATABLE
+    // READ the transaction's read view is fixed at its first consistent
+    // read, so a category lookup ahead of the allocator's FOR UPDATE
+    // reintroduces the silent-ISBN-duplicate window even though the lock
+    // is still "in" the transaction (reproduced live on 10.11). No
+    // single-connection test can show the corruption itself — this pins
+    // the mechanism that prevents it.
+    [, $user] = catCreateFixture();
+    DB::enableQueryLog();
+
+    app(CreateBook::class)->execute($user, catCreateInput());
+
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect($log)->not->toBe([])
+        ->and(str_contains($log[0]['query'], 'bookshelves'))->toBeTrue('first query is not on bookshelves: '.$log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+});
+
+it('a copy count below one is refused in the domain, and nothing is written', function () {
+    // range(1, 0) is [1, 0] in PHP — unguarded, a zero would allocate two
+    // codes. The Form Request guards HTTP; this guards every caller.
+    [, $user] = catCreateFixture();
+
+    expect(fn () => app(CreateBook::class)->execute($user, catCreateInput(['copy_count' => 0])))
+        ->toThrow(RuleViolated::class, 'copy_count_invalid');
+
+    expect(Book::query()->count())->toBe(0)
+        ->and(BookCopy::query()->count())->toBe(0);
+});
+
+it('a blank title or author is refused in the domain', function () {
+    [, $user] = catCreateFixture();
+
+    expect(fn () => app(CreateBook::class)->execute($user, catCreateInput(['title' => '   '])))
+        ->toThrow(Illuminate\Validation\ValidationException::class);
+    expect(fn () => app(CreateBook::class)->execute($user, catCreateInput(['author' => ''])))
+        ->toThrow(Illuminate\Validation\ValidationException::class);
+
+    expect(Book::query()->count())->toBe(0);
+});
+
 it('a reader cannot catalogue a book, and nothing is written', function () {
     [, $user] = catCreateFixture(role: 'reader');
 
@@ -1811,12 +1874,20 @@ use Illuminate\Validation\ValidationException;
  * `after`), because "a book with zero copies is not yet meaningfully
  * catalogued". Port of old_next/src/domain/catalogue/commands/create-book.ts.
  *
- * ORDERING IS LOAD-BEARING (IMPORTANT 2, fix-report,
- * 2026-08-08-b1-catalogue): the ISBN check and the slug disambiguation run
- * AFTER AllocateCopyCodes, whose shelf-row lock serialises this whole
- * command per shelf. Checked before the lock, two concurrent calls with
- * the same ISBN both pass and both commit — verified live in the
- * reference. After the lock, the window really is closed.
+ * ORDERING IS LOAD-BEARING, and stricter here than in the reference
+ * (IMPORTANT 2, fix-report, 2026-08-08-b1-catalogue): the allocator's
+ * SELECT ... FOR UPDATE must be the FIRST statement inside this
+ * transaction — nothing may read before it. Postgres's READ COMMITTED
+ * gave the reference a fresh snapshot per statement, so "checks after the
+ * lock" sufficed there; InnoDB's REPEATABLE READ pins the transaction's
+ * read view at its first consistent read, and a lock acquired afterwards
+ * cannot un-pin it. Reproduced live on MariaDB 10.11 (review of this
+ * plan): with the category lookup first, T2 took the shelf lock AFTER T1
+ * committed and still read stale — duplicate copy code (raw errno 1062),
+ * missed ISBN clash (SILENT duplicate — no unique index backs isbn),
+ * missed slug (raw 1062). With the lock as the first statement, all
+ * three windows closed. So: lock, then category, ISBN, slug — every read
+ * below the lock, none above it.
  */
 final class CreateBook
 {
@@ -1834,7 +1905,33 @@ final class CreateBook
         Gate::forUser($actor)->authorize('create', Book::class);
         Donor::assertSingle($input['donor_membership_id'] ?? null, $input['donor_name'] ?? null);
 
+        // The domain does not trust a transport (OPS §2) — the Form
+        // Request guards the HTTP path, these guard every path. Without
+        // the count check, execute(..., 0) would reach range(1, 0), which
+        // is [1, 0] in PHP — two codes allocated for a zero-copy request.
+        if ($input['copy_count'] < 1) {
+            throw new RuleViolated('copy_count_invalid');
+        }
+
+        foreach (['title', 'author'] as $required) {
+            if (trim($input[$required]) === '') {
+                throw ValidationException::withMessages([
+                    $required => __('validation.required', [
+                        'attribute' => __('validation.attributes.'.$required),
+                    ]),
+                ]);
+            }
+        }
+
         return DB::transaction(function () use ($actor, $input): Book {
+            // FIRST statement, before ANY read — the allocator's
+            // FOR UPDATE both serialises this command per shelf and, under
+            // REPEATABLE READ, keeps the transaction's read view from
+            // being pinned by an earlier stale snapshot (see the class
+            // docblock; reproduced live). Every read below happens under
+            // the lock and therefore sees every committed writer.
+            $codes = $this->codes->execute($input['copy_count']);
+
             $category = Category::query()->where('slug', $input['category_slug'])->first();
 
             if ($category === null) {
@@ -1843,15 +1940,13 @@ final class CreateBook
                 ]);
             }
 
-            // The serialisation point — everything below runs under the
-            // shelf-row lock.
-            $codes = $this->codes->execute($input['copy_count']);
-
             $isbn = isset($input['isbn']) && trim((string) $input['isbn']) !== '' ? trim((string) $input['isbn']) : null;
 
             if ($isbn !== null && Book::query()->where('isbn', $isbn)->exists()) {
                 // No unique index backs this — safe as check-then-write
-                // only because the row lock above already serialised us.
+                // only because the row lock above was this transaction's
+                // FIRST statement. A read anywhere above the lock would
+                // reintroduce the silent-duplicate window (class docblock).
                 throw new RuleViolated('duplicate_isbn');
             }
 
@@ -1925,8 +2020,10 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * The create-book form's gate and shape. The donor prohibited_with pair
- * mirrors Donor::assertSingle so the ordinary submit path gets a FIELD
+ * The create-book form's gate and shape. The donor prohibits pair
+ * (`prohibits:` — Laravel has no `prohibited_with` rule; the misnamed
+ * variant raises BadMethodCallException at runtime) mirrors
+ * Donor::assertSingle so the ordinary submit path gets a FIELD
  * error the form can render inline; the Action still asserts the same rule
  * itself, because the domain does not trust a transport (OPS §2). The
  * category existence check stays in the Action for the same reason — and
@@ -1955,7 +2052,7 @@ class StoreBookRequest extends FormRequest
             'language' => ['nullable', 'string', 'max:8'],
             'is_published' => ['nullable', 'boolean'],
             'copy_count' => ['required', 'integer', 'min:1', 'max:200'],
-            'donor_membership_id' => ['nullable', 'uuid', 'prohibited_with:donor_name'],
+            'donor_membership_id' => ['nullable', 'uuid', 'prohibits:donor_name'],
             'donor_name' => ['nullable', 'string', 'max:255'],
             'acquired_on' => ['nullable', 'date_format:Y-m-d'],
         ];
@@ -2067,6 +2164,15 @@ it('an explicit null clears a nullable field; an omitted field never does', func
     app(UpdateBook::class)->execute($user, $book, ['title' => 'Dế Mèn']);
     expect($book->fresh()->publisher)->toBeNull()
         ->and($book->fresh()->isbn)->toBe('9786041000001');
+});
+
+it('an explicitly blank title or author is refused, never written', function () {
+    [, $user, $book] = lifecycleFixture();
+
+    expect(fn () => app(UpdateBook::class)->execute($user, $book, ['title' => '  ']))
+        ->toThrow(Illuminate\Validation\ValidationException::class);
+
+    expect($book->fresh()->title)->toBe('Dế Mèn Phiêu Lưu Ký');
 });
 
 it('re-categorises by slug', function () {
@@ -2256,6 +2362,20 @@ final class UpdateBook
 
                 if ($clash) {
                     throw new RuleViolated('duplicate_isbn');
+                }
+            }
+
+            // A book always has a title and an author — an explicit blank
+            // is a refusal, not a clear (the reference's own guard; the
+            // Form Request covers HTTP, this covers every caller).
+            foreach (['title', 'author'] as $required) {
+                if (array_key_exists($required, $changes)
+                    && (! is_string($changes[$required]) || trim($changes[$required]) === '')) {
+                    throw ValidationException::withMessages([
+                        $required => __('validation.required', [
+                            'attribute' => __('validation.attributes.'.$required),
+                        ]),
+                    ]);
                 }
             }
 
@@ -2532,6 +2652,15 @@ it('refuses both donor controls at once, writing nothing', function () {
     expect($book->copies()->count())->toBe(2);
 });
 
+it('a count below one is refused in the domain, and nothing is written', function () {
+    [, $user, $book] = addCopiesFixture();
+
+    expect(fn () => app(AddCopies::class)->execute($user, $book, ['count' => 0]))
+        ->toThrow(RuleViolated::class, 'copy_count_invalid');
+
+    expect($book->copies()->count())->toBe(2);
+});
+
 it('a reader may not add copies', function () {
     [$shelf, $manager, $book] = addCopiesFixture();
     app(TenantContext::class)->clear();
@@ -2558,6 +2687,7 @@ Run: `make test FILTER=AddCopiesTest` — Expected: FAIL (class not found)
 
 namespace App\Actions\Catalogue;
 
+use App\Exceptions\RuleViolated;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\User;
@@ -2596,6 +2726,13 @@ final class AddCopies
     {
         Gate::forUser($actor)->authorize('addCopies', [BookCopy::class, $book]);
         Donor::assertSingle($input['donor_membership_id'] ?? null, $input['donor_name'] ?? null);
+
+        // OPS §4.1's copy_count_invalid, guarded in the domain as the
+        // reference does — range(1, 0) is [1, 0] in PHP, so an unguarded
+        // zero would allocate two codes.
+        if ($input['count'] < 1) {
+            throw new RuleViolated('copy_count_invalid');
+        }
 
         return DB::transaction(function () use ($book, $input): Collection {
             $codes = $this->codes->execute($input['count']);
@@ -2660,7 +2797,7 @@ class AddCopiesRequest extends FormRequest
     {
         return [
             'count' => ['required', 'integer', 'min:1', 'max:200'],
-            'donor_membership_id' => ['nullable', 'uuid', 'prohibited_with:donor_name'],
+            'donor_membership_id' => ['nullable', 'uuid', 'prohibits:donor_name'],
             'donor_name' => ['nullable', 'string', 'max:255'],
             'acquired_on' => ['nullable', 'date_format:Y-m-d'],
         ];
@@ -3316,7 +3453,7 @@ git commit -m "feat: copy-state commands — assess, retire, report lost with lo
   - `BooksListQuery::run(array $input): array` — `$input` = `array{q?: ?string, category?: ?string, sort?: ?string, page?: int, per_page?: int}`; returns `array{rows: list<array<string, mixed>>, page: int, pageCount: int, total: int}`. **No `is_published` filter** — a draft is exactly what this list exists to find. Folded substring match over `title_folded`/`author_folded`; a query that folds to nothing returns nothing, not the whole shelf (M7). Sort `title` → `title_folded`; default `recent` → `created_at` desc; **`slug` always ends the order** — `created_at` is one instant for every book of a bulk load, and a `LIMIT`/`OFFSET` page over a non-total order shows some rows twice and skips others (IMPORTANT 5; the reference measured 231 unique of 300).
   - `ManagerBookDetailQuery::run(Book $book): array` — `array{book: array, onLoan: int, copies: list<array>, conditionHistory: list<array>, loanHistory: list<array>}`. Copies include retired ones with their reason (a manager's page shows them; a reader's hides them), each with holder name + due date + computed `isOverdue` when out, and the donor resolved: a member donor's **name** (via membership → user), a free-text donor as typed. Loan history keyed by `loans.book_id`, not through the copy — it survives the copy being retired (DB §4.5's reason, restated in the reference).
   - `BookForEditQuery::run(Book $book): array` — exactly the fields the edit form round-trips (`category_slug`, not the joined name; no counts, no availability), **no `is_published` filter** — a manager must reach a draft *before* publishing it, which is when they are most likely to be correcting it.
-  - `LostCopiesQuery::rows(): list<array>` and `count(): int` — state `lost`, live copy, live book; `lastBorrowerName` from the most recent `lost` loan (a copy can be lost, found, lent and lost again — `ORDER BY lost_reported_at DESC` inside the subquery, never a bare `LIMIT 1`), **name and no phone** (BR:559 asks for neither; the way back is `MarkCopyFound`, not a call); ordered newest-report-first, nulls last, `code` ending the order (unique per shelf — total). `count()` uses the same predicate; the test asserts the two agree.
+  - `LostCopiesQuery::rows(): list<array>` and `count(): int` — state `lost`, live copy, live book; `lastBorrowerName` from the most recent `lost` loan (a copy can be lost, found, lent and lost again — `ORDER BY lost_reported_at DESC` inside the subquery, never a bare `LIMIT 1`), **name and no phone** (BR:574 asks for neither; the way back is `MarkCopyFound`, not a call); ordered newest-report-first, nulls last, `code` ending the order (unique per shelf — total). `count()` uses the same predicate; the test asserts the two agree.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3623,7 +3760,7 @@ it('a copy reported lost appears with its book and the holder the command closed
         ->and($rows[0]['title'])->toBe('Dế Mèn Phiêu Lưu Ký')
         ->and($rows[0]['bookSlug'])->toBe('de-men-phieu-luu-ky')
         ->and($rows[0]['lastBorrowerName'])->toBe('Nguyễn Văn Bình')
-        ->and(array_key_exists('phone', $rows[0]))->toBeFalse();   // name, no phone — BR:559
+        ->and(array_key_exists('phone', $rows[0]))->toBeFalse();   // name, no phone — BR:574
 });
 
 it('a copy lost with no loan behind it is listed with no name, not dropped', function () {
@@ -3792,23 +3929,30 @@ trait CountsCopies
             ->withMax(['copies as code_max' => fn (Builder $q) => $q->where('state', '!=', CopyState::Retired)], 'code');
     }
 
-    /** The M8 ladder over the aggregates withCopyCounts() loaded. */
+    /**
+     * The M8 ladder over the aggregates withCopyCounts() loaded.
+     * getAttribute(), not magic property reads, for every aggregate alias
+     * throughout this plan's queries: Larastan level 8 rejects the magic
+     * form on columns no @property declares (verified in review — five
+     * errors), and annotating the MODELS with query-shape aliases would
+     * be worse than the explicit accessor.
+     */
     protected function availabilityFor(Book $book): string
     {
         return Availability::derive(
-            (int) $book->available_count,
-            (int) $book->on_loan_count,
-            (int) $book->held_count,
-            (int) $book->lost_count,
-            (int) $book->retired_count > 0,
+            (int) $book->getAttribute('available_count'),
+            (int) $book->getAttribute('on_loan_count'),
+            (int) $book->getAttribute('held_count'),
+            (int) $book->getAttribute('lost_count'),
+            (int) $book->getAttribute('retired_count') > 0,
         );
     }
 
     /** 'DT-0215 – DT-0217', a single code plain, '' when copyless. */
     protected function codesFor(Book $book): string
     {
-        $min = $book->code_min;
-        $max = $book->code_max;
+        $min = $book->getAttribute('code_min');
+        $max = $book->getAttribute('code_max');
 
         return match (true) {
             $min === null => '',
@@ -3871,12 +4015,14 @@ final class BooksListQuery
                 ->where('title_folded', 'like', '%'.$folded.'%')
                 ->orWhere('author_folded', 'like', '%'.$folded.'%')));
 
+        // The reference's three-key order, kept whole under BOTH sorts:
+        // fold(title) leads only under sort=title, created_at desc and
+        // slug always follow — slug is what makes the order total
+        // (IMPORTANT 5); never remove it.
         if (($input['sort'] ?? 'recent') === 'title') {
             $query->orderBy('title_folded');
-        } else {
-            $query->orderByDesc('created_at');
         }
-        $query->orderBy('slug');   // the total-order key — never remove
+        $query->orderByDesc('created_at')->orderBy('slug');
 
         $paginator = $query->paginate(
             perPage: min(100, max(1, (int) ($input['per_page'] ?? 24))),
@@ -3891,8 +4037,8 @@ final class BooksListQuery
                 'author' => $book->author,
                 'coverUrl' => $book->cover_url,
                 'category' => $book->category?->name,
-                'copiesTotal' => (int) $book->copies_total,
-                'copiesAvailable' => (int) $book->available_count,
+                'copiesTotal' => (int) $book->getAttribute('copies_total'),
+                'copiesAvailable' => (int) $book->getAttribute('available_count'),
                 'availability' => $this->availabilityFor($book),
                 'isPublished' => $book->is_published,
                 'codes' => $this->codesFor($book),
@@ -3995,7 +4141,9 @@ final class ManagerBookDetailQuery
                     ? $donorUsers->get($donorMembership->user_id)?->full_name
                     : null,
                 'holderName' => $loan !== null ? $borrowers->get($loan->borrower_id)?->full_name : null,
-                'dueOn' => $loan?->due_on?->toDateString(),
+                // due_on is NOT NULL — a nullsafe on it is itself a level-8
+                // error; only the loan may be absent.
+                'dueOn' => $loan !== null ? $loan->due_on->toDateString() : null,
                 'isOverdue' => $loan !== null && $loan->due_on->toDateString() < $today,
                 'lostReportedAt' => $copy->lost_reported_at?->toIso8601String(),
                 'retiredAt' => $copy->retired_at?->toIso8601String(),
@@ -4003,15 +4151,18 @@ final class ManagerBookDetailQuery
             ];
         });
 
+        // withTrashed: BR §11 lists assessments under NEVER deleted, and a
+        // soft-deleted copy's assessments are still this title's history —
+        // the same reach $historyCodes below already makes for loan rows.
         $conditionHistory = ConditionAssessment::query()
-            ->whereIn('copy_id', $copies->pluck('id'))
+            ->whereIn('copy_id', $book->copies()->withTrashed()->pluck('id'))
             ->orderByDesc('assessed_at')
             ->get();
         $assessors = User::query()
             ->whereIn('id', $conditionHistory->pluck('assessed_by'))
             ->get(['id', 'full_name'])
             ->keyBy('id');
-        $codesById = $copies->pluck('code', 'id');
+        $codesById = $book->copies()->withTrashed()->pluck('code', 'id');
 
         $loanHistory = Loan::query()
             ->where('book_id', $book->id)
@@ -4032,8 +4183,8 @@ final class ManagerBookDetailQuery
                 'author' => $withCounts->author,
                 'coverUrl' => $withCounts->cover_url,
                 'category' => $withCounts->category?->name,
-                'copiesTotal' => (int) $withCounts->copies_total,
-                'copiesAvailable' => (int) $withCounts->available_count,
+                'copiesTotal' => (int) $withCounts->getAttribute('copies_total'),
+                'copiesAvailable' => (int) $withCounts->getAttribute('available_count'),
                 'availability' => $this->availabilityFor($withCounts),
                 'isPublished' => $withCounts->is_published,
                 'codes' => $this->codesFor($withCounts),
@@ -4132,13 +4283,17 @@ use Illuminate\Support\Facades\DB;
  * lost_reported_at desc; never a bare first(). Straight to users, not
  * through memberships: a borrower who has since left the shelf is exactly
  * the person a lost copy is most likely to be with. A name and NO phone:
- * BR:559 asks for neither — a lost copy's way back is MarkCopyFound, not
+ * BR:574 asks for neither — a lost copy's way back is MarkCopyFound, not
  * a call — so the most identifying field on the shelf is not carried here.
  *
  * Ordered newest-report-first; a copy with no report time (import shape)
- * is the LEAST recent thing on the screen, so nulls sort last — stated in
- * SQL because MariaDB's default puts NULLs first under DESC. code ends
- * the order: unique per shelf, so the order is total.
+ * is the LEAST recent thing on the screen, so nulls sort last — which IS
+ * MariaDB's own behaviour under DESC (NULLs last; first under ASC —
+ * verified live, and the opposite of Postgres's default), but it is
+ * stated as an explicit IS NULL key so the intent survives a reader's
+ * doubt and any future port. The lastBorrowerName subquery's
+ * orderByDesc(lost_reported_at) leans on the same NULLs-last behaviour.
+ * code ends the order: unique per shelf, so the order is total.
  *
  * Not paged, knowingly: this set grows until somebody acts, but nothing
  * breaks at a few hundred rows, the order is already total, and adding a
@@ -4167,13 +4322,15 @@ final class LostCopiesQuery
                 'copyId' => $copy->id,
                 'code' => $copy->code,
                 'bookId' => $copy->book_id,
-                'bookSlug' => $copy->book->slug,
-                'title' => $copy->book->title,
-                'coverUrl' => $copy->book->cover_url,
-                'author' => $copy->book->author,
+                // Nullsafe for the analyser only — whereHas('book') makes
+                // the relation non-null at runtime.
+                'bookSlug' => $copy->book?->slug,
+                'title' => $copy->book?->title,
+                'coverUrl' => $copy->book?->cover_url,
+                'author' => $copy->book?->author,
                 'condition' => $copy->condition->value,
                 'reportedAt' => $copy->lost_reported_at?->toIso8601String(),
-                'lastBorrowerName' => $copy->last_borrower_name,
+                'lastBorrowerName' => $copy->getAttribute('last_borrower_name'),
             ])
             ->values()
             ->all();
@@ -4199,8 +4356,6 @@ final class LostCopiesQuery
     }
 }
 ```
-
-(`$copy->last_borrower_name` is the subquery column; add `@property-read string|null $last_borrower_name` to nothing — Larastan accepts dynamic attributes selected via `addSelect` on the collection map through `getAttribute`; if level 8 complains, read it as `$copy->getAttribute('last_borrower_name')`.)
 
 - [ ] **Step 8: Run the tests to verify they pass**
 
@@ -4302,17 +4457,23 @@ it('availability is derived from borrowability, never a stored count', function 
 });
 
 it('an unexpired hold makes a copy unavailable without changing its state', function () {
+    // Two copies, as the reference's own fixture: the badge ladder counts
+    // copies by STATE, and a held-by-request copy is still state
+    // 'available' — so for a one-copy title under a hold the ladder lands
+    // on 'none', faithfully to the reference's deriveAvailability. What
+    // this pins is the count: the held copy leaves copiesAvailable with
+    // its state untouched.
     Carbon::setTestNow(Carbon::parse('2026-08-27 03:00:00', 'UTC'));
     [, $user] = rdrFixture();
-    $book = rdrBook($user, 'Dế Mèn Phiêu Lưu Ký');
+    $book = rdrBook($user, 'Dế Mèn Phiêu Lưu Ký', ['copy_count' => 2]);
     $copy = $book->copies->first();
     rdrHold($book, $copy->id, '2026-08-28 03:00:00');
 
     $rows = app(CatalogueQuery::class)->run(['scope' => 'all'])['rows'];
 
     expect($copy->fresh()->state->value)->toBe('available')   // the state did not move
-        ->and($rows[0]['copiesAvailable'])->toBe(0)
-        ->and($rows[0]['availability'])->toBe('held');
+        ->and($rows[0]['copiesTotal'])->toBe(2)
+        ->and($rows[0]['copiesAvailable'])->toBe(1);
 });
 
 it('a lapsed hold frees the copy on read, no job having run — BR §8', function () {
@@ -4414,21 +4575,24 @@ it('search results carry availability and stay alphabetical in Vietnamese', func
     $out->copies->first()->update(['state' => 'on_loan']);
     rdrBook($user, 'Anh Em Nhà Bồ Câu');
 
-    $rows = app(SearchQuery::class)->run('nh');   // matches both folded titles
+    // Both books share rdrBook's default author, so this one term returns
+    // both — the reference's own device for its ordering assertion.
+    $rows = app(SearchQuery::class)->run('to hoai');
 
     expect(array_column($rows, 'title'))->toBe(['Anh Em Nhà Bồ Câu', 'Đất Rừng Phương Nam'])
         ->and(collect($rows)->firstWhere('title', 'Đất Rừng Phương Nam')['availability'])->toBe('on_loan');
 });
 
-it('two titles that fold alike keep a stable order between searches', function () {
+it('two titles that fold alike take the slug tiebreak, concretely', function () {
     [, $user] = rdrFixture();
-    rdrBook($user, 'Dế Mèn');
-    rdrBook($user, 'De Men');   // folds identically — slug breaks the tie
+    rdrBook($user, 'De Men');    // folds to 'de men' → slug de-men
+    rdrBook($user, 'Dế Mèn');    // folds identically → disambiguated to de-men-2
 
-    $first = array_column(app(SearchQuery::class)->run('de men'), 'slug');
-    $second = array_column(app(SearchQuery::class)->run('de men'), 'slug');
-
-    expect($first)->toHaveCount(2)->toBe($second);
+    // Asserting the exact order is what actually exercises
+    // orderBy('slug'): running the same query twice and comparing would
+    // pass with the tiebreak deleted.
+    expect(array_column(app(SearchQuery::class)->run('de men'), 'slug'))
+        ->toBe(['de-men', 'de-men-2']);
 });
 
 it('an empty search term, and one that folds to nothing, return nothing', function () {
@@ -4595,12 +4759,12 @@ final class CatalogueQuery
             ->when(($input['scope'] ?? 'available') === 'available', fn (Builder $b) => $b
                 ->whereHas('copies', $this->borrowable()));
 
+        // The reference's three-key order under both sorts — see
+        // BooksListQuery's twin comment; slug makes it total.
         if (($input['sort'] ?? 'recent') === 'title') {
             $query->orderBy('title_folded');
-        } else {
-            $query->orderByDesc('created_at');
         }
-        $query->orderBy('slug');   // the total-order key — never remove
+        $query->orderByDesc('created_at')->orderBy('slug');
 
         $paginator = $query->paginate(
             perPage: min(100, max(1, (int) ($input['per_page'] ?? 24))),
@@ -4625,8 +4789,8 @@ final class CatalogueQuery
             'author' => $book->author,
             'coverUrl' => $book->cover_url,
             'category' => $book->category?->name,
-            'copiesTotal' => (int) $book->copies_total,
-            'copiesAvailable' => (int) $book->available_count,
+            'copiesTotal' => (int) $book->getAttribute('copies_total'),
+            'copiesAvailable' => (int) $book->getAttribute('available_count'),
             'availability' => $this->availabilityFor($book),
         ];
     }
@@ -4793,7 +4957,7 @@ final class BookDetailQuery
             'isbn' => $withCounts->isbn,
             'description' => $withCounts->description,
             'language' => $withCounts->language,
-            'onLoan' => (int) $withCounts->on_loan_count,
+            'onLoan' => (int) $withCounts->getAttribute('on_loan_count'),
             'queueLength' => $queueLength,
             'currentLoan' => $currentLoan,
         ]);
@@ -4870,7 +5034,6 @@ use App\Models\Membership;
 use App\Models\User;
 use App\Support\TenantContext;
 use Inertia\Testing\AssertableInertia as Assert;
-use Tests\Support\TenantHarness;
 
 function scrManager(): array
 {
@@ -4950,9 +5113,26 @@ it('a validation failure returns field errors, not a 500', function () {
         ->assertSessionHasErrors(['title', 'author', 'category_slug', 'copy_count']);
 });
 
-it('the detail page shows copies with actions and histories', function () {
+it('the detail page shows copies with actions and real history rows', function () {
     [$shelf, $user] = scrManager();
     $book = scrBook($shelf, $user);
+    $copy = $book->copies->first();
+    // One assessment and one closed loan, so the history assertions guard
+    // the mapping (assessorName, copyCode) rather than passing on two
+    // empty arrays that would survive the queries being deleted.
+    $membership = Membership::query()->withoutGlobalScope(\App\Models\Scopes\BookshelfScope::class)
+        ->where('bookshelf_id', $shelf->id)->where('user_id', $user->id)->firstOrFail();
+    app(TenantContext::class)->set($shelf, $membership);
+    $this->actingAs($user);
+    app(\App\Actions\Catalogue\AssessCondition::class)
+        ->execute($user, $copy, \App\Enums\CopyCondition::Worn, 'gáy lỏng');
+    \App\Models\Loan::query()->create([
+        'copy_id' => $copy->id, 'book_id' => $book->id,
+        'borrower_id' => $user->id, 'lent_by' => $user->id,
+        'due_on' => '2026-08-01', 'status' => 'returned',
+        'return_condition' => 'perfect', 'returned_at' => now(),
+    ]);
+    app(TenantContext::class)->clear();
 
     $this->actingAs($user)
         ->get("/shelves/{$shelf->slug}/manage/books/{$book->slug}")
@@ -4961,8 +5141,12 @@ it('the detail page shows copies with actions and histories', function () {
             ->component('manage/books/show')
             ->where('detail.book.title', 'Dế Mèn Phiêu Lưu Ký')
             ->has('detail.copies', 2)
-            ->has('detail.conditionHistory')
-            ->has('detail.loanHistory'));
+            ->has('detail.conditionHistory', 1)
+            ->where('detail.conditionHistory.0.copyCode', 'DT-0001')
+            ->where('detail.conditionHistory.0.condition', 'worn')
+            ->has('detail.loanHistory', 1)
+            ->where('detail.loanHistory.0.copyCode', 'DT-0001')
+            ->where('detail.loanHistory.0.returnCondition', 'perfect'));
 });
 
 it('the edit page pre-fills the form and update round-trips', function () {
@@ -5000,13 +5184,18 @@ it('the per-copy commands round-trip: assess, report lost, found, retire', funct
     $copy = $book->copies->first();
     $base = "/shelves/{$shelf->slug}/manage";
 
+    // assertSessionHasNoErrors on every step: a RuleViolated refusal ALSO
+    // redirects back, so a bare assertRedirect would pass on failure and
+    // the final state check would catch it only by luck.
     $this->actingAs($user)->post("{$base}/copies/{$copy->id}/assess", ['condition' => 'torn'])
-        ->assertRedirect();
+        ->assertRedirect()->assertSessionHasNoErrors();
     $copy->update(['state' => 'on_loan']);
-    $this->actingAs($user)->post("{$base}/copies/{$copy->id}/report-lost", [])->assertRedirect();
-    $this->actingAs($user)->post("{$base}/copies/{$copy->id}/mark-found", [])->assertRedirect();
+    $this->actingAs($user)->post("{$base}/copies/{$copy->id}/report-lost", [])
+        ->assertRedirect()->assertSessionHasNoErrors();
+    $this->actingAs($user)->post("{$base}/copies/{$copy->id}/mark-found", [])
+        ->assertRedirect()->assertSessionHasNoErrors();
     $this->actingAs($user)->post("{$base}/copies/{$copy->id}/retire", ['reason' => 'cũ nát'])
-        ->assertRedirect();
+        ->assertRedirect()->assertSessionHasNoErrors();
 
     $fresh = $copy->withoutRelations()->fresh();
     expect($fresh->state->value)->toBe('retired')
@@ -5072,7 +5261,11 @@ it('another shelf\'s book slug and copy id are 404 through the scoped bindings',
     $book = scrBook($shelf, $user, ['title' => 'Chỉ Có Ở Đồng Tháp']);
     $copy = $book->copies->first();
 
-    ['b' => $foreign] = TenantHarness::twoCollidingShelves();
+    // A plain factory shelf, NOT TenantHarness::twoCollidingShelves():
+    // the harness creates slug dong-thap, which scrManager() already
+    // claimed — bookshelves_slug_unique (1062) would kill the test in
+    // setup, before it asserted anything.
+    $foreign = Bookshelf::factory()->create(['settings' => []]);
     $foreignManager = User::factory()->create();
     Membership::factory()->for($foreign)->create([
         'user_id' => $foreignManager->id, 'role' => 'manager', 'status' => 'active',
@@ -5161,7 +5354,7 @@ class BookController extends Controller
             'books' => $list->run([
                 'q' => $request->query('q'),
                 'category' => $request->query('category'),
-                'sort' => $request->query('sort'),
+                'sort' => $request->query('sort') === 'title' ? 'title' : 'recent',
                 'page' => (int) $request->query('page', '1'),
             ]),
             // includeDrafts: this list HAS no is_published filter, so its
@@ -5171,7 +5364,9 @@ class BookController extends Controller
             'filters' => [
                 'q' => (string) $request->query('q', ''),
                 'category' => $request->query('category'),
-                'sort' => (string) $request->query('sort', 'recent'),
+                // Normalised, not echoed — an arbitrary ?sort= must not
+                // ride back into the page's own links.
+                'sort' => $request->query('sort') === 'title' ? 'title' : 'recent',
             ],
         ]);
     }
@@ -5954,7 +6149,7 @@ interface PageProps extends SharedData {
         copies: CopyRow[];
         conditionHistory: {
             assessedAt: string;
-            copyCode: string;
+            copyCode: string | null;
             assessorName: string | null;
             condition: ConditionKey;
             note: string | null;
@@ -6236,7 +6431,7 @@ interface LostRow {
     code: string;
     bookSlug: string;
     title: string;
-    author: string;
+    author: string | null;
     condition: keyof typeof copy.catalogue.condition;
     reportedAt: string | null;
     lastBorrowerName: string | null;
@@ -6402,7 +6597,7 @@ git commit -m "feat: manager book screens — index, create, detail with copy ac
 
 **Interfaces:**
 - Consumes: `CatalogueQuery::run(array): array`, `SearchQuery::run(string): array`, `BookDetailQuery::run(Book): array` (Task 11), `CategoryQuery::stockedByShelf(): array` (Task 4), the `role:reader` middleware, `TenantContext::membership(): ?Membership` (role for the contact line), `Bookshelf::contacts()` (Phase 0's `HasMany`).
-- Produces: the three controllers below; `book-card.tsx` shared by catalogue and search; query-string parameters `scope=all|available`, `category`, `sort=recent|title`, `page`, `q` (divergence 5 — English).
+- Produces: the three controllers below; `book-card.tsx` shared by catalogue and search; query-string parameters `scope=all|available`, `category`, `sort=recent|title`, `page`, `q` (divergence 5 — English). The search page's empty state carries BR §16.1's suggestions — a short row of recently added available titles, served through `CatalogueQuery` rather than a second read shape.
 - The contact line (BR §16.1, narrowed 2026-08-12): "Liên hệ {tên} · {số} để nhận sách", built from the shelf's **position-1 contact**, shown **to readers only** — hidden when the viewer's role is `manager` or above (they are the person being named). Sent as a `firstContact` prop (`{name, phone}` or `null`); the controller derives the role from `TenantContext`, never the client.
 
 - [ ] **Step 1: Write the failing test**
@@ -6503,6 +6698,20 @@ it('search renders results for the folded term', function () {
             ->has('results', 1)
             ->where('results.0.title', 'Tìm Kiếm Kho Báu')
             ->where('q', 'tim kiem kho bau'));
+});
+
+it('an empty search suggests recently added available titles — BR §16.1\'s empty state', function () {
+    [$shelf, $manager, $reader] = rdrScreenShelf();
+    rdrScreenBook($shelf, $manager);
+
+    $this->actingAs($reader)
+        ->get("/shelves/{$shelf->slug}/search")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('shelves/search')
+            ->has('results', 0)
+            ->has('suggestions', 1)
+            ->where('suggestions.0.title', 'Dế Mèn Phiêu Lưu Ký'));
 });
 
 it('book detail renders for a reader, with the contact line', function () {
@@ -6621,6 +6830,7 @@ namespace App\Http\Controllers\Reader;
 use App\Http\Controllers\Controller;
 use App\Models\Book;
 use App\Models\Bookshelf;
+use App\Queries\CatalogueQuery;
 use App\Queries\SearchQuery;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -6629,7 +6839,7 @@ use Inertia\Response;
 
 class SearchController extends Controller
 {
-    public function index(Request $request, Bookshelf $shelf, SearchQuery $search): Response
+    public function index(Request $request, Bookshelf $shelf, SearchQuery $search, CatalogueQuery $catalogue): Response
     {
         Gate::authorize('viewAny', Book::class);
 
@@ -6638,6 +6848,13 @@ class SearchController extends Controller
         return Inertia::render('shelves/search', [
             'q' => $q,
             'results' => $search->run($q),
+            // BR §16.1: "The empty state suggests popular books rather
+            // than showing nothing." The reference's device — a short row
+            // of recently added, currently available titles — reused via
+            // the catalogue query rather than a second read shape.
+            'suggestions' => $q === ''
+                ? $catalogue->run(['scope' => 'available', 'sort' => 'recent', 'per_page' => 6])['rows']
+                : [],
         ]);
     }
 }
@@ -6706,6 +6923,7 @@ In `resources/js/lib/copy.ts`, add:
         availableWithCount: "Còn {count} bản có sẵn",
         searchLead: "Gõ không dấu cũng tìm được — thử \"tim kiem kho bau\".",
         searchEmptyPrompt: "Nhập từ khoá để tìm sách.",
+        suggestionsHeading: "Sách mới thêm gần đây",
     },
 ```
 
@@ -6883,10 +7101,11 @@ import type { SharedData } from "@/types";
 interface PageProps extends SharedData {
     q: string;
     results: CatalogueRowProps[];
+    suggestions: CatalogueRowProps[];
 }
 
 export default function ShelfSearch() {
-    const { shelf, q, results } = usePage<PageProps>().props;
+    const { shelf, q, results, suggestions } = usePage<PageProps>().props;
     const [term, setTerm] = useState(q);
     const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -6922,7 +7141,21 @@ export default function ShelfSearch() {
             <p className="mb-4 text-sm text-muted-foreground">{copy.readerCatalogue.searchLead}</p>
 
             {q === "" ? (
-                <p className="text-muted-foreground">{copy.readerCatalogue.searchEmptyPrompt}</p>
+                <div>
+                    <p className="mb-4 text-muted-foreground">{copy.readerCatalogue.searchEmptyPrompt}</p>
+                    {suggestions.length > 0 ? (
+                        <section>
+                            <h2 className="mb-2 text-lg font-medium">
+                                {copy.readerCatalogue.suggestionsHeading}
+                            </h2>
+                            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+                                {suggestions.map((book) => (
+                                    <BookCard key={book.bookId} book={book} />
+                                ))}
+                            </div>
+                        </section>
+                    ) : null}
+                </div>
             ) : results.length === 0 ? (
                 <p className="text-muted-foreground">{copy.catalogue.emptySearch}</p>
             ) : (
@@ -7216,6 +7449,7 @@ Verify each row by pointing at the test that pins it (this table is the self-rev
 | `GetBooksList` (§3.3) | `App\Queries\BooksListQuery` (T10); screen T12 | `ManagerQueriesTest`, `ManageBookScreensTest` |
 | `GetBookDetail` manager (§3.3) | `App\Queries\ManagerBookDetailQuery` (T10); screen T12 | `ManagerQueriesTest`, `ManageBookScreensTest` |
 | *(untabulated — OPS §4.1 names it under `MarkCopyFound`)* lost-copies view | `App\Queries\LostCopiesQuery` (T10); screen T12 | `LostCopiesTest`, `ManageBookScreensTest` |
+| `GetShelfHome` (§3.2) | **Phase 2** — its centerpiece is the announcement card; deferred whole so the page is built once | header scope note, known-gaps entry 8 |
 | `MarkCopiesPrinted`, label/QR queries, `ResolveCopyById` (§4.1, §3.3) | **Phase 2** (QR labels) | header scope note |
 | `SearchBooksForLending` (§3.3) | **Phase 1c** (quick-lend) | header scope note |
 | `ExportBooksCSV` (§3.3) | **Phase 1d** (exports) | header scope note |
@@ -7226,13 +7460,15 @@ If any row's "Pinned by" cannot be pointed at a passing test, the plan is not do
 
 Add a `## Phase 1a — Catalogue` section recording, in this repository's established voice (each entry says *why it was left*):
 
-1. **The copy-code race probes did not port; the serialisation moved to a shelf-row lock.** The reference proved its allocator with two live connections racing to commit; under `RefreshDatabase` a second connection cannot see uncommitted fixtures, so `AllocateCopyCodesTest` pins the *mechanism* (the `FOR UPDATE` on the `bookshelves` row appears in the query log) rather than the *outcome*. `book_copies_code_unique`'s errno 1062 remains the structural guarantee, already pinned in `DbGuaranteesTest`. If the lock is ever removed, the failure mode is a raw 1062 surfacing to a volunteer instead of a clean sequence — BR §2's "must fail cleanly" being missed, not data corruption.
-2. **`duplicate_isbn` is still a check-then-write, exactly as in the reference.** No unique index backs it (a partial per-shelf ISBN unique was named as the structural fix in the B1 plan's known gaps and was not built there either); it is safe only because it runs after the allocator's row lock. A future phase touching `CreateBook`'s ordering must keep the ISBN check after `AllocateCopyCodes::execute()` — `CreateBookTest` cannot catch the reordering (single-connection), so the comment in the Action is the guard.
+1. **The copy-code race probes did not port; the serialisation moved to a shelf-row lock whose POSITION is the guarantee.** The reference proved its allocator with two live connections racing to commit; under `RefreshDatabase` a second connection cannot see uncommitted fixtures, so `AllocateCopyCodesTest` and `CreateBookTest` pin the *mechanism* instead — and specifically that the `FOR UPDATE` on the `bookshelves` row is the **first query of the transaction**, because under InnoDB's REPEATABLE READ the read view is pinned at the first consistent read and a lock taken after any earlier SELECT still reads a stale snapshot (reproduced live on 10.11 during this plan's review: duplicate copy code, silently-committed ISBN duplicate, missed slug — Postgres's per-statement READ COMMITTED is why the reference could afford reads before its lock and this port cannot). The real rule for every future phase: **nothing may read before the lock.** `book_copies_code_unique`'s errno 1062 remains the structural backstop for codes and slugs; ISBN has no such backstop — see the next entry.
+2. **`duplicate_isbn` is a check-then-write with no structural backstop, and the failure mode of getting the ordering wrong is SILENT corruption, not an error.** No unique index backs ISBN (a partial per-shelf ISBN unique was named as the structural fix in the B1 plan's known gaps and was not built there either), so a stale read here does not raise 1062 — the duplicate simply commits. The check is safe only because it reads *under* a lock that is the transaction's first statement; "after the allocator" alone is necessary but not sufficient. `CreateBookTest`'s lock-first query-log pin is the tripwire; no single-connection test can show the corruption itself.
 3. **`DeleteBook` is implemented, tested, and reachable from no screen** (the reference's Q7, OPS §4.1's open question). `CatalogueArchitectureTest` pins the *absence* of the route so adding it is a decision, not an accident. The retention rule (`copy_has_history` retains, never throws) is pinned by `BookLifecycleTest` either way.
 4. **The donor member picker is deferred to 1b.** `donor_membership_id` is accepted, validated, stored, audited and rendered back (the manager detail resolves the member's name) — but the create form offers only the free-text donor until `GetReadersList` exists to search members. The OPS §16.3 donation-queue pre-fill (Duyệt → form with Người tặng pre-filled) is Phase 2's, and lands on this same field.
 5. **The reader detail page ships without its "Xin mượn" button, comments, or the manager's lend/return shortcuts** — `CreateBorrowRequest` and comments are Phase 2, `LendCopy`/`ReceiveReturn` are 1c. The availability panel, queue length and contact line are live.
 6. **`lang/vi/validation.php` is translated for the rules this phase reaches; untranslated stock rules may remain English-keyed** until the phase that first hits them. The Task 1 test pins `required`; it does not census the file.
 7. **The manager index reuses `copyCountLine` with its middle figure computed as `total - available`** (which counts held copies as "đang cho mượn") — the per-row true on-loan count was deliberately not added to the list query for one label. The detail pages show the true count. Revisit if a manager reports the number as wrong rather than approximate.
+8. **`GetShelfHome` (OPS §3.2) is deferred to Phase 2, whole.** `ShellController::shelfHome()` still renders the propless `shelves/show`. The page's centerpiece card is the pinned-or-latest announcement — a Phase 2 entity — while its catalogue-count link and *Mới thêm* cover row become computable with this phase's queries; building the page now would mean rebuilding it in Phase 2 when the announcement card and the Tặng sách/Góp ý cards land. Deferred so the shelf home is built once, against its full OPS §3.2 shape.
+9. **The catalogue queries pay ~8 correlated aggregate subqueries per row, and `books_public` goes unused** (the sort is on unindexed `title_folded`), where the reference did one grouped join. Honestly fine at BR §1's few hundred books per shelf — the paging tests run against real MariaDB — but if a shelf ever grows past that, the fix is a single grouped-join query shape, not a stored counter (BR §8).
 
 - [ ] **Step 5: Flip this plan's Status and commit**
 
@@ -7247,7 +7483,7 @@ git commit -m "test: catalogue architecture pins, operations ledger walked, know
 
 ## Coverage: OPERATIONS.md §4.1 / §3.2 / §3.3 → tasks
 
-For the executor's orientation (the walk in Task 14 verifies it): every catalogue **command** of OPS §4.1 in this phase's scope lands in Tasks 6–9; the reader **queries** of §3.2 (`GetCatalogue`, `SearchCatalogue`, `GetBookDetail`) in Task 11; the manager **queries** of §3.3 (`GetBooksList`, manager `GetBookDetail`) plus the untabulated lost-copies read in Task 10; screens in Tasks 12–13. Out of scope, by phase: `MarkCopiesPrinted` + all QR/label operations and `ResolveCopyById` (Phase 2), `SearchBooksForLending` (1c), `ExportBooksCSV` (1d), category administration (Phase 3).
+For the executor's orientation (the walk in Task 14 verifies it): every catalogue **command** of OPS §4.1 in this phase's scope lands in Tasks 6–9; the reader **queries** of §3.2 (`GetCatalogue`, `SearchCatalogue`, `GetBookDetail`) in Task 11; the manager **queries** of §3.3 (`GetBooksList`, manager `GetBookDetail`) plus the untabulated lost-copies read in Task 10; screens in Tasks 12–13. Out of scope, by phase: `GetShelfHome` (Phase 2 — deferred whole, known-gaps entry 8), `MarkCopiesPrinted` + all QR/label operations and `ResolveCopyById` (Phase 2), `SearchBooksForLending` (1c), `ExportBooksCSV` (1d), category administration (Phase 3).
 
 
 
