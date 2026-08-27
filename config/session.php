@@ -30,6 +30,29 @@ return [
     | to expire immediately when the browser is closed then you may
     | indicate that via the expire_on_close configuration option.
     |
+    | ABSOLUTE SESSION LIFETIME — decided in Task 16, not carried further by
+    | omission. The old Postgres design's `sessions.expires_at` was an
+    | absolute cap independent of activity (src/auth/session.ts's
+    | SESSION_DAYS = 30); Laravel's session machinery, and
+    | HashedDatabaseSessionHandler which only wraps it, offers exclusively
+    | this idle timeout. Decision: accept the gap for v1, deliberately, not
+    | silently. Reasoning: (1) this idle timeout (2h by default) is already
+    | far tighter for the overwhelming majority of sessions than the old
+    | 30-day absolute cap ever was — an idle reader is signed out sooner
+    | under the new design, not later; (2) the one population this
+    | genuinely weakens is a session that stays continuously active
+    | indefinitely — practically, a super-admin working non-stop — and
+    | revocation still closes the door that matters most: a soft-deleted or
+    | credential-reset user's session stops resolving on the very next
+    | request (User's SoftDeletes + the users provider excluding trashed
+    | rows), which is the scenario BR §2 actually names. An absolute cap
+    | (e.g. a `started_at` marker plus a comparison in a session-checking
+    | middleware) is a small, well-understood addition; it is deferred
+    | rather than built speculatively into Task 16's already-crowded scope,
+    | but it must be picked up explicitly — by Task 21 or whichever task
+    | first ships a super-admin session that plausibly runs unattended for
+    | days — not rediscovered as a surprise.
+    |
     */
 
     'lifetime' => env('SESSION_LIFETIME', 120),

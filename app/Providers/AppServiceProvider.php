@@ -2,7 +2,10 @@
 
 namespace App\Providers;
 
+use App\Support\HashedDatabaseSessionHandler;
 use App\Support\TenantContext;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -23,6 +26,19 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Laravel's database session store, keyed on sha256(session id)
+        // instead of the raw id — see HashedDatabaseSessionHandler's
+        // docstring for why the raw id must never reach the table.
+        Session::extend('hashed-database', function (Application $app) {
+            $config = $app->make('config');
+            $db = $app->make('db');
+
+            return new HashedDatabaseSessionHandler(
+                $db->connection($config->get('session.connection')),
+                $config->get('session.table', 'sessions'),
+                $config->get('session.lifetime'),
+                $app,
+            );
+        });
     }
 }
