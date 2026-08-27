@@ -6,10 +6,12 @@ they are inherited rather than rediscovered. Each entry says why it was left.
 This file is the durable record of the Laravel migration's foundation phase
 (`docs/superpowers/plans/2026-08-26-laravel-migration-phase-0-foundation.md`).
 The working ledger that produced it lives in `.superpowers/` and is gitignored —
-it dies with the plan; this file does not. Written after Task 16 and the
-Inertia v2→v3 interlude, with Tasks 17–21 still ahead. The format and the
-practice come from the reference project, `~/Documents/dreamtube`, whose
-`docs/known-gaps.md` is the model.
+it dies with the plan; this file does not. Started after Task 16 and the
+Inertia v2→v3 interlude; the file now documents Tasks 18, 20 and 21 as well,
+carried forward and updated through the final whole-branch review rather
+than rewritten from scratch. The format and the practice come from the
+reference project, `~/Documents/dreamtube`, whose `docs/known-gaps.md` is the
+model.
 
 ## The test-database guard had two holes, and one of them is upstream too
 
@@ -387,26 +389,59 @@ exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
   15's fix round — raw SQL containing a `where` keyword, but its own
   disclaimer names the two shapes it still misses: a variable column name, and
   a join. Treat a clean run as absence of the *common* mistake, nothing more.
+- **`User` is deliberately global and nothing structural scopes it.** The
+  shelf's person-boundary is `memberships`, not `users` — a person can hold
+  memberships on more than one shelf, so `User` correctly carries no
+  `bookshelf_id` and no `BelongsToBookshelf`. But the
+  `TenancyArchitectureTest` hand-written-`bookshelf_id`-filter tripwire only
+  watches for that literal column name, and `User` has no such column to
+  watch — so a Phase 1 `User::query()` on a manage screen (a readers list,
+  say) sees every user in the system, shelf boundary or not, with no test
+  firing anywhere. Nothing in this phase scopes user reads by membership;
+  Phase 1 must do it explicitly (typically by joining through
+  `memberships`), and cannot lean on the trait/scope/architecture-test
+  combination that protects every shelf-scoped model, because `User` sits
+  outside that combination by design.
+- **`tests/Support/TenantHarness.php` and several `Feature` test files use
+  the plural `withoutGlobalScopes()` with no arguments** (19 call sites
+  across `RouteIsolationTest`, `ResolveTenantMiddlewareTest`, `GateTest` and
+  `EnsureShelfRoleTest`) to insert a `Membership` row directly, bypassing
+  the tenancy scope's own bookkeeping so the test can build fixtures the
+  scope would otherwise interfere with. This is the exact call shape the
+  `ResolveTenant` known-gaps entry above declares forbidden — bare
+  `withoutGlobalScopes()` strips every current and future global scope, not
+  just the named tenancy one — but every one of these 19 call sites is on
+  `->create()`, where global scopes constrain reads/updates/deletes, not
+  inserts, so today they are harmless. The rule now has nineteen
+  counterexamples in the test suite and no test enforcing it: the next
+  person who copies this idiom into a *read* (`Membership::query()
+  ->withoutGlobalScopes()->get()`, say) reopens the exact revoked-admin bug
+  that entry documents, and nothing in the suite would catch it. Left as-is
+  rather than mass-renamed to `withoutGlobalScope(BookshelfScope::class)`
+  because every occurrence here is a create, not a read — but a future pass
+  should either rename them for hygiene or add a static/architecture check
+  that treats bare `withoutGlobalScopes()` outside a `->create()`/`->save()`
+  chain as a violation.
 - **The tenancy architecture expectation enumerates Eloquent models**, with
   the exemption list schema-derived and nullability-guarded — so a future
   `NOT NULL bookshelf_id` table that has no model is invisible to it. Adding a
   table without a model bypasses the census entirely.
 - **`$guarded = []` leaves `Membership::role`, `Comment::moderated_by` and the
-  `BorrowRequest`/`Loan` status columns mass-assignable.** Brief-mandated,
-  with Task 17/18 form requests as the intended gate. Until those land, any
+  `BorrowRequest`/`Loan` status columns mass-assignable.** Brief-mandated.
+  Task 17/18 landed without adding the form requests that were meant to gate
+  these fields, so the gap is real and open, not merely pending: any Phase 1
   code path that feeds request input into `fill()`/`create()` on these models
-  is writing authorization state.
-- **`database/factories/UserFactory.php` is dead.** It still populates
-  `name`/`email_verified_at`/`password`/`remember_token` — columns `users` has
-  not had since Task 6 — so `User::factory()` cannot insert until Task 19
-  rewrites it. (It silently killed `make fresh` for two tasks before the
-  seeder was repaired out-of-band in Task 8.)
-- **Five placeholder factories exist only to satisfy Larastan level 8** — the
-  Task 14 briefs' `@use HasFactory<…Factory>` annotations reference classes
-  that do not exist until Task 19. Their `definition()` bodies must not be
-  trusted; Task 19 replaces them.
+  is writing authorization state, and closing it is Phase 1's job, not a
+  dependency that already resolved itself.
 - **`phpstan.neon` analyses `app/`, `database/` and `routes/` only.** "Larastan
   clean" in any report on this branch never covered `tests/`.
+- **Archived-shelf routing is an open question, not a decision.** Nothing in
+  this phase specifies what happens when a shelf's `status` is `archived`
+  and a request still names its slug — whether every route 404s, whether
+  reads stay open while writes close, or whether only the public-facing
+  routes stay reachable. The final review flagged this and deliberately did
+  not decide it here; it is Phase 1's call, informed by BR, not something to
+  infer from `BookshelfStatus::Archived` existing as a case.
 
 ## Smaller deferred items, by task
 
@@ -415,14 +450,15 @@ review or a later task rather than fixed in place:
 
 - **Task 2:** `composer.json` is still named `laravel/react-starter-kit`, with
   an npx/npm `dev` script in a Bun repo. Biome's `"preset": "recommended"` is
-  weaker than `"recommended": true` (hides 3 findings). The vite toolchain
-  (`vite`, `@vitejs/plugin-react`, `laravel-vite-plugin`) sits in
-  `dependencies` rather than `devDependencies`. `.gitattributes` arrived as
-  rsync fallout rather than a decision; the `.gitignore` Laravel block
-  duplicates five Next entries. `HandleInertiaRequests::share()` calls
-  `parent::share()` twice. Seven `@var User` Larastan silencers in
+  weaker than `"recommended": true` (hides 3 findings). `.gitattributes`
+  arrived as rsync fallout rather than a decision; the `.gitignore` Laravel
+  block duplicates five Next entries. Seven `@var User` Larastan silencers in
   controllers. `components.json` carries a `"_hazard"` key that is not in
-  shadcn's schema — smoke-test `shadcn add` before Task 18 relies on it.
+  shadcn's schema — smoke-test `shadcn add` before Task 18 relies on it. (The
+  vite toolchain sitting in `dependencies` instead of `devDependencies` was
+  fixed in the final review pass; `HandleInertiaRequests::share()` calling
+  `parent::share()` twice was already fixed by the time of that review — the
+  method now calls it once. Neither needs tracking here any longer.)
 - **Task 3:** agreement of the fold with live Postgres `unaccent()` on the
   non-decomposing Latin set was never verified (no Postgres in this checkout).
   Moot while there is no data migration; becomes real the day an import is
@@ -440,9 +476,18 @@ review or a later task rather than fixed in place:
   on `isbn`/`code`/`acquired_from` that Postgres's `text` never imposed.
 - **Task 8:** `loans_by_borrower` silently drops `0012_indexes.sql`'s
   `lent_at desc` — MariaDB 10.11 supports descending index parts, so this is a
-  fidelity loss, not a platform limit, and the comment does not say so. Four
-  CHECK tests assert only `toThrow(QueryException::class)`, so they cannot
-  tell which constraint fired (the stricter helpers exist from Task 9 on).
+  fidelity loss, not a platform limit, and the comment does not say so.
+  Corrected count (the final review found the original "four" understated
+  it): there are **17** CHECK tests across five schema test files
+  (`AdminSchemaTest`, `CatalogueSchemaTest`, `CommunitySchemaTest`,
+  `CirculationSchemaTest`, `IdentitySchemaTest`) that assert only
+  `toThrow(QueryException::class)`, so on their own they cannot tell which
+  constraint fired. This is not a coverage gap in practice: every one of
+  those 17 is duplicate-covered by `DbGuaranteesTest`'s
+  `dbgExpectViolation()` helper, which pins the exact errno (4025 for a
+  CHECK) *and* the constraint name (via a `CONSTRAINT` plus the name
+  substring match) — so the name-blind assertion is redundant with a
+  name-pinned one elsewhere, not a hole.
 - **Task 9:** migrations use bare `restrictOnDelete()` on nullable FK columns
   (`announcements.author_id`, `feedback.handled_by`) where the Postgres ground
   truth left `ON DELETE` unspecified (NO ACTION). Established by earlier tasks
