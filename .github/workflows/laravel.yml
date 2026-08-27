@@ -1,8 +1,8 @@
 name: Laravel CI
 
 on:
-  push: { branches: [laravel] }
-  pull_request: { branches: [laravel] }
+  push: { branches: [main] }
+  pull_request:
 
 jobs:
   check:

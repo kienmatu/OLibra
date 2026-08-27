@@ -108,11 +108,36 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           DEPLOY_PHP_BIN: ${{ secrets.DEPLOY_PHP_BIN }}
+          DEPLOY_PUBLIC_HTML_PATH: ${{ secrets.DEPLOY_PUBLIC_HTML_PATH }}
         run: |
           : "${DEPLOY_KEY:?DEPLOY_SSH_KEY secret is not set}"
           : "${DEPLOY_HOST:?DEPLOY_HOST secret is not set}"
           : "${DEPLOY_USER:?DEPLOY_USER secret is not set}"
           : "${DEPLOY_PATH:?DEPLOY_PATH secret is not set}"
+
+          # Guard against a DEPLOY_PATH that would turn the --delete rsync
+          # below into an account-wide wipe. A plausible operator mistake —
+          # e.g. pointing DEPLOY_PATH at the account home instead of a
+          # dedicated app directory sibling to public_html — makes --delete
+          # remove everything else living there (public_html, mail, logs,
+          # other sites); the anchored excludes only protect paths inside
+          # the release, not siblings outside it. Refuse anything that is
+          # "/", the account home itself, too shallow to plausibly be a
+          # dedicated app directory, or that names public_html directly.
+          case "$DEPLOY_PATH" in
+            "/") echo "DEPLOY_PATH must not be /" >&2; exit 1 ;;
+          esac
+          if [ "$DEPLOY_PATH" = "$HOME" ]; then
+            echo "DEPLOY_PATH must not equal \$HOME" >&2; exit 1
+          fi
+          segments=$(echo "$DEPLOY_PATH" | tr -cd '/' | wc -c)
+          if [ "$segments" -lt 3 ]; then
+            echo "DEPLOY_PATH looks too shallow to be a dedicated app directory: $DEPLOY_PATH" >&2
+            exit 1
+          fi
+          case "$DEPLOY_PATH" in
+            */public_html|*/public_html/*) echo "DEPLOY_PATH must not point at public_html" >&2; exit 1 ;;
+          esac
 
           mkdir -p ~/.ssh
           echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
@@ -134,7 +159,7 @@ jobs:
             -e "ssh -i ~/.ssh/id_ed25519" \
             .artifacts/release/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
           ssh -i ~/.ssh/id_ed25519 "$DEPLOY_USER@$DEPLOY_HOST" \
-            "PHP_BIN='$DEPLOY_PHP_BIN' bash $DEPLOY_PATH/deploy/post-deploy.sh $DEPLOY_PATH"
+            "PHP_BIN='$DEPLOY_PHP_BIN' PUBLIC_HTML_PATH='$DEPLOY_PUBLIC_HTML_PATH' bash $DEPLOY_PATH/deploy/post-deploy.sh $DEPLOY_PATH"
 
 # Secrets to create in the repository's "production" environment before the
 # first run: DEPLOY_SSH_KEY (private half of a deploy key authorised on the
@@ -142,6 +167,11 @@ jobs:
 # (e.g. /home/<account>/olibra — outside public_html; see docs/HOSTING.md's
 # docroot wiring section), and optionally DEPLOY_PHP_BIN (the resolved CLI
 # php binary's absolute path — leave unset until an operator has actually
-# run `php -r 'echo PHP_BINARY;'` in a real SSH session against the host).
+# run `php -r 'echo PHP_BINARY;'` in a real SSH session against the host),
+# and optionally DEPLOY_PUBLIC_HTML_PATH (only needed if the docroot ends up
+# being the index.php shim, docs/HOSTING.md row 6's last resort — leave
+# unset for the Document Root override or the public_html symlink, the two
+# preferred options; post-deploy.sh's public_html sync step is a no-op
+# without it).
 # None of these have been created yet: this pipeline has never actually
 # deployed anything.
