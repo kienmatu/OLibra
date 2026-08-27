@@ -242,8 +242,14 @@ it('parish_units_l1_has_no_parent, and level is 1 or 2', function () {
         'level' => 1, 'parent_id' => $parent, 'name' => 'Tổ 1',
     ]), 4025, 'parish_units_l1_has_no_parent');
 
+    // Both ends of `level IN (1, 2)`: an unsigned column admits 0, so only
+    // the CHECK stands between it and the row.
     dbgExpectViolation(fn () => DB::table('parish_units')->insert([
         'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf, 'level' => 3, 'name' => 'Tổ 9',
+    ]), 4025, 'parish_units_level_check');
+
+    dbgExpectViolation(fn () => DB::table('parish_units')->insert([
+        'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf, 'level' => 0, 'name' => 'Tổ 0',
     ]), 4025, 'parish_units_level_check');
 });
 
@@ -307,11 +313,18 @@ it('profile_change_requests_rejected_has_reason', function () {
     ]), 4025, 'profile_change_requests_rejected_has_reason');
 });
 
-it('bookshelf_contacts_position_check: positions beyond 3 are unrepresentable', function () {
+it('bookshelf_contacts_position_check: positions outside 1..3 are unrepresentable', function () {
     $shelf = dbgShelf();
 
+    // Both ends of `position BETWEEN 1 AND 3`: the column is unsigned, so 0
+    // is admissible to the type and only the CHECK refuses it. A silent
+    // rewrite to `position <= 3` would leave this end green.
     dbgExpectViolation(fn () => DB::table('bookshelf_contacts')->insert([
         'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf, 'position' => 4, 'name' => 'Ai đó',
+    ]), 4025, 'bookshelf_contacts_position_check');
+
+    dbgExpectViolation(fn () => DB::table('bookshelf_contacts')->insert([
+        'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf, 'position' => 0, 'name' => 'Ai đó',
     ]), 4025, 'bookshelf_contacts_position_check');
 });
 
@@ -401,9 +414,15 @@ it('settings must be valid json', function () {
 // Every table's json() column compiles to LONGTEXT plus an auto-named
 // json_valid() CHECK on MariaDB (spec §9's "2 KB expression" case, minus the
 // expression: the guarantee here is that the column refuses non-JSON at
-// all). bookshelves.settings is proved above; these are the rest of the
-// twenty tables' json columns.
-it('json_valid checks: every remaining json-backed column refuses malformed json', function () {
+// all). Seven columns across the schema carry this CHECK; bookshelves.settings
+// is proved above, this is the other six — all of them, so the test's own
+// name stays honest. notifications.payload and audit_log.context are also
+// asserted in AdminSchemaTest.php:108-121; repeated here anyway, unlike the
+// composite-FK and trigger delegations below, because this test's entire
+// point is being the one place every json_valid() CHECK in the schema is
+// listed together — a partial list here would be the same kind of hole this
+// task exists to close.
+it('json_valid checks: every json-backed column refuses malformed json', function () {
     $shelf = dbgShelf();
     $user = dbgUser();
 
@@ -416,15 +435,60 @@ it('json_valid checks: every remaining json-backed column refuses malformed json
         'action' => 'system.sweep', 'entity_type' => 'loan', 'context' => 'not json at all',
     ]), 4025, 'audit_log.context');
 
+    dbgExpectViolation(fn () => DB::table('audit_log')->insert([
+        'action' => 'system.sweep', 'entity_type' => 'loan', 'context' => '{}', 'before' => 'not json',
+    ]), 4025, 'audit_log.before');
+
+    dbgExpectViolation(fn () => DB::table('audit_log')->insert([
+        'action' => 'system.sweep', 'entity_type' => 'loan', 'context' => '{}', 'after' => 'not json',
+    ]), 4025, 'audit_log.after');
+
     dbgExpectViolation(fn () => DB::table('profile_change_requests')->insert([
         'id' => (string) Str::uuid7(), 'user_id' => $user, 'bookshelf_id' => $shelf,
         'proposed_values' => 'not json', 'previous_values' => '{}', 'status' => 'pending',
     ]), 4025, 'profile_change_requests.proposed_values');
+
+    dbgExpectViolation(fn () => DB::table('profile_change_requests')->insert([
+        'id' => (string) Str::uuid7(), 'user_id' => $user, 'bookshelf_id' => $shelf,
+        'proposed_values' => '{}', 'previous_values' => 'not json', 'status' => 'pending',
+    ]), 4025, 'profile_change_requests.previous_values');
+});
+
+// categories.slug is a plain ->unique(), not one of the ten generated-column
+// uniques above: it is global (not scoped per shelf, categories has no
+// bookshelf_id) and — the property worth pinning explicitly, since it is
+// easy to assume every unique in this schema behaves like the soft-delete-
+// aware ten — it does NOT free the slug on soft delete. A retired category
+// keeps its slug forever.
+it('categories_slug_unique: global, and not soft-delete-aware unlike the generated uniques', function () {
+    $id = (string) Str::uuid7();
+    DB::table('categories')->insert([
+        'id' => $id, 'name' => 'Thiếu nhi', 'slug' => 'thieu-nhi', 'deleted_at' => now(),
+    ]);
+
+    // A live insert reusing a *soft-deleted* row's slug still collides —
+    // the opposite of every generated unique above.
+    dbgExpectViolation(fn () => DB::table('categories')->insert([
+        'id' => (string) Str::uuid7(), 'name' => 'Thiếu nhi', 'slug' => 'thieu-nhi',
+    ]), 1062, 'categories_slug_unique');
+});
+
+// A representative composite-FK cross-tenant refusal, so this errno's
+// branch in dbgExpectViolation is exercised here and this census file is
+// self-contained rather than resting entirely on a sibling file for proof
+// that 1452 fires at all. The full fifteen, with every parent/column/
+// on-delete combination, are CompositeTenantFkTest's job, not this one's.
+it('a representative composite tenant FK refuses a cross-shelf reference', function () {
+    $shelfA = dbgShelf();
+    $shelfB = dbgShelf();
+    $bookOnB = dbgBook($shelfB);
+
+    dbgExpectViolation(fn () => dbgCopy($shelfA, $bookOnB), 1452, 'book_copies_book_fk');
 });
 
 // The remaining invariants have their probes in sibling files, all part of
 // this suite in the spec's sense:
-//   - the 15 composite tenant FKs → tests/Feature/Schema/CompositeTenantFkTest.php
+//   - the other fourteen composite tenant FKs → tests/Feature/Schema/CompositeTenantFkTest.php
 //   - loans undeletable, audit append-only, slug/feedback immutability
 //     → tests/Feature/Schema/ImmutabilityTriggerTest.php
 //   - the single-row system_settings pk → tests/Feature/Schema/AdminSchemaTest.php
