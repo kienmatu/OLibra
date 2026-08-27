@@ -29,7 +29,7 @@ it('scopes every read to the bound shelf', function () {
     app(TenantContext::class)->set($dongThap, null);
 
     expect(Book::query()->count())->toBe(1)
-        ->and(Book::query()->first()?->bookshelf_id)->toBe($dongThap->id);
+        ->and(Book::query()->sole()->bookshelf_id)->toBe($dongThap->id);
 });
 
 it('stamps bookshelf_id on create so nothing writes it by hand', function () {
@@ -46,7 +46,12 @@ it('refuses a scoped query when no tenant is bound — fail closed, not open', f
 
     // Under RLS this returned zero rows; a silent no-op here would return
     // EVERY shelf's rows the day a route group forgets its middleware.
-    expect(fn () => Book::query()->count())->toThrow(RuntimeException::class);
+    expect(fn () => Book::query()->count())->toThrow(
+        RuntimeException::class,
+        'App\Models\Book is shelf-scoped but no tenant is bound. Bind one via the tenant '
+        .'middleware, or opt in explicitly with TenantContext::actSystemWide() and name '
+        .'bookshelf_id yourself.',
+    );
 });
 
 it('reads everything only after an explicit system-wide opt-in', function () {

@@ -13,10 +13,13 @@ use App\Models\Membership;
  *
  * Three states, and the third is deliberate:
  *  - bound: set() was called; BookshelfScope filters to that shelf.
- *  - system-wide: actSystemWide() was called — the Laravel form of
- *    systemContext() in src/domain/kernel/tenant.ts. Console commands,
- *    seeders and admin queries opt in BY NAME and then name their own
- *    bookshelf_id explicitly.
+ *  - system-wide: actSystemWide() was called. This has no TypeScript
+ *    counterpart: src/domain/kernel/tenant.ts's TenantContext declares
+ *    bookshelfId as non-nullable, and even its systemContext() still names
+ *    a shelf and still filters — the old system never had a way to remove
+ *    filtering entirely. actSystemWide() is a capability spec §5 sanctions
+ *    widening into. Console commands, seeders and admin queries opt in BY
+ *    NAME and then name their own bookshelf_id explicitly.
  *  - unset: querying a scoped model THROWS (see BookshelfScope). Under RLS
  *    an unset tenant returned zero rows; a scope that silently no-ops would
  *    invert that into "returns every shelf's rows" the first time a route

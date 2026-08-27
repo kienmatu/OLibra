@@ -17,7 +17,9 @@ use Illuminate\Database\Eloquent\Scope;
  * inversion spec §10 risk 1 warns about, and precisely what happens the day
  * a route group ships without the `tenant` middleware or a job queries a
  * scoped model without opting in. System-wide reads say so by name:
- * TenantContext::actSystemWide().
+ * TenantContext::actSystemWide() — a capability with no counterpart in
+ * src/domain/kernel/tenant.ts, whose TenantContext could only ever narrow
+ * to a named shelf, never drop filtering altogether.
  *
  * @implements Scope<Model>
  */
