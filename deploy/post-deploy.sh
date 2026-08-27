@@ -42,6 +42,24 @@ case "$PHP_VERSION_ACTUAL" in
         ;;
 esac
 
+# docs/HOSTING.md row 5 / "The hashing decision": .env.example and
+# config/hashing.php both default HASH_DRIVER to argon2id, but that default
+# is only known-safe in environments this repo controls (local Docker, CI).
+# The production .env is hand-written per row 5 and is supposed to fall
+# back to bcrypt on a host without argon2id — but nothing enforced that
+# until now. Read HASH_DRIVER straight out of the host's real .env (not
+# Laravel's resolved config — artisan has not booted yet at this point in
+# the script) so a host that ships argon2id=true in .env by copy-paste
+# mistake, on a host that turns out to lack the extension, fails HERE
+# instead of at the first login attempt after a green deploy.
+HASH_DRIVER_CONFIGURED=$(grep -E '^HASH_DRIVER=' .env 2>/dev/null | tail -n1 | cut -d= -f2- || true)
+if [ "$HASH_DRIVER_CONFIGURED" = "argon2id" ]; then
+    "$PHP_BIN" -r 'exit(defined("PASSWORD_ARGON2ID") ? 0 : 1);' || {
+        echo "post-deploy.sh: .env sets HASH_DRIVER=argon2id but '$PHP_BIN' has no PASSWORD_ARGON2ID (docs/HOSTING.md row 5 unanswered/negative on this host). Every Hash::make() call would throw and every login would 500. Set HASH_DRIVER=bcrypt in .env, the spec's documented fallback, until the survey confirms argon2id support." >&2
+        exit 1
+    }
+fi
+
 # Storage skeleton (the deploy artifact excludes storage/app, storage/logs
 # and storage/framework — see the rsync excludes in
 # .github/workflows/deploy-laravel.yml — so these directories must exist
