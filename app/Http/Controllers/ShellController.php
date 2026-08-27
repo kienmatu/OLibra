@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\BookshelfStatus;
 use App\Models\Book;
 use App\Models\Bookshelf;
 use Inertia\Inertia;
@@ -18,7 +19,7 @@ class ShellController extends Controller
     {
         return Inertia::render('shelves/index', [
             'shelves' => Bookshelf::query()
-                ->where('status', 'active')
+                ->where('status', BookshelfStatus::Active)
                 ->orderBy('name')
                 ->get(['id', 'slug', 'name', 'location'])
                 ->map(fn (Bookshelf $shelf) => [

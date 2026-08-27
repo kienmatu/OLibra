@@ -137,6 +137,12 @@ return [
 
     'history' => [
 
+        // Deliberate, not inherited: Phase 1's page props will include
+        // reader names, phone numbers and loan history — all of which
+        // persist in the browser's history state and stay readable there
+        // after logout unless encrypted. false is today's choice because
+        // no such prop exists yet on this branch; Phase 1 must revisit it
+        // once one does, rather than carry this default forward by habit.
         'encrypt' => (bool) env('INERTIA_ENCRYPT_HISTORY', false),
 
     ],
