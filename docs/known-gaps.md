@@ -292,6 +292,33 @@ directly with a message tacked on.
 - **No session rotation on credential reset.** Nothing invalidates a user's
   *other* sessions when their credentials change. Named as a second open item
   in the same `config/session.php` comment; assigned to no task.
+- **No `validation.php` language file exists, in any locale, so a
+  `FormRequest`'s automatic rule messages render as raw translation keys.**
+  `find . -iname validation.php` outside `vendor/` finds nothing — Laravel
+  11+ ships no default language files at all; they only exist once
+  published via `php artisan lang:publish`, which this app never ran.
+  `lang/vi/` holds only `auth.php` (Task 16's deliberate messages for
+  `LoginRequest::authenticate()`'s own `ValidationException` —
+  `auth.failed` and `auth.throttle`, both reached via `__()` directly and
+  unaffected by this gap). What *is* affected is `LoginRequest`'s automatic
+  rule validation (`rules()`, `LoginRequest.php:24-27`): submitting the
+  login form with an empty `password` fails Laravel's own `required` rule
+  before `authenticate()` ever runs, and with no `validation.php` to
+  translate the message key, `resources/js/pages/auth/login.tsx`'s
+  `errors.password` renders the literal string `validation.required`
+  rather than real text. It is not merely missing an English fallback:
+  `.env` and `.env.example` both set `APP_LOCALE=vi` *and*
+  `APP_FALLBACK_LOCALE=vi`, and Laravel's `Translator::localeArray()`
+  dedupes `[locale, fallback]` into a single-entry chain when the two
+  match — so the vendor's own English `validation.php`
+  (`vendor/laravel/framework/.../lang/en/validation.php`) is never
+  consulted as a rescue either; it would only be reached with
+  `APP_FALLBACK_LOCALE=en`. Any other `FormRequest`'s default rule
+  messages would show the same way — this is not specific to the login
+  screen, just the first place Task 18 rendered one. Left for Phase 1,
+  which is expected to publish and translate `lang/vi/validation.php`
+  alongside the real forms that need field-level messages, rather than a
+  one-off fix to this one request.
 - **`docs/HOSTING.md` rows 2–14 have never been run against the real host.**
   Only row 1 (PHP 8.4 selectable) is answered — by the product owner's
   instruction, not by a probe, though dreamtube's live deployment on the same
