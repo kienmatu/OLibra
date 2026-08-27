@@ -32,7 +32,7 @@ the host.
 | 9 | The `create trigger` probe succeeded? | UNANSWERED — product owner to run. Probes: `mysql -e "show grants for current_user();"`, and the exact trigger probe below. | Yes → Task 12 ships triggers as designed. **ERROR 1419** (binary logging on, no SUPER, `log_bin_trust_function_creators=0` — common on managed MariaDB, and invisible in CI where binlog is off) → ask the host to set `log_bin_trust_function_creators=1`; refused → the trigger migrations still run in dev/CI, production loses only the belt-and-braces layer, and this row documents the loss (the application never issues DELETE on loans / UPDATE on audit_log anyway). A bare privilege error means the same fallback. **Task 21 assumes:** triggers are shipped as designed; if row 9 comes back with ERROR 1419 and the host refuses `log_bin_trust_function_creators=1`, this row's documented loss (belt-and-braces only, not required application behavior) applies without further Task 21 changes. |
 | 10 | The `_probe` table — the schema's real generated-column shapes, with their unique indexes — created cleanly? | UNANSWERED — product owner to run. Probe: the exact `_probe` table DDL below. | Yes → §4.1's mechanism works on this host. Errno 1901 or any refusal → escape hatch: app-maintained folded/key columns via model observers (spec §4.2 option 2), decided here, not later. The probe uses VARCHAR(36) operands deliberately — CHAR(36) fails with 1901 on every 10.11 (see the plan's Global Constraints), so a CHAR-based probe would condemn a healthy host. |
 | 11 | Cron with `* * * * *` allowed? | UNANSWERED — product owner to run. Probe: check cPanel → Cron Jobs page for the minimum allowed interval. | Drives the scheduler and queue drain (Task 21). If the minimum interval is coarser, record it and adjust `--max-time` accordingly. **Task 21 assumes:** `* * * * *` is allowed. |
-| 12 | cPanel Git™ Version Control available? | UNANSWERED — product owner to run. Probe: check cPanel for the Git™ Version Control feature. | Yes → deploy via `.cpanel.yml`. No → rsync over SSH (Task 21 carries both; this row picks one). **Task 21 assumes cPanel Git™ / `.cpanel.yml` deploy** as the default path until the survey confirms availability; see "The deploy channel decision" below. |
+| 12 | cPanel Git™ Version Control available? | UNANSWERED — product owner to run. Probe: check cPanel for the Git™ Version Control feature. | Yes → deploy via `.cpanel.yml`. No → rsync over SSH (Task 21 carries both; this row picks one). **Task 21 assumes cPanel Git™ / `.cpanel.yml` deploy** as the default path until the survey confirms availability; see "The deploy channel decision" below — and its "which channel is actually wired" paragraph for what is actually implemented today (rsync-over-SSH, not this row's default; `.cpanel.yml` ships correct but inert until an artifact-delivery mechanism into its git remote exists). |
 | 13 | Composer on host? | UNANSWERED — product owner to run. Probe: `which composer 2>&1` | Irrelevant if artifact ships `vendor/` (it does); recorded because a host composer makes hotfixes easier. **Task 21 assumes:** no host composer; the deploy artifact ships `vendor/`. |
 | 14 | SSH access? | UNANSWERED — product owner to run. Probe: attempt an SSH session; cPanel → Terminal if no SSH key is set up yet. | rsync path and `php artisan migrate` at deploy need it; without SSH, deploy is cPanel Git + a post-deploy hook. **Task 21 assumes:** SSH access is available. |
 
@@ -132,28 +132,45 @@ the host, only how the files get there.
 
 ## Cron lines (create in cPanel → Cron Jobs)
 
-    * * * * * cd /home/<account>/olibra && /path/to/php84/bin/php artisan schedule:run >> /dev/null 2>> /home/<account>/olibra/storage/logs/cron-schedule.err.log
-    0 2 * * * /usr/bin/mysqldump --single-transaction <db_name> | gzip > /home/<account>/backups/olibra-$(date +\%F).sql.gz
+    * * * * * cd $HOME/olibra && /path/to/php84/bin/php artisan schedule:run >> /dev/null 2>> $HOME/olibra/storage/logs/cron-schedule.err.log
+    0 2 * * * mysqldump --defaults-extra-file=$HOME/.my.cnf --single-transaction <db_name> | gzip > $HOME/backups/olibra-$(date +\%F).sql.gz
+
+`$HOME` (not a hand-typed `/home/<account>`) is what dreamtube's DEPLOYMENT.md
+uses in every cron example, precisely so these two lines are copy-pasteable
+verbatim into cPanel's Cron Jobs form on any account — cron sets `$HOME` from
+`/etc/passwd` itself, so nothing here needs editing except the two pieces
+that genuinely have no substitute: the PHP path and `<db_name>`.
 
 The first line is the scheduler tick; queue draining rides it
 (`routes/console.php`'s `Schedule::command('queue:work --stop-when-empty
---max-time=50')->everyMinute()`). **`/path/to/php84/bin/php` is a placeholder,
-not a real path** — dreamtube's DEPLOYMENT.md found `/opt/alt/php84/usr/bin/php`
-(CloudLinux alt-php) on the same host profile, *not*
-`/usr/local/bin/ea-php84`, and warns explicitly against ever writing bare
-`php` in a cron entry: it works in an interactive SSH session only because
-cPanel puts the right binary first on that PATH, and cron does not read
-`~/.bashrc` — it runs with roughly `PATH=/usr/bin:/bin` and can silently pick
-up a `php-cgi` build of the right version instead. That binary passes every
-version check, drops the `schedule:run` argument because CGI does not
-populate `$argv`, and exits 0 having run nothing — cron logs a success every
-minute while the entire pipeline does nothing. Resolve the real path with
-`php -r 'echo PHP_BINARY;'` in an actual cPanel SSH session (row 14) before
-creating this cron line, and confirm it explicitly with `php -r 'echo
-PHP_SAPI;'` (must print `cli`) rather than trusting `php -v`'s version number
-alone. `deploy/post-deploy.sh` runs the same check itself (`PHP_BIN`,
-defaulting to `php`) precisely because the same ambiguity applies to a
-non-interactive SSH command, not only to cron.
+--max-time=50')->everyMinute()`). Because `queue:work` is not backgrounded
+(no `->runInBackground()`), a tick that finds queued work blocks for up to
+50 seconds before the tick returns — the *next* minute's `schedule:run`
+still fires on schedule regardless (cron invokes independently each minute),
+but whatever else is due in the same tick as a busy queue drain runs late by
+however long the drain took. This is the mechanism behind the Phase 2
+reminder sweep's own comment in `routes/console.php`: once that line is
+uncommented, a long queue drain in the same minute as 07:00 delays the sweep
+by however many seconds the drain took, not by a full tick.
+
+**`/path/to/php84/bin/php` is a placeholder, not a real path** — dreamtube's
+DEPLOYMENT.md found `/opt/alt/php84/usr/bin/php` (CloudLinux alt-php) on the
+same host profile, *not* `/usr/local/bin/ea-php84`, and warns explicitly
+against ever writing bare `php` in a cron entry: it works in an interactive
+SSH session only because cPanel puts the right binary first on that PATH,
+and cron does not read `~/.bashrc` — it runs with roughly
+`PATH=/usr/bin:/bin` and can silently pick up a `php-cgi` build of the right
+version instead. That binary passes every version check, drops the
+`schedule:run` argument because CGI does not populate `$argv`, and exits 0
+having run nothing — cron logs a success every minute while the entire
+pipeline does nothing. Resolve the real path with `php -r 'echo
+PHP_BINARY;'` in an actual cPanel SSH session (row 14) before creating this
+cron line, and confirm it explicitly with `php -r 'echo PHP_SAPI;'` (must
+print `cli`) rather than trusting `php -v`'s version number alone.
+`deploy/post-deploy.sh` runs the same check itself (`PHP_BIN`, defaulting to
+`php`, overridable via the `DEPLOY_PHP_BIN` repository secret) precisely
+because the same ambiguity applies to a non-interactive SSH command, not
+only to cron.
 
 Stdout is discarded and stderr is appended to a file, not the reverse — this
 matches dreamtube's runbook's reasoning: `schedule:run` fires 1440 times a
@@ -166,23 +183,67 @@ checking `PHP_SAPI` directly, not by reading either log, which is exactly why
 `post-deploy.sh` checks it structurally instead of trusting a clean log.
 
 The second line is the database half of the backup story; the file half is
-`/home/<account>/olibra/storage/`, and the restore path for BOTH must be
-rehearsed and written into a deployment runbook at cutover — spec §10 risk 3
-says this plainly. `<db_name>` and the backup destination path are
-placeholders for the same reason the PHP path above is: nobody has the real
-account name or database name from this session.
+`$HOME/olibra/storage/`, and the restore path for BOTH must be rehearsed and
+written into a deployment runbook at cutover — spec §10 risk 3 says this
+plainly. It needs two things nothing else in this document creates:
+
+- **`$HOME/.my.cnf`**, `chmod 600`, containing:
+  ```
+  [client]
+  user=<db_user>
+  password=<db_password>
+  ```
+  A bare `mysqldump --single-transaction <db_name>` has no credentials at
+  all on a cPanel account with no assumed root `~/.my.cnf` — the realistic
+  failure is not a loud error, it's an access-denied `mysqldump` writing
+  nothing meaningful to stdout, piped through `gzip` regardless, landing as
+  a small-but-nonzero `.gz` file that *looks* like a backup and restores
+  nothing. Never put the password directly in the crontab line — it is
+  readable by anything that can read `crontab -l`.
+- **`mkdir -p $HOME/backups`** — cPanel does not create this directory, and
+  a cron job whose redirect target's parent directory does not exist fails
+  silently in the same "looks fine, isn't" way.
+
+Both belong in the first deploy checklist below, before this cron line is
+ever created. `<db_name>` is a placeholder for the same reason the PHP path
+above is: nobody has the real database name from this session.
 
 ## Docroot wiring (per row 6)
 
-Symlink chosen:   mv ~/public_html ~/public_html.old && ln -s /home/<account>/olibra/public ~/public_html
-Shim fallback:    keep public_html/, place an index.php requiring
-                  /home/<account>/olibra/public/index.php after chdir'ing there,
-                  and copy public/.htaccess and public/build into public_html/.
+Three options, in the order to actually try them:
 
-Task 21 assumes the shim fallback by default (see "The docroot decision"
-above) until row 6 confirms `symlink()` is permitted; `deploy/post-deploy.sh`
-does not perform either wiring step itself; it is a one-time, by-hand setup
-action, not part of the repeatable deploy.
+1. **Document Root override (try this first).** In cPanel → Domains, set the
+   domain's Document Root directly to `/home/<account>/olibra/public`. No
+   symlink, no shim, and row 6 (`symlink()` allowed?) never matters — this is
+   what dreamtube's DEPLOYMENT.md offers first, and it is the option that
+   was actually load-bearing in a real deployment on this host profile.
+   Whether cPanel's Domains UI permits a Document Root outside
+   `public_html` at all is itself unconfirmed on OLibra's account, which is
+   why this is "try first," not "assumed."
+2. **Symlink**, if option 1 is unavailable and row 6 confirms `symlink()`
+   works:
+   `mv ~/public_html ~/public_html.old && ln -s /home/<account>/olibra/public ~/public_html`
+3. **Shim fallback**, if neither of the above is available — **Task 21's
+   coded default** (see "The docroot decision" above) until row 6 returns:
+   `deploy/public_html-index.php.template` ships a real copy of Laravel's
+   `public/index.php` with its two require paths repointed at a sibling
+   `olibra/` application directory (rather than existing only as a sentence
+   in this file). Copy it to `~/public_html/index.php`, dropping the
+   `.template` suffix. Unlike options 1 and 2, the shim leaves `public/` and
+   `public_html/` as two separate directories, so the built assets
+   (`public/build/`, `public/.htaccess`) have to be kept in sync on **every**
+   deploy, not wired once — `deploy/post-deploy.sh` does this automatically
+   when the `PUBLIC_HTML_PATH` environment variable is set for that run
+   (see the script's own comment), and does nothing when it is unset, which
+   is the correct behaviour under options 1 and 2.
+
+None of the three is performed by `deploy/post-deploy.sh` itself as a
+one-time action — choosing and wiring the docroot is a by-hand setup step,
+not part of the repeatable deploy. (Row 12's table cell above still names
+cPanel Git™ as the default deploy channel; see "which channel is actually
+wired" a few paragraphs above that table for the as-implemented answer,
+which is rsync-over-SSH — the two are a different decision from the docroot
+one on this line.)
 
 ## First deploy checklist
 
@@ -201,10 +262,17 @@ action, not part of the repeatable deploy.
    (bcrypt until confirmed otherwise — see "The hashing decision" above).
 3. Confirm the CLI PHP binary and SAPI explicitly before anything else runs
    — `php -r 'echo PHP_SAPI, " ", PHP_VERSION;'` in a real SSH session must
-   print `cli 8.4.x`, not merely a version number from `php -v`.
-4. Run the deploy workflow (`.github/workflows/deploy-laravel.yml`, manual
+   print `cli 8.4.x`, not merely a version number from `php -v`. Set the
+   `DEPLOY_PHP_BIN` repository secret to the resolved absolute path if it is
+   not bare `php`.
+4. Wire the docroot (see "Docroot wiring" above — try the Document Root
+   override first) and, if the shim ends up chosen, copy
+   `deploy/public_html-index.php.template` into place per its own header.
+5. Create `$HOME/.my.cnf` (`chmod 600`) and `mkdir -p $HOME/backups` — both
+   required by the backup cron line below, neither created automatically.
+6. Run the deploy workflow (`.github/workflows/deploy-laravel.yml`, manual
    dispatch); verify /login renders over HTTPS. This is the acceptance test
    named in the Phase 0 exit criteria — nothing in this repository has
    verified it yet, because nobody has run the workflow against a real host.
-5. Create the cron lines above, with the real PHP CLI path from step 3
+7. Create the cron lines above, with the real PHP CLI path from step 3
    substituted for the placeholder.

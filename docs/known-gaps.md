@@ -308,6 +308,36 @@ renders even one page needs the front-end build to have already happened in
 that job** — there is no lazy-build path in production Vite manifests the way
 there is a lazy dev-server path locally.
 
+## An unanchored rsync `--exclude` matches its basename at any depth, and the failure is invisible until the artifact runs
+
+**`--exclude='src'` on the Task 21 deploy artifact did not mean "the
+top-level `src/` directory" — it meant "any path component literally named
+`src` anywhere in the tree," which strips every `vendor/*/src/` directory
+Composer packages ship their PHP in.** Reproduced: `vendor/laravel/framework/src`
+alone holds thousands of files, and against the real repo the same shape hit
+`--exclude='tests'`, `'docker'`, `'scripts'`, and `--exclude='storage/logs'`
+(which also matched `vendor/*/storage/logs`, wherever any dependency happens
+to ship a directory by that name). The artifact would have shipped
+`vendor/autoload.php` with a classmap pointing at files that do not exist —
+every request fatals at boot — and because the Ship step in
+`.github/workflows/deploy-laravel.yml` is `rsync -az --delete`, a redeploy
+onto a previously-working host would have *deleted* those files there too,
+not merely failed to add them.
+
+Caught only in review, by a `rsync --dry-run --itemize-changes` against the
+real repo tree — not by reading the exclude list, and not by an `ls -la` of
+the repo root, which was the check actually performed and is exactly the
+kind of check that cannot surface this (it shows what's at the root, not
+what an unanchored pattern matches three directories down). The rule: an
+rsync `--exclude` pattern with no leading `/` matches its basename anywhere
+in the transferred tree, not just at the transfer root — write `/src`,
+`/tests`, `/storage/logs`, etc. whenever "the top-level thing named X" is
+what's meant, which is nearly always the intent for a deploy-artifact
+exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
+`.github/workflows/deploy-laravel.yml`; re-verified with a dry run showing
+`vendor/laravel/framework/src/*` present in the transfer and the top-level
+`src/`/`tests/` still absent.
+
 ## Deliberately unfinished
 
 - **No absolute session lifetime.** Laravel's session shape offers only idle

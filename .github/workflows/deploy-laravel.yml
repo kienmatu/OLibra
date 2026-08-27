@@ -53,20 +53,33 @@ jobs:
       # migration, and none of that belongs on the PHP host. node_modules is
       # excluded on purpose too — no build step runs on the host, so nothing
       # there is ever read at runtime.
+      #
+      # Every pattern below is ANCHORED with a leading slash. An
+      # unanchored rsync --exclude matches its basename at ANY depth, not
+      # just at the transfer root — `--exclude='src'` does not mean "the
+      # top-level src/ directory", it means "any path component literally
+      # named src anywhere in the tree", which strips every
+      # `vendor/*/src/` directory Composer packages ship their PHP in
+      # (verified: `vendor/laravel/framework/src` alone is thousands of
+      # files). The same shape hit `tests`, `docker`, `scripts` and
+      # `storage/logs` here. A leading slash pins the match to the root of
+      # the transfer, which is what every one of these exclusions actually
+      # means. See docs/known-gaps.md for how this was caught (a dry-run
+      # rsync, not a directory listing) and reproduced.
       - name: Assemble artifact
         run: |
           mkdir -p .artifacts
           rsync -a \
-            --exclude='.git' --exclude='.github' --exclude='.artifacts' \
-            --exclude='node_modules' --exclude='src' --exclude='tests' \
-            --exclude='docker' --exclude='docker-compose.laravel.yml' \
-            --exclude='compose.yaml' --exclude='compose.prod.yaml' \
-            --exclude='next.config.ts' --exclude='vitest.config.ts' \
-            --exclude='.superpowers' --exclude='storage/logs' \
-            --exclude='.env' --exclude='.env.example' --exclude='.env.prod.example' \
-            --exclude='Dockerfile' --exclude='Caddyfile' --exclude='deploy.sh' \
-            --exclude='scripts' --exclude='.claude' --exclude='.dockerignore' \
-            --exclude='tsconfig.tsbuildinfo' \
+            --exclude='/.git' --exclude='/.github' --exclude='/.artifacts' \
+            --exclude='/node_modules' --exclude='/src' --exclude='/tests' \
+            --exclude='/docker' --exclude='/docker-compose.laravel.yml' \
+            --exclude='/compose.yaml' --exclude='/compose.prod.yaml' \
+            --exclude='/next.config.ts' --exclude='/vitest.config.ts' \
+            --exclude='/.superpowers' --exclude='/storage/logs' \
+            --exclude='/.env' --exclude='/.env.example' --exclude='/.env.prod.example' \
+            --exclude='/Dockerfile' --exclude='/Caddyfile' --exclude='/deploy.sh' \
+            --exclude='/scripts' --exclude='/.claude' --exclude='/.dockerignore' \
+            --exclude='/tsconfig.tsbuildinfo' \
             ./ .artifacts/release/
 
       # docs/HOSTING.md rows 12/14 (cPanel Git availability, SSH access) are
@@ -78,28 +91,57 @@ jobs:
       # .cpanel.yml still ships alongside this workflow as the alternate
       # channel (its own deploy task calls the same post-deploy.sh). Only
       # one channel is wired at a time — see docs/HOSTING.md.
+      #
+      # DEPLOY_PHP_BIN is optional and deliberately NOT defaulted to a
+      # literal path here: dreamtube's DEPLOYMENT.md found the CLI binary on
+      # this exact host profile at /opt/alt/php84/usr/bin/php (CloudLinux
+      # alt-php), not /usr/local/bin/ea-php84 an EasyApache box would have —
+      # a value only the real account can supply. Left unset, it resolves to
+      # bare `php` on the host's non-interactive SSH PATH, which
+      # post-deploy.sh's own guard will refuse if that turns out to mean the
+      # wrong SAPI or version; setting this secret is how an operator acts on
+      # that refusal without editing this workflow.
       - name: Ship (rsync over ssh)
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_PHP_BIN: ${{ secrets.DEPLOY_PHP_BIN }}
         run: |
+          : "${DEPLOY_KEY:?DEPLOY_SSH_KEY secret is not set}"
+          : "${DEPLOY_HOST:?DEPLOY_HOST secret is not set}"
+          : "${DEPLOY_USER:?DEPLOY_USER secret is not set}"
+          : "${DEPLOY_PATH:?DEPLOY_PATH secret is not set}"
+
           mkdir -p ~/.ssh
           echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+          # --delete only removes files that are absent from the release
+          # AND not excluded — the excludes above (.env, storage/app,
+          # storage/framework, storage/logs) are why a redeploy does not
+          # wipe the host's live uploads, sessions or logs. It DOES delete
+          # bootstrap/cache/config.php when present, which is deliberate:
+          # `migrate --force` running against a stale cached config
+          # (post-deploy.sh runs config:cache only AFTER migrate) would be
+          # worse than the config cache being cold for the few seconds
+          # between rsync finishing and post-deploy.sh regenerating it.
           rsync -az --delete \
-            --exclude='.env' --exclude='storage/app' --exclude='storage/framework' \
-            --exclude='storage/logs' \
+            --exclude='/.env' --exclude='/storage/app' --exclude='/storage/framework' \
+            --exclude='/storage/logs' \
             -e "ssh -i ~/.ssh/id_ed25519" \
             .artifacts/release/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
           ssh -i ~/.ssh/id_ed25519 "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash $DEPLOY_PATH/deploy/post-deploy.sh $DEPLOY_PATH"
+            "PHP_BIN='$DEPLOY_PHP_BIN' bash $DEPLOY_PATH/deploy/post-deploy.sh $DEPLOY_PATH"
 
 # Secrets to create in the repository's "production" environment before the
 # first run: DEPLOY_SSH_KEY (private half of a deploy key authorised on the
 # host, read/write only to this path), DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH
 # (e.g. /home/<account>/olibra — outside public_html; see docs/HOSTING.md's
-# docroot wiring section). None of these have been created yet: this
-# pipeline has never actually deployed anything.
+# docroot wiring section), and optionally DEPLOY_PHP_BIN (the resolved CLI
+# php binary's absolute path — leave unset until an operator has actually
+# run `php -r 'echo PHP_BINARY;'` in a real SSH session against the host).
+# None of these have been created yet: this pipeline has never actually
+# deployed anything.

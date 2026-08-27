@@ -64,4 +64,19 @@ chmod -R 775 storage bootstrap/cache
 "$PHP_BIN" artisan route:cache
 "$PHP_BIN" artisan view:cache
 
+# Docroot shim mode only (docs/HOSTING.md row 6's last-resort option,
+# deploy/public_html-index.php.template): unlike the preferred Document-Root
+# override or the public_html symlink, the shim leaves public_html/ a
+# separate directory from public/ — so the assets Vite just built have to be
+# copied over on EVERY deploy, not wired once. Skipped entirely (no-op) when
+# PUBLIC_HTML_PATH is unset, which is the case for both of the other two
+# docroot options and is why this is not unconditional.
+if [ -n "${PUBLIC_HTML_PATH:-}" ]; then
+    echo "post-deploy.sh: PUBLIC_HTML_PATH set — syncing public/build and public/.htaccess into $PUBLIC_HTML_PATH"
+    mkdir -p "$PUBLIC_HTML_PATH"
+    rm -rf "$PUBLIC_HTML_PATH/build"
+    cp -r public/build "$PUBLIC_HTML_PATH/build"
+    cp public/.htaccess "$PUBLIC_HTML_PATH/.htaccess"
+fi
+
 echo "post-deploy.sh: done."

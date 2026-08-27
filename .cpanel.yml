@@ -9,9 +9,11 @@
 # (dreamtube's DEPLOYMENT.md: `bun run build` aborts under CloudLinux).
 #
 # DEPLOYPATH must be outside public_html, matching the docroot wiring in
-# docs/HOSTING.md. Update the literal path below to match the real cPanel
-# account name before the first deploy — $USER only resolves correctly in a
-# real cPanel shell, not this file.
+# docs/HOSTING.md. $USER below resolves at the moment cPanel actually runs
+# this task, inside its own deployment shell — not while anyone is reading
+# this file — so no edit is needed here as long as the app checks out under
+# the account's own home directory as `olibra`. Change the literal `olibra`
+# segment only if the app lives somewhere else under that home directory.
 deployment:
   tasks:
     - export DEPLOYPATH=/home/$USER/olibra
