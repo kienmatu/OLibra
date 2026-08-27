@@ -64,4 +64,20 @@ class Bookshelf extends Model
     {
         return $this->hasMany(BookCopy::class);
     }
+
+    /**
+     * Feedback.bookshelf_id is nullable and Feedback deliberately does not
+     * carry BelongsToBookshelf (see its docblock), so a shelf-scoped read
+     * cannot go through a global scope. Routing it through THIS relation
+     * instead of a hand-written filter on that column means Phase 2's
+     * app/Queries classes need no literal filter — and no exemption in
+     * TenancyArchitectureTest's hand-written-filter allowlist — to read a
+     * shelf's own feedback: $shelf->feedback()->... already scopes by FK.
+     *
+     * @return HasMany<Feedback, $this>
+     */
+    public function feedback(): HasMany
+    {
+        return $this->hasMany(Feedback::class);
+    }
 }
