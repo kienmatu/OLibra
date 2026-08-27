@@ -14,7 +14,7 @@
     </testsuites>
     <source>
         <include>
-            <directory>laravel_app</directory>
+            <directory>app</directory>
         </include>
     </source>
     <php>
