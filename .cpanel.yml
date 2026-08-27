@@ -14,7 +14,19 @@
 # this file — so no edit is needed here as long as the app checks out under
 # the account's own home directory as `olibra`. Change the literal `olibra`
 # segment only if the app lives somewhere else under that home directory.
+# PUBLIC_HTML_PATH is the shim-docroot channel's equivalent of the
+# DEPLOY_PUBLIC_HTML_PATH secret wired into
+# .github/workflows/deploy-laravel.yml: post-deploy.sh only copies
+# public/build and public/.htaccess into public_html when it is set, and
+# left unset here (as below) that step is a no-op — meaning an operator on
+# the shim-docroot path (docs/HOSTING.md row 6's last resort) who deploys
+# through cPanel Git™ instead of the rsync channel gets a successful deploy
+# with an unstyled site and 404s on every /build/assets/* asset, with no
+# error anywhere. Uncomment and set the real path if this channel is the
+# one wired and the docroot ended up being the shim rather than a symlink
+# or Document Root override.
 deployment:
   tasks:
     - export DEPLOYPATH=/home/$USER/olibra
+    # - export PUBLIC_HTML_PATH=/home/$USER/public_html
     - /bin/bash $DEPLOYPATH/deploy/post-deploy.sh $DEPLOYPATH
