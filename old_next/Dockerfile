@@ -1,5 +1,14 @@
 # Bun installs, Node compiles, Bun runs.
 #
+# Built from the REPO ROOT, not this directory: `docker build -f
+# old_next/Dockerfile .` (see compose.yaml's `build.context: ..`).
+# `package.json`/`bun.lock` are one level up from this file — a single shared
+# JS toolchain with the Laravel app that now occupies `app/` at the root (see
+# AGENTS.md) — so the build context has to include both. `COPY . .` below
+# therefore copies the whole repository, and `next.config.ts`'s
+# `outputFileTracingRoot` is set to that same root so the two agree about
+# where "root" is.
+#
 # The runtime is Bun by preference: the lockfile, the local scripts and the
 # production process then agree, which removes a class of "works locally, not
 # in the image".
@@ -75,7 +84,7 @@ ENV APP_DOMAIN=${APP_DOMAIN}
 ARG NODE_OPTIONS
 ENV NODE_OPTIONS=${NODE_OPTIONS}
 
-RUN npm run build
+RUN ./node_modules/.bin/next build old_next
 
 
 # ── runtime ──────────────────────────────────────────────────────────────────
@@ -133,22 +142,28 @@ RUN groupadd --system --gid 1001 nodejs \
 # `bun run db:sweep` (and `db:migrate`, `db:seed`) run the file directly under
 # Bun's native TypeScript support instead of through anything Next built.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
-COPY --from=builder --chown=nextjs:nodejs /app/src ./src
+COPY --from=builder --chown=nextjs:nodejs /app/old_next/src ./old_next/src
 
-COPY --from=builder /app/public ./public
+COPY --from=builder /app/old_next/public ./old_next/public
 # `output: "standalone"` emits a server plus only the files it traced, so this
 # adds the rest of `node_modules` alongside the single package copied above —
 # the two do not overlap (`postgres` was never part of the trace, per the note
 # above), so nothing here is overwritten, only supplemented.
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+#
+# The standalone tree is nested under `old_next/` here, not flat: the
+# `outputFileTracingRoot` set in `next.config.ts` is the repo root (one level
+# above this app), so Next preserves that relative path — `server.js` lands
+# at `.next/standalone/old_next/server.js`, with the traced `node_modules`
+# at the tracing root's own level, `.next/standalone/node_modules`.
+COPY --from=builder --chown=nextjs:nodejs /app/old_next/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/old_next/.next/static ./old_next/.next/static
 
 USER nextjs
 EXPOSE 3000
 
 # No HEALTHCHECK here — compose owns it, so the check and the dependency
 # ordering live in one file rather than two.
-CMD ["bun", "server.js"]
+CMD ["bun", "old_next/server.js"]
 
 
 # ── smoke test ───────────────────────────────────────────────────────────────
@@ -162,7 +177,7 @@ CMD ["bun", "server.js"]
 # runtime that starts and then serves nothing. The probe runs under Bun too, so
 # nothing extra is installed to perform it.
 FROM runner AS smoke
-RUN bun server.js & \
+RUN bun old_next/server.js & \
     bun -e ' \
       const deadline = Date.now() + 30_000; \
       while (Date.now() < deadline) { \

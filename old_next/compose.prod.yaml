@@ -179,8 +179,11 @@ services:
   # ── Application ────────────────────────────────────────────────────────────
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Context is the repo root, not this directory: package.json/bun.lock
+      # live there (shared with the Laravel app at app/, see AGENTS.md), and
+      # Dockerfile's `COPY package.json bun.lock ./` needs them in context.
+      context: ..
+      dockerfile: old_next/Dockerfile
       # Not the implicit last stage — that is `smoke`, whose RUN step boots the
       # server with none of the environment a real boot has. compose.yaml
       # carries the fuller explanation on its own identical line.
@@ -350,8 +353,11 @@ services:
   # to exit.
   migrate:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Context is the repo root, not this directory: package.json/bun.lock
+      # live there (shared with the Laravel app at app/, see AGENTS.md), and
+      # Dockerfile's `COPY package.json bun.lock ./` needs them in context.
+      context: ..
+      dockerfile: old_next/Dockerfile
       target: runner
       args:
         APP_DOMAIN: ${APP_DOMAIN}

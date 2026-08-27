@@ -18,10 +18,10 @@
 .pnp
 .pnp.*
 
-# Build output
-/.next/
-/out/
-/build
+# Build output (old_next/, the Next.js reference app — see AGENTS.md)
+/old_next/.next/
+/old_next/out/
+/old_next/build
 next-env.d.ts
 *.tsbuildinfo
 
@@ -46,10 +46,10 @@ next-env.d.ts
 # personal field in the system, including children's names and dates of birth.
 backups/
 
-# Test output
-/coverage
-/playwright-report
-/test-results
+# Test output (old_next/)
+/old_next/coverage
+/old_next/playwright-report
+/old_next/test-results
 
 # Editors and OS
 /.fleet
@@ -61,10 +61,10 @@ backups/
 npm-debug.log*
 yarn-error.log*
 
-# Container data. Bind-mounted from compose.yaml so the parish's records
-# survive `docker compose down -v` — which also means they must never be
-# committed.
-/data/
+# Container data. Bind-mounted from old_next/compose.yaml (the Next.js
+# reference app) so the parish's records survive `docker compose down -v` —
+# which also means they must never be committed.
+/old_next/data/
 .DS_Store
 .env
 .env.backup

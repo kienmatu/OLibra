@@ -7,46 +7,12 @@ import next from "eslint-config-next";
  */
 const config = [
   {
-    /**
-     * `.claude/**` is not source. Claude Code puts each session's git worktree
-     * under `.claude/worktrees/<name>/`, and a worktree that has been run at
-     * all carries its own `.next/` build output — hundreds of generated
-     * chunks, minified and full of `eval`, which ESLint then tries to parse
-     * with the TypeScript rules this config only ever meant for `src/`. The
-     * result is a few hundred errors of the shape "Definition for rule
-     * '@typescript-eslint/no-unused-vars' was not found" and `bun run check`
-     * red for a reason that has nothing to do with the branch under it.
-     *
-     * The existing `.next/**` entry does not cover it: a leading-segment
-     * pattern anchors to this config file's directory, so it matches the
-     * repository's own build output and not a nested one several levels down.
-     * Ignoring the whole directory rather than `.claude/worktrees/**\/.next/**`
-     * is deliberate — nothing under `.claude/` is ours to lint, and a narrower
-     * pattern would need widening again the first time a session writes
-     * something else in there.
-     */
-    ignores: [
-      ".next/**",
-      ".claude/**",
-      "out/**",
-      "build/**",
-      "node_modules/**",
-      "next-env.d.ts",
-      // The Laravel side of the repo (Task 2 onward). `resources/js` is
-      // Biome's job (biome.json), not ESLint's — the two tools use different
-      // rule sets and formatting conventions, and this config's TypeScript
-      // rules were never meant for it. `public/build/**` is Vite's compiled
-      // output for that same tree: minified, full of `eval`, same failure
-      // shape the `.claude/**` entry above already documents for `.next/**`.
-      "resources/**",
-      "public/build/**",
-      // Composer's dependency tree — some packages ship vendored JS (e.g.
-      // Laravel's exception renderer), which is not this repo's source any
-      // more than `node_modules/**` above is.
-      "vendor/**",
-      "storage/**",
-      "bootstrap/cache/**",
-    ],
+    // Scoped to `old_next/` (this config's own directory) since the Laravel
+    // app moved back to `app/` at the repo root — there is no longer a
+    // shared-root collision to guard against here (see AGENTS.md and
+    // docs/known-gaps.md). `package.json`'s `lint` script runs this from
+    // inside `old_next/`, so these patterns are relative to that directory.
+    ignores: [".next/**", "out/**", "build/**", "node_modules/**", "next-env.d.ts"],
   },
   ...next,
   {

@@ -4,7 +4,11 @@ import { defineConfig } from "vitest/config";
 
 // Loaded before the config object is built, so TEST_DATABASE_URL from .env is
 // visible to the suite without every developer exporting it by hand.
-config({ path: ".env", quiet: true });
+//
+// `.env` itself still lives at the repo root, one level up from this file:
+// it is shared with the Laravel app that now occupies `app/` at the root
+// (see AGENTS.md), documenting both stacks' variables in one place.
+config({ path: "../.env", quiet: true });
 
 export default defineConfig({
   resolve: {
