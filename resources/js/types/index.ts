@@ -14,6 +14,14 @@ export interface SharedAuthUser {
     display_name: string | null;
     full_name: string;
     saint_name: string;
+    /**
+     * The global flag — outranks every shelf role (see
+     * app/Providers/AppServiceProvider.php's Gate::before). A super admin
+     * has no membership on shelves they have not joined, so `role` below
+     * is null for them there too; this is the only prop that still says
+     * "this user can see manage/admin nav" in that case.
+     */
+    is_super_admin: boolean;
 }
 
 /** The bound shelf's presentation fields only — never a foreign bookshelf_id. */
@@ -23,10 +31,13 @@ export interface SharedShelf {
     name: string;
 }
 
+/** Mirrors app/Enums/MembershipRole.php's cases — narrowed so a typo'd comparison is a type error. */
+export type SharedRole = "reader" | "manager" | "admin" | null;
+
 export interface SharedData {
     auth: { user: SharedAuthUser | null };
     shelf: SharedShelf | null;
-    role: string | null;
+    role: SharedRole;
     /** Inertia's own Middleware::share() — validation errors, keyed by field. */
     errors: Record<string, string>;
     [key: string]: unknown;
