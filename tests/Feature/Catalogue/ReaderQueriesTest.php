@@ -187,16 +187,32 @@ it('search results carry availability and stay alphabetical in Vietnamese', func
         ->and(collect($rows)->firstWhere('title', 'Đất Rừng Phương Nam')['availability'])->toBe('on_loan');
 });
 
-it('two titles that fold alike take the slug tiebreak, concretely', function () {
+it('titles that fold alike take the slug tiebreak, concretely — not incidentally', function () {
+    // A two-row version of this test is NOT falsifiable: ids are UUID v7
+    // (time-ordered), so an unordered scan already returns rows in
+    // creation order, and Slugs::nextAvailable also assigns de-men,
+    // de-men-2, ... in strict creation order — so for two or a few rows,
+    // "creation order" and "slug order" are the same sequence, and the
+    // test would pass with orderBy('slug') deleted (confirmed live below).
+    //
+    // Eleven collisions break that coincidence: creation order gives
+    // slugs de-men, de-men-2, ..., de-men-11, but sorting THOSE STRINGS
+    // lexicographically — what orderBy('slug') actually does — puts
+    // de-men-10 and de-men-11 before de-men-2 ('1' < '2' as a byte), which
+    // is a different sequence from creation order. Asserting this exact,
+    // non-incidental order is what a deleted tiebreak cannot survive.
     [, $user] = rdrFixture();
-    rdrBook($user, 'De Men');    // folds to 'de men' → slug de-men
-    rdrBook($user, 'Dế Mèn');    // folds identically → disambiguated to de-men-2
+    foreach ([
+        'De Men', 'DE MEN', 'de men', 'De  Men', 'De-Men', 'De_Men',
+        'De.Men', 'De,Men', 'De!Men', 'De?Men', 'Dế Mèn',
+    ] as $title) {
+        rdrBook($user, $title);   // every one of these folds to 'de men'
+    }
 
-    // Asserting the exact order is what actually exercises
-    // orderBy('slug'): running the same query twice and comparing would
-    // pass with the tiebreak deleted.
-    expect(array_column(app(SearchQuery::class)->run('de men'), 'slug'))
-        ->toBe(['de-men', 'de-men-2']);
+    expect(array_column(app(SearchQuery::class)->run('de men'), 'slug'))->toBe([
+        'de-men', 'de-men-10', 'de-men-11', 'de-men-2', 'de-men-3',
+        'de-men-4', 'de-men-5', 'de-men-6', 'de-men-7', 'de-men-8', 'de-men-9',
+    ]);
 });
 
 it('an empty search term, and one that folds to nothing, return nothing', function () {
