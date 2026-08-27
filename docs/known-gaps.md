@@ -475,18 +475,23 @@ exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
   routes stay reachable. The final review flagged this and deliberately did
   not decide it here; it is Phase 1's call, informed by BR, not something to
   infer from `BookshelfStatus::Archived` existing as a case.
-- **`bookshelf_contacts.updated_at` carries no `useCurrentOnUpdate()`, unlike
-  the thirteen tables PR #57's review follow-up 3 fixed.** That follow-up
-  restored parity with Postgres's `set_updated_at` trigger
-  (`src/db/migrations/20260808_06_updated_at_triggers.sql`) column for
-  column, on exactly the thirteen tables that migration named. `bookshelf_
-  contacts` was added afterward (Task 1, the PO-feedback contacts rework)
-  and was never one of the thirteen, so it never carried this guarantee on
-  either side — leaving it alone is restoring parity, not a new gap, but it
-  is worth a line here since the table does have an `updated_at` column and
-  a future reader could otherwise assume every such column is covered.
-  Adding the same `->useCurrentOnUpdate()` to it would be a reasonable
-  Phase 1 cleanup, not a defect fix.
+- **PR #57's review follow-up 3 first miscounted the `updated_at` parity
+  fix as thirteen tables; it is fourteen, `bookshelf_contacts` included.**
+  The first pass read only `src/db/migrations/20260808_06_updated_at_
+  triggers.sql`'s own `array[...]` literal and concluded `bookshelf_
+  contacts` — added afterward, in Task 1's PO-feedback contacts rework —
+  "never carried this guarantee on either side", and left it un-fixed with
+  that claim recorded here. It was wrong: `src/db/migrations/20260812_01_
+  contacts_profile_and_hours.sql:58-60` creates `bookshelf_contacts_set_
+  updated_at` explicitly, its own trigger attached at the same table's
+  creation. A second review round caught the false claim and closed it —
+  `bookshelf_contacts.updated_at` now carries `->useCurrentOnUpdate()`
+  alongside the other thirteen, and `DbGuaranteesTest`'s probe covers all
+  fourteen. Recorded here anyway, past tense, as the concrete case for a
+  process point: "checked the migration's own list" is not the same claim
+  as "checked every migration that could touch this table", and the first
+  is not enough when a later migration can extend what an earlier one
+  named.
 
 ## Smaller deferred items, by task
 

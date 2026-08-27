@@ -492,9 +492,9 @@ it('a representative composite tenant FK refuses a cross-shelf reference', funct
 // trigger (src/db/migrations/20260808_06_updated_at_triggers.sql) on
 // thirteen tables, after finding that nothing had ever written to
 // updated_at after insert. This side backs the same claim with
-// ->useCurrentOnUpdate() on the same thirteen columns instead of a
-// trigger — MariaDB's ON UPDATE CURRENT_TIMESTAMP is the native mechanism,
-// so no trigger is needed to get the same guarantee.
+// ->useCurrentOnUpdate() instead of a trigger — MariaDB's ON UPDATE
+// CURRENT_TIMESTAMP is the native mechanism, so no trigger is needed to
+// get the same guarantee.
 //
 // Eloquent already maintains updated_at on its own writes regardless of
 // what the column does, so the only write style this guarantee protects is
@@ -502,13 +502,17 @@ it('a representative composite tenant FK refuses a cross-shelf reference', funct
 // uses for its constraint probes. One row per table, one raw update each,
 // proving the column actually moves rather than merely existing.
 //
-// bookshelf_contacts also carries an updated_at column but is deliberately
-// excluded here: it is not one of the thirteen 20260808_06 names (Task 1
-// added the table afterward), so it never carried this guarantee on either
-// side, and adding ->useCurrentOnUpdate() to it would be inventing a new
-// guarantee rather than restoring an old one — left as-is; see
-// docs/known-gaps.md.
-it('useCurrentOnUpdate: a raw DB::table()->update() moves updated_at on every table 20260808_06 named', function () {
+// **Corrected count, second pass:** the review that landed this test
+// originally said "thirteen" and treated bookshelf_contacts as never
+// having carried this guarantee on either side. That was wrong —
+// src/db/migrations/20260812_01_contacts_profile_and_hours.sql:58-60
+// creates bookshelf_contacts_set_updated_at explicitly, a fourteenth
+// Postgres trigger the first pass missed because it looked only at
+// 20260808_06's own array literal and not at every migration that attaches
+// this trigger. bookshelf_contacts now carries ->useCurrentOnUpdate() too,
+// and is proved below alongside the other thirteen — this is a restored
+// guarantee, not a newly invented one.
+it('useCurrentOnUpdate: a raw DB::table()->update() moves updated_at on every table that ever carried set_updated_at', function () {
     $shelf = dbgShelf();
     $user = dbgUser();
     $book = dbgBook($shelf);
@@ -559,6 +563,11 @@ it('useCurrentOnUpdate: a raw DB::table()->update() moves updated_at on every ta
         'proposed_values' => '{"phone":"0900000001"}', 'previous_values' => '{"phone":null}',
     ]);
 
+    $contact = (string) Str::uuid7();
+    DB::table('bookshelf_contacts')->insert([
+        'id' => $contact, 'bookshelf_id' => $shelf, 'position' => 1, 'name' => 'Anh Ba',
+    ]);
+
     // Table => [primary key value, a nullable/free-text column to change so
     // the UPDATE is a real value change and not a no-op MariaDB is free to
     // skip the ON UPDATE clause for.
@@ -576,6 +585,7 @@ it('useCurrentOnUpdate: a raw DB::table()->update() moves updated_at on every ta
         'announcements' => [$announcement, 'body_text', 'Nội dung (updated)'],
         'book_donations' => [$donation, 'description', 'Một thùng sách thiếu nhi (updated)'],
         'profile_change_requests' => [$profileChange, 'rejection_reason', 'Sai số điện thoại'],
+        'bookshelf_contacts' => [$contact, 'role_label', 'Người giữ chìa khoá'],
     ];
 
     foreach ($probes as $table => [$id, $column, $newValue]) {
