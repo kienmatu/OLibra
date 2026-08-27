@@ -11,7 +11,27 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 
-return Application::configure(basePath: dirname(__DIR__))
+// The framework's own convention (Illuminate\Foundation\Application::path(),
+// via lib/find-pages-dir.js's `findDir`) would otherwise collide head-on with
+// the Next.js tree this Laravel migration was scaffolded beside: Next always
+// prefers a root-level `app/` over `src/app/`, unconditionally and silently —
+// it does not check what's inside `app/`, only that it exists. With Laravel's
+// PHP application directory sitting at `<root>/app`, Next.js's build/dev
+// server picked THAT UP as its App Router root instead of `src/app`, found no
+// page.tsx anywhere in it, and silently built nothing but the built-in
+// _not-found/_global-error pages — every real route 404'd, `next dev` health
+// checks failed, and `docker build --target smoke` looped on a ChunkLoadError
+// for a page that was never generated. See docs/known-gaps.md.
+//
+// `useAppPath()` (below, after `create()`) is the supported way to move this
+// away from the collision: it only changes where Laravel *looks*, not the
+// `App\` namespace, so nothing under `laravel_app/` needed touching. It has
+// to run after `->create()`, not passed into `configure()`, because
+// `configure()` has no such parameter and by the time it returns, withKernels/
+// withEvents/withCommands/withProviders have already run — none of them
+// resolve `app_path()`, so setting it here is not too late for anything that
+// does (config/route/service-provider boot, `php artisan` commands).
+$app = Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
@@ -72,3 +92,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions) {
         //
     })->create();
+
+$app->useAppPath($app->basePath('laravel_app'));
+
+return $app;

@@ -3,7 +3,7 @@ includes:
 
 parameters:
     paths:
-        - app
+        - laravel_app
         - database
         - routes
     level: 8

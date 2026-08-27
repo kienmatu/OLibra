@@ -340,6 +340,76 @@ exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
 `vendor/laravel/framework/src/*` present in the transfer and the top-level
 `src/`/`tests/` still absent.
 
+## Laravel's `app/` directory silently shadowed Next's `src/app/`, and it will happen again with `public/`
+
+**PR #57 scaffolded Laravel's PHP application at the repo root, alongside the
+existing Next.js tree — and Laravel's own `app/` directory (Models, Http,
+Providers) has the same name as the one directory Next.js's App Router looks
+for first.** `node_modules/next/dist/lib/find-pages-dir.js`'s `findDir()` is
+explicit about the order: `// prioritize ./${name} over ./src/${name}` — it
+checks `<root>/app` before `<root>/src/app`, returns it the moment it
+*exists*, and never looks at what's inside it. With Laravel's `app/` sitting
+at the root, Next silently adopted it as its own App Router directory, found
+zero `page.tsx` files in a tree of PHP classes, and built nothing but its two
+built-in special pages (`_not-found`, `_global-error`). No warning, no error —
+`next build` reported "Compiled successfully" and a route table with exactly
+one entry, `/404`. Every real page 404'd; `next dev`'s health checks in
+`tests/lib/avatar-over-http.test.ts` / `tests/lib/registration-over-http.test.ts`
+timed out waiting for content that was never generated; `docker build
+--target smoke .` looped on `ChunkLoadError` for `_not-found`'s chunk, because
+that was the only page the build had ever produced; and CI's `links` job
+failed the same way, for the same reason — not a separate, pre-existing
+docs-link problem, just the same missing routes.
+
+This was diagnosed, not guessed: `mv app /tmp && bun run build` producing the
+full 54-route table, moving `app/` back and getting exactly one route again,
+made it reproducible on demand, and the `find-pages-dir.js` source confirms
+there is no config knob to change Next's preference — it is hardcoded.
+**Nothing about this is a dependency-version problem.** The tailwindcss/vite
+coexistence and the bumped transitive versions in `bun.lock` were the
+suspects going in; both build clean and were not the cause.
+
+Fixed by moving Laravel's application code out of the collision, not by
+touching anything under `src/`: `app/` → `laravel_app/`, with
+`composer.json`'s `"App\\": "app/"` psr-4 mapping updated to
+`"laravel_app/"` and `bootstrap/app.php` calling
+`$app->useAppPath($app->basePath('laravel_app'))` after `->create()` (the
+namespace `App\` never changes, only where Laravel looks for it —
+`useAppPath()` exists in `Illuminate\Foundation\Application` for exactly
+this). `phpunit.xml`'s coverage `<source>` and `phpstan.neon`'s `paths` also
+named `app` literally and needed the same rename. Verified both sides after:
+Larastan level 8 clean, Pint clean, all 265 Pest tests still passing;
+`bun run check` green across all 180 test files including the two over-HTTP
+ones; `docker build --target smoke .` serving the real landing page;
+`bun run check:links` crawling all 50 real pages with zero dead links.
+
+**This will recur.** `public/` has the identical shape of problem today,
+just not (yet) a fatal one: Laravel's `public/index.php` and Vite's
+`public/build/` sit in the same directory Next.js serves as static assets at
+the URL root. Next doesn't error on this either — it just serves
+`index.php`'s raw source as a downloadable static file at `/index.php`,
+silently, the same way it silently adopted the wrong `app/`. Nothing in
+either CI job currently requests `/index.php`, so nothing is red — but the
+mechanism is the same shared-root-directory collision, one layer down. There
+is also a smaller, non-fatal one already living with it: PHP's `tests/` (Pest,
+namespaced `Tests\`) and TypeScript's `tests/` (Vitest) are interleaved in one
+directory today; that one is cosmetic because the two suites glob for
+different file extensions, but it is the same instinct — two frameworks
+independently assuming they own a root-level name — that broke `app/`.
+
+**The actual fix for the family of problems, not just this one instance,**
+is the one the redirect decision two sections below already named and
+declined for a different reason: a proper workspace split with Laravel under
+its own subtree (the way `~/Documents/dreamtube`'s `apps/web` keeps a second
+stack from ever touching the first stack's root-level conventions). That
+was reasonably out of scope for Phase 0 and is a bigger call than a CI-fix
+task should make unilaterally — but the `app/` collision is evidence the
+premise ("no second app... to justify one") is now false, not just for
+`package.json`/`bun.lock` (which this task's brief already flagged) but for
+the plain filesystem layout underneath it. Recorded here so the next
+dependency — or the next root-level directory either framework introduces —
+does not have to rediscover this by reading `find-pages-dir.js` again.
+
 ## Deliberately unfinished
 
 - **No absolute session lifetime.** Laravel's session shape offers only idle
