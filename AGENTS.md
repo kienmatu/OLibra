@@ -2,6 +2,14 @@
 
 Conventions for anyone — human or agent — working in this repository.
 
+**Read [docs/known-gaps.md](docs/known-gaps.md) before starting work.** It records
+what is deliberately unfinished, what was never verified and why, and the traps
+that have already cost time in this repo — the `phpunit.xml` `<server>`/`DB_URL`
+rules that protect the development database, the MariaDB DDL refusals, and the
+tests that passed while guarding nothing. Keep it current: when you defer
+something or leave something unverified, add it there rather than only in a
+commit message.
+
 ## Toolchain: Bun locally
 
 **Use Bun for everything local. Do not use npm, pnpm or yarn.**
@@ -204,6 +212,24 @@ Use the same fixtures everywhere so screens line up with the design work:
 - Books: Dế Mèn Phiêu Lưu Ký (Tô Hoài), Hoàng Tử Bé, Totto-chan Bên Cửa Sổ,
   Đất Rừng Phương Nam.
 - Copy codes look like `DT-0142`.
+
+## Laravel/Pest: top-level test helpers are process-global
+
+Pest loads every test file in `tests/` into a **single PHP process**. A
+top-level `function foo() {...}` declared in one test file is therefore not
+scoped to that file — it is a global symbol for the whole run, and a second
+file declaring a function with the same name is a **fatal redeclaration
+error**, not a shadowing warning, potentially taking down the entire suite
+rather than just the offending file. Before adding a new top-level helper,
+`grep -rn "^function <name>" tests/` first. Helpers that already exist
+include `makeCatalogueShelf()` (`tests/Feature/Schema/CatalogueSchemaTest.php`),
+`tenancyShelf()` (`tests/Feature/Tenancy/TenantContextTest.php`),
+`authUser()`/`authzUser()` (`tests/Feature/Auth/AuthenticationTest.php`,
+`tests/Feature/Authz/GateTest.php`) and `twoShelves()`
+(`tests/Feature/Schema/CompositeTenantFkTest.php`) — not an exhaustive list,
+just enough to make the pattern recognisable. When a helper's shape only
+makes sense in one file, prefer a closure or a private method on a
+`Tests\Support\` class over a bare top-level function.
 
 ## Current scope
 

@@ -45,7 +45,11 @@ Three architectures were weighed.
 
 ### 1.4 The reference project
 
-Conventions come from `~/Documents/priest-liturgy`: Laravel 13 + Inertia v2 + React 19 + Tailwind v4 with shadcn/ui, Pint, Larastan level 8, Pest, Biome, single-purpose Action classes, thin controllers, UI copy in `resources/js/lib/copy.ts` and `lang/vi/`, and spec → plan → implementation with plans carrying checkbox tasks and a `Status:` header. Two deliberate divergences from it: priest-liturgy runs PostgreSQL 17 where this project runs MariaDB, and priest-liturgy uses Vietnamese URIs where this project deliberately does not (§6). **Everything else tracks it, versions included** — PHP `^8.4` and Laravel `^13.0` are pinned to that project rather than resolved independently, so the two codebases stay close enough that a habit learned in one transfers to the other. The implementation plan carries the full constraint list and names that project as the version of record.
+**The reference project is `~/Documents/dreamtube`** (redirected by the product owner on 2026-08-27; an earlier revision of this spec named `~/Documents/priest-liturgy`). Conventions come from it: Laravel 13 + Inertia v3 + React 19 + Tailwind v4 with shadcn/ui, Pint, Larastan level 8, Pest, Biome, single-purpose Action classes, thin controllers, UI copy in `resources/js/lib/copy.ts` and `lang/vi/`, a committed `docs/known-gaps.md` kept current, and spec → plan → implementation with plans carrying checkbox tasks and a `Status:` header.
+
+What makes it the better reference is not taste: it runs the same stack **and is already deployed to OLibra's exact target profile** — CloudLinux/cPanel shared hosting, MariaDB 10.11.13, PHP 8.4.24 — with a `DEPLOYMENT.md` written from a real first deployment, every command actually run. It independently corroborates two things this branch discovered by execution: the errno 1901 refusal of `CHAR(36)` operands in generated-column expressions (our VARCHAR(36) rule), and PHP 8.4 as a hard floor (its `config/database.php` imports `Pdo\Mysql`, which does not exist on 8.3, so a MultiPHP downgrade breaks every database connection).
+
+Deliberate divergences from it, kept on purpose: **Pest 5 / PHPUnit 13**, not dreamtube's Pest 4 / PHPUnit 12 (that would be a downgrade); **no monorepo** — dreamtube's `apps/web` layout exists for its extension and shared package, and OLibra has neither, so Laravel lives at the repository root; and this project uses English URIs where dreamtube-style Vietnamese URIs were already ruled out (§6). What changed *because* of the redirect: Inertia moved v2 → v3 before any page was written, the vite/React build tooling aligned to dreamtube's, and two traps recorded in dreamtube's `known-gaps.md` were closed here pre-emptively — the SSR gateway POSTing every render to the vite dev server, and Inertia v3's devtools serving recorded props to unauthenticated requests under `APP_ENV=local`. Both are recorded in this repo's `docs/known-gaps.md`. The implementation plan carries the full constraint list and names dreamtube as the version of record, divergences included.
 
 ---
 
@@ -60,7 +64,7 @@ Conventions come from `~/Documents/priest-liturgy`: Laravel 13 + Inertia v2 + Re
 
 ## 3. Repository and layout
 
-Work happens on a long-lived `laravel` branch off `main`. Laravel lives at the repository root, mirroring priest-liturgy's shape:
+Work happens on a long-lived `laravel` branch off `main`. Laravel lives at the repository root — the standard Laravel layout, the same shape as dreamtube's `apps/web` hoisted to the root, since OLibra has no second app to justify a monorepo (§1.4):
 
 ```
 app/Actions/{Catalogue,Circulation,Members,Community,Admin,Notifications}/
@@ -220,7 +224,7 @@ The whole Docker story is dropped and replaced.
 
 ## 9. Testing
 
-Pest with `RefreshDatabase`, against a **separate** MariaDB schema. priest-liturgy's `docs/known-gaps.md` records the `env_file` / `phpunit.xml` interaction that once silently ran its suite against the development database; that guard is written into the foundation phase here rather than learned twice.
+Pest with `RefreshDatabase`, against a **separate** MariaDB schema. priest-liturgy's `docs/known-gaps.md` records the `env_file` / `phpunit.xml` interaction that once silently ran its suite against the development database; that guard is written into the foundation phase here rather than learned twice — and execution found the guard as recorded there is incomplete (`<env>` never reaches `$_SERVER`; a stray `DB_URL` bypasses it entirely). The complete mechanism, which dreamtube's `phpunit.xml` also carries, is recorded in this repo's `docs/known-gaps.md`.
 
 Six suites:
 

@@ -20,8 +20,8 @@
 
 - **Branch:** all work on the long-lived `laravel` branch off `main`. The Next.js tree (`src/`, `next.config.ts`, `compose.yaml`, `tests/`, …) is never modified, moved or deleted in this phase.
 - **Database:** MariaDB **10.11** (the real host runs 10.11.13-cll-lve-log). Local dev and CI pin the `mariadb:10.11` image. Laravel's `mariadb` driver, not `mysql`.
-- **PHP:** **8.4**, pinned. `composer.json` requires `"php": "^8.4"`, matching `~/Documents/priest-liturgy/composer.json` exactly. **There is no downgrade path.** An earlier draft offered `laravel/framework:^12` on PHP 8.3 as a fallback; that is withdrawn by decision — the two projects share a maintainer and a hosting account, and letting them drift a major version apart costs more in divided attention than any single host limitation saves. If the host survey (Task 1) finds no PHP 8.4, that is a **blocking finding**: stop, record it in `docs/HOSTING.md`, and escalate to the product owner. Do not install Laravel 12.
-- **Versions — `~/Documents/priest-liturgy` is the version of record.** Copy its constraints rather than resolving fresh ones; where this list and that project's `composer.json` / `package.json` disagree, that project wins and this line is the bug. PHP `^8.4`, `laravel/framework` `^13.0`, `laravel/tinker` `^3.0`, `inertiajs/inertia-laravel` `^2.0`, `tightenco/ziggy` `^2.4`. Dev: `pestphp/pest` `^5.0`, `pestphp/pest-plugin-laravel` `^5.0`, `phpunit/phpunit` `^13.3`, `larastan/larastan` `^3.0` at **level 8**, `laravel/pint` `^1.18`, `nunomaduro/collision` `^8.6`, `mockery/mockery` `^1.6`, `fakerphp/faker` `^1.23`. JS: `@inertiajs/react` `^2.0.0`, React `^19`, Tailwind CSS `^4.0` via `@tailwindcss/vite`, Vite `^6.0`, `laravel-vite-plugin` `^1.0`, `@vitejs/plugin-react` `^4.3.4`, TypeScript `^5.7.2`, `@biomejs/biome` `^2.5.8`. Not carried across: `maatwebsite/excel` (OLibra streams CSV and needs no spreadsheet library) and `laravel/sail` (local dev is the compose file in Task 2).
+- **PHP:** **8.4**, pinned. `composer.json` requires `"php": "^8.4"`, matching the reference project `~/Documents/dreamtube` exactly. **There is no downgrade path, and 8.4 is a hard floor, not a preference:** dreamtube's `config/database.php` imports `Pdo\Mysql`, which does not exist on PHP 8.3 — its `DEPLOYMENT.md`, written from a real first deployment to the same CloudLinux/cPanel host profile, records that a MultiPHP downgrade breaks every database connection. An earlier draft offered `laravel/framework:^12` on PHP 8.3 as a fallback; that is withdrawn by decision — the projects share a maintainer and a hosting account, and letting them drift a major version apart costs more in divided attention than any single host limitation saves. If the host survey (Task 1) finds no PHP 8.4, that is a **blocking finding**: stop, record it in `docs/HOSTING.md`, and escalate to the product owner. Do not install Laravel 12. (dreamtube is already live on this host profile at PHP 8.4.24, which is why the survey row is expected to come back yes.)
+- **Versions — `~/Documents/dreamtube` is the version of record** (redirected by the product owner on 2026-08-27; an earlier revision of this plan named `~/Documents/priest-liturgy`, and Tasks 1–16 were installed and verified under that pin — the installed versions stand and are not re-litigated). What makes dreamtube the better reference: same stack, **already deployed to OLibra's exact target profile** — CloudLinux/cPanel, MariaDB 10.11.13, PHP 8.4.24 — with a `DEPLOYMENT.md` written from a real first deployment, and it independently corroborates two things this branch discovered by execution: the errno 1901 `CHAR(36)` generated-column failure and the PHP 8.4 hard floor (`Pdo\Mysql`). The constraints as installed and verified on this branch: PHP `^8.4`, `laravel/framework` `^13.0`, `laravel/tinker` `^3.0`, `inertiajs/inertia-laravel` `^3.3` (moved v2 → v3 by the redirect interlude, before Task 18 wrote any page), `tightenco/ziggy` `^2.4`. Dev: `pestphp/pest` `^5.0`, `pestphp/pest-plugin-laravel` `^5.0`, `phpunit/phpunit` `^13.3`, `larastan/larastan` `^3.0` at **level 8**, `laravel/pint` `^1.18`, `nunomaduro/collision` `^8.6`, `mockery/mockery` `^1.6`, `fakerphp/faker` `^1.23`. JS (aligned to dreamtube by the interlude): `@inertiajs/react` `^3.6`, React `^19`, Tailwind CSS `^4.0` via `@tailwindcss/vite`, Vite `^8.0`, `laravel-vite-plugin` `^3.1`, `@vitejs/plugin-react` `^6.0`, TypeScript `5.9.3`, `@biomejs/biome` `^2.5.8`, unified `radix-ui` in place of individual `@radix-ui/*` packages. **Deliberate divergences from dreamtube, kept on purpose — do not "fix" them back:** Pest 5 / PHPUnit 13 (dreamtube runs Pest 4 / PHPUnit 12; matching it would be a downgrade), and no `apps/web` monorepo (OLibra has no second app or shared package to justify one; Laravel lives at the repository root). The redirect also closed two traps recorded in dreamtube's `known-gaps.md` — the SSR-to-vite gateway POST and the Inertia v3 devtools leak — see this repo's `docs/known-gaps.md`. Not carried across: `maatwebsite/excel` (OLibra streams CSV and needs no spreadsheet library) and `laravel/sail` (local dev is the compose file in Task 2).
 - **No Redis, no daemons:** `CACHE_STORE=database`, `QUEUE_CONNECTION=database`, and sessions in the database via `SESSION_DRIVER=hashed-database` — a thin custom driver over Laravel's own database handler that stores `sha256(session id)` instead of the raw id (Task 16). Queue work is drained by the per-minute scheduler tick running `queue:work --stop-when-empty --max-time=50`. Nothing may depend on a long-running worker.
 - **Primary keys:** UUIDv7 in `VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin`, generated by Eloquent's `HasUuids` (which produces `Str::uuid7()` in Laravel 13 — the spec's "HasVersion7Uuids" is this trait's current name for v7 behaviour). **VARCHAR, not CHAR, and this is load-bearing:** MariaDB 10.11 wraps a `CHAR(n)` reference in an implicit conversion when it is used as a function argument, then refuses the whole expression with errno 1901 — so a `CHAR(36)` uuid column can never appear inside a generated-column expression, and eight of the ten uniques (INV-1 included) are built from exactly such expressions. Reproduced against 10.11.19; the same expressions over VARCHAR(36) work. Storage is identical for fixed-length values. One pk exception: `audit_log.id` is `BIGINT` auto-increment, as today.
 - **Timestamps:** `DATETIME(6)` storing **UTC** (`APP_TIMEZONE=UTC`); rendering in `Asia/Ho_Chi_Minh` is the front end's job. MariaDB `TIMESTAMP` is never used.
@@ -30,7 +30,7 @@
 - **JSON columns:** Laravel's `json()` type (on MariaDB: `LONGTEXT` + `json_valid()` CHECK), `AsArrayObject`/`array` casts.
 - **URIs are English** (`/shelves/{shelf}/books/{book}`), route names mirror the URI, Ziggy exposes them to React. UI copy is Vietnamese only, never inline in TSX: client copy in `resources/js/lib/copy.ts`, server copy in `lang/vi/`, enforced by Biome's `noJsxLiterals`.
 - **No hand-written `where('bookshelf_id', …)`** outside `app/Models/Scopes/BookshelfScope.php` — the Architecture suite greps for it.
-- **Tests:** Pest with `RefreshDatabase` against the **separate** `olibra_testing` schema on the same MariaDB server. Every `<env>` in `phpunit.xml` carries `force="true"` (the priest-liturgy `known-gaps.md` trap), and `EnvironmentTest` proves the guard.
+- **Tests:** Pest with `RefreshDatabase` against the **separate** `olibra_testing` schema on the same MariaDB server. Every `<env>` in `phpunit.xml` carries `force="true"` (the trap priest-liturgy's `known-gaps.md` first recorded), each with a `<server>` twin and `DB_URL` neutralised — `<env>` alone never reaches `$_SERVER`, the full mechanism is in this repo's `docs/known-gaps.md` — and `EnvironmentTest` proves the guard on the live connection, not just `config()`.
 - **Toolchain:** Bun for all JS locally (`bun install`, `bun run …`) — this repo's standing rule; the committed lockfile stays `bun.lock`. Composer for PHP. Larastan level 8 and Pint must stay clean at every commit.
 - **The injectable DB clock is gone** (spec §4's `olibra_now()` row): tests move time with `Carbon::setTestNow()`. The application-side `Clock` binding the spec mentions arrives with the first Action class in Phase 1 — nothing in Phase 0 reads domain time.
 - **Scratch output** goes to `.artifacts/` (gitignored), never the repo root or `/tmp`.
@@ -110,7 +110,7 @@ the Phase 0 plan does with the answer.
 
 | # | Question | Answer | Consequence |
 |---|---|---|---|
-| 1 | PHP 8.4 selectable? | (recorded answer) | Yes → proceed; Laravel 13, `"php": "^8.4"`. **No → BLOCKING. Stop and escalate.** There is no Laravel 12 fallback (see Global Constraints): the version is pinned to `~/Documents/priest-liturgy` by decision, so a host without 8.4 is a hosting problem to solve, not a framework version to give up. |
+| 1 | PHP 8.4 selectable? | (recorded answer) | Yes → proceed; Laravel 13, `"php": "^8.4"`. **No → BLOCKING. Stop and escalate.** There is no Laravel 12 fallback (see Global Constraints): PHP 8.4 is a hard floor (`config/database.php` imports `Pdo\Mysql`, absent on 8.3), and the reference project `~/Documents/dreamtube` is already live on this exact host profile at 8.4.24 — so a host without 8.4 is a hosting problem to solve, not a framework version to give up. |
 | 2 | `pdo_mysql` loaded? | (recorded answer) | Must be yes; if the selector has it unticked, tick it. Hard blocker otherwise. |
 | 3 | `gd` / `imagick`? | (recorded answer) | Decides Intervention Image's driver in Phase 1 (`imagick` preferred, `gd` fallback). Phase 0 records, does not install. |
 | 4 | `zip`, `fileinfo`, `intl`, `mbstring` loaded? | (recorded answer) | Composer + Laravel requirements. Tick in the selector if unticked. |
@@ -346,9 +346,11 @@ QUEUE_CONNECTION=database
 HASH_DRIVER=argon2id
 ```
 
-`APP_TIMEZONE=UTC` is deliberate and differs from priest-liturgy: the spec stores UTC `DATETIME(6)` and renders in each shelf's `timezone` column (`Asia/Ho_Chi_Minh` default) — rendering is a front-end/date-helper concern, not a storage one. `HASH_DRIVER` is `argon2id` unless `docs/HOSTING.md` row 5 said bcrypt.
+`APP_TIMEZONE=UTC` is deliberate (it differed from priest-liturgy; dreamtube, the current reference, also runs UTC): the spec stores UTC `DATETIME(6)` and renders in each shelf's `timezone` column (`Asia/Ho_Chi_Minh` default) — rendering is a front-end/date-helper concern, not a storage one. `HASH_DRIVER=argon2id` here, in `.env.example`, and in `phpunit.xml` regardless of `docs/HOSTING.md` row 5 — that row's `PASSWORD_ARGON2ID`-on-the-host question only ever gates **production's** `.env` (Task 21), not this repository's own defaults; see "The hashing decision" in `docs/HOSTING.md`.
 
-Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** line is load-bearing (see the comment; it is priest-liturgy's `known-gaps.md` trap written into the config rather than learned twice):
+Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** `<env>` line is load-bearing (see the comment; it is priest-liturgy's `known-gaps.md` trap written into the config rather than learned twice), but `force="true"` on `<env>` is not the whole guard. Laravel's `env()`/`config()` resolve through vlucas/phpdotenv's `Repository`, built with `ServerConstAdapter` (reads `$_SERVER`) checked **before** `EnvConstAdapter` (reads `$_ENV`). PHPUnit's `PhpHandler::handleEnvVariables()` only ever writes `putenv()`/`$_ENV` — it never writes `$_SERVER`, force or not — and PHP's CLI SAPI copies every real container environment variable into `$_SERVER` at process start. A stray `DB_DATABASE` already in the container's real environment therefore keeps winning through `$_SERVER` even with `force="true"` above. The fix is PHPUnit's separate `<server>` element (`handleServerVariables()`, an unconditional `$_SERVER` overwrite, no `force` attribute needed) — add a matching `<server name="..." value="..."/>` line for every `<env>` entry.
+
+Also neutralise `DB_URL`: `config/database.php` sets `'url' => env('DB_URL')` on the `mariadb` connection, and Laravel's `ConfigurationUrlParser::parseConfiguration()` merges a `DB_URL`'s `database`/`host`/`user` OVER that array at connect time — so a stray `DB_URL` points the live connection anywhere while `config('database.connections.mariadb.database')` still reports `olibra_testing`. Force `DB_URL` to empty, `<env>` and `<server>` both.
 
 ```xml
     <php>
@@ -359,10 +361,13 @@ Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** 
             DEVELOPMENT database with APP_ENV=local — silently, tests passing,
             data destroyed, CSRF no longer bypassed. EnvironmentTest asserts
             the outcome these lines exist to produce.
+
+            force="true" on <env> is not the whole guard: dotenv's default
+            adapters are ServerConst then EnvConst, and PHPUnit's <env> never
+            writes $_SERVER — see the <server> block below, which does.
         -->
         <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
-        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
         <env name="CACHE_STORE" value="array" force="true"/>
         <!--
             The real engine, not sqlite: generated columns, CHECK constraints,
@@ -371,10 +376,25 @@ Replace the `<php>` block of `phpunit.xml` with — `force="true"` on **every** 
         -->
         <env name="DB_CONNECTION" value="mariadb" force="true"/>
         <env name="DB_DATABASE" value="olibra_testing" force="true"/>
+        <!-- ConfigurationUrlParser lets a stray DB_URL override database/host/user at connect time; neutralise it. -->
+        <env name="DB_URL" value="" force="true"/>
         <env name="MAIL_MAILER" value="array" force="true"/>
         <env name="QUEUE_CONNECTION" value="sync" force="true"/>
         <env name="SESSION_DRIVER" value="array" force="true"/>
         <env name="HASH_DRIVER" value="argon2id" force="true"/>
+        <!-- BCRYPT_ROUNDS is dead weight under argon2id; tune argon down instead so hashing tests stay cheap. -->
+        <env name="ARGON_MEMORY" value="1024" force="true"/>
+        <env name="ARGON_TIME" value="1" force="true"/>
+        <server name="APP_ENV" value="testing"/>
+        <server name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <server name="CACHE_STORE" value="array"/>
+        <server name="DB_CONNECTION" value="mariadb"/>
+        <server name="DB_DATABASE" value="olibra_testing"/>
+        <server name="DB_URL" value=""/>
+        <server name="MAIL_MAILER" value="array"/>
+        <server name="QUEUE_CONNECTION" value="sync"/>
+        <server name="SESSION_DRIVER" value="array"/>
+        <server name="HASH_DRIVER" value="argon2id"/>
     </php>
 ```
 
@@ -537,9 +557,15 @@ Create `tests/Feature/EnvironmentTest.php`:
 ```php
 <?php
 
+use Illuminate\Support\Facades\DB;
+
 it('never runs tests against the development database', function () {
+    // Asserts the LIVE connection, not just the config array: a stray DB_URL
+    // overrides database/host/user at connect time (ConfigurationUrlParser),
+    // which config('database.connections.mariadb.database') cannot see.
     expect(config('database.default'))->toBe('mariadb')
-        ->and(config('database.connections.mariadb.database'))->toBe('olibra_testing');
+        ->and(config('database.connections.mariadb.database'))->toBe('olibra_testing')
+        ->and(DB::connection()->getDatabaseName())->toBe('olibra_testing');
 });
 
 it('runs with the testing environment so csrf is bypassed', function () {
@@ -573,7 +599,7 @@ Expected: `[OK] No errors`
 Run: `bun run laravel:typecheck` and `bun run laravel:build`
 Expected: both exit 0.
 
-Also prove the guard has teeth once, by hand: `docker compose -f docker-compose.laravel.yml exec -e DB_DATABASE=olibra app php artisan test --filter=EnvironmentTest` must still report `olibra_testing` (the `force="true"` doing its job).
+Also prove the guard has teeth, by hand, twice: `docker compose -f docker-compose.laravel.yml exec -e DB_DATABASE=olibra app php artisan test --filter=EnvironmentTest` must still report `olibra_testing` (the `<server>` block doing its job), and `docker compose -f docker-compose.laravel.yml exec -e DB_URL="mysql://olibra:secret@mariadb:3306/olibra" app php artisan test --filter=EnvironmentTest` must also still pass (the `DB_URL` neutralisation and the live-connection assertion doing theirs).
 
 - [ ] **Step 7: Commit**
 
@@ -5170,14 +5196,17 @@ git commit -m "test: tenant isolation over colliding shelves, and the architectu
 **Files:**
 - Create: `app/Http/Requests/Auth/LoginRequest.php` (replaces the starter kit's email-based one)
 - Modify: `app/Http/Controllers/Auth/AuthenticatedSessionController.php`
+- Delete: `app/Http/Controllers/Auth/RegisteredUserController.php`, `PasswordResetLinkController.php`, `NewPasswordController.php`, `EmailVerificationPromptController.php`, `VerifyEmailController.php`, `EmailVerificationNotificationController.php`, `ConfirmablePasswordController.php` — six routes stay live and unowned from Task 6 through this task (`routes/auth.php:14-35,38-52` still resolves `register`, `forgot-password`, `reset-password`, `verify-email`, `email/verification-notification`, `confirm-password` against a `users` table that no longer has `name`/`password`/email verification columns); this task's full-file replacement of `routes/auth.php` below removes the routes, and these deletions must land in the same commit or the controllers outlive their routes as dead code nothing imports.
 - Create: `app/Http/Middleware/ResolveTenant.php`
 - Create: `app/Support/HashedDatabaseSessionHandler.php`
-- Modify: `routes/auth.php` (login/logout only), `bootstrap/app.php` (middleware alias + priority), `config/hashing.php` (driver from env), `app/Providers/AppServiceProvider.php` (session driver registration), `.env` / `.env.example` (`SESSION_DRIVER=hashed-database`)
+- Modify: `routes/auth.php` (replaced entirely — login/logout only), `bootstrap/app.php` (middleware alias + priority), `config/hashing.php` (driver from env), `app/Providers/AppServiceProvider.php` (session driver registration), `.env` / `.env.example` (`SESSION_DRIVER=hashed-database`)
 - Test: `tests/Feature/Auth/AuthenticationTest.php`, `tests/Feature/Tenancy/ResolveTenantMiddlewareTest.php`
 
 **Interfaces:**
 - Consumes: `User` (Task 14 — `getAuthPasswordName()` already points the guard at `password_hash`), `TenantContext`, `Membership`, `Bookshelf`.
 - Produces: `POST /login` (name `login`), `POST /logout` (name `logout`); the `tenant` middleware alias every `/shelves/{shelf}/…` route group carries from Task 18 on; `TenantContext` populated with the bound shelf and the signed-in user's **active** membership of it.
+
+**The absolute session-lifetime decision** (open since Task 6, decided here — do not carry it further by omission): the design's original `sessions` table had `expires_at`, an absolute cap independent of activity. Laravel's session machinery — and the `HashedDatabaseSessionHandler` below, which only wraps it — offers exclusively an idle timeout via `last_activity` plus `config('session.lifetime')`; nothing here reinstates an absolute ceiling on a session that stays active indefinitely. Decide explicitly whether v1 needs one (a super-admin session that never idles out is a real difference from the Postgres design) and either document the gap as accepted or add the check (e.g. a `started_at` column plus a comparison in the session guard/middleware) before this task closes — it must not reach Task 21 as a silent gap.
 
 **The sessions decision** (the brief's open point, decided here): the design's custom `sessions` table stored `sha256(token)` so a leaked backup is not a stack of usable sessions. This plan keeps **Laravel's session machinery** — CSRF, `session()->regenerate()`, guard integration, `logoutOtherDevices`, no bespoke guard — but **restores the hashing** with a ~30-line handler: `HashedDatabaseSessionHandler` subclasses `Illuminate\Session\DatabaseSessionHandler` and keys the table on `hash('sha256', $sessionId)`. The cookie carries the raw id; the row never does.
 
@@ -6456,7 +6485,7 @@ Ensure `resources/views/app.blade.php` is (the starter kit ships the shape; veri
 
 - [ ] **Step 5: Write the copy module, layouts and pages**
 
-Create `resources/js/lib/copy.ts` — every string the shell shows, namespaced per concept even where wording coincides (the priest-liturgy rule):
+Create `resources/js/lib/copy.ts` — every string the shell shows, namespaced per concept even where wording coincides (the reference project's rule, shared by priest-liturgy and dreamtube alike):
 
 ```ts
 /**

@@ -1,0 +1,22 @@
+{
+    "$schema": "https://ui.shadcn.com/schema.json",
+    "_hazard": "The @/* aliases below assume resources/js — that only holds when a shadcn CLI run resolves aliases through THIS repo's own tsconfig.laravel.json. Running `npx shadcn add ...` from the repo root instead resolves @/* through the root tsconfig.json, where it means src/* (the Next.js tree), and the CLI would deposit Laravel components there. Point the CLI's tsconfig explicitly (e.g. TS_NODE_PROJECT/--config, or a temporary root tsconfig.json swap) rather than running it bare.",
+    "style": "default",
+    "rsc": false,
+    "tsx": true,
+    "tailwind": {
+        "config": "",
+        "css": "resources/css/app.css",
+        "baseColor": "neutral",
+        "cssVariables": true,
+        "prefix": ""
+    },
+    "aliases": {
+        "components": "@/components",
+        "utils": "@/lib/utils",
+        "ui": "@/components/ui",
+        "lib": "@/lib",
+        "hooks": "@/hooks"
+    },
+    "iconLibrary": "lucide"
+}

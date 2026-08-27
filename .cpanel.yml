@@ -1,0 +1,32 @@
+---
+# The alternate deploy channel (docs/HOSTING.md rows 12/14, unanswered):
+# cPanel Git™ Version Control, active only if the survey finds it available
+# and the rsync-over-SSH workflow (.github/workflows/deploy-laravel.yml) is
+# not the one wired instead. cPanel runs this file's tasks itself, on its
+# own pull, from whatever branch/repo the Git™ Version Control feature is
+# pointed at — the built artifact (vendor/, public/build/) still has to
+# reach that repo somehow, since nothing runs a build step on the host
+# (dreamtube's DEPLOYMENT.md: `bun run build` aborts under CloudLinux).
+#
+# DEPLOYPATH must be outside public_html, matching the docroot wiring in
+# docs/HOSTING.md. $USER below resolves at the moment cPanel actually runs
+# this task, inside its own deployment shell — not while anyone is reading
+# this file — so no edit is needed here as long as the app checks out under
+# the account's own home directory as `olibra`. Change the literal `olibra`
+# segment only if the app lives somewhere else under that home directory.
+# PUBLIC_HTML_PATH is the shim-docroot channel's equivalent of the
+# DEPLOY_PUBLIC_HTML_PATH secret wired into
+# .github/workflows/deploy-laravel.yml: post-deploy.sh only copies
+# public/build and public/.htaccess into public_html when it is set, and
+# left unset here (as below) that step is a no-op — meaning an operator on
+# the shim-docroot path (docs/HOSTING.md row 6's last resort) who deploys
+# through cPanel Git™ instead of the rsync channel gets a successful deploy
+# with an unstyled site and 404s on every /build/assets/* asset, with no
+# error anywhere. Uncomment and set the real path if this channel is the
+# one wired and the docroot ended up being the shim rather than a symlink
+# or Document Root override.
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/$USER/olibra
+    # - export PUBLIC_HTML_PATH=/home/$USER/public_html
+    - /bin/bash $DEPLOYPATH/deploy/post-deploy.sh $DEPLOYPATH

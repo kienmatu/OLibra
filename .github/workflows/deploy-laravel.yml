@@ -1,0 +1,183 @@
+name: Deploy (cPanel)
+
+# Manual dispatch only: a deploy is a decision, not a side effect of merging
+# to a branch. Nothing in this file has ever run against the real host —
+# docs/HOSTING.md rows 2-14 are unanswered — so treat a first run as the
+# first real test of this pipeline, not a rerun of something proven.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      # PHP 8.4 is docs/HOSTING.md row 1 (answered, by product-owner
+      # instruction) and dreamtube's DEPLOYMENT.md hard floor: Laravel 13 /
+      # this app's config/database.php needs 8.4's Pdo\Mysql surface, and a
+      # host stuck on 8.3 is a blocking condition, not a version to relax.
+      # The extension list mirrors .github/workflows/laravel.yml's CI job so
+      # the artifact is built under exactly what CI already proved works.
+      # pdo_mysql/intl/zip/bcmath/mbstring are HOSTING.md row 2/4 assumptions
+      # (present, unverified); gd is row 3's assumed driver (imagick if the
+      # survey finds it instead).
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pdo_mysql, intl, zip, bcmath, gd, mbstring
+          coverage: none
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+
+      # Build off-host (spec §8): the cPanel host never runs Node, bun, or
+      # Composer at deploy time — dreamtube's DEPLOYMENT.md is explicit that
+      # trying to build on the host (bun run build under CloudLinux) aborts
+      # outright (native Rollup/oxide addons under bun's JS engine). vendor/
+      # and public/build/ both ship inside the artifact instead.
+      - name: Build
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 1
+        run: |
+          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+          bun install --frozen-lockfile
+          bun run laravel:build
+
+      # Assemble the artifact from the repo root, not a Laravel-only
+      # subdirectory: this repo is a single checkout carrying the Next.js
+      # tree (src/, next.config.ts, compose*.yaml) alongside the Laravel
+      # migration, and none of that belongs on the PHP host. node_modules is
+      # excluded on purpose too — no build step runs on the host, so nothing
+      # there is ever read at runtime.
+      #
+      # Every pattern below is ANCHORED with a leading slash. An
+      # unanchored rsync --exclude matches its basename at ANY depth, not
+      # just at the transfer root — `--exclude='src'` does not mean "the
+      # top-level src/ directory", it means "any path component literally
+      # named src anywhere in the tree", which strips every
+      # `vendor/*/src/` directory Composer packages ship their PHP in
+      # (verified: `vendor/laravel/framework/src` alone is thousands of
+      # files). The same shape hit `tests`, `docker`, `scripts` and
+      # `storage/logs` here. A leading slash pins the match to the root of
+      # the transfer, which is what every one of these exclusions actually
+      # means. See docs/known-gaps.md for how this was caught (a dry-run
+      # rsync, not a directory listing) and reproduced.
+      - name: Assemble artifact
+        run: |
+          mkdir -p .artifacts
+          rsync -a \
+            --exclude='/.git' --exclude='/.github' --exclude='/.artifacts' \
+            --exclude='/node_modules' --exclude='/src' --exclude='/tests' \
+            --exclude='/docker' --exclude='/docker-compose.laravel.yml' \
+            --exclude='/compose.yaml' --exclude='/compose.prod.yaml' \
+            --exclude='/next.config.ts' --exclude='/vitest.config.ts' \
+            --exclude='/.superpowers' --exclude='/storage/logs' \
+            --exclude='/.env' --exclude='/.env.example' --exclude='/.env.prod.example' \
+            --exclude='/Dockerfile' --exclude='/Caddyfile' --exclude='/deploy.sh' \
+            --exclude='/scripts' --exclude='/.claude' --exclude='/.dockerignore' \
+            --exclude='/tsconfig.tsbuildinfo' \
+            ./ .artifacts/release/
+
+      # docs/HOSTING.md rows 12/14 (cPanel Git availability, SSH access) are
+      # unanswered. This step assumes SSH access (row 14) and ships over
+      # rsync rather than the cPanel-Git/.cpanel.yml push path — the file's
+      # existing "deploy channel decision" section defaults to cPanel Git
+      # once the survey confirms it; until then, rsync-over-SSH needs no
+      # cPanel-side git configuration to exist before the first run, and
+      # .cpanel.yml still ships alongside this workflow as the alternate
+      # channel (its own deploy task calls the same post-deploy.sh). Only
+      # one channel is wired at a time — see docs/HOSTING.md.
+      #
+      # DEPLOY_PHP_BIN is optional and deliberately NOT defaulted to a
+      # literal path here: dreamtube's DEPLOYMENT.md found the CLI binary on
+      # this exact host profile at /opt/alt/php84/usr/bin/php (CloudLinux
+      # alt-php), not /usr/local/bin/ea-php84 an EasyApache box would have —
+      # a value only the real account can supply. Left unset, it resolves to
+      # bare `php` on the host's non-interactive SSH PATH, which
+      # post-deploy.sh's own guard will refuse if that turns out to mean the
+      # wrong SAPI or version; setting this secret is how an operator acts on
+      # that refusal without editing this workflow.
+      - name: Ship (rsync over ssh)
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_PHP_BIN: ${{ secrets.DEPLOY_PHP_BIN }}
+          DEPLOY_PUBLIC_HTML_PATH: ${{ secrets.DEPLOY_PUBLIC_HTML_PATH }}
+        run: |
+          : "${DEPLOY_KEY:?DEPLOY_SSH_KEY secret is not set}"
+          : "${DEPLOY_HOST:?DEPLOY_HOST secret is not set}"
+          : "${DEPLOY_USER:?DEPLOY_USER secret is not set}"
+          : "${DEPLOY_PATH:?DEPLOY_PATH secret is not set}"
+
+          # Guard against a DEPLOY_PATH that would turn the --delete rsync
+          # below into an account-wide wipe. A plausible operator mistake —
+          # e.g. pointing DEPLOY_PATH at the account home instead of a
+          # dedicated app directory sibling to public_html — makes --delete
+          # remove everything else living there (public_html, mail, logs,
+          # other sites); the anchored excludes only protect paths inside
+          # the release, not siblings outside it. Refuse anything that is
+          # "/", too shallow to plausibly be a dedicated app directory, or
+          # that names public_html directly.
+          #
+          # Strip a trailing slash FIRST: "/home/acct/" has three slashes
+          # and matches no rejected pattern below, so without this the
+          # depth check passes it straight through to
+          # "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/" as "/home/acct//" —
+          # rsync collapses the double slash and --delete wipes the account
+          # home exactly as if DEPLOY_PATH had been set to it directly.
+          DEPLOY_PATH="${DEPLOY_PATH%/}"
+
+          case "$DEPLOY_PATH" in
+            "/") echo "DEPLOY_PATH must not be /" >&2; exit 1 ;;
+          esac
+          segments=$(echo "$DEPLOY_PATH" | tr -cd '/' | wc -c)
+          if [ "$segments" -lt 3 ]; then
+            echo "DEPLOY_PATH looks too shallow to be a dedicated app directory: $DEPLOY_PATH" >&2
+            exit 1
+          fi
+          case "$DEPLOY_PATH" in
+            */public_html|*/public_html/*) echo "DEPLOY_PATH must not point at public_html" >&2; exit 1 ;;
+          esac
+
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+          # --delete only removes files that are absent from the release
+          # AND not excluded — the excludes above (.env, storage/app,
+          # storage/framework, storage/logs) are why a redeploy does not
+          # wipe the host's live uploads, sessions or logs. It DOES delete
+          # bootstrap/cache/config.php when present, which is deliberate:
+          # `migrate --force` running against a stale cached config
+          # (post-deploy.sh runs config:cache only AFTER migrate) would be
+          # worse than the config cache being cold for the few seconds
+          # between rsync finishing and post-deploy.sh regenerating it.
+          rsync -az --delete \
+            --exclude='/.env' --exclude='/storage/app' --exclude='/storage/framework' \
+            --exclude='/storage/logs' \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            .artifacts/release/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          ssh -i ~/.ssh/id_ed25519 "$DEPLOY_USER@$DEPLOY_HOST" \
+            "PHP_BIN='$DEPLOY_PHP_BIN' PUBLIC_HTML_PATH='$DEPLOY_PUBLIC_HTML_PATH' bash $DEPLOY_PATH/deploy/post-deploy.sh $DEPLOY_PATH"
+
+# Secrets to create in the repository's "production" environment before the
+# first run: DEPLOY_SSH_KEY (private half of a deploy key authorised on the
+# host, read/write only to this path), DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH
+# (e.g. /home/<account>/olibra — outside public_html; see docs/HOSTING.md's
+# docroot wiring section), and optionally DEPLOY_PHP_BIN (the resolved CLI
+# php binary's absolute path — leave unset until an operator has actually
+# run `php -r 'echo PHP_BINARY;'` in a real SSH session against the host),
+# and optionally DEPLOY_PUBLIC_HTML_PATH (only needed if the docroot ends up
+# being the index.php shim, docs/HOSTING.md row 6's last resort — leave
+# unset for the Document Root override or the public_html symlink, the two
+# preferred options; post-deploy.sh's public_html sync step is a no-op
+# without it).
+# None of these have been created yet: this pipeline has never actually
+# deployed anything.

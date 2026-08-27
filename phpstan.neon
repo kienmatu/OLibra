@@ -1,0 +1,17 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - app
+        - database
+        - routes
+    level: 8
+    # Larastan's default (false) only reads the legacy $casts property;
+    # every model in this app declares casts via the casts() method
+    # (Laravel 11+ convention), so without this every cast attribute —
+    # enums included — resolved to its raw database column type (string)
+    # instead of the cast type. Found by Task 17: MembershipRole::atLeast()
+    # on a Membership::$role read as "Cannot call method atLeast() on
+    # string" even though the cast is declared and works at runtime.
+    parseModelCastsMethod: true

@@ -1,0 +1,45 @@
+<?php
+
+// Docroot shim (docs/HOSTING.md row 6, unanswered) — LAST RESORT, use only
+// if both of these are unavailable:
+//   1. cPanel → Domains lets you set the Document Root directly to the
+//      app's public/ directory (dreamtube's DEPLOYMENT.md leads with this;
+//      no symlink, no shim, row 6 never matters).
+//   2. `ln -s /home/<account>/olibra/public ~/public_html` works (needs
+//      row 6's symlink() to be permitted).
+//
+// This is a copy of public/index.php with its two require paths repointed
+// to a sibling `olibra/` application directory — because this file lives in
+// public_html/, a directory NEXT TO the app root rather than inside it,
+// the stock index.php's `__DIR__.'/../vendor/...'` would resolve one level
+// above the account's home directory instead of into the app.
+//
+// Copy this file to ~/public_html/index.php (renaming off the
+// `.template` suffix), and edit the `olibra` path segment below only if
+// the app checked out under a name other than `olibra` directly under the
+// account's home directory.
+//
+// Assets (`public/build/`, `public/.htaccess`) are NOT covered by this
+// file alone — Vite writes URLs like `/build/assets/...` that Apache/
+// LiteSpeed must be able to serve directly from public_html/, and those
+// change on every deploy. deploy/post-deploy.sh syncs public_html/build/
+// and public_html/.htaccess automatically on every run, but only when the
+// PUBLIC_HTML_PATH environment variable is set for that run (see
+// post-deploy.sh's own comment) — unset by default, since most deploys use
+// option 1 or 2 above and have no public_html/ to sync into.
+
+use Illuminate\Http\Request;
+
+define('LARAVEL_START', microtime(true));
+
+// Determine if the application is in maintenance mode...
+if (file_exists($maintenance = __DIR__.'/../olibra/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
+
+// Register the Composer autoloader...
+require __DIR__.'/../olibra/vendor/autoload.php';
+
+// Bootstrap Laravel and handle the request...
+(require_once __DIR__.'/../olibra/bootstrap/app.php')
+    ->handleRequest(Request::capture());
