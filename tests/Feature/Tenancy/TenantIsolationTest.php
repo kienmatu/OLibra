@@ -108,21 +108,39 @@ it('stamps creates with the bound shelf when bookshelf_id is left unset', functi
     expect($post->bookshelf_id)->toBe($a->id);
 });
 
-// Documents the real behaviour fix 2 put into BelongsToBookshelf's
-// docblock: the creating hook only fills a gap, it does not validate what
-// is already there. An explicit foreign bookshelf_id still writes through
-// — write-side containment against this is Task 17's job, not this trait's.
-it('still writes an explicitly-named foreign bookshelf_id through on create', function () {
+// BelongsToBookshelf's creating hook validates an explicitly-named
+// bookshelf_id against the bound context, not just fills a gap when it is
+// left null: while shelf A is bound, naming shelf B's id throws instead of
+// writing through. This closes the write-side hole the final review found —
+// a manager of shelf A could otherwise satisfy every other tenancy layer
+// and still write a row into shelf B by naming it explicitly.
+it('refuses to create an explicitly-named foreign bookshelf_id while a shelf is bound', function () {
     ['a' => $a, 'b' => $b] = TenantHarness::twoCollidingShelves();
 
     TenantHarness::actAs($a);
-    $post = Announcement::query()->create([
+
+    expect(fn () => Announcement::query()->create([
         'bookshelf_id' => $b->id,
         'title' => 'Thông báo', 'slug' => 'thong-bao-xuyen-tu',
         'body' => '<p>Nội dung</p>', 'body_text' => 'Nội dung',
-    ]);
+    ]))->toThrow(
+        RuntimeException::class,
+        sprintf('App\Models\Announcement cannot be created for bookshelf_id %s while bound to shelf %s.', $b->id, $a->id),
+    );
+});
 
-    expect($post->bookshelf_id)->toBe($b->id);
+// The update-side twin: nothing previously stopped moving an existing row
+// to another shelf either.
+it('refuses to move an existing row to another shelf while a shelf is bound', function () {
+    ['a' => $a, 'b' => $b] = TenantHarness::twoCollidingShelves();
+
+    TenantHarness::actAs($a);
+    $post = Announcement::query()->sole();
+
+    expect(fn () => $post->update(['bookshelf_id' => $b->id]))->toThrow(
+        RuntimeException::class,
+        sprintf('App\Models\Announcement cannot be moved to bookshelf_id %s while bound to shelf %s.', $b->id, $a->id),
+    );
 });
 
 // The write-side twin of the read-side guided error below: replacing driver
