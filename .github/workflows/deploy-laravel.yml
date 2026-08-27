@@ -1,0 +1,105 @@
+name: Deploy (cPanel)
+
+# Manual dispatch only: a deploy is a decision, not a side effect of merging
+# to a branch. Nothing in this file has ever run against the real host —
+# docs/HOSTING.md rows 2-14 are unanswered — so treat a first run as the
+# first real test of this pipeline, not a rerun of something proven.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      # PHP 8.4 is docs/HOSTING.md row 1 (answered, by product-owner
+      # instruction) and dreamtube's DEPLOYMENT.md hard floor: Laravel 13 /
+      # this app's config/database.php needs 8.4's Pdo\Mysql surface, and a
+      # host stuck on 8.3 is a blocking condition, not a version to relax.
+      # The extension list mirrors .github/workflows/laravel.yml's CI job so
+      # the artifact is built under exactly what CI already proved works.
+      # pdo_mysql/intl/zip/bcmath/mbstring are HOSTING.md row 2/4 assumptions
+      # (present, unverified); gd is row 3's assumed driver (imagick if the
+      # survey finds it instead).
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pdo_mysql, intl, zip, bcmath, gd, mbstring
+          coverage: none
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+
+      # Build off-host (spec §8): the cPanel host never runs Node, bun, or
+      # Composer at deploy time — dreamtube's DEPLOYMENT.md is explicit that
+      # trying to build on the host (bun run build under CloudLinux) aborts
+      # outright (native Rollup/oxide addons under bun's JS engine). vendor/
+      # and public/build/ both ship inside the artifact instead.
+      - name: Build
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 1
+        run: |
+          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+          bun install --frozen-lockfile
+          bun run laravel:build
+
+      # Assemble the artifact from the repo root, not a Laravel-only
+      # subdirectory: this repo is a single checkout carrying the Next.js
+      # tree (src/, next.config.ts, compose*.yaml) alongside the Laravel
+      # migration, and none of that belongs on the PHP host. node_modules is
+      # excluded on purpose too — no build step runs on the host, so nothing
+      # there is ever read at runtime.
+      - name: Assemble artifact
+        run: |
+          mkdir -p .artifacts
+          rsync -a \
+            --exclude='.git' --exclude='.github' --exclude='.artifacts' \
+            --exclude='node_modules' --exclude='src' --exclude='tests' \
+            --exclude='docker' --exclude='docker-compose.laravel.yml' \
+            --exclude='compose.yaml' --exclude='compose.prod.yaml' \
+            --exclude='next.config.ts' --exclude='vitest.config.ts' \
+            --exclude='.superpowers' --exclude='storage/logs' \
+            --exclude='.env' --exclude='.env.example' --exclude='.env.prod.example' \
+            --exclude='Dockerfile' --exclude='Caddyfile' --exclude='deploy.sh' \
+            --exclude='scripts' --exclude='.claude' --exclude='.dockerignore' \
+            --exclude='tsconfig.tsbuildinfo' \
+            ./ .artifacts/release/
+
+      # docs/HOSTING.md rows 12/14 (cPanel Git availability, SSH access) are
+      # unanswered. This step assumes SSH access (row 14) and ships over
+      # rsync rather than the cPanel-Git/.cpanel.yml push path — the file's
+      # existing "deploy channel decision" section defaults to cPanel Git
+      # once the survey confirms it; until then, rsync-over-SSH needs no
+      # cPanel-side git configuration to exist before the first run, and
+      # .cpanel.yml still ships alongside this workflow as the alternate
+      # channel (its own deploy task calls the same post-deploy.sh). Only
+      # one channel is wired at a time — see docs/HOSTING.md.
+      - name: Ship (rsync over ssh)
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          rsync -az --delete \
+            --exclude='.env' --exclude='storage/app' --exclude='storage/framework' \
+            --exclude='storage/logs' \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            .artifacts/release/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          ssh -i ~/.ssh/id_ed25519 "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash $DEPLOY_PATH/deploy/post-deploy.sh $DEPLOY_PATH"
+
+# Secrets to create in the repository's "production" environment before the
+# first run: DEPLOY_SSH_KEY (private half of a deploy key authorised on the
+# host, read/write only to this path), DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH
+# (e.g. /home/<account>/olibra — outside public_html; see docs/HOSTING.md's
+# docroot wiring section). None of these have been created yet: this
+# pipeline has never actually deployed anything.

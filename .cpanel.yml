@@ -1,0 +1,18 @@
+---
+# The alternate deploy channel (docs/HOSTING.md rows 12/14, unanswered):
+# cPanel Git™ Version Control, active only if the survey finds it available
+# and the rsync-over-SSH workflow (.github/workflows/deploy-laravel.yml) is
+# not the one wired instead. cPanel runs this file's tasks itself, on its
+# own pull, from whatever branch/repo the Git™ Version Control feature is
+# pointed at — the built artifact (vendor/, public/build/) still has to
+# reach that repo somehow, since nothing runs a build step on the host
+# (dreamtube's DEPLOYMENT.md: `bun run build` aborts under CloudLinux).
+#
+# DEPLOYPATH must be outside public_html, matching the docroot wiring in
+# docs/HOSTING.md. Update the literal path below to match the real cPanel
+# account name before the first deploy — $USER only resolves correctly in a
+# real cPanel shell, not this file.
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/$USER/olibra
+    - /bin/bash $DEPLOYPATH/deploy/post-deploy.sh $DEPLOYPATH

@@ -114,3 +114,97 @@ Rows 12 (cPanel Git™ available?) and 14 (SSH access?) are unanswered. Until th
 returns, Task 21 assumes **cPanel Git™ Version Control with `.cpanel.yml`** as the
 deploy channel, rather than rsync over SSH. If the survey later finds cPanel Git™
 unavailable, Task 21 falls back to the rsync-over-SSH path it also carries.
+
+**Which channel is actually wired, as implemented:** both files exist —
+`.cpanel.yml` for cPanel Git™, `.github/workflows/deploy-laravel.yml` for
+rsync-over-SSH — but the GitHub Actions workflow is the one with a working
+`Ship` step, using rsync-over-SSH rather than this section's stated default.
+Reasoning: rsync-over-SSH needs no cPanel-side git configuration to exist
+before the first run — it only needs row 14 (SSH access), which Task 21 also
+assumes — while cPanel Git™ additionally needs a git remote set up in cPanel
+first and a way to get the built artifact (with `vendor/` and `public/build/`)
+into whatever repo it pulls from, which `.cpanel.yml`'s own tasks cannot do by
+themselves. `.cpanel.yml` still ships, correct and ready, as the channel to
+flip to once row 12 confirms cPanel Git™ is available and someone wires its
+git remote — its `deployment.tasks` call the same idempotent
+`deploy/post-deploy.sh`, so switching channels does not change what runs on
+the host, only how the files get there.
+
+## Cron lines (create in cPanel → Cron Jobs)
+
+    * * * * * cd /home/<account>/olibra && /path/to/php84/bin/php artisan schedule:run >> /dev/null 2>> /home/<account>/olibra/storage/logs/cron-schedule.err.log
+    0 2 * * * /usr/bin/mysqldump --single-transaction <db_name> | gzip > /home/<account>/backups/olibra-$(date +\%F).sql.gz
+
+The first line is the scheduler tick; queue draining rides it
+(`routes/console.php`'s `Schedule::command('queue:work --stop-when-empty
+--max-time=50')->everyMinute()`). **`/path/to/php84/bin/php` is a placeholder,
+not a real path** — dreamtube's DEPLOYMENT.md found `/opt/alt/php84/usr/bin/php`
+(CloudLinux alt-php) on the same host profile, *not*
+`/usr/local/bin/ea-php84`, and warns explicitly against ever writing bare
+`php` in a cron entry: it works in an interactive SSH session only because
+cPanel puts the right binary first on that PATH, and cron does not read
+`~/.bashrc` — it runs with roughly `PATH=/usr/bin:/bin` and can silently pick
+up a `php-cgi` build of the right version instead. That binary passes every
+version check, drops the `schedule:run` argument because CGI does not
+populate `$argv`, and exits 0 having run nothing — cron logs a success every
+minute while the entire pipeline does nothing. Resolve the real path with
+`php -r 'echo PHP_BINARY;'` in an actual cPanel SSH session (row 14) before
+creating this cron line, and confirm it explicitly with `php -r 'echo
+PHP_SAPI;'` (must print `cli`) rather than trusting `php -v`'s version number
+alone. `deploy/post-deploy.sh` runs the same check itself (`PHP_BIN`,
+defaulting to `php`) precisely because the same ambiguity applies to a
+non-interactive SSH command, not only to cron.
+
+Stdout is discarded and stderr is appended to a file, not the reverse — this
+matches dreamtube's runbook's reasoning: `schedule:run` fires 1440 times a
+day and prints "No scheduled commands are ready to run." on nearly all of
+them, so logging everything is a disk-quota problem nobody remembers to
+reclaim, and an empty stderr-only log is a real signal (anything in it means
+something actually went wrong). It also cannot catch the php-cgi failure mode
+above, which writes to stdout and exits 0 — that failure is caught by
+checking `PHP_SAPI` directly, not by reading either log, which is exactly why
+`post-deploy.sh` checks it structurally instead of trusting a clean log.
+
+The second line is the database half of the backup story; the file half is
+`/home/<account>/olibra/storage/`, and the restore path for BOTH must be
+rehearsed and written into a deployment runbook at cutover — spec §10 risk 3
+says this plainly. `<db_name>` and the backup destination path are
+placeholders for the same reason the PHP path above is: nobody has the real
+account name or database name from this session.
+
+## Docroot wiring (per row 6)
+
+Symlink chosen:   mv ~/public_html ~/public_html.old && ln -s /home/<account>/olibra/public ~/public_html
+Shim fallback:    keep public_html/, place an index.php requiring
+                  /home/<account>/olibra/public/index.php after chdir'ing there,
+                  and copy public/.htaccess and public/build into public_html/.
+
+Task 21 assumes the shim fallback by default (see "The docroot decision"
+above) until row 6 confirms `symlink()` is permitted; `deploy/post-deploy.sh`
+does not perform either wiring step itself; it is a one-time, by-hand setup
+action, not part of the repeatable deploy.
+
+## First deploy checklist
+
+1. Create the MySQL database and user in cPanel; grant ALL. dreamtube's
+   DEPLOYMENT.md flags the "add user to database" step as a separate form
+   that is easy to miss — skipping it gives `SQLSTATE[42000] [1044] Access
+   denied` at migrate time even though the user and password are both
+   correct.
+2. Write /home/<account>/olibra/.env by hand (never deployed — it is
+   excluded from the artifact and from the rsync target): APP_KEY from
+   `php artisan key:generate --show` locally, APP_ENV=production,
+   APP_DEBUG=false, APP_URL, DB_CONNECTION=mariadb (not `mysql` — see the
+   design's Global Constraints and dreamtube's DEPLOYMENT.md for the errno
+   1901 this exact mistake produces), DB_*, SESSION_DRIVER=database,
+   QUEUE_CONNECTION=database, CACHE_STORE=database, HASH_DRIVER per row 5
+   (bcrypt until confirmed otherwise — see "The hashing decision" above).
+3. Confirm the CLI PHP binary and SAPI explicitly before anything else runs
+   — `php -r 'echo PHP_SAPI, " ", PHP_VERSION;'` in a real SSH session must
+   print `cli 8.4.x`, not merely a version number from `php -v`.
+4. Run the deploy workflow (`.github/workflows/deploy-laravel.yml`, manual
+   dispatch); verify /login renders over HTTPS. This is the acceptance test
+   named in the Phase 0 exit criteria — nothing in this repository has
+   verified it yet, because nobody has run the workflow against a real host.
+5. Create the cron lines above, with the real PHP CLI path from step 3
+   substituted for the placeholder.
