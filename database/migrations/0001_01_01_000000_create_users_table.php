@@ -30,7 +30,7 @@ return new class extends Migration
             $table->text('avatar_object')->nullable();          // storage key; avatar_url is history
             $table->boolean('is_super_admin')->default(false);
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             $table->dateTime('deleted_at', 6)->nullable();
         });
 

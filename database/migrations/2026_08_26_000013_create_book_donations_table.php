@@ -22,7 +22,7 @@ return new class extends Migration
             $table->dateTime('decided_at', 6)->nullable();
             $table->text('decision_note')->nullable();
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             // No deleted_at — matching 0006_community.sql.
 
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();

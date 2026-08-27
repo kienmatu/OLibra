@@ -24,7 +24,7 @@ return new class extends Migration
             $table->date('established_on')->nullable();
             $table->string('created_by', 36)->charset('ascii')->collation('ascii_bin')->nullable();
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             $table->dateTime('deleted_at', 6)->nullable();
 
             $table->foreign('created_by')->references('id')->on('users')->restrictOnDelete();

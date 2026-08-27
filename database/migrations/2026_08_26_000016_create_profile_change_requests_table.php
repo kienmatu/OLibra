@@ -21,7 +21,7 @@ return new class extends Migration
             $table->dateTime('decided_at', 6)->nullable();
             $table->text('rejection_reason')->nullable();
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
 
             $table->foreign('user_id')->references('id')->on('users')->restrictOnDelete();
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();

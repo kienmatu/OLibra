@@ -25,7 +25,7 @@ return new class extends Migration
             $table->string('fulfilled_loan_id', 36)->charset('ascii')->collation('ascii_bin')->nullable();
             $table->dateTime('cancelled_at', 6)->nullable();
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             $table->dateTime('deleted_at', 6)->nullable();
 
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();

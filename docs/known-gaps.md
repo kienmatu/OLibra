@@ -475,6 +475,18 @@ exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
   routes stay reachable. The final review flagged this and deliberately did
   not decide it here; it is Phase 1's call, informed by BR, not something to
   infer from `BookshelfStatus::Archived` existing as a case.
+- **`bookshelf_contacts.updated_at` carries no `useCurrentOnUpdate()`, unlike
+  the thirteen tables PR #57's review follow-up 3 fixed.** That follow-up
+  restored parity with Postgres's `set_updated_at` trigger
+  (`src/db/migrations/20260808_06_updated_at_triggers.sql`) column for
+  column, on exactly the thirteen tables that migration named. `bookshelf_
+  contacts` was added afterward (Task 1, the PO-feedback contacts rework)
+  and was never one of the thirteen, so it never carried this guarantee on
+  either side — leaving it alone is restoring parity, not a new gap, but it
+  is worth a line here since the table does have an `updated_at` column and
+  a future reader could otherwise assume every such column is covered.
+  Adding the same `->useCurrentOnUpdate()` to it would be a reasonable
+  Phase 1 cleanup, not a defect fix.
 
 ## Smaller deferred items, by task
 

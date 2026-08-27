@@ -486,6 +486,115 @@ it('a representative composite tenant FK refuses a cross-shelf reference', funct
     dbgExpectViolation(fn () => dbgCopy($shelfA, $bookOnB), 1452, 'book_copies_book_fk');
 });
 
+// ── the useCurrentOnUpdate() guarantee (PR #57 review follow-up 3) ───────
+// DATABASE.md §2 claims, for every table, "created_at ... and updated_at
+// where the row is mutable". Postgres backed that claim with an explicit
+// trigger (src/db/migrations/20260808_06_updated_at_triggers.sql) on
+// thirteen tables, after finding that nothing had ever written to
+// updated_at after insert. This side backs the same claim with
+// ->useCurrentOnUpdate() on the same thirteen columns instead of a
+// trigger — MariaDB's ON UPDATE CURRENT_TIMESTAMP is the native mechanism,
+// so no trigger is needed to get the same guarantee.
+//
+// Eloquent already maintains updated_at on its own writes regardless of
+// what the column does, so the only write style this guarantee protects is
+// a raw DB::table()->update() — exactly the style this whole file already
+// uses for its constraint probes. One row per table, one raw update each,
+// proving the column actually moves rather than merely existing.
+//
+// bookshelf_contacts also carries an updated_at column but is deliberately
+// excluded here: it is not one of the thirteen 20260808_06 names (Task 1
+// added the table afterward), so it never carried this guarantee on either
+// side, and adding ->useCurrentOnUpdate() to it would be inventing a new
+// guarantee rather than restoring an old one — left as-is; see
+// docs/known-gaps.md.
+it('useCurrentOnUpdate: a raw DB::table()->update() moves updated_at on every table 20260808_06 named', function () {
+    $shelf = dbgShelf();
+    $user = dbgUser();
+    $book = dbgBook($shelf);
+    $copy = dbgCopy($shelf, $book);
+    $membership = dbgMembership($shelf, $user);
+
+    $parishUnit = (string) Str::uuid7();
+    DB::table('parish_units')->insert([
+        'id' => $parishUnit, 'bookshelf_id' => $shelf, 'level' => 1, 'name' => 'Giới trẻ',
+    ]);
+
+    $category = (string) Str::uuid7();
+    DB::table('categories')->insert([
+        'id' => $category, 'name' => 'Thiếu nhi', 'slug' => 'thieu-nhi-'.substr($category, -8),
+    ]);
+
+    $loan = (string) Str::uuid7();
+    DB::table('loans')->insert([
+        'id' => $loan, 'bookshelf_id' => $shelf, 'copy_id' => $copy, 'book_id' => $book,
+        'borrower_id' => $user, 'lent_by' => $user, 'due_on' => '2026-09-09',
+    ]);
+
+    $borrowRequest = (string) Str::uuid7();
+    DB::table('borrow_requests')->insert([
+        'id' => $borrowRequest, 'bookshelf_id' => $shelf, 'book_id' => $book, 'member_id' => $user,
+    ]);
+
+    $comment = (string) Str::uuid7();
+    DB::table('comments')->insert([
+        'id' => $comment, 'bookshelf_id' => $shelf, 'book_id' => $book, 'author_id' => $user, 'body' => 'Hay quá',
+    ]);
+
+    $announcement = (string) Str::uuid7();
+    DB::table('announcements')->insert([
+        'id' => $announcement, 'bookshelf_id' => $shelf, 'title' => 'Thông báo',
+        'slug' => 'thong-bao-'.substr($announcement, -8), 'body' => '<p>Nội dung</p>', 'body_text' => 'Nội dung',
+    ]);
+
+    $donation = (string) Str::uuid7();
+    DB::table('book_donations')->insert([
+        'id' => $donation, 'bookshelf_id' => $shelf, 'donor_membership_id' => $membership,
+        'description' => 'Một thùng sách thiếu nhi',
+    ]);
+
+    $profileChange = (string) Str::uuid7();
+    DB::table('profile_change_requests')->insert([
+        'id' => $profileChange, 'user_id' => $user, 'bookshelf_id' => $shelf,
+        'proposed_values' => '{"phone":"0900000001"}', 'previous_values' => '{"phone":null}',
+    ]);
+
+    // Table => [primary key value, a nullable/free-text column to change so
+    // the UPDATE is a real value change and not a no-op MariaDB is free to
+    // skip the ON UPDATE clause for.
+    $probes = [
+        'users' => [$user, 'full_name', 'Nguyễn Thị Lan (updated)'],
+        'bookshelves' => [$shelf, 'name', 'Tủ sách Đồng Tháp (updated)'],
+        'parish_units' => [$parishUnit, 'name', 'Giới trẻ (updated)'],
+        'memberships' => [$membership, 'manager_notes', 'ghi chú'],
+        'categories' => [$category, 'sort_order', 99],
+        'books' => [$book, 'title', 'Dế Mèn Phiêu Lưu Ký (updated)'],
+        'book_copies' => [$copy, 'condition_note', 'hơi cũ'],
+        'loans' => [$loan, 'notes', 'ghi chú'],
+        'borrow_requests' => [$borrowRequest, 'decision_note', 'ghi chú'],
+        'comments' => [$comment, 'body', 'Hay quá (updated)'],
+        'announcements' => [$announcement, 'body_text', 'Nội dung (updated)'],
+        'book_donations' => [$donation, 'description', 'Một thùng sách thiếu nhi (updated)'],
+        'profile_change_requests' => [$profileChange, 'rejection_reason', 'Sai số điện thoại'],
+    ];
+
+    foreach ($probes as $table => [$id, $column, $newValue]) {
+        $before = DB::table($table)->where('id', $id)->value('updated_at');
+
+        // The column is dateTime(6) — microsecond precision — but a sleep
+        // guards against two reads landing in the same microsecond on a
+        // fast enough machine, which would pass this assertion for the
+        // wrong reason (no real proof the column moved).
+        usleep(10_000);
+
+        DB::table($table)->where('id', $id)->update([$column => $newValue]);
+
+        $after = DB::table($table)->where('id', $id)->value('updated_at');
+
+        expect($after)->not->toBe($before, "{$table}.updated_at did not move on a raw DB::table()->update()");
+    }
+});
+
 // The remaining invariants have their probes in sibling files, all part of
 // this suite in the spec's sense:
 //   - the other fourteen composite tenant FKs → tests/Feature/Schema/CompositeTenantFkTest.php

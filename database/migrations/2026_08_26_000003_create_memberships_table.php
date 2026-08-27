@@ -25,7 +25,7 @@ return new class extends Migration
             $table->text('suspension_reason')->nullable();
             $table->text('manager_notes')->nullable();          // private to managers
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             $table->dateTime('deleted_at', 6)->nullable();
 
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();

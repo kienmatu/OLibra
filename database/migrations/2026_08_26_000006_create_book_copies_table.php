@@ -30,7 +30,7 @@ return new class extends Migration
             $table->dateTime('qr_printed_at', 6)->nullable();
             $table->integer('qr_print_count')->default(0);
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             $table->dateTime('deleted_at', 6)->nullable();
 
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();

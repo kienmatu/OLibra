@@ -34,7 +34,7 @@ return new class extends Migration
             $table->text('void_reason')->nullable();
             $table->text('notes')->nullable();
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             // NO deleted_at. INV-11: a loan is voided, never deleted; the
             // trigger refusing DELETE outright arrives in Task 12.
 

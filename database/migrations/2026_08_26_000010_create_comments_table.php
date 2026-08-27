@@ -21,7 +21,7 @@ return new class extends Migration
             $table->dateTime('moderated_at', 6)->nullable();
             $table->text('moderation_note')->nullable();
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             $table->dateTime('deleted_at', 6)->nullable();
 
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();

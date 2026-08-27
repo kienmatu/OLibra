@@ -19,7 +19,7 @@ return new class extends Migration
             $table->string('name');
             $table->integer('sort_order')->default(0);
             $table->dateTime('created_at', 6)->useCurrent();
-            $table->dateTime('updated_at', 6)->useCurrent();
+            $table->dateTime('updated_at', 6)->useCurrent()->useCurrentOnUpdate();
             $table->dateTime('deleted_at', 6)->nullable();
 
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();
