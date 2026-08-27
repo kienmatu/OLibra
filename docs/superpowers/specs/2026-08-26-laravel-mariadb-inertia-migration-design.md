@@ -6,6 +6,14 @@
 
 [BUSINESS-REQUIREMENTS.md](../../BUSINESS-REQUIREMENTS.md) remains the authority on what the product does and why. It names no framework and does not change in this migration. Where this document and that one disagree, that one wins.
 
+**A path note for later readers.** Every bare `src/...` path below (`src/app/`,
+`src/domain/`, `src/components/ui`, etc.) describes the Next.js reference
+codebase as it stood at `v0.1.0`, at the repo root. After Phase 0 landed, that
+tree moved to `old_next/` to resolve a collision with Laravel's own `app/`
+directory (see `docs/known-gaps.md`) — so read every `src/...` reference here
+as `old_next/src/...` against the current tree. `app/...` references below
+were already, and remain, root-relative.
+
 ---
 
 ## 1. What is being migrated, and why

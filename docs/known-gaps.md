@@ -410,6 +410,37 @@ the plain filesystem layout underneath it. Recorded here so the next
 dependency — or the next root-level directory either framework introduces —
 does not have to rediscover this by reading `find-pages-dir.js` again.
 
+**Resolved, the other direction from the one predicted above.** The product
+owner decided the Next.js tree is reference-only going forward — Phases 1–3
+diff against it, but nothing edits it again — so instead of giving Laravel its
+own subtree beside an equal Next.js, the Next.js tree moved wholesale to
+`old_next/` (`git mv src old_next/src`, and everything else that was
+Next-exclusive: `next.config.ts`, `vitest.config.ts`, the Next-side `tests/`,
+`compose*.yaml`, `Dockerfile`, `Caddyfile`, `deploy.sh`, the VPS-deploy half of
+`scripts/`, and the covers/favicon/logo/robots half of `public/`) and
+`laravel_app/` moved back to the idiomatic `app/`. `composer.json`,
+`phpstan.neon`, `phpunit.xml` and `bootstrap/app.php`'s `useAppPath()` override
+all reverted to naming `app/` directly — the override is gone entirely, not
+repointed, because there is nothing left at the root for `app/` to collide
+with. `package.json`/`bun.lock`/`node_modules`, `.env`/`.env.example`, `docs/`
+and `public/index.php`+`.htaccess` stayed shared at the root by deliberate
+choice, not oversight; see the repo root's `AGENTS.md` for the full list and
+`old_next/AGENTS.md` for how the reference app still runs from its new home.
+The `public/` collision this section predicted never had to be resolved by
+choosing one file over the other — Next's half of `public/` simply moved with
+the rest of Next into `old_next/public/`, leaving Laravel's `index.php` and
+`.htaccess` alone at the root with nothing left contesting the name. The CI
+workflow that ran the Next.js suite (`ci.yml`) was retired rather than
+retargeted at `old_next/`: nothing there is expected to change again, so a
+permanently-green check on frozen code bought nothing, and two of its
+architecture tests that asserted facts about `ci.yml` itself
+(`ci-pins-the-storage-image.test.ts`, `ci-supplies-required-env.test.ts`) were
+removed along with it rather than left failing against a file that no longer
+exists. Verified after: all 265 Pest tests, Pint and Larastan level 8 still
+pass; `old_next/`'s own full suite (178 files, 1635 tests, two fewer than
+before for the reason above) still passes from its new home, and `bun run
+build`/`bun run typecheck`/`bun run lint` all succeed against it too.
+
 ## Deliberately unfinished
 
 - **No absolute session lifetime.** Laravel's session shape offers only idle
