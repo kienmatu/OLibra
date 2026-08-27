@@ -844,6 +844,19 @@ rather than accepting it on the strength of the code alone.
   the lock.** `book_copies_code_unique`'s errno 1062 remains the structural
   backstop for codes and slugs; ISBN has no such backstop — see the next
   entry.
+- **`AllocateCopyCodes`'s `DB::transactionLevel() === 0` guard has no test
+  that can throw it.** The guard defends against a caller invoking
+  `execute()` outside `DB::transaction()`, where the `FOR UPDATE` above
+  would autocommit and its row lock would release before the `MAX` scan
+  even ran — silently providing none of the serialisation the class exists
+  to provide, while looking like it does. But every test in the suite runs
+  under `RefreshDatabase`, which wraps the whole run in its own outer
+  transaction, so `DB::transactionLevel()` is never 0 from inside a test —
+  there is no way, from this harness, to observe the class running with no
+  transaction open. Disclosed honestly at
+  `tests/Feature/Catalogue/AllocateCopyCodesTest.php:111-118` rather than
+  faked with a mock; recorded here because a guarantee a test can't reach
+  is exactly the kind of thing this file exists to keep visible.
 - **`duplicate_isbn` is a check-then-write with no structural backstop, and
   the failure mode of getting the ordering wrong is SILENT corruption, not
   an error.** No unique index backs ISBN (a partial per-shelf ISBN unique
@@ -879,10 +892,18 @@ rather than accepting it on the strength of the code alone.
   the manager's lend/return shortcuts** — `CreateBorrowRequest` and comments
   are Phase 2, `LendCopy`/`ReceiveReturn` are 1c. The availability panel,
   queue length and contact line are live.
-- **`lang/vi/validation.php` is translated for the rules this phase reaches;
-  untranslated stock rules may remain English-keyed** until the phase that
-  first hits them. The Task 1 test pins `required`; it does not census the
-  file.
+- **`lang/vi/validation.php`'s `attributes` array only names this phase's
+  fields; a field validated by a later phase without an entry there falls
+  back to Laravel's default attribute display** — `getDisplayableAttribute()`
+  (`vendor/laravel/framework/.../Validation/Concerns/FormatsMessages.php:308`)
+  renders an unlisted attribute as `str_replace('_', ' ', Str::snake($attribute))`,
+  e.g. `donor_membership_id` unlisted would read "donor membership id" inside
+  an otherwise-Vietnamese message. The rule *messages* are not at risk of
+  this: diffed against `vendor/laravel/framework/.../lang/en/validation.php`,
+  all 138 of the vendor file's own message keys are translated — the only
+  absent key is `custom.attribute-name.rule-name`, the vendor file's own
+  placeholder example, not a real rule. The Task 1 test pins `required`; it
+  does not census the file.
 - **The manager index reuses `copyCountLine` with its middle figure computed
   as `total - available`** (which counts held copies as "đang cho mượn") —
   the per-row true on-loan count was deliberately not added to the list

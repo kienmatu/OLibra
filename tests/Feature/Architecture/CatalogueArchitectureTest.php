@@ -54,9 +54,14 @@ it('there is deliberately no delete-book route', function () {
 
 it('no Action skips the audit recorder', function () {
     // Tripwire, INV-8: every command class in app/Actions/Catalogue except
-    // the code allocator (not a command — it writes nothing) must reference
-    // AuditRecorder. Textual, so a new Action pasted without audit fails
-    // the build rather than quietly shipping unaudited.
+    // the code allocator (not a command — it writes nothing) must actually
+    // call ->record() on a constructor-injected AuditRecorder. Asserting
+    // just the class name appeared in the source (a prior version of this
+    // test did) would pass on a file that merely imports or mentions
+    // AuditRecorder without ever calling record() — this ties the pin to
+    // the call itself, keyed off whatever the constructor names the
+    // property, so a new Action pasted without audit fails the build
+    // rather than quietly shipping unaudited.
     $files = glob(app_path('Actions/Catalogue/*.php'));
     expect($files)->not->toBe([]);
 
@@ -64,8 +69,14 @@ it('no Action skips the audit recorder', function () {
         if (str_ends_with($file, 'AllocateCopyCodes.php')) {
             continue;
         }
-        expect(str_contains((string) file_get_contents($file), 'AuditRecorder'))
-            ->toBeTrue(basename($file).' does not reference AuditRecorder');
+
+        $source = (string) file_get_contents($file);
+
+        expect(preg_match('/private\s+(?:readonly\s+)?AuditRecorder\s+\$(\w+)/', $source, $ctor))
+            ->toBe(1, basename($file).' does not constructor-inject an AuditRecorder');
+
+        expect(preg_match('/\$this->'.$ctor[1].'->record\s*\(/', $source))
+            ->toBe(1, basename($file).' never calls ->record() on its AuditRecorder');
     }
 });
 
