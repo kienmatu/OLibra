@@ -2,6 +2,14 @@
 
 Conventions for anyone — human or agent — working in this repository.
 
+**Read [docs/known-gaps.md](docs/known-gaps.md) before starting work.** It records
+what is deliberately unfinished, what was never verified and why, and the traps
+that have already cost time in this repo — the `phpunit.xml` `<server>`/`DB_URL`
+rules that protect the development database, the MariaDB DDL refusals, and the
+tests that passed while guarding nothing. Keep it current: when you defer
+something or leave something unverified, add it there rather than only in a
+commit message.
+
 ## Toolchain: Bun locally
 
 **Use Bun for everything local. Do not use npm, pnpm or yarn.**
