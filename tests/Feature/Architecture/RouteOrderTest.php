@@ -64,6 +64,44 @@ it('puts the tenant middleware on every route that names {shelf}', function () {
     }
 });
 
+it('puts a role: middleware on every route under /manage', function () {
+    // The read-side (auth ⇒ every role:-gated route) is proven above, but
+    // nothing previously proved the other direction: that a route living
+    // under /manage actually carries a role: gate at all. A route declared
+    // one line outside its role:manager group would be readable by every
+    // signed-in reader of that shelf with the suite still green — this
+    // closes that gap.
+    $manageRoutes = collect(Route::getRoutes()->getRoutes())
+        // An exact path segment, not a substring match — 'admin/managers'
+        // contains the literal text '/manage' but is not under /manage/.
+        ->filter(fn ($route) => in_array('manage', explode('/', $route->uri()), true))
+        ->values();
+
+    expect($manageRoutes)->not->toBeEmpty();
+
+    foreach ($manageRoutes as $route) {
+        $middleware = $route->gatherMiddleware();
+        $hasRoleMiddleware = collect($middleware)->contains(fn (string $m) => str_starts_with($m, 'role:'));
+
+        expect($hasRoleMiddleware)->toBeTrue("route under /manage without a role: middleware: {$route->uri()}");
+    }
+});
+
+it('puts the super-admin middleware on every admin/-prefixed route', function () {
+    $adminRoutes = collect(Route::getRoutes()->getRoutes())
+        ->filter(fn ($route) => str_starts_with($route->uri(), 'admin/'))
+        ->values();
+
+    expect($adminRoutes)->not->toBeEmpty();
+
+    foreach ($adminRoutes as $route) {
+        $middleware = $route->gatherMiddleware();
+
+        expect(in_array('super-admin', $middleware, true))
+            ->toBeTrue("admin/-prefixed route without super-admin middleware: {$route->uri()}");
+    }
+});
+
 it('keeps every uri english — no vietnamese path segments', function () {
     $routes = Route::getRoutes()->getRoutes();
 
