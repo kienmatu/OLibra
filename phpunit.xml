@@ -106,6 +106,15 @@
             developer who later sets INERTIA_SSR_ENABLED=true in the project
             .env to work on SSR cannot silently reintroduce the failure.
             InertiaSsrTest pins both the config value and the behaviour.
+
+            No equivalent <server> line exists for INERTIA_DEVTOOLS_ENABLED.
+            That is deliberate, not an oversight: .env.example ships it false
+            already, so nothing here needs to outrank a container leak the
+            way DB_DATABASE and this SSR flag do. Leaving it unpinned means a
+            developer who legitimately opts into devtools in their own .env
+            to work on the DevTools integration gets three InertiaDevtoolsTest
+            failures instead of a silently-passing suite that no longer
+            proves the routes stay unregistered — a loud guard, on purpose.
         -->
         <server name="INERTIA_SSR_ENABLED" value="false"/>
     </php>

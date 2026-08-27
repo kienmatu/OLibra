@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Route;
  * registers the _inertia/devtools routes — not merely so a gate blocks them
  * after the fact.
  */
-it('has devtools disabled by default', function () {
+it('resolves devtools.enabled to false in this booted app', function () {
     expect(config('inertia.devtools.enabled'))->toBeFalse();
 });
 
@@ -74,8 +74,15 @@ it('registers no devtools route at all', function () {
 });
 
 it('refuses an unauthenticated request to the devtools entries endpoint', function () {
-    // No session, no cookies, nothing — this is the exact request shape the
-    // trap served a 200 to.
+    // No session, no cookies, nothing. Under this suite's APP_ENV=testing,
+    // Authorize::allows() could never return 200 for this request even with
+    // devtools force-enabled -- its local-environment short-circuit only
+    // fires for 'local', so a force-enabled testing run gets a 403 here
+    // instead. The 200-to-an-unauthenticated-caller finding is established
+    // separately, against this app's real APP_ENV=local, by `route:list`
+    // (no _inertia/devtools route exists at all) and by hand with curl. What
+    // this test proves — with the route unregistered, as it always is here
+    // — is that the endpoint 404s rather than reaching Authorize at all.
     $response = $this->get('/_inertia/devtools/entries');
 
     expect($response->status())->not->toBe(200);

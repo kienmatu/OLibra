@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Vite;
 
 /**
  * Inertia ships INERTIA_SSR_ENABLED defaulting to true, and
@@ -21,15 +22,30 @@ it('has ssr forced off for the test environment', function () {
     expect(config('inertia.ssr.enabled'))->toBeFalse();
 });
 
-it('never dispatches an inertia render to the vite ssr endpoint, even though public/hot exists', function () {
-    // public/hot is committed and present right now (that is the trap this
-    // guards against), so this assertion is only meaningful if the file is
-    // actually there — otherwise it would pass for the wrong reason.
-    expect(file_exists(public_path('hot')))->toBeTrue();
+it('never dispatches an inertia render to the vite ssr endpoint, even when vite is running hot', function () {
+    // Does not rely on the real public/hot -- that file is gitignored and
+    // only exists while the docker-compose vite service happens to be
+    // running (see .gitignore:84 and docker-compose.laravel.yml). A fresh
+    // clone, `docker compose up app mariadb` alone, or CI running the
+    // Laravel suite without the vite service would otherwise fail this
+    // test for a reason unrelated to the trap it guards against. Instead,
+    // this test manufactures the exact condition the trap depends on --
+    // Vite::isRunningHot() returning true -- by pointing the Vite facade
+    // at a temporary hot file it creates and removes itself.
+    $hotFile = tempnam(sys_get_temp_dir(), 'inertia-ssr-test-hot');
+    file_put_contents($hotFile, 'http://localhost:5175');
+    Vite::useHotFile($hotFile);
 
-    Http::fake();
+    try {
+        expect(Vite::isRunningHot())->toBeTrue();
 
-    $this->get('/')->assertOk();
+        Http::fake();
 
-    Http::assertNothingSent();
+        $this->get('/')->assertOk();
+
+        Http::assertNothingSent();
+    } finally {
+        Vite::useHotFile(public_path('hot'));
+        unlink($hotFile);
+    }
 });
