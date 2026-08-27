@@ -282,6 +282,32 @@ needs to name which iteration failed, or wrap the check in `in_array()`/
 `str_contains()` and assert the boolean instead of asserting containment
 directly with a message tacked on.
 
+## CI's first real run: every Inertia render 500s if Pest runs before the Vite build
+
+**The Task 20 brief's own workflow draft ran `php artisan test` before
+`bun run laravel:build`, and every Feature test that renders a page failed
+with `Illuminate\Foundation\ViteManifestNotFoundException: Vite manifest not
+found at: .../public/build/manifest.json`** — 44 of 254 tests, every one of
+them a route that goes through an Inertia response. Nothing in the phpunit.xml
+guard chain catches this class of failure: it is not an environment leak, it
+is a missing build artifact, and Inertia's response *is* the compiled HTML
+shell, so no test double or `RefreshDatabase`-style scaffolding softens it.
+It could not have been caught by reading the workflow, only by running it —
+which is exactly why this task's brief called for a real run rather than a
+written-but-unexecuted file. Reproduced live on `ubuntu-latest` (run
+33051369147, `ci-scratch-task20`): `Pest` failed with 5 explicit
+`ViteManifestNotFoundException` traces before the harness stopped printing
+individual causes, `Vite build` never got the chance to run (its own step
+comes after in a job that stops at the first failing step by default), and
+`ExampleTest`/`ShellTest`/`RouteIsolationTest`/`AuthenticationTest` all went
+red the same way. Fixed by moving the `Vite build` step ahead of `Pest` in
+`.github/workflows/laravel.yml` (with a comment at the swap explaining why);
+confirmed green on a second run (33051541868) with the same commit, all
+254 tests passing, 3141 assertions. The general lesson: **any CI step that
+renders even one page needs the front-end build to have already happened in
+that job** — there is no lazy-build path in production Vite manifests the way
+there is a lazy dev-server path locally.
+
 ## Deliberately unfinished
 
 - **No absolute session lifetime.** Laravel's session shape offers only idle
