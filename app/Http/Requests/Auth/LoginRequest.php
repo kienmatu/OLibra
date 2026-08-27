@@ -53,25 +53,27 @@ class LoginRequest extends FormRequest
             ->where('username_active', Str::lower($this->string('username')->toString()))
             ->first();
 
-        $ok = $user !== null
-            && $user->password_hash !== null
-            && Hash::check($this->string('password')->toString(), $user->password_hash);
+        // EXACTLY ONE Hash::check, on every path, found necessary in
+        // review after round 1 accidentally restored the timing oracle in
+        // the opposite direction: an earlier shape called Hash::check on
+        // the found-user branch AND AGAIN inside `if (! $ok)` for every
+        // miss, so a wrong password paid two derivations against an
+        // unknown username's one — fast now meant "no such user", if
+        // anything an easier signal for an enumerator than the original.
+        // $stored falls back to a fixed per-driver literal (self::
+        // DUMMY_HASHES below) exactly when there is nothing real to check
+        // against — no row, or a credential-less account (INV-14) — so the
+        // one derivation below always happens, on identical input shape,
+        // whether or not a user was found. The `&&` chain only gates the
+        // *result*; it must not gate whether the check itself runs.
+        $dummy = self::dummyHashFor((string) config('hashing.driver'));
+        $stored = $user !== null ? ($user->password_hash ?? $dummy) : $dummy;
+
+        $ok = Hash::check($this->string('password')->toString(), $stored)
+            && $user !== null
+            && $user->password_hash !== null;
 
         if (! $ok) {
-            // Burn a verification even when there is no row (or no
-            // password_hash, INV-14) to check against — otherwise an
-            // unknown username or a credential-less account returns near-
-            // instantly while a wrong password pays a full argon2id/bcrypt
-            // derivation, a trivially measurable username-enumeration
-            // oracle. Fixed per-driver LITERALS (self::DUMMY_HASHES below),
-            // not a hash computed fresh per request: computing one here
-            // would cost a derivation on every miss (worse than the oracle
-            // it claims to close, and PHP-FPM has no request-lifetime
-            // memoisation to lean on), and it must be a real, well-formed
-            // hash for the active driver or BcryptHasher::check() throws
-            // outright on a foreign hash format when HASH_VERIFY is on.
-            Hash::check($this->string('password')->toString(), self::dummyHashFor((string) config('hashing.driver')));
-
             RateLimiter::hit($this->throttleKey());
 
             // One message for every failure mode — never confirm which
@@ -123,8 +125,24 @@ class LoginRequest extends FormRequest
         'bcrypt' => '$2y$12$qds7x/2MsNRU2nFoIGQm1eoQfyyrIIjgNb5JKNT1URefJTAexXssW',
     ];
 
+    /**
+     * @throws \RuntimeException when hashing.driver names a driver this
+     *                           class carries no literal for. Found in review: silently falling
+     *                           back to the bcrypt literal for an unrecognised driver would hand
+     *                           a foreign-format hash to whatever Hasher IS configured — under a
+     *                           future custom driver with HASH_VERIFY-equivalent checking on,
+     *                           that throws inside the very code path meant to avoid one. A
+     *                           clear, named configuration error here is a deploy-time signal to
+     *                           add the missing literal, not a runtime 500 discovered by a user
+     *                           typing a wrong password.
+     */
     private static function dummyHashFor(string $driver): string
     {
-        return self::DUMMY_HASHES[$driver] ?? self::DUMMY_HASHES['bcrypt'];
+        return self::DUMMY_HASHES[$driver]
+            ?? throw new \RuntimeException(
+                "LoginRequest::DUMMY_HASHES has no literal for hashing driver [{$driver}]. ".
+                'Add one (a real hash for that driver, at production-strength cost, that '.
+                'matches no real password) before deploying with this driver configured.'
+            );
     }
 }
