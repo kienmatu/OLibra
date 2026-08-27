@@ -48,11 +48,10 @@ jobs:
           bun run laravel:build
 
       # Assemble the artifact from the repo root, not a Laravel-only
-      # subdirectory: this repo is a single checkout carrying the Next.js
-      # tree (src/, next.config.ts, compose*.yaml) alongside the Laravel
-      # migration, and none of that belongs on the PHP host. node_modules is
-      # excluded on purpose too — no build step runs on the host, so nothing
-      # there is ever read at runtime.
+      # subdirectory: this repo is a single checkout carrying the reference
+      # Next.js tree (old_next/) alongside the Laravel app, and none of that
+      # belongs on the PHP host. node_modules is excluded on purpose too — no
+      # build step runs on the host, so nothing there is ever read at runtime.
       #
       # Every pattern below is ANCHORED with a leading slash. An
       # unanchored rsync --exclude matches its basename at ANY depth, not
@@ -71,14 +70,11 @@ jobs:
           mkdir -p .artifacts
           rsync -a \
             --exclude='/.git' --exclude='/.github' --exclude='/.artifacts' \
-            --exclude='/node_modules' --exclude='/src' --exclude='/tests' \
+            --exclude='/node_modules' --exclude='/old_next' --exclude='/tests' \
             --exclude='/docker' --exclude='/docker-compose.laravel.yml' \
-            --exclude='/compose.yaml' --exclude='/compose.prod.yaml' \
-            --exclude='/next.config.ts' --exclude='/vitest.config.ts' \
-            --exclude='/.superpowers' --exclude='/storage/logs' \
-            --exclude='/.env' --exclude='/.env.example' --exclude='/.env.prod.example' \
-            --exclude='/Dockerfile' --exclude='/Caddyfile' --exclude='/deploy.sh' \
-            --exclude='/scripts' --exclude='/.claude' --exclude='/.dockerignore' \
+            --exclude='/scripts' --exclude='/.superpowers' --exclude='/storage/logs' \
+            --exclude='/.env' --exclude='/.env.example' \
+            --exclude='/.claude' \
             --exclude='/tsconfig.tsbuildinfo' \
             ./ .artifacts/release/
 
