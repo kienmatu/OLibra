@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Draft
+**Status:** Complete
 
 **Goal:** The catalogue slice of BR §1.4's core loop, running end to end: categories readable, books and copies created, edited, soft-deleted, assessed, retired, reported lost and marked found by a manager — every write audited in its own transaction (INV-8) — plus the reader's browse, folded search and book detail, and the manager's book list, create, detail, edit and lost-copies screens, all filling routes Phase 0 left as `under-construction`.
 
