@@ -6,14 +6,17 @@ use App\Exceptions\RuleViolated;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Category;
+use App\Models\Membership;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Catalogue\Donor;
 use App\Support\Catalogue\Slugs;
 use App\Support\Clock;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Catalogues a title together with its first copies, in one transaction —
@@ -69,6 +72,35 @@ final class CreateBook
             }
         }
 
+        // Same "the domain does not trust a transport" argument as
+        // copy_count and title above, applied to acquired_on: the Form
+        // Request's date_format:Y-m-d only guards the HTTP path. Unparsed,
+        // a bad string reaches Carbon's own parser inside the transaction
+        // and surfaces as an InvalidFormatException rather than a field
+        // error. '!Y-m-d' (leading '!') rejects a partial/lenient match —
+        // plain 'Y-m-d' would silently accept '2026-2-3' — and the
+        // round-trip format comparison below rejects a calendar overflow
+        // like '2026-02-30' that createFromFormat would otherwise roll
+        // forward into March.
+        if (isset($input['acquired_on']) && trim((string) $input['acquired_on']) !== '') {
+            $raw = trim((string) $input['acquired_on']);
+
+            try {
+                $parsed = CarbonImmutable::createFromFormat('!Y-m-d', $raw);
+            } catch (Throwable) {
+                $parsed = null;
+            }
+
+            if ($parsed === null || $parsed->format('Y-m-d') !== $raw) {
+                throw ValidationException::withMessages([
+                    'acquired_on' => __('validation.date_format', [
+                        'attribute' => __('validation.attributes.acquired_on'),
+                        'format' => 'Y-m-d',
+                    ]),
+                ]);
+            }
+        }
+
         return DB::transaction(function () use ($actor, $input): Book {
             // FIRST statement, before ANY read — the allocator's
             // FOR UPDATE both serialises this command per shelf and, under
@@ -110,6 +142,23 @@ final class CreateBook
             ));
             $slug = Slugs::nextAvailable($base, $existing);
 
+            $donorMembershipId = isset($input['donor_membership_id']) && trim((string) $input['donor_membership_id']) !== ''
+                ? trim((string) $input['donor_membership_id']) : null;
+
+            if ($donorMembershipId !== null) {
+                // Bypass-path twin of StoreBookRequest's own scoped
+                // existence check. Membership::query() carries
+                // BookshelfScope, so a membership belonging to another
+                // shelf is invisible here exactly as a nonexistent one is
+                // — the composite FK (bookshelf_id,
+                // acquired_from_membership_id) would otherwise surface
+                // either case as a raw errno 1452 from inside the
+                // transaction, which BR §2 forbids.
+                if (! Membership::query()->whereKey($donorMembershipId)->exists()) {
+                    throw new RuleViolated('donor_membership_invalid');
+                }
+            }
+
             $book = Book::query()->create([
                 'category_id' => $category->id,
                 'title' => trim($input['title']),
@@ -137,10 +186,18 @@ final class CreateBook
                     'condition' => 'perfect',
                     'acquired_on' => $acquiredOn,
                     'acquired_from' => $donorName,
-                    'acquired_from_membership_id' => $input['donor_membership_id'] ?? null,
+                    'acquired_from_membership_id' => $donorMembershipId,
                 ]);
             }
 
+            // AuditRecorder stamps the actor from Auth::id(), not from the
+            // $actor parameter above — deliberate (INV-8's audit rows name
+            // "the authenticated user", never a value a caller could pass
+            // in on someone else's behalf), but it means this call can
+            // never itself catch $actor and the authenticated user having
+            // diverged; every test in this suite calls execute($user, ...)
+            // with the same $user it actingAs(), so that divergence has no
+            // coverage here either.
             $this->audit->record('book.created', 'book', $book->id, null, [
                 'title' => trim($input['title']),
                 'slug' => $slug,

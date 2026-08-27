@@ -18,5 +18,6 @@ return [
     'copy_not_on_loan' => 'Chỉ có thể báo mất bản sách đang được mượn.',
     'retire_reason_required' => 'Vui lòng ghi lý do ngừng dùng bản sách này.',
     'donor_ambiguous' => 'Chọn bạn đọc hoặc gõ tên người tặng, không chọn cả hai.',
+    'donor_membership_invalid' => 'Không tìm thấy bạn đọc này trên tủ sách hiện tại.',
     'copy_count_invalid' => 'Số bản phải lớn hơn 0.',
 ];
