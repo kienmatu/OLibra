@@ -45,17 +45,26 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
-        // The global flag outranks every shelf role — ROLE_RANK.super_admin.
-        // Returning null (not false) lets the per-gate checks run for
-        // everyone else. Deliberately UNCONDITIONAL, across every ability
-        // this or any future Gate::define adds, not just act-as-*: BR §2's
-        // "nobody decides their own proposal, including a super
-        // administrator" is enforced inside the relevant Phase 1 command,
-        // the same way src/domain/kernel does it — not through a rank gate
-        // here. A future `Gate::define('decide-proposal', …)` is silently
-        // bypassed for a super admin unless that command checks for it
-        // itself; this is a known, accepted shape, not an oversight.
-        Gate::before(fn (User $user) => $user->is_super_admin ? true : null);
+        // The global flag outranks every shelf role — ROLE_RANK.super_admin —
+        // but ONLY for the role-hierarchy abilities this file defines
+        // (act-as-reader/manager/admin), matched by name prefix, never
+        // unconditionally across every ability a future Gate::define adds.
+        // Returning null (not false) for anything else lets that ability's
+        // own definition run for the super admin exactly as it would for
+        // anyone. This is deliberately narrower than the shape this
+        // comment originally described (a blanket Gate::before): an
+        // unconditional bypass would have silently pre-approved a future
+        // `Gate::define('decide-proposal', …)` for a super admin, the
+        // opposite of BR §2's "nobody decides their own proposal, including
+        // a super administrator" — that invariant must not depend on every
+        // future ability remembering to check for it itself.
+        Gate::before(function (User $user, string $ability) {
+            if (! str_starts_with($ability, 'act-as-')) {
+                return null;
+            }
+
+            return $user->is_super_admin ? true : null;
+        });
 
         // Role gates read TenantContext and nothing else (Task 17's
         // interface contract). ResolveTenant (Task 16) is the only place

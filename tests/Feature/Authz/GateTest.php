@@ -115,6 +115,20 @@ it('denies a membership belonging to a different user than the one being checked
     expect(Gate::forUser($stranger)->allows('act-as-reader'))->toBeFalse();
 });
 
+// Gate::before is scoped to act-as-* by name so it never becomes a blanket
+// bypass: BR §2 requires "nobody decides their own proposal, including a
+// super administrator", so a future ability outside the role hierarchy
+// (e.g. decide-proposal) must fall through to its OWN definition instead of
+// being silently pre-approved for a super admin. Registering an undefined
+// ability and proving it denies (Laravel denies any ability with no
+// definition and no unconditional Gate::before) is the tightest proof
+// available without inventing a real decide-proposal gate here.
+it('does not auto-grant an ability outside the act-as-* role hierarchy to a super admin', function () {
+    $user = authzUser(superAdmin: true);
+
+    expect(Gate::forUser($user)->allows('decide-proposal'))->toBeFalse();
+});
+
 it('denies every gate for a non-active membership bound directly into TenantContext, independent of ResolveTenant', function (string $status) {
     // ResolveTenant never hands the gate a non-active membership in real
     // traffic (see EnsureShelfRoleTest for that end-to-end proof) — but
