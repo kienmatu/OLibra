@@ -402,19 +402,19 @@ exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
   `memberships`), and cannot lean on the trait/scope/architecture-test
   combination that protects every shelf-scoped model, because `User` sits
   outside that combination by design.
-- **`tests/Support/TenantHarness.php` and several `Feature` test files use
-  the plural `withoutGlobalScopes()` with no arguments** (19 call sites
-  across `RouteIsolationTest`, `ResolveTenantMiddlewareTest`, `GateTest` and
-  `EnsureShelfRoleTest`) to insert a `Membership` row directly, bypassing
-  the tenancy scope's own bookkeeping so the test can build fixtures the
-  scope would otherwise interfere with. This is the exact call shape the
-  `ResolveTenant` known-gaps entry above declares forbidden — bare
-  `withoutGlobalScopes()` strips every current and future global scope, not
-  just the named tenancy one — but every one of these 19 call sites is on
-  `->create()`, where global scopes constrain reads/updates/deletes, not
-  inserts, so today they are harmless. The rule now has nineteen
-  counterexamples in the test suite and no test enforcing it: the next
-  person who copies this idiom into a *read* (`Membership::query()
+- **Four `Feature` test files use the plural `withoutGlobalScopes()` with no
+  arguments** (17 call sites: 4 in `ResolveTenantMiddlewareTest`, 2 in
+  `RouteIsolationTest`, 10 in `EnsureShelfRoleTest`, 1 in `GateTest` — not
+  `tests/Support/TenantHarness.php`, which has zero occurrences) to insert a
+  `Membership` row directly, bypassing the tenancy scope's own bookkeeping
+  so the test can build fixtures the scope would otherwise interfere with.
+  This is the exact call shape the `ResolveTenant` known-gaps entry above
+  declares forbidden — bare `withoutGlobalScopes()` strips every current and
+  future global scope, not just the named tenancy one — but every one of
+  these 17 call sites is on `->create()`, where global scopes constrain
+  reads/updates/deletes, not inserts, so today they are harmless. The rule
+  now has seventeen counterexamples in the test suite and no test enforcing
+  it: the next person who copies this idiom into a *read* (`Membership::query()
   ->withoutGlobalScopes()->get()`, say) reopens the exact revoked-admin bug
   that entry documents, and nothing in the suite would catch it. Left as-is
   rather than mass-renamed to `withoutGlobalScope(BookshelfScope::class)`
@@ -422,6 +422,39 @@ exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
   should either rename them for hygiene or add a static/architecture check
   that treats bare `withoutGlobalScopes()` outside a `->create()`/`->save()`
   chain as a violation.
+- **`BelongsToBookshelf`'s creating/updating hooks close the mass-assignment
+  hole, not every write path.** Eloquent model events don't fire for
+  query-builder writes, so `Announcement::query()->update(['bookshelf_id' =>
+  $other->id])` under a bound shelf still moves the row: the global scope
+  constrains the query's `WHERE`, not the values in its `SET`, and neither
+  hook runs. `Model::insert()` bypasses the `creating` hook the same way.
+  The composite FKs (Task 11) catch this for a *child* row referencing a
+  scoped parent, but there is no structural backstop for a top-level scoped
+  model with no such parent, e.g. `Announcement`. Nothing in this codebase
+  currently writes through either bypass; Phase 1 should not introduce a
+  bulk `update()`/`insert()` against a shelf-scoped model without this in
+  mind.
+- **`Bookshelf::feedback()` has no test of its own.** It is the entire
+  mechanism the final review's I2 finding was resolved with — Phase 2's
+  shelf-scoped feedback reads are meant to go through it instead of a
+  hand-written `where('bookshelf_id', …)` — but nothing in this phase
+  exercises it, because nothing in this phase reads feedback by shelf yet.
+  It is an ordinary `hasMany` on an already-tested FK, so this is coverage
+  debt rather than a suspected bug; Phase 2, which is where the relation
+  gets used for real, is the natural place to add the test alongside the
+  first real caller.
+- **Factory `->create()` under a bound tenant now throws for any factory
+  whose `definition()` names its own `bookshelf_id`.** `BelongsToBookshelf`'s
+  `creating` hook validates an explicit `bookshelf_id` against the bound
+  shelf; `MembershipFactory`'s `'bookshelf_id' => Bookshelf::factory()` (and
+  any similarly-shaped factory) satisfies that by inventing a fresh,
+  unrelated shelf, which the hook then correctly refuses under a bound
+  context. This is the fix working as intended — silently writing into a
+  freshly-invented shelf instead of the bound one was the bug I1 closed —
+  but it will read as a regression to a Phase 1 author who hits it without
+  knowing the hook is new: call such a factory with `->for($boundShelf)` (or
+  run it with no tenant bound / under `TenantContext::actSystemWide()`)
+  rather than bare.
 - **The tenancy architecture expectation enumerates Eloquent models**, with
   the exemption list schema-derived and nullability-guarded — so a future
   `NOT NULL bookshelf_id` table that has no model is invisible to it. Adding a

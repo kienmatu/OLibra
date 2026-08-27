@@ -122,14 +122,20 @@ jobs:
           # remove everything else living there (public_html, mail, logs,
           # other sites); the anchored excludes only protect paths inside
           # the release, not siblings outside it. Refuse anything that is
-          # "/", the account home itself, too shallow to plausibly be a
-          # dedicated app directory, or that names public_html directly.
+          # "/", too shallow to plausibly be a dedicated app directory, or
+          # that names public_html directly.
+          #
+          # Strip a trailing slash FIRST: "/home/acct/" has three slashes
+          # and matches no rejected pattern below, so without this the
+          # depth check passes it straight through to
+          # "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/" as "/home/acct//" —
+          # rsync collapses the double slash and --delete wipes the account
+          # home exactly as if DEPLOY_PATH had been set to it directly.
+          DEPLOY_PATH="${DEPLOY_PATH%/}"
+
           case "$DEPLOY_PATH" in
             "/") echo "DEPLOY_PATH must not be /" >&2; exit 1 ;;
           esac
-          if [ "$DEPLOY_PATH" = "$HOME" ]; then
-            echo "DEPLOY_PATH must not equal \$HOME" >&2; exit 1
-          fi
           segments=$(echo "$DEPLOY_PATH" | tr -cd '/' | wc -c)
           if [ "$segments" -lt 3 ]; then
             echo "DEPLOY_PATH looks too shallow to be a dedicated app directory: $DEPLOY_PATH" >&2

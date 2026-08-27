@@ -25,6 +25,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * still trusted to name bookshelf_id themselves, exactly as the "unset"
  * and "system-wide" states already document. The structural layer
  * (composite FKs, Task 11) survives a bug in this one either way.
+ *
+ * This closes the mass-assignment hole, not every write path: Eloquent
+ * model EVENTS don't fire for query-builder writes, so
+ * Announcement::query()->update(['bookshelf_id' => $other->id]) under a
+ * bound shelf still moves the row — the global scope constrains the
+ * query's WHERE, not the values in its SET — and Model::insert() bypasses
+ * the creating hook entirely. The composite FKs catch this for a
+ * CHILD row referencing a scoped parent (Task 11), but not for a top-level
+ * scoped model like Announcement with no such parent. Nothing in this
+ * codebase currently writes through either bypass, but neither is
+ * validated against; see the known-gaps.md entry on this trait for detail.
  */
 trait BelongsToBookshelf
 {
