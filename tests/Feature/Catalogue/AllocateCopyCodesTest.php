@@ -70,6 +70,19 @@ it('another shelf\'s codes never enter this shelf\'s scan', function () {
     expect(app(AllocateCopyCodes::class)->execute(1))->toBe(['DT-0143']);
 });
 
+it('returns no codes for a zero or negative count instead of a malformed one', function () {
+    // Review finding 1: PHP's range(1, $count) is descending (not empty)
+    // for $count < 1 — range(1, 0) is [1, 0], range(1, -1) is [1, 0, -1] —
+    // unlike the reference's Array.from({length: count}), which is [] for
+    // count <= 0. Without the guard, execute(0) mints an unrequested
+    // 'DT-0000' and execute(-1) mints a malformed 'DT-00-1' too, both past
+    // any unique index that would object.
+    $shelf = catCodesShelf();
+
+    expect(app(AllocateCopyCodes::class)->execute(0))->toBe([])
+        ->and(app(AllocateCopyCodes::class)->execute(-1))->toBe([]);
+});
+
 it('takes the shelf-row lock as the FIRST statement of the transaction', function () {
     // Divergence 2 (plan header): a real two-connection race cannot run
     // under RefreshDatabase — and no single-connection test ever could,
@@ -94,3 +107,12 @@ it('takes the shelf-row lock as the FIRST statement of the transaction', functio
         ->and(str_contains($log[0]['query'], 'bookshelves'))->toBeTrue('first query is not on bookshelves: '.$log[0]['query'])
         ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
 });
+
+// No test covers "throws when DB::transactionLevel() === 0" (review
+// finding 2): every test in this suite runs under RefreshDatabase, whose
+// outer transaction means the level is always >= 1 for the whole run —
+// there is no way, from inside this suite, to observe the class running
+// with no transaction open. The guard exists for production misuse (a
+// caller invoking execute() outside DB::transaction, where the FOR UPDATE
+// below would autocommit and its row lock would release before the MAX
+// scan even runs), not for a scenario this harness can reproduce.

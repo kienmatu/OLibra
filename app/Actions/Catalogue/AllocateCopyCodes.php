@@ -38,6 +38,23 @@ use RuntimeException;
  * than a gap in the sequence. withTrashed() removes ONLY the soft-delete
  * scope; BookshelfScope still applies, which is what keeps the scan on
  * this shelf without a hand-written filter.
+ *
+ * $count <= 0 returns [] rather than touching the database: PHP's
+ * range(1, $count) is *descending* (not empty) when $count < 1 — range(1,
+ * 0) is [1, 0] and range(1, -1) is [1, 0, -1] — unlike the reference's
+ * Array.from({length: count}), which is [] for count <= 0. Ported without
+ * this guard, execute(0) would silently mint 'DT-0000' and execute(-1)
+ * would mint a malformed 'DT-00-1' too, with no unique index to object
+ * (found in review, since a request-supplied count that skips a min:1
+ * rule would reach here from Task 8's AddCopies).
+ *
+ * Also refuses to run when no transaction is open (DB::transactionLevel()
+ * === 0): outside a transaction the FOR UPDATE below autocommits and its
+ * row lock releases before the MAX scan runs, so the class would provide
+ * no serialisation at all while looking like it does. This is the one
+ * misuse this class can detect at runtime; the stronger one — the lock
+ * present but not the first statement — cannot be detected here and rests
+ * on the contract above plus AllocateCopyCodesTest's index-0 assertion.
  */
 final class AllocateCopyCodes
 {
@@ -46,6 +63,14 @@ final class AllocateCopyCodes
     /** @return list<string> */
     public function execute(int $count): array
     {
+        if ($count < 1) {
+            return [];
+        }
+
+        if (DB::transactionLevel() === 0) {
+            throw new RuntimeException('AllocateCopyCodes must run inside a transaction.');
+        }
+
         $bookshelfId = $this->context->bookshelfId()
             ?? throw new RuntimeException('AllocateCopyCodes needs a bound tenant.');
 
