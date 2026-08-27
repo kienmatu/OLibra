@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\RuleViolated;
 use App\Http\Middleware\EnsureAuthenticatedUserExists;
 use App\Http\Middleware\EnsureShelfRole;
 use App\Http\Middleware\EnsureSuperAdmin;
@@ -9,6 +10,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 
 // This app directory once collided with the Next.js tree this Laravel
@@ -82,7 +84,15 @@ $app = Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        // Spec §7: RuleViolated maps to "the right response" in ONE place.
+        // For the Inertia forms this phase ships, the right response is a
+        // redirect back carrying the Vietnamese sentence under the `rule`
+        // key — pages read it from the shared `errors` prop. Business-rule
+        // refusals are never 500s (OPS §2) and never field errors (those
+        // are ValidationException's, rendered per-field).
+        $exceptions->render(function (RuleViolated $e, Request $request) {
+            return back()->withErrors(['rule' => __('rules.'.$e->code)]);
+        });
     })->create();
 
 return $app;
