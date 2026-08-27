@@ -27,10 +27,7 @@ export default function Login() {
     };
 
     return (
-        <AuthLayout
-            title="Đăng nhập"
-            description="Nhập tên đăng nhập và mật khẩu để tiếp tục"
-        >
+        <AuthLayout title="Đăng nhập" description="Nhập tên đăng nhập và mật khẩu để tiếp tục">
             <Head title="Đăng nhập" />
 
             <form className="flex flex-col gap-6" onSubmit={submit}>
