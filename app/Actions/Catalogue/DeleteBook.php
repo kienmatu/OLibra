@@ -27,13 +27,21 @@ use Illuminate\Support\Facades\Gate;
  * a screen can say what happened rather than implying a clean sweep. No
  * `copy_has_history` error code exists, because nothing would ever throw it.
  *
- * No shelf lock: like UpdateBook, this command allocates no copy codes and
- * performs no scan whose correctness depends on a stable read view across
- * statements. Its writes are scoped to one already-resolved Book row and its
- * own copies/loans, and the busy-check plus the two soft-delete writes below
- * all read the state they need to react to inside this transaction — no
- * value carried across an `await`/statement boundary the way the reference's
- * `case when` machinery had to guard against.
+ * No shelf lock, and this is NOT the same reasoning UpdateBook used to give
+ * (that reasoning was wrong — see UpdateBook's docblock for the correction).
+ * The lock exists to close check-then-write races against a column with no
+ * unique index, under REPEATABLE READ, where an early stale snapshot lets
+ * two concurrent transactions each honestly see "no clash" (the exact shape
+ * AllocateCopyCodes' docblock documents for copy codes, ISBN and slug, and
+ * UpdateBook's ISBN check turned out to share). This command has no such
+ * check: `busy` and `whereDoesntHave('loans')` are not racing to avoid
+ * colliding with a concurrent writer's un-committed intent — a concurrent
+ * loan or copy-state change that lands after this transaction's own read is
+ * either serialised by row locks it already implies (an UPDATE to a copy
+ * row this transaction is not touching cannot corrupt this one) or is a
+ * legitimate interleaving with no "two commits, one impossible state" outcome
+ * the way two live books sharing one ISBN would be. There is no unindexed
+ * uniqueness invariant here for a stale snapshot to let slip past.
  */
 final class DeleteBook
 {

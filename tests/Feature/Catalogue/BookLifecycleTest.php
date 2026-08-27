@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Support\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 afterEach(fn () => Carbon::setTestNow());
@@ -203,6 +204,31 @@ it('M6: deleted_at comes from the injected clock, one instant for book and copie
     foreach (BookCopy::withTrashed()->get() as $copy) {
         expect($copy->deleted_at->toDateTimeString())->toBe('2026-08-27 05:00:00');
     }
+});
+
+it('UpdateBook takes the shelf-row lock BEFORE any read — the first query of the transaction', function () {
+    // Review finding: the ISBN clash check below is check-then-write
+    // against books.isbn, which carries no unique index — the identical
+    // race shape AllocateCopyCodes' own docblock names for copy codes,
+    // ISBN and slug, reproduced live on MariaDB 10.11. Under REPEATABLE
+    // READ the transaction's read view pins at its first consistent read,
+    // so a category lookup or the ISBN check itself running ahead of the
+    // shelf lock reopens the silent-duplicate-ISBN window even though a
+    // lock exists somewhere "in" the transaction. Pinned by position, the
+    // same way CreateBookTest and AllocateCopyCodesTest pin theirs: no
+    // single-connection test can show the corruption itself, only that the
+    // mechanism preventing it is wired in the required order.
+    [, $user, $book] = lifecycleFixture();
+    DB::enableQueryLog();
+
+    app(UpdateBook::class)->execute($user, $book, ['title' => 'Đổi tên']);
+
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect($log)->not->toBe([])
+        ->and(str_contains($log[0]['query'], 'bookshelves'))->toBeTrue('first query is not on bookshelves: '.$log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
 });
 
 it('a reader can neither edit nor delete', function () {
