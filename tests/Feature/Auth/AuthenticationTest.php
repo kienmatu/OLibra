@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Requests\Auth\LoginRequest;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -91,6 +92,30 @@ it('hashes with argon2id', function () {
     expect(Hash::make('mat-khau-123'))->toStartWith('$argon2id$');
 });
 
+it('carries a well-formed, non-matching dummy hash for every hashing driver', function () {
+    // LoginRequest::DUMMY_HASHES equalises timing between a wrong password
+    // and an unknown username/credential-less account by checking the
+    // submitted password against one of these instead of computing a fresh
+    // hash per miss (found in review: a per-request Hash::make() pays a
+    // full derivation on every unknown-username attempt, which is SLOWER
+    // than a wrong password's single check — a 2.11x, trivially measurable
+    // oracle in the wrong direction). Each literal must (a) be well-formed
+    // for its own driver — BcryptHasher::check() throws outright on a
+    // foreign hash format — and (b) never match anything a test or a real
+    // user would type.
+    $hashes = (new ReflectionClass(LoginRequest::class))
+        ->getConstant('DUMMY_HASHES');
+
+    expect($hashes)->toHaveKeys(['argon2id', 'argon', 'bcrypt']);
+
+    foreach ($hashes as $driver => $hash) {
+        config()->set('hashing.driver', $driver);
+
+        expect(Hash::check('mat-khau-123', $hash))->toBeFalse()
+            ->and(Hash::check('', $hash))->toBeFalse();
+    }
+});
+
 it('signs out and invalidates the session', function () {
     authUser();
     $this->post('/login', ['username' => 'lan', 'password' => 'mat-khau-123']);
@@ -114,4 +139,21 @@ it('stores only the sha256 of the session id, never the raw id', function () {
     expect(DB::table('sessions')->count())->toBeGreaterThan(0)
         ->and(DB::table('sessions')->where('id', $rawId)->exists())->toBeFalse()
         ->and(DB::table('sessions')->where('id', hash('sha256', $rawId))->exists())->toBeTrue();
+});
+
+it('reads the session back on a second request under the hashed driver', function () {
+    // Found in review: the test above proves write() hashes the id, but a
+    // single POST-then-inspect-the-row never calls read() at all — if
+    // read() were left un-overridden (looking the raw id up instead of its
+    // hash), every session would silently fail to resolve on the very NEXT
+    // request, and the test above would still pass. A second request is
+    // what actually exercises read().
+    config()->set('session.driver', 'hashed-database');
+
+    $user = authUser();
+    $this->post('/login', ['username' => 'lan', 'password' => 'mat-khau-123']);
+    $this->assertAuthenticatedAs($user);
+
+    $this->get('/')->assertOk();
+    $this->assertAuthenticatedAs($user);
 });

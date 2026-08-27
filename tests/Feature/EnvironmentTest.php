@@ -30,3 +30,39 @@ it('stores time as utc and speaks vietnamese', function () {
     expect(config('app.timezone'))->toBe('UTC')
         ->and(config('app.locale'))->toBe('vi');
 });
+
+it('defaults the session driver to hashed-database, never the plaintext database driver, when SESSION_DRIVER is unset', function () {
+    // This suite always runs with SESSION_DRIVER=array (phpunit.xml, and
+    // the assertion above) — that test can never see config/session.php's
+    // own fallback. Found in review: that fallback was still 'database',
+    // so a host with a missing SESSION_DRIVER env var would silently
+    // restore the exact plaintext-session-id leak Task 16 exists to close.
+    // Reads config/session.php's own default directly, with every layer
+    // PHPUnit's <env>/<server> blocks populate (env(), $_ENV, $_SERVER —
+    // see phpunit.xml's own comment on why all three matter) cleared for
+    // SESSION_DRIVER specifically, then restored.
+    $original = [
+        'getenv' => getenv('SESSION_DRIVER'),
+        'ENV' => $_ENV['SESSION_DRIVER'] ?? null,
+        'SERVER' => $_SERVER['SESSION_DRIVER'] ?? null,
+    ];
+
+    putenv('SESSION_DRIVER');
+    unset($_ENV['SESSION_DRIVER'], $_SERVER['SESSION_DRIVER']);
+
+    try {
+        $sessionConfig = require config_path('session.php');
+
+        expect($sessionConfig['driver'])->toBe('hashed-database');
+    } finally {
+        if ($original['getenv'] !== false) {
+            putenv("SESSION_DRIVER={$original['getenv']}");
+        }
+        if ($original['ENV'] !== null) {
+            $_ENV['SESSION_DRIVER'] = $original['ENV'];
+        }
+        if ($original['SERVER'] !== null) {
+            $_SERVER['SESSION_DRIVER'] = $original['SERVER'];
+        }
+    }
+});

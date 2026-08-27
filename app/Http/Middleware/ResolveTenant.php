@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Enums\MembershipStatus;
 use App\Models\Bookshelf;
 use App\Models\Membership;
+use App\Models\Scopes\BookshelfScope;
 use App\Support\TenantContext;
 use Closure;
 use Illuminate\Http\Request;
@@ -48,10 +49,19 @@ class ResolveTenant
         $membership = null;
 
         if ($user = $request->user()) {
-            // withoutGlobalScopes: the context is not populated yet, and this
-            // one query IS the population step. The shelf id is explicit.
+            // withoutGlobalScope(BookshelfScope) only — not
+            // withoutGlobalScopes() with no argument, which strips EVERY
+            // global scope including SoftDeletingScope and would resolve a
+            // soft-deleted (removed) membership right back into the
+            // context. The shelf id is explicit, which is what lets
+            // BookshelfScope be skipped by name at all; deleted_at is-null
+            // exclusion must still apply — memberships_one_per_shelf is
+            // built on IF(deleted_at IS NULL, ...) specifically so a
+            // removed member's old row can coexist with a fresh one, and a
+            // query that ignores deleted_at would hand a revoked member
+            // their old role right back.
             $membership = Membership::query()
-                ->withoutGlobalScopes()
+                ->withoutGlobalScope(BookshelfScope::class)
                 ->where('bookshelf_id', $shelf->id)
                 ->where('user_id', $user->id)
                 ->where('status', MembershipStatus::Active)

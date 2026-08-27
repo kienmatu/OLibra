@@ -11,14 +11,21 @@ return [
     |
     | This option determines the default session driver that is utilized for
     | incoming requests. Laravel supports a variety of storage options to
-    | persist session data. Database storage is a great default choice.
+    | persist session data.
     |
-    | Supported: "file", "cookie", "database", "apc",
+    | Default is 'hashed-database' (App\Support\HashedDatabaseSessionHandler,
+    | registered in AppServiceProvider), not the stock 'database' — found in
+    | review: a missing SESSION_DRIVER on the host would otherwise silently
+    | fall back to storing raw session ids, exactly the plaintext-session
+    | leak Task 16 exists to close. The env var is still the normal way to
+    | set it; only the fallback when it's absent changes.
+    |
+    | Supported: "file", "cookie", "database", "hashed-database", "apc",
     |            "memcached", "redis", "dynamodb", "array"
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'database'),
+    'driver' => env('SESSION_DRIVER', 'hashed-database'),
 
     /*
     |--------------------------------------------------------------------------
@@ -42,16 +49,24 @@ return [
     | under the new design, not later; (2) the one population this
     | genuinely weakens is a session that stays continuously active
     | indefinitely — practically, a super-admin working non-stop — and
-    | revocation still closes the door that matters most: a soft-deleted or
-    | credential-reset user's session stops resolving on the very next
-    | request (User's SoftDeletes + the users provider excluding trashed
-    | rows), which is the scenario BR §2 actually names. An absolute cap
-    | (e.g. a `started_at` marker plus a comparison in a session-checking
-    | middleware) is a small, well-understood addition; it is deferred
-    | rather than built speculatively into Task 16's already-crowded scope,
-    | but it must be picked up explicitly — by Task 21 or whichever task
-    | first ships a super-admin session that plausibly runs unattended for
-    | days — not rediscovered as a surprise.
+    | revocation still closes the door that matters most: a soft-deleted
+    | user's session stops resolving on the very next request (User's
+    | SoftDeletes + the users provider excluding trashed rows, backed by
+    | App\Http\Middleware\EnsureAuthenticatedUserExists against a stale
+    | cached guard), which is the scenario BR §2 actually names. An absolute
+    | cap (e.g. a `started_at` marker plus a comparison in a session-
+    | checking middleware) is a small, well-understood addition; it is
+    | deferred rather than built speculatively into Task 16's already-
+    | crowded scope, but it must be picked up explicitly — by Task 21 or
+    | whichever task first ships a super-admin session that plausibly runs
+    | unattended for days — not rediscovered as a surprise.
+    |
+    | SECOND OPEN ITEM, named here rather than implied: nothing in this
+    | codebase yet rotates or revokes a user's OTHER sessions when their
+    | credentials change (a manager resetting a reader's password, say). A
+    | changed password today does not sign out sessions issued under the
+    | old one. This is a real gap, not covered by the soft-delete path
+    | above, and is not yet assigned to a task.
     |
     */
 
