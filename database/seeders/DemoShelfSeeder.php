@@ -57,5 +57,13 @@ class DemoShelfSeeder extends Seeder
                     'bookshelf_id' => $shelf->id, 'book_id' => $book->id,
                 ]));
         }
+
+        // This is the last seeder in the run today, so leaving the
+        // system-wide context set would be harmless in practice — but the
+        // tenant scope is designed to fail closed, and a seeder appended
+        // after this one would silently inherit actSystemWide() rather than
+        // tripping BookshelfScope's guard. Clear it explicitly so that
+        // property holds regardless of seeder order.
+        app(TenantContext::class)->clear();
     }
 }

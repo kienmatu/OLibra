@@ -1,0 +1,73 @@
+name: Laravel CI
+
+on:
+  push: { branches: [laravel] }
+  pull_request: { branches: [laravel] }
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mariadb:
+        # The same minor the real host runs (10.11.13-cll-lve-log) — the
+        # generated columns, CHECKs and SIGNAL triggers are version-sensitive
+        # subject matter, so CI must run the engine production runs. Below
+        # 10.7, uuid columns become char(36) and migrate dies with errno 1901
+        # (see docs/known-gaps.md).
+        image: mariadb:10.11
+        env:
+          MARIADB_DATABASE: olibra_testing
+          MARIADB_USER: olibra
+          MARIADB_PASSWORD: secret
+          MARIADB_ROOT_PASSWORD: secret
+        ports: ["3310:3306"]
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pdo_mysql, intl, zip, bcmath, gd, mbstring
+          coverage: none
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Pint (format check)
+        run: ./vendor/bin/pint --test
+
+      - name: Larastan level 8
+        run: ./vendor/bin/phpstan analyse --no-progress
+
+      - name: Biome
+        run: bun run laravel:lint
+
+      - name: TypeScript
+        run: bun run laravel:typecheck
+
+      - name: Pest
+        env:
+          DB_CONNECTION: mariadb
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3310"
+          DB_DATABASE: olibra_testing
+          DB_USERNAME: olibra
+          DB_PASSWORD: secret
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          php artisan test
+
+      - name: Vite build
+        run: bun run laravel:build
