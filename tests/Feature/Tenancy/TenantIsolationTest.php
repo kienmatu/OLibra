@@ -72,7 +72,7 @@ it('finds a colliding slug only inside the bound shelf', function () {
     expect($book->bookshelf_id)->toBe($a->id)->not->toBe($b->id);
 });
 
-it('cannot update or delete across the boundary through a scoped model', function () {
+it('cannot update across the boundary through a scoped model', function () {
     ['a' => $a, 'b' => $b] = TenantHarness::twoCollidingShelves();
 
     TenantHarness::actAs($a);
@@ -84,7 +84,19 @@ it('cannot update or delete across the boundary through a scoped model', functio
     expect(Book::query()->sole()->is_published)->toBeTrue();
 });
 
-it('stamps creates with the bound shelf and never a foreign one', function () {
+it('cannot delete across the boundary through a scoped model', function () {
+    ['a' => $a, 'b' => $b] = TenantHarness::twoCollidingShelves();
+
+    TenantHarness::actAs($a);
+    $deleted = Book::query()->delete();
+
+    expect($deleted)->toBe(1);   // only shelf A's book
+
+    TenantHarness::actAs($b);
+    expect(Book::query()->count())->toBe(1);   // shelf B's colliding book survives
+});
+
+it('stamps creates with the bound shelf when bookshelf_id is left unset', function () {
     ['a' => $a] = TenantHarness::twoCollidingShelves();
 
     TenantHarness::actAs($a);
@@ -94,6 +106,40 @@ it('stamps creates with the bound shelf and never a foreign one', function () {
     ]);
 
     expect($post->bookshelf_id)->toBe($a->id);
+});
+
+// Documents the real behaviour fix 2 put into BelongsToBookshelf's
+// docblock: the creating hook only fills a gap, it does not validate what
+// is already there. An explicit foreign bookshelf_id still writes through
+// — write-side containment against this is Task 17's job, not this trait's.
+it('still writes an explicitly-named foreign bookshelf_id through on create', function () {
+    ['a' => $a, 'b' => $b] = TenantHarness::twoCollidingShelves();
+
+    TenantHarness::actAs($a);
+    $post = Announcement::query()->create([
+        'bookshelf_id' => $b->id,
+        'title' => 'Thông báo', 'slug' => 'thong-bao-xuyen-tu',
+        'body' => '<p>Nội dung</p>', 'body_text' => 'Nội dung',
+    ]);
+
+    expect($post->bookshelf_id)->toBe($b->id);
+});
+
+// The write-side twin of the read-side guided error below: replacing driver
+// errno 1048 ("column cannot be null") with a message naming the fix is
+// carried-in fix 1's entire purpose, and it needs the same message-pinned
+// coverage the read side already has.
+it('refuses to stamp a create when no tenant is bound — guided, not a driver error', function () {
+    TenantHarness::twoCollidingShelves();
+
+    app(TenantContext::class)->clear();
+
+    expect(fn () => Book::query()->create(['title' => 'Vô Chủ', 'slug' => 'vo-chu']))->toThrow(
+        RuntimeException::class,
+        'App\Models\Book is shelf-scoped but no tenant is bound to stamp bookshelf_id. Bind one '
+        .'via the tenant middleware, or opt in explicitly with TenantContext::actSystemWide() '
+        .'and name bookshelf_id yourself.',
+    );
 });
 
 it('clears back to the fail-closed state, and system-wide is a named opt-in', function () {

@@ -20,8 +20,12 @@ function tenancyExemptModels(): array
     return [Feedback::class, AuditLog::class];
 }
 
+// This test enumerates Eloquent MODELS, not tables: a table carrying a
+// NOT NULL bookshelf_id with no corresponding Eloquent model is invisible to
+// it. Nothing in this codebase currently queries such a table directly, but
+// a future raw-query-only table would slip past this check entirely.
 /** @return array<class-string<Model>> */
-function allModelClasses(): array
+function tenancyModelClasses(): array
 {
     // allFiles, recursively: a model moved into app/Models/Catalogue/ must
     // stay visible to the trait check — an invisible model is exactly the
@@ -38,7 +42,7 @@ function allModelClasses(): array
 }
 
 it('puts BelongsToBookshelf on every model whose table carries bookshelf_id', function () {
-    foreach (allModelClasses() as $class) {
+    foreach (tenancyModelClasses() as $class) {
         $table = (new $class)->getTable();
         $hasColumn = DB::selectOne('
             select count(*) as n from information_schema.columns
@@ -86,9 +90,31 @@ it('confines bookshelf_id filtering to the two named files', function () {
     // Deliberately NOT a bare /bookshelf_id\s*=>/ — factories and seeders
     // assign bookshelf_id legitimately (system jobs name their shelf), and
     // the ban is on FILTERING, not naming.
+    //
+    // A third pattern closes the most dangerous gap: DB::select/statement/
+    // raw is a straight-to-SQL path that bypasses the model layer (and
+    // therefore BookshelfScope) entirely, so a literal SQL "where ...
+    // bookshelf_id" inside one of those calls is exactly a hand-written
+    // filter with no Eloquent guard behind it. The pattern requires the
+    // literal keyword WHERE ahead of bookshelf_id in the same call — not a
+    // bare "DB::statement(...bookshelf_id...)" — because that call is also
+    // how every migration in database/migrations legitimately defines the
+    // bookshelf_id column itself (ALTER TABLE, ADD CONSTRAINT, generated
+    // columns); those are schema definition, not filtering, and a bare
+    // match would fail the build on every one of them.
+    //
+    // Two gaps remain open on purpose, both found in review and left as
+    // known limits of a grep-based tripwire rather than closed here: a
+    // column name held in a variable ($col = 'bookshelf_id';
+    // ->where($col, $id)) and a join() condition naming the column
+    // (->join('loans', 'loans.bookshelf_id', ...)) — neither is a literal
+    // "bookshelf_id" adjacent to a where-shaped or raw-SQL call, so this
+    // regex cannot see them. Closing those needs either static analysis or
+    // a stricter convention, not a fatter regex.
     $patterns = [
         '/where[A-Za-z]*\s*\([^;]*bookshelf_id/i',
         '/whereBookshelfId/i',
+        '/DB::(?:select|statement|raw)\s*\([^;]*\bwhere\b[^;]*bookshelf_id/i',
     ];
 
     $roots = [app_path(), database_path(), base_path('routes')];
@@ -116,7 +142,8 @@ it('confines bookshelf_id filtering to the two named files', function () {
 
     // Spec §10 risk 1: read-side protection now lives in the model layer,
     // and a hand-written filter is the tell of code bypassing it. This grep
-    // is a tripwire, not a proof — a DB::raw fragment on its own line still
-    // slips it, which is what review is for.
+    // is a tripwire, not a proof — a column name held in a variable, or a
+    // join() condition naming the column, still slips it (see the comment
+    // above the pattern list), which is what review is for.
     expect($offenders)->toBe([]);
 });
