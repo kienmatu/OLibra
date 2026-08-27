@@ -1,7 +1,6 @@
 import { Link } from "@inertiajs/react";
-import { LogOut, Settings } from "lucide-react";
+import { LogOut } from "lucide-react";
 import {
-    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
@@ -14,6 +13,11 @@ interface UserMenuContentProps {
     user: User;
 }
 
+// No "Settings" item here: Task 6 removed routes/settings.php (it wrote the
+// starter kit's name/email/password columns, which no longer exist on
+// users), and OLibra's real profile flow is a manager-approved proposal
+// (BR §2), not a self-service settings screen — the next task that builds
+// one puts the link back deliberately.
 export function UserMenuContent({ user }: UserMenuContentProps) {
     const cleanup = useMobileNavigation();
 
@@ -24,21 +28,6 @@ export function UserMenuContent({ user }: UserMenuContentProps) {
                     <UserInfo user={user} showEmail={true} />
                 </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-                <DropdownMenuItem asChild>
-                    <Link
-                        className="block w-full"
-                        href={route("profile.edit")}
-                        as="button"
-                        prefetch
-                        onClick={cleanup}
-                    >
-                        <Settings className="mr-2" />
-                        Settings
-                    </Link>
-                </DropdownMenuItem>
-            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
                 <Link

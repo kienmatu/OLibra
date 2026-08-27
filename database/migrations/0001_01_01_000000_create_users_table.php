@@ -61,7 +61,12 @@ return new class extends Migration
         // never a stack of usable sessions. Decision recorded in Task 16's
         // preamble.
         Schema::create('sessions', function (Blueprint $table) {
-            $table->string('id')->primary();
+            // ascii_bin, not the table-default utf8mb4_unicode_ci: the id is
+            // a raw 40-char session token (hashed by Task 16's driver, but
+            // stored raw until then), and a case-insensitive collation would
+            // let an uppercased copy of one token collide with another —
+            // verified live on 10.11.19.
+            $table->string('id')->charset('ascii')->collation('ascii_bin')->primary();
             $table->string('user_id', 36)->charset('ascii')->collation('ascii_bin')->nullable()->index();
             $table->string('ip_address', 45)->nullable();
             $table->text('user_agent')->nullable();

@@ -5196,14 +5196,17 @@ git commit -m "test: tenant isolation over colliding shelves, and the architectu
 **Files:**
 - Create: `app/Http/Requests/Auth/LoginRequest.php` (replaces the starter kit's email-based one)
 - Modify: `app/Http/Controllers/Auth/AuthenticatedSessionController.php`
+- Delete: `app/Http/Controllers/Auth/RegisteredUserController.php`, `PasswordResetLinkController.php`, `NewPasswordController.php`, `EmailVerificationPromptController.php`, `VerifyEmailController.php`, `EmailVerificationNotificationController.php`, `ConfirmablePasswordController.php` — six routes stay live and unowned from Task 6 through this task (`routes/auth.php:14-35,38-52` still resolves `register`, `forgot-password`, `reset-password`, `verify-email`, `email/verification-notification`, `confirm-password` against a `users` table that no longer has `name`/`password`/email verification columns); this task's full-file replacement of `routes/auth.php` below removes the routes, and these deletions must land in the same commit or the controllers outlive their routes as dead code nothing imports.
 - Create: `app/Http/Middleware/ResolveTenant.php`
 - Create: `app/Support/HashedDatabaseSessionHandler.php`
-- Modify: `routes/auth.php` (login/logout only), `bootstrap/app.php` (middleware alias + priority), `config/hashing.php` (driver from env), `app/Providers/AppServiceProvider.php` (session driver registration), `.env` / `.env.example` (`SESSION_DRIVER=hashed-database`)
+- Modify: `routes/auth.php` (replaced entirely — login/logout only), `bootstrap/app.php` (middleware alias + priority), `config/hashing.php` (driver from env), `app/Providers/AppServiceProvider.php` (session driver registration), `.env` / `.env.example` (`SESSION_DRIVER=hashed-database`)
 - Test: `tests/Feature/Auth/AuthenticationTest.php`, `tests/Feature/Tenancy/ResolveTenantMiddlewareTest.php`
 
 **Interfaces:**
 - Consumes: `User` (Task 14 — `getAuthPasswordName()` already points the guard at `password_hash`), `TenantContext`, `Membership`, `Bookshelf`.
 - Produces: `POST /login` (name `login`), `POST /logout` (name `logout`); the `tenant` middleware alias every `/shelves/{shelf}/…` route group carries from Task 18 on; `TenantContext` populated with the bound shelf and the signed-in user's **active** membership of it.
+
+**The absolute session-lifetime decision** (open since Task 6, decided here — do not carry it further by omission): the design's original `sessions` table had `expires_at`, an absolute cap independent of activity. Laravel's session machinery — and the `HashedDatabaseSessionHandler` below, which only wraps it — offers exclusively an idle timeout via `last_activity` plus `config('session.lifetime')`; nothing here reinstates an absolute ceiling on a session that stays active indefinitely. Decide explicitly whether v1 needs one (a super-admin session that never idles out is a real difference from the Postgres design) and either document the gap as accepted or add the check (e.g. a `started_at` column plus a comparison in the session guard/middleware) before this task closes — it must not reach Task 21 as a silent gap.
 
 **The sessions decision** (the brief's open point, decided here): the design's custom `sessions` table stored `sha256(token)` so a leaked backup is not a stack of usable sessions. This plan keeps **Laravel's session machinery** — CSRF, `session()->regenerate()`, guard integration, `logoutOtherDevices`, no bespoke guard — but **restores the hashing** with a ~30-line handler: `HashedDatabaseSessionHandler` subclasses `Illuminate\Session\DatabaseSessionHandler` and keys the table on `hash('sha256', $sessionId)`. The cookie carries the raw id; the row never does.
 

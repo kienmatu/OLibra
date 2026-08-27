@@ -47,15 +47,23 @@ it('stores uuid keys as varchar(36) ascii_bin — varchar so generated columns m
 
 it('stores timestamps as datetime(6), never timestamp', function () {
     $rows = DB::select("
-        select table_name, column_name, data_type
+        select table_name, column_name, data_type, datetime_precision as dt_precision
         from information_schema.columns
         where table_schema = database()
           and table_name in ('users', 'bookshelves', 'parish_units', 'memberships')
           and column_name in ('created_at', 'updated_at', 'deleted_at', 'approved_at')
     ");
 
+    // A query that silently matched zero rows would make every assertion
+    // below vacuously true — pin the row count (3 timestamps each on users,
+    // bookshelves, parish_units, plus 4 on memberships, which also has
+    // approved_at) so a typo'd table/column name, or a schema that dropped
+    // a timestamp column, fails loudly instead of passing empty.
+    expect($rows)->toHaveCount(13);
+
     foreach ($rows as $row) {
-        expect($row->data_type)->toBe('datetime', "{$row->table_name}.{$row->column_name} is {$row->data_type}");
+        expect($row->data_type)->toBe('datetime', "{$row->table_name}.{$row->column_name} is {$row->data_type}")
+            ->and($row->dt_precision)->toEqual(6, "{$row->table_name}.{$row->column_name} has precision {$row->dt_precision}, not 6");
     }
 });
 
@@ -66,8 +74,15 @@ it('gives the generated username key a binary collation', function () {
         where table_schema = database() and table_name = 'users' and column_name = 'username_active'
     ");
 
+    // Not just "some expression exists" — the two clauses that make it the
+    // soft-delete-aware, case-insensitive key the design calls for: the
+    // deleted_at predicate (MariaDB lower-cases identifiers and keywords in
+    // its stored SHOW-CREATE-style rendering) and lcase(), not a _ci
+    // collation, providing the case-insensitivity.
     expect($row->col)->toBe('utf8mb4_bin')
-        ->and($row->expr)->not->toBeNull();
+        ->and($row->expr)->not->toBeNull()
+        ->and($row->expr)->toContain('deleted_at` is null')
+        ->and($row->expr)->toContain('lcase(');
 });
 
 // One behavioural probe per generated unique lives in Task 13's DbGuarantees

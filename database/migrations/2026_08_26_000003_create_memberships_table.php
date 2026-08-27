@@ -31,6 +31,14 @@ return new class extends Migration
             $table->foreign('bookshelf_id')->references('id')->on('bookshelves')->restrictOnDelete();
             $table->foreign('user_id')->references('id')->on('users')->restrictOnDelete();
             $table->foreign('approved_by')->references('id')->on('users')->restrictOnDelete();
+
+            // The uniqueness guarantee itself lives on the opaque generated
+            // member_key below (needed for the soft-delete-aware behaviour),
+            // which leaves "is this user a member of this shelf" — asked by
+            // ResolveTenant (Task 16) on every request — with only the two
+            // single-column FK indexes to work with. A real composite index
+            // for that lookup.
+            $table->index(['user_id', 'bookshelf_id']);
         });
 
         DB::statement("
