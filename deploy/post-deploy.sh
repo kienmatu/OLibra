@@ -97,6 +97,23 @@ chmod -R 775 storage bootstrap/cache
 "$PHP_BIN" artisan storage:link || true
 
 "$PHP_BIN" artisan migrate --force
+
+# PR #57 review follow-up: database/seeders/CategorySeeder.php's own header
+# explains why this line exists — src/db/migrations/20260810_02_seed_default_
+# categories.sql used to seed the six default categories on the Postgres
+# side, and nothing on this side ever ran its Laravel replacement. A fresh
+# install had no categories and no way to make one, so the required "Thể
+# loại" field on "Thêm sách mới" could never be satisfied — the one other
+# data-affecting migration step, migrate --force above, does not create rows,
+# only tables. DatabaseSeeder gates DemoShelfSeeder behind
+# app()->environment('local'), so this is safe to run unconditionally on
+# every deploy: production only ever gets CategorySeeder. CategorySeeder is
+# also idempotent by construction (a withTrashed() existence guard, per its
+# own docstring, because categories.slug's unique index is not soft-delete-
+# aware like the schema's other ten), so re-running it on every deploy — not
+# only the first — is deliberate rather than merely harmless.
+"$PHP_BIN" artisan db:seed --force
+
 "$PHP_BIN" artisan config:cache
 "$PHP_BIN" artisan route:cache
 "$PHP_BIN" artisan view:cache
