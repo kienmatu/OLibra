@@ -17,10 +17,26 @@ Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index
 
 // ── One shelf ─────────────────────────────────────────────────────────────
 // scopeBindings(): every child binding ({book}, later {reader}) resolves
-// THROUGH the bound shelf's relationship (Bookshelf::books()), so a foreign
-// shelf's colliding slug is a 404, not a cross-tenant hit. Without this,
-// SubstituteBindings would resolve {book} table-wide. RouteIsolationTest
-// carries the proof.
+// THROUGH the bound shelf's relationship (Bookshelf::books()), so — in
+// principle — a foreign shelf's colliding slug would be a 404 from the
+// binding itself, not a cross-tenant hit.
+//
+// CORRECTED (whole-branch review, PR #60): that is not, today, why the 404
+// happens, and RouteIsolationTest does not prove this line does anything.
+// Book and BookCopy carry BookshelfScope (app/Models/Scopes/
+// BookshelfScope.php) independently of routing, applied by Eloquent on
+// EVERY query including the one SubstituteBindings would run without
+// scopeBindings() — so the tenant middleware having already bound
+// TenantContext to THIS request's {shelf} is what filters out shelf B's
+// rows, whether or not the child binding is routed through the parent
+// relationship. Deleting this line leaves the full suite green (verified
+// directly: removed it, ran the suite, 458/458 passed, restored it). This
+// second layer is real and worth keeping as defence in depth — a rename
+// that breaks the relationship guess now throws RelationNotFoundException
+// loudly instead of silently falling back to an unscoped query, see the
+// {bookCopy} comment below — but it is currently unpinned by any test that
+// can tell the two layers apart, because BookshelfScope alone already
+// produces every 404 this line is credited with.
 Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeBindings()->group(function () {
     // PR #57 review follow-up: BR §1.2 — "Everything about a shelf's books,
     // readers and announcements sits behind a membership of that shelf" —

@@ -24,8 +24,31 @@ use Inertia\Response;
 
 /**
  * Thin by design (spec §1.3): queries in, Inertia out; every write is an
- * Action. The role:manager middleware already gated the group; the
- * per-model policy check is the second lock BR §13.3 requires.
+ * Action.
+ *
+ * CORRECTED (whole-branch review, PR #60): the line this replaces claimed
+ * the per-model Gate::authorize calls below were "the second lock BR §13.3
+ * requires." They are not, today. The route group is already behind
+ * ['auth', 'role:manager'], which is exactly Gate::allows('act-as-manager')
+ * (EnsureShelfRole::handle). show()/edit()'s `Gate::authorize('manage',
+ * $book)` calls BookPolicy::manage, which itself is nothing but
+ * act-as-manager again — the identical check, on the identical
+ * TenantContext membership, repeated — and BookPolicy's own docblock notes
+ * $book carries no shelf re-check to make it a genuine second check.
+ * Verified directly: deleting both `manage` calls leaves the full suite
+ * green. index()/lost()'s `Gate::authorize('viewAny', Book::class)` is
+ * weaker still — BookPolicy::viewAny resolves to act-as-reader, and
+ * MembershipRole::atLeast() means any manager who already cleared
+ * role:manager clears act-as-reader for free, so that call can never
+ * itself refuse anyone the middleware let through.
+ *
+ * None of this makes the calls wrong to keep: they document, at the point
+ * of use, which ability a given action actually requires, and they stop
+ * being no-ops the day this group's middleware ever loosens (a future
+ * route relaxing role:manager to admit readers, say, would make viewAny's
+ * check real again without anyone having to remember to add it back). But
+ * BR §13.3's "second lock" is not what is running here right now, and nothing
+ * in this codebase currently tests that it is.
  */
 class BookController extends Controller
 {
