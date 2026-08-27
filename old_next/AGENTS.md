@@ -31,6 +31,28 @@ below is invoked from the root (`bun run dev`, `bun run test`, …) and `cd`s in
 directory, or is run directly against a file path under it. `.env` is shared too — it
 documents both stacks' variables in one file; see `../.env.example`.
 
+**`.env` reachability is the one rough edge this move left behind — read this before
+assuming something is broken.** `.env` lives at the repo root, one level above this
+directory, and neither `next dev`/`next build` nor `docker compose` looks up a directory
+for it on their own:
+
+- `next dev`/`next build` (via `package.json`'s scripts, which `cd old_next` first) load
+  `.env` from their own project directory — `old_next/` — which is one level below the
+  real file. There is no `next` flag for "look one level up". Workaround: `cp .env.example
+  .env` (from the repo root) **and also** `cp ../.env .env` (or a symlink) inside `old_next/`
+  once, or set `APP_DOMAIN`/whichever variables you actually need directly in your shell
+  before running `bun run dev`/`bun run build`. `vitest.config.ts` does not have this
+  problem — it reads `../.env` explicitly.
+- `docker compose` reads `.env` from the *project directory*, which `docker compose`
+  resolves as wherever you run it from — `old_next/` per "Running the stack" below — not
+  from the compose file's own directory and not from the repo root. Several variables
+  (`POSTGRES_PASSWORD`, `S3_ACCESS_KEY_ID`, …) are hard-required with `${VAR:?message}`
+  interpolation, so `docker compose config`/`up` from inside `old_next/` with no further
+  action **fails immediately** ("variable is not set"), it does not fall back to defaults.
+  Fix: `docker compose --env-file ../.env up -d` (every command in "Running the stack" and
+  "Testing" below needs the same `--env-file ../.env`), or export `COMPOSE_ENV_FILES=../.env`
+  once per shell so you don't have to repeat the flag.
+
 ## Toolchain: Bun locally
 
 **Use Bun for everything local. Do not use npm, pnpm or yarn.**
@@ -117,9 +139,24 @@ it directly in `eslint.config.mjs`. Do not wrap it in `@eslint/eslintrc`'s
 ## Running the stack
 
 ```bash
-cp .env.example .env      # from the repo root — fill in the three required secrets
-docker compose up -d      # postgres, minio, app — run from inside old_next/
-docker compose logs -f app
+cp .env.example .env                       # from the repo root — fill in the three required secrets
+docker compose --env-file ../.env up -d    # postgres, minio, app — run from inside old_next/
+docker compose --env-file ../.env logs -f app
+```
+
+**`--env-file ../.env` is required, not optional** — see the `.env` reachability note above.
+Without it, `docker compose` looks for `.env` inside `old_next/` itself, doesn't find it, and
+several required variables fail hard immediately (`POSTGRES_PASSWORD variable is not set`,
+etc.) rather than quietly using a default.
+
+**If your checkout predates this move, `data/` is at the repo root, not `old_next/data/`.**
+The bind mount in `compose.yaml` moved with the file into `old_next/`, so a fresh
+`docker compose up` here creates a new, empty `old_next/data/` and silently stops touching
+whatever was already in the root-level `data/` — it does not delete or migrate it. Run this
+once, before the first `docker compose up` from the new location:
+
+```bash
+mv data old_next/data   # from the repo root, only if data/ exists there already
 ```
 
 **Host ports are deliberately off the defaults.** The app is on **3001** and
@@ -150,9 +187,9 @@ needs it and AWS does not.
 ## Testing
 
 ```bash
-docker compose --profile test up -d db-test   # once, or after a long break — from old_next/
-bun run test                                  # from the repo root — vitest run
-bun run check                                 # typecheck + lint + format:check + test
+docker compose --env-file ../.env --profile test up -d db-test   # once, or after a long break — from old_next/
+bun run test                                                      # from the repo root — vitest run
+bun run check                                                     # typecheck + lint + format:check + test
 ```
 
 The test database is a **separate** compose service, on its own port

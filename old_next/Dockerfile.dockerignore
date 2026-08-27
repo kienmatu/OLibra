@@ -10,7 +10,12 @@ old_next/.next
 .github
 .artifacts
 .worktrees
-old_next/data
+# Unanchored, deliberately, unlike the old_next/-anchored patterns above and
+# below: a pre-move checkout can still have a real, populated `data/` at the
+# repo root (see `.gitignore`) as well as (or instead of) `old_next/data/`.
+# With `context: ..`, either one is a multi-GB PostgreSQL cluster sitting in
+# the build context if this doesn't also match it there.
+data
 docs
 old_next/scripts
 .env

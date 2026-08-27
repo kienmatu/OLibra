@@ -441,6 +441,38 @@ pass; `old_next/`'s own full suite (178 files, 1635 tests, two fewer than
 before for the reason above) still passes from its new home, and `bun run
 build`/`bun run typecheck`/`bun run lint` all succeed against it too.
 
+**One rough edge this move left behind: `.env` is no longer reachable by
+default from `old_next/`.** `.env` stayed at the repo root, shared with
+Laravel — deliberately, see above — but `old_next/` is now one directory
+below it. `next dev`/`next build` load `.env` from their own project
+directory and have no "look one level up" flag, so a bare `bun run dev`
+there sees none of the shared secrets. `docker compose` is worse: it resolves
+`.env` from the directory it's invoked in, several of `compose.yaml`'s
+variables are hard-required (`${POSTGRES_PASSWORD:?…}`,
+`${S3_ACCESS_KEY_ID:?…}`), and `docker compose config`/`up` from inside
+`old_next/` with no further action fails immediately —
+`POSTGRES_PASSWORD variable is not set` — rather than degrading gracefully.
+The fix is `docker compose --env-file ../.env ...` (or
+`COMPOSE_ENV_FILES=../.env` once per shell), written down in
+`old_next/AGENTS.md`'s "Running the stack" and ".env reachability" sections;
+there is no equivalently clean fix for `next dev`/`next build` beyond copying
+or symlinking `.env` into `old_next/` by hand, also noted there. Not treated
+as a blocker — the reference app's install/typecheck/lint/format/test/build
+path (the thing actually verified after this move) never touches `.env` at
+all, and the container/dev-server path is a local convenience, not something
+anything else in the repo depends on.
+
+**The Docker image was rebuilt and run, not just reasoned about.** The
+`context: ..` / `dockerfile: old_next/Dockerfile` change, the new
+`outputFileTracingRoot`, and the rewritten `COPY`/`CMD` paths in the
+`runner` stage (`old_next/server.js`, `old_next/.next/standalone`) were all
+verified with a real `docker compose --env-file ../.env build app` from
+`old_next/`, followed by `docker run` against the resulting image: it served
+the real landing page (`curl` returned 200 and the page body) exactly as the
+pre-move image did. `docker build --target smoke .` was previously CI's own
+guard for this and is no longer run anywhere (`ci.yml` is gone) — running
+the equivalent by hand, as above, is now how that gets checked, on demand.
+
 ## Deliberately unfinished
 
 - **No absolute session lifetime.** Laravel's session shape offers only idle
