@@ -15,6 +15,7 @@ use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
 use App\Support\TenantContext;
+use Illuminate\Support\Facades\DB;
 
 // These four tests are the whole-branch review's probe, made permanent.
 // Each binds a copy in one state, then changes the COMMITTED row underneath
@@ -123,4 +124,81 @@ it('AssessCondition audits the committed condition, not the bound instance\'s st
     $entry = AuditLog::query()->where('action', 'copy.condition_assessed')->latest('id')->firstOrFail();
     expect($entry->before['condition'])->toBe('worn')
         ->and($copy->fresh()->condition->value)->toBe('torn');
+});
+
+// The four tests above pin that each action re-reads the committed row
+// rather than trusting the bound instance — necessary, but blind to WHERE
+// in the transaction that re-read happens. Under RefreshDatabase the outer
+// test transaction is already open before the fixture runs, so each
+// action's own DB::transaction is only a SAVEPOINT on the same connection:
+// a read inserted above the lockForUpdate would still see the fixture's
+// writes and would leave every test above green. Only a positional pin on
+// the query log — the same idiom as CreateBookTest, AddCopiesTest and
+// BookLifecycleTest use for the bookshelf lock — can catch that ordering
+// regression, because it does not depend on what the read sees, only on
+// when it runs.
+
+it('RetireCopy takes the copy-row lock BEFORE any read — the first query of the transaction', function () {
+    [$user, $copy] = stalenessFixture();
+    DB::enableQueryLog();
+
+    app(RetireCopy::class)->execute($user, $copy, 'hỏng');
+
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect($log)->not->toBe([])
+        ->and(str_contains($log[0]['query'], 'book_copies'))->toBeTrue('first query is not on book_copies: '.$log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+});
+
+it('ReportCopyLost takes the copy-row lock BEFORE any read — the first query of the transaction', function () {
+    [$user, $copy] = stalenessFixture();
+    flipCommittedState($copy, 'on_loan');
+    $copy->refresh();
+    Loan::query()->create([
+        'copy_id' => $copy->id, 'book_id' => $copy->book_id,
+        'borrower_id' => $user->id, 'lent_by' => $user->id,
+        'due_on' => '2026-09-10', 'status' => 'active',
+    ]);
+    DB::enableQueryLog();
+
+    app(ReportCopyLost::class)->execute($user, $copy);
+
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect($log)->not->toBe([])
+        ->and(str_contains($log[0]['query'], 'book_copies'))->toBeTrue('first query is not on book_copies: '.$log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+});
+
+it('MarkCopyFound takes the copy-row lock BEFORE any read — the first query of the transaction', function () {
+    [$user, $copy] = stalenessFixture();
+    flipCommittedState($copy, 'lost');
+    $copy->refresh();
+    DB::enableQueryLog();
+
+    app(MarkCopyFound::class)->execute($user, $copy);
+
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect($log)->not->toBe([])
+        ->and(str_contains($log[0]['query'], 'book_copies'))->toBeTrue('first query is not on book_copies: '.$log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+});
+
+it('AssessCondition takes the copy-row lock BEFORE any read — the first query of the transaction', function () {
+    [$user, $copy] = stalenessFixture();
+    DB::enableQueryLog();
+
+    app(AssessCondition::class)->execute($user, $copy, CopyCondition::Torn, 'rách gáy');
+
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect($log)->not->toBe([])
+        ->and(str_contains($log[0]['query'], 'book_copies'))->toBeTrue('first query is not on book_copies: '.$log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
 });
