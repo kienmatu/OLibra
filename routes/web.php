@@ -51,7 +51,23 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
 
     Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
 
-    Route::prefix('profile')->name('profile.')->middleware('auth')->group(function () {
+    // Coordinator correction to this follow-up: `(doc-gia)/layout.tsx`
+    // itself does not gate (it only resolves the address for the footer,
+    // via `readShelfAddressForFooter`, which swallows the refusal), but
+    // every profile *page* underneath it does, per-page: `ho-so/page.tsx`
+    // -> `getMyProfile` -> `requireSelfOrManager`
+    // (`src/domain/members/policy.ts:214-223`); `ho-so/lich-su` and
+    // `ho-so/tong-quan` -> `requireReader` (`get-my-dashboard.ts:200,71`);
+    // `ho-so/thong-bao` -> `requireReader` (`get-my-notifications.ts:54`);
+    // `ho-so/tang-sach` -> `requireReader` (`get-my-donations.ts:40`).
+    // `loadPage` turns every one of those refusals into `notFound()`
+    // (`src/lib/reader-area.ts:29-40` says so explicitly), so the original
+    // 404s a signed-in non-member on all five profile pages — plain
+    // `auth` here under-gated them. `role:reader` is the right gate, not
+    // an over-gate: `Gate::before`'s `act-as-*` grant reproduces the
+    // original's memberless-super-admin allowance for free, the same way
+    // it does for the reader group above.
+    Route::prefix('profile')->name('profile.')->middleware(['auth', 'role:reader'])->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('show');
         Route::get('/history', [ShellController::class, 'underConstruction'])->name('history');
         Route::get('/notifications', [ShellController::class, 'underConstruction'])->name('notifications');

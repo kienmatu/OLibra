@@ -12,12 +12,22 @@ it('serves the shelf directory and a shelf home by slug', function () {
     $reader = TenantHarness::readerFor($a);
 
     $this->get('/shelves')->assertOk();
+
+    // Asserted before actingAs() below, on purpose: actingAs() sets the
+    // authenticated user for the rest of the test's HTTP client, not just
+    // the one request it decorates, so this has to run first to actually
+    // exercise the guest path. The shelf home now carries explicit 'auth'
+    // (PR #57 review follow-up 2), and bootstrap/app.php's priority list
+    // runs Authenticate ahead of ResolveTenant, so a guest is redirected to
+    // login even on an unknown slug — the same "auth ahead of tenant"
+    // shape 'redirects a guest from the reader area to login, on both a
+    // known and an unknown slug' above already proves for catalogue, and
+    // the same shape the /manage group's own guest-redirect test proves.
+    $this->get('/shelves/khong-ton-tai')->assertRedirect('/login');
+
     // PR #57 review follow-up 2: the shelf home is now behind
-    // ['auth', 'role:reader'], so it takes an approved member to see it —
-    // /shelves/khong-ton-tai still 404s before that gate is ever reached
-    // (ResolveTenant refuses the unknown slug first).
+    // ['auth', 'role:reader'], so it takes an approved member to see it.
     $this->actingAs($reader)->get("/shelves/{$a->slug}")->assertOk();
-    $this->get('/shelves/khong-ton-tai')->assertNotFound();
 });
 
 it('redirects a guest from the reader area to login, on both a known and an unknown slug', function () {
@@ -63,7 +73,16 @@ it('serves feedback to a guest — the one reader-area route with no membership 
     $this->get("/shelves/{$a->slug}/feedback")->assertOk();
 });
 
-it('serves the profile skeleton to a signed-in user, redirects a guest', function () {
+// Coordinator correction to follow-up 2: routes/web.php's `profile` group
+// now carries `role:reader`, not plain `auth` — every profile page in the
+// original gates on `requireReader` per-page (`ho-so/page.tsx` via
+// `getMyProfile` -> `requireSelfOrManager`; `ho-so/lich-su`,
+// `ho-so/tong-quan`, `ho-so/thong-bao`, `ho-so/tang-sach` via
+// `requireReader`), each refusal turned into `notFound()` by `loadPage`
+// (`src/lib/reader-area.ts:29-40`). A signed-in non-member gets 404 there,
+// same as every other reader-area route, not the 200 the old plain-`auth`
+// gate produced.
+it('redirects a guest from the profile area, 404s a signed-in non-member', function () {
     ['a' => $a] = TenantHarness::twoCollidingShelves();
     $user = new User([
         'saint_name' => 'Anna', 'full_name' => 'Phạm Thu Hà',
@@ -77,7 +96,19 @@ it('serves the profile skeleton to a signed-in user, redirects a guest', functio
         'profile', 'profile/history', 'profile/notifications',
         'profile/donations', 'profile/overview',
     ] as $path) {
-        $this->actingAs($user)->get("/shelves/{$a->slug}/{$path}")->assertOk();
+        $this->actingAs($user)->get("/shelves/{$a->slug}/{$path}")->assertNotFound();
+    }
+});
+
+it('serves the profile skeleton to an approved reader', function () {
+    ['a' => $a] = TenantHarness::twoCollidingShelves();
+    $reader = TenantHarness::readerFor($a);
+
+    foreach ([
+        'profile', 'profile/history', 'profile/notifications',
+        'profile/donations', 'profile/overview',
+    ] as $path) {
+        $this->actingAs($reader)->get("/shelves/{$a->slug}/{$path}")->assertOk();
     }
 });
 

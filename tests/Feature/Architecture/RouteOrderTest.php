@@ -93,18 +93,28 @@ it('puts a role: middleware on every reader-area route under shelves/{shelf}', f
     // announcements behind a membership of that shelf, but nothing proved
     // it at the routing level for the reader area the way the /manage test
     // above does for the manager area. A Phase 1 screen landing directly in
-    // the shelves/{shelf} group (not under manage/, profile/, or the
-    // feedback route) with no role: gate would pass this suite silently
-    // before this test existed.
+    // the shelves/{shelf} group (not under manage/ or the feedback route)
+    // with no role: gate would pass this suite silently before this test
+    // existed.
     //
-    // Three segments are excluded, each for its own reason: `manage` has
-    // its own assertion above; `profile` carries only 'auth' today — a
-    // signed-in actor's own profile, not necessarily an approved shelf
-    // member, so role:reader is not the right gate for it and adding one
-    // is a Phase 1 decision, not this follow-up's; and `feedback` is
-    // deliberately guest-reachable (see routes/web.php's own comment on
-    // that route) and must never gain a role: gate.
-    $excludedSegments = ['manage', 'profile', 'feedback'];
+    // Two segments are excluded, each for its own reason: `manage` has its
+    // own assertion above, and `feedback` is deliberately guest-reachable
+    // (see routes/web.php's own comment on that route) and must never gain
+    // a role: gate. `profile` is NOT excluded — the coordinator's review
+    // caught that every profile page in the original gates on
+    // `requireReader` per-page (`ho-so/page.tsx`, `ho-so/lich-su`,
+    // `ho-so/tong-quan`, `ho-so/thong-bao`, `ho-so/tang-sach`, all turning
+    // a refusal into `notFound()` via `loadPage`), even though
+    // `(doc-gia)/layout.tsx` itself does not gate. routes/web.php's
+    // `profile` group now carries `role:reader` for exactly that reason,
+    // so it belongs in this assertion's scope like every other reader-area
+    // route, not on the exclusion list.
+    //
+    // Known limitation, not fixed here (docs/known-gaps.md carries it): this
+    // filter matches an excluded segment ANYWHERE in the uri, not by
+    // position, so a future `shelves/{shelf}/books/{book}/feedback` would be
+    // silently exempted even though it is not the top-level feedback route.
+    $excludedSegments = ['manage', 'feedback'];
 
     $readerRoutes = collect(Route::getRoutes()->getRoutes())
         ->filter(fn ($route) => str_starts_with($route->uri(), 'shelves/{shelf}'))

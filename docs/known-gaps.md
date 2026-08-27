@@ -493,6 +493,25 @@ exclude list. Fixed by anchoring every pattern in both `rsync` invocations in
   is not enough when a later migration can extend what an earlier one
   named.
 
+- **`RouteOrderTest`'s reader-area `role:` assertion excludes a segment
+  anywhere in the URI, not by position.** `$excludedSegments = ['manage',
+  'feedback']` is checked with `explode('/', $route->uri())` against the
+  whole path, so a future `shelves/{shelf}/books/{book}/feedback` (a
+  per-book feedback thread, say) would be silently exempted from the
+  role:reader assertion even though it is not the top-level, deliberately
+  guest-reachable `feedback` route the exclusion exists for. Flagged by the
+  coordinator's review of PR #57's follow-up 2; not fixed here because no
+  such route exists yet to prove the fix against — a future author adding a
+  nested route that happens to share a segment name with `manage` or
+  `feedback` should re-check this filter's shape before trusting it.
+- **`donate` is a 308 redirect in the Next.js original, not a page.** This
+  Laravel branch renders it as an `under-construction` page like every
+  other reader-area route, and gating it behind `role:reader` produces the
+  same end state a gated redirect would (a non-member still can't reach
+  whatever `donate` points at), but Phase 1, which is where `donate`
+  becomes a real screen, should model it as a redirect rather than
+  continuing to treat it as a page of its own.
+
 ## Smaller deferred items, by task
 
 Each of these was seen, judged real, and deliberately left for the final
