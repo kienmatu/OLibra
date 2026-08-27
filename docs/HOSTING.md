@@ -257,9 +257,17 @@ one on this line.)
    `php artisan key:generate --show` locally, APP_ENV=production,
    APP_DEBUG=false, APP_URL, DB_CONNECTION=mariadb (not `mysql` — see the
    design's Global Constraints and dreamtube's DEPLOYMENT.md for the errno
-   1901 this exact mistake produces), DB_*, SESSION_DRIVER=database,
-   QUEUE_CONNECTION=database, CACHE_STORE=database, HASH_DRIVER per row 5
-   (bcrypt until confirmed otherwise — see "The hashing decision" above).
+   1901 this exact mistake produces), DB_*, SESSION_DRIVER=hashed-database
+   (not `database` — that is a real, distinct Laravel driver, so the typo
+   fails silently: raw session ids would land in the `sessions` table
+   instead of sha256(session id), defeating
+   `App\Support\HashedDatabaseSessionHandler` entirely, and on cPanel the
+   database dump and this very `.env` sit in the same home directory, which
+   is what turns that into an authentication bypass rather than a mere
+   confidentiality loss — `deploy/post-deploy.sh` now refuses to proceed if
+   this is wrong), QUEUE_CONNECTION=database, CACHE_STORE=database,
+   HASH_DRIVER per row 5 (bcrypt until confirmed otherwise — see "The
+   hashing decision" above).
 3. Confirm the CLI PHP binary and SAPI explicitly before anything else runs
    — `php -r 'echo PHP_SAPI, " ", PHP_VERSION;'` in a real SSH session must
    print `cli 8.4.x`, not merely a version number from `php -v`. Set the

@@ -60,6 +60,25 @@ if [ "$HASH_DRIVER_CONFIGURED" = "argon2id" ]; then
     }
 fi
 
+# PR #57 review follow-up: docs/HOSTING.md's first-deploy checklist step 2
+# used to say SESSION_DRIVER=database — a real, distinct Laravel session
+# driver, so that instruction failed silently rather than erroring. Under
+# it, raw session ids land straight in the `sessions` table instead of
+# sha256(session id), defeating App\Support\HashedDatabaseSessionHandler
+# entirely, and config/session.php's own default of hashed-database only
+# guards a MISSING SESSION_DRIVER — it cannot guard a WRONG one. On cPanel
+# the database dump and this .env sit in the same home directory, which is
+# what turns a database leak into a session/authentication bypass rather
+# than a mere confidentiality loss. Read straight out of the host's real
+# .env, the same way the HASH_DRIVER check above does, and refuse anything
+# other than hashed-database — but an unset value is fine, since the config
+# default already covers it.
+SESSION_DRIVER_CONFIGURED=$(grep -E '^SESSION_DRIVER=' .env 2>/dev/null | tail -n1 | cut -d= -f2- || true)
+if [ -n "$SESSION_DRIVER_CONFIGURED" ] && [ "$SESSION_DRIVER_CONFIGURED" != "hashed-database" ]; then
+    echo "post-deploy.sh: .env sets SESSION_DRIVER=$SESSION_DRIVER_CONFIGURED, not hashed-database. Every other driver — especially Laravel's own real 'database' driver, an easy typo of the intended one — stores raw session ids instead of App\\Support\\HashedDatabaseSessionHandler's sha256(session id), and on cPanel the database dump sits in the same home directory as this .env: a leaked dump becomes a live session/authentication bypass, not just a confidentiality loss. Set SESSION_DRIVER=hashed-database in .env, or remove the line entirely — config/session.php already defaults to it." >&2
+    exit 1
+fi
+
 # Storage skeleton (the deploy artifact excludes storage/app, storage/logs
 # and storage/framework — see the rsync excludes in
 # .github/workflows/deploy-laravel.yml — so these directories must exist
