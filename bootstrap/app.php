@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureAuthenticatedUserExists;
+use App\Http\Middleware\EnsureShelfRole;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\ResolveTenant;
 use Illuminate\Foundation\Application;
@@ -24,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'tenant' => ResolveTenant::class,
+            'role' => EnsureShelfRole::class,
         ]);
 
         // prependToPriorityList, not priority([...]): the array form
