@@ -2,14 +2,10 @@ import { Link, usePage } from "@inertiajs/react";
 import type { PropsWithChildren } from "react";
 import { route } from "ziggy-js";
 import { copy } from "@/lib/copy";
-
-type SharedProps = {
-    auth: { user: { id: string; display_name: string | null; full_name: string } | null };
-    shelf: { id: string; slug: string; name: string } | null;
-};
+import type { SharedData } from "@/types";
 
 export default function AppLayout({ children }: PropsWithChildren) {
-    const { auth, shelf } = usePage<SharedProps>().props;
+    const { auth, shelf } = usePage<SharedData>().props;
 
     return (
         <div className="min-h-screen bg-background text-foreground">

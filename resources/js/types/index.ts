@@ -1,40 +1,33 @@
-import type { LucideIcon } from "lucide-react";
+/**
+ * Mirrors app/Http/Middleware/HandleInertiaRequests::share() exactly — this
+ * is the one place the shape of every page's shared props is declared, so a
+ * page that writes `usePage<SharedData>()` gets the real server shape rather
+ * than a hand-rolled subset that quietly drifts from it. (The starter kit's
+ * SharedData/User types described a `name`/`quote`/`email` shape that
+ * share() never sent even at HEAD of this file's history — every share() key
+ * below was checked against the PHP method, not carried over from habit.)
+ */
 
-export interface Auth {
-    user: User;
+/** Only the fields HandleInertiaRequests::share() selects — never the row. */
+export interface SharedAuthUser {
+    id: string;
+    display_name: string | null;
+    full_name: string;
+    saint_name: string;
 }
 
-export interface BreadcrumbItem {
-    title: string;
-    href: string;
-}
-
-export interface NavGroup {
-    title: string;
-    items: NavItem[];
-}
-
-export interface NavItem {
-    title: string;
-    url: string;
-    icon?: LucideIcon | null;
-    isActive?: boolean;
+/** The bound shelf's presentation fields only — never a foreign bookshelf_id. */
+export interface SharedShelf {
+    id: string;
+    slug: string;
+    name: string;
 }
 
 export interface SharedData {
-    name: string;
-    quote: { message: string; author: string };
-    auth: Auth;
+    auth: { user: SharedAuthUser | null };
+    shelf: SharedShelf | null;
+    role: string | null;
+    /** Inertia's own Middleware::share() — validation errors, keyed by field. */
+    errors: Record<string, string>;
     [key: string]: unknown;
-}
-
-export interface User {
-    id: number;
-    name: string;
-    email: string;
-    avatar?: string;
-    email_verified_at: string | null;
-    created_at: string;
-    updated_at: string;
-    [key: string]: unknown; // This allows for additional properties...
 }

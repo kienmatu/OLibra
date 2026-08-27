@@ -255,6 +255,33 @@ entry chunk; the exclusion is what matters, the eagerness was incidental, and
 the guarding comment in `app.tsx` says exactly this so nobody trims either
 half. Task 18's pages must keep any co-located tests inside that exclusion.
 
+## Pest's `toContain($needle, $message)` silently treats the message as a second needle
+
+**`Expectation::toContain(mixed ...$needles): self` has no `$message`
+parameter — every argument is looped over and asserted as a needle.**
+Task 18's brief shipped `expect($route->gatherMiddleware())->toContain('tenant',
+"route without tenant middleware: {$route->uri()}")`, intending the second
+argument as a failure message the way `toBeTrue()`/`toMatch()`/
+`toMatchArray()` genuinely accept one. Instead it asserted the middleware
+array *also* contained that literal sentence, which it never does — the
+check failed unconditionally, on every route, regardless of whether tenant
+middleware was actually present. Caught only by running it and noticing the
+failure text named the message string as the missing needle, not `'tenant'`,
+against a `route:list`/tinker dump that already proved `tenant` was there.
+Fixed to `expect(in_array('tenant', $route->gatherMiddleware(), true))
+->toBeTrue($message)`, and confirmed both ways: passes when the middleware
+is present, fails with the intended message when it (or, extended by the
+Task 18 review, `auth` alongside a `role:*` gate) is removed.
+
+The general trap: Pest's variadic assertion methods
+(`toContain`, `toContainEqual`, and presumably any future
+`mixed ...$x` signature) cannot take a trailing message — reach for
+`toBeTrue()`/`toBeFalse()`/`toMatch()`/`toMatchArray()`/`toMatchObject()`
+(all genuinely `string $message = ''`) when a loop-based architecture test
+needs to name which iteration failed, or wrap the check in `in_array()`/
+`str_contains()` and assert the boolean instead of asserting containment
+directly with a message tacked on.
+
 ## Deliberately unfinished
 
 - **No absolute session lifetime.** Laravel's session shape offers only idle

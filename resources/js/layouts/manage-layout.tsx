@@ -3,11 +3,10 @@ import type { PropsWithChildren } from "react";
 import { route } from "ziggy-js";
 import AppLayout from "@/layouts/app-layout";
 import { copy } from "@/lib/copy";
-
-type SharedProps = { shelf: { slug: string; name: string } | null };
+import type { SharedData } from "@/types";
 
 export default function ManageLayout({ children }: PropsWithChildren) {
-    const { shelf } = usePage<SharedProps>().props;
+    const { shelf } = usePage<SharedData>().props;
     if (!shelf) return null;
 
     const items = [

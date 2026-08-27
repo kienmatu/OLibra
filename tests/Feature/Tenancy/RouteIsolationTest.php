@@ -57,6 +57,17 @@ it('redirects a guest from manage urls to login', function () {
     ['a' => $a] = TenantHarness::twoCollidingShelves();
 
     $this->get("/shelves/{$a->slug}/manage")->assertRedirect('/login');
+
+    // The same redirect must hold for an UNKNOWN slug too — that is the
+    // property the manage group's explicit 'auth' middleware exists for.
+    // Without 'auth' on the route, bootstrap/app.php's priority list has
+    // nothing to reorder ahead of ResolveTenant, so a guest on an unknown
+    // slug would 404 straight out of ResolveTenant while a guest on a
+    // known slug redirects — an unauthenticated existence oracle over the
+    // shelf URL space. Removing 'auth' from the manage group turns this
+    // assertion red (404) while every other assertion in this file stays
+    // green, which is exactly why it has to be pinned here explicitly.
+    $this->get('/shelves/khong-ton-tai/manage')->assertRedirect('/login');
 });
 
 it('never binds another shelf\'s book — scoped bindings, proven on a unique slug', function () {
@@ -83,4 +94,25 @@ it('gives a non-super-admin 404 on the admin area', function () {
     $manager = isolationManager($a->id);
 
     $this->actingAs($manager)->get('/admin/shelves')->assertNotFound();
+});
+
+it('lets a super admin into the admin area — the allow path is not just an absence of denial', function () {
+    // Only the 404 branch of EnsureSuperAdmin had coverage: a typo in the
+    // attribute name (is_super_admin vs is_superadmin, say) would close
+    // the admin area to EVERYONE and every test above would stay green,
+    // since none of them ever proves anyone gets in.
+    $admin = new User([
+        'saint_name' => 'Phero', 'full_name' => 'Nguyen Van Admin',
+        'father_name' => 'Cha', 'mother_name' => 'Me',
+    ]);
+    $admin->username = 'admin-'.uniqid();
+    $admin->password_hash = Hash::make('mat-khau-123');
+    $admin->is_super_admin = true;
+    $admin->save();
+
+    $this->actingAs($admin)->get('/admin/shelves')->assertOk();
+});
+
+it('redirects a guest from the admin area to login', function () {
+    $this->get('/admin/shelves')->assertRedirect('/login');
 });

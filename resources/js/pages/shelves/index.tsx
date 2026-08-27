@@ -1,4 +1,4 @@
-import { Link } from "@inertiajs/react";
+import { Head, Link } from "@inertiajs/react";
 import { route } from "ziggy-js";
 import AppLayout from "@/layouts/app-layout";
 import { copy } from "@/lib/copy";
@@ -8,6 +8,7 @@ type Props = { shelves: { slug: string; name: string; location: string | null }[
 export default function ShelvesIndex({ shelves }: Props) {
     return (
         <AppLayout>
+            <Head title={copy.shelves.title} />
             <h1 className="text-2xl font-semibold">{copy.shelves.title}</h1>
             {shelves.length === 0 ? (
                 <p className="mt-4 text-muted-foreground">{copy.shelves.empty}</p>
