@@ -7,6 +7,7 @@ use App\Models\Book;
 use App\Models\Bookshelf;
 use App\Queries\CatalogueQuery;
 use App\Queries\CategoryQuery;
+use App\Support\QueryParam;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -18,20 +19,21 @@ class CatalogueController extends Controller
     {
         Gate::authorize('viewAny', Book::class);
 
-        $scope = $request->query('scope') === 'all' ? 'all' : 'available';
-        $sort = $request->query('sort') === 'title' ? 'title' : 'recent';
+        $scope = QueryParam::first($request, 'scope') === 'all' ? 'all' : 'available';
+        $sort = QueryParam::first($request, 'sort') === 'title' ? 'title' : 'recent';
+        $category = QueryParam::first($request, 'category');
 
         return Inertia::render('shelves/catalogue', [
             'books' => $catalogue->run([
                 'scope' => $scope,
-                'category' => $request->query('category'),
+                'category' => $category,
                 'sort' => $sort,
-                'page' => (int) $request->query('page', '1'),
+                'page' => (int) QueryParam::first($request, 'page', '1'),
             ]),
             'categories' => $categories->stockedByShelf(),
             'filters' => [
                 'scope' => $scope,
-                'category' => $request->query('category'),
+                'category' => $category,
                 'sort' => $sort,
             ],
         ]);

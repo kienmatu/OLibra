@@ -115,10 +115,19 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::patch('/books/{book}', [BookController::class, 'update'])->name('books.update');
         Route::post('/books/{book}/copies', [CopyController::class, 'store'])->name('books.copies.store');
 
-        // {bookCopy}, not {copy}: under scopeBindings() the child binding
-        // resolves through the parent relation guessed from the parameter
-        // name — bookCopy → Bookshelf::bookCopies() — which is what makes a
-        // foreign shelf's copy id a 404 instead of a cross-tenant hit.
+        // {bookCopy}, not {copy}: the parameter name is load-bearing for
+        // routing — under scopeBindings() Laravel guesses the relation to
+        // resolve the child binding through from the parameter name itself
+        // (bookCopy -> Bookshelf::bookCopies()), so a rename here is not a
+        // silent cross-shelf leak, it is Illuminate\Database\Eloquent\
+        // RelationNotFoundException / "Call to undefined method
+        // App\Models\Bookshelf::copies()" — loud, at request time. The
+        // tenancy guarantee itself sits one layer down and does not depend
+        // on this name at all: Book and BookCopy each carry BookshelfScope
+        // independently via BelongsToBookshelf (app/Models/Concerns/
+        // BelongsToBookshelf.php), so a foreign shelf's copy id 404s on the
+        // model's own global scope even if this route parameter resolved
+        // some other way.
         Route::post('/copies/{bookCopy}/assess', [CopyController::class, 'assess'])->name('copies.assess');
         Route::post('/copies/{bookCopy}/retire', [CopyController::class, 'retire'])->name('copies.retire');
         Route::post('/copies/{bookCopy}/report-lost', [CopyController::class, 'reportLost'])->name('copies.report-lost');

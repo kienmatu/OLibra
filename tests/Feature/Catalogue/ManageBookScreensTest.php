@@ -59,6 +59,49 @@ it('renders the index with rows, categories and the lost-count chip', function (
             ->where('lostCount', 0));
 });
 
+it('a repeated ?category[]= takes its first value rather than 500ing', function () {
+    // Fix round, Task 13's finding: this porting gap pre-dates Task 13 —
+    // BookController::index read $request->query('category') the same
+    // untyped way Reader\CatalogueController did, so it carried the
+    // identical 500 (CatalogueQuery/BooksListQuery's Argument #2 ($slug)
+    // must be of type string, array given) for a repeated query key.
+    // QueryParam::first() takes the first value, matching old_next's
+    // search-params.ts param().
+    [$shelf, $user] = scrManager();
+    Category::factory()->create(['name' => 'Khác', 'slug' => 'khac']);
+    scrBook($shelf, $user, ['title' => 'Dế Mèn Phiêu Lưu Ký', 'category_slug' => 'truyen-thieu-nhi']);
+    scrBook($shelf, $user, ['title' => 'Khoa Học Kỳ Thú', 'category_slug' => 'khac']);
+
+    $this->actingAs($user)
+        ->get("/shelves/{$shelf->slug}/manage/books?category[]=truyen-thieu-nhi&category[]=khac")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('books.rows', 1)
+            ->where('books.rows.0.title', 'Dế Mèn Phiêu Lưu Ký')
+            ->where('filters.category', 'truyen-thieu-nhi'));
+});
+
+it('a repeated ?q[]= takes its first value rather than 500ing', function () {
+    // Same porting gap as the category test above: 'q' => $request->query('q')
+    // read raw. Here it does not throw — BooksListQuery casts to (string)
+    // itself, so an array degrades to "Array" rather than 500ing — but that
+    // is exactly the accidental degrade the fix round calls out: it silently
+    // searches for the literal word "Array" instead of the reader's first
+    // typed term. QueryParam::first() makes the first value the one that
+    // actually took effect.
+    [$shelf, $user] = scrManager();
+    scrBook($shelf, $user, ['title' => 'Dế Mèn Phiêu Lưu Ký']);
+    scrBook($shelf, $user, ['title' => 'Khoa Học Kỳ Thú']);
+
+    $this->actingAs($user)
+        ->get("/shelves/{$shelf->slug}/manage/books?q[]=de+men&q[]=khoa+hoc")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('books.rows', 1)
+            ->where('books.rows.0.title', 'Dế Mèn Phiêu Lưu Ký')
+            ->where('filters.q', 'de men'));
+});
+
 it('the create screen carries every category as an option', function () {
     [$shelf, $user] = scrManager();
 

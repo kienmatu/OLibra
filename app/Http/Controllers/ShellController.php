@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Enums\BookshelfStatus;
-use App\Models\Book;
 use App\Models\Bookshelf;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -39,16 +38,6 @@ class ShellController extends Controller
      * pages are not — that asymmetry is the whole point of the skeleton.
      */
     public function underConstruction(): Response
-    {
-        return Inertia::render('under-construction');
-    }
-
-    /**
-     * The {book} routes type-hint the binding NOW, in the skeleton, so the
-     * scoped-binding behaviour (a foreign shelf's slug is 404) is live and
-     * tested from day one — not discovered when Phase 1 fills the screen in.
-     */
-    public function book(Bookshelf $shelf, Book $book): Response
     {
         return Inertia::render('under-construction');
     }

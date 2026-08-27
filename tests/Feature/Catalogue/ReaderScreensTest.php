@@ -80,6 +80,28 @@ it('scope, category, sort and page ride the query string', function () {
         ->assertInertia(fn (Assert $page) => $page->has('books.rows', 0));
 });
 
+it('a repeated ?category[]= takes its first value rather than 500ing', function () {
+    // Fix round, Task 13: CatalogueController passed $request->query('category')
+    // straight through, untyped. A repeated key — a mangled or pasted link,
+    // not an attack — decodes to an array and CatalogueQuery::run() throws
+    // TypeError: Argument #2 ($slug) must be of type string, array given.
+    // QueryParam::first() takes the first value, matching old_next's
+    // search-params.ts param(): the shelf still renders, filtered by the
+    // category the reader named first.
+    [$shelf, $manager, $reader] = rdrScreenShelf();
+    Category::factory()->create(['name' => 'Khác', 'slug' => 'khac']);
+    rdrScreenBook($shelf, $manager, ['title' => 'Dế Mèn Phiêu Lưu Ký', 'category_slug' => 'truyen-thieu-nhi']);
+    rdrScreenBook($shelf, $manager, ['title' => 'Khoa Học Kỳ Thú', 'category_slug' => 'khac']);
+
+    $this->actingAs($reader)
+        ->get("/shelves/{$shelf->slug}/catalogue?category[]=truyen-thieu-nhi&category[]=khac")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('books.rows', 1)
+            ->where('books.rows.0.title', 'Dế Mèn Phiêu Lưu Ký')
+            ->where('filters.category', 'truyen-thieu-nhi'));
+});
+
 it('search renders results for the folded term', function () {
     [$shelf, $manager, $reader] = rdrScreenShelf();
     rdrScreenBook($shelf, $manager, ['title' => 'Tìm Kiếm Kho Báu']);
@@ -92,6 +114,26 @@ it('search renders results for the folded term', function () {
             ->has('results', 1)
             ->where('results.0.title', 'Tìm Kiếm Kho Báu')
             ->where('q', 'tim kiem kho bau'));
+});
+
+it('a repeated ?q[]= takes its first value rather than 500ing', function () {
+    // Fix round, Task 13: SearchController's trim((string) $request->query('q'))
+    // threw ErrorException: Array to string conversion the moment $q arrived
+    // as an array. QueryParam::first() resolves it to the first term, so a
+    // mangled or pasted `?q=a&q=b` link searches on the term the reader
+    // actually typed first, rather than 500ing on the second one being there
+    // at all.
+    [$shelf, $manager, $reader] = rdrScreenShelf();
+    rdrScreenBook($shelf, $manager, ['title' => 'Tìm Kiếm Kho Báu']);
+    rdrScreenBook($shelf, $manager, ['title' => 'Khoa Học Kỳ Thú']);
+
+    $this->actingAs($reader)
+        ->get("/shelves/{$shelf->slug}/search?q[]=tim+kiem+kho+bau&q[]=khoa+hoc")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('q', 'tim kiem kho bau')
+            ->has('results', 1)
+            ->where('results.0.title', 'Tìm Kiếm Kho Báu'));
 });
 
 it('an empty search suggests recently added available titles — BR §16.1\'s empty state', function () {

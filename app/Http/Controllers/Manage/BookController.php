@@ -15,6 +15,7 @@ use App\Queries\BooksListQuery;
 use App\Queries\CategoryQuery;
 use App\Queries\LostCopiesQuery;
 use App\Queries\ManagerBookDetailQuery;
+use App\Support\QueryParam;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -32,23 +33,27 @@ class BookController extends Controller
     {
         Gate::authorize('viewAny', Book::class);
 
+        $q = QueryParam::first($request, 'q');
+        $category = QueryParam::first($request, 'category');
+        $sort = QueryParam::first($request, 'sort') === 'title' ? 'title' : 'recent';
+
         return Inertia::render('manage/books/index', [
             'books' => $list->run([
-                'q' => $request->query('q'),
-                'category' => $request->query('category'),
-                'sort' => $request->query('sort') === 'title' ? 'title' : 'recent',
-                'page' => (int) $request->query('page', '1'),
+                'q' => $q,
+                'category' => $category,
+                'sort' => $sort,
+                'page' => (int) QueryParam::first($request, 'page', '1'),
             ]),
             // includeDrafts: this list HAS no is_published filter, so its
             // filter bar must reach the categories drafts live in.
             'categories' => $categories->stockedByShelf(includeDrafts: true),
             'lostCount' => $lost->count(),
             'filters' => [
-                'q' => (string) $request->query('q', ''),
-                'category' => $request->query('category'),
+                'q' => $q ?? '',
+                'category' => $category,
                 // Normalised, not echoed — an arbitrary ?sort= must not
                 // ride back into the page's own links.
-                'sort' => $request->query('sort') === 'title' ? 'title' : 'recent',
+                'sort' => $sort,
             ],
         ]);
     }

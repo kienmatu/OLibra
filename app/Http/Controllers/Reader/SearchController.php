@@ -7,6 +7,7 @@ use App\Models\Book;
 use App\Models\Bookshelf;
 use App\Queries\CatalogueQuery;
 use App\Queries\SearchQuery;
+use App\Support\QueryParam;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -18,7 +19,7 @@ class SearchController extends Controller
     {
         Gate::authorize('viewAny', Book::class);
 
-        $q = trim((string) $request->query('q', ''));
+        $q = trim((string) QueryParam::first($request, 'q', ''));
 
         return Inertia::render('shelves/search', [
             'q' => $q,
