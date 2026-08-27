@@ -5,41 +5,47 @@ namespace Database\Factories;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 
-/**
- * @extends Factory<User>
- */
+/** @extends Factory<User> */
 class UserFactory extends Factory
 {
-    /**
-     * The current password being used by the factory.
-     */
-    protected static ?string $password;
-
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function definition(): array
     {
+        // AGENTS.md's shared fixtures: saint name + Vietnamese full name.
+        $people = [
+            ['Maria', 'Nguyễn Thị Lan'], ['Giuse', 'Trần Minh'],
+            ['Têrêsa', 'Lê Ngọc Ánh'], ['Anna', 'Phạm Thu Hà'],
+            ['Phêrô', 'Nguyễn Văn Bình'],
+        ];
+        [$saint, $name] = $this->faker->randomElement($people);
+
         return [
-            'name' => fake()->name(),
-            'email' => fake()->unique()->safeEmail(),
-            'email_verified_at' => now(),
-            'password' => static::$password ??= Hash::make('password'),
-            'remember_token' => Str::random(10),
+            'saint_name' => $saint,
+            'full_name' => $name,
+            'father_name' => 'Chưa có',
+            'mother_name' => 'Chưa có',
+            'phone' => null,
+            'phone_missing_reason' => 'Trẻ em chưa có điện thoại',
+            'locale' => 'vi',
+            // No credentials by default: users_credentials_paired's
+            // both-or-neither, and most readers are children who never
+            // sign in.
+            'username' => null,
+            'password_hash' => null,
         ];
     }
 
-    /**
-     * Indicate that the model's email address should be unverified.
-     */
-    public function unverified(): static
+    public function withCredentials(string $username, string $password = 'mat-khau-123'): static
     {
-        return $this->state(fn (array $attributes) => [
-            'email_verified_at' => null,
+        return $this->state(fn () => [
+            'username' => $username,
+            'password_hash' => Hash::make($password),
         ]);
+    }
+
+    public function superAdmin(): static
+    {
+        return $this->state(fn () => ['is_super_admin' => true]);
     }
 }

@@ -3,22 +3,22 @@
 namespace Database\Factories;
 
 use App\Models\Category;
+use App\Support\Fold;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
-/**
- * Placeholder — Task 19 fills in the real definition. Exists now only so
- * Larastan's generic HasFactory check on Category resolves.
- *
- * @extends Factory<Category>
- */
+/** @extends Factory<Category> */
 class CategoryFactory extends Factory
 {
     /** @return array<string, mixed> */
     public function definition(): array
     {
+        $name = 'Thể loại '.Str::lower(Str::random(6));
+
         return [
-            'name' => fake()->words(2, true),
-            'slug' => fake()->unique()->slug(),
+            'name' => $name,
+            'slug' => str_replace(' ', '-', Fold::fold($name)),
+            'sort_order' => 0,
         ];
     }
 }
