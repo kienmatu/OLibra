@@ -102,6 +102,13 @@ export const copy = {
             written_on: "Bị vẽ vào",
         },
     },
+    readerCatalogue: {
+        borrowSoon: "Chức năng xin mượn sẽ có trong giai đoạn sau.",
+        availableWithCount: "Còn {count} bản có sẵn",
+        searchLead: 'Gõ không dấu cũng tìm được — thử "tim kiem kho bau".',
+        searchEmptyPrompt: "Nhập từ khoá để tìm sách.",
+        suggestionsHeading: "Sách mới thêm gần đây",
+    },
     manageBooks: {
         title: "Sách",
         addBook: "Thêm sách mới",

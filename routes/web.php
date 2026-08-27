@@ -3,6 +3,9 @@
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\LostCopiesController;
+use App\Http\Controllers\Reader\BookController as ReaderBookController;
+use App\Http\Controllers\Reader\CatalogueController;
+use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\ShellController;
 use Illuminate\Support\Facades\Route;
 
@@ -44,9 +47,9 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // query that does.
     Route::middleware(['auth', 'role:reader'])->group(function () {
         Route::get('/', [ShellController::class, 'shelfHome'])->name('show');
-        Route::get('/catalogue', [ShellController::class, 'underConstruction'])->name('catalogue');
-        Route::get('/search', [ShellController::class, 'underConstruction'])->name('search');
-        Route::get('/books/{book}', [ShellController::class, 'book'])->name('books.show');
+        Route::get('/catalogue', [CatalogueController::class, 'index'])->name('catalogue');
+        Route::get('/search', [SearchController::class, 'index'])->name('search');
+        Route::get('/books/{book}', [ReaderBookController::class, 'show'])->name('books.show');
         Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
         Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
