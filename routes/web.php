@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\Manage\BookController;
+use App\Http\Controllers\Manage\CopyController;
+use App\Http\Controllers\Manage\LostCopiesController;
 use App\Http\Controllers\ShellController;
 use Illuminate\Support\Facades\Route;
 
@@ -100,11 +103,23 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
 
         // ORDER IS LOAD-BEARING (spec §6): create and lost BEFORE {book},
         // or Laravel binds "lost" as a slug. RouteOrderTest pins this.
-        Route::get('/books', [ShellController::class, 'underConstruction'])->name('books.index');
-        Route::get('/books/create', [ShellController::class, 'underConstruction'])->name('books.create');
-        Route::get('/books/lost', [ShellController::class, 'underConstruction'])->name('books.lost');
-        Route::get('/books/{book}', [ShellController::class, 'book'])->name('books.show');
-        Route::get('/books/{book}/edit', [ShellController::class, 'book'])->name('books.edit');
+        Route::get('/books', [BookController::class, 'index'])->name('books.index');
+        Route::get('/books/create', [BookController::class, 'create'])->name('books.create');
+        Route::post('/books', [BookController::class, 'store'])->name('books.store');
+        Route::get('/books/lost', [LostCopiesController::class, 'index'])->name('books.lost');
+        Route::get('/books/{book}', [BookController::class, 'show'])->name('books.show');
+        Route::get('/books/{book}/edit', [BookController::class, 'edit'])->name('books.edit');
+        Route::patch('/books/{book}', [BookController::class, 'update'])->name('books.update');
+        Route::post('/books/{book}/copies', [CopyController::class, 'store'])->name('books.copies.store');
+
+        // {bookCopy}, not {copy}: under scopeBindings() the child binding
+        // resolves through the parent relation guessed from the parameter
+        // name — bookCopy → Bookshelf::bookCopies() — which is what makes a
+        // foreign shelf's copy id a 404 instead of a cross-tenant hit.
+        Route::post('/copies/{bookCopy}/assess', [CopyController::class, 'assess'])->name('copies.assess');
+        Route::post('/copies/{bookCopy}/retire', [CopyController::class, 'retire'])->name('copies.retire');
+        Route::post('/copies/{bookCopy}/report-lost', [CopyController::class, 'reportLost'])->name('copies.report-lost');
+        Route::post('/copies/{bookCopy}/mark-found', [CopyController::class, 'markFound'])->name('copies.mark-found');
 
         Route::get('/borrow-requests', [ShellController::class, 'underConstruction'])->name('borrow-requests');
         Route::get('/overdue', [ShellController::class, 'underConstruction'])->name('overdue');
