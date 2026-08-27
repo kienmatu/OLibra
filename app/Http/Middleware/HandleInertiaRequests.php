@@ -2,51 +2,40 @@
 
 namespace App\Http\Middleware;
 
-use Illuminate\Foundation\Inspiring;
+use App\Support\TenantContext;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
-    /**
-     * The root template that's loaded on the first page visit.
-     *
-     * @see https://inertiajs.com/server-side-setup#root-template
-     *
-     * @var string
-     */
+    /** @var string */
     protected $rootView = 'app';
 
-    /**
-     * Determines the current asset version.
-     *
-     * @see https://inertiajs.com/asset-versioning
-     */
     public function version(Request $request): ?string
     {
         return parent::version($request);
     }
 
-    /**
-     * Define the props that are shared by default.
-     *
-     * @see https://inertiajs.com/shared-data
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function share(Request $request): array
     {
-        /** @var array{0: string, 1: string} $quote */
-        $quote = str(Inspiring::quotes()->random())->explode('-')->all();
-        [$message, $author] = $quote;
+        $context = app(TenantContext::class);
+        $shelf = $context->bookshelf();
 
-        return array_merge(parent::share($request), [
+        return [
             ...parent::share($request),
-            'name' => config('app.name'),
-            'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => [
-                'user' => $request->user(),
+                'user' => $request->user()?->only(['id', 'display_name', 'full_name', 'saint_name']),
             ],
-        ]);
+            // Only the bound shelf, only presentation fields. §5.4: no
+            // Inertia prop may carry a foreign bookshelf_id — this is the
+            // single place shelf data enters shared props.
+            'shelf' => $shelf === null ? null : [
+                'id' => $shelf->id,
+                'slug' => $shelf->slug,
+                'name' => $shelf->name,
+            ],
+            'role' => $context->membership()?->role?->value,
+        ];
     }
 }

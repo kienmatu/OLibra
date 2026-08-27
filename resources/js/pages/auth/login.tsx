@@ -1,70 +1,46 @@
-import { Head, useForm } from "@inertiajs/react";
-import { LoaderCircle } from "lucide-react";
-import type { FormEventHandler } from "react";
-
-import InputError from "@/components/input-error";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import AuthLayout from "@/layouts/auth-layout";
-
-interface LoginForm {
-    username: string;
-    password: string;
-}
+import { useForm } from "@inertiajs/react";
+import type { FormEvent } from "react";
+import { route } from "ziggy-js";
+import AppLayout from "@/layouts/app-layout";
+import { copy } from "@/lib/copy";
 
 export default function Login() {
-    const { data, setData, post, processing, errors, reset } = useForm<LoginForm>({
-        username: "",
-        password: "",
-    });
+    const { data, setData, post, processing, errors } = useForm({ username: "", password: "" });
 
-    const submit: FormEventHandler = (e) => {
-        e.preventDefault();
-        post(route("login"), {
-            onFinish: () => reset("password"),
-        });
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        post(route("login"));
     };
 
     return (
-        <AuthLayout title="Đăng nhập" description="Nhập tên đăng nhập và mật khẩu để tiếp tục">
-            <Head title="Đăng nhập" />
-
-            <form className="flex flex-col gap-6" onSubmit={submit}>
-                <div className="grid gap-6">
-                    <div className="grid gap-2">
-                        <Label htmlFor="username">Tên đăng nhập</Label>
-                        <Input
-                            id="username"
-                            type="text"
-                            required
-                            autoFocus
-                            autoComplete="username"
-                            value={data.username}
-                            onChange={(e) => setData("username", e.target.value)}
-                        />
-                        <InputError message={errors.username} />
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label htmlFor="password">Mật khẩu</Label>
-                        <Input
-                            id="password"
-                            type="password"
-                            required
-                            autoComplete="current-password"
-                            value={data.password}
-                            onChange={(e) => setData("password", e.target.value)}
-                        />
-                        <InputError message={errors.password} />
-                    </div>
-
-                    <Button type="submit" className="mt-4 w-full" disabled={processing}>
-                        {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                        Đăng nhập
-                    </Button>
-                </div>
+        <AppLayout>
+            <h1 className="text-2xl font-semibold">{copy.auth.title}</h1>
+            <form onSubmit={submit} className="mt-6 flex max-w-sm flex-col gap-4">
+                <label className="flex flex-col gap-1">
+                    <span>{copy.auth.username}</span>
+                    <input
+                        type="text"
+                        value={data.username}
+                        onChange={(event) => setData("username", event.target.value)}
+                        className="rounded border px-3 py-2"
+                        autoComplete="username"
+                    />
+                </label>
+                <label className="flex flex-col gap-1">
+                    <span>{copy.auth.password}</span>
+                    <input
+                        type="password"
+                        value={data.password}
+                        onChange={(event) => setData("password", event.target.value)}
+                        className="rounded border px-3 py-2"
+                        autoComplete="current-password"
+                    />
+                </label>
+                {errors.username ? <p className="text-sm text-red-700">{errors.username}</p> : null}
+                <button type="submit" disabled={processing} className="rounded border px-4 py-2">
+                    {copy.auth.submit}
+                </button>
             </form>
-        </AuthLayout>
+        </AppLayout>
     );
 }
