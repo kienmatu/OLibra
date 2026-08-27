@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Middleware\EnsureShelfRole;
 use App\Models\Membership;
 use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Tests\Support\TenantHarness;
@@ -23,14 +25,34 @@ beforeEach(function () {
     // Route::has guard: this file's routes must survive being registered
     // once per process, the same reasoning ResolveTenantMiddlewareTest
     // documents for its own probe route.
+    //
+    // ['web', 'auth', 'tenant', 'role:*'] — not ['web', 'tenant', 'role:*'] —
+    // because this file is the canonical usage example Task 18's real
+    // routes copy, and `auth` is what makes the unknown-slug-as-guest case
+    // below meaningful: on THIS stack, Authenticate runs before
+    // ResolveTenant (bootstrap/app.php's prependToPriorityList puts it
+    // there) and redirects a guest to login before ResolveTenant ever
+    // 404s an unknown slug. Drop `auth` and a guest hitting an unknown
+    // slug gets 404 straight from ResolveTenant instead of a redirect — an
+    // unauthenticated existence oracle over the shelf URL space, exactly
+    // what that priority fix exists to close. Without `auth` here,
+    // EnsureShelfRole's own guest branch is also unreachable dead code,
+    // since ResolveTenant would already have aborted or Authenticate would
+    // already have redirected first depending on slug validity.
+    if (! Route::has('authz-test.reader-probe')) {
+        Route::middleware(['web', 'auth', 'tenant', 'role:reader'])
+            ->get('/shelves/{shelf}/reader-probe', fn () => response()->json(['ok' => true]))
+            ->name('authz-test.reader-probe');
+    }
+
     if (! Route::has('authz-test.manager-probe')) {
-        Route::middleware(['web', 'tenant', 'role:manager'])
+        Route::middleware(['web', 'auth', 'tenant', 'role:manager'])
             ->get('/shelves/{shelf}/manager-probe', fn () => response()->json(['ok' => true]))
             ->name('authz-test.manager-probe');
     }
 
     if (! Route::has('authz-test.admin-probe')) {
-        Route::middleware(['web', 'tenant', 'role:admin'])
+        Route::middleware(['web', 'auth', 'tenant', 'role:admin'])
             ->get('/shelves/{shelf}/admin-probe', fn () => response()->json(['ok' => true]))
             ->name('authz-test.admin-probe');
     }
@@ -55,6 +77,28 @@ it('redirects a guest to login instead of refusing — they have not failed auth
 
     $this->get("/shelves/{$shelf->slug}/manager-probe")
         ->assertRedirectToRoute('login');
+});
+
+it('passes an active reader through the reader gate', function () {
+    ['a' => $shelf] = TenantHarness::twoCollidingShelves();
+    $user = authzMiddlewareUser();
+    Membership::query()->withoutGlobalScopes()->create([
+        'bookshelf_id' => $shelf->id, 'user_id' => $user->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+
+    $this->actingAs($user)->get("/shelves/{$shelf->slug}/reader-probe")
+        ->assertOk()->assertJson(['ok' => true]);
+});
+
+it('404s a suspended reader on the reader gate — BR §2: suspended blocks new activity, it does not merely relabel', function () {
+    ['a' => $shelf] = TenantHarness::twoCollidingShelves();
+    $user = authzMiddlewareUser();
+    Membership::query()->withoutGlobalScopes()->create([
+        'bookshelf_id' => $shelf->id, 'user_id' => $user->id, 'role' => 'reader', 'status' => 'suspended',
+    ]);
+
+    $this->actingAs($user)->get("/shelves/{$shelf->slug}/reader-probe")
+        ->assertNotFound();
 });
 
 it('404s an active reader on the manager gate', function () {
@@ -174,4 +218,32 @@ it('404s an unknown shelf slug before any role is even evaluated', function () {
 
     $this->actingAs($user)->get('/shelves/khong-ton-tai/manager-probe')
         ->assertNotFound();
+});
+
+it('redirects a guest to login on an unknown shelf slug too, rather than 404ing — no unauthenticated existence oracle over the shelf URL space', function () {
+    // With `auth` ahead of `tenant`/ResolveTenant in the route's
+    // middleware (bootstrap/app.php's prependToPriorityList orders
+    // Authenticate before ResolveTenant regardless of the array order
+    // written on the route), a guest is turned away before ResolveTenant
+    // ever runs its own 404-on-unknown-slug check. Without `auth` on this
+    // route, a guest hitting an unknown slug would 404 from ResolveTenant
+    // while a guest hitting a KNOWN slug gets redirected — a way to probe
+    // slug existence with no session at all. This is the property that
+    // requires the exact stack Task 18's real routes use.
+    $this->get('/shelves/khong-ton-tai/manager-probe')
+        ->assertRedirectToRoute('login');
+});
+
+it('fails loudly on an unknown role name rather than silently granting a super admin an undefined ability', function () {
+    // Gate::before runs BEFORE Laravel checks whether an ability is even
+    // defined, so `role:managerr` (typo) would build the never-defined
+    // ability "act-as-managerr" — which a super admin passes automatically,
+    // turning a typo into a silent super-admin-only route. Validating
+    // against the enum makes that a loud, immediate failure instead, for
+    // every request, super admin included.
+    $middleware = new EnsureShelfRole;
+    $request = Request::create('/shelves/x/bogus-probe');
+
+    expect(fn () => $middleware->handle($request, fn ($req) => response('unreachable'), 'managerr'))
+        ->toThrow(InvalidArgumentException::class, 'Unknown shelf role in route middleware: "managerr".');
 });

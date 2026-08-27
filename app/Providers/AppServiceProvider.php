@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Enums\MembershipRole;
+use App\Enums\MembershipStatus;
 use App\Models\User;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\TenantContext;
@@ -46,16 +47,29 @@ class AppServiceProvider extends ServiceProvider
 
         // The global flag outranks every shelf role — ROLE_RANK.super_admin.
         // Returning null (not false) lets the per-gate checks run for
-        // everyone else.
+        // everyone else. Deliberately UNCONDITIONAL, across every ability
+        // this or any future Gate::define adds, not just act-as-*: BR §2's
+        // "nobody decides their own proposal, including a super
+        // administrator" is enforced inside the relevant Phase 1 command,
+        // the same way src/domain/kernel does it — not through a rank gate
+        // here. A future `Gate::define('decide-proposal', …)` is silently
+        // bypassed for a super admin unless that command checks for it
+        // itself; this is a known, accepted shape, not an oversight.
         Gate::before(fn (User $user) => $user->is_super_admin ? true : null);
 
         // Role gates read TenantContext and nothing else (Task 17's
-        // interface contract) — ResolveTenant (Task 16) is the only place
-        // that resolves a membership, and it already excludes anything but
-        // an active, non-soft-deleted row (see its docstring and the
-        // known-gaps entry on withoutGlobalScopes()). So a membership
-        // reaching here is by construction active; these gates need only
-        // compare role rank.
+        // interface contract). ResolveTenant (Task 16) is the only place
+        // that resolves a membership INTO TenantContext via the request
+        // pipeline, and it already excludes anything but an active,
+        // non-soft-deleted row (see its docstring and the known-gaps entry
+        // on withoutGlobalScopes()) — so on that path a membership reaching
+        // here is active by construction. But TenantContext::set() is
+        // public, and nothing besides a code-review convention stops a
+        // future console command, seeder or Phase 1 controller from
+        // populating it from a query that does NOT filter on status. The
+        // status check below makes the gate fail closed on its own terms
+        // instead of trusting a single upstream caller forever — belt and
+        // braces on the same principle as the user_id check just under it.
         $roleGate = fn (MembershipRole $required) => function (User $user) use ($required): bool {
             $membership = app(TenantContext::class)->membership();
 
@@ -63,6 +77,10 @@ class AppServiceProvider extends ServiceProvider
             // ResolveTenant; the guard is belt and braces against a gate
             // checked for a different user object.
             if ($membership === null || $membership->user_id !== $user->id) {
+                return false;
+            }
+
+            if ($membership->status !== MembershipStatus::Active) {
                 return false;
             }
 

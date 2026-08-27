@@ -2,9 +2,11 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\MembershipRole;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -20,11 +22,22 @@ class EnsureShelfRole
 {
     public function handle(Request $request, Closure $next, string $role): Response
     {
+        // Validate against the enum rather than interpolating $role
+        // straight into the ability name. An unvalidated typo like
+        // `role:managerr` would build the ability "act-as-managerr", which
+        // Gate never defines — and Gate::before grants true for undefined
+        // abilities to a super admin (it runs before Laravel even checks
+        // whether the ability exists), so the typo would silently turn the
+        // route into a super-admin-only page instead of failing loudly for
+        // everyone at boot/request time.
+        $required = MembershipRole::tryFrom($role)
+            ?? throw new InvalidArgumentException("Unknown shelf role in route middleware: \"{$role}\".");
+
         if (! $request->user()) {
             return redirect()->guest(route('login'));
         }
 
-        if (! Gate::allows('act-as-'.$role)) {
+        if (! Gate::allows('act-as-'.$required->value)) {
             abort(404);
         }
 

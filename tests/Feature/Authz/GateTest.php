@@ -20,6 +20,12 @@ function authzUser(bool $superAdmin = false): User
 
 function authzBind(User $user, string $role, string $status = 'active'): Membership
 {
+    // $status is exercised by the defence-in-depth test below: this shape
+    // (a non-active membership bound straight into TenantContext) is
+    // unreachable via ResolveTenant in real traffic — ResolveTenant only
+    // ever resolves an active row — but the gate closure checks status on
+    // its own terms too (AppServiceProvider::boot()), precisely so it does
+    // not depend forever on being the only caller of TenantContext::set().
     ['a' => $shelf] = TenantHarness::twoCollidingShelves();
     $membership = Membership::query()->withoutGlobalScopes()->create([
         'bookshelf_id' => $shelf->id, 'user_id' => $user->id,
@@ -108,3 +114,18 @@ it('denies a membership belonging to a different user than the one being checked
 
     expect(Gate::forUser($stranger)->allows('act-as-reader'))->toBeFalse();
 });
+
+it('denies every gate for a non-active membership bound directly into TenantContext, independent of ResolveTenant', function (string $status) {
+    // ResolveTenant never hands the gate a non-active membership in real
+    // traffic (see EnsureShelfRoleTest for that end-to-end proof) — but
+    // this test proves the gate closure ALSO checks status itself, rather
+    // than trusting TenantContext::set()'s only current caller forever.
+    // Uses 'admin', the highest role, so a pass could only be coming from
+    // status being ignored, never from role being too low.
+    $user = authzUser();
+    authzBind($user, 'admin', $status);
+
+    expect(Gate::forUser($user)->allows('act-as-reader'))->toBeFalse()
+        ->and(Gate::forUser($user)->allows('act-as-manager'))->toBeFalse()
+        ->and(Gate::forUser($user)->allows('act-as-admin'))->toBeFalse();
+})->with(['pending', 'suspended', 'left']);
