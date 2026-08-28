@@ -3,15 +3,21 @@
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\LostCopiesController;
+use App\Http\Controllers\Manage\ReaderController;
+use App\Http\Controllers\Manage\ReaderLifecycleController;
+use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\SearchController;
+use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
 use Illuminate\Support\Facades\Route;
 
 // ── Public ────────────────────────────────────────────────────────────────
 Route::get('/', [ShellController::class, 'home'])->name('home');
-Route::get('/register', [ShellController::class, 'underConstruction'])->name('register');
+Route::get('/register', [RegistrationController::class, 'create'])->name('register');
+Route::post('/register', [RegistrationController::class, 'store'])
+    ->middleware('throttle:register')->name('register.store');
 Route::get('/contact', [ShellController::class, 'underConstruction'])->name('contact');
 Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index');
 
@@ -116,9 +122,17 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/returns', [ShellController::class, 'underConstruction'])->name('returns');
         Route::get('/returns/lost', [ShellController::class, 'underConstruction'])->name('returns.lost');
 
-        Route::get('/readers', [ShellController::class, 'underConstruction'])->name('readers.index');
-        Route::get('/readers/create', [ShellController::class, 'underConstruction'])->name('readers.create');
-        Route::get('/readers/{reader}', [ShellController::class, 'underConstruction'])->name('readers.show');
+        // ORDER IS LOAD-BEARING (spec §6): create BEFORE {reader}, or
+        // Laravel binds "create" as a membership id. RouteOrderTest pins it.
+        Route::get('/readers', [ReaderController::class, 'index'])->name('readers.index');
+        Route::get('/readers/create', [ReaderController::class, 'create'])->name('readers.create');
+        Route::post('/readers', [ReaderController::class, 'store'])->name('readers.store');
+        Route::get('/readers/{reader}', [ReaderController::class, 'show'])->name('readers.show');
+        Route::patch('/readers/{reader}/profile', [ReaderController::class, 'updateProfile'])->name('readers.profile.update');
+        Route::post('/readers/{reader}/credentials', [ReaderLifecycleController::class, 'setCredentials'])->name('readers.credentials');
+        Route::post('/readers/{reader}/suspend', [ReaderLifecycleController::class, 'suspend'])->name('readers.suspend');
+        Route::post('/readers/{reader}/reactivate', [ReaderLifecycleController::class, 'reactivate'])->name('readers.reactivate');
+        Route::post('/readers/{reader}/mark-left', [ReaderLifecycleController::class, 'markLeft'])->name('readers.mark-left');
 
         // ORDER IS LOAD-BEARING (spec §6): create and lost BEFORE {book},
         // or Laravel binds "lost" as a slug. RouteOrderTest pins this.
@@ -151,7 +165,9 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
 
         Route::get('/borrow-requests', [ShellController::class, 'underConstruction'])->name('borrow-requests');
         Route::get('/overdue', [ShellController::class, 'underConstruction'])->name('overdue');
-        Route::get('/registrations', [ShellController::class, 'underConstruction'])->name('registrations');
+        Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');
+        Route::post('/registrations/{reader}/approve', [RegistrationQueueController::class, 'approve'])->name('registrations.approve');
+        Route::post('/registrations/{reader}/reject', [RegistrationQueueController::class, 'reject'])->name('registrations.reject');
         Route::get('/comments', [ShellController::class, 'underConstruction'])->name('comments');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');

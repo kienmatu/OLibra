@@ -28,7 +28,13 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         }
 
         $contents = file_get_contents($file->getPathname());
-        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_]+)[\'"]\s*\)/', $contents, $matches);
+        // [a-z0-9_-]+, not [a-z0-9_]+: thieu-so-dien-thoai (Registration.php)
+        // is the one hyphenated code in the system, and the un-widened
+        // regex could not match it — a census whose entire job is pinning
+        // that every code has a sentence was blind to this one. Confirmed
+        // by deleting `thieu-so-dien-thoai`'s lang/vi/rules.php line: with
+        // the old regex the suite stayed green; with this one it goes red.
+        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_-]+)[\'"]\s*\)/', $contents, $matches);
         foreach ($matches[1] as $code) {
             $codes[$code] = true;
         }
@@ -39,13 +45,30 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
     // glob is expected to find today, so a widening or narrowing of that
     // list is a deliberate edit to this test, not a silent pass either way.
     expect(array_keys($codes))->toEqualCanonicalizing([
+        'already_registered_here',
         'copy_count_invalid',
         'donor_ambiguous',
         'donor_membership_invalid',
         'duplicate_isbn',
+        'empty_proposal',
         'has_active_loans',
+        'member_has_active_loans',
+        'membership_not_found',
         'not_lost',
+        'not_permitted',
+        'not_suspended_cannot_reactivate',
+        'password_too_short',
+        'passwords_dont_match',
+        'phone_invalid',
+        'registration_not_pending',
+        'reject_reason_required',
+        'required_fields_missing',
         'retire_reason_required',
+        'shelf_not_found',
+        'thieu-so-dien-thoai',
+        'username_in_use',
+        'username_taken',
+        'validation_failed',
     ]);
 
     $rules = require __DIR__.'/../../../lang/vi/rules.php';

@@ -669,6 +669,31 @@ review or a later task rather than fixed in place:
   orphaned by the settings deletion, left for a future settings rebuild.
   `DashboardTest`'s schema-independent guest-redirect coverage was over-deleted
   (accepted: Task 18 replaces the dashboard route wholesale).
+- **Task 6, fix round:** `Registration::findExistingPerson()`'s no-username
+  triple (full_name + date_of_birth + phone) is check-then-write with NO
+  structural backstop — unlike the username path (`users_username_key`) and
+  the walk-back (`memberships_one_per_shelf`, now also lock-guarded), a
+  concurrent registration of the same identity with no username can still
+  create two `users` rows racing this read. The approval queue's
+  similar-name warning (BR §5.3) is the product's accepted mitigation, not a
+  structural fix; a real fix would need either a unique index over
+  (full_name_ci, date_of_birth, phone) — which would then have to define
+  what "no phone" means for uniqueness (NULLs are already distinct, so a
+  reason-only registration is naturally exempt) — or an application-level
+  advisory lock. Left for whichever task does the phase's final guarantee
+  sweep. Separately: `Registration.php`'s own docblock previously (wrongly)
+  claimed this gap was already recorded here; that line has been corrected
+  to say it wasn't, rather than making it true retroactively — this bullet
+  is what makes it true now. Also unresolved from the same fix round:
+  unmapped `QueryException`s thrown from `Registration::register()` reach
+  Laravel's default exception logging with the child's full name, DOB,
+  parents' names and phone inlined in the message (Laravel logs the bound
+  SQL by default). Not fixed in the fix round — the correct fix is an
+  app-wide redaction of logged exception messages/contexts, not a
+  one-command patch that leaves every other Action with the identical
+  exposure while looking addressed; that redaction mechanism belongs with
+  whichever task owns the phase's logging/PII policy (Task 16, per its
+  ownership of the hashed-session-at-rest decision elsewhere in this file).
 - **Task 7:** no assertion covers the `books_public`/`copies_by_book`/
   `copies_by_state` indexes, so their removal goes unnoticed; the collation
   hazard is proven only indirectly (a `collation_name NOT LIKE '%_bin'`
@@ -701,8 +726,59 @@ review or a later task rather than fixed in place:
   byte-identical to pre-`up()`. Re-`up()` succeeds.
 - **Task 14:** the unset-context test pins only `RuntimeException::class`, not
   the message.
-
-## Decisions taken on the product owner's behalf
+- **Task 9 (members plan), fix round:** `SetReaderCredentials.php`'s
+  `$person->save()` sits inside a plain `try`/`catch (QueryException $e)`
+  whose only handled case is `UniqueViolation::translate()` for
+  `users_username_key`; every other `QueryException` — the `not null`
+  columns, a truncated value, a lock-wait timeout — falls through untouched
+  and reaches Laravel's default exception logging. `QueryException::
+  formatMessage()` defaults `maskBindings` to `false`, so the logged message
+  inlines the query's bound parameters verbatim. This is the identical class
+  of gap already recorded above under "Task 6, fix round" for
+  `Registration::register()` (which leaks a child's full name, date of
+  birth, parents' names and phone) — `bootstrap/app.php`'s `withExceptions()`
+  registers no redaction hook, so nothing between the driver and the log
+  file strips a bound value either place. This instance is strictly worse:
+  the bound value that leaks is `Hash::make($password)`, a freshly generated
+  **password hash**, not merely personal data about a child. Not fixed here,
+  for the same reason the Task 6 instance was not fixed in place — the
+  correct fix is one app-wide redaction mechanism for logged exception
+  messages/contexts, not a second one-command patch that leaves every other
+  Action with the identical exposure while looking addressed. Belongs with
+  the same owner named above: whichever task owns the phase's logging/PII
+  policy (Task 16, per its ownership of the hashed-session-at-rest decision
+  elsewhere in this file). `SetReaderCredentials.php` now carries an inline
+  comment naming this gap, mirroring `Registration.php`'s own.
+- **Task 13, fix round:** `RegisterMembershipRequest::rules()` accepts NUL
+  bytes, control characters (`\r\n\t\x07`) and the RTL-override mark
+  U+202E into `full_name` (and every other free-text field on the form) —
+  `'string', 'max:255'` checks length and PHP string type, nothing about
+  which code points are in it. Corrected in the PR #61 fix round: a
+  LEADING (or trailing) BOM (U+FEFF) is NOT one of these — verified live,
+  a leading BOM does not survive to storage. The global `TrimStrings`
+  middleware runs on every request before validation, and
+  `Illuminate\Support\Str::trim()` (which it calls) strips
+  `Str::INVISIBLE_CHARACTERS` — a list that includes `\x{FEFF}` — from
+  both ends of every string field, not merely ASCII whitespace; the other
+  four (NUL, control characters, U+202E) are not in that list and remain
+  verbatim exactly as this entry originally said. A BOM placed
+  MID-STRING, not at either edge, is unaffected by `TrimStrings` and is
+  still stored verbatim — confirmed live alongside the other four. These
+  are stored verbatim on `users.full_name` and reach the manager's approval queue
+  (`GetPendingRegistrations`) and later exports unfiltered: a name
+  containing U+202E can visually reverse everything after it in a
+  manager's UI, and embedded control characters can corrupt a CSV/TSV
+  export or a terminal that renders one. Not fixed in this round — the
+  correct fix is a shared sanitisation step (strip C0/C1 controls and the
+  Unicode bidi-override/format characters, likely alongside `trim()`) that
+  every free-text write path applies identically, which means
+  `ProfileFields::normalisePatch()` (Task 9) and `Registration::register()`
+  (Task 6) would need the identical treatment `RegisterMembershipRequest`
+  got — those are two other tasks' files, and patching only this task's
+  entry point would leave the manager's own reader-creation and
+  profile-correction forms with the identical hole while looking
+  addressed. Left for whichever task does the phase's input-sanitisation
+  sweep, the same shape of deferral as the logged-PII gaps above.
 
 Each of these was ruled during execution rather than escalated, and each names
 what it costs if the ruling is wrong.
@@ -934,3 +1010,356 @@ rather than accepting it on the strength of the code alone.
   difference from the reference that a product owner, not this sweep,
   should sign off on before Phase 2 either restores it or formally drops
   it.
+
+## Phase 1b — Members
+
+The durable record of `docs/superpowers/plans/2026-08-28-laravel-phase-1b-members.md`
+(registration, approval, reader administration). Written by Task 16 after
+the full suite ran green.
+
+- **The no-username identity match has no structural backstop, by design.**
+  Two concurrent registrations of the same child (same name/DOB/phone, no
+  username) can create two `users` rows: the triple-match in
+  `app/Actions/Members/Registration.php` is a plain read with no unique
+  index behind it, exactly as the reference shipped. The product's answer
+  to duplicate PEOPLE is BR §3's similar-name warning on the approval
+  queue, decided by a human who knows the family. The username and
+  membership collisions ARE structural (`users_username_key`,
+  `memberships_one_per_shelf`, errno 1062 translated by
+  `App\Support\UniqueViolation`).
+- **`ManagerRegisterReader` is implemented, tested, and reachable from no
+  screen.** `MembersArchitectureTest` pins the absence. 1c's quick-lend
+  escape hatch is the intended surface — and the plan-header's open
+  question 1 (active vs pending) should be re-confirmed with the product
+  owner before 1c wires it.
+- **`ApproveMembership`/`RejectMembership` write NO notification rows yet.**
+  The reference writes `membership_approved`/`membership_rejected` inside
+  the command transaction (OPS §7). Phase 2 must add both writes when the
+  notification system lands — the Actions carry the same note.
+- **`POST /register` is throttled on two keys, both numbers invented here**
+  — 30/minute per IP (burst) and 20/day per SHA-256 of the submitted phone,
+  falling back to the IP when the phone is blank. A decision taken on the
+  product owner's behalf: OPS §8 (:1158) lists `RegisterMembership` rate
+  limiting as unaddressed in both source documents. The per-day/hashed key
+  is modelled on OPS §8's only stated limit (`SubmitFeedback`, 3 per phone
+  per day, hashed); a per-IP-only limiter was rejected because BR §16.1's
+  scenario is a room of people behind one parish connection. The limiter is
+  named `register` in `AppServiceProvider`; loosening the burst limit is the
+  first thing to try if a real registration event trips it.
+- **`already_registered_here` is an existence oracle on the public form.**
+  A stranger who knows a child's exact name, date of birth and phone learns
+  whether that child is registered at this shelf. It reveals membership but
+  never status (suspended, pending and active all answer identically — a
+  consequence of CRITICAL 1's walk-back fix). Inherited from the reference,
+  which addresses the *username* probe channel only. Closing it would mean
+  dropping the no-username triple-match, which is how BR §5.3's cross-shelf
+  identity reuse works for the majority of readers who have no username.
+- **Public registration answers `GetParishUnits` to guests**, a query OPS
+  §3.2 lists as `reader`-gated and flags with its own open question (:75).
+  Live units only, and a parish's list of `Giáo họ` is not personal data —
+  but it is a documented gate this plan chose to open.
+- **`ReactivateMembership` has a button that the reference never had**
+  (OPS:443: "no visible 'Kích hoạt lại' button anywhere in the 47 screens").
+  Added on the reader detail because BR §7.5 draws the suspend arrow both
+  ways and a suspension with no way back is a trap.
+- **`member_has_active_loans`' Vietnamese sentence is authored by this
+  plan.** OPS:453 names the code in prose and supplies no sentence, and
+  `has_active_loans` was unavailable — 1a already holds that key for a
+  sentence about a book. Five other refusal codes follow the reference's
+  `errors.ts` spelling rather than OPS §4.3's abbreviations; the mapping
+  table is in the plan header's divergence 6.
+- **The reader profile page, `GetMyProfile` and `ChangeOwnPassword` are
+  deferred to Phase 3 whole**, with the profile-change lifecycle they
+  share a screen with (the 1a GetShelfHome precedent). A reader's only
+  password path until then is the volunteer (`SetReaderCredentials`),
+  which is BR §2's model anyway.
+- **`ReaderDetailQuery` derives days-remaining/overdue locally.** 1c must
+  move the due-date math to `app/Support/Circulation/` and point this
+  query at it — two definitions of "overdue" is the drift BR §8 exists to
+  prevent, and this one is temporary by declared intent.
+- **There is no `assertNoSecrets` audit walker.** The reference's kernel
+  walked every audit bag for hash-shaped values; here the no-secret rule
+  is held by `SetReaderCredentialsTest`'s row assertions only. If a later
+  phase adds an audit helper, port the walker there.
+- **The reader-detail edit form does not offer parish-unit placement.**
+  OPS §4.3's UpdateReaderProfile inputs are person fields only; placement
+  is set at registration (on-behalf form) and by Phase 3's
+  ApproveProfileChange (which carries the two unit ids for exactly this).
+  If the product owner wants direct placement editing, it is a two-field
+  addition to `UpdateReaderProfileRequest` + `ParishUnitFields` on the
+  form — but it would need its own OPS entry, since no command currently
+  sanctions it.
+- **The concurrency variants of the reference's tests did not port**
+  (two-connection probes cannot see `RefreshDatabase` fixtures — 1a
+  divergence 2's reasoning). The mechanism is pinned instead: every
+  lifecycle command's first statement is `lockForUpdate()` on the
+  membership row (divergence 1), and `ReaderQueriesTest` pins the roster's
+  ORDER BY clause because the UUIDv7 id tiebreak cannot be falsified by
+  data seeded in creation order.
+- **`currentLoans` ties on `(due_on, id)` where the reference ties on
+  `(due_on, copy_code)`** — `app/Queries/ReaderDetailQuery.php:75`. A
+  spec-vs-reference drift flagged during Task 12's review and deliberately
+  left as-is rather than guessed at; untested either way, since no fixture
+  puts two loans on the same due date. If a manager ever reports the
+  "which book is due first" ordering on the reader detail page looking
+  wrong when two loans tie on `due_on`, this is where to look.
+- **Real trigram similarity pads per WORD, not once over the whole
+  string** — verified by standing up a real PostgreSQL 16.14 with `pg_trgm`
+  1.6 and calling `show_trgm()` directly (`app/Support/Members/
+  NameSimilarity.php`'s docblock has the full transcript). A reviewer
+  derived the opposite by hand mid-phase — reasoning that real `pg_trgm`
+  pads the whole string once, making `similarity()` order-SENSITIVE — and
+  a "fix" along those lines nearly shipped on that theory; the extension's
+  actual, measured behaviour is order-INVARIANT for two strings built from
+  the same multiset of words (`similarity('tran van an', 'an van tran')`
+  measures **1.0** live, not the ~0.4 the whole-string theory predicts). A
+  19,898-pair property sweep against the live extension found zero
+  threshold flips and zero numeric disagreements beyond float32/float64
+  rounding. **The threshold is 0.6.** The `0.714` that reached the plan
+  document is a worked example in the reference's comment above the real
+  predicate (`similarity(tran minh, tran minh duc) -> 0.714`), not the
+  parameter — both numbers are recorded here because both were repeated
+  confidently by more than one party before the source was actually read.
+- **Three inert assertion shapes, all caught on the same class of
+  anti-enumeration/privacy property, across three different test files**
+  (`tests/Feature/Members/ReaderQueriesTest.php`,
+  `tests/Feature/Members/ManageReaderScreensTest.php`,
+  `tests/Feature/Members/PendingRegistrationsQueryTest.php` all carry the
+  same docblock warning verbatim): (1) `expect($row)->not->toHaveKeys([$a,
+  $b, $c])` means "has ALL of these keys" negated, so it is satisfied the
+  moment even ONE of several forbidden keys is absent — a leaked field
+  beside an absent one still passes; (2) `not->toHaveKey($key, "message")`
+  puts the string in `toHaveKey`'s `$value` parameter, not `$message` —
+  Pest's `not` then catches the resulting exception (from either the
+  missing-key check or the value-mismatch check) and treats it as the
+  negation succeeding, so the assertion passes UNCONDITIONALLY regardless
+  of what leaked; (3) in Task 13's public-registration status-oracle test,
+  an early draft gave all three status fixtures (pending/active/suspended)
+  the identical identity triple, so the query's unordered `->first()`
+  lookup silently collapsed all three iterations onto ONE row, and would
+  have masked a mutation leaking the real status. The rule the fixes
+  converged on: prove an absence by checking `array_key_exists()` per key,
+  one key per assertion, and give every fixture row seeded for a
+  same-shape sweep a distinct identity.
+- **`DB::disableQueryLog()` does not clear the buffer.** Found in Task 9's
+  own dispatch: a lock-position test exercising multiple commands
+  (`ApproveMembership` then `RejectMembership`) in one method read STALE
+  entries left over from the first command's `enableQueryLog()` call, and
+  passed regardless of whether the second command's lock was actually
+  positioned first — reproduced live by removing the `flushQueryLog()`
+  call and re-breaking `RejectMembership`'s lock ordering: the test stayed
+  green. `DB::flushQueryLog()` between commands is the fix, and the
+  ensuing repo-wide audit (mutating every query-log pin individually,
+  Phase 1a's included) found every other lock-position/query-log pin in
+  the codebase genuine — this was an isolated risk, not a systemic one,
+  because every other such test calls `enableQueryLog()`/`getQueryLog()`
+  exactly once per method.
+- **UUID v7 primary keys are chronologically monotonic, so an unordered
+  scan already returns creation order** — a sort-tiebreak test seeded in
+  already-correct order proves nothing, because the untested code path
+  (delete the tiebreak) would return the identical sequence by accident.
+  This has now fired across both plans in this codebase: Phase 1a's
+  `tests/Feature/Catalogue/ReaderQueriesTest.php` (the `SearchQuery` slug
+  tiebreak, 11 rows needed before insertion order and slug order actually
+  diverge); Phase 1b's `tests/Feature/Members/ReaderQueriesTest.php` (the
+  roster's folded-name order, seeded Vũ/Đặng/An — creation order — against
+  An/Đặng/Vũ — folded order); and
+  `tests/Feature/Members/PendingRegistrationsQueryTest.php` (the queue's
+  `created_at, id` order, seeded newest-row-inserted-first specifically so
+  physical insertion order cannot coincidentally satisfy the assertion).
+  The house rule going forward: a tiebreak test must seed rows in the
+  WRONG order and force `created_at`/name collisions explicitly, or it
+  guards nothing.
+- **Fixtures that collide with seeded randomness, found twice this
+  phase.** Corrected in the PR #61 fix round: the super-admin does NOT
+  hold two memberships, and the manager/active row belongs to a different
+  user entirely — verified live against a fresh seed run.
+  `DemoShelfSeeder`'s manager fixture (`:37-40`) is a user named `'Trần
+  Minh'` (username `quanly`); its super-admin fixture (`:46-49`) is a
+  DIFFERENT user named `'Nguyễn Văn Bình'` (username `admin`). The trap is
+  in the five-person demo-readers loop (`:92-104`), which looks up each
+  person by `full_name` alone before deciding whether to create one:
+  `:93` reuses `'Trần Minh'` — already seeded as the MANAGER at `:39` — so
+  the loop's `User::where('full_name', ...)` finds that row instead of
+  creating a new reader, and the following `Membership::firstOrCreate`
+  keyed on `(shelf, user)` then matches the manager's own membership row
+  exactly, adding nothing — the shelf ends up with **four** reader
+  memberships, not five. Separately, `:95` reuses `'Nguyễn Văn Bình'` —
+  already seeded as the SUPER ADMIN at `:48` — so that iteration's lookup
+  resolves to the super-admin's user row, and this time
+  `Membership::firstOrCreate` finds no existing row for that
+  (shelf, user) pair (the super-admin fixture never created one) and
+  inserts a real `role: reader, status: pending` membership. That is the
+  entire mechanism: the super-admin ends up holding exactly one
+  membership, a pending reader row, purely because its name was reused
+  three lines below its own creation — not because of any manager/active
+  row it never held. A test or fixture written against "the super-admin
+  holds two memberships" or "the manager and super-admin share one" would
+  be wrong on both counts. Separately, `UserFactory`'s default five-name
+  pool contains `'Trần Minh'` verbatim (accented, matching
+  `DemoShelfSeeder`'s own spelling — not the unaccented `'Tran Minh'` an
+  earlier draft of this entry said), which collided with Task 14's
+  deliberately-crafted similar-name fixture in the pending registrations
+  queue tests until the manager's name was pinned explicitly. Both are the
+  same shape of trap: a factory default or seeded fixture silently
+  supplying a value a later test's fixture also uses literally.
+- **The plan's own "second shelf" fixture template trips
+  `BelongsToBookshelf`'s creating-hook guard.** Instantiating a second
+  `Bookshelf`/tenant-scoped model directly in a test, the way the brief's
+  own boilerplate does, fails against `app/Models/Concerns/
+  BelongsToBookshelf.php:73`'s guard unless the fixture is built under
+  `TenantContext::actSystemWide()` — the same pattern
+  `RegisterMembershipTest` already used. Hit identically in Tasks 6 and 7
+  in this phase (the second occurrence after the first was already fixed
+  and known), which is itself the lesson: recording a trap once is not the
+  same as every downstream task having read it.
+- **Errno 1170 is folklore on this build, not a reproduced refusal.** The
+  `(191)` prefix on `users.full_name_folded`'s index
+  (`database/migrations/2026_08_28_000001_add_users_full_name_folded.php`)
+  matches `books_public`'s convention, but MariaDB 10.11.19 does NOT throw
+  errno 1170 on an unlengthed index over a `TEXT` column — verified live by
+  running the unlengthed `ALTER TABLE` directly: it succeeds, MariaDB
+  silently applying an implicit 768-character prefix (`innodb_large_prefix`
+  is unconditionally on for this build and is not even a settable
+  variable). No migration in this codebase, including Phase 0's, actually
+  reproduced 1170; the `(191)` prefix is worth keeping as an explicit,
+  intentional, four-times-smaller choice than the 768-byte fallback — but
+  as a convention, not a workaround for a refusal that was never observed.
+- **PII and credentials in logs: an unmapped `QueryException` inlines its
+  bound parameters.** Both instances of this gap are recorded and both
+  are cross-referenced from the offending files' own comments:
+  `app/Actions/Members/Registration.php` ("Task 6, fix round" above) can
+  log a child's full name, date of birth, parents' names and phone;
+  `app/Actions/Members/SetReaderCredentials.php` ("Task 9, fix round"
+  above) is strictly worse — it can log a freshly generated **password
+  hash**. Both confirmed against the vendored framework source
+  (`QueryException::formatMessage()` defaults `maskBindings` to `false`)
+  and against `bootstrap/app.php`, which registers `withExceptions()` with
+  no redaction hook of any kind — nothing between the driver and the log
+  file strips a bound value on either path. Not fixed per-command,
+  deliberately: the correct fix is one app-wide redaction mechanism, not a
+  second one-off patch leaving every other Action with the identical hole
+  while looking addressed.
+
+  **PR #61 fix round, Task 2:** the `Registration.php` instance's
+  REACHABILITY, not the redaction gap itself, is fixed. This entry used to
+  frame it as hypothetical ("Task 6, fix round" above still calls out that
+  no known caller supplies an unmapped errno); it was not — an
+  unauthenticated `curl` against `POST /register` with
+  `saint_name=\xC3\x28` (or the same in `full_name`/`father_name`/
+  `mother_name`) reached `Registration::createPerson()`'s INSERT, tripped
+  MariaDB errno 1366 (invalid UTF-8 for the column's `utf8mb4` charset),
+  unmapped by `UniqueViolation::translate()`, and 500'd while logging the
+  child's date of birth, both parents' names and phone — reproduced live
+  and confirmed in `storage/logs/laravel.log`. Fixed by adding an
+  `encoding:UTF-8` rule to the four name fields on
+  `RegisterMembershipRequest`, `RegisterReaderOnBehalfRequest` and
+  `UpdateReaderProfileRequest` (all three feed the same columns) —
+  `mb_check_encoding()` never throws, so invalid UTF-8 now fails cleanly as
+  a `ValidationException` before any query runs. Reassessed: the
+  app-wide-redaction deferral above is still the right call for the
+  REDACTION gap in general (a second one-off patch there would leave every
+  other Action's identical hole looking addressed when it is not) — but
+  this specific route no longer NEEDS that mechanism to stop leaking PII,
+  because the byte sequence that used to reach the unmapped exception
+  handler is refused earlier now. The deferred redaction gap remains real
+  for every other Action that can still reach an unmapped `QueryException`
+  with sensitive bindings (`SetReaderCredentials.php` among them) — this
+  fix narrows the set of inputs that can trigger it on this one route, it
+  does not replace the general fix.
+- **Control characters and bidi overrides pass into `full_name` (and every
+  other free-text field) and are stored verbatim.**
+  `RegisterMembershipRequest::rules()` ("Task 13, fix round" above) accepts
+  NUL bytes, control characters and the RTL-override mark U+202E —
+  `'string', 'max:255'` checks length and PHP type only. (A LEADING or
+  trailing BOM is not among them — see the correction on the "Task 13, fix
+  round" entry above; a global `TrimStrings` middleware strips it via
+  `Str::INVISIBLE_CHARACTERS`, verified live. A mid-string BOM is
+  unaffected by that and is stored verbatim like the other four.) These
+  reach the manager's approval queue (`GetPendingRegistrations`) and
+  any future export unfiltered: a name containing U+202E can visually
+  reverse everything after it in a manager's UI. Not fixed in this round —
+  the correct fix is a shared sanitisation step every free-text write path
+  applies identically (`ProfileFields::normalisePatch()` and
+  `Registration::register()` included), left for whichever task does the
+  phase's input-sanitisation sweep.
+- **PR #61 fix round, Task 1: a validation rule added to close one hole
+  opened another on the same route.** `RegisterMembershipRequest`'s
+  `date_of_birth` rule gained `before_or_equal:today`/
+  `after_or_equal:1900-01-01` in the Task 13 fix round to refuse a
+  9999-born reader. Both rules delegate to
+  `Illuminate\Validation\Concerns\ValidatesAttributes::
+  getDateTimeWithOptionalFormat()`, which calls
+  `DateTime::createFromFormat()` with NO `try`/`catch` around it — unlike
+  `validateDateFormat()` (the `date_format` rule itself), which explicitly
+  catches `ValueError`. Laravel runs every rule for an attribute
+  regardless of an earlier failure unless told to stop, so a
+  `date_of_birth` containing a NUL byte failed `date_format` and then
+  still reached `before_or_equal`, which threw an uncaught `ValueError`
+  and 500'd `POST /register` — reproduced live with
+  `date_of_birth=09123\x0045678`, confirmed by deleting the two bound
+  rules and getting a clean `ValidationException` instead. Fixed by
+  adding `bail` to the front of `date_of_birth`'s rule list, so a value
+  that fails `date_format` never reaches the bound checks. The general
+  lesson, swept across every field on this route and the phase's other
+  Form Requests with hostile values (NUL bytes, invalid UTF-8, control
+  characters): any validation rule that parses raw input via a
+  driver/stdlib call can throw on bytes the rule was never written to
+  expect, and per-task review will not catch it when the throwing rule and
+  the rule it depends on were added in different commits.
+- **PR #61 fix round, Task 3: the public re-application walk-back used to
+  erase the manager's rejection/suspension reason.**
+  `Registration::upsertMembership()`'s walk-back branch (any `rejected`/
+  `left` row re-applying via `POST /register`) unconditionally set
+  `rejection_reason` and `suspension_reason` to `null` alongside flipping
+  `status` back to `pending`. BR §2 sanctions the re-application itself,
+  and the product owner separately accepted that
+  `already_registered_here` vs. a silent success is an existence oracle
+  distinguishing `{pending, active, suspended}` from `{left, rejected}` —
+  but neither sanctions an unauthenticated stranger who knows a child's
+  name/date of birth/phone permanently destroying the manager's recorded
+  reason for the last refusal in the same request. The reference
+  (`old_next/src/domain/members/registration.ts`) does the identical
+  unconditional null-out — this is a deliberate departure from the
+  reference, not a port of a fix it already had, because the reference
+  never addressed this case either. Fixed by leaving both columns out of
+  the walk-back `update()` call, so whichever one is set survives; nothing
+  else in the state graph writes `pending` onto a row that already carries
+  a non-null reason from an inconsistent place (`rejected` requires
+  `rejection_reason` via `memberships_rejected_has_reason`, and
+  `suspended → left → pending` can carry a stale `suspension_reason` the
+  same way). The reader detail screen already renders both fields
+  whenever non-null regardless of current status, so this now reads
+  correctly as "the last refusal on file" next to the current `pending`
+  status badge, rather than silently vanishing. Verified live over real
+  HTTP: rejected a demo applicant with a reason via `tinker`, re-submitted
+  the identical public form, and confirmed both the status flip to
+  `pending` and the surviving `rejection_reason` in the database
+  afterwards. The oracle this does NOT remove, recorded rather than
+  hidden: `already_registered_here` still distinguishes
+  `{pending, active, suspended}` from `{left, rejected}` to anyone who
+  submits the exact triple, because BR §2 requires re-application to stay
+  possible for both — that asymmetry is a known, accepted trade, not an
+  oversight.
+- **PR #61 fix round, Task 4: six `FormRequest::authorize()` methods would
+  403, not 404, if middleware ordering ever changed.**
+  `RegisterReaderOnBehalfRequest`, `RejectMembershipRequest`,
+  `SetReaderCredentialsRequest`, `SuspendMembershipRequest` and
+  `UpdateReaderProfileRequest` (five, not six as first reported — the
+  sixth Members Form Request, `RegisterMembershipRequest`, always returns
+  `true` and is not part of this pattern) returned the bare `bool` from
+  `Gate::allows(...)`, which Laravel's default
+  `FormRequest::failedAuthorization()` renders as a 403. Every route that
+  reaches these is `role:manager`-gated, and `EnsureShelfRole` 404s a
+  non-manager before any controller or Form Request runs — its own
+  docblock names the exact 403-vs-404 hazard BR §5.4's anti-enumeration
+  rule cares about — so today these branches are provably unreachable
+  (`MembershipPolicy`'s methods are all literally `act-as-manager`, the
+  identical check the middleware already made). Fixed anyway, as a
+  backstop against a future middleware-ordering change: each now calls
+  `abort_unless(..., 404)` directly rather than returning the gate's bool.
+  Pinned by `tests/Feature/Members/FormRequestAuthorize404Test.php`, which
+  instantiates each Form Request directly (bypassing routing entirely,
+  since the failing branch cannot be reached over HTTP today) and asserts
+  a denied `authorize()` throws `NotFoundHttpException`, not the default
+  `AuthorizationException`.

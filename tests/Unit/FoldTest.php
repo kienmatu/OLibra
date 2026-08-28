@@ -55,18 +55,30 @@ it('folds the empty string to the empty string', function () {
     expect(Fold::fold(''))->toBe('');
 });
 
-it('carries a well-formed map: 144 lowercase keys, ascii targets', function () {
+it('carries a well-formed map: 145 lowercase-or-caseless keys, ascii targets', function () {
     // 67 Vietnamese + 16 Latin-1 + 60 Latin Extended-A + the i+U+0307
-    // sequence PHP full case mapping produces for İ. A miscount means a
-    // letter silently degrading to a space.
-    expect(Fold::MAP)->toHaveCount(144);
+    // sequence PHP full case mapping produces for İ + ẞ (U+1E9E, capital
+    // sharp S — added because MariaDB's LOWER() does not fold it to 'ß' the
+    // way PHP's mb_strtolower does, so it needs its own entry to reach the
+    // same 'ss' target on both sides; see FoldExpression's Fold::MAP entry
+    // and the Latin Extended Additional sweep in FoldParityTest). A
+    // miscount means a letter silently degrading to a space.
+    expect(Fold::MAP)->toHaveCount(145);
 
     foreach (Fold::MAP as $from => $to) {
-        expect(mb_strtolower($from, 'UTF-8'))->toBe($from)
-            ->and($to)->toMatch('/^[a-z]{1,2}$/');
+        // Every key must be its own mb_strtolower() image EXCEPT ẞ, which
+        // has no lowercase image PHP would ever hand to strtr() (its own
+        // mb_strtolower turns it into 'ß' before strtr() runs) — it exists
+        // in MAP purely to catch MariaDB's LOWER() leaving it uppercase.
+        if ($from === "\u{1E9E}") {
+            expect(mb_strtolower($from, 'UTF-8'))->toBe('ß');
+        } else {
+            expect(mb_strtolower($from, 'UTF-8'))->toBe($from);
+        }
+        expect($to)->toMatch('/^[a-z]{1,2}$/');
     }
 
-    foreach (['ặ', 'ễ', 'ợ', 'ự', 'đ', 'ä', 'ñ', 'ç', 'š', 'ø', 'æ', 'œ', 'ß', 'ð'] as $key) {
+    foreach (['ặ', 'ễ', 'ợ', 'ự', 'đ', 'ä', 'ñ', 'ç', 'š', 'ø', 'æ', 'œ', 'ß', 'ð', "\u{1E9E}"] as $key) {
         expect(Fold::MAP)->toHaveKey($key);
     }
 });
@@ -92,6 +104,11 @@ it('agrees with an independent NFD-derived oracle for every map entry', function
         // this list: base letters, not accent+letter pairs.
         'ł' => 'l', 'ſ' => 's',
         "i\u{0307}" => 'i',
+        // ẞ (U+1E9E) has no NFD decomposition either (confirmed via
+        // Normalizer — it round-trips unchanged), same as ß itself: it is
+        // the capital form of a base letter, not a composed accent+letter
+        // pair.
+        "\u{1E9E}" => 'ss',
     ];
 
     foreach (Fold::MAP as $from => $to) {

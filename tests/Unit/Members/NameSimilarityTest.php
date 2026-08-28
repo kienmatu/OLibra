@@ -1,0 +1,85 @@
+<?php
+
+use App\Support\Members\NameSimilarity;
+
+it('reproduces pg_trgm\'s measured value for the reference\'s own example', function () {
+    // get-pending-registrations.ts's comment: similarity('tran minh',
+    // 'tran minh duc') -> 0.714, verified live against pg_trgm 1.6.
+    // The trigram sets: 10 shared, 14 in the union -> 10/14.
+    expect(NameSimilarity::similarity('Trần Minh', 'Trần Minh Đức'))
+        ->toEqualWithDelta(10 / 14, 0.0001);
+});
+
+it('folds before comparing, so diacritics never separate two spellings', function () {
+    expect(NameSimilarity::similarity('Trần Minh', 'Tran Minh'))->toBe(1.0);
+});
+
+it('is order-invariant for a word-order swap, matching live pg_trgm — not the ~0.4/~0.765 a whole-string-padding model would predict', function () {
+    // A prior review round argued real pg_trgm pads once over the whole
+    // string, making it order-SENSITIVE, and that this class's per-word
+    // padding was therefore a bug. Measured directly against a live
+    // PostgreSQL 16.14 + pg_trgm 1.6 instance (matching the version this
+    // reference cites), `show_trgm('cat and dog')` returns exactly the
+    // union of each word's OWN padded trigrams with no cross-word
+    // trigram — proving pg_trgm pads per word, exactly as this class
+    // does. Both these pairs measure 1.0 live, confirming order-invariance
+    // is pg_trgm's real behavior, not a porting error.
+    expect(NameSimilarity::similarity('Tran Van An', 'An Van Tran'))->toBe(1.0)
+        ->and(NameSimilarity::similarity('Nguyen Thi Lan', 'Thi Lan Nguyen'))->toBe(1.0);
+});
+
+it('pins a spread of values measured directly against a live pg_trgm 1.6 instance', function () {
+    // Every value below was read from `select similarity(a, b)` on a
+    // throwaway local PostgreSQL 16.14 cluster with `create extension
+    // pg_trgm` (version 1.6, matching the reference's own cited version),
+    // not derived from this class or by hand — an independent oracle, per
+    // pair, spanning identical strings, a one-word difference used as a
+    // substring test, single-word names, and the empty/symbol-only
+    // degenerate cases.
+    expect(NameSimilarity::similarity('Tran Van Minh Duc', 'Tran Van Minh'))
+        ->toEqualWithDelta(0.7647059, 0.0001)
+        ->and(NameSimilarity::similarity('Tran', 'Tuan'))->toEqualWithDelta(0.25, 0.0001)
+        ->and(NameSimilarity::similarity('Tran', 'Tran'))->toBe(1.0)
+        ->and(NameSimilarity::similarity('Nguyen Van An', 'Nguyen Van An'))->toBe(1.0)
+        ->and(NameSimilarity::similarity('', ''))->toBe(0.0)
+        ->and(NameSimilarity::similarity('***', '///'))->toBe(0.0);
+});
+
+it('is symmetric, 1.0 for identical, low for unrelated', function () {
+    $a = NameSimilarity::similarity('Nguyễn Thị Lan', 'Nguyen Thi Lan Anh');
+
+    expect($a)->toBe(NameSimilarity::similarity('Nguyen Thi Lan Anh', 'Nguyễn Thị Lan'))
+        ->and(NameSimilarity::similarity('Nguyễn Thị Lan', 'Nguyễn Thị Lan'))->toBe(1.0)
+        ->and(NameSimilarity::similarity('Nguyễn Thị Lan', 'Phêrô Hoàng Bách'))->toBeLessThan(NameSimilarity::THRESHOLD);
+});
+
+it('empty or symbol-only input scores zero rather than dividing by nothing', function () {
+    expect(NameSimilarity::similarity('', 'Trần Minh'))->toBe(0.0)
+        ->and(NameSimilarity::similarity('***', '///'))->toBe(0.0);
+});
+
+it('pins the 0.6 threshold literally, with a pair on each side close enough that a shift flips them', function () {
+    // Mutation-testing anchor. Comparing against `NameSimilarity::THRESHOLD`
+    // itself would be circular — changing the constant would move both the
+    // assertion and the code under test together, and this test would stay
+    // green. So the boundary (0.6) is hard-coded here, and both example
+    // pairs are measured directly against a live PostgreSQL 16.14 +
+    // pg_trgm 1.6 instance (an independent oracle, not this class or hand
+    // arithmetic — see NameSimilarity's class docblock) — 0.5625 and
+    // 0.625 exactly, matching this class's own output — to sit close
+    // enough to it that nudging THRESHOLD to 0.5 or 0.7 flips one of the
+    // two `>=` comparisons below.
+    expect(NameSimilarity::THRESHOLD)->toBe(0.6);
+
+    // "Bùi Văn Sơn" vs "Bùi Văn Sang": 0.5625, just under the line — no
+    // warning should fire for this pair.
+    expect(NameSimilarity::similarity('Bùi Văn Sơn', 'Bùi Văn Sang'))
+        ->toEqualWithDelta(0.5625, 0.0001)
+        ->toBeLessThan(0.6);
+
+    // "Cao Thị Ngọc" vs "Cao Thị Ngân": 0.625, just over the line — a
+    // warning should fire for this pair.
+    expect(NameSimilarity::similarity('Cao Thị Ngọc', 'Cao Thị Ngân'))
+        ->toEqualWithDelta(0.625, 0.0001)
+        ->toBeGreaterThanOrEqual(0.6);
+});
