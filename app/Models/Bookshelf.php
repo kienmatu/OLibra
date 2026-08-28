@@ -41,6 +41,20 @@ class Bookshelf extends Model
         return $this->hasMany(Membership::class);
     }
 
+    /**
+     * The same rows as memberships(), under the name the {reader} route
+     * parameter needs: scopeBindings() resolves a child binding through
+     * the relation guessed from the parameter name (reader -> readers()),
+     * so this is the defence-in-depth layer routes/web.php documents for
+     * {bookCopy}. BookshelfScope on Membership is what actually guards.
+     *
+     * @return HasMany<Membership, $this>
+     */
+    public function readers(): HasMany
+    {
+        return $this->hasMany(Membership::class);
+    }
+
     /** @return HasMany<BookshelfContact, $this> */
     public function contacts(): HasMany
     {

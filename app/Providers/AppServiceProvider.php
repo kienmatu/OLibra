@@ -6,9 +6,11 @@ use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
 use App\Models\Book;
 use App\Models\BookCopy;
+use App\Models\Membership;
 use App\Models\User;
 use App\Policies\BookCopyPolicy;
 use App\Policies\BookPolicy;
+use App\Policies\MembershipPolicy;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\TenantContext;
 use Illuminate\Foundation\Application;
@@ -109,5 +111,6 @@ class AppServiceProvider extends ServiceProvider
         // those definitions, so the file reads in dependency order.
         Gate::policy(Book::class, BookPolicy::class);
         Gate::policy(BookCopy::class, BookCopyPolicy::class);
+        Gate::policy(Membership::class, MembershipPolicy::class);
     }
 }
