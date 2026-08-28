@@ -12,6 +12,7 @@ use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\CatalogueController;
+use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
@@ -101,10 +102,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // it does for the reader group above.
     Route::prefix('profile')->name('profile.')->middleware(['auth', 'role:reader'])->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('show');
-        Route::get('/history', [ShellController::class, 'underConstruction'])->name('history');
+        Route::get('/history', [MyLoansController::class, 'history'])->name('history');
         Route::get('/notifications', [ShellController::class, 'underConstruction'])->name('notifications');
         Route::get('/donations', [ShellController::class, 'underConstruction'])->name('donations');
-        Route::get('/overview', [ShellController::class, 'underConstruction'])->name('overview');
+        Route::get('/overview', [MyLoansController::class, 'overview'])->name('overview');
+        Route::post('/loans/{loan}/renew', [MyLoansController::class, 'renew'])->name('loans.renew');
     });
 
     // ── The manager area: role:manager = act-as-manager or 404 ──────────
