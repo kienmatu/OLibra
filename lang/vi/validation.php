@@ -203,6 +203,8 @@ return [
         'shelf' => 'tủ sách',
         'parish_unit_l1_id' => 'đơn vị bậc 1',
         'parish_unit_l2_id' => 'đơn vị bậc 2',
+        'copy_id' => 'bản sách',
+        'membership_id' => 'bạn đọc',
     ],
 
 ];

@@ -44,4 +44,15 @@ return [
     'parish_unit_l2_not_in_l1' => 'Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.',
     'suspension_reason_required' => 'Vui lòng ghi lý do tạm khoá.',
     'shelf_not_found' => 'Không tìm thấy tủ sách này.',
+
+    // ── Circulation (Phase 1c) ────────────────────────────────────────
+    'copy_lost_or_retired' => 'Bản sách này đã mất hoặc ngừng dùng.',
+    'membership_not_active' => 'Tài khoản đang tạm khoá, không thể mượn thêm.',
+    'loan_limit_reached' => 'Bạn đọc đã mượn tối đa số sách cho phép.',
+    'loan_not_active' => 'Lượt mượn này đã được xử lý.',
+    'loan_not_active_cannot_void' => 'Chỉ có thể huỷ lượt mượn đang diễn ra.',
+    'no_renewals_remaining' => 'Bạn đã dùng hết số lần gia hạn cho lượt mượn này.',
+    'title_has_queue' => 'Có bạn khác đang chờ mượn cuốn này, không thể gia hạn.',
+    'title_has_no_copies' => 'Cuốn này chưa có bản sách nào trong tủ.',
+    'reason_required' => 'Vui lòng ghi lý do huỷ.',
 ];
