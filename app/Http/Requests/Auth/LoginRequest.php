@@ -22,7 +22,18 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'username' => ['required', 'string'],
+            // Fix round (minor): the only unbounded free-text field in
+            // the codebase — no `max` at all, unlike every other
+            // username field (`max:255`, matching users.username's
+            // VARCHAR(255)). This is a lookup key, never written or
+            // stored (see this class's own docblock and
+            // FreeTextEncodingGuardTest's exemption for it), so an
+            // unbounded value is not itself a write-path hazard — but a
+            // caller can still make Str::lower()/Hash-timing work over an
+            // arbitrarily large string on every login attempt, including
+            // unauthenticated ones. `max:255` costs nothing here and
+            // matches the column it is ultimately compared against.
+            'username' => ['bail', 'required', 'string', 'max:255'],
             'password' => ['required', 'string'],
         ];
     }

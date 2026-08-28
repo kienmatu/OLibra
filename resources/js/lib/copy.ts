@@ -41,6 +41,7 @@ export const copy = {
         returns: "Nhận trả",
         readers: "Người đọc",
         books: "Sách",
+        overdue: "Quá hạn",
         settings: "Cài đặt",
     },
     admin: {

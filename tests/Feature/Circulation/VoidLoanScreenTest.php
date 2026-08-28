@@ -62,5 +62,12 @@ it('voiding from the book page needs a reason, voids, and returns there', functi
         ->assertRedirect($from);
 
     expect($loan->fresh()->status)->toBe(LoanStatus::Voided)
-        ->and($copy->fresh()->state)->toBe(CopyState::Available);
+        ->and($copy->fresh()->state)->toBe(CopyState::Available)
+        // Fix round (minor 5): the manager's own typed text must reach
+        // loans.void_reason — the whole point of the surviving voided
+        // row. A hard-coded literal swapped in for
+        // $request->validated()['reason'] in LoanController::void()
+        // would leave every other assertion in this file green; only
+        // this line pins the actual submitted string.
+        ->and($loan->fresh()->void_reason)->toBe('Ghi nhầm bạn đọc');
 });

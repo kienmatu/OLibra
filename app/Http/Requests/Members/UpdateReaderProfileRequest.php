@@ -55,7 +55,7 @@ class UpdateReaderProfileRequest extends FormRequest
             // trims it), so it gets the same guard (Task 12 sweep).
             'phone' => ['nullable', 'string', 'max:32'],
             'phone_missing_reason' => ['bail', 'nullable', 'string', 'max:1000', 'encoding:UTF-8'],
-            'email' => ['nullable', 'email', 'max:255'],
+            'email' => ['bail', 'nullable', 'email', 'max:255'],
         ];
     }
 }

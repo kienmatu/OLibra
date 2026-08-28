@@ -1430,9 +1430,30 @@ the full suite ran green.
   everywhere (gated by `Phone::assert()`'s strict `\d{9,11}` regex before
   any write), `category_slug` (a `Category::query()->where('slug', ...)`
   lookup only — proved live that a WHERE bind on invalid UTF-8 returns no
-  match rather than throwing, so an unmatched slug refuses as
-  `category_not_found` before any write), `shelf` on the public register
-  form (the identical WHERE-only shape), `parish_unit_l1_id`/
+  match rather than throwing on this column, so an unmatched slug refuses
+  as `category_not_found` before any write. **Fix round correction: this
+  is collation-dependent, not a general truth about WHERE binds.**
+  `categories.slug` and `users.username` are `utf8mb4`, the same charset
+  family PDO sends the bind as, so MariaDB just compares bytes and finds
+  no match. A column declared `ascii_bin` — `memberships.id`, and every
+  other id/role/status column in this schema — throws instead: MariaDB
+  refuses to compare `ascii_bin` against an incoming `utf8mb4_unicode_ci`
+  bind at all, with errno 1267 ("Illegal mix of collations"), regardless
+  of whether the bytes would have matched. This was proved the hard way:
+  `StoreBookRequest`/`AddCopiesRequest`'s `donor_membership_id` ran
+  exactly this WHERE-lookup shape against `memberships.id` (`ascii_bin`)
+  with no `bail` ahead of the `uuid` format check, and invalid UTF-8 that
+  failed `uuid` still reached the lookup and 500'd live — the fifth
+  confirmed occurrence of the class of bug this section otherwise
+  describes, fixed by adding `bail` (see
+  `tests/Feature/Catalogue/CatalogueHostileInputTest.php`). The correct
+  rule: a WHERE bind on invalid UTF-8 is safe-by-refusal only against a
+  column whose collation is in the same charset family as the bind
+  (utf8mb4-family columns here); against an ascii-family column it throws
+  just as a write would, and that path needs the identical `bail` /
+  `encoding:UTF-8` discipline as a write path, not a free pass because
+  it is "only a lookup".) `shelf` on the public register
+  form (the identical WHERE-only shape, also a utf8mb4 column), `parish_unit_l1_id`/
   `parish_unit_l2_id` (validated by `ParishUnits::validateSelection()`
   against a Collection already loaded into PHP memory — a string compare,
   not a DB bind), `QuickLendRegisterReaderRequest::book` (a lookup key
@@ -1480,3 +1501,33 @@ the full suite ran green.
   touches these five files, or a dedicated backstop sweep mirroring PR
   #61 Task 4's own — the fix shape (`abort_unless(Gate::allows(...), 404)`)
   is already established and copy-pasteable.
+
+- **Fix round: `encoding:UTF-8` guards byte VALIDITY, not byte
+  CONTENT — the framing that it keeps "hostile bytes" out of the database
+  overstates what the rule buys.** `encoding:UTF-8` is `mb_check_encoding($value,
+  'UTF-8')`, which answers exactly one question — is this a well-formed
+  UTF-8 byte sequence — and NUL (`\x00`) and the other C0 control bytes
+  are all well-formed single-byte UTF-8 code points, so the rule accepts
+  them. Proved live:
+  `Validator::make(['reason' => "khoa \x00 \x01 that"], ['reason' =>
+  ['bail','required','string','max:1000','encoding:UTF-8']])->fails()`
+  returns `false`. In practice this means a manager can void a loan with
+  a NUL byte embedded in `loans.void_reason`, or create a book whose
+  title carries control characters, and every guard this fix round added
+  or hardened waves it through — not a 500 (MariaDB's utf8mb4 columns
+  store NUL/control bytes without complaint) and not a member of the
+  class of bug this task swept (an unmapped `QueryException`), just
+  content the UI and any future export never expected to render.
+  **Decision: not given its own guard in this fix round.** Two reasons.
+  First, scope: this task's brief was the encoding-validity class of bug
+  and the gate that catches it, not general free-text sanitisation —
+  the entry above (Task 1c, control characters/RTL override chars: "left
+  for whichever task does the phase's input-sanitisation sweep") already
+  named the correct home for this, a single shared sanitisation step
+  every free-text write path applies identically, not a second one-off
+  rule bolted onto `encoding:UTF-8`'s exemption table. Second, severity:
+  nothing observed renders these bytes unsafely today (no raw HTML
+  output of free-text fields found in this sweep), so this is a
+  data-hygiene concern, not a live injection or crash vector. Recorded
+  here, not silently accepted, so whoever does that sanitisation sweep
+  has this as a confirmed, reproduced input rather than a rediscovery.

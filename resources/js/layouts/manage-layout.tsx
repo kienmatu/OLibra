@@ -29,6 +29,10 @@ export default function ManageLayout({ children }: PropsWithChildren) {
             href: route("shelves.manage.books.index", { shelf: shelf.slug }),
         },
         {
+            name: copy.manage.overdue,
+            href: route("shelves.manage.overdue", { shelf: shelf.slug }),
+        },
+        {
             name: copy.manage.settings,
             href: route("shelves.manage.settings", { shelf: shelf.slug }),
         },

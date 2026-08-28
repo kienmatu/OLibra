@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Catalogue\CreateBook;
+use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
 use App\Models\Category;
@@ -116,4 +117,51 @@ it('invalid UTF-8 in a new book\'s free-text fields is refused as validation, ne
 
     expect($response->status())->not->toBe(500);
     $response->assertSessionHasErrors('title');
+});
+
+/**
+ * Fix round (Task 12): `donor_membership_id`'s ruleset was
+ * `['nullable', 'uuid', 'prohibits:donor_name', $existsClosure]` with no
+ * `bail`. `uuid` is a value guard, not an ordering guard — Laravel runs
+ * every rule for an attribute unless told to stop, so a value that fails
+ * `uuid` still reaches the closure, which binds those same bytes into
+ * `Membership::query()->whereKey($value)`. `memberships.id` is
+ * `ascii_bin` (see the migration); invalid-UTF-8 bytes arrive at that
+ * bind as `utf8mb4_unicode_ci`, and MariaDB refuses the mix with errno
+ * 1267 ("Illegal mix of collations"), unmapped, a raw 500. Fixed by
+ * adding `bail` so a failed `uuid` check stops the ruleset before the
+ * closure runs — the same shape `LendCopyRequest` already carries on its
+ * own uuid fields.
+ */
+it('invalid UTF-8 in a new book\'s donor_membership_id is refused as validation, never 500s', function () {
+    [$shelf, $manager] = chiFix(slug: 'dong-thap-chi-donor-book');
+
+    $response = $this->actingAs($manager)
+        ->post(route('shelves.manage.books.store', ['shelf' => $shelf->slug]), [
+            'title' => 'Sách hợp lệ',
+            'author' => 'Tô Hoài',
+            'category_slug' => 'truyen-thieu-nhi',
+            'copy_count' => 1,
+            'donor_membership_id' => "not-\xC3\x28-a-uuid",
+        ]);
+
+    expect($response->status())->not->toBe(500);
+    $response->assertSessionHasErrors('donor_membership_id');
+});
+
+it('invalid UTF-8 in add-copies\' donor_membership_id is refused as validation, never 500s', function () {
+    [$shelf, $manager] = chiFix(slug: 'dong-thap-chi-donor-copies');
+
+    app(TenantContext::class)->actSystemWide();
+    $book = Book::query()->where('bookshelf_id', $shelf->id)->firstOrFail();
+    app(TenantContext::class)->clear();
+
+    $response = $this->actingAs($manager)
+        ->post(route('shelves.manage.books.copies.store', ['shelf' => $shelf->slug, 'book' => $book->slug]), [
+            'count' => 1,
+            'donor_membership_id' => "not-\xC3\x28-a-uuid",
+        ]);
+
+    expect($response->status())->not->toBe(500);
+    $response->assertSessionHasErrors('donor_membership_id');
 });

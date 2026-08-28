@@ -34,7 +34,17 @@ class AddCopiesRequest extends FormRequest
         return [
             'count' => ['required', 'integer', 'min:1', 'max:200'],
             'donor_membership_id' => [
-                'nullable', 'uuid', 'prohibits:donor_name',
+                // bail — fix round: `uuid` is a value guard, not an
+                // ordering guard. Without `bail`, a value that FAILS
+                // `uuid` still reaches the closure below, which binds
+                // those same bytes into Membership::query()->whereKey().
+                // memberships.id is ascii_bin (see the migration); an
+                // invalid-UTF-8 string arrives at that bind as
+                // utf8mb4_unicode_ci, and MariaDB refuses the mix with
+                // errno 1267 ("Illegal mix of collations"), unmapped, a
+                // raw 500 — proved live, see
+                // tests/Feature/Catalogue/CatalogueHostileInputTest.php.
+                'bail', 'nullable', 'uuid', 'prohibits:donor_name',
                 function (string $attribute, mixed $value, \Closure $fail): void {
                     if (! Membership::query()->whereKey($value)->exists()) {
                         $fail(__('validation.exists', [
