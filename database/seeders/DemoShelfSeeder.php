@@ -6,6 +6,7 @@ use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
 use App\Models\Membership;
+use App\Models\ParishUnit;
 use App\Models\User;
 use App\Support\TenantContext;
 use Illuminate\Database\Seeder;
@@ -56,6 +57,50 @@ class DemoShelfSeeder extends Seeder
                 ->each(fn (Book $book) => BookCopy::factory()->count(2)->create([
                     'bookshelf_id' => $shelf->id, 'book_id' => $book->id,
                 ]));
+        }
+
+        // Phase 1b: a nested two-level taxonomy so every picker, filter and
+        // parish line is exercisable in dev — Giáo họ over Tổ, the two
+        // words BR §5.6 names as the only ones a real parish has been seen
+        // to use.
+        $settings = $shelf->settings;
+        if (! isset($settings['parish_taxonomy'])) {
+            $settings['parish_taxonomy'] = [
+                'levels' => 2, 'nested' => true,
+                'level1_label' => 'Giáo họ', 'level2_label' => 'Tổ',
+            ];
+            $shelf->settings = $settings;
+            $shelf->save();
+        }
+
+        $units = [];
+        foreach (['Giáo họ Thánh Tâm', 'Giáo họ Mân Côi'] as $i => $name) {
+            $units[$name] = ParishUnit::query()->firstOrCreate(
+                ['bookshelf_id' => $shelf->id, 'level' => 1, 'name' => $name],
+                ['sort_order' => $i],
+            );
+        }
+        foreach ([['Tổ 1', 'Giáo họ Thánh Tâm'], ['Tổ 2', 'Giáo họ Thánh Tâm'], ['Tổ 1', 'Giáo họ Mân Côi']] as $i => [$name, $parent]) {
+            ParishUnit::query()->firstOrCreate(
+                ['bookshelf_id' => $shelf->id, 'level' => 2, 'name' => $name, 'parent_id' => $units[$parent]->id],
+                ['sort_order' => $i],
+            );
+        }
+
+        // Five demo readers (AGENTS.md's fixture people), one pending so the
+        // approval queue renders.
+        $people = [
+            ['Maria', 'Nguyễn Thị Lan', 'active'], ['Giuse', 'Trần Minh', 'active'],
+            ['Têrêsa', 'Lê Ngọc Ánh', 'active'], ['Anna', 'Phạm Thu Hà', 'active'],
+            ['Phêrô', 'Nguyễn Văn Bình', 'pending'],
+        ];
+        foreach ($people as [$saint, $name, $status]) {
+            $person = User::query()->where('full_name', $name)->first()
+                ?? User::factory()->create(['saint_name' => $saint, 'full_name' => $name, 'phone' => '0912345678', 'phone_missing_reason' => null]);
+            Membership::query()->firstOrCreate(
+                ['bookshelf_id' => $shelf->id, 'user_id' => $person->id],
+                ['role' => 'reader', 'status' => $status, 'parish_unit_l1_id' => $units['Giáo họ Thánh Tâm']->id],
+            );
         }
 
         // This is the last seeder in the run today, so leaving the

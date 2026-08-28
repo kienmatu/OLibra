@@ -101,9 +101,20 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
     $this->seed(DemoShelfSeeder::class);
     $this->seed(DemoShelfSeeder::class);
 
+    // Phase 1b added five demo readers (AGENTS.md's fixture people), two of
+    // which — Giuse Trần Minh and Phêrô Nguyễn Văn Bình — deliberately
+    // reuse the manager and super-admin fixtures already created above by
+    // full_name, per AGENTS.md's "use the same fixtures everywhere" —
+    // rather than minting two more accounts. So only three of the five
+    // (Maria, Têrêsa, Anna) are genuinely new users: 2 (manager, admin) + 3.
+    // Memberships: the manager's own (1) plus one new reader membership per
+    // demo person whose (bookshelf, user) pair didn't already have a row —
+    // Maria, Têrêsa, Anna, and the super-admin (reused by name, but with no
+    // prior membership on this shelf) becomes a fourth, pending: 1 + 4.
     expect(DB::table('bookshelves')->count())->toBe(1)
-        ->and(DB::table('users')->count())->toBe(2)
-        ->and(DB::table('memberships')->count())->toBe(1)
+        ->and(DB::table('users')->count())->toBe(5)
+        ->and(DB::table('memberships')->count())->toBe(5)
+        ->and(DB::table('parish_units')->count())->toBe(5)
         ->and(DB::table('books')->count())->toBe(4)
         ->and(DB::table('book_copies')->count())->toBe(8);
 });
