@@ -83,6 +83,31 @@ it('step 3 previews the pair, the chosen copy and the calculated due date', func
     Carbon::setTestNow();
 });
 
+it('a non-UUID-shaped ?reader= never reaches the membership bind (PR #62 review, finding 2)', function () {
+    // memberships.id is ascii_bin — SafeId::isUuid() is the only thing
+    // standing between this ?reader= value and Membership::find()'s bind.
+    // Before this fix a hand-rolled `[0-9a-f-]{36}` regex played that
+    // role: removing it left the full suite green (nothing pinned it) and
+    // the live route 500'd on both invalid bytes and on ordinary
+    // 36-character Vietnamese text. Both shapes below are exactly the
+    // ones that reproduced the 500 live.
+    [$shelf, $manager] = qlFix(slug: 'dong-thap-ql-safeid');
+
+    $this->actingAs($manager)
+        ->get(route('shelves.manage.lend.confirm', [
+            'shelf' => $shelf->slug, 'book' => 'de-men-ql', 'reader' => 'Giáo họ Đức Mẹ Hằng Cứu Giúp X',
+        ]))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('reader', null));
+
+    $this->actingAs($manager)
+        ->get(route('shelves.manage.lend.confirm', [
+            'shelf' => $shelf->slug, 'book' => 'de-men-ql', 'reader' => '📚',
+        ]))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('reader', null));
+});
+
 it('the confirm POST lends and redirects to step 1 with the success flash', function () {
     [$shelf, $manager, $membership, $book, $copy] = qlFix(slug: 'dong-thap-ql-post');
 

@@ -300,7 +300,7 @@ function fegExemptions(): array
         QuickLendRegisterReaderRequest::class => [
             'parish_unit_l1_id' => 'same in-memory ParishUnits::validateSelection() gate as RegisterMembershipRequest (this request feeds the identical Registration::execute())',
             'parish_unit_l2_id' => 'same in-memory ParishUnits::validateSelection() gate as RegisterMembershipRequest',
-            'book' => 'a lookup key only (LendController resolves it via Book::query()->where(\'slug\', ...)) and is stripped via Arr::except() before RegisterMemberOnBehalf::execute() ever sees the array — it only ever also travels as a redirect route parameter, never a column write',
+            'book' => 'a lookup key only (LendController resolves it via Book::query()->where(\'slug\', ...)) and is stripped via Arr::except() before ManagerRegisterReader::execute() ever sees the array (LendController::storeReader calls ManagerRegisterReader, not RegisterMemberOnBehalf — fix round, PR #62 review finding 5) — it only ever also travels as a redirect route parameter, never a column write',
         ],
         SetReaderCredentialsRequest::class => [
             'password' => 'hashed via Hash::make() before storage, never written raw',

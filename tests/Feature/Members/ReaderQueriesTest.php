@@ -115,6 +115,21 @@ it('the parish-unit filter narrows at either level', function () {
         ->and(app(ReadersListQuery::class)->run(['parishUnitId' => $l2->id])['total'])->toBe(1);
 });
 
+it('a non-UUID-shaped parish-unit filter matches nothing instead of 500ing (PR #62 review, finding 1)', function () {
+    // memberships.parish_unit_l1_id/l2_id are ascii_bin — binding a
+    // non-ASCII ?unit= value straight into the WHERE is MariaDB errno
+    // 1267 ("Illegal mix of collations"), reproduced live over real HTTP
+    // with both an ordinary Vietnamese unit name and a bare emoji before
+    // this fix. A garbage id can never match a real parish unit either
+    // way, so this must behave exactly like M7's garbage-fold branch
+    // above: zero rows, never a crash.
+    [$shelf, $l1] = rosterFixture();
+    rosterMember($shelf, 'Trong Giáo Họ', ['parish_unit_l1_id' => $l1->id]);
+
+    expect(app(ReadersListQuery::class)->run(['parishUnitId' => 'Giáo họ Đức Mẹ'])['total'])->toBe(0)
+        ->and(app(ReadersListQuery::class)->run(['parishUnitId' => '📚'])['total'])->toBe(0);
+});
+
 it('the name filter is diacritic-insensitive and a garbage query matches nothing', function () {
     [$shelf] = rosterFixture();
     rosterMember($shelf, 'Trần Minh');

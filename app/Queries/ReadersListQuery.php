@@ -6,6 +6,7 @@ use App\Models\Loan;
 use App\Models\Membership;
 use App\Support\Fold;
 use App\Support\Members\ParishUnits;
+use App\Support\SafeId;
 
 /**
  * GetReadersList (OPS §3.3): the manager's roster — the shelf's own
@@ -49,9 +50,23 @@ final class ReadersListQuery
         }
         if (($input['parishUnitId'] ?? null) !== null && $input['parishUnitId'] !== '') {
             $unit = (string) $input['parishUnitId'];
-            $base->where(fn ($w) => $w
-                ->where('memberships.parish_unit_l1_id', $unit)
-                ->orWhere('memberships.parish_unit_l2_id', $unit));
+            if (! SafeId::isUuid($unit)) {
+                // PR #62 review, finding 1: parish_unit_l1_id/l2_id are
+                // ascii_bin (database/migrations/..._create_memberships_
+                // table.php). A ?unit= value that isn't UUID-shaped can
+                // never match a real parish unit id, and binding its raw
+                // bytes into this comparison is MariaDB errno 1267
+                // ("Illegal mix of collations"), not a clean "no rows" —
+                // reproduced live with an ordinary Vietnamese unit name and
+                // with a bare emoji, both 500ing before this fix. Refuse
+                // the same way M7's garbage-fold branch below does: matches
+                // NOTHING, not everything and not a 500.
+                $base->whereRaw('1 = 0');
+            } else {
+                $base->where(fn ($w) => $w
+                    ->where('memberships.parish_unit_l1_id', $unit)
+                    ->orWhere('memberships.parish_unit_l2_id', $unit));
+            }
         }
 
         $q = trim((string) ($input['q'] ?? ''));

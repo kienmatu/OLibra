@@ -24,6 +24,7 @@ use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
 use App\Support\Members\ParishUnits;
 use App\Support\QueryParam;
+use App\Support\SafeId;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -145,8 +146,19 @@ class LendController extends Controller
             ? ChooseCopy::lowestLendable($book->copies)
             : ['copy' => null, 'reason' => null];
 
+        // PR #62 review, finding 2: memberships.id is ascii_bin — a
+        // ?reader= that isn't UUID-shaped must never reach find()'s bind,
+        // or MariaDB throws errno 1267 instead of "not found." The old
+        // `[0-9a-f-]{36}` regex happened to close that hole (no test
+        // covered it — deleting it left the suite green while the route
+        // 500'd on both invalid bytes and ordinary 36-character Vietnamese
+        // text) but was a second, weaker, hand-rolled definition of "looks
+        // like a UUID" than the one Laravel's own route-model-binding
+        // layer already enforces (HasUniqueStringIds::resolveRouteBinding-
+        // Query() -> Str::isUuid()). SafeId::isUuid() is that same check,
+        // shared rather than reinvented — see its own docblock.
         $membership = null;
-        if ($membershipId !== null && preg_match('/^[0-9a-f-]{36}$/', $membershipId) === 1) {
+        if (SafeId::isUuid($membershipId)) {
             $membership = Membership::query()->with('user')->find($membershipId);
         }
 
