@@ -94,6 +94,28 @@ it('the confirm POST lends and redirects to step 1 with the success flash', func
     $response->assertRedirect(route('shelves.manage.lend', ['shelf' => $shelf->slug]))
         ->assertSessionHas('success');
     expect(Loan::query()->where('copy_id', $copy->id)->where('status', 'active')->exists())->toBeTrue();
+
+    // Carry-over fix, Task 10 review Important #1: assertSessionHas only
+    // proves the value landed in the session — not that
+    // HandleInertiaRequests::share() actually puts it on the `flash` prop
+    // every page reads. lend/index.tsx:50 does an unguarded
+    // `flash.success` with no optional chaining; deleting the three-line
+    // `'flash' => [...]` block in share() left all 789 tests green before
+    // this assertion existed, which would have white-screened this exact
+    // redirect target in production instead of failing a test. The
+    // flashed value survives into the NEXT request (Laravel's normal
+    // flash-data lifecycle), so following the redirect with a fresh GET
+    // in the same test — same session — is what actually proves the wire.
+    $loan = Loan::query()->where('copy_id', $copy->id)->firstOrFail();
+    $this->actingAs($manager)
+        ->get(route('shelves.manage.lend', ['shelf' => $shelf->slug]))
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('manage/lend/index')
+            ->where('flash.success', __('rules.lend_success_flash', [
+                'title' => 'Dế Mèn Phiêu Lưu Ký',
+                'name' => 'Têrêsa Cầm Sách Chờ',
+                'due' => Illuminate\Support\Carbon::parse($loan->due_on)->format('d/m/Y'),
+            ])));
 });
 
 it('a refusal comes back as errors.rule, in Vietnamese, with nothing written', function () {
@@ -142,9 +164,23 @@ it('a guest is redirected to login', function () {
 
 it('a reader 404s on every lend screen — 404, never 403 (BR §5.4)', function () {
     // Review fix: the draft asserted ONE of the four routes while its title
-    // said "every lend screen". All four, including the POST, which is the
-    // one whose refusal comes from LendCopyRequest::authorize's
-    // abort_unless(..., 404) rather than from the role middleware.
+    // said "every lend screen". All four, including the POST.
+    //
+    // Carry-over fix, Task 10 review Minor #2: an earlier version of this
+    // comment claimed the POST's 404 "comes from LendCopyRequest::
+    // authorize's abort_unless(..., 404) rather than from the role
+    // middleware" — false. Every route below sits inside
+    // ['auth', 'role:manager'] (routes/web.php), and EnsureShelfRole
+    // already 404s a non-manager before any controller or Form Request
+    // runs; deleting the abort_unless from BOTH LendCopyRequest and
+    // QuickLendRegisterReaderRequest leaves this whole suite green
+    // (verified). The guards are harmless defence in depth for a future
+    // middleware-ordering change (PR #61 Task 4's shape) — they are not
+    // load-bearing for what THIS test checks, and this test does not pin
+    // them. tests/Feature/Circulation/FormRequestAuthorize404Test.php pins
+    // the guards themselves, directly, the way
+    // tests/Feature/Members/FormRequestAuthorize404Test.php already does
+    // for the five Members requests.
     [$shelf, , $membership, , $copy] = qlFix(slug: 'dong-thap-ql-reader404');
     $reader = User::query()->findOrFail($membership->user_id);
 
