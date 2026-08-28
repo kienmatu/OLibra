@@ -59,8 +59,8 @@ One §4.1 command is *touched* but not re-implemented: **`ReportCopyLost`** (shi
 6. **`loans_current` (the Postgres view) becomes `App\Support\Circulation\LoanTerms`** — spec §4's row: views "encode read shapes, not invariants". `is_overdue` and `days_remaining` get ONE home, BR §8's shape, exactly as 1a made `CountsCopies::borrowable()` the one home for availability. 1b's `ReaderDetailQuery` derived both locally with a declared intent to move here ("two definitions of overdue is the drift BR §8 exists to prevent") — Task 1 performs that move and repoints the query.
 7. **Query-string and form field names are English** (`?q=`, `?book=`, `?reader=`, `?loan=`, `?sort=`; posts carry `copy_id`, `membership_id`, `condition`, `note`, `reason`) where the reference used Vietnamese (`?sach=`, `?nguoi-doc=`, `?muon=`, `?ban=`, `?loi=`) — spec §6, the same rule 1b applied.
 8. **A refusal renders through `back()->withErrors(['rule' => …])`**, the one `RuleViolated` render hook in `bootstrap/app.php`, instead of the reference's `?loi=` query-param round-trip — 1b's divergence 9, unchanged. The confirm screen still shows its *pre-flight* blocks from query data (BR §16.3: before the confirm step), and the command's own refusal arrives as the shared `errors.rule` prop.
-9. **The quick-lend copy chooser ports the reference, not BR §16.3's copy selector.** BR §16.3 sketches "a copy selector appears between steps one and two" for multi-copy titles; the reference never built one — `chooseCopyToLend` (`old_next/src/lib/lending.ts:120`) auto-picks the lowest-code lendable copy so step 2 and step 3 name the same physical book. Parity mandate: port the chooser (`App\Support\Circulation\ChooseCopy`), defect included — a title with copies recorded but none returnable reads `copy_lost_or_retired`; a title with **no copies at all** keeps `copy_not_available` ("Bản sách này đang được mượn hoặc đang giữ chỗ." — wrong for that case, and the reference's own comment says so and says why a private fix here would make step 1 and step 3 disagree). Task 14 records both in known-gaps.
-10. **Refusal code spellings are the reference's `errors.ts`, sentences verbatim** — the same two-ledger rule 1b's divergence 6 established. New keys this plan adds to `lang/vi/rules.php`: `copy_lost_or_retired`, `membership_not_active`, `loan_limit_reached`, `loan_not_active`, `loan_not_active_cannot_void`, `no_renewals_remaining`, `title_has_queue`, `reason_required` ("Vui lòng ghi lý do huỷ." — VoidLoan's, distinct from 1a's `retire_reason_required` and 1b's `reject_reason_required`, a collision `errors.ts`'s own comment block documents resolving). `copy_not_available`, `membership_not_found` and `shelf_not_found` already exist from 1a/1b and are reused, not re-keyed. `loan_not_active` covers not-found, not-mine and already-processed alike — OPS §4.2 lists no `loan_not_found`, and distinguishing them would leak that another shelf's loan exists (the reference's argument, kept). `loan_not_active_cannot_void` is `VoidLoan`'s own, because "Chỉ có thể huỷ lượt mượn đang diễn ra." asks something different of the manager than the double-submit sentence does.
+9. **The quick-lend copy chooser ports the reference, not BR §16.3's copy selector.** BR §16.3 sketches "a copy selector appears between steps one and two" for multi-copy titles; the reference never built one — `chooseCopyToLend` (`old_next/src/lib/lending.ts:120`) auto-picks the lowest-code lendable copy so step 2 and step 3 name the same physical book. Parity mandate: port the chooser (`App\Support\Circulation\ChooseCopy`) — a title with copies recorded but none returnable reads `copy_lost_or_retired`. **One deliberate divergence from the reference, ruled by the product owner (settled decision 4):** a title with **no copies at all** reads its own code, `title_has_no_copies` ("Cuốn này chưa có bản sách nào trong tủ."), not `copy_not_available`. The reference aggregates that case into `copy_not_available`, whose sentence ("Bản sách này đang được mượn hoặc đang giữ chỗ.") is false there — it names a loan and a hold that do not exist — and the owner ruled the false sentence out. The reference's stated reason for the aggregation (step 1 and step 3 must not disagree) is honoured by changing **both** sides in lockstep, not by keeping one wrong sentence: Task 7's `SearchBooksForLendingQuery` and Task 10's `ChooseCopy` gain the same third branch, and Task 10 pins the agreement with a test that reads the two through one book. Task 14 records the chooser divergence and this refusal-code divergence in known-gaps.
+10. **Refusal code spellings are the reference's `errors.ts`, sentences verbatim** — the same two-ledger rule 1b's divergence 6 established. New keys this plan adds to `lang/vi/rules.php`: `copy_lost_or_retired`, `membership_not_active`, `loan_limit_reached`, `loan_not_active`, `loan_not_active_cannot_void`, `no_renewals_remaining`, `title_has_queue`, `title_has_no_copies`, `reason_required` ("Vui lòng ghi lý do huỷ." — VoidLoan's, distinct from 1a's `retire_reason_required` and 1b's `reject_reason_required`, a collision `errors.ts`'s own comment block documents resolving). `copy_not_available`, `membership_not_found` and `shelf_not_found` already exist from 1a/1b and are reused, not re-keyed. **`title_has_no_copies` is the one key in that list with no `errors.ts` spelling** — it is authored by this plan on the product owner's ruling (settled decision 4), the `member_has_active_loans` precedent, and `docs/OPERATIONS.md` §4.2's `LendCopy` entry is amended to carry it so the two-ledger rule still holds (Task 1, Step 1). `loan_not_active` covers not-found, not-mine and already-processed alike — OPS §4.2 lists no `loan_not_found`, and distinguishing them would leak that another shelf's loan exists (the reference's argument, kept). `loan_not_active_cannot_void` is `VoidLoan`'s own, because "Chỉ có thể huỷ lượt mượn đang diễn ra." asks something different of the manager than the double-submit sentence does.
 
 ## Global Constraints
 
@@ -84,26 +84,34 @@ Phase 0's, 1a's and 1b's Global Constraints all still bind — branch `feat/phas
 - **Fixture names must dodge `UserFactory`'s pool and `DemoShelfSeeder`** — the factory's five-name pool contains `'Trần Minh'` verbatim and the seeder reuses names across roles; any test that matches on a name pins it explicitly to a name outside the pool.
 - **The "second shelf" fixture template needs `TenantContext::actSystemWide()`** before creating tenant-scoped rows, then `set()` to rebind — three tasks failed identically without it.
 - **A validation rule can crash on bytes it was not written for** — every free-text field's rule list leads with `bail` and carries `encoding:UTF-8` (`note`, `reason`), the exact fix 1b's PR #61 Task 1 landed after a NUL byte 500'd `POST /register` from inside validation.
-- **Every new literal `new RuleViolated('code')` under `app/`** is added to `RuleViolatedCodesHaveSentencesTest`'s census (Task 14); predicate codes thrown as variables are censused by `LoanRulesTest` (Task 1), the `CopyStateMachineTest` precedent.
+- **Every new literal `new RuleViolated('code')` under `app/`** is added to `RuleViolatedCodesHaveSentencesTest`'s census (Task 14), and is written in the **short, imported** form — the census regex matches `new RuleViolated('code')` only, so a fully-qualified `new \App\Exceptions\RuleViolated('code')` is invisible to it (review finding). Codes that are never thrown as a literal are censused elsewhere and must NOT be added to that list, or `toEqualCanonicalizing` fails on the extra element: predicate codes thrown as variables belong to `LoanRulesTest` (Task 1), and `title_has_no_copies` — returned as data by a query and a chooser — belongs to `ChooseCopyTest` (Task 10). The `CopyStateMachineTest` precedent.
 - **No inline Vietnamese in TSX** — client copy in `resources/js/lib/copy.ts` (Biome's `noJsxLiterals` is an error), server refusal sentences in `lang/vi/rules.php`.
-- **Test helper names are process-global** (AGENTS.md). This plan's helpers, checked against `grep -rn "^function " tests/` and the 1a/1b registries (`lcFixture`, `rdFixture`, `rqFixture` etc. are TAKEN): `lendFix` (Task 3 — `assertLocksCopyFirst` struck in review: the draft defined it and never called it), `lpFix` (Task 2), `retFix` (Task 4), `renFix` (Task 5), `voidFix` (Task 6), `lqFix` (Task 7), `odFix` (Task 8), `mydFix` (Task 9), `qlFix` (Task 10), `rtsFix` (Task 11), `ovdFix` (Task 12), `rdbFix` (Task 13). Before adding any further helper, grep first.
+- **Test helper names are process-global** (AGENTS.md). This plan's helpers, checked against `grep -rn "^function " tests/` and the 1a/1b registries (`lcFixture`, `rdFixture`, `rqFixture` etc. are TAKEN): `lendFix` (Task 3 — `assertLocksCopyFirst` struck in review: the draft defined it and never called it), `lpFix` (Task 2), `retFix` (Task 4), `renFix` (Task 5), `voidFix` (Task 6), `lqFix` (Task 7), `odFix` (Task 8), `mydFix` (Task 9), `qlFix` and `qlNewReaderInput` (Task 10 — the latter is the escape hatch's field set; `obhInput` and `regInput` are TAKEN by 1b), `rtsFix` (Task 11), `ovdFix` (Task 12), `rdbFix` (Task 13). Before adding any further helper, grep first.
 - **Factories under a bound tenant:** build fixtures under `TenantContext::actSystemWide()` (or pass `bookshelf_id` explicitly), then `set()` the tenant before acting.
 - **`make test FILTER=…`** runs a filtered suite; `make lint` is Pint; `make analyse` is Larastan. Scratch output goes to `.artifacts/` (gitignored).
 
-## Open questions surfaced by this plan — the product owner's, not this plan's, to settle
+## Open questions and settled decisions — the product owner's, not this plan's, to settle
+
+Items 3 and 4 were open in the first draft and **have since been ruled on by the product owner**; they are recorded here as settled decisions, with the ruling and its rationale, because the work they authorise is written into Tasks 1, 7, 10 and 14 and an implementer reading only a task needs to know the argument was had and closed. The rest still stand as written.
 
 1. **Q4: may a suspended reader renew?** INV-4 blocks *new* loans and explicitly protects existing ones; a renewal extends an existing loan. OPS §4.2's open question under `RenewLoan` says both readings are defensible and the requirements never settle it. The reference implements **allowed** — no membership-status check in `renewLoan`, with a named test ("Q4: a suspended reader may still renew") so reversing is loud. **This plan ports that reading** (parity mandate; a product change must not smuggle in mid-migration). Reversing later is one predicate call in `RenewLoan` plus one test — Task 5 marks the exact line.
 2. **`VoidLoan` gets a button this plan invents.** Verified by grep: no file under `old_next/src/app/` calls `voidLoan` — the reference implements and tests it but surfaces it from **no screen**, the `DeleteBook`/`ManagerRegisterReader` shape. But BR §3 names "a manager records a loan by mistake and needs to undo it" as a case the system must handle, and a command with no surface handles nothing — the same trap-with-no-way-back argument that earned `ReactivateMembership` its 1b button. **This plan puts "Huỷ lượt mượn" on the manager book detail's on-loan copy row** (Task 12), behind a required-reason form. If the product owner rules the other way, delete the one form and the route — the Action and its tests stay, and the architecture pin flips to absence.
-3. **The quick-lend escape hatch — and why the reference reading defeats a 1b ruling, so this plan should NOT simply port it.** BR §16.3 step 2 wants "a register a new reader escape hatch". Verified in the reference: `cho-muon/nguoi-doc/page.tsx:262` links to `nguoi-doc/moi` — the **on-behalf form** (`RegisterMemberOnBehalf` → `pending`). So the button, *as shipped*, produces a reader the very next screen refuses under INV-4.
+3. **SETTLED — the quick-lend escape hatch is built, wired to `ManagerRegisterReader`.** BR §16.3 step 2 wants "a register a new reader escape hatch". The first draft of this plan proposed porting the reference's shipped wiring: `cho-muon/nguoi-doc/page.tsx:262` links to `nguoi-doc/moi`, the **on-behalf form** (`RegisterMemberOnBehalf` → `pending`), so the button *as shipped* produces a reader the very next screen refuses under INV-4. **The product owner ruled against that reading: build the screen.** The rationale, in the order it decides the question:
 
-   **But the reference's own documentation says that button is wired to the wrong command.** `quan-ly/actions.ts:743-747` and `quan-ly/nguoi-doc/moi/page.tsx:50-53` both state, in the reference's own words, that `managerRegisterReader` "is BR §16.3's quick-lend escape hatch, which lives on `quan-ly/cho-muon/nguoi-doc`… a different screen for a different moment (mid-lend, with a book in hand)". The reference implements `managerRegisterReader`, tests it, documents where it belongs — and never built that screen. What ships on `cho-muon/nguoi-doc` is a link to the *other* form. That is a reference **gap**, not a reference **decision**, and porting a gap as though it were a decision is the failure mode this project's divergence discipline exists to prevent.
+   **The reference's own documentation says its shipped button is wired to the wrong command.** `old_next/src/app/tu-sach/[shelf]/quan-ly/actions.ts:743-747` and `.../nguoi-doc/moi/page.tsx:50-53` both state, in the reference's own words, that `managerRegisterReader` "is BR §16.3's quick-lend escape hatch, which lives on `quan-ly/cho-muon/nguoi-doc`… a different screen for a different moment (mid-lend, with a book in hand)". The reference implements `managerRegisterReader`, tests it, documents where it belongs — and never built that screen. What ships on `cho-muon/nguoi-doc` is a link to the *other* form. That is a reference **gap**, not a reference **decision**. The parity mandate binds this plan to the reference's decisions; porting a gap as though it were one is the failure mode the divergence discipline exists to prevent, and the first draft's parity argument was mis-framed on exactly that point.
 
-   **And Phase 1b already ruled on it.** The 1b plan's divergence 8 (`docs/superpowers/plans/2026-08-28-laravel-phase-1b-members.md:64`) says verbatim: "`ManagerRegisterReader` ships with no route… the quick-lend escape hatch (`/manage/lend/reader`) is **1c's surface**. This plan ports the Action and its tests, and Task 16's architecture test pins the route's *absence* so wiring it is a decision, not an accident." 1b's open question 1 chose `active` **on the explicit ground that a pending result "would defeat the escape hatch's purpose"**, and its Task 7 test is named "the quick-lend escape hatch produces a member who can be lent to at once" (1b:2389). 1b deferred exactly one thing to 1c — the screen — and this plan declines to build it.
+   **Phase 1b already ruled, and deferred exactly one screen — this one.** The 1b plan's divergence 8 (`docs/superpowers/plans/2026-08-28-laravel-phase-1b-members.md:64`) says verbatim: "`ManagerRegisterReader` ships with no route… the quick-lend escape hatch (`/manage/lend/reader`) is **1c's surface**. This plan ports the Action and its tests, and Task 16's architecture test pins the route's *absence* so wiring it is a decision, not an accident." 1b's open question 1 chose `active` **on the explicit ground that a pending result "would defeat the escape hatch's purpose"**, and its Task 7 test is named "the quick-lend escape hatch produces a member who can be lent to at once" (1b:2389). That pin encodes a **one-phase deferral**, not a permanent assertion — and 1c is the phase that discharges it. Not building the screen would have made `ManagerRegisterReader` permanently unreachable code, left the walk-up child of BR §1.3's own scenario unable to be lent to in one visit, and shipped BR §16.3's escape hatch doing the opposite of what its own justification requires.
 
-   **The consequence, stated plainly: as drafted, this plan defeats 1b's ruling in practice.** `ManagerRegisterReader` becomes permanently unreachable code whose architecture pin now asserts a *permanent* absence rather than a one-phase deferral; the walk-up child in BR §1.3's own scenario still cannot be lent to in one visit; and BR §16.3's escape hatch ships doing the opposite of what its own justification requires.
+   **What gets built (Task 10, Steps 4–6):** one `GET /manage/lend/reader/new` (`shelves.manage.lend.reader.create`) and one `POST /manage/lend/reader` (`shelves.manage.lend.reader.store`), both inside the lend flow and both `role:manager`. The GET renders the same person + parish fields the on-behalf form uses (`RegistrationPersonFields` + `ParishUnitFields`, `ReaderController::create`'s parish context, verbatim), carrying the chosen book's slug through as `?book=`. The POST calls `ManagerRegisterReader` — **active** membership — and redirects **straight into the lend**, to `shelves.manage.lend.confirm?book=…&reader={new membershipId}`, so the volunteer's next tap is the confirm button and the child leaves with the book. `/manage/readers/create` is untouched: on-behalf → `pending`, BR §16.1's explicit sentence, still the queue path. The two forms look alike and mean different things; the copy on each says which (`copy.circulation.lend.newReaderLead` vs `copy.manageReaders.createLead`).
 
-   **Recommended resolution (a change from the drafted reading):** wire the hatch to `ManagerRegisterReader` — one `GET /manage/lend/reader/new` + `POST`, reusing `RegisterReaderOnBehalfRequest`'s field list and `ReaderController::create`'s parish context, redirecting straight to `lend.confirm?book=…&reader={new membership}`. That honours BR §16.3, 1b's ruling, the reference's *documented* design, and leaves `/manage/readers/create` (on-behalf → `pending`, BR §16.1's explicit sentence) exactly as it is for the queue path. If instead the product owner confirms the shipped-reference behaviour, then **1b's `active` ruling must be revisited in the same breath**, because its only stated justification no longer holds — that is the real question for the owner, and it is not "port or not", it is "which of two 1b/1c positions is wrong". Task 14's architecture pin and known-gaps entry must say which was chosen and why. Until settled, this is the plan's single largest open item; the drafted reading is recorded above so the owner sees both.
-4. **A title with no copies reads "đang được mượn hoặc đang giữ chỗ".** Divergence 9's ported defect: `copy_not_available`'s sentence is false for a copyless title, there is no third code whose Vietnamese sentence anybody wrote, and the reference deliberately reproduced the aggregation so step 1 and step 3 say the same (wrong) sentence rather than two different ones. Fixing it means a new code + OPS failure-mode entry — a domain change for the owner to sanction, recorded in known-gaps (Task 14).
+   **The consequence for 1b's architecture pin, handled deliberately:** `tests/Feature/Architecture/MembersArchitectureTest.php:7` asserts that no controller under `app/Http/Controllers/` so much as mentions `ManagerRegisterReader`. Task 10 Step 4 **rewrites that test in the same commit that adds the controller reference** — from "wired to NO route" to "wired to exactly one route, the quick-lend escape hatch" — with a comment recording that 1b's deferral is discharged here and by whose ruling. It is not left for Task 14 and it is not left for an implementer to meet as a mysterious red test: the commit that breaks the old pin is the commit that replaces it. `ManagerRegisterReader`'s own docblock ("NO ROUTE THIS PHASE") is corrected in the same step.
+4. **SETTLED — a title with no copies gets its own refusal code and its own sentence.** The first draft proposed keeping the reference's aggregation: a copyless title refuses with `copy_not_available`, "Bản sách này đang được mượn hoặc đang giữ chỗ." — a sentence that names a loan and a hold neither of which exists, about a book the shelf has never had a copy of. **The product owner ruled it must be fixed.** New code `title_has_no_copies`, new sentence **"Cuốn này chưa có bản sách nào trong tủ."** — plain, addressed to the volunteer holding the phone, no jargon, and it tells them the one thing they can act on: the title is catalogued, the copies are not.
+
+   The draft's argument for *not* fixing it named three real consequences. All three are handled, none is deferred:
+
+   1. **`docs/OPERATIONS.md` gains a failure mode.** OPS is the contract this migration is censused against, so the entry lands there first: `title_has_no_copies` under §4.2 `LendCopy`'s **Failure modes**, in the house `code` — "sentence" (condition) style. Task 1, Step 1 makes that edit alongside the `lang/vi/rules.php` line, so the two ledgers never disagree even for one commit.
+   2. **The search list and the lend step must still agree.** They do, because **both** change — this is the explicit resolution, not something an implementer discovers at step 3. `SearchBooksForLendingQuery` (Task 7) gains a third branch: `copies_recorded === 0` → `title_has_no_copies`, and the row is **still returned, still blocked, never filtered out** — the same rule the reader search follows, for the same reason (a silently missing row sends the volunteer searching again; a row that says why ends the search). `ChooseCopy::lowestLendable` (Task 10) gains the identical branch, so the confirm screen's `blocking` reads the same code the list row read. Task 10's `QuickLendScreensTest` pins the agreement end to end through one copyless book. The lend **command** is unchanged: `LendCopy` takes a `copyId`, and a title with no copies produces none — the code is a screen-side refusal, which is why it belongs in OPS under `LendCopy`'s failure modes as the pre-flight refusal §16.3 requires.
+   3. **The `RuleViolated` literal census.** `title_has_no_copies` is **never** thrown as `new RuleViolated('title_has_no_copies')` — it is returned as data by a query and a pure chooser, exactly like 1b's `parish_unit_l2_not_in_l1`. So `RuleViolatedCodesHaveSentencesTest`'s `toEqualCanonicalizing` list must **not** gain it (adding it would fail the census: the glob would not find it). Its census is `ChooseCopyTest`'s own "the copyless-title code has a Vietnamese sentence" block (Task 10, Step 1), the `LoanRulesTest`/`CopyStateMachineTest` precedent. Related, and separately verified by the review: that census's regex matches `new RuleViolated('code')` only — a fully-qualified `new \App\Exceptions\RuleViolated('code')` is invisible to it, so **every literal throw this plan adds uses the short, imported form**.
 5. **`GetMyDashboard` ships half a page.** The loans half (with renew) is this plan's; the requests half is Phase 2's, rendered as an explicit empty state. The alternative — defer the whole page like 1a's `GetShelfHome` — would strand `RenewLoan` with no surface. Stated here so the half-page is a decision the owner has seen, not a surprise.
 6. **`ReceiveReturn` without the queue offer narrows OPS §5 until Phase 2** (divergence 4). Nothing a manager can do in 1c is lost — there are no queued readers to hold for — but the OPS §5 walk-through will not match the shipped screen verbatim until Phase 2 restores the branch. Recorded in known-gaps with the exact reference behaviour Phase 2 ports.
 
@@ -134,10 +142,11 @@ app/Queries/
 app/Queries/ReaderDetailQuery.php    (modified: due-date math repointed at LoanTerms)
 app/Http/Requests/Circulation/
   LendCopyRequest.php      copy_id + membership_id
+  QuickLendRegisterReaderRequest.php  the escape hatch's fields + book (settled decision 3)
   ReceiveReturnRequest.php condition + note
   VoidLoanRequest.php      reason (required)
 app/Http/Controllers/Manage/
-  LendController.php       index / reader / confirm / store
+  LendController.php       index / reader / newReader / storeReader / confirm / store
   ReturnController.php     index / store / lost
   OverdueController.php    index
   LoanController.php       void
@@ -146,6 +155,7 @@ app/Http/Middleware/HandleInertiaRequests.php       (modified: flash.success sha
 app/Models/Bookshelf.php                            (+ loans() relation for the {loan} binding)
 resources/js/pages/manage/lend/index.tsx            step 1 — find the book
 resources/js/pages/manage/lend/reader.tsx           step 2 — pick the reader (+ escape hatch)
+resources/js/pages/manage/lend/new-reader.tsx       step 2's escape hatch — register active, then straight to step 3
 resources/js/pages/manage/lend/confirm.tsx          step 3 — confirm, one button
 resources/js/pages/manage/returns/index.tsx         find loan + condition picker + confirm
 resources/js/pages/manage/returns/lost.tsx          "Bạn đọc báo làm mất" → ReportCopyLost
@@ -155,10 +165,12 @@ resources/js/pages/shelves/profile/history.tsx      full history
 resources/js/pages/manage/books/show.tsx            (modified: Cho mượn / Nhận trả / Huỷ lượt mượn entry points)
 resources/js/lib/copy.ts                            (extended)
 resources/js/lib/dates.ts                           formatDate — vi-VN date rendering, one place
-lang/vi/rules.php                                   (extended — divergence 10's eight keys)
-lang/vi/validation.php                              (attributes: condition, reason, copy_id, membership_id)
-routes/web.php                                      (lend / returns / overdue / profile routes filled in)
+lang/vi/rules.php                                   (extended — divergence 10's nine keys)
+lang/vi/validation.php                              (attributes: copy_id, membership_id — condition/note/reason already ship)
+routes/web.php                                      (lend / lend escape hatch / returns / overdue / profile routes filled in)
 database/seeders/DemoShelfSeeder.php                (extended: one active loan, one overdue loan)
+docs/OPERATIONS.md                                  (modified: title_has_no_copies under §4.2 LendCopy — settled decision 4)
+tests/Feature/Architecture/MembersArchitectureTest.php  (modified: 1b's ManagerRegisterReader absence pin → presence pin, Task 10)
 tests/Unit/Circulation/…  tests/Feature/Circulation/…  tests/Feature/Architecture/…  docs/known-gaps.md
 ```
 
@@ -169,7 +181,8 @@ Read first: `old_next/src/domain/circulation/policy.ts` and `old_next/src/domain
 
 **Files:**
 - Modify: `lang/vi/rules.php` (append keys — never rewrite 1a's/1b's)
-- Modify: `lang/vi/validation.php` (the `attributes` array only: `condition`, `note`, `reason`, `copy_id`, `membership_id`)
+- Modify: `lang/vi/validation.php` (the `attributes` array only: `copy_id`, `membership_id` — see Step 1 for the three that already ship)
+- Modify: `docs/OPERATIONS.md` (§4.2 `LendCopy`'s failure modes gain `title_has_no_copies` — settled decision 4)
 - Create: `app/Support/Circulation/LoanRules.php`
 - Create: `app/Support/Circulation/LendingSettings.php`
 - Create: `app/Support/Circulation/LoanTerms.php`
@@ -201,10 +214,19 @@ In `lang/vi/rules.php`, append after the 1b block (sentences verbatim from OPS �
     'loan_not_active_cannot_void' => 'Chỉ có thể huỷ lượt mượn đang diễn ra.',
     'no_renewals_remaining' => 'Bạn đã dùng hết số lần gia hạn cho lượt mượn này.',
     'title_has_queue' => 'Có bạn khác đang chờ mượn cuốn này, không thể gia hạn.',
+    'title_has_no_copies' => 'Cuốn này chưa có bản sách nào trong tủ.',
     'reason_required' => 'Vui lòng ghi lý do huỷ.',
 ```
 
-`copy_not_available` already exists (1a) with exactly OPS's sentence — reuse, do not duplicate the key. In `lang/vi/validation.php`, extend `attributes` with **only the two keys that are genuinely absent**:
+`copy_not_available` already exists (1a) with exactly OPS's sentence — reuse, do not duplicate the key.
+
+**`title_has_no_copies` is the one sentence above that is not in `errors.ts`** — it is this plan's, on the product owner's ruling (settled decision 4), replacing the reference's false "Bản sách này đang được mượn hoặc đang giữ chỗ." for a title the shelf holds no copy of. Because OPS is the ledger this migration is censused against, the same step amends `docs/OPERATIONS.md`. Under **§4.2 `LendCopy` → Failure modes**, after the `copy_lost_or_retired` line, add:
+
+```markdown
+  - `title_has_no_copies` — "Cuốn này chưa có bản sách nào trong tủ." (the title is catalogued but has no copies recorded at all; a pre-flight refusal on quick-lend steps 1 and 3 per §16.3, never thrown by the command itself, which takes a `copyId`)
+```
+
+Two ledgers, one edit: a sentence in `lang/vi/rules.php` with no OPS entry is exactly the drift divergence 10 exists to prevent, and it is cheapest to close in the commit that mints the key. In `lang/vi/validation.php`, extend `attributes` with **only the two keys that are genuinely absent**:
 
 ```php
     'copy_id' => 'bản sách',
@@ -626,7 +648,7 @@ Run: `make lint && make analyse`
 Expected: clean, level 8.
 
 ```bash
-git add lang/vi/rules.php lang/vi/validation.php app/Support/Circulation tests/Unit/Circulation app/Queries/ReaderDetailQuery.php
+git add lang/vi/rules.php lang/vi/validation.php docs/OPERATIONS.md app/Support/Circulation tests/Unit/Circulation app/Queries/ReaderDetailQuery.php
 git commit -m "feat: circulation pure rules, lending settings and the one home for overdue"
 ```
 
@@ -2268,7 +2290,7 @@ Read first: `old_next/src/domain/catalogue/queries/search-books-for-lending.ts` 
 **Interfaces:**
 - Consumes: `Fold::fold(string): string`, `CopyCodes::escapeLike(string): string`, `CountsCopies::borrowable()` (availability's one home), `LoanRules::memberMayBorrow`, `LendingSettings`, `LoanTerms`, `Clock::today()`, `ParishContextQuery` + `Support\Members\ParishUnits::describeSelection` (1b — the parish line on reader rows, the shelf's own labels).
 - Produces:
-  - `SearchBooksForLendingQuery::run(string $q): list<array{bookId: string, slug: string, title: string, author: ?string, coverUrl: ?string, copiesTotal: int, copiesAvailable: int, blocked: bool, reason: ?string}>` — `reason` is exactly the code `LendCopy` throws (`copy_lost_or_retired` when every recorded copy is lost/retired, `copy_not_available` otherwise), `null` when not blocked.
+  - `SearchBooksForLendingQuery::run(string $q): list<array{bookId: string, slug: string, title: string, author: ?string, coverUrl: ?string, copiesTotal: int, copiesAvailable: int, blocked: bool, reason: ?string}>` — `reason` is exactly the code the confirm screen shows for the same title (`title_has_no_copies` when NO copy is recorded, `copy_lost_or_retired` when copies are recorded and none can come back, `copy_not_available` otherwise), `null` when not blocked. The three-way branch must stay byte-identical to `ChooseCopy::lowestLendable`'s (Task 10) — settled decision 4's whole point is that step 1 and step 3 say the same true sentence.
   - `SearchReadersForLendingQuery::run(string $q): list<array{membershipId: string, userId: string, fullName: string, saintName: ?string, parishLine: string, activeLoans: int, blocked: bool, reason: ?string}>` — `reason` from `LoanRules::memberMayBorrow`; **blocked rows are returned, never filtered** (BR §16.3: a clear message before the confirm step, not a silently missing row).
   - `SearchLoansForReturnQuery::run(string $q): list<array{loanId: string, copyId: string, copyCode: string, bookId: string, title: string, coverUrl: ?string, borrowerUserId: string, borrowerName: string, dueOn: string, isOverdue: bool, daysRemaining: int}>` — active loans only; overdue derived through `LoanTerms`.
   - All three: a blank or garbage query (folds to `''`) returns `[]` — the M7 guard, one behaviour across the three, not three that agree by accident.
@@ -2371,8 +2393,9 @@ it('the book search\'s block reason is the code LendCopy throws, in every copy s
     BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $allGone->id, 'code' => 'DT-0111', 'state' => 'lost']);
     BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $allGone->id, 'code' => 'DT-0112', 'state' => 'retired']);
 
-    // No copies recorded at all → copy_not_available (the ported defect,
-    // open question 4: nothing about it is lost, and there is no third code).
+    // No copies recorded at all → title_has_no_copies (settled decision 4:
+    // the owner ruled the reference's false "đang được mượn hoặc đang giữ
+    // chỗ." out; this is the third code, and ChooseCopy returns the same one).
     Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Sách Chưa Có Bản Nào', 'slug' => 'chua-co-lq']);
 
     app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('role', 'manager')->firstOrFail());
@@ -2384,7 +2407,29 @@ it('the book search\'s block reason is the code LendCopy throws, in every copy s
 
     expect($out[0]['blocked'])->toBeTrue()->and($out[0]['reason'])->toBe('copy_not_available')
         ->and($gone[0]['blocked'])->toBeTrue()->and($gone[0]['reason'])->toBe('copy_lost_or_retired')
-        ->and($none[0]['blocked'])->toBeTrue()->and($none[0]['reason'])->toBe('copy_not_available');
+        ->and($none[0]['blocked'])->toBeTrue()->and($none[0]['reason'])->toBe('title_has_no_copies');
+});
+
+it('a copyless title is still OFFERED, blocked, with its own true sentence — never filtered out', function () {
+    // Settled decision 4, the search half. Two things are pinned and they
+    // are different: the row is PRESENT (a missing row sends the volunteer
+    // searching again — the reader search's rule, applied here), and its
+    // reason is the copyless code, not the on-loan-or-held one. Flip the
+    // query's branch back to copy_not_available and the second expectation
+    // alone goes red; filter the row out and the first does.
+    [$shelf] = lqFix(slug: 'dong-thap-lq-copyless');
+    app(TenantContext::class)->actSystemWide();
+    Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Chiếc Lược Ngà', 'slug' => 'clg-lq']);
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('role', 'manager')->firstOrFail());
+
+    $rows = app(SearchBooksForLendingQuery::class)->run('chiec luoc nga');
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['copiesTotal'])->toBe(0)
+        ->and($rows[0]['copiesAvailable'])->toBe(0)
+        ->and($rows[0]['blocked'])->toBeTrue()
+        ->and($rows[0]['reason'])->toBe('title_has_no_copies')
+        ->and(__('rules.title_has_no_copies'))->toBe('Cuốn này chưa có bản sách nào trong tủ.');
 });
 
 it('the reader search returns a blocked reader WITH the code LendCopy throws — never filters them out', function () {
@@ -2513,11 +2558,23 @@ use Illuminate\Database\Eloquent\Builder;
  * confirm step for the reason the command would refuse after it (BR §16.3).
  *
  * The reason mapping is the aggregate's honest translation of the per-copy
- * rule: copy_lost_or_retired only when copies are recorded and NONE can
- * come back (available/on_loan/held all count as returnable);
- * copy_not_available otherwise — including the no-copies-at-all title,
- * the reference's own documented defect kept for step-1/step-3 agreement
- * (plan open question 4).
+ * rule, in three branches:
+ *   - no copy recorded at all      → title_has_no_copies
+ *   - copies recorded, none can come back (available/on_loan/held are the
+ *     returnable states)           → copy_lost_or_retired
+ *   - otherwise                    → copy_not_available
+ * The first branch diverges from the reference, which folded it into
+ * copy_not_available and so told a volunteer a copyless title was "đang
+ * được mượn hoặc đang giữ chỗ." — false. The product owner ruled that out
+ * (plan settled decision 4). The reference's reason for folding was that
+ * step 1 and step 3 must not disagree; that still holds, and is honoured
+ * by ChooseCopy::lowestLendable carrying THIS SAME three-way branch. If
+ * you change one, change the other in the same commit, or BR §16.3's
+ * "the block is stated before the confirm step" becomes a lie.
+ *
+ * Blocked rows are returned, never filtered — including the copyless
+ * title. A row that says why is an answer; a missing row is a second
+ * search.
  *
  * The copy-code branch matches with an EXISTS, never a WHERE on the
  * aggregate join: narrowing the counted rows by the matched code would
@@ -2563,8 +2620,12 @@ final class SearchBooksForLendingQuery
                 'copiesTotal' => (int) $book->getAttribute('copies_total'),
                 'copiesAvailable' => $available,
                 'blocked' => $blocked,
-                'reason' => ! $blocked ? null
-                    : ($returnable === 0 && $recorded > 0 ? 'copy_lost_or_retired' : 'copy_not_available'),
+                'reason' => match (true) {
+                    ! $blocked => null,
+                    $recorded === 0 => 'title_has_no_copies',
+                    $returnable === 0 => 'copy_lost_or_retired',
+                    default => 'copy_not_available',
+                },
             ];
         })->values()->all();
     }
@@ -3369,12 +3430,16 @@ Read first: `old_next/src/app/tu-sach/[shelf]/quan-ly/cho-muon/page.tsx`, `cho-m
 **Files:**
 - Create: `app/Support/Circulation/ChooseCopy.php`
 - Create: `app/Http/Requests/Circulation/LendCopyRequest.php`
+- Create: `app/Http/Requests/Circulation/QuickLendRegisterReaderRequest.php` (settled decision 3)
 - Create: `app/Http/Controllers/Manage/LendController.php`
 - Create: `resources/js/pages/manage/lend/index.tsx`
 - Create: `resources/js/pages/manage/lend/reader.tsx`
+- Create: `resources/js/pages/manage/lend/new-reader.tsx` (settled decision 3)
 - Create: `resources/js/pages/manage/lend/confirm.tsx`
 - Create: `resources/js/lib/dates.ts`
-- Modify: `routes/web.php` (replace the four under-construction lend routes)
+- Modify: `routes/web.php` (replace the three under-construction lend routes; add three new ones)
+- Modify: `app/Actions/Members/ManagerRegisterReader.php` (**docblock only** — "NO ROUTE THIS PHASE" is no longer true; settled decision 3)
+- Modify: `tests/Feature/Architecture/MembersArchitectureTest.php` (1b's absence pin becomes a presence pin — **in this commit**, see Step 4)
 - Modify: `app/Http/Middleware/HandleInertiaRequests.php` (share `flash.success`)
 - Modify: `resources/js/types/index.ts` (`SharedData` gains `flash: { success: string | null }`)
 - Modify: `resources/js/lib/copy.ts` (the circulation blocks below)
@@ -3382,10 +3447,10 @@ Read first: `old_next/src/app/tu-sach/[shelf]/quan-ly/cho-muon/page.tsx`, `cho-m
 - Test: `tests/Unit/Circulation/ChooseCopyTest.php`
 
 **Interfaces:**
-- Consumes: `SearchBooksForLendingQuery::run`, `SearchReadersForLendingQuery::run` (Task 7 shapes), `LendCopy::execute` (Task 3), `LoanRules::memberMayBorrow`, `LendingSettings`, `LoanTerms::dueDateFor`, `QueryParam::first($request, 'key', ?default)`, `ReaderDetailQuery` (1b — the confirm screen's reader re-read).
+- Consumes: `SearchBooksForLendingQuery::run`, `SearchReadersForLendingQuery::run` (Task 7 shapes), `LendCopy::execute` (Task 3), `LoanRules::memberMayBorrow`, `LendingSettings`, `LoanTerms::dueDateFor`, `QueryParam::first($request, 'key', ?default)`, `ReaderDetailQuery` (1b — the confirm screen's reader re-read), and — new, settled decision 3 — `ManagerRegisterReader::execute(User $actor, array $input): array{userId: string, membershipId: string}` (1b, `app/Actions/Members/ManagerRegisterReader.php`, creates an **active** membership), `ParishContextQuery::run()` + `ParishUnits::options()` in exactly the shape `ReaderController::create` passes them, and the `RegistrationPersonFields` / `ParishUnitFields` components 1b shipped.
 - Produces:
-  - `ChooseCopy::lowestLendable(Collection $copies): array{copy: ?BookCopy, reason: ?string}` — takes an `Illuminate\Support\Collection<int, BookCopy>` (an Eloquent collection satisfies it); first lendable copy in `code` order, or the aggregate refusal (`copy_lost_or_retired` when copies exist and none returnable, else `copy_not_available`).
-  - Routes `shelves.manage.lend` (GET, `?q=`), `shelves.manage.lend.reader` (GET, `?book=&q=`), `shelves.manage.lend.confirm` (GET, `?book=&reader=`), `shelves.manage.lend.store` (POST `copy_id`, `membership_id`).
+  - `ChooseCopy::lowestLendable(Collection $copies): array{copy: ?BookCopy, reason: ?string}` — takes an `Illuminate\Support\Collection<int, BookCopy>` (an Eloquent collection satisfies it); first lendable copy in `code` order, or the aggregate refusal (`title_has_no_copies` when the collection is empty, `copy_lost_or_retired` when copies exist and none returnable, else `copy_not_available`) — the same three-way branch `SearchBooksForLendingQuery` uses, settled decision 4.
+  - Routes `shelves.manage.lend` (GET, `?q=`), `shelves.manage.lend.reader` (GET, `?book=&q=`), `shelves.manage.lend.reader.create` (GET, `?book=`), `shelves.manage.lend.reader.store` (POST, the person + parish fields + `book`), `shelves.manage.lend.confirm` (GET, `?book=&reader=`), `shelves.manage.lend.store` (POST `copy_id`, `membership_id`).
   - `flash.success` in shared props — Task 11's and 13's redirects use it too.
   - `copy.ts` circulation blocks — Tasks 11–13 extend, never rewrite.
 
@@ -3428,12 +3493,31 @@ it('every copy out reads copy_not_available; every copy gone reads copy_lost_or_
         ->and($gone['copy'])->toBeNull()->and($gone['reason'])->toBe('copy_lost_or_retired');
 });
 
-it('a title with no copies keeps copy_not_available — the ported defect, pinned by name', function () {
-    // Plan open question 4 / divergence 9: the sentence is wrong for this
-    // case and the reference kept it so step 1 and step 3 agree. Changing
-    // this is a domain change (new code + OPS entry), not a refactor.
+it('a title with no copies reads title_has_no_copies, not the on-loan-or-held sentence', function () {
+    // Settled decision 4. The reference folded this case into
+    // copy_not_available and so told a volunteer a title the shelf has
+    // never held a copy of was "đang được mượn hoặc đang giữ chỗ." The
+    // owner ruled that out. Revert this branch and this test alone goes
+    // red — the sentence is the whole point, so it is asserted too.
     $result = ChooseCopy::lowestLendable(collect([]));
-    expect($result['reason'])->toBe('copy_not_available');
+
+    expect($result['copy'])->toBeNull()
+        ->and($result['reason'])->toBe('title_has_no_copies')
+        ->and($result['reason'])->not->toBe('copy_not_available');
+});
+
+it('the copyless-title code has a Vietnamese sentence — its census lives here', function () {
+    // title_has_no_copies is RETURNED as data, never thrown as
+    // `new RuleViolated('title_has_no_copies')`, so the app/-wide literal
+    // census (RuleViolatedCodesHaveSentencesTest) cannot see it and must
+    // NOT list it — adding it there fails that test, because the glob
+    // finds no such literal. This is its census, the LoanRulesTest /
+    // CopyStateMachineTest precedent. Delete the rules.php line and this
+    // block, alone, goes red.
+    $rules = require __DIR__.'/../../../lang/vi/rules.php';
+
+    expect(array_key_exists('title_has_no_copies', $rules))->toBeTrue('missing rules.title_has_no_copies')
+        ->and($rules['title_has_no_copies'])->toBe('Cuốn này chưa có bản sách nào trong tủ.');
 });
 
 it('a held copy is never auto-chosen — collecting a hold is Phase 2\'s HandoverRequest', function () {
@@ -3594,10 +3678,169 @@ it('a reader 404s on every lend screen — 404, never 403 (BR §5.4)', function 
         ->get(route('shelves.manage.lend.confirm', ['shelf' => $shelf->slug, 'book' => 'de-men-ql', 'reader' => $membership->id]))
         ->assertNotFound();
     $this->actingAs($reader)
+        ->get(route('shelves.manage.lend.reader.create', ['shelf' => $shelf->slug, 'book' => 'de-men-ql']))
+        ->assertNotFound();
+    $this->actingAs($reader)
+        ->post(route('shelves.manage.lend.reader.store', ['shelf' => $shelf->slug]), qlNewReaderInput())
+        ->assertNotFound();
+    $this->actingAs($reader)
         ->post(route('shelves.manage.lend.store', ['shelf' => $shelf->slug]),
             ['copy_id' => $copy->id, 'membership_id' => $membership->id])
         ->assertNotFound();
     expect(Loan::query()->count())->toBe(0);
+    // The POST that 404'd must also have written nothing.
+    expect(Membership::query()->where('role', 'reader')->count())->toBe(1);
+});
+
+// ── The escape hatch (settled decision 3) ─────────────────────────────────
+
+/**
+ * BR §16.3's walk-up child. Names chosen outside UserFactory's five-name
+ * pool and outside DemoShelfSeeder's, per the Global Constraints.
+ *
+ * @param  array<string, string>  $overrides
+ * @return array<string, string>
+ */
+function qlNewReaderInput(array $overrides = []): array
+{
+    return [
+        'saint_name' => 'Gioan',
+        'full_name' => 'Lã Quốc Vinh',
+        'date_of_birth' => '2015-04-02',
+        'father_name' => 'Lã Quốc Bảo',
+        'mother_name' => 'Vũ Thị Hạnh',
+        'phone' => '',
+        'phone_missing_reason' => 'Gia đình chưa có số điện thoại.',
+        'email' => '',
+        'parish_unit_l1_id' => '',
+        'parish_unit_l2_id' => '',
+        ...$overrides,
+    ];
+}
+
+it('the escape hatch renders its own form and carries the chosen book through', function () {
+    [$shelf, $manager] = qlFix(slug: 'dong-thap-ql-hatch-get');
+
+    $this->actingAs($manager)
+        ->get(route('shelves.manage.lend.reader.create', ['shelf' => $shelf->slug, 'book' => 'de-men-ql']))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('manage/lend/new-reader')
+            // The book slug is what makes this the LEND flow's form and not
+            // the readers list's: without it the POST has nowhere to return
+            // to and the three-tap flow is broken in the middle.
+            ->where('book.slug', 'de-men-ql')
+            ->where('book.title', 'Dế Mèn Phiêu Lưu Ký')
+            ->has('taxonomy')
+            ->has('units'));
+});
+
+it('the escape hatch registers an ACTIVE reader and lands on the confirm step', function () {
+    // 1b's open question 1 chose `active` precisely so this works. If
+    // anyone ever flips ManagerRegisterReader to pending, THIS test says
+    // what breaks: the redirect lands on confirm, and confirm blocks.
+    [$shelf, $manager] = qlFix(slug: 'dong-thap-ql-hatch-post');
+
+    $response = $this->actingAs($manager)->post(
+        route('shelves.manage.lend.reader.store', ['shelf' => $shelf->slug]),
+        qlNewReaderInput(['book' => 'de-men-ql']),
+    );
+
+    $created = Membership::query()
+        ->whereHas('user', fn ($u) => $u->where('full_name', 'Lã Quốc Vinh'))
+        ->firstOrFail();
+
+    expect($created->status->value)->toBe('active')
+        ->and($created->role->value)->toBe('reader');
+    $response->assertRedirect(route('shelves.manage.lend.confirm', [
+        'shelf' => $shelf->slug, 'book' => 'de-men-ql', 'reader' => $created->id,
+    ]));
+});
+
+it('the reader the escape hatch created can be lent to in the same visit — no approval step', function () {
+    // The whole justification for the hatch, end to end (BR §1.3's walk-up
+    // child). It is a SEPARATE assertion from the status check above: a
+    // membership could read `active` and still be refused by LendCopy for
+    // another reason, and that would be the bug this catches.
+    [$shelf, $manager, , , $copy] = qlFix(slug: 'dong-thap-ql-hatch-lend');
+
+    $this->actingAs($manager)->post(
+        route('shelves.manage.lend.reader.store', ['shelf' => $shelf->slug]),
+        qlNewReaderInput(['book' => 'de-men-ql']),
+    );
+    $created = Membership::query()
+        ->whereHas('user', fn ($u) => $u->where('full_name', 'Lã Quốc Vinh'))
+        ->firstOrFail();
+
+    $this->actingAs($manager)
+        ->post(route('shelves.manage.lend.store', ['shelf' => $shelf->slug]),
+            ['copy_id' => $copy->id, 'membership_id' => $created->id])
+        ->assertRedirect(route('shelves.manage.lend', ['shelf' => $shelf->slug]))
+        ->assertSessionHasNoErrors();
+
+    expect(Loan::query()->where('copy_id', $copy->id)->where('borrower_id', $created->user_id)
+        ->where('status', 'active')->exists())->toBeTrue();
+});
+
+it('the escape hatch validates before it writes, and a refusal writes nothing', function () {
+    [$shelf, $manager] = qlFix(slug: 'dong-thap-ql-hatch-invalid');
+    $before = Membership::query()->count();
+
+    $this->actingAs($manager)
+        ->from(route('shelves.manage.lend.reader.create', ['shelf' => $shelf->slug, 'book' => 'de-men-ql']))
+        ->post(route('shelves.manage.lend.reader.store', ['shelf' => $shelf->slug]),
+            qlNewReaderInput(['full_name' => '', 'book' => 'de-men-ql']))
+        ->assertRedirect()
+        ->assertSessionHasErrors('full_name');
+
+    expect(Membership::query()->count())->toBe($before);
+});
+
+it('the escape hatch does not create the on-behalf pending path — that form is untouched', function () {
+    // Settled decision 3's boundary: two forms, two meanings. The readers
+    // list's form still lands `pending` (BR §16.1's explicit sentence);
+    // only the lend flow's form lands `active`.
+    [$shelf, $manager] = qlFix(slug: 'dong-thap-ql-hatch-boundary');
+
+    $this->actingAs($manager)->post(
+        route('shelves.manage.readers.store', ['shelf' => $shelf->slug]),
+        qlNewReaderInput(['full_name' => 'Lã Quốc Khánh']),
+    );
+
+    $onBehalf = Membership::query()
+        ->whereHas('user', fn ($u) => $u->where('full_name', 'Lã Quốc Khánh'))
+        ->firstOrFail();
+
+    expect($onBehalf->status->value)->toBe('pending');
+});
+
+// ── The copyless title, step 1 and step 3 (settled decision 4) ────────────
+
+it('a copyless title says the same true sentence on the list and on the confirm step', function () {
+    // Settled decision 4's agreement clause, pinned across BOTH surfaces in
+    // one test so a fix to one and not the other cannot pass. Revert either
+    // branch to copy_not_available and this goes red.
+    [$shelf, $manager] = qlFix(slug: 'dong-thap-ql-copyless');
+    app(TenantContext::class)->actSystemWide();
+    Book::query()->create([
+        'bookshelf_id' => $shelf->id, 'title' => 'Chiếc Lược Ngà', 'slug' => 'clg-ql',
+    ]);
+    app(TenantContext::class)->clear();
+
+    $this->actingAs($manager)
+        ->get(route('shelves.manage.lend', ['shelf' => $shelf->slug, 'q' => 'chiec luoc nga']))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->count('results', 1)
+            ->where('results.0.blocked', true)
+            ->where('results.0.reason', 'title_has_no_copies'));
+
+    $this->actingAs($manager)
+        ->get(route('shelves.manage.lend.confirm', ['shelf' => $shelf->slug, 'book' => 'clg-ql']))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('chosen', null)
+            ->where('blocking', 'title_has_no_copies'));
 });
 ```
 
@@ -3632,9 +3875,14 @@ use Illuminate\Support\Collection;
  * which is the conservative answer the reference gives for the same
  * reason.
  *
- * The no-copies case keeps copy_not_available — wrong sentence, kept
- * deliberately (open question 4): a private fix here would make step 1's
- * aggregate and this screen disagree, the exact failure BR §16.3 forbids.
+ * The no-copies case returns its own code, title_has_no_copies (settled
+ * decision 4). The reference folded it into copy_not_available, whose
+ * sentence names a loan and a hold that do not exist; the product owner
+ * ruled the false sentence out. The reference's reason for folding —
+ * step 1's aggregate and this screen must not disagree, the exact failure
+ * BR §16.3 forbids — is honoured because SearchBooksForLendingQuery
+ * carries the IDENTICAL three-way branch. Change one, change the other,
+ * in the same commit.
  *
  * @param  Collection<int, BookCopy>  $copies  the title's live copies, any order
  * @return array{copy: ?BookCopy, reason: ?string}
@@ -3647,6 +3895,10 @@ final class ChooseCopy
      */
     public static function lowestLendable(Collection $copies): array
     {
+        if ($copies->isEmpty()) {
+            return ['copy' => null, 'reason' => 'title_has_no_copies'];
+        }
+
         $sawReturnable = false;
 
         foreach ($copies->sortBy('code')->values() as $copy) {
@@ -3661,9 +3913,7 @@ final class ChooseCopy
 
         return [
             'copy' => null,
-            'reason' => $copies->isNotEmpty() && ! $sawReturnable
-                ? 'copy_lost_or_retired'
-                : 'copy_not_available',
+            'reason' => $sawReturnable ? 'copy_not_available' : 'copy_lost_or_retired',
         ];
     }
 }
@@ -3671,14 +3921,23 @@ final class ChooseCopy
 
 - [ ] **Step 4: Routes, Form Request, flash, controller**
 
-In `routes/web.php`, replace the **three** `under-construction` lend routes (`routes/web.php:119-121` — `lend`, `lend.reader`, `lend.confirm`; there is no placeholder POST) and add a fourth, new one (import `LendController`):
+In `routes/web.php`, replace the **three** `under-construction` lend routes (`routes/web.php:119-121` — `lend`, `lend.reader`, `lend.confirm`; there is no placeholder POST) with these six (import `LendController`):
 
 ```php
         Route::get('/lend', [LendController::class, 'index'])->name('lend');
         Route::get('/lend/reader', [LendController::class, 'reader'])->name('lend.reader');
+        // BR §16.3's escape hatch (plan settled decision 3): 1b built
+        // ManagerRegisterReader and deferred exactly this screen to 1c.
+        // Static segment, no binding — declaration order against
+        // /lend/reader is irrelevant, but keep it adjacent so the flow
+        // reads in the order a volunteer walks it.
+        Route::get('/lend/reader/new', [LendController::class, 'newReader'])->name('lend.reader.create');
+        Route::post('/lend/reader', [LendController::class, 'storeReader'])->name('lend.reader.store');
         Route::get('/lend/confirm', [LendController::class, 'confirm'])->name('lend.confirm');
         Route::post('/lend', [LendController::class, 'store'])->name('lend.store');
 ```
+
+All six inherit the group's `['auth', 'role:manager']` — a reader gets 404, never 403 (BR §5.4), from the middleware, with each Form Request's `abort_unless(..., 404)` as the backstop.
 
 In `app/Http/Middleware/HandleInertiaRequests.php`, add to `share()`'s array:
 
@@ -3726,6 +3985,62 @@ class LendCopyRequest extends FormRequest
 }
 ```
 
+Create `app/Http/Requests/Circulation/QuickLendRegisterReaderRequest.php`:
+
+```php
+<?php
+
+namespace App\Http\Requests\Circulation;
+
+use App\Models\Membership;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
+
+/**
+ * BR §16.3's escape hatch, mid-lend (plan settled decision 3). The field
+ * list is RegisterReaderOnBehalfRequest's, verbatim and for its reasons —
+ * no username/password at all: credentials are SetReaderCredentials' job
+ * on the reader detail, and a volunteer with a child at the shelf is not
+ * inventing a password nobody will type. Copied rather than subclassed:
+ * the two requests feed DIFFERENT commands (ManagerRegisterReader →
+ * active, RegisterMemberOnBehalf → pending), and a shared parent would
+ * make it look as though one change could safely serve both.
+ *
+ * `book` is this request's only addition — the slug the lend flow came
+ * from, so the redirect can go straight on to the confirm step. It is
+ * `sometimes`/nullable because a bookmarked hatch with no book still
+ * registers a reader; the controller then sends them to step 1.
+ */
+class QuickLendRegisterReaderRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        // 404, never 403 — BR §5.4, PR #61's five-request fix.
+        abort_unless(Gate::allows('create', Membership::class), 404);
+
+        return true;
+    }
+
+    /** @return array<string, list<string>> */
+    public function rules(): array
+    {
+        return [
+            'saint_name' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
+            'full_name' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
+            'date_of_birth' => ['bail', 'required', 'date_format:Y-m-d'],
+            'father_name' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
+            'mother_name' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
+            'phone' => ['bail', 'nullable', 'string', 'max:32', 'encoding:UTF-8'],
+            'phone_missing_reason' => ['bail', 'nullable', 'string', 'max:1000', 'encoding:UTF-8'],
+            'email' => ['bail', 'nullable', 'email', 'max:255'],
+            'parish_unit_l1_id' => ['bail', 'nullable', 'string', 'max:36'],
+            'parish_unit_l2_id' => ['bail', 'nullable', 'string', 'max:36'],
+            'book' => ['bail', 'nullable', 'string', 'max:255'],
+        ];
+    }
+}
+```
+
 Create `app/Http/Controllers/Manage/LendController.php`:
 
 ```php
@@ -3734,13 +4049,16 @@ Create `app/Http/Controllers/Manage/LendController.php`:
 namespace App\Http\Controllers\Manage;
 
 use App\Actions\Circulation\LendCopy;
+use App\Actions\Members\ManagerRegisterReader;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Circulation\LendCopyRequest;
+use App\Http\Requests\Circulation\QuickLendRegisterReaderRequest;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
 use App\Models\Membership;
 use App\Models\User;
+use App\Queries\ParishContextQuery;
 use App\Queries\SearchBooksForLendingQuery;
 use App\Queries\SearchReadersForLendingQuery;
 use App\Support\Circulation\ChooseCopy;
@@ -3748,9 +4066,11 @@ use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanRules;
 use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
+use App\Support\Members\ParishUnits;
 use App\Support\QueryParam;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -3788,6 +4108,73 @@ class LendController extends Controller
                 'author' => $book->author, 'coverUrl' => $book->cover_url,
             ],
             'results' => $q === '' ? [] : $readers->run($q),
+        ]);
+    }
+
+    /**
+     * BR §16.3's escape hatch — step 2's "Đăng ký người đọc mới", the
+     * screen 1b deferred to this phase (plan settled decision 3). Same
+     * fields as the on-behalf form, different command and a different
+     * destination: this one lands ACTIVE and goes straight to step 3, so
+     * a child who walked up ten seconds ago leaves with the book.
+     * `/manage/readers/create` is untouched and still lands pending — BR
+     * §16.1's explicit sentence, the approval queue's path.
+     */
+    public function newReader(Request $request, Bookshelf $shelf, ParishContextQuery $parish): Response
+    {
+        $slug = QueryParam::first($request, 'book');
+        $book = $slug !== null ? Book::query()->where('slug', $slug)->first() : null;
+        $context = $parish->run();
+
+        return Inertia::render('manage/lend/new-reader', [
+            'book' => $book === null ? null : [
+                'slug' => $book->slug, 'title' => $book->title,
+                'author' => $book->author, 'coverUrl' => $book->cover_url,
+            ],
+            // ReaderController::create's exact shapes — the two
+            // components below (ParishUnitFields, RegistrationPersonFields)
+            // are 1b's and read these props by name.
+            'taxonomy' => [
+                'levels' => $context['taxonomy']->levels,
+                'nested' => $context['taxonomy']->nested,
+                'level1Label' => $context['taxonomy']->level1Label,
+                'level2Label' => $context['taxonomy']->level2Label,
+            ],
+            'units' => collect([
+                ...ParishUnits::options($context['units'], 1),
+                ...ParishUnits::options($context['units'], 2),
+            ])->map(fn (array $u) => [
+                'id' => $u['id'], 'level' => $u['level'],
+                'parentId' => $u['parentId'], 'name' => $u['name'],
+            ])->values()->all(),
+        ]);
+    }
+
+    public function storeReader(
+        QuickLendRegisterReaderRequest $request,
+        Bookshelf $shelf,
+        ManagerRegisterReader $register,
+    ): RedirectResponse {
+        /** @var User $user */
+        $user = $request->user();
+        /** @var array<string, ?string> $validated */
+        $validated = $request->validated();
+
+        // `book` is this screen's own field, not a registration field.
+        // Registration::register() reads named keys and would ignore it,
+        // but stripping it here keeps the Action's input contract exactly
+        // what its docblock says it is.
+        $slug = $validated['book'] ?? null;
+        $result = $register->execute($user, Arr::except($validated, ['book']));
+
+        // Straight back into the lend. Without a book (a bookmarked hatch)
+        // there is no step 3 to go to, so step 1 it is.
+        if ($slug === null || $slug === '') {
+            return redirect()->route('shelves.manage.lend', ['shelf' => $shelf->slug]);
+        }
+
+        return redirect()->route('shelves.manage.lend.confirm', [
+            'shelf' => $shelf->slug, 'book' => $slug, 'reader' => $result['membershipId'],
         ]);
     }
 
@@ -3878,6 +4265,72 @@ Add the flash sentence to `lang/vi/rules.php` (a UI sentence, not a refusal — 
 
 (The census test only walks `new RuleViolated(...)` literals, so a non-refusal key here is inert to it.)
 
+**Discharge 1b's deferral — in this commit, not later.** `tests/Feature/Architecture/MembersArchitectureTest.php`'s first block asserts that **no** file under `app/Http/Controllers/` so much as mentions `ManagerRegisterReader`. `LendController` above mentions it, so that test goes red the moment the controller lands. **That is by design and it is resolved here, in the same commit**, not discovered in Task 14 as a mysterious failure. Replace the whole block with its successor:
+
+```php
+it('ManagerRegisterReader is wired to exactly ONE route — 1c\'s quick-lend escape hatch', function () {
+    // 1b DEFERRED this screen; it did not forbid it. That plan's
+    // divergence 8 says verbatim that "the quick-lend escape hatch
+    // (/manage/lend/reader) is 1c's surface", and its open question 1
+    // chose an ACTIVE membership on the stated ground that a pending
+    // result "would defeat the escape hatch's purpose". 1c built the
+    // screen on the product owner's ruling (1c plan, settled decision 3),
+    // so the pin flips from absence to presence: the deferral is
+    // discharged, and what must now not change silently is that exactly
+    // ONE controller reaches this Action, and it is the lend flow's.
+    //
+    // The 1b shape is kept — a file grep, not a route walk — because it
+    // still catches the thing a route walk cannot: a SECOND controller
+    // calling the Action from somewhere that was never meant to create an
+    // active member without an approval record.
+    $hits = [];
+    foreach (glob(app_path('Http/Controllers/{,*/}*.php'), GLOB_BRACE) ?: [] as $file) {
+        if (str_contains((string) file_get_contents($file), 'ManagerRegisterReader')) {
+            $hits[] = basename($file);
+        }
+    }
+
+    expect($hits)->toBe(['LendController.php']);
+
+    $route = collect(Route::getRoutes()->getRoutes())
+        ->first(fn ($r) => $r->getName() === 'shelves.manage.lend.reader.store');
+
+    expect($route)->not->toBeNull()
+        ->and($route->gatherMiddleware())->toContain('role:manager');
+});
+
+it('the on-behalf form still reaches RegisterMemberOnBehalf, and only it', function () {
+    // The other half of settled decision 3's boundary: wiring the hatch
+    // must not have quietly re-pointed the readers list's form at the
+    // active-membership command. BR §16.1 is explicit that registering on
+    // behalf still creates a pending application.
+    $reader = (string) file_get_contents(app_path('Http/Controllers/Manage/ReaderController.php'));
+
+    expect(str_contains($reader, 'RegisterMemberOnBehalf'))->toBeTrue()
+        ->and(str_contains($reader, 'ManagerRegisterReader'))->toBeFalse();
+});
+```
+
+`MembersArchitectureTest` already imports `Illuminate\Support\Facades\Route`; no new import is needed. Then correct `app/Actions/Members/ManagerRegisterReader.php`'s docblock — the class currently ends with a paragraph that is now false:
+
+```php
+ * NO ROUTE THIS PHASE — 1c's quick-lend is the screen; the architecture
+ * suite pins the absence (Task 16), the DeleteBook precedent.
+```
+
+becomes:
+
+```php
+ * WIRED IN 1c, as 1b said it would be: LendController::newReader /
+ * ::storeReader serve GET /manage/lend/reader/new and POST
+ * /manage/lend/reader, BR §16.3's escape hatch. MembersArchitectureTest
+ * now pins that exactly one controller reaches this Action — a second one
+ * would be an active membership created outside the one moment the
+ * product sanctions it.
+```
+
+The `::Active` line and its comment stay exactly as they are: 1b's open question 1 is unchanged by this, and the reasoning it records is now load-bearing for a shipped screen rather than a deferred one.
+
 - [ ] **Step 5: Client copy and the date helper**
 
 In `resources/js/lib/copy.ts`, append one `circulation` block (Tasks 11–13 extend it):
@@ -3891,6 +4344,12 @@ In `resources/js/lib/copy.ts`, append one `circulation` block (Tasks 11–13 ext
             loan_limit_reached: "Bạn đọc đã mượn tối đa số sách cho phép.",
             no_renewals_remaining: "Bạn đã dùng hết số lần gia hạn cho lượt mượn này.",
             title_has_queue: "Có bạn khác đang chờ mượn cuốn này, không thể gia hạn.",
+            // Settled decision 4. Must stay word-for-word identical to
+            // lang/vi/rules.php's title_has_no_copies: the list row reads
+            // this one, the confirm screen's `blocking` reads this one,
+            // and a server refusal would read the PHP one — three surfaces,
+            // one sentence, or the volunteer gets two answers.
+            title_has_no_copies: "Cuốn này chưa có bản sách nào trong tủ.",
         },
         steps: ["Tìm sách", "Chọn người đọc", "Xác nhận"],
         lend: {
@@ -3905,6 +4364,13 @@ In `resources/js/lib/copy.ts`, append one `circulation` block (Tasks 11–13 ext
             copies: "{available}/{total} bản",
             holding: "Đang mượn {count} cuốn",
             registerNewReader: "Đăng ký người đọc mới",
+            // Settled decision 3. The lead is what tells a volunteer this
+            // form is NOT the readers-list one: no waiting, because the
+            // child is standing here with a book.
+            newReaderTitle: "Đăng ký người đọc mới",
+            newReaderLead:
+                "Bạn đọc dùng được ngay, không cần chờ duyệt — điền xong là quay lại bước xác nhận cho mượn.",
+            newReaderSubmit: "Lưu và cho mượn tiếp",
             bookLabel: "Sách",
             copyLabel: "Bản",
             readerLabel: "Người đọc",
@@ -4149,14 +4615,129 @@ export default function QuickLendStepTwo() {
                 })}
             </ul>
 
-            {/* BR §16.3's escape hatch. Links to the ON-BEHALF form, the
-                reference's own wiring (plan open question 3): the new reader
-                lands pending and needs approval before a lend. */}
+            {/* BR §16.3's escape hatch (plan settled decision 3). Links to
+                the LEND flow's own form — ManagerRegisterReader, active
+                membership, straight back to step 3 — carrying the chosen
+                book so the flow is not lost in the middle. The readers
+                list's /manage/readers/create form still exists and still
+                lands pending; it is the queue path, not this one. */}
             <Button asChild variant="outline" className="mt-6">
-                <Link href={route("shelves.manage.readers.create", { shelf: shelf.slug })}>
+                <Link
+                    href={route("shelves.manage.lend.reader.create", {
+                        shelf: shelf.slug,
+                        book: book?.slug,
+                    })}
+                >
                     {copy.circulation.lend.registerNewReader}
                 </Link>
             </Button>
+        </ManageLayout>
+    );
+}
+```
+
+Create `resources/js/pages/manage/lend/new-reader.tsx` (settled decision 3). It is `manage/readers/create.tsx`'s twin by construction — same two 1b components, same field names — so the only things to get right are the destination and the copy:
+
+```tsx
+import { Head, useForm, usePage } from "@inertiajs/react";
+import type { FormEvent } from "react";
+import { route } from "ziggy-js";
+import ParishUnitFields, {
+    type ParishTaxonomyProp,
+    type ParishUnitProp,
+} from "@/components/parish-unit-fields";
+import RegistrationPersonFields, {
+    type PersonFieldValues,
+} from "@/components/registration-person-fields";
+import { Button } from "@/components/ui/button";
+import ManageLayout from "@/layouts/manage-layout";
+import { copy } from "@/lib/copy";
+import type { SharedData } from "@/types";
+
+interface PageProps extends SharedData {
+    book: { slug: string; title: string; author: string | null; coverUrl: string | null } | null;
+    taxonomy: ParishTaxonomyProp;
+    units: ParishUnitProp[];
+}
+
+type QuickLendReaderValues = PersonFieldValues & {
+    parish_unit_l1_id: string;
+    parish_unit_l2_id: string;
+    book: string;
+};
+
+export default function QuickLendNewReader() {
+    const { shelf, book, taxonomy, units, errors } = usePage<PageProps>().props;
+
+    const form = useForm<QuickLendReaderValues>({
+        saint_name: "",
+        full_name: "",
+        date_of_birth: "",
+        father_name: "",
+        mother_name: "",
+        phone: "",
+        phone_missing_reason: "",
+        email: "",
+        parish_unit_l1_id: "",
+        parish_unit_l2_id: "",
+        // The book travels in the form body, not the URL: the POST is the
+        // only place that knows where to send the volunteer next.
+        book: book?.slug ?? "",
+    });
+
+    if (!shelf) return null;
+    const ruleError = (errors as Record<string, string>).rule;
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(route("shelves.manage.lend.reader.store", { shelf: shelf.slug }));
+    };
+
+    // Same rule as the on-behalf form: the volunteer typing IS the person
+    // the dialog would ask, so the reason box appears as soon as the phone
+    // is blank.
+    const showPhoneReason = form.data.phone.trim() === "";
+
+    return (
+        <ManageLayout>
+            <Head title={copy.circulation.lend.newReaderTitle} />
+            <h1 className="text-2xl font-semibold">{copy.circulation.lend.newReaderTitle}</h1>
+            <p className="mt-1.5 max-w-xl text-muted-foreground">
+                {copy.circulation.lend.newReaderLead}
+            </p>
+            {book ? <p className="mt-3 max-w-xl font-serif text-base">{book.title}</p> : null}
+            {ruleError ? (
+                <p role="alert" className="mt-4 max-w-xl rounded-md border px-4 py-3 text-[15px]">
+                    {ruleError}
+                </p>
+            ) : null}
+
+            <form onSubmit={submit} className="mt-8 max-w-xl space-y-10" noValidate>
+                <RegistrationPersonFields
+                    data={form.data}
+                    errors={form.errors}
+                    showPhoneReason={showPhoneReason}
+                    setField={(field, value) => form.setData(field, value)}
+                />
+                <section className="space-y-6">
+                    <h2 className="border-b pb-3 text-xl font-semibold">
+                        {copy.register.groupParish}
+                    </h2>
+                    <ParishUnitFields
+                        taxonomy={taxonomy}
+                        units={units}
+                        l1={form.data.parish_unit_l1_id}
+                        l2={form.data.parish_unit_l2_id}
+                        onChange={(l1, l2) => {
+                            form.setData("parish_unit_l1_id", l1);
+                            form.setData("parish_unit_l2_id", l2);
+                        }}
+                    />
+                </section>
+                <Button type="submit" size="lg" className="w-full" disabled={form.processing}>
+                    {copy.circulation.lend.newReaderSubmit}
+                </Button>
+            </form>
         </ManageLayout>
     );
 }
@@ -4253,18 +4834,23 @@ export default function QuickLendConfirm() {
 
 - [ ] **Step 7: Run the tests, verify they pass**
 
-Run: `make test FILTER=QuickLend && make test FILTER=ChooseCopyTest`
-Expected: PASS. Also run `bun run build && bun run lint` (Biome — `noJsxLiterals` must stay clean; every literal above reads from `copy.ts`).
+Run: `make test FILTER=QuickLend && make test FILTER=ChooseCopyTest && make test FILTER=MembersArchitectureTest && make test FILTER=LendingQueriesTest`
+Expected: PASS — all four. `MembersArchitectureTest` is in that list because this task rewrote one of its blocks (Step 4); running it here, not in Task 14, is what keeps the deferral's discharge visible in the commit that causes it. Then verify the two new pins are falsifiable: point `LendController::storeReader` at `RegisterMemberOnBehalf` and watch "registers an ACTIVE reader" and "can be lent to in the same visit" go red for different reasons; revert `ChooseCopy`'s empty-collection branch to `copy_not_available` and watch `ChooseCopyTest`'s copyless block and the agreement test's **confirm** half go red while its list half still passes — which is precisely the half-fixed state settled decision 4 forbids, and the reason the agreement is pinned across both surfaces in one test. Restore everything.
+
+Also run `bun run build && bun run lint` (Biome — `noJsxLiterals` must stay clean; every literal above reads from `copy.ts`).
 
 - [ ] **Step 8: Lint, analyse, commit**
 
 ```bash
 make lint && make analyse
 git add app/Support/Circulation/ChooseCopy.php app/Http/Requests/Circulation/LendCopyRequest.php \
-  app/Http/Controllers/Manage/LendController.php resources/js/pages/manage/lend resources/js/lib/dates.ts \
+  app/Http/Requests/Circulation/QuickLendRegisterReaderRequest.php \
+  app/Http/Controllers/Manage/LendController.php app/Actions/Members/ManagerRegisterReader.php \
+  resources/js/pages/manage/lend resources/js/lib/dates.ts \
   resources/js/lib/copy.ts resources/js/types/index.ts app/Http/Middleware/HandleInertiaRequests.php \
-  routes/web.php lang/vi/rules.php tests/Feature/Circulation/QuickLendScreensTest.php tests/Unit/Circulation/ChooseCopyTest.php
-git commit -m "feat: quick-lend screens — three taps from search to confirmed loan"
+  routes/web.php lang/vi/rules.php tests/Feature/Circulation/QuickLendScreensTest.php \
+  tests/Unit/Circulation/ChooseCopyTest.php tests/Feature/Architecture/MembersArchitectureTest.php
+git commit -m "feat: quick-lend screens — three taps from search to confirmed loan, escape hatch wired"
 ```
 
 ---
@@ -5885,6 +6471,8 @@ The new literal `new RuleViolated('…')` codes under `app/` from this phase: `l
 
 Run the census test; if the glob finds a code this list missed (or vice versa), the DIFF is the finding — resolve it by fixing whichever side is wrong, never by widening the regex.
 
+**Do NOT add `title_has_no_copies` to that list.** It is returned as data by `SearchBooksForLendingQuery` and `ChooseCopy`, never thrown as a literal `new RuleViolated('title_has_no_copies')`, so the glob finds no such literal and `toEqualCanonicalizing` would fail on the extra element — the census would go red for a code that is perfectly well covered. Its sentence is censused by `ChooseCopyTest` (Task 10, Step 1), the same split `LoanRulesTest` uses for the predicate codes. Two related things the review established and this step must respect: the regex matches `new RuleViolated('code')` **only**, so a fully-qualified `new \App\Exceptions\RuleViolated('code')` is invisible to it — every literal throw this phase adds uses the short, imported form, and this step's verification is "grep for `RuleViolated(` under `app/` and reconcile by hand", not "trust the regex".
+
 - [ ] **Step 2: The architecture pins**
 
 Create `tests/Feature/Architecture/CirculationArchitectureTest.php`:
@@ -5982,7 +6570,7 @@ Run: `make test FILTER=CirculationArchitectureTest` — expected PASS; then veri
 
 - [ ] **Step 3: The tenant-isolation walk**
 
-Run the full `TenantIsolation` and `Tenancy` suites. `TenantHarness` already seeds a colliding `Loan`, `BorrowRequest` and `ConditionAssessment` per shelf, and `RouteIsolationTest` walks the route map — confirm the NEW routes (`manage/lend*`, `manage/returns*`, `manage/overdue`, `profile/overview`, `profile/history`) appear in its walked set (its mechanism enumerates the route table; if any of this phase's GET routes is excluded by name, add it). A member of shelf A must get **404, not 403**, on every one of them under shelf B's slug, and no Inertia prop may carry a foreign `bookshelf_id`.
+Run the full `TenantIsolation` and `Tenancy` suites. `TenantHarness` already seeds a colliding `Loan`, `BorrowRequest` and `ConditionAssessment` per shelf, and `RouteIsolationTest` walks the route map — confirm the NEW routes (`manage/lend*` — including `manage/lend/reader/new` and the `POST manage/lend/reader` escape hatch, settled decision 3 — `manage/returns*`, `manage/overdue`, `profile/overview`, `profile/history`) appear in its walked set (its mechanism enumerates the route table; if any of this phase's GET routes is excluded by name, add it). A member of shelf A must get **404, not 403**, on every one of them under shelf B's slug, and no Inertia prop may carry a foreign `bookshelf_id`.
 
 - [ ] **Step 4: The OPS §4.2 walk — the ledger check**
 
@@ -5990,7 +6578,7 @@ Walk the census against the shipped branch and record the result in the known-ga
 
 | OPS §4.2 entry | Disposition |
 |---|---|
-| `LendCopy` | shipped (Task 3), both entry points (dashboard flow + book detail) |
+| `LendCopy` | shipped (Task 3), both entry points (dashboard flow + book detail); §4.2's failure-mode list amended in Task 1 with `title_has_no_copies` (settled decision 4) |
 | `HandoverRequest` | Phase 2 (holds); route absence pinned |
 | `ReceiveReturn` | shipped narrowed (Task 4, divergence 4); hold branch Phase 2 |
 | `RenewLoan` | shipped (Task 5); Q4 = allowed, pinned by name |
@@ -5999,6 +6587,8 @@ Walk the census against the shipped branch and record the result in the known-ga
 | `SkipRequest` | Phase 2 — and NO reference implementation exists to port |
 
 And the queries: `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans`, `GetMyDashboard` (loans half), `GetMyLoanHistory` shipped; `GetBorrowRequestQueue` Phase 2; `GetManagerDashboard`, `ExportLoansCSV` 1d; `ResolveCopyById` Phase 2.
+
+One §4.3 entry also changes disposition this phase and belongs in the walk: **`ManagerRegisterReader` — Action shipped in 1b, surface shipped here** (Task 10, settled decision 3), which closes the last "implemented, reachable from nowhere" entry 1b left open. `RegisterMemberOnBehalf` keeps its own separate surface (`/manage/readers/create`) and its `pending` result. Confirm both by walking the two routes, not by reading the plan.
 
 - [ ] **Step 5: Seed a living shelf**
 
@@ -6018,9 +6608,9 @@ Append `## Phase 1c — Circulation` to `docs/known-gaps.md`, recording at minim
 - **The `ReceiveReturn`/`ReportCopyLost`/`VoidLoan` lock order (copy → loan) is a convention enforced by tests, not by the database** — any future circulation command must follow it or re-open the AB-BA deadlock this phase closed (divergence 2's blind-overwrite reproduction recorded).
 - **The implicit FK shared locks, and the shelf-row contention they create** (divergence 1's second paragraph): every command's audit insert takes S on the shelf's `bookshelves` row, `LendCopy`'s loans insert takes S on `bookshelves`/`books`/`book_copies`/`users`, and 1a's `AllocateCopyCodes` holds that same `bookshelves` row in **X** for the whole of `CreateBook`/`AddCopies`. No cycle — the wait is one-directional — but an in-flight bulk copy-add serialises every lend, return, renewal and void on that shelf. Named so Phase 2 does not rediscover it, and so a future command that inverts the direction is recognised as the cycle it would be.
 - **Step 1's block flag is hold-aware and `ChooseCopy` is not.** `SearchBooksForLendingQuery` derives `blocked` from `CountsCopies::borrowable()`, which excludes an `available` copy carrying an unexpired approved hold; `ChooseCopy::lowestLendable` reads only `book_copies.state` and would auto-pick that same copy on the confirm screen. Unreachable in 1c (nothing creates holds), and consistent as long as `ApproveBorrowRequest` also flips the copy to `held` — **Phase 2 must either guarantee that or teach `ChooseCopy` the hold**, or step 1 and step 3 disagree, which is exactly what divergence 9 exists to prevent.
-- **The copyless-title sentence defect** (open question 4) and the **no-copy-selector divergence** from BR §16.3 (divergence 9), both reference-faithful.
+- **The copyless-title refusal diverges from the reference, by ruling** (settled decision 4): `title_has_no_copies` / "Cuốn này chưa có bản sách nào trong tủ." replaces the reference's `copy_not_available` for a title with no copies recorded. Record the code, the sentence, that `docs/OPERATIONS.md` §4.2 `LendCopy` carries it, that step 1 and step 3 both branch on it (and must be changed together), and that its census is `ChooseCopyTest`'s rather than `RuleViolatedCodesHaveSentencesTest`'s — a Phase 2 author adding a copyless case elsewhere needs to find this, not re-derive it. The **no-copy-selector divergence** from BR §16.3 (divergence 9) is unchanged and still reference-faithful.
+- **1b's `ManagerRegisterReader` route-absence pin is discharged, not deleted** (settled decision 3). Record: the pin was a ONE-PHASE deferral written by 1b's divergence 8, 1c built the screen on the product owner's ruling, and `MembersArchitectureTest` now pins *presence* — exactly one controller (`LendController`) reaches the Action, and `ReaderController` reaches only `RegisterMemberOnBehalf`. Also record what is still true and easy to lose: `/manage/lend/reader/new` lands **active** and `/manage/readers/create` lands **pending**, two near-identical forms whose difference is the whole of BR §16.1-vs-§16.3, and 1b's open question 1 (whether OPS §4.3's inferred `active` is what the owner wants) remains formally open with a live surface now depending on the answer.
 - **The VoidLoan button and the two flash sentences (`lend_success_flash`, `return_success_flash`, `renew_success_flash`) are authored by this plan**, not by OPS — the `member_has_active_loans` precedent.
-- **The escape hatch lands on the on-behalf (pending) form** — reference parity; the walk-up child still needs approval before a lend (open question 3, with 1b's open question 1 still live).
 - **Due-soon/overdue notifications do not exist yet** — Phase 2's sweep; the overdue SCREEN is live and correct meanwhile (BR §8).
 - Anything Steps 1–5 turned up.
 

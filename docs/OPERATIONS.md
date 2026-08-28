@@ -248,6 +248,7 @@ Direct, request-free lend — the quick-lend flow's terminal step (§16.3, walke
 - **Failure modes:**
   - `copy_not_available` — "Bản sách này đang được mượn hoặc đang giữ chỗ." (INV-3)
   - `copy_lost_or_retired` — "Bản sách này đã mất hoặc ngừng dùng." (INV-7)
+  - `title_has_no_copies` — "Cuốn này chưa có bản sách nào trong tủ." (the title is catalogued but no copy is recorded against it at all — a pre-flight refusal on the quick-lend flow's steps 1 and 3, per §16.3's rule that a block is stated before the confirm step, never by the command itself, which is given a `copyId`)
   - `membership_not_active` — "Tài khoản đang tạm khoá, không thể mượn thêm." (INV-4)
   - `loan_limit_reached` — "Bạn đọc đã mượn tối đa số sách cho phép." (INV-5)
 
