@@ -39,14 +39,20 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
     // glob is expected to find today, so a widening or narrowing of that
     // list is a deliberate edit to this test, not a silent pass either way.
     expect(array_keys($codes))->toEqualCanonicalizing([
+        'already_registered_here',
         'copy_count_invalid',
         'donor_ambiguous',
         'donor_membership_invalid',
         'duplicate_isbn',
         'has_active_loans',
         'not_lost',
+        'password_too_short',
+        'passwords_dont_match',
         'phone_invalid',
+        'required_fields_missing',
         'retire_reason_required',
+        'username_taken',
+        'validation_failed',
     ]);
 
     $rules = require __DIR__.'/../../../lang/vi/rules.php';
