@@ -60,4 +60,5 @@ return [
     // in lang/vi/. The census test only walks `new RuleViolated(...)`
     // literals, so this key is inert to it.
     'lend_success_flash' => 'Đã cho :name mượn ":title" — hạn trả :due.',
+    'return_success_flash' => 'Đã nhận trả bản :code — sách đã về kệ.',
 ];

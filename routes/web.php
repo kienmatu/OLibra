@@ -7,6 +7,7 @@ use App\Http\Controllers\Manage\LostCopiesController;
 use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
+use App\Http\Controllers\Manage\ReturnController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\SearchController;
@@ -128,8 +129,9 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/lend/reader', [LendController::class, 'storeReader'])->name('lend.reader.store');
         Route::get('/lend/confirm', [LendController::class, 'confirm'])->name('lend.confirm');
         Route::post('/lend', [LendController::class, 'store'])->name('lend.store');
-        Route::get('/returns', [ShellController::class, 'underConstruction'])->name('returns');
-        Route::get('/returns/lost', [ShellController::class, 'underConstruction'])->name('returns.lost');
+        Route::get('/returns', [ReturnController::class, 'index'])->name('returns');
+        Route::get('/returns/lost', [ReturnController::class, 'lost'])->name('returns.lost');
+        Route::post('/returns/{loan}', [ReturnController::class, 'store'])->name('returns.store');
 
         // ORDER IS LOAD-BEARING (spec §6): create BEFORE {reader}, or
         // Laravel binds "create" as a membership id. RouteOrderTest pins it.

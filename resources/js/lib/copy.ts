@@ -331,6 +331,25 @@ export const copy = {
             bookMissing: "Chưa chọn sách — quay lại bước 1.",
             readerMissing: "Chưa chọn người đọc — quay lại bước 2.",
         },
+        returns: {
+            title: "Nhận trả sách",
+            lostTitle: "Bạn đọc báo làm mất",
+            searchPlaceholder: "Tên sách, tên bạn đọc hoặc mã bản",
+            search: "Tìm",
+            dueLine: "Hạn trả {date}",
+            overdueLine: "Quá hạn {days} ngày",
+            conditionLegend: "Tình trạng sách khi trả",
+            noteLabel: "Ghi chú",
+            confirmButton: "Xác nhận nhận trả",
+            reportLostLink: "Bạn đọc báo làm mất",
+            backToReturns: "Quay lại nhận trả",
+            lostExplain:
+                "Sau khi xác nhận, bản {code} sẽ chuyển sang trạng thái Đã mất và lượt mượn khép lại là mất sách.",
+            lostNoteLabel: "Ghi chú",
+            lostConfirmButton: "Xác nhận báo mất",
+            noneFound: "Không tìm thấy lượt mượn nào đang mở.",
+            chooseFirst: "Tìm và chọn lượt mượn cần xử lý.",
+        },
     },
 } as const;
 
