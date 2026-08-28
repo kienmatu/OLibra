@@ -55,4 +55,9 @@ return [
     'title_has_queue' => 'Có bạn khác đang chờ mượn cuốn này, không thể gia hạn.',
     'title_has_no_copies' => 'Cuốn này chưa có bản sách nào trong tủ.',
     'reason_required' => 'Vui lòng ghi lý do huỷ.',
+
+    // A UI sentence, not a refusal — kept beside them so server copy stays
+    // in lang/vi/. The census test only walks `new RuleViolated(...)`
+    // literals, so this key is inert to it.
+    'lend_success_flash' => 'Đã cho :name mượn ":title" — hạn trả :due.',
 ];

@@ -287,6 +287,51 @@ export const copy = {
         reactivate: "Mở khoá lại",
         markLeft: "Đánh dấu đã rời",
     },
+    circulation: {
+        rules: {
+            copy_not_available: "Bản sách này đang được mượn hoặc đang giữ chỗ.",
+            copy_lost_or_retired: "Bản sách này đã mất hoặc ngừng dùng.",
+            membership_not_active: "Tài khoản đang tạm khoá, không thể mượn thêm.",
+            loan_limit_reached: "Bạn đọc đã mượn tối đa số sách cho phép.",
+            no_renewals_remaining: "Bạn đã dùng hết số lần gia hạn cho lượt mượn này.",
+            title_has_queue: "Có bạn khác đang chờ mượn cuốn này, không thể gia hạn.",
+            // Settled decision 4. Must stay word-for-word identical to
+            // lang/vi/rules.php's title_has_no_copies: the list row reads
+            // this one, the confirm screen's `blocking` reads this one,
+            // and a server refusal would read the PHP one — three surfaces,
+            // one sentence, or the volunteer gets two answers.
+            title_has_no_copies: "Cuốn này chưa có bản sách nào trong tủ.",
+        },
+        steps: ["Tìm sách", "Chọn người đọc", "Xác nhận"],
+        lend: {
+            title1: "Tìm sách cần cho mượn",
+            title2: "Chọn người đọc",
+            title3: "Xác nhận cho mượn",
+            searchBookPlaceholder: "Tên sách hoặc mã bản",
+            searchBookHint: "Không cần gõ dấu — gõ de men vẫn tìm ra Dế Mèn.",
+            searchReaderPlaceholder: "Tên bạn đọc",
+            search: "Tìm",
+            available: "Còn sách",
+            copies: "{available}/{total} bản",
+            holding: "Đang mượn {count} cuốn",
+            registerNewReader: "Đăng ký người đọc mới",
+            // Settled decision 3. The lead is what tells a volunteer this
+            // form is NOT the readers-list one: no waiting, because the
+            // child is standing here with a book.
+            newReaderTitle: "Đăng ký người đọc mới",
+            newReaderLead:
+                "Bạn đọc dùng được ngay, không cần chờ duyệt — điền xong là quay lại bước xác nhận cho mượn.",
+            newReaderSubmit: "Lưu và cho mượn tiếp",
+            bookLabel: "Sách",
+            copyLabel: "Bản",
+            readerLabel: "Người đọc",
+            lentOnLabel: "Ngày mượn",
+            dueOnLabel: "Hạn trả",
+            confirmButton: "Xác nhận cho mượn",
+            bookMissing: "Chưa chọn sách — quay lại bước 1.",
+            readerMissing: "Chưa chọn người đọc — quay lại bước 2.",
+        },
+    },
 } as const;
 
 /**

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
+use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LostCopiesController;
 use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
@@ -116,9 +117,17 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     Route::prefix('manage')->name('manage.')->middleware(['auth', 'role:manager'])->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('dashboard');
 
-        Route::get('/lend', [ShellController::class, 'underConstruction'])->name('lend');
-        Route::get('/lend/reader', [ShellController::class, 'underConstruction'])->name('lend.reader');
-        Route::get('/lend/confirm', [ShellController::class, 'underConstruction'])->name('lend.confirm');
+        Route::get('/lend', [LendController::class, 'index'])->name('lend');
+        Route::get('/lend/reader', [LendController::class, 'reader'])->name('lend.reader');
+        // BR §16.3's escape hatch (plan settled decision 3): 1b built
+        // ManagerRegisterReader and deferred exactly this screen to 1c.
+        // Static segment, no binding — declaration order against
+        // /lend/reader is irrelevant, but keep it adjacent so the flow
+        // reads in the order a volunteer walks it.
+        Route::get('/lend/reader/new', [LendController::class, 'newReader'])->name('lend.reader.create');
+        Route::post('/lend/reader', [LendController::class, 'storeReader'])->name('lend.reader.store');
+        Route::get('/lend/confirm', [LendController::class, 'confirm'])->name('lend.confirm');
+        Route::post('/lend', [LendController::class, 'store'])->name('lend.store');
         Route::get('/returns', [ShellController::class, 'underConstruction'])->name('returns');
         Route::get('/returns/lost', [ShellController::class, 'underConstruction'])->name('returns.lost');
 
