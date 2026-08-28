@@ -301,6 +301,40 @@ it('a soft-deleted book or copy still leaves the loan on the reader\'s list', fu
         ->and($detail['currentLoans'][0]['title'])->toBe('Dế Mèn');
 });
 
+/**
+ * Task 14 fixture-sweep finding: every prior test of ReaderDetailQuery's
+ * currentLoans seeded exactly one reader with one active loan on the
+ * shelf, so a count/content assertion could not distinguish "scoped to
+ * THIS reader's borrower_id" from "scoped to the whole shelf" — the same
+ * fixture-shape gap the reader-dashboard carry-over closed for
+ * MyDashboardQuery/MyLoanHistoryQuery. Two readers, two active loans, same
+ * shelf: the detail of one must show only their own.
+ */
+it('currentLoans excludes another reader\'s active loan on the same shelf', function () {
+    [$shelf] = rosterFixture();
+    $member = rosterMember($shelf, 'Nguyễn Thị Lan');
+    $other = rosterMember($shelf, 'Trần Văn Khác');
+    $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Dế Mèn', 'slug' => 'de-men-rdq']);
+    $copy = BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'code' => 'DT-0001']);
+    $mine = Loan::query()->create([
+        'bookshelf_id' => $shelf->id, 'copy_id' => $copy->id, 'book_id' => $book->id,
+        'borrower_id' => $member->user_id, 'lent_by' => $member->user_id,
+        'due_on' => '2026-09-11', 'status' => 'active',
+    ]);
+    $copy2 = BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'code' => 'DT-0002']);
+    Loan::query()->create([
+        'bookshelf_id' => $shelf->id, 'copy_id' => $copy2->id, 'book_id' => $book->id,
+        'borrower_id' => $other->user_id, 'lent_by' => $other->user_id,
+        'due_on' => '2026-09-11', 'status' => 'active',
+    ]);
+
+    $detail = app(ReaderDetailQuery::class)->run($member);
+
+    expect($detail['currentLoans'])->toHaveCount(1)
+        ->and($detail['currentLoans'][0]['loanId'])->toBe($mine->id)
+        ->and($detail['holdingCount'])->toBe(1);
+});
+
 it('a pending profile change shows as a display-only stub', function () {
     [$shelf] = rosterFixture();
     $member = rosterMember($shelf, 'Nguyễn Thị Lan');
@@ -314,6 +348,24 @@ it('a pending profile change shows as a display-only stub', function () {
 
     expect($detail['pendingProfileChange'])->not->toBeNull()
         ->and($detail['pendingProfileChange']['id'])->toBe($request->id);
+});
+
+it('pendingProfileChange never picks up another reader\'s pending change on the same shelf', function () {
+    // Same fixture-shape gap as currentLoans above: a lone pending request
+    // per shelf cannot distinguish `where('user_id', $person->id)` from an
+    // unscoped `first()` that happens to hit the only row on the shelf.
+    [$shelf] = rosterFixture();
+    $member = rosterMember($shelf, 'Nguyễn Thị Lan');
+    $other = rosterMember($shelf, 'Trần Văn Khác');
+    ProfileChangeRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'user_id' => $other->user_id,
+        'proposed_values' => ['phone' => '0911111111'], 'previous_values' => [],
+        'status' => 'pending',
+    ]);
+
+    $detail = app(ReaderDetailQuery::class)->run($member);
+
+    expect($detail['pendingProfileChange'])->toBeNull();
 });
 
 it('the detail query refuses a membership from a shelf other than the one bound — the Task 14 review flag', function () {

@@ -114,6 +114,66 @@ it('the history page threads ?page= through to the query, not just the default',
             ->where('history.total', 1));
 });
 
+/**
+ * Carry-over from Task 13's review: no test proved the overview/history
+ * READ surfaces exclude another reader's loan on the SAME shelf — every
+ * fixture in this file, until now, seeded exactly one reader with one loan
+ * per shelf, so a bare count assertion could not distinguish "scoped to
+ * this borrower" from "scoped to the whole shelf." Dropping
+ * MyDashboardQuery/MyLoanHistoryQuery's `where('borrower_id', ...)` left
+ * the entire suite green while this probe alone went red (verified: see
+ * task-14-report.md).
+ */
+it('the overview excludes another reader\'s active loan on the same shelf', function () {
+    [$shelf, $reader, $loan] = rdbFix(slug: 'dong-thap-rdb-owner-ov');
+    app(TenantContext::class)->actSystemWide();
+    $other = User::factory()->create(['full_name' => 'Phêrô Mượn Sách Khác']);
+    Membership::factory()->for($shelf)->create([
+        'user_id' => $other->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    $otherBook = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Sách Của Người Khác', 'slug' => 'sach-khac-rdb-ov']);
+    $otherCopy = BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $otherBook->id, 'code' => 'DT-0910', 'state' => 'on_loan']);
+    Loan::query()->create([
+        'bookshelf_id' => $shelf->id, 'copy_id' => $otherCopy->id, 'book_id' => $otherBook->id,
+        'borrower_id' => $other->id, 'lent_by' => $other->id,
+        'due_on' => '2026-09-04', 'status' => 'active',
+    ]);
+    app(TenantContext::class)->clear();
+
+    $this->actingAs($reader)
+        ->get(route('shelves.profile.overview', ['shelf' => $shelf->slug]))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('shelves/profile/overview')
+            ->count('dashboard.loans', 1)
+            ->where('dashboard.loans.0.loanId', $loan->id));
+});
+
+it('the history excludes another reader\'s loan on the same shelf', function () {
+    [$shelf, $reader, $loan] = rdbFix(slug: 'dong-thap-rdb-owner-hi');
+    app(TenantContext::class)->actSystemWide();
+    $other = User::factory()->create(['full_name' => 'Phêrô Mượn Sách Khác']);
+    Membership::factory()->for($shelf)->create([
+        'user_id' => $other->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    $otherBook = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Sách Của Người Khác', 'slug' => 'sach-khac-rdb-hi']);
+    $otherCopy = BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $otherBook->id, 'code' => 'DT-0911', 'state' => 'on_loan']);
+    Loan::query()->create([
+        'bookshelf_id' => $shelf->id, 'copy_id' => $otherCopy->id, 'book_id' => $otherBook->id,
+        'borrower_id' => $other->id, 'lent_by' => $other->id,
+        'due_on' => '2026-09-04', 'status' => 'active',
+    ]);
+    app(TenantContext::class)->clear();
+
+    $this->actingAs($reader)
+        ->get(route('shelves.profile.history', ['shelf' => $shelf->slug]))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('shelves/profile/history')
+            ->where('history.total', 1)
+            ->where('history.rows.0.loanId', $loan->id));
+});
+
 it('another reader\'s renew POST is refused as loan_not_active — never an existence oracle', function () {
     [$shelf, , $loan] = rdbFix(slug: 'dong-thap-rdb-other');
     app(TenantContext::class)->actSystemWide();

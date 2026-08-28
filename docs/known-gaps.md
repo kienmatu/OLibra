@@ -1531,3 +1531,215 @@ the full suite ran green.
   data-hygiene concern, not a live injection or crash vector. Recorded
   here, not silently accepted, so whoever does that sanitisation sweep
   has this as a confirmed, reproduced input rather than a rediscovery.
+
+## Phase 1c — Circulation
+
+The durable record of `docs/superpowers/plans/2026-08-29-laravel-phase-1c-circulation.md`
+(lending, returns, renewal, voiding, overdue, the reader's own loan
+pages). Written by Task 14 after the full suite ran green.
+
+- **The OPS §4.2/§4.3 walk, verified against the shipped branch, not
+  read off the plan document:**
+
+  | Entry | Disposition |
+  |---|---|
+  | `LendCopy` | shipped (Task 3), both entry points (dashboard flow + book detail); §4.2's failure-mode list amended in Task 1 with `title_has_no_copies` |
+  | `HandoverRequest` | Phase 2 (holds); route absence pinned (`CirculationArchitectureTest`) |
+  | `ReceiveReturn` | shipped narrowed (Task 4); hold branch Phase 2 |
+  | `RenewLoan` | shipped (Task 5); Q4 = renewal is status-gated, closed and pinned by name |
+  | `VoidLoan` | shipped (Task 6) + a button OPS never specified |
+  | `CreateBorrowRequest` / `ApproveBorrowRequest` / `RejectBorrowRequest` / `CancelOwnRequest` | Phase 2 |
+  | `SkipRequest` | Phase 2 — and no reference implementation exists to port |
+  | `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans`, `GetMyDashboard` (loans half), `GetMyLoanHistory` | shipped |
+  | `GetBorrowRequestQueue` | Phase 2 |
+  | `GetManagerDashboard`, `ExportLoansCSV` | 1d |
+  | `ResolveCopyById` | Phase 2 |
+  | `ManagerRegisterReader` (§4.3) | Action shipped in 1b, surface shipped here — closes 1b's last "implemented, reachable from nowhere" entry (see below) |
+
+  Every code path above was walked by opening the named file, not
+  inferred from the table cell — `RenewLoan`'s Q4 disposition and
+  `ReceiveReturn`'s narrowing are each their own entry below with the
+  file and line evidence.
+
+- **`ReceiveReturn`'s contract is deliberately narrower than the
+  reference, and Phase 2 must restore four things in one pass.**
+  `app/Actions/Circulation/ReceiveReturn.php`'s own docblock names the
+  gap: no `holdForRequestId` parameter, no `queuedRequestId` return
+  value, no `request.approved` second audit row, no notification. The
+  reference (`old_next/src/domain/circulation/commands/
+  receive-return.ts`) does all four inside the SAME transaction as the
+  return itself: it resolves a hold via `holdForRequestId`, stamps
+  `hold_expires_at` from the injected clock (not a bare `now()`) when
+  approving one, writes a `request.approved` audit row alongside
+  `loan.returned`, and — separately — always computes `queuedRequestId`
+  by reading the pending-request queue in `requested_at asc, id asc`
+  order AFTER every write in the transaction has landed, so the answer
+  reflects the state the return itself just produced. None of this is
+  reachable in 1c (nothing creates a `BorrowRequest` outside the seed
+  data), so nothing tests it either — Phase 2 re-widens the signature
+  to the reference's exact shape when holds exist, not before.
+- **`LendCopy`'s hold-collection branch is unported, and the predicate
+  it depends on is already live and waiting.** The reference closes a
+  collected hold inside the SAME transaction as the lend
+  (`request.fulfilled`, `old_next/src/domain/circulation/commands/
+  lend-copy.ts:220`); this port's `LendCopy::execute` always passes
+  `null` for `$heldForUserId` (`app/Actions/Circulation/LendCopy.php`'s
+  class docblock says so explicitly). `LoanRules::copyLendable`'s
+  held-for-me clause (`$state === CopyState::Held && $heldForUserId ===
+  $forUserId`, `app/Support/Circulation/LoanRules.php:54`) is already
+  unit-tested and correct — Phase 2 only has to wire the real holder
+  through and add the collected-hold close, not invent the predicate.
+- **INV-5's guarantee is a membership-row lock, not an index — stronger
+  than the reference, but bypassable outside `LendCopy`.**
+  `app/Actions/Circulation/LendCopy.php:75` locks the reader's
+  `Membership` row as the SECOND statement in the transaction (copy
+  first, per the lock-order entry below), so a rival lend for the same
+  reader waits behind that lock before counting active loans — the
+  reference has no such serialisation and its own count can race past
+  the limit (plan divergence 3). The only INDEX-backed circulation
+  invariant remains INV-1 (`loans_one_active_per_copy`,
+  `2026_08_26_000007_create_loans_table.php:76-81`); a future caller
+  that mutates `loans`/`memberships` without going through `LendCopy`
+  bypasses INV-5 entirely, because nothing in the schema enforces it.
+- **`RenewLoan`'s queue check has no structural backstop.**
+  `app/Actions/Circulation/RenewLoan.php:70` takes exactly ONE lock (the
+  loan row) and then runs a plain, unlocked
+  `BorrowRequest::query()->where('book_id', ...)->where('status',
+  Pending)->exists()` — a request for the same title committing between
+  that read and the renewal's own commit is invisible to it. Unreachable
+  in 1c (nothing creates a `BorrowRequest` outside seed data, so nothing
+  can race this check); Phase 2 decides whether the queue check needs a
+  lock once requests are live.
+- **The `ReceiveReturn` / `ReportCopyLost` / `VoidLoan` lock order
+  (copy, then loan) is a convention every command's source enforces by
+  hand, not a database-level guarantee.** Verified by reading each
+  file's first two statements: `ReceiveReturn.php:57-59`,
+  `VoidLoan.php:56-57` both lock `BookCopy` before `Loan`;
+  `LendCopy.php:73-75` locks `BookCopy` before `Membership` (a
+  different second party, same "copy first" rule). Nothing in the
+  schema stops a future circulation command from taking the loan lock
+  first — it would simply re-open the AB-BA deadlock this phase closed
+  (Task 4's divergence 2, reproduced with two real OS processes, not
+  simulated). Any new circulation write must follow copy-first or prove
+  its own ordering is deadlock-free.
+- **The implicit FK shared locks, and the shelf-row contention they
+  create, are real and unavoidable with today's schema.** Every
+  circulation command's audit insert takes a shared lock on the
+  shelf's own `bookshelves` row (MySQL/MariaDB InnoDB locks the parent
+  row of a `RESTRICT`-on-delete foreign key on every child insert);
+  `LendCopy`'s own loan insert additionally takes shared locks on
+  `bookshelves`/`books`/`book_copies`/`users` through their own foreign
+  keys. Separately, `AllocateCopyCodes` — 1a's copy-numbering
+  allocator, still used by `CreateBook`/`AddCopies` — takes an
+  EXCLUSIVE lock on that same `bookshelves` row for the whole of its
+  transaction (`app/Actions/Catalogue/AllocateCopyCodes.php:80-83`,
+  `DB::table('bookshelves')->where('id', $bookshelfId)
+  ->lockForUpdate()`), confirmed by reading the file directly. No
+  deadlock cycle exists — the wait is one-directional, circulation
+  commands always behind the copy-numbering lock, never the reverse —
+  but an in-flight bulk copy-add on a shelf serialises every lend,
+  return, renewal and void on that same shelf for the duration.
+  Recorded so Phase 2 does not rediscover it by a slow lend during a
+  large `AddCopies` call, and so a future command that reverses the
+  direction (locks `bookshelves` X, then waits on something circulation
+  already holds S on) is recognised as the cycle it would create.
+- **Step 1's block flag is hold-aware; `ChooseCopy` is not — a Phase 2
+  landmine, not a bug today.** `SearchBooksForLendingQuery` derives its
+  `blocked` flag from `CountsCopies::borrowable()`, which excludes an
+  `available` copy carrying an unexpired approved hold from the
+  available count; `ChooseCopy::lowestLendable` picks the lowest-coded
+  copy by `book_copies.state` alone and knows nothing about holds. The
+  two agree today only because nothing in 1c can create a hold. The
+  moment `ApproveBorrowRequest` exists and flips a copy to `held`, step
+  1 (search) and step 3 (confirm) will disagree unless `ApproveBorrowRequest`
+  keeps them in sync or `ChooseCopy` is taught the same predicate —
+  exactly the failure mode plan divergence 9 exists to flag in advance.
+- **The copyless-title refusal is a deliberate, ruled divergence from
+  the reference — `title_has_no_copies` replaces `copy_not_available`
+  for a title with zero recorded copies.** The reference folds a
+  copyless title into the same `copy_not_available` sentence a title
+  with only lost/retired copies gets; the product owner ruled that
+  false for a shelf where no copy was ever entered (plan settled
+  decision 4). Verified: the Vietnamese sentence
+  ("Cuốn này chưa có bản sách nào trong tủ.") is asserted directly in
+  `tests/Feature/Circulation/LendingQueriesTest.php`'s copyless-title
+  test, `docs/OPERATIONS.md` §4.2's `LendCopy` entry carries the code,
+  and `SearchBooksForLendingQuery`/`ChooseCopy::lowestLendable` both
+  branch on the identical three-way reason
+  (recorded-count-zero / none-returnable / otherwise) — change one
+  without the other and step 1 and step 3 disagree on a title with no
+  copies. Its own census lives in `ChooseCopyTest`
+  (`title_has_no_copies` is data returned by a query, never a literal
+  `new RuleViolated('title_has_no_copies')`, so
+  `RuleViolatedCodesHaveSentencesTest`'s glob correctly does not see
+  it — do not add it there). The no-copy-selector divergence from BR
+  §16.3 (divergence 9) is unrelated and unchanged.
+- **1b's `ManagerRegisterReader` route-absence pin is discharged, not
+  deleted.** Confirmed by reading both files directly:
+  `app/Actions/Members/ManagerRegisterReader.php:44` registers at
+  `MembershipStatus::Active`; `app/Actions/Members/
+  RegisterMemberOnBehalf.php:38` registers at `MembershipStatus::Pending`
+  — the whole of BR §16.1 (on-behalf, pending, needs approval) versus
+  §16.3 (quick-lend escape hatch, active immediately) rides on that one
+  parameter. `tests/Feature/Architecture/MembersArchitectureTest.php`
+  now pins PRESENCE the same way 1b pinned absence: exactly one
+  controller (`LendController`) reaches `ManagerRegisterReader`, and
+  `ReaderController` reaches only `RegisterMemberOnBehalf`. 1b's open
+  question 1 (whether OPS §4.3's inferred `active` disposition is what
+  the product owner actually wants) is still formally open — a live
+  surface now depends on the answer, where before it was theoretical.
+- **The `VoidLoan` button and all three flash sentences
+  (`lend_success_flash`, `return_success_flash`, `renew_success_flash`)
+  are authored by this plan, not specified by OPS** — the same
+  `member_has_active_loans` precedent 1b recorded for an invented
+  sentence. Verified present in `lang/vi/rules.php:62-64` and referenced
+  from `LendController::store`, `ReturnController::store` and
+  `MyLoansController::renew` respectively.
+- **Due-soon/overdue notifications do not exist yet.** Nothing in this
+  phase writes a `notifications` row for an approaching or passed due
+  date — grepped `app/Actions/Circulation` and found no `Notification::`
+  reference anywhere in it. Phase 2's sweep; the overdue SCREEN itself
+  (`OverdueLoansQuery` + `OverdueController`) is live, correct, and
+  reachable from the manager nav today (BR §8) — only the proactive
+  notification is missing, not the read surface.
+
+- **Carry-over from Task 13's review, closed this task: no test proved
+  the reader's own-loans READS exclude another reader's loan on the
+  SAME shelf, and the fixture shape was the reason.** Every fixture in
+  `tests/Feature/Circulation/ReaderDashboardScreenTest.php`,
+  `ReaderDashboardHostileInputTest.php` and
+  `ReaderDashboardAuthorizationTest.php` seeded exactly one reader with
+  one loan per shelf, so a bare `count()`/`total` assertion could not
+  distinguish "scoped to THIS borrower" from "scoped to the whole
+  shelf" — dropping `MyDashboardQuery`/`MyLoanHistoryQuery`'s
+  `where('borrower_id', ...)` and replacing it with a vacuous
+  `whereNotNull('borrower_id')` left the entire suite green except for
+  two new tests added this task
+  (`tests/Feature/Circulation/ReaderDashboardScreenTest.php`, "the
+  overview excludes another reader's active loan on the same shelf" and
+  "the history excludes another reader's loan on the same shelf"),
+  which went red exactly as expected and were restored afterward. (The
+  unit-level `MyDashboardQueryTest.php` already carried an equivalent
+  two-reader fixture and DID catch this at the query layer — the gap
+  was specifically at the HTTP/screen layer, which is what the two new
+  tests close.)
+- **The fixture-shape sweep found the identical gap one phase earlier,
+  fixed here as "cheap": `ReaderDetailQuery`'s `currentLoans` and
+  `pendingProfileChange`.** `app/Queries/ReaderDetailQuery.php:72-76`
+  filters loans by `where('borrower_id', $person->id)`, and every test
+  exercising it in `tests/Feature/Members/ReaderQueriesTest.php` seeded
+  exactly one reader with one active loan on the shelf — the same
+  fixture-shape gap as above, one phase upstream of it. Two tests added
+  ("currentLoans excludes another reader's active loan on the same
+  shelf", "pendingProfileChange never picks up another reader's pending
+  change on the same shelf"), each proved by mutation (replacing the
+  `borrower_id`/`user_id` filter with a vacuous `whereNotNull` turned
+  the new test red and nothing else in the file; restored after). The
+  rest of this phase's read queries
+  (`SearchBooksForLendingQuery`/`SearchReadersForLendingQuery`/
+  `SearchLoansForReturnQuery` in `LendingQueriesTest.php`,
+  `OverdueLoansQuery` in `OverdueLoansQueryTest.php`) were also walked
+  and found already fixture-rich enough to distinguish their scoping —
+  multiple readers with different active-loan counts, multiple copies
+  in different states, multiple loans across active/returned/lost
+  status — so no further fixture changes were made there.

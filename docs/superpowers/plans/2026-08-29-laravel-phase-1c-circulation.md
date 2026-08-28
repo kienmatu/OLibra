@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Not started
+**Status:** Complete
 
 **Goal:** The point of the whole system, running end to end: a volunteer standing at the shelf lends a book in three taps (`LendCopy`), receives it back with a condition in two (`ReceiveReturn`), reports it lost from inside the return flow (`ReportCopyLost`'s second entry point), sees who is late and calls them (`GetOverdueLoans`), undoes a mistaken lend (`VoidLoan`), and a reader checks their own loans from home and asks for more time (`GetMyDashboard` + `RenewLoan`) — every write serialised against MariaDB's REPEATABLE READ, every state change audited in its own transaction (INV-8), and INV-1 guaranteed by the `loans_one_active_per_copy` unique index, never by a read.
 
