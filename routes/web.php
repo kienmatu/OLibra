@@ -1,5 +1,11 @@
 <?php
 
+use App\Http\Controllers\Manage\BookController;
+use App\Http\Controllers\Manage\CopyController;
+use App\Http\Controllers\Manage\LostCopiesController;
+use App\Http\Controllers\Reader\BookController as ReaderBookController;
+use App\Http\Controllers\Reader\CatalogueController;
+use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\ShellController;
 use Illuminate\Support\Facades\Route;
 
@@ -11,10 +17,26 @@ Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index
 
 // ── One shelf ─────────────────────────────────────────────────────────────
 // scopeBindings(): every child binding ({book}, later {reader}) resolves
-// THROUGH the bound shelf's relationship (Bookshelf::books()), so a foreign
-// shelf's colliding slug is a 404, not a cross-tenant hit. Without this,
-// SubstituteBindings would resolve {book} table-wide. RouteIsolationTest
-// carries the proof.
+// THROUGH the bound shelf's relationship (Bookshelf::books()), so — in
+// principle — a foreign shelf's colliding slug would be a 404 from the
+// binding itself, not a cross-tenant hit.
+//
+// CORRECTED (whole-branch review, PR #60): that is not, today, why the 404
+// happens, and RouteIsolationTest does not prove this line does anything.
+// Book and BookCopy carry BookshelfScope (app/Models/Scopes/
+// BookshelfScope.php) independently of routing, applied by Eloquent on
+// EVERY query including the one SubstituteBindings would run without
+// scopeBindings() — so the tenant middleware having already bound
+// TenantContext to THIS request's {shelf} is what filters out shelf B's
+// rows, whether or not the child binding is routed through the parent
+// relationship. Deleting this line leaves the full suite green (verified
+// directly: removed it, ran the suite, 458/458 passed, restored it). This
+// second layer is real and worth keeping as defence in depth — a rename
+// that breaks the relationship guess now throws RelationNotFoundException
+// loudly instead of silently falling back to an unscoped query, see the
+// {bookCopy} comment below — but it is currently unpinned by any test that
+// can tell the two layers apart, because BookshelfScope alone already
+// produces every 404 this line is credited with.
 Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeBindings()->group(function () {
     // PR #57 review follow-up: BR §1.2 — "Everything about a shelf's books,
     // readers and announcements sits behind a membership of that shelf" —
@@ -41,9 +63,9 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // query that does.
     Route::middleware(['auth', 'role:reader'])->group(function () {
         Route::get('/', [ShellController::class, 'shelfHome'])->name('show');
-        Route::get('/catalogue', [ShellController::class, 'underConstruction'])->name('catalogue');
-        Route::get('/search', [ShellController::class, 'underConstruction'])->name('search');
-        Route::get('/books/{book}', [ShellController::class, 'book'])->name('books.show');
+        Route::get('/catalogue', [CatalogueController::class, 'index'])->name('catalogue');
+        Route::get('/search', [SearchController::class, 'index'])->name('search');
+        Route::get('/books/{book}', [ReaderBookController::class, 'show'])->name('books.show');
         Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
         Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
@@ -100,11 +122,32 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
 
         // ORDER IS LOAD-BEARING (spec §6): create and lost BEFORE {book},
         // or Laravel binds "lost" as a slug. RouteOrderTest pins this.
-        Route::get('/books', [ShellController::class, 'underConstruction'])->name('books.index');
-        Route::get('/books/create', [ShellController::class, 'underConstruction'])->name('books.create');
-        Route::get('/books/lost', [ShellController::class, 'underConstruction'])->name('books.lost');
-        Route::get('/books/{book}', [ShellController::class, 'book'])->name('books.show');
-        Route::get('/books/{book}/edit', [ShellController::class, 'book'])->name('books.edit');
+        Route::get('/books', [BookController::class, 'index'])->name('books.index');
+        Route::get('/books/create', [BookController::class, 'create'])->name('books.create');
+        Route::post('/books', [BookController::class, 'store'])->name('books.store');
+        Route::get('/books/lost', [LostCopiesController::class, 'index'])->name('books.lost');
+        Route::get('/books/{book}', [BookController::class, 'show'])->name('books.show');
+        Route::get('/books/{book}/edit', [BookController::class, 'edit'])->name('books.edit');
+        Route::patch('/books/{book}', [BookController::class, 'update'])->name('books.update');
+        Route::post('/books/{book}/copies', [CopyController::class, 'store'])->name('books.copies.store');
+
+        // {bookCopy}, not {copy}: the parameter name is load-bearing for
+        // routing — under scopeBindings() Laravel guesses the relation to
+        // resolve the child binding through from the parameter name itself
+        // (bookCopy -> Bookshelf::bookCopies()), so a rename here is not a
+        // silent cross-shelf leak, it is Illuminate\Database\Eloquent\
+        // RelationNotFoundException / "Call to undefined method
+        // App\Models\Bookshelf::copies()" — loud, at request time. The
+        // tenancy guarantee itself sits one layer down and does not depend
+        // on this name at all: Book and BookCopy each carry BookshelfScope
+        // independently via BelongsToBookshelf (app/Models/Concerns/
+        // BelongsToBookshelf.php), so a foreign shelf's copy id 404s on the
+        // model's own global scope even if this route parameter resolved
+        // some other way.
+        Route::post('/copies/{bookCopy}/assess', [CopyController::class, 'assess'])->name('copies.assess');
+        Route::post('/copies/{bookCopy}/retire', [CopyController::class, 'retire'])->name('copies.retire');
+        Route::post('/copies/{bookCopy}/report-lost', [CopyController::class, 'reportLost'])->name('copies.report-lost');
+        Route::post('/copies/{bookCopy}/mark-found', [CopyController::class, 'markFound'])->name('copies.mark-found');
 
         Route::get('/borrow-requests', [ShellController::class, 'underConstruction'])->name('borrow-requests');
         Route::get('/overdue', [ShellController::class, 'underConstruction'])->name('overdue');

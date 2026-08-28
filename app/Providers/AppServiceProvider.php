@@ -4,7 +4,11 @@ namespace App\Providers;
 
 use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
+use App\Models\Book;
+use App\Models\BookCopy;
 use App\Models\User;
+use App\Policies\BookCopyPolicy;
+use App\Policies\BookPolicy;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\TenantContext;
 use Illuminate\Foundation\Application;
@@ -99,5 +103,11 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('act-as-reader', $roleGate(MembershipRole::Reader));
         Gate::define('act-as-manager', $roleGate(MembershipRole::Manager));
         Gate::define('act-as-admin', $roleGate(MembershipRole::Admin));
+
+        // Phase 1a: policies arrive with the Actions they gate. They
+        // delegate to the act-as-* gates above — registered here, after
+        // those definitions, so the file reads in dependency order.
+        Gate::policy(Book::class, BookPolicy::class);
+        Gate::policy(BookCopy::class, BookCopyPolicy::class);
     }
 }

@@ -771,3 +771,166 @@ what it costs if the ruling is wrong.
   justify one). *Cost if wrong:* the divergences are exactly the places where
   a habit learned in dreamtube does not transfer here; they are named in the
   plan's Global Constraints so nobody "fixes" them back.
+
+## Phase 1a — Catalogue
+
+This section is the durable record of
+`docs/superpowers/plans/2026-08-27-laravel-phase-1a-catalogue.md` (books,
+copies, the manager and reader catalogue screens). Written by Task 14, the
+plan's guarantee sweep, after re-breaking and re-fixing each item below live
+rather than accepting it on the strength of the code alone.
+
+- **The `actingAs()` guard cache is real, and it bit this phase twice before
+  being pinned.** `Illuminate\Auth\SessionGuard` resolves and caches
+  `$this->user` on first use and never re-derives it from the request for
+  the rest of that PHP process — so a guest or non-member assertion appended
+  after any `actingAs(...)` call earlier in the same test method (including
+  one buried inside a fixture helper) silently re-runs as that cached user,
+  not as a guest. Reproduced live for this record: a manager write posted
+  with no `actingAs()` call in the same test, immediately after an earlier
+  `actingAs($manager)->get(...)` in that method, redirected back to the
+  manage/books form (a validation redirect) rather than to `/login` —
+  proving the "guest" request was still authenticated as the manager. This
+  hit Tasks 12 and 13 in this phase, the second time one task after the
+  first was already recorded, which is itself the lesson: recording a trap
+  once is not the same as everyone downstream having read it.
+  `tests/Feature/Catalogue/ManageBookScreensTest.php` and
+  `tests/Feature/Tenancy/RouteIsolationTest.php` are the convention going
+  forward — guest/non-member coverage is always its own `it()` block, never
+  appended to a block that already called `actingAs()`.
+- **UUID v7 primary keys make an unordered scan return rows in creation
+  order, which defeats a sort-tiebreak test seeded in already-sorted
+  order.** `ReaderQueriesTest`'s slug-tiebreak test survived two hardening
+  rounds before landing on 11 colliding titles inserted in creation order
+  `de-men, de-men-2, ..., de-men-11` and asserting the lexicographic slug
+  order `de-men, de-men-10, de-men-11, de-men-2, ..., de-men-9` — a
+  genuinely different sequence from creation order only once there are ten
+  or more collisions (`de-men-10`'s `'1'` sorts before `de-men-2`'s `'2'`
+  as a byte). Verified live for this record: deleting `SearchQuery`'s
+  `orderBy('slug')` tiebreak makes the test fail with the un-tiebroken
+  creation order, confirming the assertion is falsifiable. A two- or
+  three-row version of this test would pass whether or not the tiebreak
+  exists, because with few rows creation order and slug order coincide —
+  it would guard nothing while looking like it guards the tiebreak.
+- **A repeated query key (`?category[]=a&category[]=b`) arrives as an array
+  and raw-500s any controller that hands it straight to a query expecting a
+  string.** `CatalogueController` and `SearchController` both threw on this
+  before the fix; `Manage\BookController` read `q` and `category` the
+  identical way and carried the identical hole. `old_next/src/lib/search-
+  params.ts`'s `param()` had already solved this and documented, in its own
+  comment, that four of the reference's own pages shipped a 500 over
+  exactly this shape — the fix was known and simply never ported until this
+  phase built `app/Support/QueryParam.php`. Verified live for this record:
+  reverting `Manage\BookController::index()`'s `category` read to
+  `$request->query('category')` reproduces the exact documented failure,
+  `TypeError: Argument #2 ($slug) must be of type string, array given`, and
+  `ManageBookScreensTest`'s `'a repeated ?category[]= takes its first value
+  rather than 500ing'` catches it. The lesson generalises past this one
+  helper: a guard the reference already documents solving is not optional
+  scaffolding to skip when porting a page.
+- **The copy-code race probes did not port; the serialisation moved to a
+  shelf-row lock whose POSITION is the guarantee.** The reference proved its
+  allocator with two live connections racing to commit; under
+  `RefreshDatabase` a second connection cannot see uncommitted fixtures, so
+  `AllocateCopyCodesTest` and `CreateBookTest` pin the *mechanism* instead —
+  and specifically that the `FOR UPDATE` on the `bookshelves` row is the
+  **first query of the transaction**, because under InnoDB's REPEATABLE READ
+  the read view is pinned at the first consistent read and a lock taken
+  after any earlier SELECT still reads a stale snapshot (reproduced live on
+  10.11 during this plan's review: duplicate copy code, silently-committed
+  ISBN duplicate, missed slug — Postgres's per-statement READ COMMITTED is
+  why the reference could afford reads before its lock and this port
+  cannot). The real rule for every future phase: **nothing may read before
+  the lock.** `book_copies_code_unique`'s errno 1062 remains the structural
+  backstop for codes and slugs; ISBN has no such backstop — see the next
+  entry.
+- **`AllocateCopyCodes`'s `DB::transactionLevel() === 0` guard has no test
+  that can throw it.** The guard defends against a caller invoking
+  `execute()` outside `DB::transaction()`, where the `FOR UPDATE` above
+  would autocommit and its row lock would release before the `MAX` scan
+  even ran — silently providing none of the serialisation the class exists
+  to provide, while looking like it does. But every test in the suite runs
+  under `RefreshDatabase`, which wraps the whole run in its own outer
+  transaction, so `DB::transactionLevel()` is never 0 from inside a test —
+  there is no way, from this harness, to observe the class running with no
+  transaction open. Disclosed honestly at
+  `tests/Feature/Catalogue/AllocateCopyCodesTest.php:111-118` rather than
+  faked with a mock; recorded here because a guarantee a test can't reach
+  is exactly the kind of thing this file exists to keep visible.
+- **`duplicate_isbn` is a check-then-write with no structural backstop, and
+  the failure mode of getting the ordering wrong is SILENT corruption, not
+  an error.** No unique index backs ISBN (a partial per-shelf ISBN unique
+  was named as the structural fix in the B1 plan's known gaps and was not
+  built there either), so a stale read here does not raise 1062 — the
+  duplicate simply commits. The check is safe only because it reads *under*
+  a lock that is the transaction's first statement; "after the allocator"
+  alone is necessary but not sufficient. `CreateBookTest`'s lock-first
+  query-log pin is the tripwire; no single-connection test can show the
+  corruption itself.
+- **`DeleteBook` is implemented, tested, and reachable from no screen** (the
+  reference's Q7, OPS §4.1's open question). `CatalogueArchitectureTest`
+  pins the *absence* of the route so adding it is a decision, not an
+  accident. The retention rule (`copy_has_history` retains, never throws) is
+  pinned by `BookLifecycleTest` either way.
+- **`AssessConditionRequest` carries no `photo` rule, and
+  `condition_assessments.photo_url` stays unpopulated** —
+  `app/Http/Requests/Catalogue/AssessConditionRequest.php` validates only
+  `condition` and `note`; `AssessCondition::execute()` still accepts a
+  `?string $photoUrl` parameter (for parity with the Action's own
+  signature), but nothing in the request or controller ever supplies one.
+  Deliberate, not an oversight: the reference dropped both the cover and
+  return-photo uploaders per its own docblock, and this phase matched that
+  scope rather than building an uploader the reference itself chose not to
+  ship.
+- **The donor member picker is deferred to 1b.** `donor_membership_id` is
+  accepted, validated, stored, audited and rendered back (the manager detail
+  resolves the member's name) — but the create form offers only the
+  free-text donor until `GetReadersList` exists to search members. The OPS
+  §16.3 donation-queue pre-fill (Duyệt → form with Người tặng pre-filled) is
+  Phase 2's, and lands on this same field.
+- **The reader detail page ships without its "Xin mượn" button, comments, or
+  the manager's lend/return shortcuts** — `CreateBorrowRequest` and comments
+  are Phase 2, `LendCopy`/`ReceiveReturn` are 1c. The availability panel,
+  queue length and contact line are live.
+- **`lang/vi/validation.php`'s `attributes` array only names this phase's
+  fields; a field validated by a later phase without an entry there falls
+  back to Laravel's default attribute display** — `getDisplayableAttribute()`
+  (`vendor/laravel/framework/.../Validation/Concerns/FormatsMessages.php:308`)
+  renders an unlisted attribute as `str_replace('_', ' ', Str::snake($attribute))`,
+  e.g. `donor_membership_id` unlisted would read "donor membership id" inside
+  an otherwise-Vietnamese message. The rule *messages* are not at risk of
+  this: diffed against `vendor/laravel/framework/.../lang/en/validation.php`,
+  all 138 of the vendor file's own message keys are translated — the only
+  absent key is `custom.attribute-name.rule-name`, the vendor file's own
+  placeholder example, not a real rule. The Task 1 test pins `required`; it
+  does not census the file.
+- **The manager index reuses `copyCountLine` with its middle figure computed
+  as `total - available`** (which counts held copies as "đang cho mượn") —
+  the per-row true on-loan count was deliberately not added to the list
+  query for one label. The detail pages show the true count. Revisit if a
+  manager reports the number as wrong rather than approximate.
+- **`GetShelfHome` (OPS §3.2) is deferred to Phase 2, whole.**
+  `ShellController::shelfHome()` still renders the propless `shelves/show`.
+  The page's centerpiece card is the pinned-or-latest announcement — a
+  Phase 2 entity — while its catalogue-count link and *Mới thêm* cover row
+  become computable with this phase's queries; building the page now would
+  mean rebuilding it in Phase 2 when the announcement card and the Tặng
+  sách/Góp ý cards land. Deferred so the shelf home is built once, against
+  its full OPS §3.2 shape.
+- **The catalogue queries pay ~8 correlated aggregate subqueries per row,
+  and `books_public` goes unused** (the sort is on unindexed
+  `title_folded`), where the reference did one grouped join. Honestly fine
+  at BR §1's few hundred books per shelf — the paging tests run against real
+  MariaDB — but if a shelf ever grows past that, the fix is a single
+  grouped-join query shape, not a stored counter (BR §8).
+- **One reference-parity regression a product owner should decide on, not a
+  defect.** `resources/js/pages/manage/books/index.tsx` renders a single
+  `<ul>` (line 106) and drops two things the reference had:
+  the "In mã QR" action button (its `qr-labels` route is still
+  `under-construction`, so a live button would point nowhere today) and the
+  reference's desktop-table / mobile-card responsive split. The plan
+  specified the single-`<ul>` markup, so this is a deliberate
+  simplification — but the lost responsive split is a real, visible UI
+  difference from the reference that a product owner, not this sweep,
+  should sign off on before Phase 2 either restores it or formally drops
+  it.

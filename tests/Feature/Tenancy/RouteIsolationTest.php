@@ -83,13 +83,24 @@ it('never binds another shelf\'s book — scoped bindings, proven on a unique sl
     $context->clear();
 
     // The slug exists ONLY on shelf A. Through shelf A it renders; through
-    // shelf B the binding resolves via $shelf->books() and finds nothing —
-    // 404, not a cross-tenant hit. (Both shelves also hold the colliding
+    // shelf B the request 404s. (Both shelves also hold the colliding
     // 'de-men-phieu-luu-ky'; each resolves to its OWN row, which the
     // TenantIsolation model suite already pins.) Each request acts as that
     // shelf's own reader — PR #57 review follow-up 2 gates books/{book}
     // behind role:reader, so a guest would be redirected before the
     // binding is ever reached, proving nothing about the binding itself.
+    //
+    // CORRECTED (whole-branch review, PR #60): this does NOT prove
+    // routes/web.php's scopeBindings() does anything — it cannot
+    // distinguish "the binding resolved via $shelf->books() and found
+    // nothing" from "the binding queried Book table-wide and Eloquent's
+    // BookshelfScope global scope, bound by the tenant middleware to shelf
+    // B for this whole request, filtered shelf A's row out anyway." Removing
+    // scopeBindings() from that route group leaves this assertion, and the
+    // entire suite, green — verified directly. This test pins the 404
+    // outcome, which is real and worth keeping; it is BookshelfScope doing
+    // the work, not the parent-relationship binding. See routes/web.php's
+    // corrected comment on that route group.
     $this->actingAs($readerA)->get("/shelves/{$a->slug}/books/{$only->slug}")->assertOk();
     $this->actingAs($readerB)->get("/shelves/{$b->slug}/books/{$only->slug}")->assertNotFound();
 });
