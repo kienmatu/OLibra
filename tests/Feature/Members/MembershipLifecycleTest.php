@@ -23,9 +23,17 @@ use Illuminate\Support\Facades\DB;
 afterEach(fn () => Carbon::setTestNow());
 
 /** @return array{Bookshelf, User, Membership} shelf, manager, a membership in $status */
-function lcFixture(string $status = 'pending', string $actorRole = 'manager'): array
+function lcFixture(string $status = 'pending', string $actorRole = 'manager', string $slug = 'dong-thap'): array
 {
-    $shelf = Bookshelf::factory()->create(['slug' => 'dong-thap', 'settings' => []]);
+    // BelongsToBookshelf's creating hook (Task 11) refuses to stamp a row for
+    // any shelf but the one currently bound — a no-op the first time this is
+    // called in a test, but load-bearing when the lock-position test below
+    // calls lcFixture() a second, third... time while still bound to an
+    // earlier call's shelf. system-wide is exactly the escape hatch its own
+    // docblock names for a trusted test harness; set() below rebinds and
+    // clears it before returning.
+    app(TenantContext::class)->actSystemWide();
+    $shelf = Bookshelf::factory()->create(['slug' => $slug, 'settings' => []]);
     $actor = User::factory()->create();
     $actorMembership = Membership::factory()->for($shelf)->create([
         'user_id' => $actor->id, 'role' => $actorRole, 'status' => 'active',
@@ -220,15 +228,50 @@ it('a reader cannot approve, reject, suspend, reactivate or mark left', function
         ->toThrow(AuthorizationException::class);
 });
 
-it('each command takes the locking re-read as the first statement of its transaction', function () {
-    [, $actor, $subject] = lcFixture('active');
-
+/**
+ * Runs $run under a fresh query log and asserts its very first statement is
+ * the FOR UPDATE re-read on memberships — the property that makes the
+ * check-then-write below it safe under InnoDB REPEATABLE READ.
+ */
+function assertLocksMembershipFirst(callable $run): void
+{
+    // flushQueryLog first: disableQueryLog() does not clear the buffer, so a
+    // second call in the same test would otherwise see the FIRST call's
+    // query at index 0 forever — a false pass that would have hidden every
+    // one of the five mutations proved below. Caught live while proving
+    // this test's own claim (RejectMembership's mutation initially passed
+    // silently for exactly this reason).
+    DB::flushQueryLog();
     DB::enableQueryLog();
-    app(SuspendMembership::class)->execute($actor, $subject, 'vì lý do');
+    $run();
     $log = DB::getQueryLog();
     DB::disableQueryLog();
 
     expect($log)->not->toBe([])
         ->and(str_contains($log[0]['query'], 'memberships'))->toBeTrue('first query is not on memberships: '.$log[0]['query'])
         ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+}
+
+it('each command takes the locking re-read as the first statement of its transaction', function () {
+    // Each command gets its OWN shelf/actor/subject (distinct slugs — lcFixture
+    // creates a new Bookshelf every call, and the slug is unique) so that
+    // running all five in one test method proves the lock-position property
+    // for every command named in the title, not only the one the title used
+    // to be verified against (Suspend). A shared fixture across commands
+    // would also compound state (e.g. Approve's status change) onto the next
+    // command's starting status.
+    [, $approveActor, $approveSubject] = lcFixture('pending', slug: 'dong-thap-approve');
+    assertLocksMembershipFirst(fn () => app(ApproveMembership::class)->execute($approveActor, $approveSubject));
+
+    [, $rejectActor, $rejectSubject] = lcFixture('pending', slug: 'dong-thap-reject');
+    assertLocksMembershipFirst(fn () => app(RejectMembership::class)->execute($rejectActor, $rejectSubject, 'vì lý do'));
+
+    [, $suspendActor, $suspendSubject] = lcFixture('active', slug: 'dong-thap-suspend');
+    assertLocksMembershipFirst(fn () => app(SuspendMembership::class)->execute($suspendActor, $suspendSubject, 'vì lý do'));
+
+    [, $reactivateActor, $reactivateSubject] = lcFixture('suspended', slug: 'dong-thap-reactivate');
+    assertLocksMembershipFirst(fn () => app(ReactivateMembership::class)->execute($reactivateActor, $reactivateSubject));
+
+    [, $leftActor, $leftSubject] = lcFixture('active', slug: 'dong-thap-left');
+    assertLocksMembershipFirst(fn () => app(MarkMembershipLeft::class)->execute($leftActor, $leftSubject));
 });
