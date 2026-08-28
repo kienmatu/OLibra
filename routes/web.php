@@ -4,6 +4,7 @@ use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\LostCopiesController;
 use App\Http\Controllers\Manage\ReaderController;
+use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\CatalogueController;
@@ -127,6 +128,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/readers/create', [ReaderController::class, 'create'])->name('readers.create');
         Route::post('/readers', [ReaderController::class, 'store'])->name('readers.store');
         Route::get('/readers/{reader}', [ReaderController::class, 'show'])->name('readers.show');
+        Route::patch('/readers/{reader}/profile', [ReaderController::class, 'updateProfile'])->name('readers.profile.update');
+        Route::post('/readers/{reader}/credentials', [ReaderLifecycleController::class, 'setCredentials'])->name('readers.credentials');
+        Route::post('/readers/{reader}/suspend', [ReaderLifecycleController::class, 'suspend'])->name('readers.suspend');
+        Route::post('/readers/{reader}/reactivate', [ReaderLifecycleController::class, 'reactivate'])->name('readers.reactivate');
+        Route::post('/readers/{reader}/mark-left', [ReaderLifecycleController::class, 'markLeft'])->name('readers.mark-left');
 
         // ORDER IS LOAD-BEARING (spec §6): create and lost BEFORE {book},
         // or Laravel binds "lost" as a slug. RouteOrderTest pins this.

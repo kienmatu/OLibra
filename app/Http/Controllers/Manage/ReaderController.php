@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Manage;
 
 use App\Actions\Members\RegisterMemberOnBehalf;
+use App\Actions\Members\UpdateReaderProfile;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Members\RegisterReaderOnBehalfRequest;
+use App\Http\Requests\Members\UpdateReaderProfileRequest;
 use App\Models\Bookshelf;
 use App\Models\Membership;
 use App\Models\User;
 use App\Queries\ParishContextQuery;
+use App\Queries\ReaderDetailQuery;
 use App\Queries\ReadersListQuery;
 use App\Support\Members\ParishUnits;
 use App\Support\QueryParam;
@@ -87,9 +90,37 @@ class ReaderController extends Controller
         ]);
     }
 
-    /** Task 15 replaces this body with the real detail render. */
-    public function show(Bookshelf $shelf, Membership $reader): Response
+    public function show(Bookshelf $shelf, Membership $reader, ReaderDetailQuery $detail, ParishContextQuery $parish): Response
     {
-        return Inertia::render('under-construction');
+        Gate::authorize('view', $reader);
+
+        $context = $parish->run();
+
+        return Inertia::render('manage/readers/show', [
+            'reader' => $detail->run($reader),
+            'taxonomy' => [
+                'levels' => $context['taxonomy']->levels,
+                'nested' => $context['taxonomy']->nested,
+                'level1Label' => $context['taxonomy']->level1Label,
+                'level2Label' => $context['taxonomy']->level2Label,
+            ],
+            'units' => collect([
+                ...ParishUnits::options($context['units'], 1),
+                ...ParishUnits::options($context['units'], 2),
+            ])->map(fn (array $u) => [
+                'id' => $u['id'], 'level' => $u['level'],
+                'parentId' => $u['parentId'], 'name' => $u['name'],
+            ])->values()->all(),
+        ]);
+    }
+
+    public function updateProfile(UpdateReaderProfileRequest $request, Bookshelf $shelf, Membership $reader, UpdateReaderProfile $update): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $update->execute($user, $reader, $request->validated());
+
+        return redirect()->route('shelves.manage.readers.show', ['shelf' => $shelf->slug, 'reader' => $reader->id]);
     }
 }
