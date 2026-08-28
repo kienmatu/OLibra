@@ -18,8 +18,11 @@ class RetireCopyRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
+        // bail + encoding:UTF-8 — Task 12 sweep: reason writes straight to
+        // book_copies.retired_reason (a utf8mb4 column); the same guard as
+        // CopyNoteRequest.
         return [
-            'reason' => ['required', 'string', 'max:1000'],
+            'reason' => ['bail', 'required', 'string', 'max:1000', 'encoding:UTF-8'],
         ];
     }
 }

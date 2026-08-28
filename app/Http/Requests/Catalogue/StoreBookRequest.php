@@ -39,16 +39,26 @@ class StoreBookRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
+        // bail + encoding:UTF-8 on every free-text field (Task 12 sweep):
+        // title/author/publisher/isbn/description/language/donor_name all
+        // write straight to `books`/`book_copies` (utf8mb4 columns) inside
+        // CreateBook::execute()'s transaction — the identical class of bug
+        // CopyNoteRequest carried (invalid UTF-8 -> unmapped QueryException
+        // -> 500). category_slug is exempt: CreateBook only ever uses it
+        // in a WHERE lookup (Category::query()->where('slug', ...)), which
+        // proved safe against invalid UTF-8 live (a non-matching WHERE,
+        // not a write) — an unmatched slug 400s as category_not_found
+        // before any write happens.
         return [
-            'title' => ['required', 'string', 'max:500'],
-            'author' => ['required', 'string', 'max:255'],
+            'title' => ['bail', 'required', 'string', 'max:500', 'encoding:UTF-8'],
+            'author' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
             'category_slug' => ['required', 'string', 'max:255'],
-            'publisher' => ['nullable', 'string', 'max:255'],
+            'publisher' => ['bail', 'nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'published_year' => ['nullable', 'integer', 'min:1000', 'max:2100'],
             'page_count' => ['nullable', 'integer', 'min:1'],
-            'isbn' => ['nullable', 'string', 'max:32'],
-            'description' => ['nullable', 'string', 'max:5000'],
-            'language' => ['nullable', 'string', 'max:8'],
+            'isbn' => ['bail', 'nullable', 'string', 'max:32', 'encoding:UTF-8'],
+            'description' => ['bail', 'nullable', 'string', 'max:5000', 'encoding:UTF-8'],
+            'language' => ['bail', 'nullable', 'string', 'max:8', 'encoding:UTF-8'],
             'is_published' => ['nullable', 'boolean'],
             'copy_count' => ['required', 'integer', 'min:1', 'max:200'],
             'donor_membership_id' => [
@@ -61,7 +71,7 @@ class StoreBookRequest extends FormRequest
                     }
                 },
             ],
-            'donor_name' => ['nullable', 'string', 'max:255'],
+            'donor_name' => ['bail', 'nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'acquired_on' => ['nullable', 'date_format:Y-m-d'],
         ];
     }

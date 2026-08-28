@@ -23,7 +23,13 @@ class RegisterMembershipRequest extends FormRequest
     {
         return [
             'shelf' => ['required', 'string', 'max:255'],
-            'username' => ['nullable', 'string', 'max:255'],
+            // bail + encoding:UTF-8 — Task 12 sweep: a supplied username is
+            // written straight onto `users.username` in
+            // Registration::createPerson() (utf8mb4); the same class of
+            // hole this file's saint_name/full_name/father_name/
+            // mother_name rules already closed below. password is exempt
+            // (Hash::make(), never stored raw).
+            'username' => ['bail', 'nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
             // Fix round, Task 2: `encoding:UTF-8` closes the same class of
             // gap as Task 1's `bail`, one layer downstream — a name field
@@ -73,8 +79,15 @@ class RegisterMembershipRequest extends FormRequest
             'date_of_birth' => ['bail', 'required', 'date_format:Y-m-d', 'before_or_equal:today', 'after_or_equal:1900-01-01'],
             'father_name' => ['required', 'string', 'max:255', 'encoding:UTF-8'],
             'mother_name' => ['required', 'string', 'max:255', 'encoding:UTF-8'],
+            // phone is exempt: Registration::execute() runs it through
+            // Phone::assert() (a strict \d{9,11} regex) before it is ever
+            // stored, so invalid UTF-8 fails that regex cleanly as
+            // phone_invalid, never reaching the INSERT. phone_missing_reason
+            // has no such gate — it is trimmed and stored as-is whenever
+            // phone is blank (Registration.php) — so it gets the same
+            // guard as every other free-text field here (Task 12 sweep).
             'phone' => ['nullable', 'string', 'max:32'],
-            'phone_missing_reason' => ['nullable', 'string', 'max:1000'],
+            'phone_missing_reason' => ['bail', 'nullable', 'string', 'max:1000', 'encoding:UTF-8'],
             'email' => ['nullable', 'email', 'max:255'],
             'parish_unit_l1_id' => ['nullable', 'string', 'max:36'],
             'parish_unit_l2_id' => ['nullable', 'string', 'max:36'],

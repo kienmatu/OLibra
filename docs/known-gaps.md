@@ -1396,3 +1396,87 @@ the full suite ran green.
   `act-as-reader` gate, via a fixture that mirrors `ResolveTenant`'s own
   status filter rather than binding a suspended membership straight into
   `TenantContext`, a shape no controller produces).
+- **Phase 1c, Task 12 carry-over: `CopyNoteRequest`'s `note` reached the
+  database as invalid UTF-8 and 500'd — the fourth confirmed occurrence of
+  the class of bug PR #61 first named.** Task 11's reviewer proved by
+  execution that a manager posting invalid UTF-8 to
+  `shelves.manage.copies.report-lost` got a real HTTP 500:
+  `app/Http/Requests/Catalogue/CopyNoteRequest.php` validated `note` as
+  `['nullable', 'string', 'max:1000']` — no `encoding:UTF-8` — so the value
+  reached `ReportCopyLost`/`MarkCopyFound`'s write to `book_copies` (a
+  utf8mb4 column), tripped MariaDB errno 1366, unmapped, and crashed a
+  legitimate workflow reachable from both Task 11's new lost screen and the
+  pre-existing catalogue UI. Fixed by adding `bail` + `encoding:UTF-8`, the
+  identical shape `ReceiveReturnRequest` (Task 11) and the new
+  `VoidLoanRequest` (Task 12) already carry. Reproduced live and proved by
+  `tests/Feature/Catalogue/CatalogueHostileInputTest.php`'s first test
+  (500 before the fix, `assertSessionHasErrors('note')` after).
+
+  **The sweep, not just the instance:** every Form Request under
+  `app/Http/Requests/` was read and every free-text field inventoried.
+  Four more live, reachable instances of the identical class turned up and
+  were fixed the same way — `AssessConditionRequest::note`,
+  `RetireCopyRequest::reason`, `StoreBookRequest`/`UpdateBookRequest`'s
+  `title`/`author`/`publisher`/`isbn`/`description`/`language`,
+  `AddCopiesRequest::donor_name`, `RejectMembershipRequest::reason`,
+  `SuspendMembershipRequest::reason` (this is "the void reason predicted
+  by Task 6's review" the Task 12 brief named), `SetReaderCredentialsRequest
+  ::username`, `RegisterMembershipRequest::username`/`phone_missing_reason`,
+  `RegisterReaderOnBehalfRequest::phone_missing_reason` and
+  `UpdateReaderProfileRequest::phone_missing_reason` — thirteen fields
+  across nine files, each confirmed to write straight to a utf8mb4 column
+  with no encoding check by reading its Action's write path (not assumed).
+  Fields left WITHOUT the rule, and why each is safe without it: `phone`
+  everywhere (gated by `Phone::assert()`'s strict `\d{9,11}` regex before
+  any write), `category_slug` (a `Category::query()->where('slug', ...)`
+  lookup only — proved live that a WHERE bind on invalid UTF-8 returns no
+  match rather than throwing, so an unmatched slug refuses as
+  `category_not_found` before any write), `shelf` on the public register
+  form (the identical WHERE-only shape), `parish_unit_l1_id`/
+  `parish_unit_l2_id` (validated by `ParishUnits::validateSelection()`
+  against a Collection already loaded into PHP memory — a string compare,
+  not a DB bind), `QuickLendRegisterReaderRequest::book` (a lookup key
+  stripped via `Arr::except()` before the domain write ever sees it),
+  `password` fields (hashed via `Hash::make()`, never stored raw), `uuid`-
+  and `email`-format fields (their own charset guards), and
+  `ReceiveReturnRequest::condition`/`AssessConditionRequest::condition`
+  (`Rule::enum(...)`, which already rejects anything but a fixed ASCII
+  set). `date_of_birth` on `UpdateReaderProfileRequest` is exempt too —
+  `ProfileFields::normalisePatch()` regex-validates the `Y-m-d` shape
+  before storage.
+
+  **Pinned by a class-level gate, not per-instance smoke tests:**
+  `tests/Feature/Architecture/FreeTextEncodingGuardTest.php` scans every
+  class under `app/Http/Requests/`, calls its `rules()`, and requires
+  `encoding:UTF-8` on every field whose ruleset contains the bare `string`
+  rule UNLESS the field is named in that test's own documented exemption
+  list (the same reasons as above, written once and checked for
+  staleness by its own second test). Mutation-proved twice: reverting
+  `RetireCopyRequest::reason`'s fix turned the gate red, by name,
+  restored to green; a scaffolded sixth Form Request with an unguarded
+  `note` field (`FakeFifthOccurrenceRequest`, deleted immediately after)
+  also turned it red, by name — proving a future occurrence fails this
+  gate without anyone having to rediscover the class of bug by hand.
+
+  **One adjacent, DIFFERENT class of gap found during the same file-by-
+  file read, left unfixed as out of this task's scope:** five Catalogue
+  Form Requests — `AddCopiesRequest`, `AssessConditionRequest`,
+  `RetireCopyRequest`, `StoreBookRequest`, `UpdateBookRequest` — still
+  return the bare `bool` from `Gate::allows(...)`/`$model instanceof X &&
+  Gate::allows(...)` in `authorize()`, which Laravel's default
+  `failedAuthorization()` renders as a 403, not a 404 — the exact
+  BR §5.4 anti-enumeration hazard "PR #61 fix round, Task 4" (see above)
+  already fixed on the five Members Form Requests by switching to
+  `abort_unless(..., 404)`. Every route reaching these five sits inside
+  `['auth', 'role:manager']` (`routes/web.php`), so — identically to the
+  Members case — `EnsureShelfRole` 404s a non-manager before any of these
+  ever runs, making the branch provably unreachable over HTTP today; this
+  is a backstop-only gap against a future middleware-ordering change, not
+  a live hole. Not fixed here because it is a different class of bug from
+  the free-text encoding sweep this task's carry-over was scoped to (an
+  authorization-response-code shape, not a validation-guard shape), and
+  fixing five files' `authorize()` methods was not exercised by any
+  red/green mutation run in this task. Left for whichever task next
+  touches these five files, or a dedicated backstop sweep mirroring PR
+  #61 Task 4's own — the fix shape (`abort_unless(Gate::allows(...), 404)`)
+  is already established and copy-pasteable.

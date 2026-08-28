@@ -23,8 +23,12 @@ class SetReaderCredentialsRequest extends FormRequest
     {
         // min:8 counts multibyte characters (Laravel measures strings with
         // mb_strlen) — the same code-point rule the Action re-asserts.
+        // bail + encoding:UTF-8 on username — Task 12 sweep: SetReaderCredentials
+        // writes it straight onto `users.username` (utf8mb4). password is
+        // exempt: it goes through Hash::make(), which accepts any byte
+        // string and never touches a utf8mb4 column with the raw value.
         return [
-            'username' => ['required', 'string', 'max:255'],
+            'username' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
             'password' => ['required', 'string', 'min:8'],
         ];
     }

@@ -43,7 +43,10 @@ class AddCopiesRequest extends FormRequest
                     }
                 },
             ],
-            'donor_name' => ['nullable', 'string', 'max:255'],
+            // bail + encoding:UTF-8 — Task 12 sweep: donor_name writes
+            // straight to book_copies.acquired_from (utf8mb4), the same
+            // guard as StoreBookRequest's identical field.
+            'donor_name' => ['bail', 'nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'acquired_on' => ['nullable', 'date_format:Y-m-d'],
         ];
     }

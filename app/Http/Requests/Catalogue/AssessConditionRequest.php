@@ -22,7 +22,10 @@ class AssessConditionRequest extends FormRequest
     {
         return [
             'condition' => ['required', Rule::enum(CopyCondition::class)],
-            'note' => ['nullable', 'string', 'max:1000'],
+            // bail + encoding:UTF-8 — the same free-text guard as
+            // CopyNoteRequest (Task 12 sweep); this note writes to the
+            // same utf8mb4 column class via ConditionAssessment.
+            'note' => ['bail', 'nullable', 'string', 'max:1000', 'encoding:UTF-8'],
         ];
     }
 }
