@@ -63,6 +63,57 @@ it('renew asks only for a reader membership — ownership is the Action\'s quest
     expect(Gate::forUser($actor)->allows('renew', $loan))->toBeTrue();
 });
 
+/**
+ * Four negative branches for 'renew' specifically — not the shared
+ * act-as-reader gate (GateTest.php already covers that closure
+ * exhaustively). LoanPolicy::renew()'s BODY is what needs falsifying:
+ * replacing it with `return true;` leaves the whole suite green unless
+ * something asserts a DENY through this exact ability.
+ */
+it('a guest with the tenant context entirely unset may not renew', function () {
+    [, , , $loan] = lpFix();
+    $guest = User::factory()->create();
+    // Entirely unset, not merely null-membership — mirrors GateTest's
+    // "grants nothing when the tenant context is entirely unset", for the
+    // renew ability specifically rather than the shared gate directly.
+    app(TenantContext::class)->clear();
+
+    expect(Gate::forUser($guest)->allows('renew', $loan))->toBeFalse();
+});
+
+it('a non-member of this shelf (membership resolved to null) may not renew', function () {
+    [$shelf, , , $loan] = lpFix();
+    $nonMember = User::factory()->create();
+    app(TenantContext::class)->set($shelf, null);
+
+    expect(Gate::forUser($nonMember)->allows('renew', $loan))->toBeFalse();
+});
+
+it('a membership belonging to a different user may not authorize this actor to renew', function () {
+    [$shelf, , , $loan] = lpFix();
+    $owner = User::factory()->create();
+    $ownerMembership = Membership::factory()->for($shelf)->create([
+        'user_id' => $owner->id, 'role' => 'admin', 'status' => 'active',
+    ]);
+    $stranger = User::factory()->create();
+    app(TenantContext::class)->set($shelf, $ownerMembership);
+
+    expect(Gate::forUser($stranger)->allows('renew', $loan))->toBeFalse();
+});
+
+it('a soft-deleted membership may not renew', function () {
+    [$shelf, , , $loan] = lpFix();
+    $reader = User::factory()->create();
+    $membership = Membership::factory()->for($shelf)->create([
+        'user_id' => $reader->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    $membership->delete();
+    expect($membership->trashed())->toBeTrue();
+    app(TenantContext::class)->set($shelf, $membership);
+
+    expect(Gate::forUser($reader)->allows('renew', $loan))->toBeFalse();
+});
+
 it('Bookshelf::loans() is shelf-local — the relation the {loan} binding resolves through', function () {
     // Review fix: the draft called this "…and 404s a foreign loan" while
     // making no HTTP request at all. The 404 itself is asserted over HTTP

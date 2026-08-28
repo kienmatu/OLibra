@@ -1363,3 +1363,36 @@ the full suite ran green.
   since the failing branch cannot be reached over HTTP today) and asserts
   a denied `authorize()` throws `NotFoundHttpException`, not the default
   `AuthorizationException`.
+- **Phase 1c, Task 5 fix round: a suspended reader cannot renew a loan
+  already in their hands.**
+  BR/OPS §4.2's open question ("Q4") asked whether INV-4 (suspension
+  blocks new loans, existing ones survive) should still let a suspended
+  reader renew. This phase's answer, 2026-08-29: no — a suspended reader
+  cannot renew, matching the reference, and closing the question rather
+  than leaving it open. `App\Http\Middleware\ResolveTenant::handle()`
+  (`app/Http/Middleware/ResolveTenant.php:65`) is the ONLY place a
+  membership is ever resolved into `TenantContext`, and its query is
+  filtered `->where('status', Active)` — so a suspended reader's
+  `TenantContext::membership()` is null on every real route, renew
+  included, and `App\Policies\LoanPolicy::renew()`'s `act-as-reader`
+  delegation (`Gate::forUser($actor)->authorize('renew', $loan)` in
+  `App\Actions\Circulation\RenewLoan::execute`) refuses before the
+  action's own logic ever runs. The reference is not authority for the
+  other reading either: `requireReader`
+  (`old_next/src/domain/catalogue/policy.ts:269`) never reads membership
+  status, but only because the reference applies that filter one layer
+  up, in `membershipFor` (`old_next/src/auth/guards.ts:56-65`) —
+  `and m.status = 'active'`, with the comment "A suspended member is not
+  a reader of this shelf, though their existing loans survive (INV-4)."
+  `ResolveTenant`'s filter is the faithful port of that exact line, so
+  the "allowed" reading is equally unreachable in the reference itself.
+  Delivering the "allowed" reading here for real would mean changing how
+  suspension resolves for EVERY reader route (not adding a carve-out
+  inside `RenewLoan` alone), since `ResolveTenant` is the single
+  membership-resolution point every reader ability shares — a change out
+  of scope for this task. Pinned by
+  `tests/Feature/Circulation/RenewLoanTest.php`'s "Q4" test, which
+  exercises the real refusal (an `AuthorizationException` from the
+  `act-as-reader` gate, via a fixture that mirrors `ResolveTenant`'s own
+  status filter rather than binding a suspended membership straight into
+  `TenantContext`, a shape no controller produces).

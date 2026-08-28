@@ -12,6 +12,7 @@ use App\Models\Membership;
 use App\Models\User;
 use App\Support\TenantContext;
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
 afterEach(fn () => Carbon::setTestNow());
@@ -45,7 +46,12 @@ function renFix(array $shelfSettings = [], string $readerStatus = 'active', stri
         'borrower_id' => $reader->id, 'lent_by' => $manager->id,
         'due_on' => '2026-09-04', 'status' => 'active', 'renewals_used' => 0,
     ]);
-    app(TenantContext::class)->set($shelf, $readerMembership);
+    // Mirrors ResolveTenant (app/Http/Middleware/ResolveTenant.php:61-65)
+    // exactly: its query is filtered `->where('status', Active)`, so a
+    // non-active membership NEVER resolves into TenantContext on the real
+    // request path — binding the suspended row itself here (as this
+    // fixture used to) certifies a binding no controller produces.
+    app(TenantContext::class)->set($shelf, $readerStatus === 'active' ? $readerMembership : null);
     test()->actingAs($reader);
 
     return [$shelf, $reader, $loan, $book];
@@ -130,15 +136,57 @@ it('somebody queued for the TITLE blocks the renewal — pending only, and only 
         ->toThrow(RuleViolated::class, 'title_has_queue');
 });
 
-it('Q4: a suspended reader may still renew — the assumed reading, pinned by name', function () {
-    // INV-4 blocks NEW loans and protects existing ones; OPS §4.2's open
-    // question records both readings and the reference implements ALLOWED.
-    // Reversing is one predicate call in RenewLoan::execute (marked there)
-    // plus flipping this test — loud either way.
-    [, $reader, $loan] = renFix(readerStatus: 'suspended');
+it('an APPROVED request for the same title does not block renewal — it already names a specific copy', function () {
+    // The reference's longest paragraph on this clause: an approved
+    // request already holds a specific copy, so blocking a renewal on
+    // account of it would refuse the reader over a queue already served.
+    // Widening the status filter to include Approved must turn this red.
+    [$shelf, $reader, $loan, $book] = renFix(slug: 'dong-thap-ren-approved');
+    app(TenantContext::class)->actSystemWide();
+    $approved = User::factory()->create(['full_name' => 'Maria Đã Được Duyệt']);
+    BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $book->id,
+        'member_id' => $approved->id, 'status' => 'approved',
+    ]);
+    app(TenantContext::class)->set($shelf, Membership::query()->where('user_id', $reader->id)->firstOrFail());
 
     $result = app(RenewLoan::class)->execute($reader, $loan);
     expect($result['renewalsUsed'])->toBe(1);
+});
+
+it('a soft-deleted PENDING request for the same title does not block renewal — not somebody waiting', function () {
+    // The reference writes `deleted_at is null` explicitly. Adding
+    // ->withTrashed() to the exists() query must turn this red.
+    [$shelf, $reader, $loan, $book] = renFix(slug: 'dong-thap-ren-trashed');
+    app(TenantContext::class)->actSystemWide();
+    $cancelled = User::factory()->create(['full_name' => 'Gioan Đã Hủy Yêu Cầu']);
+    $request = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $book->id,
+        'member_id' => $cancelled->id, 'status' => 'pending',
+    ]);
+    $request->delete();
+    expect($request->trashed())->toBeTrue();
+    app(TenantContext::class)->set($shelf, Membership::query()->where('user_id', $reader->id)->firstOrFail());
+
+    $result = app(RenewLoan::class)->execute($reader, $loan);
+    expect($result['renewalsUsed'])->toBe(1);
+});
+
+it('Q4: a suspended reader cannot renew — ResolveTenant never binds their membership, so the act-as-reader gate refuses', function () {
+    // 2026-08-29 product-owner ruling: this reading is CLOSED, not open.
+    // ResolveTenant (app/Http/Middleware/ResolveTenant.php:61-65) is the
+    // only place a membership is ever resolved into TenantContext, and it
+    // filters `->where('status', Active)` — so a suspended reader's
+    // TenantContext::membership() is null on every real route, this one
+    // included. renFix() mirrors that filtering exactly (a suspended
+    // status binds null, matching production), so this test exercises the
+    // real refusal path: Gate::authorize('renew', $loan) in
+    // RenewLoan::execute throws before the action's own logic runs at
+    // all — the same act-as-reader gate lend/receiveReturn/void use.
+    [, $reader, $loan] = renFix(readerStatus: 'suspended');
+
+    expect(fn () => app(RenewLoan::class)->execute($reader, $loan))
+        ->toThrow(AuthorizationException::class);
 });
 
 it('a reader cannot renew somebody else\'s loan, and hears loan_not_active, not whose it is', function () {
@@ -185,4 +233,19 @@ it('the loan lock is the transaction\'s first statement', function () {
 
     expect(str_contains($log[0]['query'], 'loans'))->toBeTrue($log[0]['query'])
         ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue($log[0]['query']);
+});
+
+it('the queue check is skipped once renewals are already exhausted — no wasted query inside the lock', function () {
+    [, $reader, $loan] = renFix(slug: 'dong-thap-ren-shortcircuit');
+    app(RenewLoan::class)->execute($reader, $loan); // uses the one renewal
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    expect(fn () => app(RenewLoan::class)->execute($reader, $loan->fresh()))
+        ->toThrow(RuleViolated::class, 'no_renewals_remaining');
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect(collect($log)->contains(fn ($entry) => str_contains($entry['query'], 'borrow_requests')))
+        ->toBeFalse();
 });

@@ -30,12 +30,22 @@ use Illuminate\Support\Facades\Gate;
  * The queue is checked on the TITLE (book_id), not the copy — a waiting
  * reader does not care which copy they get — and on status pending only:
  * an approved request already holds a specific copy and is not waiting on
- * this loan. Soft-deleted requests are excluded by the model's own scope.
+ * this loan. Soft-deleted requests are excluded by the model's own scope
+ * (BorrowRequest uses SoftDeletes; no ->withTrashed() here).
  *
- * Q4 (open question 1): NO membership-status check, deliberately — a
- * suspended reader may renew on the reference's reading. To reverse:
- * resolve this reader's membership and call LoanRules::memberMayBorrow
- * here, plus flip RenewLoanTest's named Q4 test.
+ * The renewals-remaining check runs BEFORE the queue's exists() query, not
+ * after — 2026-08-29 fix round: the exists() query used to always run,
+ * even when LoanRules::loanRenewable would refuse on renewals_used alone,
+ * which is one wasted query held inside the row lock for every
+ * already-exhausted renewal attempt. Refusal precedence (renewals before
+ * queue — see LoanRules::loanRenewable's own docblock) is unchanged; only
+ * the query is now skipped on that path.
+ *
+ * Q4 (open question 1) is CLOSED, not open: membership status DOES gate
+ * renewal, same as every other reader ability — 2026-08-29 product-owner
+ * ruling. See LoanPolicy::renew()'s docblock for why the reference's
+ * requireReader looking status-blind is not evidence for the other
+ * reading, and docs/known-gaps.md for the accepted limitation.
  *
  * Ownership folds into loan_not_active — OPS §4.2 lists no loan_not_found
  * and no not_your_loan; distinguishing them would confirm the loan exists.
@@ -69,6 +79,13 @@ final class RenewLoan
                 throw new RuleViolated('shelf_not_found');
             }
             $settings = LendingSettings::fromShelf($shelf);
+
+            // Renewals-remaining first, and on its own — short-circuits
+            // before the queue query below when it is already the refusal,
+            // so an exhausted renewal never pays for a wasted exists().
+            if ($loan->renewals_used >= $settings->maxRenewals) {
+                throw new RuleViolated('no_renewals_remaining');
+            }
 
             $titleHasQueue = BorrowRequest::query()
                 ->where('book_id', $loan->book_id)
