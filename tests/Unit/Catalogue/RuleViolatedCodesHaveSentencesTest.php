@@ -45,6 +45,7 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'duplicate_isbn',
         'has_active_loans',
         'not_lost',
+        'phone_invalid',
         'retire_reason_required',
     ]);
 
