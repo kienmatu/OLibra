@@ -25,22 +25,30 @@ use Illuminate\Support\Facades\Gate;
  */
 class UpdateReaderProfileRequest extends FormRequest
 {
+    /** Fix round, Minor #4: 404, not the bare bool's 403 — see RegisterReaderOnBehalfRequest. */
     public function authorize(): bool
     {
         $membership = $this->route('reader');
 
-        return $membership instanceof Membership && Gate::allows('correct', $membership);
+        abort_unless($membership instanceof Membership && Gate::allows('correct', $membership), 404);
+
+        return true;
     }
 
     /** @return array<string, mixed> */
     public function rules(): array
     {
         return [
-            'saint_name' => ['nullable', 'string', 'max:255'],
-            'full_name' => ['nullable', 'string', 'max:255'],
+            // Fix round, Task 2 (applied here too): UpdateReaderProfile's
+            // save() has no QueryException handling at all, so invalid
+            // UTF-8 here would 500 outright rather than merely being
+            // unmapped. See RegisterMembershipRequest for the full
+            // reasoning behind `encoding:UTF-8`.
+            'saint_name' => ['nullable', 'string', 'max:255', 'encoding:UTF-8'],
+            'full_name' => ['nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'date_of_birth' => ['nullable', 'string', 'max:10'],
-            'father_name' => ['nullable', 'string', 'max:255'],
-            'mother_name' => ['nullable', 'string', 'max:255'],
+            'father_name' => ['nullable', 'string', 'max:255', 'encoding:UTF-8'],
+            'mother_name' => ['nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'phone' => ['nullable', 'string', 'max:32'],
             'phone_missing_reason' => ['nullable', 'string', 'max:1000'],
             'email' => ['nullable', 'email', 'max:255'],

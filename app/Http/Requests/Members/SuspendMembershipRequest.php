@@ -12,11 +12,14 @@ use Illuminate\Support\Facades\Gate;
  */
 class SuspendMembershipRequest extends FormRequest
 {
+    /** Fix round, Minor #4: 404, not the bare bool's 403 — see RegisterReaderOnBehalfRequest. */
     public function authorize(): bool
     {
         $membership = $this->route('reader');
 
-        return $membership instanceof Membership && Gate::allows('suspend', $membership);
+        abort_unless($membership instanceof Membership && Gate::allows('suspend', $membership), 404);
+
+        return true;
     }
 
     /** @return array<string, mixed> */

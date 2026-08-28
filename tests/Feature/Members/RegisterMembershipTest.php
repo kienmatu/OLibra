@@ -322,7 +322,17 @@ it('IMPORTANT 5: a probe against a suspended membership leaves that row exactly 
         ->and($fresh->suspension_reason)->toBe('Lý do thật');
 });
 
-it('a rejected applicant re-applies on the same membership row, reasons cleared', function () {
+it('a rejected applicant re-applies on the same membership row, the rejection reason survives', function () {
+    // Fix round, IMPORTANT finding 3: this used to assert the OPPOSITE —
+    // that rejection_reason came back null. An unauthenticated stranger
+    // who knows a child's name/DOB/phone could re-open a rejected
+    // application AND, in the same stroke, permanently erase the
+    // manager's recorded reason for the last refusal. BR §2 sanctions the
+    // re-application; nothing sanctions destroying the refusal record it
+    // walks back. The reference (old_next/src/domain/members/
+    // registration.ts) nulls both reason columns unconditionally too —
+    // this is a deliberate departure from it, not an oversight ported
+    // forward.
     regFixture();
     $first = app(RegisterMembership::class)->execute(regInput());
     Membership::query()->findOrFail($first['membershipId'])
@@ -333,7 +343,7 @@ it('a rejected applicant re-applies on the same membership row, reasons cleared'
     $membership = Membership::query()->findOrFail($again['membershipId']);
     expect($again['membershipId'])->toBe($first['membershipId'])
         ->and($membership->status)->toBe(MembershipStatus::Pending)
-        ->and($membership->rejection_reason)->toBeNull();
+        ->and($membership->rejection_reason)->toBe('Thiếu thông tin');
 });
 
 it('a member who left may come back the same way', function () {

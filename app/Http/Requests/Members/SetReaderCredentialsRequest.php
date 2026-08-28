@@ -8,11 +8,14 @@ use Illuminate\Support\Facades\Gate;
 
 class SetReaderCredentialsRequest extends FormRequest
 {
+    /** Fix round, Minor #4: 404, not the bare bool's 403 — see RegisterReaderOnBehalfRequest. */
     public function authorize(): bool
     {
         $membership = $this->route('reader');
 
-        return $membership instanceof Membership && Gate::allows('setCredentials', $membership);
+        abort_unless($membership instanceof Membership && Gate::allows('setCredentials', $membership), 404);
+
+        return true;
     }
 
     /** @return array<string, mixed> */

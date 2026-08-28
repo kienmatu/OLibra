@@ -301,6 +301,34 @@ final class Registration
      * race against any other command that also locks this row (every
      * lifecycle transition command does) without having to restructure
      * `register()`'s call order.
+     *
+     * Fix round, IMPORTANT finding 3: `rejection_reason`/`suspension_reason`
+     * are no longer nulled here. The reference does exactly what this file
+     * used to — `registration.ts`'s own walk-back sets both to `null`
+     * unconditionally — so this is a deliberate departure, not a port: BR
+     * §2 sanctions a rejected applicant re-applying, but neither BR §2 nor
+     * the product owner's acceptance of the `already_registered_here`
+     * existence-oracle sanctions destroying the manager's recorded reason
+     * for the last refusal in the same stroke. An unauthenticated `curl`
+     * that already knows a child's name/DOB/phone could reopen a rejected
+     * application AND permanently erase why a manager rejected it —
+     * observed live before this fix. Leaving the columns out of this
+     * `update()` call preserves whichever one is set; nothing else in the
+     * graph writes `pending` with a non-null reason already on the row
+     * (`rejected` requires one via `memberships_rejected_has_reason`,
+     * `suspended->left->pending` can carry a leftover `suspension_reason`
+     * the same way), and ReaderDetailQuery/the reader detail screen
+     * already render both fields whenever they are non-null, regardless of
+     * current status — so this reads, correctly, as "the last refusal on
+     * file", not as "currently rejected/suspended", which the current
+     * status badge next to it already disambiguates.
+     *
+     * The oracle this does NOT remove, recorded rather than hidden
+     * (known-gaps.md): `already_registered_here` vs. a silent `pending`
+     * still distinguishes {pending, active, suspended} from {left,
+     * rejected} to anyone who submits the exact triple — BR §2 requires
+     * re-application to stay possible for both, so that distinction stays
+     * observable by design.
      */
     private function upsertMembership(string $userId, ?string $l1, ?string $l2, MembershipStatus $status, ?User $approver): string
     {
@@ -316,8 +344,6 @@ final class Registration
                 'role' => 'reader',
                 'parish_unit_l1_id' => $l1,
                 'parish_unit_l2_id' => $l2,
-                'rejection_reason' => null,
-                'suspension_reason' => null,
                 'approved_by' => $status === MembershipStatus::Active ? $approver?->id : null,
                 'approved_at' => $status === MembershipStatus::Active ? $this->clock->now() : null,
             ]);
