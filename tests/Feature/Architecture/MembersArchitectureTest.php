@@ -18,10 +18,27 @@ it('ManagerRegisterReader is wired to exactly ONE route — 1c\'s quick-lend esc
     // still catches the thing a route walk cannot: a SECOND controller
     // calling the Action from somewhere that was never meant to create an
     // active member without an approval record.
+    //
+    // Carry-over fix, Task 10 review Minor #3: `glob('{,*/}*.php')` only
+    // ever walks ONE directory level below Http/Controllers — a controller
+    // nested two levels deep (Http/Controllers/Manage/Sub/Foo.php) never
+    // matches the glob pattern at all, so it is invisible to this pin
+    // regardless of what it contains. Reproduced live: a scaffolded
+    // Http/Controllers/Manage/Nested/FakeNestedController.php injecting
+    // ManagerRegisterReader left this test green under the old glob, then
+    // went red under the RecursiveIteratorIterator walk below (same shape
+    // "only the three sanctioned Actions..." below already uses for this
+    // exact reason). basename() alone would also collide two
+    // same-named controllers in different directories; the relative path
+    // from app_path() is what the recursive walk records instead.
     $hits = [];
-    foreach (glob(app_path('Http/Controllers/{,*/}*.php'), GLOB_BRACE) ?: [] as $file) {
-        if (str_contains((string) file_get_contents($file), 'ManagerRegisterReader')) {
-            $hits[] = basename($file);
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path('Http/Controllers')));
+    foreach ($files as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+        if (str_contains((string) file_get_contents($file->getPathname()), 'ManagerRegisterReader')) {
+            $hits[] = basename($file->getPathname());
         }
     }
 
