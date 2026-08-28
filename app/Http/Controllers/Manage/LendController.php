@@ -27,6 +27,7 @@ use App\Support\QueryParam;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -219,7 +220,11 @@ class LendController extends Controller
             ->with('success', __('rules.lend_success_flash', [
                 'title' => $book === null ? '' : $book->title,
                 'name' => $borrower === null ? '' : $borrower->full_name,
-                'due' => $result['dueOn'],
+                // AGENTS.md: "dates read as dates" — a raw Y-m-d here would
+                // read "hạn trả 2026-09-12" one tap after the confirm screen
+                // shows the same date as 12/09/2026 via formatDate(). Fixed
+                // to the identical d/m/Y a volunteer already saw.
+                'due' => Carbon::parse($result['dueOn'])->format('d/m/Y'),
             ]));
     }
 }
