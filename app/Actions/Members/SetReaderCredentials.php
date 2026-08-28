@@ -83,6 +83,15 @@ final class SetReaderCredentials
                 $person->password_hash = Hash::make($password);
                 $person->save();
             } catch (QueryException $e) {
+                // Only users_username_key is translated below; every other
+                // QueryException rethrows untouched and reaches Laravel's
+                // default exception logging with its bound parameters
+                // inlined (QueryException::formatMessage()'s maskBindings
+                // defaults to false) — including, on this statement, the
+                // freshly generated password hash. Known, unfixed gap;
+                // see docs/known-gaps.md, "Task 9 (members plan), fix
+                // round" — the sibling of Registration.php's own
+                // unmapped-QueryException gap ("Task 6, fix round").
                 UniqueViolation::translate($e, ['users_username_key' => 'username_in_use']);
             }
 

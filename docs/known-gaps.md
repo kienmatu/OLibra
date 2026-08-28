@@ -726,6 +726,29 @@ review or a later task rather than fixed in place:
   byte-identical to pre-`up()`. Re-`up()` succeeds.
 - **Task 14:** the unset-context test pins only `RuntimeException::class`, not
   the message.
+- **Task 9 (members plan), fix round:** `SetReaderCredentials.php`'s
+  `$person->save()` sits inside a plain `try`/`catch (QueryException $e)`
+  whose only handled case is `UniqueViolation::translate()` for
+  `users_username_key`; every other `QueryException` — the `not null`
+  columns, a truncated value, a lock-wait timeout — falls through untouched
+  and reaches Laravel's default exception logging. `QueryException::
+  formatMessage()` defaults `maskBindings` to `false`, so the logged message
+  inlines the query's bound parameters verbatim. This is the identical class
+  of gap already recorded above under "Task 6, fix round" for
+  `Registration::register()` (which leaks a child's full name, date of
+  birth, parents' names and phone) — `bootstrap/app.php`'s `withExceptions()`
+  registers no redaction hook, so nothing between the driver and the log
+  file strips a bound value either place. This instance is strictly worse:
+  the bound value that leaks is `Hash::make($password)`, a freshly generated
+  **password hash**, not merely personal data about a child. Not fixed here,
+  for the same reason the Task 6 instance was not fixed in place — the
+  correct fix is one app-wide redaction mechanism for logged exception
+  messages/contexts, not a second one-command patch that leaves every other
+  Action with the identical exposure while looking addressed. Belongs with
+  the same owner named above: whichever task owns the phase's logging/PII
+  policy (Task 16, per its ownership of the hashed-session-at-rest decision
+  elsewhere in this file). `SetReaderCredentials.php` now carries an inline
+  comment naming this gap, mirroring `Registration.php`'s own.
 
 ## Decisions taken on the product owner's behalf
 
