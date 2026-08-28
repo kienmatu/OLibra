@@ -17,6 +17,33 @@ use Illuminate\Support\Facades\Gate;
  * parameter carries no shelf re-check: under a bound tenant BookshelfScope
  * means a foreign shelf's membership cannot have been resolved at all.
  *
+ * DO NOT wire `view()` above to a reader's own profile page. There is a
+ * THIRD deferred capability besides the two profile-change verbs this
+ * docblock used to name alone: reader self-view of their own membership —
+ * BR §16.2 grants readers "View personal details and propose changes to
+ * them" (docs/BUSINESS-REQUIREMENTS.md:544), OPS §3.3 names the query
+ * `GetMyProfile` (docs/OPERATIONS.md:69), and the reference gated it with
+ * `requireSelfOrManager` (old_next/src/domain/members/policy.ts:214-223),
+ * a function structurally distinct from every method here: it compares
+ * the actor's OWN membership id to the target row, admitting a manager on
+ * top, instead of checking act-as-manager alone. `view()` above is
+ * act-as-manager only and grants a reader nothing — reaching for it from
+ * a future GetMyProfile/reader profile page hands every reader a
+ * permanent 403. That self-view ability is Phase 3's, same as the
+ * propose/approve verbs, and does not exist yet; routes/web.php's
+ * `profile.*` group is `under-construction` for exactly this reason.
+ *
+ * Status-code note for whoever wires ANY of these into a controller:
+ * `EnsureShelfRole` (the `role:*` route middleware) 404s a refusal —
+ * BR §5.4's anti-enumeration rule, so a non-member cannot distinguish "no
+ * such shelf" from "not your shelf". `Gate::authorize()` — the usual way
+ * a policy method gets enforced in a controller — throws
+ * AuthorizationException, which Laravel renders as 403. This policy is
+ * ability-*compatible* with the middleware (both ultimately read
+ * act-as-manager) but not status-code-compatible with it: authorizing
+ * through `Gate::authorize()` instead of relying on the route's
+ * `role:manager` middleware changes what an unauthorized caller learns.
+ *
  * The §9 subject-role refinement (a manager/admin SUBJECT may only be
  * corrected by a super admin) is deliberately NOT here: it needs the
  * subject's current role read under the command's own lock, so it lives in

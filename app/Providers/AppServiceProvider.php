@@ -99,6 +99,23 @@ class AppServiceProvider extends ServiceProvider
                 return false;
             }
 
+            // The same belt-and-braces reasoning as the status check just
+            // above, for the same reason it exists: ResolveTenant's own
+            // query already excludes a soft-deleted row (see its docstring
+            // and the known-gaps entry on withoutGlobalScopes() stripping
+            // SoftDeletingScope, which is the exact incident this line
+            // guards against happening a second way), but nothing besides
+            // that one caller's discipline stops a future binder handing
+            // this gate a $membership fetched with withTrashed() or
+            // withoutGlobalScopes() while status is untouched — a "removed"
+            // membership whose status column was never flipped. Checked
+            // here so the gate fails closed on its own terms instead of
+            // trusting, forever, that every future caller of
+            // TenantContext::set() remembers to filter deleted_at itself.
+            if ($membership->trashed()) {
+                return false;
+            }
+
             return $membership->role->atLeast($required);
         };
 

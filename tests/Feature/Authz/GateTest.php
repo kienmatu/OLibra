@@ -129,6 +129,26 @@ it('does not auto-grant an ability outside the act-as-* role hierarchy to a supe
     expect(Gate::forUser($user)->allows('decide-proposal'))->toBeFalse();
 });
 
+it('denies act-as-manager for a soft-deleted membership whose status column still reads active, bound directly into TenantContext', function () {
+    // Reproduces the hole live: a membership can be soft-deleted (removed)
+    // without its status column ever being touched — that is exactly the
+    // shape known-gaps.md's withoutGlobalScopes() incident produced, and
+    // ResolveTenant's own query excludes it (default SoftDeletingScope +
+    // its explicit status filter), but this proves the GATE closure also
+    // refuses it on its own terms, independent of that one caller's
+    // discipline. Uses 'admin' — the highest role — so a pass could only
+    // be coming from deleted_at being ignored, never from role or status.
+    $user = authzUser();
+    $membership = authzBind($user, 'admin', 'active');
+    $membership->delete();
+    expect($membership->trashed())->toBeTrue();
+    app(TenantContext::class)->set($membership->bookshelf, $membership);
+
+    expect(Gate::forUser($user)->allows('act-as-reader'))->toBeFalse()
+        ->and(Gate::forUser($user)->allows('act-as-manager'))->toBeFalse()
+        ->and(Gate::forUser($user)->allows('act-as-admin'))->toBeFalse();
+});
+
 it('denies every gate for a non-active membership bound directly into TenantContext, independent of ResolveTenant', function (string $status) {
     // ResolveTenant never hands the gate a non-active membership in real
     // traffic (see EnsureShelfRoleTest for that end-to-end proof) — but
