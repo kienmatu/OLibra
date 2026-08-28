@@ -15,7 +15,7 @@ function pregFixture(): Bookshelf
     return $shelf;
 }
 
-function pregMember(Bookshelf $shelf, string $name, string $status, array $userOver = []): Membership
+function pregMember(Bookshelf $shelf, string $name, string $status, array $userOver = [], array $membershipOver = []): Membership
 {
     $person = User::factory()->create(array_merge(['full_name' => $name], $userOver));
 
@@ -28,10 +28,11 @@ function pregMember(Bookshelf $shelf, string $name, string $status, array $userO
     // Chối', 'rejected', [])` call predates the constraint and would
     // otherwise fail on a bare INSERT; this mirrors the reference's fix
     // rather than skip the rejected-status coverage.
-    $membershipOver = $status === 'rejected' ? ['rejection_reason' => 'lý do khởi tạo cho kiểm thử'] : [];
+    $rejectedDefault = $status === 'rejected' ? ['rejection_reason' => 'lý do khởi tạo cho kiểm thử'] : [];
 
     return Membership::factory()->for($shelf)->create(array_merge(
         ['user_id' => $person->id, 'status' => $status],
+        $rejectedDefault,
         $membershipOver,
     ));
 }
@@ -40,12 +41,27 @@ it('lists only pending applications, oldest first, with the review card\'s field
     $shelf = pregFixture();
     pregMember($shelf, 'Đã Duyệt Rồi', 'active');
     pregMember($shelf, 'Đã Từ Chối', 'rejected', []);
+
+    // Inserted in the REVERSE of the intended order: $newer's row lands in
+    // the table before $older's row does. UUID v7 primary keys are
+    // time-ordered by creation instant, and MariaDB's unordered scan of a
+    // small, freshly-inserted table returns physical/insertion order — so a
+    // fixture that inserts oldest-first can pass this assertion even with
+    // `PendingRegistrationsQuery::run()`'s ORDER BY deleted outright, purely
+    // because insertion order already happens to match intended order. This
+    // fixture inserts $newer first and forces `created_at` explicitly on
+    // both rows so the correct order can only come from the query's own
+    // `ORDER BY created_at, id` — never from coincidental insertion order.
+    $newer = pregMember($shelf, 'Lê Thị Mới', 'pending', [], [
+        'created_at' => now(),
+    ]);
     $older = pregMember($shelf, 'Trần Văn Cũ', 'pending', [
         'saint_name' => 'Giuse', 'date_of_birth' => '2014-01-01',
         'father_name' => 'Cha Cũ', 'mother_name' => 'Mẹ Cũ',
         'phone' => '0911111111', 'phone_missing_reason' => null,
+    ], [
+        'created_at' => now()->subHour(),
     ]);
-    $newer = pregMember($shelf, 'Lê Thị Mới', 'pending');
 
     $rows = app(PendingRegistrationsQuery::class)->run();
 

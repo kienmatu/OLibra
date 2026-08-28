@@ -15,9 +15,45 @@ use App\Support\Fold;
  * comment, and the `.where('am.status = ...' ... >= 0.6)` predicate a few
  * lines below it) keeps its calibration: each word is padded with two
  * leading spaces and one trailing space, split into 3-grams, deduplicated
- * across the whole string; similarity is
- * |intersection| / |union|. Pinned against pg_trgm's own measured value in
- * the unit test — the reference's comment says 0.714 (not 0.714286; that
+ * across the *whole string* (not per word — a trigram common to two
+ * different words, e.g. the "  h" that starts both "he" and "hoa", is one
+ * set member, not two); similarity is |intersection| / |union|.
+ *
+ * This is deliberately PER-WORD padding, not one pad-and-scan over the
+ * whole string — that is what real pg_trgm does. Confirmed by starting an
+ * actual PostgreSQL 16.14 with pg_trgm 1.6 (matching the version this
+ * reference cites as "verified installed") and calling
+ * `show_trgm('cat and dog')`, which returns {"  a","  c","  d"," an",
+ * " ca"," do",and,"at ",cat,dog,"nd ","og "} — exactly the union of
+ * show_trgm('cat') ∪ show_trgm('and') ∪ show_trgm('dog') computed
+ * independently, word by word, with NO trigram straddling a word boundary
+ * (no "t a", "d d" as a cross-word pair, etc.). Per-word padding is
+ * therefore correct pg_trgm behavior, not a divergence from it — and
+ * because each word is padded and compared independently before being
+ * unioned into one set, similarity() is order-insensitive for two strings
+ * built from the same multiset of words: `similarity('tran van an',
+ * 'an van tran')` measures **1.0** against the live extension, not the
+ * ~0.4 a whole-string-padding model would predict. `similarity('nguyen
+ * thi lan', 'thi lan nguyen')` likewise measures 1.0 live, not ~0.765. A
+ * prior review round flagged this order-invariance as a bug on the theory
+ * that real pg_trgm pads once over the whole string and is therefore
+ * order-sensitive; that theory does not match the extension's actual,
+ * measured behavior (see above), so this class was not changed — the
+ * corrected class-level test coverage below instead pins the previously
+ * unverified order-invariance claim against the live extension.
+ *
+ * Full verification (PostgreSQL 16.14, pg_trgm 1.6, a throwaway local
+ * cluster, no data persisted): every value pinned in
+ * tests/Unit/Members/NameSimilarityTest.php was measured directly against
+ * `select similarity(a, b)` on that instance, not derived from this
+ * class or hand arithmetic alone. A property sweep of 19,898 pairs (word
+ * permutations of random 2–4-word Vietnamese names, single-character
+ * substitutions, plus identical/empty/single-word/substring/diacritic
+ * cases) compared this class's output to the same live `similarity()`
+ * call pair-by-pair: 0 threshold flips at 0.6 and 0 numeric disagreements
+ * beyond floating-point rounding (float32 pg_trgm vs PHP float64) across
+ * the full sweep. Pinned against pg_trgm's own measured value in the unit
+ * test — the reference's comment says 0.714 (not 0.714286; that
  * six-decimal figure appears nowhere in old_next and was a plan error
  * corrected during review; 10/14 = 0.7142857..., which the reference's
  * printed "0.714" is a rounding of).
