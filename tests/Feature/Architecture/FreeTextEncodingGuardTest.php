@@ -82,9 +82,27 @@ function fegAllRequestClasses(): array
         require_once $file->getPathname();
         $after = get_declared_classes();
         foreach (array_diff($after, $before) as $class) {
-            if (is_subclass_of($class, FormRequest::class)) {
-                $classes[] = $class;
+            if (! is_subclass_of($class, FormRequest::class)) {
+                continue;
             }
+
+            // FIX ROUND: an abstract FormRequest subclass (a shared base
+            // for common fields) used to crash the gate with "Cannot
+            // instantiate abstract class" the moment `new $class` ran
+            // below. Skipping it here is safe, not a hidden gap: fields
+            // declared on the abstract parent's rules() still reach every
+            // CONCRETE child through normal inheritance/override, and
+            // each concrete child is its own separate entry in
+            // get_declared_classes() (discovered independently, wherever
+            // it's `require_once`'d from), so it is still instantiated
+            // and scanned on its own. An interface or trait technically
+            // can't satisfy is_subclass_of(FormRequest::class) either, but
+            // isInstantiable() also excludes those defensively.
+            if (! (new ReflectionClass($class))->isInstantiable()) {
+                continue;
+            }
+
+            $classes[] = $class;
         }
     }
     sort($classes);
@@ -135,7 +153,26 @@ function fegOldAllRequestClassesByPathGuessing(): array
  */
 function fegFlattenRuleset(mixed $ruleset): array
 {
-    $ruleset = is_array($ruleset) ? $ruleset : explode('|', (string) $ruleset);
+    // FIX ROUND: a field's ENTIRE ruleset can itself be a non-array,
+    // non-stringifiable object — Rule::forEach(...) (used for repeatable
+    // sub-forms) returns an Illuminate\Validation\NestedRules instance
+    // directly, which has no __toString(). The old unconditional
+    // `(string) $ruleset` cast on the non-array branch fatals with
+    // "Object of class ... could not be converted to string" for ANY such
+    // shape, not just NestedRules — a crash unrelated to whatever the
+    // author was actually changing. Fail closed instead: an unrecognised
+    // outer ruleset shape flattens to an empty token list, which the
+    // caller already treats as neither provably-non-text nor
+    // encoding-guarded — i.e. a violation demanding a named exemption,
+    // the same conservative outcome as any other free-text field with no
+    // guard, not a bug that gets silently waved through.
+    if (is_array($ruleset)) {
+        // no-op — already the expected shape
+    } elseif (is_string($ruleset) || (is_object($ruleset) && method_exists($ruleset, '__toString'))) {
+        $ruleset = explode('|', (string) $ruleset);
+    } else {
+        $ruleset = [];
+    }
     $tokens = [];
     $hasEnumInstance = false;
 
