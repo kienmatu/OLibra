@@ -30,8 +30,13 @@ return new class extends Migration
 
         // Access path for the roster; plain, not unique — two children fold
         // alike constantly (that is BR §5.3's whole premise). PREFIX(191):
-        // a TEXT column in a key with no length is errno 1170, the same
-        // reason books_public is written as `title(191)` in raw SQL.
+        // not a workaround for a refusal — an unlengthed index on a TEXT
+        // column is accepted on this build with an implicit 768-character
+        // prefix (verified on 10.11.19; @@innodb_large_prefix does not even
+        // exist here, so there is no errno 1170 to route around). (191) is
+        // deliberate anyway: it matches the books_public convention
+        // (`title(191)` in raw SQL) and is four times smaller than the
+        // 768-character fallback would be.
         DB::statement('ALTER TABLE users ADD INDEX users_full_name_folded_index (full_name_folded(191))');
     }
 

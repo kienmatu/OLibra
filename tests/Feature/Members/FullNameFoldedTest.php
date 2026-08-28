@@ -41,3 +41,26 @@ it('the column is generated — writing it directly is refused by the engine', f
     expect(fn () => DB::table('users')->where('id', $user->id)->update(['full_name_folded' => 'x']))
         ->toThrow(QueryException::class);
 });
+
+it('is STORED, not VIRTUAL — the column is indexed and must backfill existing rows', function () {
+    // Nothing else in this file distinguishes STORED from VIRTUAL: both
+    // recompute on read for a fresh row, so the tests above stay green
+    // either way. STORED is load-bearing here for two reasons a VIRTUAL
+    // column cannot satisfy: users_full_name_folded_index is a real index
+    // on this column (MariaDB cannot index a VIRTUAL generated column the
+    // same way — a secondary index on VIRTUAL still materialises the
+    // indexed values, but the migration's fix-up path
+    // (2026_08_28_000002) relies on ALTER TABLE ... MODIFY COLUMN
+    // rewriting the physical column value for every existing row, which
+    // only STORED has), and a data-fix migration that mutates
+    // FoldExpression::sql() must re-backfill existing rows without a
+    // separate UPDATE pass. Mutating this migration's column definition to
+    // VIRTUAL and running migrate:fresh must fail this assertion.
+    $row = DB::selectOne("
+        select extra
+        from information_schema.columns
+        where table_schema = database() and table_name = 'users' and column_name = 'full_name_folded'
+    ");
+
+    expect($row->extra)->toBe('STORED GENERATED');
+});

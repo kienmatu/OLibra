@@ -68,6 +68,28 @@ final class Fold
         'î' => 'i', 'ï' => 'i', 'ð' => 'd', 'ñ' => 'n', 'ö' => 'o',
         'ø' => 'o', 'û' => 'u', 'ü' => 'u', 'ÿ' => 'y', 'þ' => 'th',
         'ß' => 'ss',
+        // ẞ (U+1E9E, Latin Extended Additional) — capital sharp S, added to
+        // German orthography in 2017. Needed as its OWN key, not covered by
+        // the 'ß' entry above: mb_strtolower('ẞ') is 'ß' (so PHP's fold pipe
+        // reaches the entry above after lowering), but MariaDB's LOWER()
+        // leaves ẞ completely unchanged on this build (confirmed on
+        // 10.11.19 — verified via `SELECT LOWER('ẞ') = 'ẞ'`), so the SQL
+        // side never produces 'ß' to REPLACE and instead falls through to
+        // REGEXP_REPLACE's space bucket ('' instead of 'ss'), breaking
+        // store==search. A parity sweep across the full BMP (every code
+        // point where mb_strtolower and MariaDB's LOWER() disagree, run
+        // through the actual fold pipeline) found this is the ONLY such
+        // disagreement that changes fold output — MariaDB's LOWER() is
+        // missing ~480 other case mappings (scattered across Latin
+        // Extended-B/C/D, Greek, Cyrillic, none of them MAP targets), but
+        // every one of those already falls through to the same
+        // unmapped-to-space bucket on both sides, so only a MAP entry
+        // (present or, before this line, absent) can turn a LOWER()
+        // disagreement into a real mismatch. This entry is a single
+        // character in mb_strlen terms (3 bytes in UTF-8), so it sorts
+        // correctly alongside the other single-character keys in
+        // FoldExpression::orderedMap().
+        'ẞ' => 'ss',
         // ── Latin Extended-A (60) ──
         'ā' => 'a', 'ą' => 'a',
         'ć' => 'c', 'ĉ' => 'c', 'ċ' => 'c', 'č' => 'c',

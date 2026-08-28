@@ -32,6 +32,30 @@ it('agrees with php across U+00C0–U+024F', function () {
     }
 });
 
+it('agrees with php across U+1E00–U+1EFF, the Latin Extended Additional block', function () {
+    // Latin Extended Additional is the Vietnamese-heavy block (à Vietnamese
+    // tone/quality marks live at U+1EA0 and up) — but it is also where a
+    // real store≠search bug was found and missed by the U+00C0–U+024F
+    // sweep above: U+1E9E (ẞ, capital sharp S). mb_strtolower('ẞ') is 'ß'
+    // (reaching Fold::MAP's 'ß' entry after PHP's lowering), but MariaDB's
+    // LOWER('ẞ') is 'ẞ' UNCHANGED on this build (confirmed on 10.11.19),
+    // so the SQL side never reached the same MAP entry and instead fell
+    // through to a space. This sweep is what should have caught it, and a
+    // mutation run (reverting the 'ẞ' => 'ss' entry from Fold::MAP) proves
+    // it does — see the fix's commit history / task report for that run.
+    //
+    // Also present in this range and NOT excluded: U+1EFA/1EFC/1EFE
+    // (Ỻ ỽ Ỿ — obsolete Middle Welsh letters), where MariaDB's LOWER() also
+    // disagrees with PHP but neither side's result is a Fold::MAP key, so
+    // both halves fall through to the same unmapped-to-space bucket and
+    // the sweep passes for them without needing an exclusion.
+    for ($codepoint = 0x1E00; $codepoint <= 0x1EFF; $codepoint++) {
+        $char = mb_chr($codepoint, 'UTF-8');
+
+        expect(dbFold("a{$char}b"))->toBe(Fold::fold("a{$char}b"), sprintf('U+%04X', $codepoint));
+    }
+});
+
 it('agrees with php when a synthesised i+combining-dot-above sequence is present', function () {
     // Regression for the bug the property tests above cannot see: Fold::MAP
     // has one multi-code-point key, "i"+U+0307, and twelve single-character
