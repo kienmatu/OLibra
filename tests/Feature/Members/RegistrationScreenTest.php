@@ -94,6 +94,23 @@ it('a refusal comes back as the rule sentence, and nothing typed enters the URL'
     expect($response->headers->get('Location'))->not->toContain('Lan');
 });
 
+// Fix round, Task 13, Minor #1: a birth date must be a real day AND a
+// plausible one — before this, only checkdate()'s calendar-validity ran,
+// so 9999-12-31 sailed through and created a pending membership for a
+// reader "born" in the year 9999.
+it('a birth date in the future or implausibly ancient is a field error', function () {
+    pubregShelf();
+
+    $this->post('/register', pubregBody(['date_of_birth' => '9999-12-31']))
+        ->assertSessionHasErrors('date_of_birth');
+
+    $this->post('/register', pubregBody(['date_of_birth' => '1899-12-31']))
+        ->assertSessionHasErrors('date_of_birth');
+
+    $this->post('/register', pubregBody(['date_of_birth' => now()->addDay()->toDateString()]))
+        ->assertSessionHasErrors('date_of_birth');
+});
+
 it('a mistyped password confirmation is a field error in Vietnamese', function () {
     pubregShelf();
 
@@ -122,6 +139,118 @@ it('a family registering three children in a row is never throttled', function (
     expect(Membership::query()->withoutGlobalScope(BookshelfScope::class)->count())->toBe(3);
 });
 
+// Fix round, Task 13, CRITICAL: the register limiter used to read
+// $request->string('phone') on the raw merged input bag, BEFORE
+// RegisterMembershipRequest's own validation ever runs (throttle:register
+// is route middleware; middleware always runs ahead of a controller
+// method's Form Request resolution). Casting an array with Stringable
+// throws `ErrorException: Array to string conversion`, promoted to a
+// guest 500 by Laravel's own error handler — on the application's only
+// unauthenticated write route. Reproduced over real HTTP first (see the
+// fix report), then pinned here through the test client for all three
+// array shapes the report named. A regression back to
+// `$request->string('phone')` makes every one of these throw instead of
+// redirecting.
+it('an array-shaped phone (repeated key) never 500s the limiter', function () {
+    pubregShelf();
+
+    $this->post('/register', array_merge(pubregBody(), ['phone' => ['0912345678']]))
+        ->assertStatus(302);
+});
+
+it('a nested-array-shaped phone never 500s the limiter', function () {
+    pubregShelf();
+
+    $this->post('/register', array_merge(pubregBody(), ['phone' => ['a' => ['b' => '09']]]))
+        ->assertStatus(302);
+});
+
+it('an empty-array-shaped phone never 500s the limiter', function () {
+    pubregShelf();
+
+    $this->post('/register', array_merge(pubregBody(), ['phone' => []]))
+        ->assertStatus(302);
+});
+
+// Fix round, Task 13: the day budget used to hash the RAW trimmed phone,
+// so every spelling of one real phone number got its own 20/day bucket —
+// six spellings, six buckets, a 120/day budget wearing a 20/day label.
+// Phone::normalise() is what gets hashed now. Discriminates the day key
+// specifically: all six posts share ONE phone's six spellings, well under
+// the 30/minute IP budget, so only the day key can be what throttles the
+// sixth attempt.
+it('every spelling of one phone shares the same daily bucket', function () {
+    pubregShelf();
+
+    $spellings = ['0912345678', '0912 345 678', '0912.345.678', '0912-345-678', '+84912345678'];
+
+    foreach ($spellings as $i => $phone) {
+        $this->post('/register', pubregBody([
+            'full_name' => 'Người Số '.$i, 'date_of_birth' => '201'.($i % 5).'-04-02',
+            'phone' => $phone,
+        ]))->assertStatus(302);
+    }
+
+    // A sixth spelling — genuinely distinct text, same underlying number —
+    // is refused the identical way an exact repeat would be, once 20/day
+    // is reached for real by padding out the same bucket first.
+    foreach (range(1, 15) as $i) {
+        $this->post('/register', pubregBody([
+            'full_name' => 'Người Số Đệm '.$i, 'date_of_birth' => '2012-04-02',
+            'phone' => '0912345678',
+        ]));
+    }
+
+    $this->post('/register', pubregBody([
+        'full_name' => 'Người Số Cuối', 'date_of_birth' => '2011-04-02',
+        'phone' => '+84 912.345-678',
+    ]))->assertStatus(429);
+});
+
+// Fix round, Task 13, Important #3: neither half of the two-key throttle
+// had a permanent, DISCRIMINATING test — deleting Limit::perDay(20)
+// outright left the full suite green, and so did replacing the IP
+// fallback with an unbounded key. This test isolates the day key: 21
+// posts sharing ONE phone, all well under the 30/minute IP budget (so the
+// minute key cannot be what fires), the 21st expects 429. Mutation-proved
+// in the fix report: deleting Limit::perDay(...) turns this red without
+// touching Limit::perMinute(...) at all.
+it('the day budget alone throttles 21 low-and-slow posts sharing one phone', function () {
+    pubregShelf();
+
+    foreach (range(1, 20) as $i) {
+        $this->post('/register', pubregBody([
+            'full_name' => 'Người Ngày '.$i, 'date_of_birth' => '2010-04-02',
+        ]));
+    }
+
+    $this->post('/register', pubregBody([
+        'full_name' => 'Người Ngày 21', 'date_of_birth' => '2010-04-02',
+    ]))->assertStatus(429);
+});
+
+// Fix round, Task 13, Important #3: proves the IP fallback (used when
+// phone is blank, so the phone-missing-reason path is not an open
+// bypass) is load-bearing rather than decorative. Mutation-proved in the
+// fix report: replacing the fallback expression with a per-request-unique
+// value (so every blank-phone request gets its own bucket) turns this
+// red — the 21st succeeds instead of 429ing.
+it('the IP fallback throttles 21 blank-phone posts from one host', function () {
+    pubregShelf();
+
+    foreach (range(1, 20) as $i) {
+        $this->post('/register', pubregBody([
+            'full_name' => 'Người Ẩn Số '.$i, 'date_of_birth' => '2009-04-02',
+            'phone' => '', 'phone_missing_reason' => 'chua co dien thoai',
+        ]));
+    }
+
+    $this->post('/register', pubregBody([
+        'full_name' => 'Người Ẩn Số 21', 'date_of_birth' => '2009-04-02',
+        'phone' => '', 'phone_missing_reason' => 'chua co dien thoai',
+    ]))->assertStatus(429);
+});
+
 it('the register limiter throttles a burst from one host', function () {
     pubregShelf();
 
@@ -136,8 +265,13 @@ it('the register limiter throttles a burst from one host', function () {
         ]));
     }
 
+    // Fix round, Task 13, Important #4: pins that the 429 is the
+    // Vietnamese view (resources/views/errors/429.blade.php), not
+    // Laravel's stock English "Too Many Requests" page — the throttle
+    // refusal a guest was previously most likely to ever meet.
     $this->post('/register', pubregBody(['full_name' => 'Người Số 31', 'phone' => '0999999999']))
-        ->assertStatus(429);
+        ->assertStatus(429)
+        ->assertSee('Bạn gửi hơi nhanh');
 });
 
 // PO ruling 2026-08-28: the existence oracle itself is accepted (a guest
@@ -183,10 +317,17 @@ it('resubmitting an existing identity refuses identically whether pending, activ
             ->assertSessionHasErrors(['rule' => __('rules.already_registered_here')]);
     }
 
-    // Not just "the same status code" — literally the same bytes back,
-    // whichever status the caller happened to hit.
-    expect($responses['pending']->getContent())->toBe($responses['active']->getContent())
-        ->and($responses['active']->getContent())->toBe($responses['suspended']->getContent());
+    // Fix round, Task 13, Minor #4: a redirect response's BODY is only
+    // ever the framework's generic "Redirecting to ..." meta-refresh
+    // boilerplate — the session error lives in the flashed session data,
+    // never in the response body Laravel sends for a 302. Since the
+    // redirect target is already pinned identical for all three statuses
+    // (assertRedirect() above), comparing getContent() byte-for-byte adds
+    // no coverage beyond that: it would stay green even if the session
+    // error text silently diverged between statuses, because that text
+    // never reaches the body being compared. The real pin is
+    // assertSessionHasErrors() above, which reads the actual flashed
+    // value. Dropped rather than kept as decoration.
 });
 
 // A signed-in visitor may still open the form (no guest middleware — a

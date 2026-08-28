@@ -27,7 +27,21 @@ class RegisterMembershipRequest extends FormRequest
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
             'saint_name' => ['required', 'string', 'max:255'],
             'full_name' => ['required', 'string', 'max:255'],
-            'date_of_birth' => ['required', 'date_format:Y-m-d'],
+            // Fix round, Task 13, Minor #1: `date_format:Y-m-d` alone lets
+            // through anything checkdate() accepts as a calendar day,
+            // including 9999-12-31 — a pending membership got created for
+            // a reader "born" in the year 9999. Registration.php's own
+            // assertStorableDate() (Task 6, unmodified here) only ever
+            // checks the SHAPE of the date, not its plausibility, so
+            // nothing downstream of this Form Request catches it either.
+            // Two sane, generous bounds, chosen from the domain rather
+            // than an arbitrary round number: `before_or_equal:today` — a
+            // birth date cannot be in the future, full stop — and
+            // `after_or_equal:1900-01-01`, wide enough that no living
+            // parishioner is excluded (nobody registering at a parish
+            // library today was born before 1900) while still refusing
+            // the unbounded date range `date_format` alone permits.
+            'date_of_birth' => ['required', 'date_format:Y-m-d', 'before_or_equal:today', 'after_or_equal:1900-01-01'],
             'father_name' => ['required', 'string', 'max:255'],
             'mother_name' => ['required', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:32'],

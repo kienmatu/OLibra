@@ -749,8 +749,26 @@ review or a later task rather than fixed in place:
   policy (Task 16, per its ownership of the hashed-session-at-rest decision
   elsewhere in this file). `SetReaderCredentials.php` now carries an inline
   comment naming this gap, mirroring `Registration.php`'s own.
-
-## Decisions taken on the product owner's behalf
+- **Task 13, fix round:** `RegisterMembershipRequest::rules()` accepts NUL
+  bytes, control characters (`\r\n\t\x07`), the RTL-override mark U+202E
+  and a leading BOM (U+FEFF) into `full_name` (and every other free-text
+  field on the form) — `'string', 'max:255'` checks length and PHP string
+  type, nothing about which code points are in it. These are stored
+  verbatim on `users.full_name` and reach the manager's approval queue
+  (`GetPendingRegistrations`) and later exports unfiltered: a name
+  containing U+202E can visually reverse everything after it in a
+  manager's UI, and embedded control characters can corrupt a CSV/TSV
+  export or a terminal that renders one. Not fixed in this round — the
+  correct fix is a shared sanitisation step (strip C0/C1 controls and the
+  Unicode bidi-override/format characters, likely alongside `trim()`) that
+  every free-text write path applies identically, which means
+  `ProfileFields::normalisePatch()` (Task 9) and `Registration::register()`
+  (Task 6) would need the identical treatment `RegisterMembershipRequest`
+  got — those are two other tasks' files, and patching only this task's
+  entry point would leave the manager's own reader-creation and
+  profile-correction forms with the identical hole while looking
+  addressed. Left for whichever task does the phase's input-sanitisation
+  sweep, the same shape of deferral as the logged-PII gaps above.
 
 Each of these was ruled during execution rather than escalated, and each names
 what it costs if the ruling is wrong.

@@ -29,6 +29,21 @@ it('assert throws phone_invalid, whose sentence exists', function () {
         ->and($rules['phone_invalid'])->toBe('Số điện thoại chưa đúng. Ghi 10 số, ví dụ 0912345678.');
 });
 
+// Fix round, Task 13: normalise() is what the register rate limiter now
+// hashes for its daily budget key — every spelling of one real phone
+// number must fold to the identical canonical string, or the day budget
+// is multipliable (each spelling gets its own bucket).
+it('normalise folds every spelling of one phone to the same canonical string', function () {
+    foreach (['0912345678', '0912 345 678', '0912.345.678', '0912-345-678', '+84912345678'] as $phone) {
+        expect(Phone::normalise($phone))->toBe('0912345678', $phone);
+    }
+});
+
+it('normalise only folds a LEADING +84, never one appearing mid-string', function () {
+    expect(Phone::normalise('0912345678'))->toBe('0912345678')
+        ->and(Phone::normalise(''))->toBe('');
+});
+
 it('the HTML pattern mirror is the generous approximation, not the rule', function () {
     // PHONE_PATTERN in the reference: a hint that saves a round trip;
     // Phone::assert is what decides.

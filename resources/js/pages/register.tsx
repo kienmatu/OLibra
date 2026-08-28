@@ -129,6 +129,19 @@ export default function Register() {
                         <p className="rounded-md border bg-muted px-3 py-2 text-[15px]">
                             {shelf.name}
                         </p>
+                        {/*
+                          Fix round, Task 13, Minor #3: `shelf` travels as a
+                          hidden form value derived from the URL, not a
+                          user-editable field, so it had no render site at
+                          all — a tampered POST that fails the `shelf`
+                          rule (required/string/max:255) returned the
+                          guest to this exact page with `errors.shelf` set
+                          and nothing on screen to show it. The normal
+                          path (an untouched form) never has this error,
+                          since form.data.shelf always mirrors a slug this
+                          page itself resolved on GET.
+                        */}
+                        <InputError message={form.errors.shelf} />
                     </div>
                     <Link
                         href={route("shelves.index")}

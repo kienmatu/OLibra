@@ -12,6 +12,8 @@ use App\Policies\BookCopyPolicy;
 use App\Policies\BookPolicy;
 use App\Policies\MembershipPolicy;
 use App\Support\HashedDatabaseSessionHandler;
+use App\Support\Members\Phone;
+use App\Support\QueryParam;
 use App\Support\TenantContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
@@ -68,10 +70,39 @@ class AppServiceProvider extends ServiceProvider
         // for the other guest-open write (SubmitFeedback: 3 per phone per
         // day, hashed, §5.4), falling back to the IP when the phone is blank
         // so the phone-missing-reason route is not an open bypass.
+        //
+        // Fix round, Task 13 — two defects closed here:
+        //
+        // 1. CRITICAL: this closure runs inside `throttle:register`
+        // middleware, BEFORE RegisterMembershipRequest's own validation —
+        // route middleware always runs ahead of a controller method's Form
+        // Request resolution. `$request->string('phone')` used to read the
+        // RAW merged input bag and cast it with Stringable, which throws
+        // `ErrorException: Array to string conversion` the instant `phone`
+        // arrives as an array (`phone[]=...`, `phone[a][b]=...`, or a bare
+        // `phone[]`) — a guest 500 with a stack trace, on the application's
+        // only unauthenticated write route, that no amount of tightening
+        // RegisterMembershipRequest's rules could ever catch, because this
+        // code runs first. QueryParam::input() (see its own docblock for
+        // the fuller argument for growing this body-aware sibling rather
+        // than a second, duplicate flattener) resolves the same "first
+        // value of whatever arrived" shape a repeated query-string key
+        // already gets via QueryParam::first(), so an array here degrades
+        // to a scalar instead of throwing.
+        //
+        // 2. The day key hashed the RAW trimmed phone, so
+        // `0912345678`/`0912 345 678`/`0912.345.678`/`0912-345-678`/
+        // `+84912345678` — five spellings of the identical phone, every
+        // one accepted by Phone::isValid() — each got its own 20/day
+        // bucket. Phone::normalise() (extracted from, and still shared
+        // with, Phone::isValid()'s own separator-stripping, plus the
+        // +84-to-0 fold Vietnam's own numbering plan makes safe — see that
+        // method's docblock) is what gets hashed now, so every spelling of
+        // one phone shares one bucket.
         RateLimiter::for('register', fn (Request $request) => [
             Limit::perMinute(30)->by('ip:'.($request->ip() ?? 'unknown')),
-            Limit::perDay(20)->by('reg:'.hash('sha256', (string) (
-                $request->string('phone')->trim()->value() ?: 'ip:'.($request->ip() ?? 'unknown')
+            Limit::perDay(20)->by('reg:'.hash('sha256', (
+                Phone::normalise(QueryParam::input($request, 'phone') ?? '') ?: 'ip:'.($request->ip() ?? 'unknown')
             ))),
         ]);
 
