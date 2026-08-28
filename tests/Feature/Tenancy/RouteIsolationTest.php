@@ -31,7 +31,8 @@ it('gives a manager of shelf A 404 — not 403 — on shelf B manage urls', func
 
     $this->actingAs($manager)->get("/shelves/{$a->slug}/manage")->assertOk();
 
-    foreach (['manage', 'manage/books', 'manage/lend', 'manage/settings'] as $path) {
+    foreach (['manage', 'manage/books', 'manage/lend', 'manage/settings',
+        'manage/readers', 'manage/registrations'] as $path) {
         // 404 so the URL space does not confirm what exists.
         $this->actingAs($manager)->get("/shelves/{$b->slug}/{$path}")->assertNotFound();
     }

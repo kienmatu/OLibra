@@ -1000,3 +1000,226 @@ rather than accepting it on the strength of the code alone.
   difference from the reference that a product owner, not this sweep,
   should sign off on before Phase 2 either restores it or formally drops
   it.
+
+## Phase 1b — Members
+
+The durable record of `docs/superpowers/plans/2026-08-28-laravel-phase-1b-members.md`
+(registration, approval, reader administration). Written by Task 16 after
+the full suite ran green.
+
+- **The no-username identity match has no structural backstop, by design.**
+  Two concurrent registrations of the same child (same name/DOB/phone, no
+  username) can create two `users` rows: the triple-match in
+  `app/Actions/Members/Registration.php` is a plain read with no unique
+  index behind it, exactly as the reference shipped. The product's answer
+  to duplicate PEOPLE is BR §3's similar-name warning on the approval
+  queue, decided by a human who knows the family. The username and
+  membership collisions ARE structural (`users_username_key`,
+  `memberships_one_per_shelf`, errno 1062 translated by
+  `App\Support\UniqueViolation`).
+- **`ManagerRegisterReader` is implemented, tested, and reachable from no
+  screen.** `MembersArchitectureTest` pins the absence. 1c's quick-lend
+  escape hatch is the intended surface — and the plan-header's open
+  question 1 (active vs pending) should be re-confirmed with the product
+  owner before 1c wires it.
+- **`ApproveMembership`/`RejectMembership` write NO notification rows yet.**
+  The reference writes `membership_approved`/`membership_rejected` inside
+  the command transaction (OPS §7). Phase 2 must add both writes when the
+  notification system lands — the Actions carry the same note.
+- **`POST /register` is throttled on two keys, both numbers invented here**
+  — 30/minute per IP (burst) and 20/day per SHA-256 of the submitted phone,
+  falling back to the IP when the phone is blank. A decision taken on the
+  product owner's behalf: OPS §8 (:1158) lists `RegisterMembership` rate
+  limiting as unaddressed in both source documents. The per-day/hashed key
+  is modelled on OPS §8's only stated limit (`SubmitFeedback`, 3 per phone
+  per day, hashed); a per-IP-only limiter was rejected because BR §16.1's
+  scenario is a room of people behind one parish connection. The limiter is
+  named `register` in `AppServiceProvider`; loosening the burst limit is the
+  first thing to try if a real registration event trips it.
+- **`already_registered_here` is an existence oracle on the public form.**
+  A stranger who knows a child's exact name, date of birth and phone learns
+  whether that child is registered at this shelf. It reveals membership but
+  never status (suspended, pending and active all answer identically — a
+  consequence of CRITICAL 1's walk-back fix). Inherited from the reference,
+  which addresses the *username* probe channel only. Closing it would mean
+  dropping the no-username triple-match, which is how BR §5.3's cross-shelf
+  identity reuse works for the majority of readers who have no username.
+- **Public registration answers `GetParishUnits` to guests**, a query OPS
+  §3.2 lists as `reader`-gated and flags with its own open question (:75).
+  Live units only, and a parish's list of `Giáo họ` is not personal data —
+  but it is a documented gate this plan chose to open.
+- **`ReactivateMembership` has a button that the reference never had**
+  (OPS:443: "no visible 'Kích hoạt lại' button anywhere in the 47 screens").
+  Added on the reader detail because BR §7.5 draws the suspend arrow both
+  ways and a suspension with no way back is a trap.
+- **`member_has_active_loans`' Vietnamese sentence is authored by this
+  plan.** OPS:453 names the code in prose and supplies no sentence, and
+  `has_active_loans` was unavailable — 1a already holds that key for a
+  sentence about a book. Five other refusal codes follow the reference's
+  `errors.ts` spelling rather than OPS §4.3's abbreviations; the mapping
+  table is in the plan header's divergence 6.
+- **The reader profile page, `GetMyProfile` and `ChangeOwnPassword` are
+  deferred to Phase 3 whole**, with the profile-change lifecycle they
+  share a screen with (the 1a GetShelfHome precedent). A reader's only
+  password path until then is the volunteer (`SetReaderCredentials`),
+  which is BR §2's model anyway.
+- **`ReaderDetailQuery` derives days-remaining/overdue locally.** 1c must
+  move the due-date math to `app/Support/Circulation/` and point this
+  query at it — two definitions of "overdue" is the drift BR §8 exists to
+  prevent, and this one is temporary by declared intent.
+- **There is no `assertNoSecrets` audit walker.** The reference's kernel
+  walked every audit bag for hash-shaped values; here the no-secret rule
+  is held by `SetReaderCredentialsTest`'s row assertions only. If a later
+  phase adds an audit helper, port the walker there.
+- **The reader-detail edit form does not offer parish-unit placement.**
+  OPS §4.3's UpdateReaderProfile inputs are person fields only; placement
+  is set at registration (on-behalf form) and by Phase 3's
+  ApproveProfileChange (which carries the two unit ids for exactly this).
+  If the product owner wants direct placement editing, it is a two-field
+  addition to `UpdateReaderProfileRequest` + `ParishUnitFields` on the
+  form — but it would need its own OPS entry, since no command currently
+  sanctions it.
+- **The concurrency variants of the reference's tests did not port**
+  (two-connection probes cannot see `RefreshDatabase` fixtures — 1a
+  divergence 2's reasoning). The mechanism is pinned instead: every
+  lifecycle command's first statement is `lockForUpdate()` on the
+  membership row (divergence 1), and `ReaderQueriesTest` pins the roster's
+  ORDER BY clause because the UUIDv7 id tiebreak cannot be falsified by
+  data seeded in creation order.
+- **`currentLoans` ties on `(due_on, id)` where the reference ties on
+  `(due_on, copy_code)`** — `app/Queries/ReaderDetailQuery.php:75`. A
+  spec-vs-reference drift flagged during Task 12's review and deliberately
+  left as-is rather than guessed at; untested either way, since no fixture
+  puts two loans on the same due date. If a manager ever reports the
+  "which book is due first" ordering on the reader detail page looking
+  wrong when two loans tie on `due_on`, this is where to look.
+- **Real trigram similarity pads per WORD, not once over the whole
+  string** — verified by standing up a real PostgreSQL 16.14 with `pg_trgm`
+  1.6 and calling `show_trgm()` directly (`app/Support/Members/
+  NameSimilarity.php`'s docblock has the full transcript). A reviewer
+  derived the opposite by hand mid-phase — reasoning that real `pg_trgm`
+  pads the whole string once, making `similarity()` order-SENSITIVE — and
+  a "fix" along those lines nearly shipped on that theory; the extension's
+  actual, measured behaviour is order-INVARIANT for two strings built from
+  the same multiset of words (`similarity('tran van an', 'an van tran')`
+  measures **1.0** live, not the ~0.4 the whole-string theory predicts). A
+  19,898-pair property sweep against the live extension found zero
+  threshold flips and zero numeric disagreements beyond float32/float64
+  rounding. **The threshold is 0.6.** The `0.714` that reached the plan
+  document is a worked example in the reference's comment above the real
+  predicate (`similarity(tran minh, tran minh duc) -> 0.714`), not the
+  parameter — both numbers are recorded here because both were repeated
+  confidently by more than one party before the source was actually read.
+- **Three inert assertion shapes, all caught on the same class of
+  anti-enumeration/privacy property, across three different test files**
+  (`tests/Feature/Members/ReaderQueriesTest.php`,
+  `tests/Feature/Members/ManageReaderScreensTest.php`,
+  `tests/Feature/Members/PendingRegistrationsQueryTest.php` all carry the
+  same docblock warning verbatim): (1) `expect($row)->not->toHaveKeys([$a,
+  $b, $c])` means "has ALL of these keys" negated, so it is satisfied the
+  moment even ONE of several forbidden keys is absent — a leaked field
+  beside an absent one still passes; (2) `not->toHaveKey($key, "message")`
+  puts the string in `toHaveKey`'s `$value` parameter, not `$message` —
+  Pest's `not` then catches the resulting exception (from either the
+  missing-key check or the value-mismatch check) and treats it as the
+  negation succeeding, so the assertion passes UNCONDITIONALLY regardless
+  of what leaked; (3) in Task 13's public-registration status-oracle test,
+  an early draft gave all three status fixtures (pending/active/suspended)
+  the identical identity triple, so the query's unordered `->first()`
+  lookup silently collapsed all three iterations onto ONE row, and would
+  have masked a mutation leaking the real status. The rule the fixes
+  converged on: prove an absence by checking `array_key_exists()` per key,
+  one key per assertion, and give every fixture row seeded for a
+  same-shape sweep a distinct identity.
+- **`DB::disableQueryLog()` does not clear the buffer.** Found in Task 9's
+  own dispatch: a lock-position test exercising multiple commands
+  (`ApproveMembership` then `RejectMembership`) in one method read STALE
+  entries left over from the first command's `enableQueryLog()` call, and
+  passed regardless of whether the second command's lock was actually
+  positioned first — reproduced live by removing the `flushQueryLog()`
+  call and re-breaking `RejectMembership`'s lock ordering: the test stayed
+  green. `DB::flushQueryLog()` between commands is the fix, and the
+  ensuing repo-wide audit (mutating every query-log pin individually,
+  Phase 1a's included) found every other lock-position/query-log pin in
+  the codebase genuine — this was an isolated risk, not a systemic one,
+  because every other such test calls `enableQueryLog()`/`getQueryLog()`
+  exactly once per method.
+- **UUID v7 primary keys are chronologically monotonic, so an unordered
+  scan already returns creation order** — a sort-tiebreak test seeded in
+  already-correct order proves nothing, because the untested code path
+  (delete the tiebreak) would return the identical sequence by accident.
+  This has now fired across both plans in this codebase: Phase 1a's
+  `tests/Feature/Catalogue/ReaderQueriesTest.php` (the `SearchQuery` slug
+  tiebreak, 11 rows needed before insertion order and slug order actually
+  diverge); Phase 1b's `tests/Feature/Members/ReaderQueriesTest.php` (the
+  roster's folded-name order, seeded Vũ/Đặng/An — creation order — against
+  An/Đặng/Vũ — folded order); and
+  `tests/Feature/Members/PendingRegistrationsQueryTest.php` (the queue's
+  `created_at, id` order, seeded newest-row-inserted-first specifically so
+  physical insertion order cannot coincidentally satisfy the assertion).
+  The house rule going forward: a tiebreak test must seed rows in the
+  WRONG order and force `created_at`/name collisions explicitly, or it
+  guards nothing.
+- **Fixtures that collide with seeded randomness, found twice this
+  phase.** `DemoShelfSeeder`'s demo-readers loop uses `firstOrCreate`
+  keyed on `(shelf, user)`; the super-admin already holds a manager/active
+  row on the demo shelf from an earlier seeding step, so the loop's lookup
+  for the super-admin misses and creates a SECOND row — a reader/PENDING
+  membership — leaving the super-admin holding both a manager and a
+  pending-reader membership on the same shelf. A test or fixture written
+  against "the super-admin's pending membership" while believing it holds
+  an ordinary reader's would silently be wrong. Separately, `UserFactory`'s
+  default five-name pool contains `'Tran Minh'` verbatim, which collided
+  with Task 14's deliberately-crafted similar-name fixture in the pending
+  registrations queue tests until the manager's name was pinned explicitly.
+  Both are the same shape of trap: a factory default or seeded fixture
+  silently supplying a value a later test's fixture also uses literally.
+- **The plan's own "second shelf" fixture template trips
+  `BelongsToBookshelf`'s creating-hook guard.** Instantiating a second
+  `Bookshelf`/tenant-scoped model directly in a test, the way the brief's
+  own boilerplate does, fails against `app/Models/Concerns/
+  BelongsToBookshelf.php:73`'s guard unless the fixture is built under
+  `TenantContext::actSystemWide()` — the same pattern
+  `RegisterMembershipTest` already used. Hit identically in Tasks 6 and 7
+  in this phase (the second occurrence after the first was already fixed
+  and known), which is itself the lesson: recording a trap once is not the
+  same as every downstream task having read it.
+- **Errno 1170 is folklore on this build, not a reproduced refusal.** The
+  `(191)` prefix on `users.full_name_folded`'s index
+  (`database/migrations/2026_08_28_000001_add_users_full_name_folded.php`)
+  matches `books_public`'s convention, but MariaDB 10.11.19 does NOT throw
+  errno 1170 on an unlengthed index over a `TEXT` column — verified live by
+  running the unlengthed `ALTER TABLE` directly: it succeeds, MariaDB
+  silently applying an implicit 768-character prefix (`innodb_large_prefix`
+  is unconditionally on for this build and is not even a settable
+  variable). No migration in this codebase, including Phase 0's, actually
+  reproduced 1170; the `(191)` prefix is worth keeping as an explicit,
+  intentional, four-times-smaller choice than the 768-byte fallback — but
+  as a convention, not a workaround for a refusal that was never observed.
+- **PII and credentials in logs: an unmapped `QueryException` inlines its
+  bound parameters.** Both instances of this gap are recorded and both
+  are cross-referenced from the offending files' own comments:
+  `app/Actions/Members/Registration.php` ("Task 6, fix round" above) can
+  log a child's full name, date of birth, parents' names and phone;
+  `app/Actions/Members/SetReaderCredentials.php` ("Task 9, fix round"
+  above) is strictly worse — it can log a freshly generated **password
+  hash**. Both confirmed against the vendored framework source
+  (`QueryException::formatMessage()` defaults `maskBindings` to `false`)
+  and against `bootstrap/app.php`, which registers `withExceptions()` with
+  no redaction hook of any kind — nothing between the driver and the log
+  file strips a bound value on either path. Not fixed per-command,
+  deliberately: the correct fix is one app-wide redaction mechanism, not a
+  second one-off patch leaving every other Action with the identical hole
+  while looking addressed.
+- **Control characters and bidi overrides pass into `full_name` (and every
+  other free-text field) and are stored verbatim.**
+  `RegisterMembershipRequest::rules()` ("Task 13, fix round" above) accepts
+  NUL bytes, control characters, the RTL-override mark U+202E and a
+  leading BOM — `'string', 'max:255'` checks length and PHP type only.
+  These reach the manager's approval queue (`GetPendingRegistrations`) and
+  any future export unfiltered: a name containing U+202E can visually
+  reverse everything after it in a manager's UI. Not fixed in this round —
+  the correct fix is a shared sanitisation step every free-text write path
+  applies identically (`ProfileFields::normalisePatch()` and
+  `Registration::register()` included), left for whichever task does the
+  phase's input-sanitisation sweep.
