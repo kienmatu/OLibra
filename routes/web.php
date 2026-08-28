@@ -6,12 +6,15 @@ use App\Http\Controllers\Manage\LostCopiesController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\SearchController;
+use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
 use Illuminate\Support\Facades\Route;
 
 // ── Public ────────────────────────────────────────────────────────────────
 Route::get('/', [ShellController::class, 'home'])->name('home');
-Route::get('/register', [ShellController::class, 'underConstruction'])->name('register');
+Route::get('/register', [RegistrationController::class, 'create'])->name('register');
+Route::post('/register', [RegistrationController::class, 'store'])
+    ->middleware('throttle:register')->name('register.store');
 Route::get('/contact', [ShellController::class, 'underConstruction'])->name('contact');
 Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index');
 

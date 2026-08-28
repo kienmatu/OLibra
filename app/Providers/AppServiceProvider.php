@@ -13,8 +13,11 @@ use App\Policies\BookPolicy;
 use App\Policies\MembershipPolicy;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\TenantContext;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\ServiceProvider;
 
@@ -50,6 +53,27 @@ class AppServiceProvider extends ServiceProvider
                 $app,
             );
         });
+
+        // Open question 3 (plan header): OPS §8 records RegisterMembership
+        // rate limiting as unaddressed in both source documents. This is
+        // the infrastructure-level answer, at the edge of the route, not a
+        // domain rule. Known-gaps records the decision, and both numbers,
+        // as taken on the product owner's behalf.
+        //
+        // TWO keys on purpose. Per-IP ALONE is wrong here: BR §16.1's
+        // scenario is a room of people on one parish connection, so a tight
+        // per-IP minute budget throttles the legitimate event and stops no
+        // script (addresses rotate; a parish's does not). The day budget is
+        // keyed on a HASHED phone number, the shape OPS §8 already specifies
+        // for the other guest-open write (SubmitFeedback: 3 per phone per
+        // day, hashed, §5.4), falling back to the IP when the phone is blank
+        // so the phone-missing-reason route is not an open bypass.
+        RateLimiter::for('register', fn (Request $request) => [
+            Limit::perMinute(30)->by('ip:'.($request->ip() ?? 'unknown')),
+            Limit::perDay(20)->by('reg:'.hash('sha256', (string) (
+                $request->string('phone')->trim()->value() ?: 'ip:'.($request->ip() ?? 'unknown')
+            ))),
+        ]);
 
         // The global flag outranks every shelf role — ROLE_RANK.super_admin —
         // but ONLY for the role-hierarchy abilities this file defines
