@@ -11,6 +11,7 @@ use App\Models\ProfileChangeRequest;
 use App\Models\User;
 use App\Support\Clock;
 use App\Support\Members\ParishUnits;
+use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
@@ -25,17 +26,41 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
  * days-remaining / overdue are derived from Clock::today() at read time
  * (BR §8). 1c will centralise this math in app/Support/Circulation and
  * this query switches to it then — known-gaps carries the hand-off.
+ *
+ * Task 14 review flag: this class never re-verified the $membership it was
+ * handed against the currently BOUND tenant. `Loan::query()` below carries
+ * `BelongsToBookshelf` and so is scoped to whatever shelf `TenantContext`
+ * is bound to — a fact SEPARATE from which shelf `$membership` itself
+ * belongs to. Today the two always agree, because the only caller is a
+ * `{shelf}/manage/readers/{reader}` route where `scopeBindings()` resolves
+ * `{reader}` through `Bookshelf::readers()` under the SAME `{shelf}` that
+ * `ResolveTenant` bound — so `$membership->bookshelf_id` cannot diverge
+ * from `TenantContext::bookshelfId()` for a request that reached here at
+ * all. But that agreement is a property of the ONE route that calls this
+ * query today, not of this class itself: nothing here stops a future
+ * caller — a console command, a cross-shelf admin screen, a refactor that
+ * resolves `{reader}` some other way — from handing this method a
+ * membership from a DIFFERENT shelf than the one bound, which would then
+ * silently render shelf A's person fields beside shelf B's loans. Guarded
+ * explicitly rather than left implicit, the same way `BookshelfScope`
+ * itself fails closed instead of trusting every caller to get routing
+ * right.
  */
 final class ReaderDetailQuery
 {
     public function __construct(
         private Clock $clock,
         private ParishContextQuery $parish,
+        private TenantContext $tenant,
     ) {}
 
     /** @return array<string, mixed> */
     public function run(Membership $membership): array
     {
+        if (! $this->tenant->isSystemWide() && $membership->bookshelf_id !== $this->tenant->bookshelfId()) {
+            throw new ModelNotFoundException;
+        }
+
         $person = User::query()->find($membership->user_id);
         if ($person === null) {
             throw new ModelNotFoundException;   // a soft-deleted identity is no reader

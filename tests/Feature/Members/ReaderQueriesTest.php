@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Queries\ReaderDetailQuery;
 use App\Queries\ReadersListQuery;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\Support\TenantHarness;
@@ -313,6 +314,29 @@ it('a pending profile change shows as a display-only stub', function () {
 
     expect($detail['pendingProfileChange'])->not->toBeNull()
         ->and($detail['pendingProfileChange']['id'])->toBe($request->id);
+});
+
+it('the detail query refuses a membership from a shelf other than the one bound — the Task 14 review flag', function () {
+    // ReaderDetailQuery::run(Membership) never re-checked $membership's
+    // OWN bookshelf_id against TenantContext::bookshelfId() — flagged in
+    // Task 12's review and recorded in ReaderDetailQuery's own docblock.
+    // Today the one caller (a {shelf}/manage/readers/{reader} route)
+    // cannot produce a mismatch, because scopeBindings() resolves
+    // {reader} through the SAME {shelf} ResolveTenant already bound — but
+    // that agreement is a property of that ONE route, not of this class.
+    // This test bypasses the route entirely (withoutGlobalScopes(), the
+    // same escape hatch TenantHarness::readerFor() and every direct
+    // cross-shelf read in this suite already uses) to hand the query a
+    // membership from a DIFFERENT shelf than the one bound, proving the
+    // guard added in this task — not the route layer — is what refuses it.
+    $shelves = TenantHarness::twoCollidingShelves();
+    $foreignMembership = Membership::query()->withoutGlobalScopes()
+        ->where('bookshelf_id', $shelves['b']->id)->firstOrFail();
+
+    TenantHarness::actAs($shelves['a']);
+
+    expect(fn () => app(ReaderDetailQuery::class)->run($foreignMembership))
+        ->toThrow(ModelNotFoundException::class);
 });
 
 it('INV-10: another shelf\'s readers never appear in the roster', function () {
