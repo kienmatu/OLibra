@@ -10,6 +10,7 @@ use App\Models\ParishUnit;
 use App\Models\Scopes\BookshelfScope;
 use App\Models\User;
 use App\Support\TenantContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\Support\TenantHarness;
 
@@ -69,7 +70,7 @@ it('a guest registers and gets a pending membership and a new person', function 
 });
 
 it('the audit entry has a null actor and carries no phone, no DOB, no parents', function () {
-    regFixture();
+    [$shelf] = regFixture();
 
     $result = app(RegisterMembership::class)->execute(regInput());
 
@@ -79,6 +80,11 @@ it('the audit entry has a null actor and carries no phone, no DOB, no parents', 
     expect($entry->actor_id)->toBeNull()
         ->and($entry->entity_type)->toBe('membership')
         ->and($entry->entity_id)->toBe($result['membershipId'])
+        // Fix round: the ported test had dropped this assertion. The row
+        // still lands on the bound shelf even with a null actor — that is
+        // what distinguishes a guest registration from a cross-shelf admin
+        // act (AuditRecorder's own docblock) when the queue renders it.
+        ->and($entry->bookshelf_id)->toBe($shelf->id)
         ->and($entry->after['fullName'])->toBe('Nguyễn Thị Lan')
         ->and($entry->after['status'])->toBe('pending')
         ->and($serialized)->not->toContain('0912')
@@ -371,4 +377,129 @@ it('a manager who left re-registers through the public form, landing pending and
     expect($result['membershipId'])->toBe($membership->id)
         ->and($fresh->status)->toBe(MembershipStatus::Pending)
         ->and($fresh->role->value)->toBe('reader');
+});
+
+// — fix round —
+
+it('CRITICAL 1 (collation): two children whose names differ only by a diacritic are two different people, not one merged row', function () {
+    regFixture();
+
+    // `full_name` is stored under utf8mb4_unicode_ci (the table default),
+    // which folds 'Nguyễn Thị Lan' and 'Nguyen Thi Lan' EQUAL — verified
+    // live: `SELECT LOWER('Nguyễn Thị Lan')=LOWER('Nguyen Thi Lan')` → 1.
+    // Before the fix (full_name_ci, an explicitly utf8mb4_bin generated
+    // column), the second child below matched the FIRST child's `users`
+    // row via the no-username triple, and the walk-back then refused with
+    // `already_registered_here` — a false "you already registered" for a
+    // sibling (or twin, BR §3's same-name edge case) who had never
+    // registered anywhere. Same date of birth and the family's shared
+    // phone, on purpose: those two legs of the triple are meant to match:
+    // it is full_name's fold that must not.
+    $first = app(RegisterMembership::class)->execute(regInput([
+        'full_name' => 'Nguyễn Thị Lan',
+    ]));
+
+    $second = app(RegisterMembership::class)->execute(regInput([
+        'full_name' => 'Nguyen Thi Lan',
+    ]));
+
+    expect($second['userId'])->not->toBe($first['userId'])
+        ->and($second['membershipId'])->not->toBe($first['membershipId'])
+        ->and(User::query()->count())->toBe(2)
+        ->and(User::query()->findOrFail($first['userId'])->full_name)->toBe('Nguyễn Thị Lan')
+        ->and(User::query()->findOrFail($second['userId'])->full_name)->toBe('Nguyen Thi Lan');
+
+    // The case-insensitive half of the same rule must still hold: a
+    // differently-CASED re-submission of the SAME spelling is still the
+    // same person. (First's membership is freed so this is a fresh
+    // registration attempt rather than the already-registered refusal.)
+    Membership::query()->findOrFail($first['membershipId'])->delete();
+    $again = app(RegisterMembership::class)->execute(regInput(['full_name' => 'NGUYỄN THỊ LAN']));
+    expect($again['userId'])->toBe($first['userId']);
+});
+
+it('the walk-back read locks the membership row before deciding', function () {
+    regFixture();
+    app(RegisterMembership::class)->execute(regInput());
+
+    $sqls = [];
+    DB::listen(function ($query) use (&$sqls) {
+        $sqls[] = $query->sql;
+    });
+
+    // IMPORTANT finding 2: without `lockForUpdate()` on the walk-back read
+    // in `Registration::upsertMembership()`, this was a plain, non-locking
+    // `select` — under REPEATABLE READ it pinned a snapshot a concurrent
+    // lifecycle command's committed transition (that command DOES take its
+    // own `lockForUpdate`) could then be blindly overwritten by. The
+    // second registration attempt below hits `already_registered_here`
+    // either way (INV: pending cannot walk back to pending) — what this
+    // test pins is that the read deciding that outcome is a LOCKING read,
+    // not merely that a refusal happens.
+    expect(fn () => app(RegisterMembership::class)->execute(regInput()))
+        ->toThrow(RuleViolated::class, 'already_registered_here');
+
+    $lockingMembershipSelects = array_filter(
+        $sqls,
+        fn ($sql) => str_starts_with(trim($sql), 'select')
+            && str_contains($sql, '`memberships`')
+            && str_contains(strtolower($sql), 'for update'),
+    );
+
+    expect($lockingMembershipSelects)->not->toBeEmpty();
+});
+
+it('a match and a miss are indistinguishable from outside', function () {
+    // Rule 1, ported from old_next's register-membership.test.ts:414 — the
+    // whole anti-probe design in one assertion: same result shape, same
+    // status, same audit action, whether or not the person already existed.
+    [$shelfA] = regFixture();
+    app(RegisterMembership::class)->execute(regInput());
+
+    app(TenantContext::class)->actSystemWide();
+    $shelfB = Bookshelf::factory()->create(['slug' => 'can-tho', 'settings' => []]);
+    TenantHarness::actAs($shelfB);
+
+    $known = app(RegisterMembership::class)->execute(regInput());
+    $stranger = app(RegisterMembership::class)->execute(regInput([
+        'full_name' => 'Không ai biết',
+        'phone' => '0900 000 999',
+    ]));
+
+    expect(array_keys($known))->toEqualCanonicalizing(array_keys($stranger))
+        ->and(Membership::query()->findOrFail($known['membershipId'])->status)->toBe(MembershipStatus::Pending)
+        ->and(Membership::query()->findOrFail($stranger['membershipId'])->status)->toBe(MembershipStatus::Pending);
+
+    $actions = AuditLog::query()->distinct()->pluck('action')->all();
+    expect($actions)->toBe(['membership.registered']);
+
+    // IMPORTANT 5's point, ported whole: a shape assertion alone would
+    // still pass against an implementation that quietly inserted a second
+    // row for an identity that should have been reused — the "miss" branch
+    // above is a write, not a read, and so is a probe. Exactly one `users`
+    // row per identity (the known family, and the stranger — never a
+    // third), and one membership row per SHELF the family registered at
+    // (shelfA and shelfB), never one per ATTEMPT.
+    expect(User::query()->count())->toBe(2)
+        ->and(Membership::query()->withoutGlobalScopes([BookshelfScope::class])->where('user_id', $known['userId'])->count())->toBe(2)
+        ->and($shelfA->id)->not->toBe($shelfB->id);
+});
+
+it('an avatar is a storage key the domain records, never bytes it stores', function () {
+    // Ported from old_next's register-membership.test.ts:134. The plan's
+    // Avatars decision: the domain records WHICH object is this person's
+    // photograph and never touches the bytes; a key rather than a URL is
+    // what makes it deletable.
+    //
+    // WARNING kept alongside this test on purpose (fix round, minor
+    // finding 3): this proves Registration threads the key through
+    // correctly — it does NOT prove the HTTP boundary is safe. Task 13
+    // must not forward a guest-supplied avatar_object verbatim; see
+    // Registration::createPerson()'s docblock.
+    regFixture();
+    $key = 'avatars/9f2c1e3a-4b5d-4e6f-8a9b-0c1d2e3f4a5b.webp';
+
+    $result = app(RegisterMembership::class)->execute(regInput(['avatar_object' => $key]));
+
+    expect(User::query()->findOrFail($result['userId'])->avatar_object)->toBe($key);
 });

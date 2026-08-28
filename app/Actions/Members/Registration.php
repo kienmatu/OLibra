@@ -38,12 +38,25 @@ use Illuminate\Support\Facades\Hash;
  * MEMBERSHIP read is scoped by BookshelfScope, which is the walk-back's
  * whole tenancy story.
  *
- * DIVERGENCE 2 (plan header): no lock. The username check and the
- * walk-back read are check-then-write, and both are backed structurally —
- * users_username_key and memberships_one_per_shelf, errno 1062, translated
- * below. The no-username triple has no structural backstop and a
- * concurrent duplicate person is accepted (the approval queue's
- * similar-name warning is the product's answer); known-gaps records it.
+ * DIVERGENCE 2 (plan header), REVISED in the Task 6 fix round:
+ * upsertMembership()'s walk-back read now takes a locking read
+ * (`lockForUpdate`) — under REPEATABLE READ, the plain `select` it used to
+ * issue pinned a snapshot, so a concurrent lifecycle command (which DOES
+ * take its own `lockForUpdate`) could commit a transition — say, an
+ * approval landing `active` with an approved_by — between this read and
+ * this method's blind `update`, which would then overwrite it with
+ * `pending`/`role=reader`/`approved_by=null`. `memberships_one_per_shelf`
+ * backs only the INSERT branch below, nothing backed the UPDATE branch.
+ * Pinned by RegisterMembershipTest's "the walk-back read locks the
+ * membership row before deciding".
+ *
+ * The username check is still an unlocked check-then-write — backed
+ * structurally by users_username_key, errno 1062, translated below. So is
+ * the no-username triple lookup+insert, which has NO structural backstop:
+ * a concurrent duplicate person is still accepted (the approval queue's
+ * similar-name warning is the product's answer). NOT YET recorded in
+ * known-gaps — that write-up is Task 16's, still pending as of this fix
+ * round.
  */
 final class Registration
 {
@@ -195,14 +208,44 @@ final class Registration
             return null;
         }
 
+        // Fix round, CRITICAL finding 1: `LOWER(full_name) = LOWER(?)`
+        // ran under full_name's own utf8mb4_unicode_ci collation, which is
+        // ACCENT-INSENSITIVE on this build — 'Nguyễn Thị Lan' and 'Nguyen
+        // Thi Lan' compared equal, merging two different children who
+        // share a date of birth and phone into one `users` row. `full_name_ci`
+        // (2026_08_28_000003) is username_active's shape applied here: a
+        // STORED generated column under an explicit `utf8mb4_bin`
+        // collation, so `=` is byte-exact — case-insensitive (LOWER() ran
+        // going in) but never accent-merging. Comparing the generated
+        // column directly (not wrapping it in a function here) is also
+        // what keeps this sargable — see the migration's docblock and
+        // finding 4.
+        //
+        // date_of_birth is already a DATE column, not a DATETIME — the
+        // `whereDate()` this replaced was compiling a needless
+        // `date(date_of_birth) = ?`, a function wrapping the column that
+        // defeated the composite index just like the old full_name
+        // predicate did (finding 4).
         return User::query()
-            ->whereRaw('LOWER(full_name) = LOWER(?)', [trim((string) $input['full_name'])])
-            ->whereDate('date_of_birth', trim((string) $input['date_of_birth']))
+            ->whereRaw('full_name_ci = LOWER(?)', [trim((string) $input['full_name'])])
+            ->where('date_of_birth', trim((string) $input['date_of_birth']))
             ->where('phone', trim((string) $input['phone']))
             ->first();
     }
 
     /**
+     * WARNING (fix round, minor finding 3, for Task 13's author): `avatar_object`
+     * is forwarded from `$input` VERBATIM — it is trusted as an already-valid
+     * storage key, never validated against "does this object belong to the
+     * uploader" here. That is safe today only because nothing calls
+     * `register()` with attacker-controlled `avatar_object` yet. The public
+     * HTTP form Task 13 wires up MUST NOT forward a client-supplied
+     * `avatar_object` for a brand-new (guest) registration — a guest who
+     * knows or guesses any existing storage key could point a newly created
+     * person's avatar at it. If a guest-facing avatar upload is wanted, Task
+     * 13 must mint/verify the key itself (e.g. after its own upload step)
+     * rather than accept one named by the requester.
+     *
      * @param  array<string, ?string>  $input
      * @param  array{username: ?string, password_hash: ?string}  $credentials
      */
@@ -246,10 +289,22 @@ final class Registration
      * reversed decision, in full: a non-active row's role confers nothing
      * (the membership resolution filters status = active), and refusing
      * instead left a returning ex-manager unable to re-enrol by ANY path.
+     *
+     * Fix round, IMPORTANT finding 2: `lockForUpdate()` on this read.
+     * Without it this was check-then-write with no backstop on the UPDATE
+     * branch — `memberships_one_per_shelf` only ever backs the INSERT
+     * branch below. A locking read need not be the transaction's first
+     * statement to be correct: under REPEATABLE READ, `SELECT ... FOR
+     * UPDATE` always reads the latest COMMITTED row and takes an X lock on
+     * it, ignoring the transaction's earlier snapshot — so putting it here,
+     * at the point the row is actually about to be written, closes the
+     * race against any other command that also locks this row (every
+     * lifecycle transition command does) without having to restructure
+     * `register()`'s call order.
      */
     private function upsertMembership(string $userId, ?string $l1, ?string $l2, MembershipStatus $status, ?User $approver): string
     {
-        $existing = Membership::query()->where('user_id', $userId)->first();
+        $existing = Membership::query()->where('user_id', $userId)->lockForUpdate()->first();
 
         if ($existing !== null) {
             if (MembershipTransitions::check($existing->status, MembershipStatus::Pending) !== null) {

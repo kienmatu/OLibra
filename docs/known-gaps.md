@@ -669,6 +669,31 @@ review or a later task rather than fixed in place:
   orphaned by the settings deletion, left for a future settings rebuild.
   `DashboardTest`'s schema-independent guest-redirect coverage was over-deleted
   (accepted: Task 18 replaces the dashboard route wholesale).
+- **Task 6, fix round:** `Registration::findExistingPerson()`'s no-username
+  triple (full_name + date_of_birth + phone) is check-then-write with NO
+  structural backstop — unlike the username path (`users_username_key`) and
+  the walk-back (`memberships_one_per_shelf`, now also lock-guarded), a
+  concurrent registration of the same identity with no username can still
+  create two `users` rows racing this read. The approval queue's
+  similar-name warning (BR §5.3) is the product's accepted mitigation, not a
+  structural fix; a real fix would need either a unique index over
+  (full_name_ci, date_of_birth, phone) — which would then have to define
+  what "no phone" means for uniqueness (NULLs are already distinct, so a
+  reason-only registration is naturally exempt) — or an application-level
+  advisory lock. Left for whichever task does the phase's final guarantee
+  sweep. Separately: `Registration.php`'s own docblock previously (wrongly)
+  claimed this gap was already recorded here; that line has been corrected
+  to say it wasn't, rather than making it true retroactively — this bullet
+  is what makes it true now. Also unresolved from the same fix round:
+  unmapped `QueryException`s thrown from `Registration::register()` reach
+  Laravel's default exception logging with the child's full name, DOB,
+  parents' names and phone inlined in the message (Laravel logs the bound
+  SQL by default). Not fixed in the fix round — the correct fix is an
+  app-wide redaction of logged exception messages/contexts, not a
+  one-command patch that leaves every other Action with the identical
+  exposure while looking addressed; that redaction mechanism belongs with
+  whichever task owns the phase's logging/PII policy (Task 16, per its
+  ownership of the hashed-session-at-rest decision elsewhere in this file).
 - **Task 7:** no assertion covers the `books_public`/`copies_by_book`/
   `copies_by_state` indexes, so their removal goes unnoticed; the collation
   hazard is proven only indirectly (a `collation_name NOT LIKE '%_bin'`

@@ -18,6 +18,12 @@ use Illuminate\Support\Facades\DB;
  * domain — OPS §8; Task 13's throttle), and the structural defences are
  * users_username_key, memberships_one_per_shelf, and the anti-probe
  * matching rules in Registration.
+ *
+ * WARNING for Task 13's author (fix round, minor finding 3): `execute()`
+ * trusts every key in `$input`, including `avatar_object` — see
+ * `Registration::createPerson()`'s docblock. On a GUEST endpoint this key
+ * must not come from the requester unfiltered; strip or independently
+ * verify it before it reaches this command.
  */
 final class RegisterMembership
 {

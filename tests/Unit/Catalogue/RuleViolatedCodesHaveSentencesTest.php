@@ -28,7 +28,13 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         }
 
         $contents = file_get_contents($file->getPathname());
-        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_]+)[\'"]\s*\)/', $contents, $matches);
+        // [a-z0-9_-]+, not [a-z0-9_]+: thieu-so-dien-thoai (Registration.php)
+        // is the one hyphenated code in the system, and the un-widened
+        // regex could not match it — a census whose entire job is pinning
+        // that every code has a sentence was blind to this one. Confirmed
+        // by deleting `thieu-so-dien-thoai`'s lang/vi/rules.php line: with
+        // the old regex the suite stayed green; with this one it goes red.
+        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_-]+)[\'"]\s*\)/', $contents, $matches);
         foreach ($matches[1] as $code) {
             $codes[$code] = true;
         }
@@ -51,6 +57,7 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'phone_invalid',
         'required_fields_missing',
         'retire_reason_required',
+        'thieu-so-dien-thoai',
         'username_taken',
         'validation_failed',
     ]);
