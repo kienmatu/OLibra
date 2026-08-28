@@ -1370,7 +1370,7 @@ the full suite ran green.
   reader renew. This phase's answer, 2026-08-29: no — a suspended reader
   cannot renew, matching the reference, and closing the question rather
   than leaving it open. `App\Http\Middleware\ResolveTenant::handle()`
-  (`app/Http/Middleware/ResolveTenant.php:65`) is the ONLY place a
+  (`app/Http/Middleware/ResolveTenant.php:67`) is the ONLY place a
   membership is ever resolved into `TenantContext`, and its query is
   filtered `->where('status', Active)` — so a suspended reader's
   `TenantContext::membership()` is null on every real route, renew
