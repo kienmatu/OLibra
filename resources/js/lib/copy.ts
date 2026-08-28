@@ -350,6 +350,25 @@ export const copy = {
             noneFound: "Không tìm thấy lượt mượn nào đang mở.",
             chooseFirst: "Tìm và chọn lượt mượn cần xử lý.",
         },
+        overdue: {
+            title: "Sách quá hạn",
+            sortMostLate: "Trễ nhất trước",
+            sortLeastLate: "Trễ ít trước",
+            sortBorrower: "Theo tên bạn đọc",
+            daysLate: "Trễ {days} ngày",
+            dueLine: "Hạn trả {date}",
+            empty: "Không có sách nào quá hạn. Tuyệt vời!",
+            noPhone: "Chưa có số điện thoại",
+        },
+        voidLoan: {
+            button: "Huỷ lượt mượn",
+            reasonLabel: "Lý do huỷ",
+            confirm: "Huỷ",
+        },
+        entryPoints: {
+            lend: "Cho mượn",
+            receive: "Nhận trả",
+        },
     },
 } as const;
 

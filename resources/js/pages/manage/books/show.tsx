@@ -1,4 +1,4 @@
-import { Head, Link, router, usePage } from "@inertiajs/react";
+import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
 import { useState } from "react";
 import { route } from "ziggy-js";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ interface CopyRow {
     acquiredOn: string | null;
     acquiredFrom: string | null;
     acquiredFromMembershipName: string | null;
+    activeLoanId: string | null;
     holderName: string | null;
     dueOn: string | null;
     isOverdue: boolean;
@@ -144,13 +145,28 @@ function CopyActions({ copyRow, shelfSlug }: { copyRow: CopyRow; shelfSlug: stri
                 {copy.manageBooks.assess}
             </Button>
             {copyRow.state === "on_loan" ? (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => post("shelves.manage.copies.report-lost")}
-                >
-                    {copy.manageBooks.reportLost}
-                </Button>
+                <>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => post("shelves.manage.copies.report-lost")}
+                    >
+                        {copy.manageBooks.reportLost}
+                    </Button>
+                    <Button asChild size="sm" variant="outline">
+                        <Link
+                            href={route("shelves.manage.returns", {
+                                shelf: shelfSlug,
+                                q: copyRow.code,
+                            })}
+                        >
+                            {copy.circulation.entryPoints.receive}
+                        </Link>
+                    </Button>
+                    {copyRow.activeLoanId ? (
+                        <VoidLoanForm loanId={copyRow.activeLoanId} shelfSlug={shelfSlug} />
+                    ) : null}
+                </>
             ) : null}
             {copyRow.state === "lost" ? (
                 <Button
@@ -167,6 +183,46 @@ function CopyActions({ copyRow, shelfSlug }: { copyRow: CopyRow; shelfSlug: stri
                 </Button>
             ) : null}
         </div>
+    );
+}
+
+function VoidLoanForm({ loanId, shelfSlug }: { loanId: string; shelfSlug: string }) {
+    const form = useForm({ reason: "" });
+    const [open, setOpen] = useState(false);
+
+    if (!open) {
+        return (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
+                {copy.circulation.voidLoan.button}
+            </Button>
+        );
+    }
+
+    return (
+        <form
+            className="flex flex-col items-start gap-1"
+            onSubmit={(e) => {
+                e.preventDefault();
+                form.post(route("shelves.manage.loans.void", { shelf: shelfSlug, loan: loanId }), {
+                    preserveScroll: true,
+                });
+            }}
+        >
+            <div className="flex items-center gap-2">
+                <Input
+                    value={form.data.reason}
+                    onChange={(e) => form.setData("reason", e.target.value)}
+                    placeholder={copy.circulation.voidLoan.reasonLabel}
+                    className="h-9 w-48"
+                />
+                <Button type="submit" variant="destructive" size="sm" disabled={form.processing}>
+                    {copy.circulation.voidLoan.confirm}
+                </Button>
+            </div>
+            {form.errors.reason ? (
+                <p className="text-sm text-destructive">{form.errors.reason}</p>
+            ) : null}
+        </form>
     );
 }
 
@@ -197,6 +253,18 @@ export default function ManageBooksShow() {
                 <div className="flex gap-2">
                     {!book.isPublished ? (
                         <Badge variant="outline">{copy.manageBooks.draftBadge}</Badge>
+                    ) : null}
+                    {detail.copies.some((c) => c.state === "available") ? (
+                        <Button asChild variant="outline">
+                            <Link
+                                href={route("shelves.manage.lend.reader", {
+                                    shelf: shelf.slug,
+                                    book: book.slug,
+                                })}
+                            >
+                                {copy.circulation.entryPoints.lend}
+                            </Link>
+                        </Button>
                     ) : null}
                     <Button asChild variant="outline">
                         <Link

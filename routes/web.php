@@ -3,7 +3,9 @@
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\LendController;
+use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
+use App\Http\Controllers\Manage\OverdueController;
 use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
@@ -175,7 +177,8 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/copies/{bookCopy}/mark-found', [CopyController::class, 'markFound'])->name('copies.mark-found');
 
         Route::get('/borrow-requests', [ShellController::class, 'underConstruction'])->name('borrow-requests');
-        Route::get('/overdue', [ShellController::class, 'underConstruction'])->name('overdue');
+        Route::get('/overdue', [OverdueController::class, 'index'])->name('overdue');
+        Route::post('/loans/{loan}/void', [LoanController::class, 'void'])->name('loans.void');
         Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');
         Route::post('/registrations/{reader}/approve', [RegistrationQueueController::class, 'approve'])->name('registrations.approve');
         Route::post('/registrations/{reader}/reject', [RegistrationQueueController::class, 'reject'])->name('registrations.reject');
