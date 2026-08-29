@@ -107,4 +107,18 @@ class Bookshelf extends Model
     {
         return $this->hasMany(Feedback::class);
     }
+
+    /**
+     * AuditLog carries no BelongsToBookshelf (AuditLogQuery is its own
+     * named exemption in TenancyArchitectureTest), so a shelf-scoped read
+     * of its own audit rows goes through this relation rather than a
+     * hand-written filter naming the bookshelf column — the same reasoning
+     * as feedback() above.
+     *
+     * @return HasMany<AuditLog, $this>
+     */
+    public function auditLogs(): HasMany
+    {
+        return $this->hasMany(AuditLog::class);
+    }
 }

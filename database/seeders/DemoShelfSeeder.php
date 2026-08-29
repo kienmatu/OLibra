@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\AuditLog;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
@@ -169,6 +170,39 @@ class DemoShelfSeeder extends Seeder
                     'due_on' => Carbon::parse($today)->subDays(10)->toDateString(), 'status' => 'active',
                 ]);
             }
+        }
+
+        // Task 10: a living audit page — DemoShelfSeeder inserts models
+        // directly (no commands run), so without this the audit page is an
+        // empty state beside a shelf that visibly has books and loans.
+        // $shelf->auditLogs() — the hasMany relation added on Bookshelf for
+        // this purpose — not a hand-written filter naming the bookshelf
+        // column: TenancyArchitectureTest confines that kind of filtering
+        // to BookshelfScope/ResolveTenant/AuditLogQuery only, and a literal
+        // filter anywhere in this seeder would turn that suite red.
+        if ($shelf->auditLogs()->doesntExist()) {
+            $seededLoan = $shelf->loans()->first();
+            AuditLog::query()->create([
+                'bookshelf_id' => $shelf->id, 'actor_id' => $manager->id,
+                'action' => 'loan.created', 'entity_type' => 'loan',
+                'entity_id' => $seededLoan?->id,
+                'before' => ['copy_state' => 'available'],
+                'after' => $seededLoan === null ? null : [
+                    'copy_state' => 'on_loan',
+                    'borrower_id' => $seededLoan->borrower_id,
+                    'due_on' => $seededLoan->due_on->toDateString(),
+                    'title' => $seededLoan->copy?->book?->title,
+                ],
+                'context' => [],
+            ]);
+            AuditLog::query()->create([
+                'bookshelf_id' => $shelf->id, 'actor_id' => $manager->id,
+                'action' => 'membership.approved', 'entity_type' => 'membership',
+                'entity_id' => $shelf->memberships()
+                    ->where('role', 'reader')->where('status', 'active')->value('id'),
+                'before' => ['status' => 'pending'], 'after' => ['status' => 'active'],
+                'context' => [],
+            ]);
         }
 
         // This is the last seeder in the run today, so leaving the
