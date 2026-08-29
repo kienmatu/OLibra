@@ -93,6 +93,15 @@ it('INV-8: request.rejected names the reader and the reason, and the audit scree
     $entry = AuditLog::query()->where('action', 'request.rejected')->firstOrFail();
     $after = (array) $entry->after;
     expect((array) $entry->before)->toMatchArray(['status' => 'pending'])
+        // The fixture's actingAs is load-bearing, not scenery: AuditRecorder
+        // takes actor_id from Auth::id(), never from the $actor parameter
+        // (that one only reaches decided_by, App\Actions\Circulation\
+        // RejectBorrowRequest.php:62) — a fixture that signed nobody in
+        // would write a null actor_id here, and this assertion is what
+        // notices. actor_id is nullable and the join in AuditLogQuery is a
+        // LEFT join (a null actor renders "Hệ thống", not a query failure),
+        // so nothing else in this test would go red without it.
+        ->and($entry->actor_id)->toBe($manager->id)
         ->and($after['status'])->toBe('rejected')
         ->and($after['title'])->toBe('Totto-chan Bên Cửa Sổ')
         ->and($after['userId'])->toBe($reader->id)

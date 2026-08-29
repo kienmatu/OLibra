@@ -29,9 +29,13 @@ use Illuminate\Support\Facades\Gate;
  *
  * One lock, the request row (this command touches no copy — a pending
  * request names none), taken as the transaction's first statement.
- * "No such request", "another shelf's" (scope) and "already decided"
- * share request_not_pending — telling them apart would confirm the
- * other shelf's request exists.
+ * "No such request" and "another shelf's" (scope) never reach
+ * request_not_pending at all — lockForUpdate()->findOrFail() throws
+ * ModelNotFoundException for both, before either input is told apart
+ * from the other. "Already decided" is the one case that IS
+ * request_not_pending. All three are one answer to the caller — a
+ * 404 — so telling them apart would confirm the other shelf's request
+ * exists either way.
  */
 final class RejectBorrowRequest
 {
