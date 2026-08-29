@@ -23,28 +23,15 @@ class ReceiveReturnRequest extends FormRequest
     }
 
     /**
-     * "Không giữ chỗ, trả về kệ" posts the empty string — the absence of a
-     * choice to hold, not a request id of zero length — and `nullable`
-     * does not by itself treat "" as absent for a `uuid` rule.
+     * "Không giữ chỗ, trả về kệ" posts "" — the absence of a choice, not
+     * a request id of zero length — and `nullable` alone would not save
+     * a `uuid` rule from it.
      *
-     * MEASURED, not assumed: over an actual HTTP request this merge is
-     * currently redundant. The framework's own global
-     * ConvertEmptyStringsToNull middleware (registered by default —
-     * Middleware::getGlobalMiddleware(), never removed in
-     * bootstrap/app.php) already folds "" to null on BOTH the query bag
-     * and, via TransformsRequest::clean()'s isJson() branch, the JSON
-     * body Inertia's useForm() posts — before this class's rules() ever
-     * runs. UpdateReaderProfileRequest's own docblock names the same
-     * middleware for the same reason. Proved by mutation: replacing the
-     * condition below with `if (false)` left every ReturnHoldOfferTest
-     * green, including "the empty radio value means no hold" — this
-     * merge is not what that test is currently pinning.
-     *
-     * Kept anyway, as the brief directs, for the caller this app's
-     * middleware stack does not cover — a FormRequest resolved outside
-     * the HTTP kernel (a console command, a queued job, a unit test that
-     * new()s this class directly) sees no ConvertEmptyStringsToNull at
-     * all, and would hit the uuid rule with a literal "" without this.
+     * MEASURED redundant on every HTTP path today (mutation-tested: `if
+     * (false)` here left every ReturnHoldOfferTest green) — the app's own
+     * global ConvertEmptyStringsToNull already folds "" to null first —
+     * but kept as the contract for a caller outside that middleware
+     * stack, same reasoning as UpdateReaderProfileRequest's docblock.
      */
     protected function prepareForValidation(): void
     {

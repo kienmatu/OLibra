@@ -1,5 +1,5 @@
 import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { route } from "ziggy-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,9 +53,40 @@ export default function ReturnsIndex() {
     // BR §16.3: Nguyên vẹn preselected — the common case is two taps.
     // hold_for_request_id defaults to "" — not holding is the default
     // (OPS §5: "the manager decides, because the next reader may not be
-    // standing there") — and ReceiveReturnRequest::prepareForValidation()
-    // is what turns that empty string back into the absence of a choice.
+    // standing there"). "" reaches the server as null: Laravel's global
+    // ConvertEmptyStringsToNull middleware folds it before validation, and
+    // ReceiveReturnRequest::prepareForValidation() does the same for a
+    // caller outside that middleware stack.
     const form = useForm({ condition: "perfect", note: "", hold_for_request_id: "" });
+    // The loan-row Link below carries preserveState, so switching loans
+    // never remounts this component — form.data survives the navigation,
+    // and the radios further down are controlled (checked={form.data...})
+    // rather than defaultChecked, precisely so a loan switch is visible
+    // instead of drifting silently out of sync with the DOM. Neither of
+    // those is enough on its own, though: without this reset, a hold
+    // picked for loan A's waiter stays in form.data.hold_for_request_id
+    // after the manager clicks loan B — every radio in B's fieldset
+    // correctly shows unchecked (none matches the stale id), but the
+    // stale id is still what gets posted on confirm, and ReceiveReturn
+    // refuses it as request_not_queued (wrong book_id) for a different
+    // title — or, when A and B are two copies of the SAME title (so the
+    // waiter's request is still a legitimate row in B's own queue), it
+    // silently carries A's choice onto B's copy: coherent to the server,
+    // but not a decision the manager made for B. Resetting on every
+    // chosenLoanId change, same title or not, is what OPS §5 asks for —
+    // the manager decides per return, never by inheritance from the last one.
+    // (Runs above the `!shelf` early return: every hook in this
+    // component must, React's rules of hooks rule out a conditional one.)
+    // The effect deliberately doesn't READ chosenLoanId — it is the
+    // trigger, not an input — and form.setData is Inertia's
+    // useCallback-memoised setter (stable across renders:
+    // @inertiajs/react's useForm wraps it on [commitData], itself
+    // wrapped on the raw useState setter, which never changes), so
+    // omitting it from the list changes nothing about when this fires.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+    useEffect(() => {
+        form.setData("hold_for_request_id", "");
+    }, [chosenLoanId]);
     if (!shelf) return null;
 
     const chosen = loans.find((l) => l.loanId === chosenLoanId) ?? null;
@@ -195,7 +226,7 @@ export default function ReturnsIndex() {
                                         id="hold-none"
                                         name="hold_for_request_id"
                                         value=""
-                                        defaultChecked
+                                        checked={form.data.hold_for_request_id === ""}
                                         onChange={() => form.setData("hold_for_request_id", "")}
                                         className="size-5 accent-primary"
                                     />
@@ -221,6 +252,10 @@ export default function ReturnsIndex() {
                                                 id={`hold-${entry.requestId}`}
                                                 name="hold_for_request_id"
                                                 value={entry.requestId}
+                                                checked={
+                                                    form.data.hold_for_request_id ===
+                                                    entry.requestId
+                                                }
                                                 onChange={() =>
                                                     form.setData(
                                                         "hold_for_request_id",
@@ -242,12 +277,17 @@ export default function ReturnsIndex() {
                             <p className="mt-3 text-sm text-muted-foreground">
                                 {copy.circulation.returns.nothingAutomatic}
                             </p>
-                            {errors.hold_for_request_id ? (
-                                <p className="mt-1 text-sm text-destructive">
-                                    {errors.hold_for_request_id}
-                                </p>
-                            ) : null}
                         </fieldset>
+                    ) : null}
+                    {/* Outside the fieldset above deliberately: the
+                        fieldset only renders when THIS load's `waiting`
+                        is non-empty, but a refusal on hold_for_request_id
+                        (a stale id posted before `waiting` went empty, or
+                        before the loan changed underneath it) must still
+                        be visible even when the panel that offered the
+                        choice is gone. */}
+                    {errors.hold_for_request_id ? (
+                        <p className="text-sm text-destructive">{errors.hold_for_request_id}</p>
                     ) : null}
 
                     {worse ? (

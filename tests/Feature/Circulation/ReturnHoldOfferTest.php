@@ -107,6 +107,51 @@ it('with nobody waiting the panel data is empty, and no loan chosen means null',
         ->assertInertia(fn (AssertableInertia $page) => $page->where('waiting', null));
 });
 
+it('nobody has ever queued for this title — the ?? [] branch, not an empty list already inside a row', function () {
+    // rhoFix's "nobody waiting" case (above) cancels only the PENDING
+    // row, leaving the APPROVED one — $queues comes back non-empty and
+    // the array_filter(...) at ReturnController.php just filters it down
+    // to []. That never touches the `$queues[0]['requests'] ?? []`
+    // fallback, because $queues[0] exists. Reaching the fallback needs
+    // BorrowRequestQueueQuery::run($bookId) to return [] OUTRIGHT — no
+    // row at all for this book, pending or approved — which means BOTH
+    // requests must leave that status pair. Cancelling the pending one
+    // and marking the approved one fulfilled (a real terminal state:
+    // HandoverRequest's own transition) does that without describing a
+    // state no command produces.
+    [$shelf, $manager, $loan, $request, $approved] = rhoFix('dong-thap-rho-nonequeue');
+    BorrowRequest::query()->whereKey($request->id)->update(['status' => RequestStatus::Cancelled, 'cancelled_at' => now()]);
+    BorrowRequest::query()->whereKey($approved->id)->update(['status' => RequestStatus::Fulfilled]);
+
+    test()->actingAs($manager)
+        ->get("/shelves/{$shelf->slug}/manage/returns?loan={$loan->id}&q=DT-0001")
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('waiting', []));
+});
+
+it('two waiters in the panel are queue-ordered, seeded out of requested_at order (UUIDv7 rule)', function () {
+    [$shelf, $manager, $loan, $request] = rhoFix('dong-thap-rho-order');
+    // Created AFTER $request (so its v7 id sorts later) but with an
+    // EARLIER requested_at — the shape that leaves a broken sort green
+    // if the panel silently fell back to id/creation order (Tasks 12
+    // and 13's measured trap). A DIFFERENT reader from every existing
+    // one in rhoFix, per the live-request-key constraint.
+    $earlierWaiter = User::factory()->create(['full_name' => 'Cecilia Đăng Ký Trước Têrêsa']);
+    Membership::factory()->for($shelf)->create(['user_id' => $earlierWaiter->id, 'role' => 'reader', 'status' => 'active']);
+    $earlierRequest = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $loan->book_id, 'member_id' => $earlierWaiter->id,
+        'status' => RequestStatus::Pending, 'requested_at' => now()->subMinutes(30),
+    ]);
+
+    test()->actingAs($manager)
+        ->get("/shelves/{$shelf->slug}/manage/returns?loan={$loan->id}&q=DT-0001")
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->count('waiting', 2)
+            ->where('waiting.0.requestId', $earlierRequest->id)
+            ->where('waiting.0.readerName', 'Cecilia Đăng Ký Trước Têrêsa')
+            ->where('waiting.1.requestId', $request->id)
+            ->where('waiting.1.readerName', 'Têrêsa Người Đang Chờ'));
+});
+
 it('the POST with a chosen reader holds the copy and flashes the hold sentence', function () {
     [$shelf, $manager, $loan, $request] = rhoFix('dong-thap-rho-hold');
 
