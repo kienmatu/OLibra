@@ -7,18 +7,26 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     // below must contain lockForUpdate. Position is pinned per command in
     // its own test.
     //
-    // The list is hand-maintained, and since Phase 2a it has its first
-    // documented exemption — so it no longer catches a NEW circulation
-    // Action shipped without a lock merely by existing. It catches a lock
+    // The list is hand-maintained, and since Phase 2a it has documented
+    // exemptions — so it no longer catches a NEW circulation Action
+    // shipped without a lock merely by existing. It catches a lock
     // REMOVED from one of the commands that must keep theirs; adding a new
     // Action means deciding, in this file, which side it is on.
     //
-    // CreateBorrowRequest is that exemption: it takes no lock at all (plan
+    // CreateBorrowRequest is the first: it takes no lock at all (plan
     // divergence 2 — an exclusive re-read of the books row here closes an
     // AB-BA cycle against UpdateBook). Its duplicate rule is the
     // borrow_requests_one_live_per_title_member index, and
     // CreateBorrowRequestTest greps that file for both spellings the
     // Global Constraint names, so the absence stays true.
+    //
+    // HandoverRequest is the second: it takes no locks of its
+    // own (plan divergence 11) — its one write transaction is LendCopy's,
+    // whose lock position LendCopyTest already pins. Taking a
+    // borrow_requests lock here before delegating would invert divergence
+    // 1's copy-then-request order and manufacture an AB-BA cycle against
+    // LendCopy itself; its pre-flight reads choose a sentence, and every
+    // fact they read is re-established on locked rows one call later.
     foreach ([
         app_path('Actions/Circulation/ApproveBorrowRequest.php'),
         app_path('Actions/Circulation/CancelOwnRequest.php'),
