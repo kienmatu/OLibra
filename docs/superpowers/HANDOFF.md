@@ -188,7 +188,26 @@ Nothing merged; no PR open.
   **A new trap worth knowing:** `CirculationArchitectureTest`'s no-wall-clock grep reads RAW source
   including comments, and its lookbehind exempts only `->`, so writing the literal `Clock::now()`
   *in a comment* reddens the suite. Measured, and now recorded in the comment that hit it.
-- **6 `RejectBorrowRequest`** — next.
+- **6 `RejectBorrowRequest`** — `78ce05d`, `257ee6c`, `b42b7fe` · approved after 2 review rounds.
+  A faithful mirror of Task 5 (the reviewer credited what was correctly NOT copied: no
+  `TenantContext`, no copy lock, no `LendingSettings`), and every citation in its comments was run
+  down and held. Its Important was the **fifth** occurrence of the `SessionGuard` family: the INV-8
+  test did not pin `actor_id`, and the report's defence of that was false — `decided_by` comes from
+  the `$actor` parameter every test passes explicitly, `actor_id` from `Auth::id()`, and the two are
+  unconnected. The consequence was traced rather than asserted: `audit_log.actor_id` is nullable,
+  `AuditLogQuery`'s actor join is a LEFT join, and a null actor renders the `system_actor` fallback,
+  so a silent actor-switch failure left all five tests green. Fixed, then MEASURED — removing the
+  fixture's sign-in reddens exactly the new assertion (`null` against the manager's uuid).
+  **Round 2 was the coordinator's own error, and it is the eighth occurrence of the family.** The
+  round-1 reword I supplied — "all three are one answer to the caller — a 404" — was false:
+  `bootstrap/app.php:93` renders `RuleViolated` as `back()->withErrors(['rule' => ...])`, a 302
+  carrying the Vietnamese sentence, never a 404 and never a 500. Only the two
+  `ModelNotFoundException` cases 404. The docblock now states the narrower property that is actually
+  true: "no such request" and "another shelf's" are indistinguishable FROM EACH OTHER, which is the
+  anti-enumeration guarantee, while "already decided" is a redirect that leaks nothing because
+  `findOrFail` ran first and did not throw, so the request is already known to be the caller's own
+  shelf's. Round 2 also fixed a process gap: round 1 had left no trace in its report file.
+- **7** — next.
 
 **A second plan defect struck at the source** (this commit): Task 5's Step 6 mutation 2 predicted
 that flipping the hold filter to `<` reddens "the live-hold test **instead**". It reddens BOTH —
