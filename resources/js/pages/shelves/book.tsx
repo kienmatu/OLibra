@@ -37,21 +37,26 @@ interface PageProps extends SharedData {
          * heldLineNoDate covers.
          *
          * DIVERGENCE, recorded rather than fixed (review round 1, item 5;
-         * widened to a third screen, Task 13 fix round 1, item 2):
+         * widened to a third screen, Task 13 fix round 1, item 2; the two
+         * keys named explicitly, Task 13 fix round 2, the one clause):
          * holdExpiresAt is rendered as a deadline with NO comparison
          * against the clock, so an approved request whose hold lapsed
          * yesterday still reads "nhận trước ...". THREE screens carry this
-         * same row: this page and the reader's own dashboard
-         * (overview.tsx's MyRequestRow — same holdExpiresAt, same
-         * requestHeldLine, same no-clock-check, TWO lines with the
-         * identical gap) both render the raw deadline; the manager's
-         * queue is the one that makes the distinction — Task 11 gave
-         * BorrowRequestQueueQuery a per-row `holdExpired` flag — so the
-         * two reader-facing screens disagree with the one manager-facing
-         * screen about the same row. Faithful to the reference, which has
-         * no expiry check on either reader page, and left alone because
-         * expiring a hold is a sweep nothing in 2a runs; whoever adds that
-         * sweep should give both reader lines the same flag.
+         * same row: this page (copy.circulation.requests.heldLine,
+         * copy.ts:460) and the reader's own dashboard (overview.tsx's
+         * MyRequestRow, copy.circulation.myLoans.requestHeldLine,
+         * copy.ts:436 — same holdExpiresAt FIELD, same no-clock-check,
+         * a DIFFERENT copy key with different Vietnamese text, so a grep
+         * for one line's key alone will not find the other) both render
+         * the raw deadline; the manager's queue is the one that makes the
+         * distinction — Task 11 gave BorrowRequestQueueQuery a per-row
+         * `holdExpired` flag — so the two reader-facing screens disagree
+         * with the one manager-facing screen about the same row. Faithful
+         * to the reference, which has no expiry check on either reader
+         * page, and left alone because expiring a hold is a sweep nothing
+         * in 2a runs; whoever adds that sweep should give both
+         * copy.circulation.requests.heldLine and
+         * copy.circulation.myLoans.requestHeldLine the same flag.
          */
         myRequest: {
             requestId: string;

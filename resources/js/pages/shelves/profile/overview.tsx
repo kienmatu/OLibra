@@ -20,8 +20,11 @@ interface MyLoanRow {
 
 /**
  * holdExpiresAt below is rendered with no clock comparison — the same gap
- * book.tsx's `myRequest` doc names (book.tsx:39-49, DIVERGENCE from the
- * manager's `holdExpired` flag), not restated here a third way.
+ * book.tsx's `myRequest` doc names (book.tsx:39-60, DIVERGENCE from the
+ * manager's `holdExpired` flag, naming this file's copy key
+ * (copy.circulation.myLoans.requestHeldLine) explicitly alongside its
+ * own (copy.circulation.requests.heldLine) — not restated here a third
+ * way).
  */
 interface MyRequestRow {
     requestId: string;
