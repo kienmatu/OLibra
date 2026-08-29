@@ -347,7 +347,41 @@ Nothing merged; no PR open.
   the reader exactly one row, so both `orderBy` calls delete green — the brief's gap, closed with an
   out-of-order fixture that asserts its own id relationships rather than assuming them), and this
   diff falsified a neighbouring comment's COUNT.
-- **14 the manager's queue screen** — next.
+- **14 the manager's queue screen** — `1d93310`, `99eef2f` · approved after 2 rounds. The phase's
+  largest UI task, and it discharged the constraint that had ridden on it since Task 5: `copy_id` is
+  validated `uuid`, measured BOTH ways — deleting the token and posting `copy_id='🙂'` reproduced
+  `SQLSTATE[HY000] 1267` live, restoring it gives a field error — which was the condition
+  `known-gaps.md` attached when it accepted that entry. The test pins the field error *and*
+  separately that `find('🙂')` still throws, so the claim stops being true out loud if the column's
+  collation is ever widened.
+  **All four enumeration-shaped claims in its diff were run down and held** — the first task where
+  that check came back entirely clean, including the first enumeration on this branch to survive
+  verification unchanged (no page under `resources/js/pages` imports lucide-react).
+  Its Important was a test structure that masked its own failures: four independently-failing facts
+  in one `it()`, where the GET's `assertNotFound()` aborted the method so the three POST assertions
+  never ran. The proof it mattered was in the implementer's own report — it had measured that block
+  "with the GET assertion disabled" to see its own finding. After the split, re-running the mutation
+  with **no test edited** surfaces both failures at once.
+- **15 the return screen's hold picker** — next.
+
+**Two rulings on this task's authorization surface, both no-change:** the queue GET's single
+middleware layer is the house idiom (`OverdueController` and `DashboardController` carry no
+controller Gate either; `RouteOrderTest` requires a `role:` gate on every `/manage` route regardless
+of spelling; and the new presence pin names this GET explicitly). And handover's missing Form Request
+is not this task's defect — Task 12 shipped the same shape for bodiless POSTs — but it is **carried
+to Task 18**, which adds a fourth POST to this page and is the right place for a bodiless Form
+Request if the phase wants symmetry. Worth knowing: with `role:manager` dropped, this one screen
+answers three different ways — the GET renders 200 to a reader, approve/reject 404 from their Form
+Requests, and handover 403 from the Action's own Gate.
+
+**A verification lesson worth keeping, from Task 14's last round.** A `sed` correction silently did
+nothing: its pattern assumed `section (24 keys)` sat on one line, the text wrapped across two, so it
+matched nothing and exited 0 — and the confirming `grep` searched the line *above* the number, so it
+could not have seen the failure. **Verification that cannot see its subject.** The re-read that
+caught it then caught four more errors in the same report, including a `grep -c` count asserted
+without being run — reproducing the exact failure one paragraph after describing it. The habit that
+works: re-read your own fix-round section against the file it describes, and prefer a check that
+reads the line carrying the claim over one that searches for a string you remember.
 
 **The rule this phase earned, and the one to carry into 2b and 2c.** A complete enumeration in a
 comment has now been wrong FIVE times on this branch — "the codes a reader can cause", "exactly two
