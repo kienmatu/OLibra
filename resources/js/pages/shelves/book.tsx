@@ -152,36 +152,38 @@ export default function ShelfBook() {
 
                     {/* The answer to a tap belongs ABOVE the control that
                         caused it (the reference's placement). flash.success
-                        carries request_success_flash / request_cancel_flash;
-                        errors.rule carries the RuleViolated sentence
-                        bootstrap/app.php redirects back with. Traced through
-                        the shipped middleware rather than copied from the
-                        reference, which is gated differently, exactly two
-                        codes can land here and neither is the one that
-                        comment names:
+                        carries the two success flashes; errors.rule renders
+                        whatever `rule` code the last RuleViolated produced,
+                        already translated — bootstrap/app.php:93 turns EVERY
+                        RuleViolated from ANY Action into
+                        back()->withErrors(['rule' => __('rules.'.$code)]),
+                        and back() follows the Referer
+                        (UrlGenerator::previous), so a refusal from a form on
+                        this page lands back on this page.
 
-                        - duplicate_request — any reader, a stale page tapped
-                          twice. This is what the banner is mostly for.
-                        - not_permitted — a SUPER ADMIN only. Gate::before
-                          (AppServiceProvider:126-132) grants act-as-* to
-                          them alone, so they are the only caller who can
-                          pass EnsureShelfRole with a null membership and
-                          reach CreateBorrowRequest's null check. Either they
-                          post the URL directly (the button is hidden for
-                          them, see below), or they were an active member at
-                          render and their membership went away before the
-                          tap.
+                        TWO doors feed it, not one, and that is the thing to
+                        hold on to: the create POST below AND the cancel POST
+                        in the "mine" card, whose Action has its own set of
+                        refusals. Deliberately NOT enumerating which codes can
+                        arrive — three drafts of this comment tried, and all
+                        three were wrong, first by naming a code that cannot
+                        reach here and then by missing two that can. The
+                        renderer is generic and every future Action that
+                        throws through it invalidates such a list silently, so
+                        the banner is written to display whatever it is given.
 
-                        membership_not_active_cannot_request is NOT reachable,
-                        though the reference's twin comment lists it, and
-                        neither is not_permitted for an ORDINARY reader whose
-                        membership vanishes mid-page: ResolveTenant:67 filters
-                        on status = Active, so both bind a null membership,
-                        the act-as-reader gate (AppServiceProvider:147-179)
-                        returns false for a non-super-admin, and
-                        EnsureShelfRole 404s them off the page before any
-                        Action runs. CreateBorrowRequest's own docblock
-                        (:81-85) says the same about the first of those. */}
+                        The one code-level fact kept is the NEGATIVE one that
+                        has a test behind it:
+                        membership_not_active_cannot_request cannot land here,
+                        though the reference's twin comment says it can,
+                        because that caller never reaches an Action —
+                        ResolveTenant:67 filters memberships on status =
+                        Active, the act-as-reader gate
+                        (AppServiceProvider:147-179) returns false on the null
+                        membership, and EnsureShelfRole 404s them off the page
+                        first. Pinned by "an ordinary reader whose membership
+                        is suspended meets a 404, not a sentence" in
+                        ReaderRequestSurfaceTest. */}
                     {flash.success ? (
                         <p
                             role="status"

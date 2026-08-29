@@ -312,6 +312,45 @@ it('cancelling somebody else\'s request on my own shelf is the ownership sentenc
         ->and($request->fresh()->status)->toBe(RequestStatus::Pending);
 });
 
+it('the CANCEL door feeds the book page\'s errors.rule too, not just the create door', function () {
+    // Review round 2. book.tsx's banner is fed by BOTH forms on the page,
+    // because bootstrap/app.php:93 renders every RuleViolated as
+    // back()->withErrors(['rule' => ...]) and back() reads the Referer
+    // (UrlGenerator::previous), so the cancel POST comes home to the book
+    // page exactly as the create POST does. Three drafts of that comment
+    // enumerated the reachable codes and were wrong every time; this test
+    // pins the mechanism instead — which door, not which list.
+    //
+    // The refusal used here is a real stale-page sequence, not a contrived
+    // status: cancel once (through the profile door, the same route), then
+    // tap the book page's now-stale cancel button. The row is Cancelled,
+    // so CancelOwnRequest:140-141 answers request_not_pending
+    // (lang/vi/rules.php:77). Its sibling request_already_fulfilled
+    // (:137-139, lang :84) is reachable the same way when a manager
+    // collects the hold in between — LendCopy:244 is what writes Fulfilled
+    // — and is left unpinned here rather than staged with a hand-set
+    // status.
+    [$shelf, $reader, $book] = rrsFix('dong-thap-rrs-cancel-banner');
+    app(TenantContext::class)->actSystemWide();
+    $request = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'member_id' => $reader->id,
+        'status' => RequestStatus::Pending, 'requested_at' => now(),
+    ]);
+    $page = "/shelves/{$shelf->slug}/books/{$book->slug}";
+    $cancel = "/shelves/{$shelf->slug}/profile/requests/{$request->id}/cancel";
+
+    // One actingAs for the whole method — the SessionGuard rule.
+    test()->actingAs($reader)->from($page)->post($cancel)->assertSessionHas('success');
+
+    // The stale tap, from the book page.
+    test()->from($page)->post($cancel)->assertRedirect($page);
+
+    test()->get($page)->assertOk()
+        ->assertInertia(fn (AssertableInertia $p) => $p
+            ->component('shelves/book')
+            ->where('errors.rule', __('rules.request_not_pending')));
+});
+
 it('a request that belongs to another shelf 404s on the bound cancel URL', function () {
     // The binding's own answer, before any ability is asked: the id is
     // real, and it is not this shelf's.
