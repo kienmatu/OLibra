@@ -158,7 +158,7 @@ it('a signed-in user with the tenant context entirely unset holds none of the si
     // HTTP by "redirects a guest to login instead of 404ing" below). What
     // this falsifies is the entirely-unset context, GateTest's own
     // "grants nothing when the tenant context is entirely unset" aimed at
-    // these five abilities rather than at the shared gate.
+    // these six abilities rather than at the shared gate.
     [, , , $request] = brpFix('dong-thap-brp-unbound');
     $signedIn = User::factory()->create(['full_name' => 'Anna Người Lạ Qua Đường']);
     app(TenantContext::class)->clear();

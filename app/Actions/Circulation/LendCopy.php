@@ -192,13 +192,21 @@ final class LendCopy
                 // went home empty-handed).
                 //
                 // hold_expires_at is left where it stands: the record of a
-                // deadline this reader MET. hold_expires_at has exactly
-                // three readers under app/ and every one of them filters
-                // on status = approved first — the probe above,
-                // ApproveBorrowRequest:133 and CountsCopies::borrowable
-                // (grepped, not assumed) — so a fulfilled row's expiry is
-                // inert rather than stale, and blanking it would erase how
-                // long they had.
+                // deadline this reader MET. NO COUNT IS GIVEN of the
+                // places that read it, deliberately — this comment said
+                // "exactly three", which was already wrong at Task 9 (two
+                // more in HandoverRequest) and wrong again at Task 18
+                // (grep `hold_expires_at` under app/ for today's set).
+                // What every one of them has in common is the property
+                // that matters: each either filters on
+                // status = approved before comparing the expiry (this
+                // command's probe above, ApproveBorrowRequest,
+                // CountsCopies::borrowable, HandoverRequest,
+                // ReleaseExpiredHold) or only ever evaluates a row that is
+                // pending or approved to begin with
+                // (BorrowRequestQueueQuery's own where-in) — so a
+                // fulfilled row's expiry is inert rather than stale, and
+                // blanking it would erase how long they had.
                 //
                 // Guarded on the status, in the WHERE itself
                 // (CancelOwnRequest's idiom): a request that is no longer

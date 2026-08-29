@@ -2,8 +2,11 @@
 
 // CopyStateMachineTest's own census (tests/Unit/Catalogue/
 // CopyStateMachineTest.php:68-75) hardcodes only the six codes the state
-// machine itself can produce. It says nothing about the seven other codes
-// `new RuleViolated('...')` throws directly from app/Actions — a deleted
+// machine itself can produce. It says nothing about the codes
+// `new RuleViolated('...')` throws directly from app/Actions — far more
+// of them than the state machine's six, and one more with almost every
+// task (this line used to say "seven", written when there were; the
+// enumeration below is the count, and it is meant to be edited) — a deleted
 // sentence there leaves the whole suite green and a manager reading the
 // literal key "rules.copy_count_invalid" instead of a sentence, against BR
 // §2's "errors are named, not generic; a plain message, in Vietnamese."

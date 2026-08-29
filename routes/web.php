@@ -216,7 +216,8 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/copies/{bookCopy}/report-lost', [CopyController::class, 'reportLost'])->name('copies.report-lost');
         Route::post('/copies/{bookCopy}/mark-found', [CopyController::class, 'markFound'])->name('copies.mark-found');
 
-        // The queue and its three decisions. The GET keeps the
+        // The queue and the decisions a manager makes on it — four
+        // POSTs since Task 18's release. The GET keeps the
         // placeholder's route NAME — nothing linked to it at HEAD
         // (grepped resources/ at 48e9c0d: no hits), so the continuity
         // this buys is for the nav item and the dashboard card added in

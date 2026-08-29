@@ -30,7 +30,10 @@ use Illuminate\Support\Facades\Gate;
  * against the LOCKED row's hold_expires_at and the injected clock, and it
  * is the mirror of the handover's: that command calls a hold dead at
  * `<=` its instant, this one calls it releasable at `<=` its instant, so
- * no hold is ever both un-handoverable and un-releasable.
+ * no hold with an expiry is ever both un-handoverable and un-releasable.
+ * The one row both refuse is an approved one whose hold_expires_at is
+ * NULL — a shape no command writes (see the guard's own comment below),
+ * refused here rather than read as a hold that never ends.
  *
  * THE STATUS IS A RECORD, NOT A DERIVATION. Expiry stays computed on read
  * everywhere it is asked about (BR §8; the queue's holdExpired flag,
@@ -59,7 +62,7 @@ use Illuminate\Support\Facades\Gate;
  * snapshot's copy_id is an in-memory attribute, so reading it issues no
  * query), request second — Task 5's order exactly. ApproveBorrowRequest
  * (:94, :99) and LendCopy (its copy lock, then the guarded borrow_requests
- * update at :251) take the same two rows in the same order, so nothing in
+ * update at :250) take the same two rows in the same order, so nothing in
  * that trio disagrees about direction, an AB-BA needing two orders.
  *
  * The one shipped counterparty that CAN take them the other way round is
@@ -88,6 +91,14 @@ use Illuminate\Support\Facades\Gate;
  * rather than repeating the withdrawn promise. Read from the two files'
  * shapes: a two-connection race cannot run under RefreshDatabase (1a
  * divergence 2).
+ *
+ * That variant is STRICTLY NARROWER than the cancel-driven one it
+ * otherwise resembles, and saying "identical outcome" without saying so
+ * would overstate it: a cancel can commit anywhere in that window, while
+ * a release can only commit there if the expiry INSTANT also falls inside
+ * it — the handover's own fresh read refuses with hold_expired for any
+ * hold already lapsed when it looked, so the hold must lapse between that
+ * read and this command's guard.
  *
  * No notification: BR §15 lists no lapsed-hold event, and the child was
  * told the deadline in the approval's own notification (OPS §7).

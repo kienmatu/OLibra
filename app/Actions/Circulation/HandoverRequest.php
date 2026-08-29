@@ -62,9 +62,11 @@ use Illuminate\Support\Facades\Gate;
  * (1a divergence 2). Since Task 18 the cancel is not the only command
  * that can produce that third outcome: ReleaseExpiredHold releases the
  * copy the same way (held → available, status off `approved`), so a
- * release committing inside this same window ends identically — and a
- * release that commits BEFORE the fresh read above is the ordinary case
- * instead, answered by the Expired branch below.
+ * release committing inside this same window ends the same way — through
+ * a strictly narrower door, since a hold already lapsed when the fresh
+ * read above looked at it is refused here, so the expiry instant must
+ * itself fall inside the window. A release that commits BEFORE that read
+ * is the ordinary case instead, answered by the Expired branch below.
  *
  * Taking a borrow_requests lock here first, to close that window, would
  * invert divergence 1's copy-then-request order and manufacture an AB-BA

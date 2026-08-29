@@ -43,14 +43,18 @@ use Illuminate\Support\Facades\Gate;
  *
  * hold_expires_at and copy_id are LEFT WHERE THEY STAND — the record of
  * what the reader gave up. Blanking them would erase it, and they are not
- * stale: today's FOUR readers of a hold — CountsCopies::borrowable's NOT
- * EXISTS clause (CountsCopies:45), ApproveBorrowRequest's live-hold probe
- * (ApproveBorrowRequest:133), LendCopy's collected-hold probe
- * (LendCopy:111, added when Phase 2a re-widened that command) and
- * BorrowRequestQueueQuery's per-row holdExpired flag (Task 11) — every
- * one of them keeps this row's hold inert once cancelled, though not by
- * an identical mechanism: the first three filter on status = approved
- * before comparing the expiry (grepped, not assumed); the fourth instead
+ * stale: EVERY reader of a hold keeps this row's hold inert once
+ * cancelled, and the argument is deliberately stated as a property rather
+ * than as a list with a number in front of it — this sentence said "FOUR"
+ * and was already wrong by Task 9, which added two more, and wrong again
+ * by Task 18. Grep `hold_expires_at` under app/ for today's set; what
+ * makes the argument hold is that each site does one of two things.
+ * Most filter on status = approved before comparing the expiry (grepped,
+ * not assumed): CountsCopies::borrowable's NOT EXISTS clause
+ * (CountsCopies:45), ApproveBorrowRequest's live-hold probe, LendCopy's
+ * collected-hold probe, HandoverRequest's own expiry check and its
+ * first-hold probe, ReleaseExpiredHold's guard. The exception is
+ * BorrowRequestQueueQuery's per-row holdExpired flag, which instead
  * only ever evaluates a request whose status is pending or approved in
  * the first place (its own where-in), and within that set a pending row
  * never carries a non-null hold_expires_at — only ApproveBorrowRequest

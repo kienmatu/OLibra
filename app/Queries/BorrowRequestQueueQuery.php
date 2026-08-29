@@ -286,14 +286,18 @@ final class BorrowRequestQueueQuery
                 'copyCode' => $r->getAttribute('copy_code'),
                 'holdExpiresAt' => $holdExpiresAt?->toISOString(),
                 // BR §8, derived against the injected clock; false for a
-                // pending row, which has no hold to have expired. A
-                // FOURTH reader of a hold, alongside the three
-                // CancelOwnRequest.php:44-62 enumerates — that comment
-                // says FOUR and names this one, in the same commit as
-                // this file.
+                // pending row, which has no hold to have expired. One of
+                // the reads of a hold CancelOwnRequest.php's docblock
+                // argues about, and the ODD ONE: every other site filters
+                // on status = approved before comparing the expiry, while
+                // this one relies on its where-in having admitted only
+                // pending and approved rows. Neither comment counts them
+                // any more — both said FOUR and both were wrong by two
+                // tasks later.
                 //
-                // And the only CLOCK COMPARISON in the app: Task 12's
-                // reader book page renders holdExpiresAt as a deadline
+                // It is the only clock comparison made for a SCREEN:
+                // Task 12's reader book page renders holdExpiresAt as a
+                // deadline
                 // with no comparison at all, so a lapsed hold still reads
                 // "nhận trước ..." to the child while reading expired to
                 // the volunteer. This flag now has two consumers — Task

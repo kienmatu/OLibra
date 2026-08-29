@@ -222,7 +222,8 @@ it('the lapsed row is still on the screen, flagged — hiding it would hide the 
  *
  * The single block asserted the GET's 404 first, and a failed assertion
  * aborts the whole test METHOD — so a regression that reopened the GET to
- * readers would also HIDE whether the three POSTs still refused. That is
+ * readers would also HIDE whether the POSTs beneath it still refused
+ * (three when this was written, four since Task 18's release). That is
  * not hypothetical here: this task's own authorization measurement (drop
  * role:manager from the manage group, see the report) could only be taken
  * by editing the GET assertion out of the way, which is the structure
