@@ -1077,10 +1077,17 @@ the full suite ran green.
   move the due-date math to `app/Support/Circulation/` and point this
   query at it — two definitions of "overdue" is the drift BR §8 exists to
   prevent, and this one is temporary by declared intent.
-- **There is no `assertNoSecrets` audit walker.** The reference's kernel
-  walked every audit bag for hash-shaped values; here the no-secret rule
-  is held by `SetReaderCredentialsTest`'s row assertions only. If a later
-  phase adds an audit helper, port the walker there.
+- **Resolved by Phase 1d Task 2:** `app/Support/Audit/AuditSecrets.php`
+  now ports the reference's walker (`assertNoSecrets`, wired into
+  `AuditRecorder::record` as its first statement) and this entry no
+  longer holds — see the three entries below for what the port
+  deliberately still does not cover. Kept, struck through in spirit
+  rather than deleted, so a reader who remembers this line finds the
+  update rather than a silent disappearance: ~~There is no
+  `assertNoSecrets` audit walker. The reference's kernel walked every
+  audit bag for hash-shaped values; here the no-secret rule is held by
+  `SetReaderCredentialsTest`'s row assertions only. If a later phase
+  adds an audit helper, port the walker there.~~
 - **The reader-detail edit form does not offer parish-unit placement.**
   OPS §4.3's UpdateReaderProfile inputs are person fields only; placement
   is set at registration (on-behalf form) and by Phase 3's
@@ -1954,3 +1961,20 @@ pages). Written by Task 14 after the full suite ran green.
   test whose entire value is that every exemption cites the exact code
   proving it safe. Corrected in
   `tests/Feature/Architecture/FreeTextEncodingGuardTest.php`.
+- **`AuditSecrets::assertNoSecrets` (Phase 1d Task 2) checks KEYS, not
+  values, and is not retroactive.** A secret string pasted into an
+  innocuous key (`['note' => 'mat-khau-123']`) is invisible to it and
+  stays a code-review matter — pinned as a test
+  (`tests/Unit/Audit/AuditSecretsTest.php`, "names the two things it
+  deliberately does not check") rather than left implicit. It also
+  governs writes from this commit forward only: existing `audit_log` rows
+  are clean because all 21 shipped payload shapes were checked by hand at
+  plan time (the same test's "every payload shape the 21 shipped writers
+  produce passes" case), not because the guard walked them retroactively
+  — there was no guard when they were written.
+- **`AuditSecrets` does not walk `context`.** `AuditRecorder::record`
+  writes `context` as `[]` on every path today, and `assertNoSecrets`
+  takes `before`/`after` only — so the day a command puts anything real
+  into `context`, this guard must grow a third argument, or that payload
+  ships unchecked. Recorded here so that day is an addition to a known
+  plan, not a rediscovery.
