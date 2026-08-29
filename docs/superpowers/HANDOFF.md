@@ -207,7 +207,36 @@ Nothing merged; no PR open.
   anti-enumeration guarantee, while "already decided" is a redirect that leaks nothing because
   `findOrFail` ran first and did not throw, so the request is already known to be the caller's own
   shelf's. Round 2 also fixed a process gap: round 1 had left no trace in its report file.
-- **7** — next.
+- **7 `CancelOwnRequest`** — `1cdb15f`, `23cfca1` · approved after 1 review round. The hardest of the
+  three request commands, and it came back clean on both named risks, each reasoned independently
+  rather than accepted: the copy→request lock order is identical to `ApproveBorrowRequest` and adds
+  no AB–BA pair beyond divergence 1's admitted window, and the guarded release reads the LOCKED row
+  rather than the route-bound snapshot and derives `releasedCopyId` from the affected-row count —
+  **stricter than the reference it ports**, which computes that from a pre-read state and so reports
+  a released copy it did not release on a lost race. The implementer refused two of its own brief's
+  claims after running them down, one of them the 404-vs-302 confusion the coordinator had shipped
+  at Task 6. Its Important was the ninth occurrence of the family: a docblock parenthetical claiming
+  `CatalogueQuery` is `borrowable()`'s only caller (it is not — the second call site is inside
+  `CountsCopies::withCopyCounts()`, which feeds `available_count` for six query classes), and it
+  arrived when the implementer's own self-review NARROWED correct inherited prose into a false claim.
+  Two guards that nothing pinned were also closed, both measured: the audit payload's null
+  `released_copy_id`, and the pending path taking no copy lock at all.
+- **8 `LendCopy` hold close** — next.
+
+**Two more source corrections landed at Task 7** (this commit):
+
+- **New divergence 15.** `CancelOwnRequest` does not fold "no such request" into `not_own_request`
+  the way the reference does, so a reader holding a valid id for their own shelf can distinguish
+  "exists, someone else's" (302) from "does not exist" (404). The split is CORRECT — OPS §4.2 lists
+  the two failure modes separately, and spec §5.4 only demands that a foreign shelf's request be
+  indistinguishable from a nonexistent one — but the leak is real, it was shipping as an inline
+  comment only, and this phase records divergences as a numbered list. Task 19 records the oracle in
+  known-gaps.
+- **The Global Constraints anti-enumeration sentence was wrong** and is rewritten. It claimed "no
+  such request", "another shelf's request" and "already decided" share one code per command. They do
+  not, in any of the three shipped commands: the first two are `ModelNotFoundException` → 404, while
+  "already decided" is a `RuleViolated` → 302 carrying the Vietnamese sentence. The code was right
+  and the constraint text was wrong, so the text moved, not the code.
 
 **A second plan defect struck at the source** (this commit): Task 5's Step 6 mutation 2 predicted
 that flipping the hold filter to `<` reddens "the live-hold test **instead**". It reddens BOTH —
