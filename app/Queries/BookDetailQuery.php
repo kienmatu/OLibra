@@ -74,18 +74,23 @@ final class BookDetailQuery
         // position.
         //
         // DIVERGENCE from the manager's own numbering of the same queue,
-        // recorded rather than reconciled (review round 1, item 5). The
-        // count below is over PENDING rows only; BorrowRequestQueueQuery's
-        // ROW_NUMBER partitions over its whole where-in set, pending AND
-        // approved (BorrowRequestQueueQuery.php:173). So for a title with
-        // one live hold, the manager's screen shows position 2 for the
-        // first pending row while this page tells that same reader "vị trí
-        // 1". Both are faithful ports of their own reference screens, and
-        // both readings are defensible — the reader is being told how many
-        // people are ahead of them IN THE QUEUE, the manager is being shown
-        // every live row in order — but the two ship in the same phase and
-        // nothing else in the code says they number different sets, so it
-        // is said here and in the twin comment on the manager side.
+        // recorded rather than reconciled (review round 1, item 5;
+        // MyDashboardQuery named alongside this one, Task 13 fix round 1,
+        // item 4). The count below is over PENDING rows only;
+        // BorrowRequestQueueQuery's ROW_NUMBER partitions over its whole
+        // where-in set, pending AND approved (BorrowRequestQueueQuery.php
+        // :173). So for a title with one live hold, the manager's screen
+        // shows position 2 for the first pending row while this page tells
+        // that same reader "vị trí 1". Both are faithful ports of their
+        // own reference screens, and both readings are defensible — the
+        // reader is being told how many people are ahead of them IN THE
+        // QUEUE, the manager is being shown every live row in order — but
+        // the two ship in the same phase and nothing else in the code says
+        // they number different sets, so it is said here and in the twin
+        // comment on the manager side. MyDashboardQuery::run's own
+        // requests list runs the identical PENDING-only count for the
+        // reader's dashboard, a second reader-facing surface that agrees
+        // with this one and diverges from the manager's the same way.
         $mine = $viewer === null ? null : BorrowRequest::query()
             ->where('book_id', $book->id)
             ->where('member_id', $viewer->id)

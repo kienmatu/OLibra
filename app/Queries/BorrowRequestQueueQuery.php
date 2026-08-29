@@ -172,16 +172,21 @@ final class BorrowRequestQueueQuery
             ])
             // DIVERGENCE from the reader's own place in this same queue,
             // recorded rather than reconciled (Task 12 review round 1,
-            // item 5). This ROW_NUMBER partitions over the whole where-in
-            // set at :141 — pending AND approved — while
-            // BookDetailQuery's myRequest counts PENDING rows ahead only.
-            // For a title with one live hold, this screen shows position 2
-            // for the first pending row and the reader's own book page
-            // tells them "vị trí 1" about it. Both are faithful ports of
-            // their own reference screens; the two ship in the same phase,
-            // so the disagreement is written down on both sides instead of
-            // being discovered from a volunteer and a child comparing
-            // phones.
+            // item 5; MyDashboardQuery named alongside BookDetailQuery,
+            // Task 13 fix round 1, item 4). This ROW_NUMBER partitions
+            // over the whole where-in set at :141 — pending AND approved —
+            // while BookDetailQuery's myRequest counts PENDING rows ahead
+            // only. For a title with one live hold, this screen shows
+            // position 2 for the first pending row and the reader's own
+            // book page tells them "vị trí 1" about it. Both are faithful
+            // ports of their own reference screens; the two ship in the
+            // same phase, so the disagreement is written down on both
+            // sides instead of being discovered from a volunteer and a
+            // child comparing phones. MyDashboardQuery::run's own requests
+            // list runs the identical PENDING-only count as
+            // BookDetailQuery for the reader's dashboard — a second
+            // reader-facing surface this screen's number disagrees with
+            // the same way.
             ->selectRaw('ROW_NUMBER() OVER (PARTITION BY borrow_requests.book_id ORDER BY borrow_requests.requested_at ASC, borrow_requests.id ASC) as position')
             ->orderBy('books.title_folded')->orderBy('books.id')
             ->orderBy('borrow_requests.requested_at')->orderBy('borrow_requests.id')

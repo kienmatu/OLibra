@@ -36,16 +36,22 @@ interface PageProps extends SharedData {
          * (grepped). An approved row whose hold has been cleared is what
          * heldLineNoDate covers.
          *
-         * DIVERGENCE, recorded rather than fixed (review round 1, item 5):
+         * DIVERGENCE, recorded rather than fixed (review round 1, item 5;
+         * widened to a third screen, Task 13 fix round 1, item 2):
          * holdExpiresAt is rendered as a deadline with NO comparison
          * against the clock, so an approved request whose hold lapsed
-         * yesterday still reads "nhận trước ...". The manager's queue does
-         * make that distinction — Task 11 gave BorrowRequestQueueQuery a
-         * per-row `holdExpired` flag — so the two screens of one phase
-         * disagree about the same row. Faithful to the reference, which
-         * has no expiry check on this page either, and left alone because
+         * yesterday still reads "nhận trước ...". THREE screens carry this
+         * same row: this page and the reader's own dashboard
+         * (overview.tsx's MyRequestRow — same holdExpiresAt, same
+         * requestHeldLine, same no-clock-check, TWO lines with the
+         * identical gap) both render the raw deadline; the manager's
+         * queue is the one that makes the distinction — Task 11 gave
+         * BorrowRequestQueueQuery a per-row `holdExpired` flag — so the
+         * two reader-facing screens disagree with the one manager-facing
+         * screen about the same row. Faithful to the reference, which has
+         * no expiry check on either reader page, and left alone because
          * expiring a hold is a sweep nothing in 2a runs; whoever adds that
-         * sweep should give this line the same flag.
+         * sweep should give both reader lines the same flag.
          */
         myRequest: {
             requestId: string;

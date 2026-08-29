@@ -54,6 +54,11 @@ it('my pending request reports my derived position — others ahead counted, oth
 
     expect($dashboard['requests'])->toHaveCount(1)
         ->and($dashboard['requests'][0]['title'])->toBe('Dế Mèn Phiêu Lưu Ký')
+        // slug rides the same books join as title but nothing asserted it
+        // before this fix round — title alone proves the join runs, not
+        // that the RIGHT column came back for slug; a wrong alias there
+        // would ship as "" unnoticed. bookA's slug is 'de-men' (drhFix).
+        ->and($dashboard['requests'][0]['slug'])->toBe('de-men')
         ->and($dashboard['requests'][0]['queuePosition'])->toBe(2)
         ->and($dashboard['requests'][0]['holdExpiresAt'])->toBeNull();
 });
@@ -136,4 +141,58 @@ it('two requests at the same instant are numbered by id, the mechanism named', f
     $dashboard = app(MyDashboardQuery::class)->run($reader);
 
     expect($dashboard['requests'][0]['queuePosition'])->toBe(2);
+});
+
+it('the list orders by requested_at then id, not by creation, id, or book-join order', function () {
+    // The brief's own interface names requested_at asc, id asc as part of
+    // the contract, but none of the four tests above pin it: each leaves
+    // the reader with exactly one row, so the ->orderBy calls at the top
+    // of MyDashboardQuery::run's requests block could be deleted and every
+    // one of them would still pass. UUIDv7 ids are chronologically
+    // monotonic (Global Constraints), so seeding "in the intended order"
+    // proves nothing here either — Task 12 measured exactly that trap on
+    // the manager's queue.
+    //
+    // Two confounds, both deliberately reversed against the asserted
+    // order, not just one: an own live request per book at most is
+    // enforced by the schema (LiveRequestKeyTest), so the two rows must
+    // sit on different books, and a first measurement of this test — kept
+    // as the reason for the second reversal, not silently dropped —
+    // showed the query's join with `books` returning rows in the BOOKS
+    // table's own creation order even with the ->orderBy calls deleted,
+    // which by accident matched the requested_at order the first draft of
+    // this fixture used and left the mutation green. So EARLIER's book
+    // ($bookB) is created SECOND by drhFix and LATER's book ($bookA) is
+    // created FIRST: book order and requested_at order now disagree too.
+    // And the row with the LATER requested_at is created FIRST (so gets
+    // the LOWER id) while the row with the EARLIER requested_at is
+    // created SECOND (so gets the HIGHER id): id order disagrees with
+    // requested_at order as well. Every plausible accidental ordering —
+    // by id, by creation, by the books join — points the SAME wrong way;
+    // only requested_at asc points right.
+    [$shelf, $reader, $bookA, $bookB] = drhFix('dong-thap-drh-order');
+    app(TenantContext::class)->actSystemWide();
+    $later = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $bookA->id, 'member_id' => $reader->id,
+        'status' => RequestStatus::Pending, 'requested_at' => now()->addHour(),
+    ]);
+    $earlier = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $bookB->id, 'member_id' => $reader->id,
+        'status' => RequestStatus::Pending, 'requested_at' => now(),
+    ]);
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $reader->id)->firstOrFail());
+
+    // The premises the assertion rests on, asserted rather than assumed:
+    // creation order (later requested_at first) produced the OPPOSITE id
+    // order, and $bookA (later's book) was created before $bookB
+    // (earlier's book) — both confounds run counter to the asserted
+    // output order below.
+    expect($later->id < $earlier->id)->toBeTrue()
+        ->and($bookA->id < $bookB->id)->toBeTrue();
+
+    $dashboard = app(MyDashboardQuery::class)->run($reader);
+
+    expect($dashboard['requests'])->toHaveCount(2)
+        ->and($dashboard['requests'][0]['requestId'])->toBe($earlier->id)
+        ->and($dashboard['requests'][1]['requestId'])->toBe($later->id);
 });

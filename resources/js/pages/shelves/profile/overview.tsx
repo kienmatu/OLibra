@@ -1,4 +1,4 @@
-import { Head, useForm, usePage } from "@inertiajs/react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import { route } from "ziggy-js";
 import { Button } from "@/components/ui/button";
 import AppLayout from "@/layouts/app-layout";
@@ -18,6 +18,11 @@ interface MyLoanRow {
     renewBlockedBy: keyof typeof copy.circulation.rules | null;
 }
 
+/**
+ * holdExpiresAt below is rendered with no clock comparison — the same gap
+ * book.tsx's `myRequest` doc names (book.tsx:39-49, DIVERGENCE from the
+ * manager's `holdExpired` flag), not restated here a third way.
+ */
 interface MyRequestRow {
     requestId: string;
     bookId: string;
@@ -102,7 +107,7 @@ function CancelRequestButton({ requestId }: { requestId: string }) {
 }
 
 export default function ProfileOverview() {
-    const { dashboard, errors, flash } = usePage<PageProps>().props;
+    const { dashboard, errors, flash, shelf } = usePage<PageProps>().props;
 
     return (
         <AppLayout>
@@ -185,7 +190,19 @@ export default function ProfileOverview() {
                             className="flex items-center justify-between gap-3 py-3"
                         >
                             <div className="min-w-0">
-                                <p className="truncate font-serif text-base">{r.title}</p>
+                                {shelf ? (
+                                    <Link
+                                        href={route("shelves.books.show", {
+                                            shelf: shelf.slug,
+                                            book: r.slug,
+                                        })}
+                                        className="truncate font-serif text-base"
+                                    >
+                                        {r.title}
+                                    </Link>
+                                ) : (
+                                    <p className="truncate font-serif text-base">{r.title}</p>
+                                )}
                                 <p className="text-sm text-muted-foreground">
                                     {r.queuePosition !== null
                                         ? t(copy.circulation.myLoans.requestPositionLine, {
