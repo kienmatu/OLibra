@@ -168,12 +168,21 @@ it('the queue\'s order is total, across titles and within one — a non-degenera
     // instants (3, 3, 1 — Math.min(Math.floor(i/3), 2)'s actual split),
     // asserted against the FULL comparator rather than "ascending by
     // id", because "ascending by id" is the shape a BROKEN query
-    // produces on its own once nothing else varies. Non-degenerate on
-    // purpose — too few rows, or too few genuine ties, and a missing
-    // tiebreak can look correct by accident (U3's own trap, and this
-    // branch's own mutation check 1 on this file's first draft: with
-    // every request's requested_at distinct, dropping the id tiebreak
-    // stayed green because nothing tied).
+    // produces on its own once nothing else varies.
+    //
+    // WHAT THIS PROVES, AND WHAT IT DOES NOT (review fix round 2 — read
+    // this before the next test, which says the other half): every
+    // assertion below IS the correct output, and this fixture is still
+    // worth having for that. It does NOT falsify a dropped tiebreak on
+    // MariaDB — the reference's non-degeneracy works by forcing
+    // Postgres past "the seven-tuple threshold below which Postgres
+    // sorts with a stable insertion sort" into an UNSTABLE sort that
+    // actively reorders ties; MariaDB's filesort does the opposite at
+    // this row count, so the correct answer and the answer with NO
+    // tiebreak at all are the same sequence here. Measured, not
+    // assumed: dropping the id tiebreak from both the window and the
+    // outer order leaves this test green. The next test is what
+    // actually holds the line on this engine.
     $titles = ['An Bình', 'Đất Rừng', 'Đất Rừng', 'Vũ Trụ'];
     $ranks = [0, 1, 1, 2];
     $instants = ['2026-08-01 09:00:00', '2026-08-02 09:00:00', '2026-08-03 09:00:00'];
@@ -210,8 +219,10 @@ it('the queue\'s order is total, across titles and within one — a non-degenera
         ->and(collect($rows)->pluck('requestId')->unique())->toHaveCount(28);
 
     // The whole contract, in one comparator: folded title (via rank),
-    // then book id, then request time, then request id. Deleting any one
-    // of the four keys from the ORDER BY leaves a different sequence.
+    // then book id, then request time, then request id — the CORRECT
+    // sequence, not a claim that every key is falsifiable by deleting
+    // it: the two id keys (book id and request id) are not, on this
+    // engine, at this size (see the next test).
     $rankOf = collect($books)->pluck('rank', 'id');
     $expected = $rows;
     usort($expected, function ($a, $b) use ($bookOf, $rankOf) {
@@ -243,21 +254,35 @@ it('the queue\'s order is total, across titles and within one — a non-degenera
 it('pins the tiebreak in the SQL itself — a same-instant tie can resolve to ascending id with no ORDER BY id at all, so row order cannot prove the mechanism is there', function () {
     // The plan's Global Constraint: "every same-instant tiebreak test
     // pins the mechanism explicitly when the v7 id equals creation order
-    // by construction." Measured here, not assumed: on this branch's
-    // MariaDB/InnoDB, borrow_requests's id IS the clustered primary key,
-    // and a diagnostic against this exact schema (five rows, one
-    // shared requested_at, ids assigned in the OPPOSITE order from
-    // insertion) showed `orderBy('requested_at')` alone — no id at all —
-    // still returns ascending-id order, because an index scan over an
-    // InnoDB table (the clustered PK itself, or the requests_queue
-    // secondary index, which carries the PK as its own tiebreak
-    // internally) is inherently PK-ordered. The 28-row behavioural
-    // fixture above is still worth having (it pins the CORRECT output,
-    // matching the reference's own test), but it cannot fail this
-    // mutation on this engine — verified: dropping `id` from both the
-    // window and the outer order left it green. So the mechanism has to
-    // be pinned directly, in the SQL text, rather than inferred from
-    // row order.
+    // by construction." Measured here, not assumed, and TWO separate
+    // things had to be measured (review fix round 2 corrected the
+    // first): a single-table diagnostic (five rows sharing one
+    // requested_at, ids assigned in the OPPOSITE order from insertion)
+    // showed `orderBy('requested_at')` alone still returns ascending-id
+    // order — but that only proves the INPUT to a sort is already
+    // PK-ordered (InnoDB's clustered index), not what THIS query's sort
+    // does with it. This query joins five tables under a window
+    // function, so MariaDB filesorts it (the window's own ORDER BY,
+    // then the outer one) rather than reading an index straight
+    // through — and the real mechanism is that MariaDB's in-memory
+    // filesort PRESERVES INPUT ORDER for a tied group at this row
+    // count, the opposite of the unstable sort the reference's own
+    // fixture relies on Postgres switching to past seven rows
+    // (borrow-request-queue.test.ts:370-390). Measured directly against
+    // THIS query, not inferred from the diagnostic: dropping `id` from
+    // both the window and the outer order left the 28-row test above
+    // green, and the SAME mutation against `books.id` — the OTHER
+    // tiebreak, between the two same-titled books — does too, so the
+    // property is general, not specific to `borrow_requests.id`.
+    //
+    // BOUNDED, not absolute (review fix round 2): this holds while the
+    // filesort stays in-memory and order-preserving. A fixture large
+    // enough to spill the sort buffer into merge passes, or a
+    // query-plan change that reorders the join, is untested by both the
+    // diagnostic above and this file's mutation runs — "no row-order
+    // test can ever falsify this on MariaDB" would overstate what was
+    // actually measured. So the mechanism has to be pinned directly, in
+    // the SQL text, rather than inferred from row order.
     [$shelf] = quqFix('dong-thap-quq-sql-pin');
     app(TenantContext::class)->actSystemWide();
     $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Ghim SQL', 'slug' => 'sql-pin']);

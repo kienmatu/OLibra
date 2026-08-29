@@ -30,20 +30,36 @@ use RuntimeException;
  * THE ORDER IS TOTAL and one half of it is folded: title_folded then
  * book id between titles (byte order puts every Đất above every Alice —
  * a defect found in three instances across two audits, U2's two
- * catalogue queries and U3's getReadersList — not the reference's
- * BR §7.2, which says only "ordered by request time" and names no
- * tiebreak at all), requested_at then id within one (two children
- * queueing after the same Sunday mass tie to the second; the missing
- * tiebreak is a SEPARATE defect the reference shipped twice — U2 measured
- * a 304→229 paged-walk collapse, U3 found two tiebreak tests green
- * against the broken query — and `borrow-request-queue.test.ts:367-452`
- * is the reference's answer: a 28-row, four-title/three-instant fixture
- * built non-degenerate on purpose, asserted against the full
- * lexicographic order rather than "ascending by id" — the shape a
- * BROKEN query produces on its own when nothing ties). position's
- * window uses the SAME two keys as the outer order, so the number
- * printed beside a row and the row's place cannot disagree. Not paged:
- * the set is bounded by its own state.
+ * catalogue queries and U3's getReadersList), requested_at then id
+ * within one (two children queueing after the same Sunday mass tie to
+ * the second, and untied rows renumber between reads — BR §7.2 (this
+ * project's own docs/BUSINESS-REQUIREMENTS.md, not the reference) says
+ * only "ordered by request time" and names no tiebreak at all; the
+ * missing tiebreak is a SEPARATE defect the reference shipped twice —
+ * U2 measured a 304→229 paged-walk collapse, U3 found two tiebreak
+ * tests green against the broken query). `borrow-request-queue.test.ts:
+ * 367-452` is the reference's answer to that: a 28-row, four-title/
+ * three-instant fixture built non-degenerate on purpose, asserted
+ * against the full lexicographic order rather than "ascending by id" —
+ * the shape a BROKEN query produces on its own when nothing ties.
+ * Ported (BorrowRequestQueueQueryTest.php), but ITS DESIGN DOES NOT
+ * TRANSFER TO MARIADB (review fix round 2): the reference's own comment
+ * says the fixture works by pushing Postgres past "the seven-tuple
+ * threshold below which Postgres sorts with a stable insertion sort"
+ * into an UNSTABLE sort that actively reorders ties
+ * (borrow-request-queue.test.ts:370-390); MariaDB's in-memory filesort
+ * does the opposite at this row count — it preserves input order for a
+ * tied group — so dropping either id tiebreak (book id OR request id)
+ * entirely produces the SAME row order here, measured directly against
+ * this query, not inferred. What actually holds the line on this
+ * engine is BorrowRequestQueueQueryTest's SECOND ordering test,
+ * asserting the tiebreak's presence in the generated SQL itself rather
+ * than in its output — see that test's own comment for the bound this
+ * carries (in-memory filesort, this row count; untested past a sort
+ * that spills to merge passes or a plan change). position's window
+ * uses the SAME two keys as the outer order, so the number printed
+ * beside a row and the row's place cannot disagree. Not paged: the set
+ * is bounded by its own state.
  *
  * SCOPING: BookshelfScope on BorrowRequest does the tenancy; users
  * carries no scope and is joined directly (it can only narrow);

@@ -2276,3 +2276,66 @@ Recorded per task as it lands, not at the end of the phase.
   about this branch, not something enforced; the entry above says "no route
   reaches it today" for that reason. Widening the fragment list is cheap
   and belongs to whichever task first adds a queue URL.
+- **A same-instant tiebreak cannot be falsified by row order on MariaDB
+  for this query's shape, at the row counts any fixture in this
+  codebase currently uses — the mechanism is filesort behaviour, not
+  the clustered primary key, and the earlier "unordered scan already
+  returns creation order" entry above (Phase 1b) is necessary but not
+  sufficient here.** That earlier entry's house rule — seed a tiebreak
+  test in the WRONG order, force a genuine collision — is exactly what
+  `BorrowRequestQueueQueryTest`'s 28-row fixture does (ported verbatim
+  from the reference's `borrow-request-queue.test.ts:367-452`: four
+  titles folding to three values, seven requests per book, ids
+  decoupled from insertion order by construction). It still doesn't
+  work: dropping `orderBy('borrow_requests.id')` — or, independently,
+  `orderBy('books.id')`, the OTHER tiebreak, between two same-titled
+  books — from both the ROW_NUMBER() window and the outer order leaves
+  every assertion in that test green. The reference's own fixture is
+  discriminating on POSTGRES only because it deliberately pushes past
+  "the seven-tuple threshold below which Postgres sorts with a stable
+  insertion sort" into an UNSTABLE sort that actively reorders ties (its
+  own comment, `:370-390`); MariaDB's in-memory filesort does the
+  opposite at this row count — it PRESERVES input order for a tied
+  group — so a query with the tiebreak and the same query with it
+  silently deleted produce the identical sequence. (A first pass at this
+  explanation, in an earlier round of this task, blamed InnoDB's
+  clustered primary key instead — that's only half right: it describes
+  why a bare single-table scan's INPUT is already PK-ordered, not what a
+  five-table join under a window function does with that input once
+  MariaDB has to filesort it, which is the actual query under test.)
+  BOUNDED, not absolute: this holds only while the filesort stays
+  in-memory and order-preserving. Untested here: a row count large
+  enough to spill the sort buffer into merge passes (not guaranteed
+  stable), or a query-plan change that reorders the join before the sort
+  runs. What a same-instant tiebreak test should do instead of scaling
+  the fixture further to chase that: pin the tiebreak in the GENERATED
+  SQL, not in the output — `DB::enableQueryLog()`/`getQueryLog()`
+  (sound only for a statement that returns, per the entry above on that)
+  around the call, asserting the captured query string contains the
+  `ORDER BY … id ASC` clause verbatim.
+  `BorrowRequestQueueQueryTest`'s "pins the tiebreak in the SQL itself"
+  test is the worked example; `app/Queries/BorrowRequestQueueQuery.php`'s
+  own docblock carries the short version.
+- **`php artisan tinker` does not go through `phpunit.xml`'s
+  `force="true"` DB overrides, so a diagnostic run there hits the real
+  dev database (`olibra`), not `olibra_testing`.** Found running down
+  the entry above: two `tinker --execute=...` sessions (a five-row
+  single-table probe, then a query-log capture) both created and left
+  real rows in `olibra` — three bookshelves (`diag-shelf`, `diag-sql`,
+  `diag-sql2`) and their books/copies/memberships/borrow_requests/users
+  — because tinker boots the ordinary `.env`-configured connection, and
+  none of the `<env>`/`<server>` overrides this file's own `phpunit.xml`
+  section documents (the ones that keep `php artisan test` off the dev
+  database even when a stray `DB_DATABASE` sits in the shell) apply to
+  it. Cleaned up by hand afterward (`DB::table(...)->delete()` in FK
+  dependency order, verified gone with
+  `Bookshelf::withTrashed()->where('slug', ...)->exists()`), but nothing
+  stops the next agent from forgetting to, or from a tinker session that
+  crashes mid-diagnostic and leaves rows behind with no error to notice
+  by. `php artisan tinker --env=testing` does not fix it either — this
+  project's protection is the `<server>` block's unconditional
+  `$_SERVER` overwrite inside PHPUnit's own bootstrap, which tinker
+  never runs. Whoever needs to run an ad hoc query against the test
+  schema should migrate `olibra_testing` and point `DB_DATABASE` at it
+  for that one shell session, or write the probe as a real (throwaway)
+  Pest test instead of reaching for tinker.
