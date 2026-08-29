@@ -13,20 +13,21 @@ use App\Support\Notifications\NotificationKind;
  *
  * The bound, stated rather than implied: nothing mechanically ties the
  * constant below to docs/OPERATIONS.md §7, so a wrong transcription is
- * invisible to this test. It currently holds four of §7's eight rows —
- * the four whose commands exist — and all four were checked against the
- * document by hand at this commit (Task 6 added "Yêu cầu mượn bị từ
- * chối" | `RejectBorrowRequest`, matching §7's table row for row). §7's
- * own "Sách đã sẵn sàng để nhận" row is NOT a fifth: the document itself
- * calls it the same trigger as "Yêu cầu mượn được duyệt", which is why
- * request_approved is one KIND — not two — however many commands write
- * it. Task 10 made that distinction load-bearing: the table's
- * request_approved row now names TWO writers, because §7's own
- * ApproveBorrowRequest cell says "(and the equivalent effect inside
- * ReceiveReturn when it holds for the next reader)". Re-transcribed from
- * docs/OPERATIONS.md:1112-1124 by hand at that commit, all four rows.
- * Every task that adds a row transcribes its own; the same care is the
- * only thing keeping this honest.
+ * invisible to this test. It currently holds six of §7's eight table rows
+ * (docs/OPERATIONS.md:1120-1127) — the six whose writers exist — and each
+ * was checked against the document by hand in the commit that added it.
+ * Task 6 added "Yêu cầu mượn bị từ chối" | `RejectBorrowRequest`; Task 17
+ * added "Sắp đến hạn trả" and "Quá hạn", the two rows whose Written-by
+ * cell says "Not written by any command in §4 — see below" and whose
+ * "below" is §7's sweep paragraph. §7's own "Sách đã sẵn sàng để nhận"
+ * row is NOT one of the six: the document itself calls it the same
+ * trigger as "Yêu cầu mượn được duyệt", which is why request_approved is
+ * one KIND — not two — however many commands write it. Task 10 made that
+ * distinction load-bearing: the table's request_approved row names TWO
+ * writers, because §7's own ApproveBorrowRequest cell says "(and the
+ * equivalent effect inside ReceiveReturn when it holds for the next
+ * reader)". Every task that adds a row transcribes its own; the same care
+ * is the only thing keeping this honest.
  *
  * Grown per task: each task that adds a kind adds its writer AND its row
  * here in the same commit (plan divergence 7). comment_approved arrives
@@ -43,6 +44,13 @@ const OPS_SECTION_7 = [
         'app/Actions/Circulation/ReceiveReturn.php',
     ],
     'request_rejected' => ['app/Actions/Circulation/RejectBorrowRequest.php'],
+    // OPS §7's argued exception, and the only rows here whose writer is
+    // not a command: §7's "Sắp đến hạn trả" and "Quá hạn" rows both name
+    // the scheduled sweep as their trigger, and it writes both.
+    // Re-transcribed from docs/OPERATIONS.md by hand at this commit (Task
+    // 17), those two rows.
+    'loan_due_soon' => ['app/Console/Commands/SweepReminders.php'],
+    'loan_overdue' => ['app/Console/Commands/SweepReminders.php'],
 ];
 
 it('every notification is written where OPERATIONS §7 says it is', function () {

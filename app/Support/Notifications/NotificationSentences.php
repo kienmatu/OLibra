@@ -43,6 +43,17 @@ final class NotificationSentences
                 ':book' => self::which(self::str($payload, 'title')),
                 ':because' => self::because(self::str($payload, 'reason')),
             ]),
+            NotificationKind::LoanDueSoon => (function () use ($payload): string {
+                $book = self::which(self::str($payload, 'title'));
+                $due = self::date(self::str($payload, 'due_on'));
+
+                return $due === null
+                    ? strtr(self::line('_loan_due_soon_bare'), [':book' => $book])
+                    : strtr(self::line('loan_due_soon'), [':book' => $book, ':due' => $due]);
+            })(),
+            NotificationKind::LoanOverdue => strtr(self::line('loan_overdue'), [
+                ':book' => self::which(self::str($payload, 'title')),
+            ]),
         };
     }
 
@@ -64,12 +75,22 @@ final class NotificationSentences
      * one — the caller then reaches for its dateless line rather than
      * printing a half-parsed string.
      *
-     * A divergence from kinds.ts, and the only one in this arm: the
-     * reference interpolates the stored slice RAW, so its sentence reads
-     * "trước ngày 2026-09-01 nhé". AGENTS.md's language rule ("dates read
-     * as dates") makes that the wrong sentence to ship in Vietnamese. The
-     * two lang templates around it are the reference's word for word
-     * (kinds.ts:73-74), placeholder spelling aside.
+     * A divergence from kinds.ts, applying wherever an arm renders a
+     * stored date — every one of them reaches the payload through here.
+     * The reference interpolates the stored slice RAW at both places
+     * ported so far (kinds.ts:73 "trước ngày 2026-09-01 nhé" and
+     * kinds.ts:89 "ngày 2026-08-27."), and AGENTS.md's language rule
+     * ("dates read as dates") makes that the wrong sentence to ship in
+     * Vietnamese. The lang templates around it are otherwise the
+     * reference's word for word (kinds.ts:73-74 and 89), placeholder
+     * spelling aside — including the dateless fallbacks, whose Vietnamese
+     * ("sớm nhé", "ngày sắp tới") is the reference's own.
+     *
+     * The fallback fires one case wider than the reference's, and that
+     * widening is deliberate rather than accidental: the reference falls
+     * back only on an absent value, this also falls back on a stored
+     * value that is not a date, so a half-parsed string never reaches a
+     * reader. NotificationSentencesTest pins both.
      */
     private static function date(?string $ymd): ?string
     {

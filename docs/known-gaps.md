@@ -1807,13 +1807,17 @@ pages). Written by Task 14 after the full suite ran green.
   sentence. Verified present in `lang/vi/rules.php:62-64` and referenced
   from `LendController::store`, `ReturnController::store` and
   `MyLoansController::renew` respectively.
-- **Due-soon/overdue notifications do not exist yet.** Nothing in this
-  phase writes a `notifications` row for an approaching or passed due
-  date — grepped `app/Actions/Circulation` and found no `Notification::`
-  reference anywhere in it. Phase 2's sweep; the overdue SCREEN itself
-  (`OverdueLoansQuery` + `OverdueController`) is live, correct, and
-  reachable from the manager nav today (BR §8) — only the proactive
-  notification is missing, not the read surface.
+- **~~Due-soon/overdue notifications do not exist yet~~ — CLOSED by
+  Phase 2a Task 17.** `app/Console/Commands/SweepReminders.php` writes both
+  kinds, scheduled at 07:00 `Asia/Ho_Chi_Minh` from `routes/console.php`.
+  Struck here rather than left for the phase's wrap-up, for the reason the
+  `ReceiveReturn` entry above gives: a known-gap that has silently become
+  false is worse than one that is merely missing. The half of the entry
+  that was never a gap still holds and is why the job is allowed to be
+  late: the overdue SCREEN (`OverdueLoansQuery` + `OverdueController`) and
+  the dashboard's overdue count are computed on read (BR §8), so they are
+  correct whether or not the sweep has ever run —
+  `SweepIsHousekeepingTest`'s first block is that assertion.
 
 - **Carry-over from Task 13's review, closed this task: no test proved
   the reader's own-loans READS exclude another reader's loan on the
@@ -2442,3 +2446,74 @@ Recorded per task as it lands, not at the end of the phase.
   candidate index can move a plan nobody meant to move: unchanged at `type:
   range, key: notifications_unread, rows: 200`, with the new index in
   `possible_keys` and not chosen, and **still no `Using filesort`**.
+
+- **The sweep is registered and the scheduler ticks; nobody has watched it
+  fire at 07:00.** `php artisan schedule:list` in `laravel-app-1` prints
+  `0 0 * * *  php artisan reminders:sweep` — `0 7 * * *` in
+  `Asia/Ho_Chi_Minh` rendered in the app's own UTC — beside the per-minute
+  queue tick, and `docker compose logs scheduler` shows that tick running
+  each minute, so `schedule:work` is live and reading this file. What has
+  NOT been observed is a real 07:00 boundary crossing with the command
+  actually invoked: that was not waited for, and `schedule:test`
+  or a hand-run would have written notification rows into the development
+  database, which is not a thing to do casually. The reference's recorded
+  failure was exactly this shape — a sweep "written, tested, callable, and
+  never once invoked in any deployment" (OPS §7) — so it is written down
+  rather than assumed closed. Related and pre-existing, not introduced
+  here: `laravel-scheduler-1` reports `unhealthy` because it inherits the
+  php image's healthcheck (a curl against Caddy's admin port 2019) while
+  running `schedule:work` and no web server. The process is alive and
+  ticking; the healthcheck is measuring the wrong thing.
+
+- **The sweep's idempotence key includes the book's TITLE, so a corrected
+  title re-tells the reader.** "Already told" is the existence of a
+  notification with the same `user_id`, `kind`, `payload.due_on` and
+  `payload.title` (`SweepReminders::tell`). That is the reference's own
+  predicate, ported deliberately — `sweep.ts`'s `not exists` keys on
+  `b.title` too — and it is what lets the notification itself be the
+  cursor instead of a `last_swept_at` that can drift or be rolled back by
+  a restore. The consequence is real and untested in either codebase: fix
+  a typo in a title between two runs and the borrower gets a second row of
+  the same kind for the same loan. Not fixed here (changing the key is a
+  behaviour change from the reference, not a port), recorded so the next
+  person meets it as a known property rather than a bug report.
+
+- **The sweep joins `books` through the query builder, which does not
+  apply the model's soft-delete scope.** `SweepReminders` selects
+  `loans.* , books.title` with `->join('books', …)`, the same shape as the
+  reference's SQL, so a loan whose book row carries `deleted_at` is still
+  swept and its notification still carries that title. There is no test
+  for it. Reaching that state needs the already-recorded `DeleteBook`
+  race (Phase 1c section, PR #62 finding 4) — the command's own
+  `whereDoesntHave('loans')` refuses a title with loans otherwise — and in
+  that state telling the borrower their book is overdue is arguably the
+  right behaviour anyway, which is why it is a note and not a fix.
+
+- **The idempotence probe's plan, measured on the statement the command
+  actually emits, not on a probe shaped like it.** Captured with
+  `DB::listen` during a real `Artisan::call('reminders:sweep')` over 2,401
+  seeded notification rows spread across 12 shelves and 480 readers, then
+  `EXPLAIN`ed with its own bindings:
+
+  ```
+  select exists(select * from `notifications` where `user_id` = ? and `kind` = ?
+    and json_value(`payload`, '$."due_on"') = ? and json_value(`payload`, '$."title"') = ?) as `exists`
+  → type: ref | key: notifications_unread | key_len: 38 | ref: const | rows: 6
+    Extra: Using index condition; Using where
+  ```
+
+  A `user_id` ref seek, not a scan: the two JSON predicates are residual
+  filters over one reader's own rows. `notifications_unread_by_user`
+  (Task 16's) appears in `possible_keys` and is not chosen — the older
+  `notifications_unread (user_id, created_at)` wins on the same leading
+  column. No new index is warranted, and no claim is made here that any of
+  this is bounded by one shelf: it is bounded by one USER, in a database
+  shared by every tenant. One caveat worth stating: `rows: 6` is that
+  fixture's per-reader notification count, so it is evidence about the
+  ACCESS PATH, not a figure that transfers to a real install.
+  Two things the plan does not cover: the probe runs once per candidate
+  loan (N seeks per sweep, not one), and the two candidate reads
+  themselves — `loans` filtered on `status` and `due_on` — were not
+  EXPLAINed, because the sweep's candidate volume is a shelf's active
+  loans and nothing has suggested that read is the cost.
+

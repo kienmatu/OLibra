@@ -36,6 +36,28 @@ it('request_rejected carries the title and, when given, the reason', function ()
         ->toBe('Yêu cầu mượn cuốn sách chưa được duyệt.');
 });
 
+it('loan_due_soon names the book and reads its due date as a date', function () {
+    expect(NotificationSentences::sentence('loan_due_soon', ['title' => 'Đất Rừng Phương Nam', 'due_on' => '2026-09-01']))
+        ->toBe('Đất Rừng Phương Nam sắp đến hạn trả, ngày 01/09/2026.')
+        ->and(NotificationSentences::sentence('loan_due_soon', []))
+        ->toBe('cuốn sách sắp đến hạn trả, ngày sắp tới.');
+});
+
+it('loan_due_soon degrades to its dateless line when the stored due date is not one', function () {
+    // A separate it() on purpose: a failed expect() aborts the whole test
+    // METHOD, so the two halves of "renders" and "degrades" cannot both be
+    // shown failing from one block.
+    expect(NotificationSentences::sentence('loan_due_soon', ['title' => 'Đất Rừng Phương Nam', 'due_on' => 'sắp tới']))
+        ->toBe('Đất Rừng Phương Nam sắp đến hạn trả, ngày sắp tới.');
+});
+
+it('loan_overdue names the book and asks for it back', function () {
+    expect(NotificationSentences::sentence('loan_overdue', ['title' => 'Totto-chan Bên Cửa Sổ', 'due_on' => '2026-08-20']))
+        ->toBe('Totto-chan Bên Cửa Sổ đã quá hạn trả. Bạn mang sách đến trả giúp nhé.')
+        ->and(NotificationSentences::sentence('loan_overdue', []))
+        ->toBe('cuốn sách đã quá hạn trả. Bạn mang sách đến trả giúp nhé.');
+});
+
 it('an unknown stored kind renders the neutral line, never the raw token', function () {
     // Rows written by an older or newer build survive a deploy; a kind
     // this build does not know is a real state, not a programming error

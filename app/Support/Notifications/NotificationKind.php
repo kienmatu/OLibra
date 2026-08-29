@@ -17,7 +17,9 @@ namespace App\Support\Notifications;
  * phrased to a reader, and NotificationsAreReaderFacingTest enumerates
  * the call sites rather than trusting this comment.
  *
- * Grown per task (plan divergence 7). comment_approved is 2b's, with its
+ * Grown per task (plan divergence 7). The pair Task 17 adds is written
+ * by the reminder sweep rather than by a command — OPS §7's argued
+ * exception, still reader-facing. comment_approved is 2b's, with its
  * writer; the profile-change pair BR §15 names has no reference
  * implementation and is Phase 3's to decide.
  */
@@ -27,4 +29,6 @@ enum NotificationKind: string
     case MembershipRejected = 'membership_rejected';
     case RequestApproved = 'request_approved';
     case RequestRejected = 'request_rejected';
+    case LoanDueSoon = 'loan_due_soon';
+    case LoanOverdue = 'loan_overdue';
 }
