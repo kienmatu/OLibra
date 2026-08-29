@@ -129,6 +129,24 @@ it('request.cancelled names the title, and never names the reader twice', functi
         )))->toBe('Têrêsa Bạn Đọc Nhỏ đã rút lại yêu cầu mượn một cuốn sách');
 });
 
+it('request.fulfilled reads as a held book handed over, with no title to lose', function () {
+    // Same reason request.created, request.approved, request.rejected and
+    // request.cancelled have their own case above: this file has no
+    // every-action sweep, so an action with no case here has a lang line
+    // nothing pins — deleting lang/vi/audit.php's request_fulfilled line
+    // would otherwise leave the suite green.
+    //
+    // Like request.approved there is no :title to fall back on: LendCopy's
+    // collected-hold payload is status, copy_id and fulfilled_loan_id, so
+    // the sentence is fixed and the same one however thin the payload is.
+    expect(AuditSentences::sentence('request.fulfilled', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        after: ['status' => 'fulfilled', 'copy_id' => 'c1', 'fulfilled_loan_id' => 'l1'],
+    )))->toBe('Maria Quản Lý Kho đã giao cuốn sách đã giữ chỗ cho bạn đọc')
+        ->and(AuditSentences::sentence('request.fulfilled', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã giao cuốn sách đã giữ chỗ cho bạn đọc');
+});
+
 it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', function () {
     // false alone cannot distinguish the type guard from a mutant that
     // replaces `is_string($bag[$key])` with a `(string)` cast: (string)
@@ -140,7 +158,7 @@ it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', fun
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
-it('groupOf answers the family for the 25 actions and null for a stranger', function () {
+it('groupOf answers the family for the 26 actions and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
@@ -153,7 +171,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(25);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(26);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {
