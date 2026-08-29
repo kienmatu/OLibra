@@ -120,6 +120,81 @@ it('names the two things it deliberately does not check', function () {
     expect(true)->toBeTrue();
 });
 
+it('an ArrayObject is walked through its actual JSON shape, not get_object_vars', function () {
+    // ArrayObject/ArrayIterator implement neither JsonSerializable nor
+    // expose their storage via get_object_vars() (it is internal to the
+    // engine, invisible even from outside the class) — but json_encode()
+    // hard-codes both classes as special cases and serialises their
+    // CONTENTS directly. json_encode(new ArrayObject(['password_hash' =>
+    // 'x'])) emits {"password_hash":"x"}; the old get_object_vars/
+    // jsonSerialize-only walk saw an empty array and let it through.
+    expect(fn () => AuditSecrets::assertNoSecrets(null, ['credentials' => new ArrayObject(['password_hash' => 'x'])]))
+        ->toThrow(RuleViolated::class)
+        ->and(fn () => AuditSecrets::assertNoSecrets(null, ['credentials' => new ArrayIterator(['token' => 'x'])]))
+        ->toThrow(RuleViolated::class);
+});
+
+it('an ArrayObject with no forbidden key still passes, proving the walk actually descends', function () {
+    // The positive half of the ArrayObject case: an inert instance must
+    // not become forbidden just by being an ArrayObject.
+    AuditSecrets::assertNoSecrets(null, ['note' => new ArrayObject(['title' => 'Dế Mèn'])]);
+    expect(true)->toBeTrue();
+});
+
+it('refuses a payload seven arrays deep instead of silently letting it through', function () {
+    // Depth 0..6 is seven levels and must still pass; depth 7 is the first
+    // one this file's own docstring says is refused. Built with the
+    // forbidden key at the very bottom, past where the OLD depth cap
+    // (`> 6` returning quietly) stopped looking — a payload this shape
+    // used to sail past the guard while json_encode() still persisted
+    // password_hash.
+    $bag = ['password_hash' => 'x'];
+    for ($i = 0; $i < 7; $i++) {
+        $bag = ['wrap' => $bag];
+    }
+
+    expect(fn () => AuditSecrets::assertNoSecrets(null, $bag))
+        ->toThrow(RuleViolated::class, 'audit_nesting_too_deep');
+});
+
+it('still allows six levels of ordinary array nesting', function () {
+    // The boundary's other side: depth 6 is the documented, sanctioned
+    // limit and must not be refused just for existing.
+    $bag = ['clean' => 'v'];
+    for ($i = 0; $i < 6; $i++) {
+        $bag = ['wrap' => $bag];
+    }
+
+    AuditSecrets::assertNoSecrets(null, $bag);
+    expect(true)->toBeTrue();
+});
+
+it('refuses a five-hop object chain instead of silently letting it through', function () {
+    // The reference's other fail-open hole, now folded into the same
+    // array-depth cap above: a JsonSerializable handing back another
+    // JsonSerializable, five hops deep, used to escape the old 4-hop
+    // toWalkable() cap entirely (it just stopped converting and returned
+    // an object the walk's is_array() check then ignored). json_encode()
+    // recurses through the whole chain in one call, so this is now caught
+    // by the ordinary depth-6 refusal.
+    $leaf = ['password' => 'x'];
+    for ($i = 0; $i < 5; $i++) {
+        $inner = $leaf;
+        $leaf = new class($inner) implements JsonSerializable
+        {
+            public function __construct(private mixed $inner) {}
+
+            public function jsonSerialize(): mixed
+            {
+                return $this->inner;
+            }
+        };
+    }
+
+    expect(fn () => AuditSecrets::assertNoSecrets(null, ['chain' => $leaf]))
+        ->toThrow(RuleViolated::class);
+});
+
 it('every payload shape the 21 shipped writers produce passes', function () {
     // The exact key sets grepped from app/Actions at plan time. If a
     // command's payload changes, this list changes with it — that is the

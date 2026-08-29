@@ -47,6 +47,7 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
     expect(array_keys($codes))->toEqualCanonicalizing([
         'already_registered_here',
         'audit_forbidden_field',
+        'audit_nesting_too_deep',
         'copy_count_invalid',
         'donor_ambiguous',
         'donor_membership_invalid',
