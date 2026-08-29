@@ -70,8 +70,39 @@ goes through the shipped `UniqueViolation::translate`. Its reason for refusing t
 audit insert → S `users`) — the family known-gaps already reproduced with `pcntl_fork`.
 DDL verified live against `laravel-mariadb-1`. No cycle-freedom claim survives in the plan.
 
-**Plan review 2 is running** — a fresh Opus, told to attack the new index design hardest.
-No tasks dispatched; no application code written yet.
+**Plan review 2 (fresh Opus, told to attack the index design hardest): CHANGES REQUESTED,
+but the design SURVIVED.** It re-ran every live-DDL claim against a scratch clone of the
+real schema and all of it held — the 1062 message text verbatim, `approved` holding the
+key, all five terminal statuses and both soft-delete shapes freeing it, `down()` reversing,
+`UniqueViolation::translate` matching the constraint name, both refusal doors rendering the
+same sentence with the loser rolling back whole. The rejection of "serialise on
+`bookshelves`" was confirmed correct on the cycle ground.
+
+Its two Criticals were about the FIX, not the design:
+
+- **The new notify-inside-transaction guard was broken in both directions.** Blind to
+  `$this->notifier?->notify(...)` (`?->` is a different token), so an Action written that
+  way could move its notify outside the transaction and the guard would see zero calls —
+  Phase 1d's finding reproduced *inside the guard built to prevent it*. And an interpolated
+  Vietnamese string inside a closure (`"bản {$code} …"`) unbalanced its brace ledger, so
+  CORRECT code reported as an offender — which is how a guard gets deleted.
+- Two blocks failed Larastan level 8 while the plan claimed all of them passed (the
+  seventh occurrence of that claim being wrong).
+
+Plus a justification that was **false**: "option 2 would queue every *Xin mượn* behind a
+bulk `AddCopies`" — measured with two live transactions, the wait already exists through
+the FK's shared lock. It was about to be written into `known-gaps.md`.
+
+**Fix round 2 (`b15f582`).** Guard rewritten to skip strings and heredocs wholesale (which
+subsumes the brace fix and also kills the `"$obj->notify"` and heredoc false call sites);
+both failure modes added as named mutation checks. The false justification is recorded **as
+withdrawn** with its measurement rather than deleted. The lock-claim sentences restated:
+the index relocates serialisation into the insert's implicit exclusive record lock, the
+loser blocks until the winner commits and then gets 1062.
+
+**A targeted verification of that fix round is running** — the guard was rewritten, not
+patched, so it is being attacked as new code. No tasks dispatched; no application code
+written yet.
 
 ## Phase 1d — closed
 
