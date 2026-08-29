@@ -31,6 +31,14 @@ final class NotificationSentences
                 self::line('membership_rejected'),
                 [':because' => self::because(self::str($payload, 'reason'))],
             ),
+            NotificationKind::RequestApproved => (function () use ($payload): string {
+                $book = self::which(self::str($payload, 'title'));
+                $until = self::date(self::str($payload, 'hold_until'));
+
+                return $until === null
+                    ? strtr(self::line('_request_approved_no_date'), [':book' => $book])
+                    : strtr(self::line('request_approved'), [':book' => $book, ':until' => $until]);
+            })(),
         };
     }
 
@@ -38,6 +46,35 @@ final class NotificationSentences
     private static function because(?string $reason): string
     {
         return $reason === null ? '' : strtr(self::line('_because'), [':reason' => $reason]);
+    }
+
+    /** `Dế Mèn Phiêu Lưu Ký` when stored, `cuốn sách` when not. */
+    private static function which(?string $title): string
+    {
+        return $title ?? self::line('_which');
+    }
+
+    /**
+     * `Y-m-d` (Asia/Ho_Chi_Minh civil date, plan divergence 5) → `d/m/Y`,
+     * or null when the payload holds no date or holds something that is not
+     * one — the caller then reaches for its dateless line rather than
+     * printing a half-parsed string.
+     *
+     * A divergence from kinds.ts, and the only one in this arm: the
+     * reference interpolates the stored slice RAW, so its sentence reads
+     * "trước ngày 2026-09-01 nhé". AGENTS.md's language rule ("dates read
+     * as dates") makes that the wrong sentence to ship in Vietnamese. The
+     * two lang templates around it are the reference's word for word
+     * (kinds.ts:73-74), placeholder spelling aside.
+     */
+    private static function date(?string $ymd): ?string
+    {
+        if ($ymd === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd) !== 1) {
+            return null;
+        }
+        [$y, $m, $d] = explode('-', $ymd);
+
+        return "{$d}/{$m}/{$y}";
     }
 
     /**

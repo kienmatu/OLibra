@@ -78,6 +78,23 @@ it('str() semantics: a non-string payload value is treated as absent, never coer
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
+it('request.approved reads as a hold made for a waiting reader, with no title to lose', function () {
+    // Same reason request.created has its own case (see it above): this
+    // file has no every-action sweep, so an action with no case here has a
+    // lang line nothing pins — deleting lang/vi/audit.php's
+    // request_approved line would otherwise leave the suite green.
+    //
+    // Unlike request.created there is no :title to fall back on: the
+    // approval's stored payload is copy_id, the expiry and the reader, so
+    // the sentence is fixed and the same one however thin the payload is.
+    expect(AuditSentences::sentence('request.approved', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        after: ['status' => 'approved', 'copy_id' => 'c1'],
+    )))->toBe('Maria Quản Lý Kho đã giữ chỗ một cuốn sách cho bạn đọc đang chờ')
+        ->and(AuditSentences::sentence('request.approved', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã giữ chỗ một cuốn sách cho bạn đọc đang chờ');
+});
+
 it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', function () {
     // false alone cannot distinguish the type guard from a mutant that
     // replaces `is_string($bag[$key])` with a `(string)` cast: (string)
@@ -89,7 +106,7 @@ it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', fun
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
-it('groupOf answers the family for the 22 actions and null for a stranger', function () {
+it('groupOf answers the family for the 23 actions and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
@@ -102,7 +119,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(22);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(23);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

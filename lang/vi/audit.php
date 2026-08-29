@@ -40,6 +40,7 @@ return [
     'loan_voided' => 'huỷ một lượt mượn:because',
     'loan_lost' => 'kết thúc một lượt mượn vì sách bị mất',
     'request_created' => 'gửi yêu cầu mượn :title',
+    'request_approved' => 'giữ chỗ một cuốn sách cho bạn đọc đang chờ',
 
     // — bạn đọc —
     'membership_registered' => 'nhận đăng ký của :name',

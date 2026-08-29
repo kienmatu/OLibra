@@ -6,7 +6,7 @@ namespace App\Support\Audit;
 
 /**
  * BR §14's readable sentences, and the closed map of actions this build
- * can describe — 22 entries, one per audit action a shipped command
+ * can describe — 23 entries, one per audit action a shipped command
  * writes (AuditActionCensusTest holds the two sets equal in both
  * directions). Pure: the lang file is loaded by require, so nothing here
  * needs the framework, and the wording ships in lang/vi where server
@@ -45,6 +45,7 @@ final class AuditSentences
         // (audit-actions.ts:399), and its phrase there is the one
         // lang/vi/audit.php's request_created copies verbatim.
         'request.created' => 'loans',
+        'request.approved' => 'loans',
         'membership.registered' => 'readers',
         'membership.approved' => 'readers',
         'membership.rejected' => 'readers',
@@ -138,6 +139,12 @@ final class AuditSentences
             'loan.voided' => strtr(self::line('loan_voided'), [':because' => self::because(self::str($after, 'reason'))]),
             'loan.lost' => self::line('loan_lost'),
             'request.created' => strtr(self::line('request_created'), [':title' => self::which(self::str($after, 'title'))]),
+            // No :title, and no subject — the approval's stored payload is
+            // copy_id, the expiry and the reader, never the book. The
+            // reference's own phrase takes no facts either
+            // (audit-actions.ts:407-410), which is what lets ReceiveReturn's
+            // second door onto a hold share this one sentence.
+            'request.approved' => self::line('request_approved'),
             'membership.registered' => ($name = self::str($after, 'fullName')) !== null
                 ? strtr(self::line('membership_registered'), [':name' => $name])
                 : self::line('membership_registered_bare'),

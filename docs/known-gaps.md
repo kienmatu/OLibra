@@ -2220,3 +2220,27 @@ text turned out wrong is called out rather than repeated.
     as a shelf approaches it** — `ExportHttpTest.php` exercises small
     fixtures only; the memory/time behaviour at scale is asserted in
     this document, not by any test that could go red.
+
+---
+
+## Phase 2a — Requests and holds
+
+Recorded per task as it lands, not at the end of the phase.
+
+- **`ApproveBorrowRequest` accepts an unvalidated `$copyId`, and a
+  malformed one is a 1267, not a refusal.** The Action takes the copy id
+  as a raw string because it comes from a form field, not a route
+  binding; `find()` on a well-formed id that names nothing — including
+  another shelf's copy and a soft-deleted one — is `copy_not_found`, as
+  intended. A *malformed* id is a different outcome: `book_copies.id` is
+  `ascii_bin`, so comparing it against a `utf8mb4` bind parameter raises
+  errno 1267, "Illegal mix of collations", and the caller gets a
+  `QueryException` rather than a named refusal. Measured, not inferred
+  from the column type — `BookCopy::query()->find('🙂')` against the live
+  MariaDB 10.11 container returns exactly that. This is the same shape as
+  the `ascii_bin` 500s Phase 1c chased six times, and it is deliberately
+  *not* fixed inside the Action: nothing routes to it yet (pinned by
+  `CirculationArchitectureTest`'s "the borrow-request commands have no
+  route" test), and Task 14's Form Request is where the `uuid` rule
+  belongs, so the emoji becomes a Vietnamese validation message on the way
+  in. If Task 14 ships without that rule, this becomes a live 500.

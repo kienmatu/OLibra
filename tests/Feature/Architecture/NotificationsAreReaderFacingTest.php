@@ -13,10 +13,14 @@ use App\Support\Notifications\NotificationKind;
  *
  * The bound, stated rather than implied: nothing mechanically ties the
  * constant below to docs/OPERATIONS.md §7, so a wrong transcription is
- * invisible to this test. It currently holds two of §7's eight rows —
- * the two whose commands exist — and both were checked against the
- * document by hand at this commit. Every task that adds a row transcribes
- * its own; the same care is the only thing keeping this honest.
+ * invisible to this test. It currently holds three of §7's eight rows —
+ * the three whose commands exist — and all three were checked against the
+ * document by hand at this commit. §7's own "Sách đã sẵn sàng để nhận" row
+ * is NOT a fourth: the document itself calls it the same trigger as
+ * "Yêu cầu mượn được duyệt", which is why request_approved is one kind
+ * with one writer here rather than two. Every task that adds a row
+ * transcribes its own; the same care is the only thing keeping this
+ * honest.
  *
  * Grown per task: each task that adds a kind adds its writer AND its row
  * here in the same commit (plan divergence 7). comment_approved arrives
@@ -26,6 +30,10 @@ use App\Support\Notifications\NotificationKind;
 const OPS_SECTION_7 = [
     'membership_approved' => ['app/Actions/Members/ApproveMembership.php'],
     'membership_rejected' => ['app/Actions/Members/RejectMembership.php'],
+    // §7 names a second door for this one — "and the equivalent effect
+    // inside ReceiveReturn when it holds for the next reader" — which
+    // Task 10 re-widens and appends here, in its own commit.
+    'request_approved' => ['app/Actions/Circulation/ApproveBorrowRequest.php'],
 ];
 
 it('every notification is written where OPERATIONS §7 says it is', function () {

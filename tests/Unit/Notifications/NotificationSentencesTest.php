@@ -18,6 +18,17 @@ it('membership_rejected carries the reason when there is one, and degrades when 
         ->toBe('Đơn đăng ký của bạn chưa được duyệt.');
 });
 
+it('request_approved renders the title and the deadline as a Vietnamese date', function () {
+    expect(NotificationSentences::sentence('request_approved', ['title' => 'Hoàng Tử Bé', 'hold_until' => '2026-09-01']))
+        ->toBe('Hoàng Tử Bé đã sẵn sàng, bạn đến nhận trước ngày 01/09/2026 nhé.')
+        ->and(NotificationSentences::sentence('request_approved', []))
+        ->toBe('cuốn sách đã sẵn sàng, bạn đến nhận sớm nhé.')
+        // A stored value that is not a date is no date — never half of one
+        // glued into the sentence.
+        ->and(NotificationSentences::sentence('request_approved', ['title' => 'Hoàng Tử Bé', 'hold_until' => 'sắp tới']))
+        ->toBe('Hoàng Tử Bé đã sẵn sàng, bạn đến nhận sớm nhé.');
+});
+
 it('an unknown stored kind renders the neutral line, never the raw token', function () {
     // Rows written by an older or newer build survive a deploy; a kind
     // this build does not know is a real state, not a programming error
