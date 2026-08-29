@@ -4,8 +4,8 @@ Committed on purpose: the per-task ledger under `.superpowers/sdd/` is gitignore
 dies with its plan, so this file is what lets a **different session** pick the work up.
 Update it as each task lands.
 
-**Last updated:** 2026-08-29. Phase 1d complete; PR #63 is open, reviewed and awaiting
-Kien's merge decision.
+**Last updated:** 2026-08-29. Phase 1 is COMPLETE — #63 merged, `main` = `317a3b3`.
+Phase 2 (Community) has started on `feat/phase-2-community`; the plan is being written.
 
 ## Where things stand
 
@@ -15,13 +15,37 @@ Kien's merge decision.
 | 1a Catalogue | `plans/2026-08-27-laravel-phase-1a-catalogue.md` | #60 | merged |
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
-| **1d Oversight** | `plans/2026-08-29-laravel-phase-1d-oversight.md` | **#63** | **open, reviewed, awaiting merge** |
+| 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
+| **2a Requests & holds** | being written | not opened | **in progress** |
+| 2b Community voice | not written | — | — |
+| 2c Statistics & labels | not written | — | — |
 
-Phase 1d completes BR §1.4's core loop. After it: Phase 2 (Community), 3 (Network), 4 (Cutover).
+Phase 1 (1a–1d) IS BR §1.4's core loop, and it is done. Next: Phase 2 (Community), then
+3 (Network), 4 (Cutover).
 
-## Phase 1d — current position
+**Why Phase 2 is split into 2a/2b/2c.** Spec §11 lists nine features under one phase
+(borrow requests, holds and the queue, comments and moderation, announcements, feedback,
+statistics, donations, notifications and the reminder sweep, QR labels) — the same
+over-wide shape Phase 1 was split for. The cut:
 
-Branch `feat/phase-1d-oversight`, 10 tasks, plan committed at `541a017`.
+- **2a — requests, holds, notifications, the sweep.** These are one unit, not three:
+  `ReceiveReturn` was deliberately NARROWED in 1c (its docblock says so) pending borrow
+  requests — `holdForRequestId`, `queuedRequestId`, the `request.approved` pairing and the
+  notification all come back here, in one transaction, so a returned copy is never
+  observably available to a stranger while a queued reader waits. The reminder sweep is
+  the second `Schedule::` line Phase 0's plan reserved for it.
+- **2b — community voice.** Comments and moderation (INV-09 visibility), announcements,
+  site feedback and its inbox, donations.
+- **2c — statistics and QR labels.**
+
+## Phase 2a — current position
+
+Branch `feat/phase-2-community`, cut from `main` at `317a3b3`. Plan not yet written
+(Fable writes it, Opus reviews it — see standing instructions). No tasks dispatched.
+
+## Phase 1d — closed
+
+Branch `feat/phase-1d-oversight`, 10 tasks, plan committed at `541a017`. Merged as #63.
 
 - **1 Audit sentences** — `0d48b10` · approved
 - **2 AuditSecrets guard** — `58b0399`, `3617fb5` · approved
@@ -38,10 +62,8 @@ PR #63 opened, whole-branch reviewed. Its Critical — the audit secrets guard c
 unwired with the whole suite green — plus two Importants fixed in `3d3362f`; a docblock
 that repeated a false "reaches no screen" claim corrected in `e599c6a`.
 
-Suite at 1,031 passing. All gates green (Pest, Pint, Larastan level 8, Biome, tsc, Vite build).
-**Phase 1 — BR §1.4's core loop — is complete once #63 merges.** Phase 2 (Community) is next.
-Phase 1d has no open PR yet — the next step is opening one and running the whole-branch
-review (see "How the loop runs" below), the way each of 1a–1c closed.
+Suite at 1,031 passing on merge. All gates green (Pest, Pint, Larastan level 8, Biome,
+tsc, Vite build).
 
 ## How the loop runs
 
