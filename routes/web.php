@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\LendController;
@@ -187,7 +188,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/comments', [ShellController::class, 'underConstruction'])->name('comments');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
-        Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
+        Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
         Route::get('/statistics', [ShellController::class, 'underConstruction'])->name('statistics');
         Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
         Route::get('/qr-labels', [ShellController::class, 'underConstruction'])->name('qr-labels');
