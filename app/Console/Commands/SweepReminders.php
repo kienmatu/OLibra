@@ -74,7 +74,13 @@ use Illuminate\Support\Facades\DB;
  * ids are application-generated UUIDv7 and MariaDB 10.11 has no v7
  * function.
  *
- * Every read here is measured, and none of them is bounded by a parish.
+ * THREE of this command's four reads are measured; none of the four is
+ * bounded by a parish. The unmeasured one is the per-shelf due_soon_days
+ * lookup below (Bookshelf::query()->get()) — never EXPLAINed, on the
+ * judgement that bookshelves is small and read once per run, which is a
+ * judgement and not a measurement. Say so rather than let the sentence
+ * round up.
+ *
  * The two candidate reads over loans are FULL SCANS of every tenant's
  * loans — `type: ALL, possible_keys: null, rows: 600` on a 600-active-loan
  * fixture, both statements, EXPLAINed from the SQL this command actually
@@ -86,7 +92,8 @@ use Illuminate\Support\Facades\DB;
  * in a job nobody waits on — the opposite of the bell's unread count,
  * which paid a scan on every page render and got an index in Task 16. The
  * idempotence probe is the read that runs per candidate row, and it IS a
- * seek (user_id ref). known-gaps carries all three plans.
+ * seek (user_id ref). known-gaps carries those three plans, and the
+ * standing note that the fourth read was never measured.
  */
 final class SweepReminders extends Command
 {

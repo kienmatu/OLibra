@@ -2568,6 +2568,32 @@ Recorded per task as it lands, not at the end of the phase.
   `AuditLogQuery` is in, reached from the other direction (that model is
   unscoped; this caller is).
 
+  **That exemption has a cost, and it is whole-file, not per-clause.**
+  `SweepReminders.php` today holds exactly one hand-written `bookshelf_id`
+  filter. Any *second* one a later edit adds is now silent — correct or
+  mis-scoped alike — where before it would have failed the build and forced
+  an explicit justification in the allow-list. This matters more here than
+  it would in an ordinary shelf-scoped file: the sweep runs under
+  `actSystemWide()`, so there is no `BookshelfScope` underneath to make a
+  rogue `where()` redundant-but-harmless. It was one of the few automated
+  backstops on manual-filter correctness in the file with the widest blast
+  radius. Reviewing a change to that file now means reading its filters by
+  hand. The whole-file shape was kept for consistency with `AuditLogQuery`
+  rather than because a per-clause tripwire was weighed and rejected;
+  per-clause is the fix if a second filter ever lands. The cost is written
+  at the allow-list entry itself as well, so the next person to edit either
+  file meets it there.
+
+- **The sweep's fourth read, the per-shelf `due_soon_days` lookup, was
+  never measured.** `Bookshelf::query()->get()` in `SweepReminders::handle`
+  reads every shelf on every run — cross-tenant like the rest of the
+  command, so its cost grows with the install rather than with a parish —
+  and no `EXPLAIN` was captured for it. The judgement was that
+  `bookshelves` is small and this runs once per sweep, not once per row;
+  that is a judgement, not a measurement, and it is recorded rather than
+  folded into the "the reads are measured" sentence in the command's own
+  docblock (which an earlier draft of that docblock did do).
+
 - **The transaction-placement guard is structurally vacuous for the sweep,
   in both directions.** `NotificationsAreReaderFacingTest`'s walk
   pre-filters on `str_contains($code, '->notify')`, which

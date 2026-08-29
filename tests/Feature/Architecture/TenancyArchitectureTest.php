@@ -99,6 +99,23 @@ it('confines bookshelf_id filtering to the two named files', function () {
         // shelves is told once, on one bell; the notification the sweep
         // WRITES is scoped by the bookshelf_id it copies off each loan, and
         // SweepIsHousekeepingTest pins both halves.
+        //
+        // WHAT THIS COSTS, concretely, because an allow-list entry is
+        // whole-FILE and not per-clause: that file today holds exactly one
+        // hand-written bookshelf_id filter — the probe's — and any SECOND
+        // one a later edit adds is now silent, correct or mis-scoped alike,
+        // where before it would have failed the build and forced whoever
+        // wrote it to come here and justify it. That matters more in this
+        // file than it would in an ordinary shelf-scoped one: the sweep
+        // runs under actSystemWide(), so BookshelfScope adds nothing
+        // underneath to make a rogue where() redundant-but-harmless. This
+        // was one of the few automated backstops on manual-filter
+        // correctness in the file with the widest blast radius, and it is
+        // spent. Reviewing a change to SweepReminders.php means reading its
+        // filters by hand. Kept whole-file for consistency with
+        // AuditLogQuery above rather than because per-clause was weighed
+        // and rejected — a per-clause tripwire is the fix if a second
+        // filter ever lands.
         'app/Console/Commands/SweepReminders.php',
     ];
 
