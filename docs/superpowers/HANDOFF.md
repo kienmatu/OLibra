@@ -4,8 +4,10 @@ Committed on purpose: the per-task ledger under `.superpowers/sdd/` is gitignore
 dies with its plan, so this file is what lets a **different session** pick the work up.
 Update it as each task lands.
 
-**Last updated:** 2026-08-29. Phase 1 is COMPLETE — #63 merged, `main` = `317a3b3`.
-Phase 2 (Community) has started on `feat/phase-2-community`; the plan is being written.
+**Last updated:** 2026-08-30. Phase 1 is COMPLETE — #63 merged, `main` = `317a3b3`.
+Phase 2a (requests and holds) is CODE-COMPLETE on `feat/phase-2-community`: all 19 tasks
+landed and approved, no PR open, nothing merged. Next: open the PR and run the
+whole-branch review.
 
 ## Where things stand
 
@@ -16,7 +18,7 @@ Phase 2 (Community) has started on `feat/phase-2-community`; the plan is being w
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
-| **2a Requests & holds** | being written | not opened | **in progress** |
+| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | not opened | **tasks 1–19 landed, awaiting PR + whole-branch review** |
 | 2b Community voice | not written | — | — |
 | 2c Statistics & labels | not written | — | — |
 
@@ -440,7 +442,49 @@ Nothing merged; no PR open.
   `HandoverRequestTest` stays 14/14**, because that file hand-writes the status and so keeps `copy_id`
   populated regardless. The new test is the only construction in the suite that reaches that branch
   from a **command-produced** row, which is exactly why the pin had to live here and not there.
-- **19 wrap-up** — next.
+- **19 wrap-up** — the guarantee sweep. All gates green (Pest 1,260 passing (8,006 assertions), Pint, Larastan
+  level 8 `[OK] No errors`, Biome at its pre-existing baseline, tsc, Vite build);
+  `git diff origin/main...HEAD -- old_next/` empty.
+  **The OPS walk contradicted two things this branch was shipping, which is the whole reason
+  the task exists.** (1) `LendCopyHoldTest`'s comment claimed divergence 13's
+  available-under-a-live-hold row was reachable as approve → `ReportCopyLost` → `MarkCopyFound`.
+  It is not — `CopyStateMachine` draws no `held -> lost` arrow, so `ReportCopyLost` on a held
+  copy throws `copy_not_on_loan`, **measured by running the walk** against the real MariaDB, not
+  by reading the table. A sibling file (`ApproveBorrowRequestTest`) had said the opposite all
+  along, so the branch was carrying two comments that contradicted each other. The hole in
+  `LoanRules::copyLendable` is real and ported; what keeps it out of reach is a transition table
+  nobody wrote as a guard for it, and whose own docblock calls widening it "one line here plus
+  one test". (2) Divergence 12's `request_not_held` claim is now false in both halves: Task 18's
+  own OPS amendment enumerates the code under `ReleaseExpiredHold`, and the stated reason —
+  that OPS gives `HandoverRequest`'s failure modes as "the `/errors.ts` disjunction" — describes
+  a document that does not exist (`grep -n "errors.ts" docs/OPERATIONS.md` returns nothing;
+  the entry is a plain three-item list). The residual is smaller than divergence 12 said and
+  real: `HandoverRequest` throws a code its OPS entry does not list. **Not fixed** — this plan
+  permitted one OPS amendment and it was spent; adding a failure mode to a shipped contract is
+  Kien's call, and the sentence is already in `lang/vi/rules.php`.
+  A third, quieter one: `MarkNotificationRead` ships without OPS §4.6's `notification.read`
+  audit action, with a good argument in its docblock and nothing on the durable record saying
+  OPS had been diverged from. Now recorded.
+  Also landed: the `known-gaps.md` Phase 2a wrap-up section (the walk table, C1's no-lock record
+  with the justification that did NOT survive being measured, divergences 1/13/15, ruling 1's
+  disposition, the frontend blind spot restated for the new screens, and the `make lint`
+  baseline below); the 1c entries this phase falsified amended in place (`RenewLoan`'s queue check now carries
+  the DECISION rather than deferring it to "Phase 2"; the `ChooseCopy` landmine becomes
+  divergence 14's disposition **with a test** — deleting `ApproveBorrowRequest`'s held-flip
+  reddens it on exactly the disagreement; the 1c OPS table's stale Phase-2 rows struck);
+  `AuditSecretsTest`'s shape list refreshed with the `request.*` payloads and its writer
+  COUNT dropped from the title; stale line citations into moving files converted to symbols; a
+  `DemoShelfSeeder` that now seeds a living queue and a living bell, deterministically.
+  **Step 5's four mutation checks, all performed and restored** (`git status --porcelain` clean
+  after each): deleting all three circulation `notify()` calls reddens both architecture blocks and
+  every notification assertion in the three writers' own test files (measured: `7 failed,
+  1253 passed`); gutting
+  `OPS_SECTION_7` to `[]` reddens its own second test, so the census cannot be emptied silently;
+  removing the `Schedule::command('reminders:sweep')` line reddens exactly one test; and moving
+  all three `notify()` calls after their transactions gives **`1 failed, 1259 passed`** — the
+  transaction-placement guard names all three files with their lines and **nothing else in the
+  suite reddens**. That last number is the measurement of how much this phase's headline
+  guarantee rests on one architecture test.
 
 **Two rulings from this task that generalise, and both are the same disease:**
 
@@ -581,7 +625,12 @@ load-bearing. Corrected rather than struck.
 **Owed to Kien, found during Task 5 and NOT fixed:** `make lint` is not pristine on this branch —
 three Biome warnings plus one info in `resources/js`, and a Biome schema-version mismatch (2.5.8
 config against a 2.5.10 CLI). All pre-existing and untouched by Phase 2a; the gate has been reported
-green while carrying them. The whole-branch review inherits it.
+green while carrying them. The whole-branch review inherits it. **Task 19 verified the
+"pre-existing" half rather than repeating it**: `book-card.tsx`, `sidebar.tsx` and `biome.json`
+have no diff against `origin/main` at all, and `book.tsx`'s `<img>` — the one warned file this
+branch did touch — is present on `main` too. The exact baseline (which rule, which file, and the
+`Found 3 warnings. Found 1 info.` tail) is now in `known-gaps.md`, so the next person can tell an
+inherited warning from one they added.
 
 **Struck from the plan at the source** (this commit): Task 4's Step 6 **mutation 2** was
 unsatisfiable and contradicted mutation 2b by construction — narrowing the duplicate read to

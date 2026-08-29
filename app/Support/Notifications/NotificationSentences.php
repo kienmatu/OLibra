@@ -72,8 +72,21 @@ final class NotificationSentences
     /**
      * `Y-m-d` (Asia/Ho_Chi_Minh civil date, plan divergence 5) → `d/m/Y`,
      * or null when the payload holds no date or holds something that is not
-     * one — the caller then reaches for its dateless line rather than
-     * printing a half-parsed string.
+     * SHAPED like one — the caller then reaches for its dateless line
+     * rather than printing a half-parsed string.
+     *
+     * Shape, not validity, and the distinction is deliberate rather than
+     * overlooked (Task 19's sweep; the sentence above used to say "is not
+     * one", which claims more than the regex does): the pattern is four
+     * digits, two, two, so a stored `2026-99-99` renders `99/99/2026`
+     * instead of falling back. Nothing shipped stores such a value: the
+     * payload keys this method reads are written by Carbon's
+     * ->toDateString(), which the check `grep -rn "'hold_until'" app/` and
+     * the same for `'due_on' =>` will re-run rather than ask you to trust.
+     * So tightening this to a calendar check (checkdate) would change no
+     * shipped sentence, which is why a wrap-up task did not do it. A
+     * future writer that stores a hand-built date string is the case that
+     * makes it worth doing.
      *
      * A divergence from kinds.ts, applying wherever an arm renders a
      * stored date — every one of them reaches the payload through here.
@@ -88,9 +101,10 @@ final class NotificationSentences
      *
      * The fallback fires one case wider than the reference's, and that
      * widening is deliberate rather than accidental: the reference falls
-     * back only on an absent value, this also falls back on a stored
-     * value that is not a date, so a half-parsed string never reaches a
-     * reader. NotificationSentencesTest pins both.
+     * back only on an absent value, this also falls back on a stored value
+     * that is not date-SHAPED (see above — shape, not validity), so a
+     * half-parsed string never reaches a reader.
+     * NotificationSentencesTest pins both.
      */
     private static function date(?string $ymd): ?string
     {

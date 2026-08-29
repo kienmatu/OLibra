@@ -52,8 +52,9 @@ use Illuminate\Support\Facades\Gate;
  * whose membership is soft-deleted in that window meets LendCopy's
  * findOrFail and becomes a 404 rather than request_not_held. And a
  * cancel that also released the copy held → available
- * (CancelOwnRequest.php:151-152) leaves LendCopy nothing to refuse: it
- * writes an ordinary walk-up loan for the reader standing at the table,
+ * (CancelOwnRequest's guarded release, the UPDATE whose WHERE repeats
+ * state = Held) leaves LendCopy nothing to refuse: it writes an ordinary
+ * walk-up loan for the reader standing at the table,
  * closing nobody's request. That is a real loan against a cancelled
  * request — benign in the room (the book goes to the person holding out
  * their hands) and it takes no other reader's turn, but it is a write,

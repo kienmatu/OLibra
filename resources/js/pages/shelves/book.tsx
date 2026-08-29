@@ -174,8 +174,9 @@ export default function ShelfBook() {
                         caused it (the reference's placement). flash.success
                         carries the two success flashes; errors.rule renders
                         whatever `rule` code the last RuleViolated produced,
-                        already translated — bootstrap/app.php:93 turns EVERY
-                        RuleViolated from ANY Action into
+                        already translated — bootstrap/app.php's
+                        withExceptions render arm turns EVERY RuleViolated
+                        from ANY Action into
                         back()->withErrors(['rule' => __('rules.'.$code)]),
                         and back() follows the Referer
                         (UrlGenerator::previous), so a refusal from a form on
@@ -197,13 +198,13 @@ export default function ShelfBook() {
                         membership_not_active_cannot_request cannot land here,
                         though the reference's twin comment says it can,
                         because that caller never reaches an Action —
-                        ResolveTenant:67 filters memberships on status =
-                        Active, the act-as-reader gate
-                        (AppServiceProvider:147-179) returns false on the null
-                        membership, and EnsureShelfRole 404s them off the page
-                        first. Pinned by "an ordinary reader whose membership
-                        is suspended meets a 404, not a sentence" in
-                        ReaderRequestSurfaceTest. */}
+                        ResolveTenant's membership query filters on
+                        status = Active, the act-as-reader gate
+                        (AppServiceProvider's $roleGate closure) returns false
+                        on the null membership, and EnsureShelfRole 404s them
+                        off the page first. Pinned by "an ordinary reader
+                        whose membership is suspended meets a 404, not a
+                        sentence" in ReaderRequestSurfaceTest. */}
                     {flash.success ? (
                         <p
                             role="status"

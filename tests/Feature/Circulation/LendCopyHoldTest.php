@@ -130,12 +130,23 @@ it('an AVAILABLE copy under somebody else\'s live hold still lends — plan dive
     //
     // The lend SUCCEEDS: LoanRules::copyLendable's available branch does
     // not look at holds — the faithful port of the reference's
-    // policy.ts:86-108, hole included. The row is reachable with shipped
-    // 1a commands: approve onto this copy (held), ReportCopyLost (lost,
-    // the request still approved with a live hold), MarkCopyFound
-    // (available). ApproveBorrowRequest refuses that row (Task 5 has the
-    // named test); LendCopy does not, and neither does the reference.
-    // Task 19 records it in known-gaps.
+    // policy.ts:86-108, hole included. ApproveBorrowRequest refuses that
+    // row (Task 5 has the named test); LendCopy does not, and neither does
+    // the reference.
+    //
+    // CORRECTED by Task 19's walk, which RAN the sequence this comment used
+    // to claim: "approve onto this copy (held), ReportCopyLost, then
+    // MarkCopyFound" does NOT reach the row. CopyStateMachine::ALLOWED has
+    // no held->lost arrow, so ReportCopyLost on a held copy throws
+    // copy_not_on_loan — measured against the real MariaDB, not read off
+    // the table. The fixture below constructs the row directly for that
+    // reason, exactly as ApproveBorrowRequestTest's two-clause block says
+    // in its own words ("No shipped command produces available+held-for").
+    // The hole in the predicate is real and ported; what keeps it out of
+    // reach today is BR §7.1's transition table, which is not a guard
+    // anybody wrote for this purpose — CopyStateMachine's own Q3 note calls
+    // widening the arrows into `lost` "one line here plus one test", and
+    // that line would open this. known-gaps carries the full disposition.
     [$manager, $other, $free] = lchForeignHoldFix('dong-thap-lch-foreign');
 
     $result = app(LendCopy::class)->execute($manager, $free, $other);

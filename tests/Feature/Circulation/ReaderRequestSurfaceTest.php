@@ -233,13 +233,17 @@ it('an ordinary reader whose membership is suspended meets a 404, not a sentence
     // Review round 1, item 3, pinned rather than only commented. The
     // reference's own comment claims a suspended membership surfaces
     // membership_not_active_cannot_request on this page; under THIS app's
-    // gating it cannot. ResolveTenant:67 filters on status = Active, so a
-    // suspended reader binds a null membership; the act-as-reader gate
-    // (AppServiceProvider:147-179) returns false for a non-super-admin;
-    // EnsureShelfRole 404s them before any Action runs. The same reasoning
-    // is why not_permitted is a SUPER ADMIN's refusal only — Gate::before
-    // (:126-132) is what lets a null membership through, and it fires for
-    // nobody else. Both halves of book.tsx's banner comment rest on this.
+    // gating it cannot. ResolveTenant's membership query filters on
+    // status = Active, so a suspended reader binds a null membership; the
+    // act-as-reader gate (AppServiceProvider's $roleGate closure) returns
+    // false for a non-super-admin; EnsureShelfRole 404s them before any
+    // Action runs. The same reasoning is why not_permitted is a SUPER
+    // ADMIN's refusal only — AppServiceProvider's Gate::before arm is what
+    // lets a null membership through, and it fires for nobody else. Both
+    // halves of book.tsx's banner comment rest on this. (Symbols, not line
+    // numbers: this branch produced off-by-one citations repeatedly —
+    // HANDOFF names the tasks — and a coordinate goes stale silently where
+    // a symbol grep does not.)
     [$shelf, $reader, $book] = rrsFix('dong-thap-rrs-suspended');
     app(TenantContext::class)->actSystemWide();
     Membership::query()->where('user_id', $reader->id)->update([
@@ -314,23 +318,24 @@ it('cancelling somebody else\'s request on my own shelf is the ownership sentenc
 
 it('the CANCEL door feeds the book page\'s errors.rule too, not just the create door', function () {
     // Review round 2. book.tsx's banner is fed by BOTH forms on the page,
-    // because bootstrap/app.php:93 renders every RuleViolated as
-    // back()->withErrors(['rule' => ...]) and back() reads the Referer
-    // (UrlGenerator::previous), so the cancel POST comes home to the book
+    // because bootstrap/app.php's withExceptions render arm turns every
+    // RuleViolated into back()->withErrors(['rule' => ...]) and back()
+    // reads the Referer (UrlGenerator::previous), so the cancel POST
+    // comes home to the book
     // page exactly as the create POST does. Three drafts of that comment
     // enumerated the reachable codes and were wrong every time; this test
     // pins the mechanism instead — which door, not which list.
     //
     // The refusal used here is a real stale-page sequence, not a contrived
     // status: cancel once (through the profile door, the same route), then
-    // tap the book page's now-stale cancel button. The row is Cancelled,
-    // so CancelOwnRequest:140-141 answers request_not_pending
-    // (lang/vi/rules.php:77). Its sibling request_already_fulfilled
-    // (:137-139, lang :84) is reachable the same way when a manager
-    // collects the hold in between — LendCopy's guarded collected-hold
-    // update is what writes Fulfilled
-    // — and is left unpinned here rather than staged with a hand-set
-    // status.
+    // tap the book page's now-stale cancel button. The row is Cancelled, so
+    // CancelOwnRequest's status guard — the arm that refuses anything not
+    // Pending or Approved — answers request_not_pending
+    // (lang/vi/rules.php:77). Its sibling request_already_fulfilled (the
+    // Fulfilled arm one branch above it, lang :84) is reachable the same
+    // way when a manager collects the hold in between — LendCopy's guarded
+    // collected-hold update is what writes Fulfilled — and is left unpinned
+    // here rather than staged with a hand-set status.
     [$shelf, $reader, $book] = rrsFix('dong-thap-rrs-cancel-banner');
     app(TenantContext::class)->actSystemWide();
     $request = BorrowRequest::query()->create([

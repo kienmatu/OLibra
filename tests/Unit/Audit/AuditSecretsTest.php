@@ -195,12 +195,17 @@ it('refuses a five-hop object chain instead of silently letting it through', fun
         ->toThrow(RuleViolated::class);
 });
 
-it('every payload shape the 21 shipped writers produce passes', function () {
-    // The exact key sets grepped from app/Actions at plan time. If a
-    // command's payload changes, this list changes with it — that is the
-    // point: the guard must never brick a shipped command. (The full
-    // suite re-proves this end-to-end in Step 4, through the writers
-    // themselves.)
+it('every payload shape a shipped writer produces passes', function () {
+    // The key sets grepped from app/Actions. If a command's payload
+    // changes, this list changes with it — that is the point: the guard
+    // must never brick a shipped command. (The full suite re-proves this
+    // end-to-end, through the writers themselves; this block is the cheap
+    // unit-level echo of it, not the guarantee.)
+    //
+    // The title used to carry a writer COUNT and the count went stale the
+    // moment Phase 2a added the request commands — the failure mode this
+    // branch names as "stop counting". The property is what matters: every
+    // shape below is one a shipped ->record() call can produce.
     $shapes = [
         ['title', 'slug', 'author', 'category', 'isbn', 'isPublished', 'copyCodes'],
         ['code', 'bookId', 'state', 'acquiredOn', 'acquiredFrom', 'acquiredFromMembershipId'],
@@ -214,6 +219,20 @@ it('every payload shape the 21 shipped writers produce passes', function () {
         ['userId', 'fullName', 'status', 'parishUnitL1Id', 'parishUnitL2Id'],
         ['saint_name', 'full_name', 'date_of_birth', 'father_name', 'mother_name',
             'phone', 'phone_missing_reason', 'email', 'avatar_object'],
+        // Phase 2a's request writers, added by the wrap-up sweep: the list
+        // had carried no request.* shape at all since Task 4, so the guard
+        // was being re-proved against a catalogue that predated the phase.
+        // The after bags of request.created, .approved, .rejected,
+        // .cancelled, .expired and .fulfilled. The before bags need no row
+        // of their own: each is a subset of an after bag already listed
+        // here (status/copy_id, status, status/copy_id/fulfilled_loan_id),
+        // and AuditSecrets judges keys, not values.
+        ['status', 'book_id', 'copy_id', 'title', 'userId', 'membership_id'],
+        ['status', 'copy_id', 'hold_expires_at', 'userId'],
+        ['status', 'title', 'userId', 'reason'],
+        ['status', 'title', 'released_copy_id'],
+        ['status', 'copy_id', 'title', 'userId'],
+        ['status', 'copy_id', 'fulfilled_loan_id'],
     ];
     foreach ($shapes as $keys) {
         AuditSecrets::assertNoSecrets(null, array_fill_keys($keys, 'v'));

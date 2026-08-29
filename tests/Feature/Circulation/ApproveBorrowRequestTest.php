@@ -12,6 +12,8 @@ use App\Models\BorrowRequest;
 use App\Models\Membership;
 use App\Models\Notification;
 use App\Models\User;
+use App\Queries\SearchBooksForLendingQuery;
+use App\Support\Circulation\ChooseCopy;
 use App\Support\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -207,4 +209,52 @@ it('INV-8: request.approved stores the copy, the expiry and the reader under use
         ->and($after['copy_id'])->toBe($copy->id)
         ->and($after['hold_expires_at'])->toBe('2026-08-31T07:00:00.000000Z')
         ->and($after['userId'])->toBe($reader->id);
+});
+
+/*
+ * Divergence 14's disposition, made executable.
+ *
+ * Quick-lend step 1 (SearchBooksForLendingQuery's `blocked` flag) derives
+ * availability from CountsCopies::borrowable() — state available AND no
+ * live approved hold. Step 3 (ChooseCopy::lowestLendable) reads
+ * book_copies.state alone and knows nothing about holds. 1c's known-gaps
+ * entry called that a Phase 2 landmine: the moment an approval could
+ * create a hold, the two predicates could disagree and BR §16.3's "the
+ * block is stated before the confirm step" would become a lie.
+ *
+ * The resolution taken was to keep them in sync at the WRITER rather than
+ * teach ChooseCopy the hold predicate: ApproveBorrowRequest flips the copy
+ * to `held` in the same transaction as the hold, so the state-only branch
+ * and the state-plus-no-live-hold branch select the same copies. These two
+ * blocks are what stops that from being a paragraph — delete the
+ * `$copy->update(['state' => CopyState::Held])` line and the second one
+ * goes red while the command's own tests, which assert on the request row,
+ * do not all follow.
+ */
+it('before an approval, step 1 and step 3 both offer the title\'s only copy', function () {
+    [, , , $copy] = abrFix([], 'dong-thap-abr-sync-before');
+
+    $row = app(SearchBooksForLendingQuery::class)->run('Hoàng Tử Bé')[0];
+    $chosen = ChooseCopy::lowestLendable(Book::query()->with('copies')->findOrFail($copy->book_id)->copies);
+
+    expect($row['blocked'])->toBeFalse()
+        ->and($row['reason'])->toBeNull()
+        ->and($chosen['copy']?->id)->toBe($copy->id)
+        ->and($chosen['reason'])->toBeNull();
+});
+
+it('after an approval, step 1\'s blocked flag and ChooseCopy agree the title has nothing lendable', function () {
+    [, $manager, , $copy, $request] = abrFix([], 'dong-thap-abr-sync-after');
+
+    app(ApproveBorrowRequest::class)->execute($manager, $request, $copy->id);
+
+    $row = app(SearchBooksForLendingQuery::class)->run('Hoàng Tử Bé')[0];
+    $chosen = ChooseCopy::lowestLendable(Book::query()->with('copies')->findOrFail($copy->book_id)->copies);
+
+    // Both halves in one expectation on purpose: the claim is that the two
+    // predicates AGREE, so seeing one of them alone tells you nothing.
+    expect(['blocked' => $row['blocked'], 'reason' => $row['reason']])
+        ->toBe(['blocked' => true, 'reason' => 'copy_not_available'])
+        ->and(['copy' => $chosen['copy'], 'reason' => $chosen['reason']])
+        ->toBe(['copy' => null, 'reason' => 'copy_not_available']);
 });

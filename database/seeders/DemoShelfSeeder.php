@@ -5,8 +5,10 @@ namespace Database\Seeders;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
+use App\Models\BorrowRequest;
 use App\Models\Loan;
 use App\Models\Membership;
+use App\Models\Notification;
 use App\Models\ParishUnit;
 use App\Models\User;
 use App\Support\AuditRecorder;
@@ -57,11 +59,36 @@ class DemoShelfSeeder extends Seeder
         // hand-written filter on the shelf column: TenancyArchitectureTest
         // confines that kind of filtering to BookshelfScope and
         // ResolveTenant only.
+        //
+        // Task 19: the four titles and the eight codes are now WRITTEN, not
+        // rolled. BookFactory picks randomly among AGENTS.md's four titles
+        // WITH replacement and BookCopyFactory draws its code from a faker
+        // unique() pool, so a `migrate:fresh --seed` used to produce a
+        // different shelf every time — the same title twice and another
+        // missing, codes scattered over DT-0001..DT-9999. That was already
+        // awkward for design work; it became load-bearing once the request
+        // block below started naming two titles by name, and it is why
+        // SeederTest can assert exact counts at all.
         if ($shelf->books()->doesntExist()) {
-            Book::factory()->count(4)->create(['bookshelf_id' => $shelf->id])
-                ->each(fn (Book $book) => BookCopy::factory()->count(2)->create([
-                    'bookshelf_id' => $shelf->id, 'book_id' => $book->id,
-                ]));
+            $catalogue = [
+                ['Dế Mèn Phiêu Lưu Ký', 'de-men-phieu-luu-ky', 'Tô Hoài'],
+                ['Hoàng Tử Bé', 'hoang-tu-be', 'Antoine de Saint-Exupéry'],
+                ['Totto-chan Bên Cửa Sổ', 'totto-chan-ben-cua-so', 'Kuroyanagi Tetsuko'],
+                ['Đất Rừng Phương Nam', 'dat-rung-phuong-nam', 'Đoàn Giỏi'],
+            ];
+            $code = 0;
+            foreach ($catalogue as [$title, $slug, $author]) {
+                $book = Book::factory()->create([
+                    'bookshelf_id' => $shelf->id, 'title' => $title,
+                    'slug' => $slug, 'author' => $author,
+                ]);
+                for ($i = 0; $i < 2; $i++) {
+                    BookCopy::factory()->create([
+                        'bookshelf_id' => $shelf->id, 'book_id' => $book->id,
+                        'code' => 'DT-'.str_pad((string) ++$code, 4, '0', STR_PAD_LEFT),
+                    ]);
+                }
+            }
         }
 
         // Phase 1b: a nested two-level taxonomy so every picker, filter and
@@ -94,14 +121,27 @@ class DemoShelfSeeder extends Seeder
 
         // Five demo readers (AGENTS.md's fixture people), one pending so the
         // approval queue renders.
+        //
+        // Têrêsa alone gets a username, and it is not decoration (Task 19,
+        // beyond the brief's list, recorded in its report): UserFactory
+        // deliberately mints readers with NO credentials — most readers are
+        // children who never sign in, and users_credentials_paired makes it
+        // both-or-neither — so before this line nobody on the demo shelf
+        // except the manager and the super admin could sign in at all, and
+        // every reader-side screen this phase shipped (the profile's
+        // requests card, the notifications page, the header bell) was
+        // unreachable by hand. She is the reader the hold and the
+        // notification below belong to, so she is the one who has something
+        // to look at. Same password as the manager's.
         $people = [
-            ['Maria', 'Nguyễn Thị Lan', 'active'], ['Giuse', 'Trần Minh', 'active'],
-            ['Têrêsa', 'Lê Ngọc Ánh', 'active'], ['Anna', 'Phạm Thu Hà', 'active'],
-            ['Phêrô', 'Nguyễn Văn Bình', 'pending'],
+            ['Maria', 'Nguyễn Thị Lan', 'active', null], ['Giuse', 'Trần Minh', 'active', null],
+            ['Têrêsa', 'Lê Ngọc Ánh', 'active', 'bandoc'], ['Anna', 'Phạm Thu Hà', 'active', null],
+            ['Phêrô', 'Nguyễn Văn Bình', 'pending', null],
         ];
-        foreach ($people as [$saint, $name, $status]) {
+        foreach ($people as [$saint, $name, $status, $username]) {
+            $factory = $username === null ? User::factory() : User::factory()->withCredentials($username);
             $person = User::query()->where('full_name', $name)->first()
-                ?? User::factory()->create(['saint_name' => $saint, 'full_name' => $name, 'phone' => '0912345678', 'phone_missing_reason' => null]);
+                ?? $factory->create(['saint_name' => $saint, 'full_name' => $name, 'phone' => '0912345678', 'phone_missing_reason' => null]);
             Membership::query()->firstOrCreate(
                 ['bookshelf_id' => $shelf->id, 'user_id' => $person->id],
                 ['role' => 'reader', 'status' => $status, 'parish_unit_l1_id' => $units['Giáo họ Thánh Tâm']->id],
@@ -171,6 +211,121 @@ class DemoShelfSeeder extends Seeder
                     'due_on' => Carbon::parse($today)->subDays(10)->toDateString(), 'status' => 'active',
                 ]);
             }
+        }
+
+        // Task 19: a living queue and a living bell. Without these rows
+        // /manage/borrow-requests is an empty state and no reader has a
+        // notification to open, so the screens Phase 2a shipped demo as
+        // blank pages on a shelf that visibly has books, loans and an
+        // audit trail.
+        //
+        // Rows are INSERTED, not produced by running the commands — the
+        // idiom of every block above, and the reason the audit block below
+        // exists at all. So the approved row is written in the full
+        // approval shape by hand (status, copy_id, hold_expires_at,
+        // decided_by, decided_at, and the copy flipped to held), because
+        // ApproveBorrowRequest writes them together in one transaction and
+        // a demo row missing any of them renders a queue card that cannot
+        // be handed over.
+        //
+        // The books are looked up by TITLE, and created if the lookup
+        // misses. On a fresh `migrate:fresh --seed` the lookup always hits,
+        // because the catalogue block above now writes these titles by
+        // name. The create is the fallback for a dev database seeded before
+        // that change, whose four books were rolled at random and may hold
+        // neither of the titles this block needs — the books guard is
+        // `doesntExist()`, so a plain `db:seed` there will not re-seed the
+        // catalogue and fix it.
+        if ($shelf->borrowRequests()->doesntExist()) {
+            $today = app(Clock::class)->today();
+
+            // $shelf->books()/->bookCopies() — the hasMany relations, never a
+            // hand-written shelf-column filter, matching every block above:
+            // TenancyArchitectureTest confines that filtering to
+            // BookshelfScope/ResolveTenant/AuditLogQuery, and actSystemWide()
+            // is on, so an unscoped title lookup through the bare Book model
+            // would happily find another shelf's copy of the same title.
+            //
+            // The fallback code is derived from the shelf's own highest
+            // rather than written as a literal, for the same
+            // seeded-before-this-change database: BookCopyFactory draws from
+            // a faker unique() pool over DT-0001..DT-9999, so any literal
+            // this seeder picked could collide with an existing copy on
+            // book_copies_bookshelf_id_code_key.
+            $nextCode = function () use ($shelf): string {
+                $max = (int) mb_substr((string) $shelf->bookCopies()->max('code'), 3);
+
+                return 'DT-'.str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
+            };
+
+            // The lookup and the create are SEPARATE statements, never one
+            // `??` chain, and that is not style. TenancyArchitectureTest's
+            // tripwire looks for a where-shaped call followed by the tenant
+            // column with no semicolon in between, and its character class
+            // matches newlines — so a lookup falling through `??` into a
+            // create that names the tenant column reads to it as a
+            // hand-written tenant filter and fails the build. Measured: the
+            // first version of this block did exactly that. (The same
+            // reading-raw-source trap `CirculationArchitectureTest`'s
+            // wall-clock grep sets — a comment counts as source, which is
+            // why this one is worded around the pattern rather than quoting
+            // it.)
+            $demoBook = function (string $title, string $slug, string $author) use ($shelf, $nextCode): BookCopy {
+                $book = $shelf->books()->where('title', $title)->first();
+                if ($book === null) {
+                    $book = Book::query()->create([
+                        'bookshelf_id' => $shelf->id, 'title' => $title,
+                        'slug' => $slug, 'author' => $author,
+                        'language' => 'vi', 'is_published' => true,
+                    ]);
+                }
+
+                $copy = $book->copies()->where('state', 'available')->orderBy('code')->first();
+                if ($copy === null) {
+                    $copy = BookCopy::query()->create([
+                        'bookshelf_id' => $shelf->id, 'book_id' => $book->id,
+                        'code' => $nextCode(), 'state' => 'available',
+                    ]);
+                }
+
+                return $copy;
+            };
+
+            // Anna Phạm Thu Hà waits for Totto-chan — a pending row, no
+            // copy named. A pending request names a title, never a copy.
+            $anna = User::query()->where('full_name', 'Phạm Thu Hà')->firstOrFail();
+            $tottoCopy = $demoBook('Totto-chan Bên Cửa Sổ', 'totto-chan-ben-cua-so', 'Kuroyanagi Tetsuko');
+            BorrowRequest::query()->create([
+                'bookshelf_id' => $shelf->id, 'book_id' => $tottoCopy->book_id,
+                'member_id' => $anna->id, 'status' => 'pending',
+                'requested_at' => Carbon::parse($today)->subDay(),
+            ]);
+
+            // Têrêsa Lê Ngọc Ánh has a book put aside — approved, the copy
+            // held, three days to collect it (LendingSettings' own default
+            // hold_days; this shelf overrides nothing).
+            $teresa = User::query()->where('full_name', 'Lê Ngọc Ánh')->firstOrFail();
+            $namCopy = $demoBook('Đất Rừng Phương Nam', 'dat-rung-phuong-nam', 'Đoàn Giỏi');
+            $holdUntil = Carbon::parse($today)->addDays(3);
+            BorrowRequest::query()->create([
+                'bookshelf_id' => $shelf->id, 'book_id' => $namCopy->book_id,
+                'member_id' => $teresa->id, 'status' => 'approved',
+                'requested_at' => Carbon::parse($today)->subDays(2),
+                'copy_id' => $namCopy->id, 'hold_expires_at' => $holdUntil,
+                'decided_by' => $manager->id, 'decided_at' => Carbon::parse($today)->subDay(),
+            ]);
+            $namCopy->update(['state' => 'held']);
+
+            // The bell. user_id is a users(id), never a membership id —
+            // the recurring trap SweepReminders' own comment names. The
+            // payload matches what ApproveBorrowRequest stores, so
+            // NotificationSentences renders the real sentence with the
+            // real date rather than a dateless fallback.
+            Notification::query()->create([
+                'bookshelf_id' => $shelf->id, 'user_id' => $teresa->id,
+                'kind' => 'request_approved',
+                'payload' => ['title' => 'Đất Rừng Phương Nam', 'hold_until' => $holdUntil->toDateString()],
+            ]);
         }
 
         // Task 10: a living audit page — DemoShelfSeeder inserts models

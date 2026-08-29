@@ -117,6 +117,16 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
     // above, the seeder's own name-reuse trap) each with their own active
     // reader membership, plus one active and one overdue loan against two
     // of the eight seeded copies. +2 users, +2 memberships, +2 loans.
+    //
+    // Task 19 added a living queue and a living bell: one pending request,
+    // one approved hold (its copy flipped to held) and the notification
+    // that announces it. No new user or membership — both requesters are
+    // demo readers already seeded above. The copies stay at eight because
+    // the catalogue block now writes AGENTS.md's four titles and eight
+    // codes explicitly instead of rolling them: before that, a title the
+    // request block names could be absent from a given run and the block
+    // would mint a ninth copy for it, which is what made this assertion
+    // fail intermittently rather than never.
     expect(DB::table('bookshelves')->count())->toBe(1)
         ->and(DB::table('users')->count())->toBe(7)
         ->and(DB::table('memberships')->count())->toBe(7)
@@ -124,5 +134,28 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
         ->and(DB::table('books')->count())->toBe(4)
         ->and(DB::table('book_copies')->count())->toBe(8)
         ->and(DB::table('loans')->count())->toBe(2)
-        ->and(DB::table('book_copies')->where('state', 'on_loan')->count())->toBe(2);
+        ->and(DB::table('book_copies')->where('state', 'on_loan')->count())->toBe(2)
+        ->and(DB::table('borrow_requests')->count())->toBe(2)
+        ->and(DB::table('borrow_requests')->where('status', 'approved')->count())->toBe(1)
+        ->and(DB::table('book_copies')->where('state', 'held')->count())->toBe(1)
+        ->and(DB::table('notifications')->count())->toBe(1);
+});
+
+it('seeds AGENTS.md\'s four titles by name, not by a random draw', function () {
+    // The demo request block names two of them (Totto-chan, Đất Rừng
+    // Phương Nam) and BookFactory used to pick among the four randomly WITH
+    // replacement, so a run could seed the same title twice and leave one
+    // out. This is the assertion that stops that regressing — without it
+    // the block above only notices through a count that happens to move.
+    $this->seed(DemoShelfSeeder::class);
+
+    // Sorted in PHP, byte order, not by the database: MariaDB's own
+    // collation puts 'Đất' before 'Hoàng', which is correct Vietnamese and
+    // has nothing to do with what this test is asking.
+    $titles = DB::table('books')->pluck('title')->all();
+    sort($titles);
+
+    expect($titles)->toBe([
+        'Dế Mèn Phiêu Lưu Ký', 'Hoàng Tử Bé', 'Totto-chan Bên Cửa Sổ', 'Đất Rừng Phương Nam',
+    ]);
 });
