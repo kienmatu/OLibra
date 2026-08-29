@@ -100,9 +100,35 @@ withdrawn** with its measurement rather than deleted. The lock-claim sentences r
 the index relocates serialisation into the insert's implicit exclusive record lock, the
 loser blocks until the winner commits and then gets 1062.
 
-**A targeted verification of that fix round is running** — the guard was rewritten, not
-patched, so it is being attacked as new code. No tasks dispatched; no application code
-written yet.
+**Verification of fix round 2: APPROVED — code may start.** The rewritten guard was
+attacked as new code and held across 32 cases: the nine-case corpus, 23 adversarial ones
+(`${...}` interpolation, nested interpolation, a heredoc containing a literal
+`DB::transaction(`, a nowdoc, backticks, a method literally named `transaction`, an
+abstract declaration, `finally` on both sides, a class body inside `if (true)`, chained
+`DB::connection()->transaction()`, two files where one has no transaction at all) and both
+named mutants. Larastan's "43/43 clean" claim — wrong twice before — was true this time,
+and both counterfactual errors were reproduced verbatim.
+
+Its findings were accuracy defects, fixed in `e680f1d`:
+
+- the bullet stating what was NOT checked **was itself over-claiming** — only two of the
+  shipped-file fragments were ever staged for Larastan; it now names the four that were not
+- the one surviving justification for taking no lock **cited three line numbers shifted by
+  one** and omitted the audit insert, contradicting the known-gaps entry it cites
+- the fixture rule applied to `copy_id` was **half-applied**: the same approved row still
+  had the reader deciding their own request. `drhFix` now seeds a manager.
+- the guard's documented conservative case was **narrower than the guard** (a
+  variable-assigned closure and a first-class callable also report), and it has **no
+  receiver filter at all** — the first `$user->notify(new Foo)` anyone writes will redden
+  the headline guard on correct code. Both bounds are now written down, and the pre-filter,
+  which was narrower than the walk it guards, is widened.
+
+## Phase 2a — task ledger
+
+Plan `49e6c93` → review 1 → fix `f68f8f8` → review 2 → fix `b15f582` → verification →
+accuracy fixes `e680f1d`. **Task 1 dispatched** (the refusal sentences, `RequestRules`,
+`LoanTerms::holdExpiry`, the `LendingSettings` days, the `AuditLogQuery` subject join, and
+the `live_request_key` migration). Nothing merged; no PR open.
 
 ## Phase 1d — closed
 
