@@ -91,8 +91,10 @@ use RuntimeException;
  * none (verified by opening all three, 2026-08-30). An inline
  * Gate::authorize here would also break the one legitimate non-HTTP
  * caller this plan creates, ManagerDashboardQuery's delegation to
- * countWaiting(). Task 14's routes carry role:manager and its
- * architecture test asserts so.
+ * countWaiting(). The manager routes that call run() carry role:manager
+ * and CirculationArchitectureTest asserts so; with that middleware
+ * removed the GET was measured answering 200 to a reader (Task 14),
+ * which is what the middleware, not this class, is there to prevent.
  */
 final class BorrowRequestQueueQuery
 {
@@ -268,11 +270,14 @@ final class BorrowRequestQueueQuery
                 // says FOUR and names this one, in the same commit as
                 // this file.
                 //
-                // And the ONLY reader of it in the app: Task 12's reader
-                // book page renders holdExpiresAt as a deadline with no
-                // comparison against the clock at all, so a lapsed hold
-                // still reads "nhận trước ..." to the child while reading
-                // expired to the volunteer. Recorded on both sides
+                // And the only CLOCK COMPARISON in the app: Task 12's
+                // reader book page renders holdExpiresAt as a deadline
+                // with no comparison at all, so a lapsed hold still reads
+                // "nhận trước ..." to the child while reading expired to
+                // the volunteer. This flag now has a consumer — Task 14's
+                // resources/js/pages/manage/borrow-requests.tsx picks the
+                // holdExpiredNote/holdNote wording off it, and does the
+                // comparison nowhere itself. Recorded on both sides
                 // (resources/js/pages/shelves/book.tsx's myRequest
                 // docblock carries the twin) rather than fixed, because
                 // nothing in 2a sweeps an expired hold; whoever adds that

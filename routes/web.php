@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
+use App\Http\Controllers\Manage\BorrowRequestController as ManageBorrowRequestController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
 use App\Http\Controllers\Manage\ExportController;
@@ -202,7 +203,15 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/copies/{bookCopy}/report-lost', [CopyController::class, 'reportLost'])->name('copies.report-lost');
         Route::post('/copies/{bookCopy}/mark-found', [CopyController::class, 'markFound'])->name('copies.mark-found');
 
-        Route::get('/borrow-requests', [ShellController::class, 'underConstruction'])->name('borrow-requests');
+        // The queue and its three decisions. The GET keeps the
+        // placeholder's route NAME — nothing linked to it at HEAD
+        // (grepped resources/ at 48e9c0d: no hits), so the continuity
+        // this buys is for the nav item and the dashboard card added in
+        // the same commit, and for whatever Ziggy-named link comes next.
+        Route::get('/borrow-requests', [ManageBorrowRequestController::class, 'index'])->name('borrow-requests');
+        Route::post('/borrow-requests/{borrowRequest}/approve', [ManageBorrowRequestController::class, 'approve'])->name('borrow-requests.approve');
+        Route::post('/borrow-requests/{borrowRequest}/reject', [ManageBorrowRequestController::class, 'reject'])->name('borrow-requests.reject');
+        Route::post('/borrow-requests/{borrowRequest}/handover', [ManageBorrowRequestController::class, 'handover'])->name('borrow-requests.handover');
         Route::get('/overdue', [OverdueController::class, 'index'])->name('overdue');
         Route::post('/loans/{loan}/void', [LoanController::class, 'void'])->name('loans.void');
         Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');

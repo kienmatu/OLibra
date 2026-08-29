@@ -55,10 +55,17 @@ use Illuminate\Support\Facades\Gate;
  * against a utf8mb4 parameter is errno 1267, "Illegal mix of collations",
  * a QueryException rather than a refusal — measured here against the live
  * MariaDB by handing find() a single emoji, not inferred from the column
- * type. Nothing routes to this Action yet (pinned by
- * CirculationArchitectureTest), and Task 14's Form Request is where the
- * uuid rule goes, so a stray emoji becomes a validation message on the way
- * in rather than a 500 here.
+ * type. The rule that keeps that out is NOT here: it is
+ * ApproveBorrowRequestRequest's `copy_id => ['bail', 'required',
+ * 'string', 'uuid']`, on the one route that reaches this Action
+ * (POST .../manage/borrow-requests/{borrowRequest}/approve, Task 14), so
+ * a stray emoji becomes a Vietnamese validation message on the way in.
+ * Re-measured when that route was wired: with the `uuid` token deleted
+ * from the Form Request and nothing else changed, posting copy_id='🙂'
+ * reached the lockForUpdate()->find() below and produced exactly
+ * SQLSTATE[HY000] 1267 over HTTP. Any FUTURE caller — a console command,
+ * a second route — has to bring its own guard; this Action still does
+ * not validate its argument.
  *
  * The bound shelf, not the membership, is what this command reads off
  * TenantContext — hold_days is the SHELF's setting, and a super admin who

@@ -2262,20 +2262,39 @@ Recorded per task as it lands, not at the end of the phase.
   from the column type — `BookCopy::query()->find('🙂')` against the live
   MariaDB 10.11 container returns exactly that. This is the same shape as
   the `ascii_bin` 500s Phase 1c chased six times, and it is deliberately
-  *not* fixed inside the Action: no route reaches it today, and Task 14's
-  Form Request is where the `uuid` rule belongs, so the emoji becomes a
-  Vietnamese validation message on the way in. If Task 14 ships without
-  that rule, this becomes a live 500.
-- **…and the test that looks like it guards that absence guards less than
-  its name suggests.** `CirculationArchitectureTest`'s "HandoverRequest and
-  the borrow-request commands have no route" asserts only that no
-  registered URI contains one of three literal fragments — `handover`,
-  `borrow-requests/{`, `requests/{` (read off the file, not remembered).
-  A queue route spelled `…/manage/queue/{request}/approve` contains none of
-  them and would ship green. So the absence of a route is currently a fact
-  about this branch, not something enforced; the entry above says "no route
-  reaches it today" for that reason. Widening the fragment list is cheap
-  and belongs to whichever task first adds a queue URL.
+  *not* fixed inside the Action: Task 14's Form Request is where the
+  `uuid` rule belongs, so the emoji becomes a Vietnamese validation
+  message on the way in. **CLOSED for the HTTP path by Task 14**, which
+  wired the only route that reaches this Action
+  (`POST .../manage/borrow-requests/{borrowRequest}/approve`) behind
+  `ApproveBorrowRequestRequest`'s
+  `copy_id => ['bail', 'required', 'string', 'uuid']`. Verified by
+  mutation rather than by reading: deleting the `uuid` token and nothing
+  else, then posting `copy_id='🙂'` over HTTP, produced exactly
+  `SQLSTATE[HY000] 1267` from the `lockForUpdate()->find()` — a red test
+  and a live 500 — and restoring it turned the same post into a
+  `copy_id` field error. The Action itself still does not validate its
+  argument, so **a future second caller must bring its own guard**; that
+  is what stays open here.
+- **…and the test that looked like it guarded that absence guarded less
+  than its name suggested — now moot, and replaced.**
+  `CirculationArchitectureTest`'s "HandoverRequest and the borrow-request
+  commands have no route" asserted only that no registered URI contained
+  one of three literal fragments — `handover`, `borrow-requests/{`,
+  `requests/{`. A queue route spelled `…/manage/queue/{request}/approve`
+  contained none of them and would have shipped green. Task 12 removed
+  `requests/{` and Task 14 removed the loop entirely, replacing it with a
+  PRESENCE pin that names the four routes by route NAME and asserts
+  `role:manager` on each — a check with no fragment-spelling hole in it,
+  because a route registered under a different name simply is not the
+  route the nav links and the controller redirect to. And the general
+  case the old fragment loop could not reach IS covered, by a test in
+  another file: `RouteOrderTest`'s "puts a role: middleware on every route
+  under /manage" walks every route with a literal `manage` path segment
+  and requires a `role:` gate on each, so a fifth circulation route added
+  under `/manage` with any spelling at all goes red without a gate. What
+  remains uncovered is a manager-ish route declared OUTSIDE `/manage`;
+  nothing sweeps for that.
 - **A same-instant tiebreak cannot be falsified by row order on MariaDB
   for this query's shape, at the row counts any fixture in this
   codebase currently uses — the mechanism is filesort behaviour, not

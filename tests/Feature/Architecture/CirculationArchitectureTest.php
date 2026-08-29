@@ -56,21 +56,39 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     }
 });
 
-it('HandoverRequest and the manager\'s borrow-request screens have no route — still Task 14\'s, by decision', function () {
-    // The 1a DeleteBook / 1b ManagerRegisterReader precedent: absence is
-    // pinned so wiring one later is a decision, not an accident.
+it('the borrow-request manager routes exist, manager-gated — 2a\'s decision, no longer an absence', function () {
+    // This REPLACES the absence pin that stood here through Task 13
+    // ("HandoverRequest and the manager's borrow-request screens have no
+    // route — still Task 14's, by decision"). Its forbidden fragments
+    // were 'handover' and 'borrow-requests/{', and Task 14 is the
+    // decision that wires both, so the loop is gone rather than narrowed
+    // around its own subject. The 1a DeleteBook precedent said an absence
+    // is pinned so that wiring one later is a decision — this is that
+    // decision, and this is the presence pin that replaces it.
     //
-    // 'requests/{' LEFT this list in Task 12, and that departure is the
-    // decision, taken in the same commit as the route: the reader's own
-    // create and cancel are wired now, and the test below is the presence
-    // pin that replaces the absence. 'handover' and 'borrow-requests/{'
-    // — the MANAGER's side, approve/reject/handover — stay forbidden
-    // until Task 14.
-    $uris = collect(Route::getRoutes()->getRoutes())->map(fn ($r) => $r->uri());
-
-    foreach (['handover', 'borrow-requests/{'] as $fragment) {
-        expect($uris->first(fn (string $uri) => str_contains($uri, $fragment)))
-            ->toBeNull("unexpected Phase-2 route: {$fragment}");
+    // role:manager is what produces the 404 on these routes today:
+    // EnsureShelfRole abort(404)s before a controller or a Form Request
+    // is resolved. What it costs to lose it was MEASURED for Task 14, by
+    // dropping 'role:manager' from the manage group and re-running
+    // ManagerQueueScreenTest's reader block — the GET answered 200 with
+    // the shelf's queue rendered for a reader; approve and reject still
+    // answered 404, from their own Form Requests' abort_unless; and
+    // handover, which has no Form Request, answered 403 — HandoverRequest's
+    // Gate::forUser()->authorize(), which Laravel renders as an
+    // AuthorizationException. A 403 is the existence oracle spec §5.4
+    // forbids, so this middleware is load-bearing for the handover POST
+    // in particular, not merely tidy. ManagerQueueScreenTest asserts the
+    // 404 over HTTP; this asserts the middleware that makes it.
+    $routes = collect(Route::getRoutes()->getRoutes());
+    foreach ([
+        'shelves.manage.borrow-requests',
+        'shelves.manage.borrow-requests.approve',
+        'shelves.manage.borrow-requests.reject',
+        'shelves.manage.borrow-requests.handover',
+    ] as $name) {
+        $route = $routes->first(fn ($r) => $r->getName() === $name);
+        expect($route)->not->toBeNull($name)
+            ->and($route->gatherMiddleware())->toContain('role:manager');
     }
 });
 

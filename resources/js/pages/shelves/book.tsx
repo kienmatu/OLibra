@@ -43,15 +43,18 @@ interface PageProps extends SharedData {
          * against the clock, so an approved request whose hold lapsed
          * yesterday still reads "nhận trước ...". THREE screens carry this
          * same row: this page (copy.circulation.requests.heldLine,
-         * copy.ts:460) and the reader's own dashboard (overview.tsx's
+         * copy.ts:494) and the reader's own dashboard (overview.tsx's
          * MyRequestRow, copy.circulation.myLoans.requestHeldLine,
-         * copy.ts:436 — same holdExpiresAt FIELD, same no-clock-check,
+         * copy.ts:470 — same holdExpiresAt FIELD, same no-clock-check,
          * a DIFFERENT copy key with different Vietnamese text, so a grep
          * for one line's key alone will not find the other) both render
          * the raw deadline; the manager's queue is the one that makes the
          * distinction — Task 11 gave BorrowRequestQueueQuery a per-row
-         * `holdExpired` flag — so the two reader-facing screens disagree
-         * with the one manager-facing screen about the same row. Faithful
+         * `holdExpired` flag, and Task 14's
+         * resources/js/pages/manage/borrow-requests.tsx now renders a
+         * different sentence off it (copy.manageRequests.holdExpiredNote)
+         * — so the two reader-facing screens disagree with the one
+         * manager-facing screen about the same row. Faithful
          * to the reference, which has no expiry check on either reader
          * page, and left alone because expiring a hold is a sweep nothing
          * in 2a runs; whoever adds that sweep should give both

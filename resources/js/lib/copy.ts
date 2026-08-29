@@ -42,6 +42,7 @@ export const copy = {
         readers: "Người đọc",
         books: "Sách",
         overdue: "Quá hạn",
+        requests: "Yêu cầu mượn",
         settings: "Cài đặt",
         audit: "Nhật ký",
     },
@@ -333,6 +334,7 @@ export const copy = {
         title: "Tổng quan",
         overdueCard: "Quá hạn",
         registrationsCard: "Chờ duyệt tài khoản",
+        requestsCard: "Yêu cầu chờ xử lý",
         viewList: "Xem danh sách",
         lendAction: "Cho mượn",
         lendSub: "Tìm sách · chọn người đọc · xác nhận",
@@ -343,6 +345,38 @@ export const copy = {
         totalCopies: "Bản sách",
         totalOnLoan: "Đang cho mượn",
         totalReaders: "Bạn đọc",
+    },
+    /**
+     * The manager's borrow-request queue. Its own section rather than a
+     * branch of `circulation.requests`: that one is the READER's wording
+     * for their own row ("Bạn đang chờ cuốn này"), and these are a
+     * volunteer's words about somebody else's.
+     */
+    manageRequests: {
+        title: "Yêu cầu mượn",
+        subtitle: "Xếp theo thứ tự đăng ký.",
+        subtitleCounted: "{count} cuốn có người đang chờ · Xếp theo thứ tự đăng ký.",
+        empty: "Hiện không có bạn đọc nào đang chờ mượn sách.",
+        waitingCount: "{count} người đang chờ",
+        requestedLine: "Đăng ký {time} ngày {date}",
+        holdNote: "Đang giữ chỗ cho bạn này · hết hạn giữ {time} ngày {date}",
+        holdNoteBare: "Đang giữ chỗ cho bạn này",
+        holdExpiredNote: "Thời gian giữ chỗ đã hết lúc {time} ngày {date}",
+        holdExpiredBare: "Thời gian giữ chỗ đã hết",
+        copySuffix: "bản {code}",
+        firstPendingNote: "Giữ chỗ {days} ngày kể từ khi duyệt.",
+        notYourTurnNote: "Chỉ duyệt được khi tới lượt.",
+        approveButton: "Duyệt & giữ chỗ",
+        copyLabel: "Bản sách",
+        noFreeCopies: "Chưa có bản nào rảnh để giữ chỗ.",
+        rejectSummary: "Từ chối",
+        rejectReasonLabel: "Lý do từ chối",
+        // Ruling 2, settled: the reason is optional. The hint says so
+        // rather than leaving a volunteer to find out by submitting.
+        rejectReasonHint: "Không bắt buộc.",
+        rejectConfirm: "Xác nhận từ chối",
+        handoverButton: "Xác nhận trao sách",
+        nothingAutomatic: "Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.",
     },
     circulation: {
         rules: {
