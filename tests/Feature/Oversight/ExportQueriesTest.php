@@ -321,9 +321,23 @@ it('the three export queries never SELECT the private column their sibling table
     // is correcting.
     xpqFix();
 
+    // Narrowed to the three tables actually under test — not every SELECT
+    // these query classes happen to run. ReadersExportQuery also queries
+    // ParishContextQuery's `parish_units` for the parishLine column, and
+    // this fixture configures no parish taxonomy at all, so that query
+    // legitimately returns zero rows; it carries none of the four private
+    // columns below either way. Capturing it alongside the three under
+    // test would make the fail-closed check below (added for the wildcard
+    // carry-over) fail on a query this test was never trying to measure —
+    // caught running the fail-closed version before this filter narrowed
+    // the capture.
     $captured = [];
     DB::listen(function ($query) use (&$captured) {
-        if (str_starts_with(trim(strtolower($query->sql)), 'select')) {
+        $sql = trim(strtolower($query->sql));
+        if (str_starts_with($sql, 'select') && preg_match(
+            '/\bfrom\s+`(memberships|loans|book_copies)`/',
+            $sql,
+        ) === 1) {
             $captured[] = ['sql' => $query->sql, 'bindings' => $query->bindings];
         }
     });
@@ -335,9 +349,18 @@ it('the three export queries never SELECT the private column their sibling table
     $columns = [];
     foreach ($captured as $query) {
         $row = DB::selectOne($query['sql'], $query['bindings']);
-        if ($row !== null) {
-            $columns = [...$columns, ...array_keys((array) $row)];
-        }
+        // Fail CLOSED: DB::selectOne() returns null on zero rows, and this
+        // pin only measures a query it can actually inspect. Silently
+        // `continue`-ing past a null (the shape this test shipped with
+        // originally) turns "no row to check" into "nothing to report" —
+        // restore a wildcard AND add a `where` that matches no row, and
+        // that shape stayed green with the leak live. A query this test
+        // cannot inspect is a failure of the test's own guarantee, not a
+        // pass, so it fails the assertion here instead of being skipped.
+        expect($row)->not->toBeNull(
+            "expected at least one row from: {$query['sql']} — a wildcard leak cannot be ruled out on zero rows",
+        );
+        $columns = [...$columns, ...array_keys((array) $row)];
     }
 
     expect($columns)->not->toContain('manager_notes')

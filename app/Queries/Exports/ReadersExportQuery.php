@@ -18,7 +18,8 @@ use App\Support\Members\ParishUnits;
  * select, which carries fields the page never puts on screen. **One
  * documented exception**, `role` — see below.
  *
- * manager_notes IS on that screen — show.tsx:133-136 renders it, one
+ * manager_notes IS on that screen — resources/js/pages/manage/readers/
+ * show.tsx renders it (search that file for `reader.managerNotes`), one
  * child's record at a time, when `editing` is false — so its absence
  * here is not "no screen renders it" (that claim is false in this
  * codebase). The reason it is still excluded is BR §5.4 calling it the
