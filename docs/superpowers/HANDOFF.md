@@ -153,7 +153,43 @@ Nothing merged; no PR open.
   dropping `auth` left all 18 green (`EnsureShelfRole` redirects a guest by itself on a KNOWN slug),
   and pinned it with an unknown-slug case. New `PolicyRegistrationTest` covers all five policies,
   derived both ways.
-- **4 `CreateBorrowRequest`** — dispatched.
+- **4 `CreateBorrowRequest`** — `fe55f57`, `75f9c36` · approved after 1 review round. The session
+  running this task was CUT OFF mid-dispatch: its implementer died leaving an uncommitted test file
+  and no Action, and the file carried three deviations from the plan's test block, each justified by
+  a "measured" comment that could not have been measured because the Action never existed. All three
+  were re-run by the replacement and all three held — the suspended reader really does hit
+  `AuthorizationException` before the Action's own INV-4 branch (the shipped 1c `RenewLoanTest`
+  shape); the gate-opened defence-in-depth probe is the only thing that reaches either inner guard;
+  and `AuditSentencesTest` really has no every-action-renders sweep, so deleting the lang line left
+  the whole suite green (the plan's own escape clause then requires the render test, which shipped).
+  The review's Important was this project's signature failure mode once more: the Action's docblock
+  and a test comment both claimed the `act-as-reader` gate refuses "no membership at all", so
+  `not_permitted` was defence in depth. **`Gate::before` returns `true` for any `act-as-*` when
+  `is_super_admin`**, and `ResolveTenant` filters on `status = Active`, so a super admin on a shelf
+  they do not belong to passes the middleware and the policy with a NULL membership and lands on
+  that throw. It fails closed, but the comments said the path could not exist and Task 12 would have
+  read them. Two of the coordinator's own fix instructions were wrong and the implementer measured
+  them down: splitting the actor switch into two `it()` blocks fixes nothing (the first `actingAs`
+  is inside `cbrFix` itself), and the suggested `getQueryLog()` layer-pin is a **tautology** —
+  `Connection::run()` logs only after the callback returns, so a throwing insert is never logged
+  (`getQueryLog()`=0, `beforeExecuting()`=1). `DB::beforeExecuting` shipped instead.
+- **5 `ApproveBorrowRequest`** — next.
+
+**Struck from the plan at the source** (this commit): Task 4's Step 6 **mutation 2** was
+unsatisfiable and contradicted mutation 2b by construction — narrowing the duplicate read to
+`Pending` cannot redden what deleting the read entirely must leave green, since the partial unique
+index covers both statuses and the loser's 1062 becomes the same `duplicate_request`. It is replaced
+by the layer pin that DOES redden, with the `getQueryLog()` tautology written down beside it. Verified
+confined to Task 4: the pattern appears once in the whole plan.
+
+**Two items carried forward, neither belonging to Task 4:**
+
+- **Task 12** must render this Action's refusals as 404, not 403. `execute()` throws
+  `AuthorizationException`, which HTTP-renders 403 by default, against spec §5.4. It must also give
+  `not_permitted` a UI path, now that the super-admin door is known to be real.
+- **The final whole-branch review** gets the `Gate::before` bypass shape — gate passes, membership
+  null — which applies to EVERY Action authorising through an `act-as-*` gate. `CreateBorrowRequest`
+  fails closed; the Phase 1 commands have never been audited for it.
 
 **One correction landed at the source** (`d93d4e9`): the 404-never-403 rule was cited as "BR §5.4"
 throughout the plan, `known-gaps.md` and a shipped docblock. `BUSINESS-REQUIREMENTS.md` §5.4 is
