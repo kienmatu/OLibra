@@ -59,10 +59,30 @@ use Illuminate\Support\Facades\Gate;
  * The membership is the SESSION's, never a form field (plan divergence
  * 4): TenantContext::membership() is what ResolveTenant resolved for the
  * signed-in caller, so "a reader who edited the hidden field" cannot
- * exist here; the user_id comparison below is defence in depth, and so is
- * the status check beside it — the act-as-reader gate this command
- * authorises against already refuses a non-Active membership, a
- * membership belonging to somebody else and no membership at all.
+ * exist here.
+ *
+ * The two guards below are NOT both defence in depth, and the difference
+ * matters to whoever wires the controller. The act-as-reader gate does
+ * refuse a non-Active membership, somebody else's membership and no
+ * membership at all — but only for ordinary callers: AppServiceProvider
+ * installs a Gate::before that returns true for any act-as-* ability when
+ * $user->is_super_admin, short-circuiting that closure. A super admin who
+ * belongs to no shelf therefore passes EnsureShelfRole (same gate) and
+ * this command's authorize, and arrives here with a null membership from
+ * ResolveTenant, which binds active memberships only. So:
+ *
+ *   - the null half of not_permitted is a LIVE production guard, the only
+ *     thing between a super admin and a borrow_requests row with nobody
+ *     behind it. Its test signs a real super admin in and reaches it;
+ *     Task 12's controller needs a path for that refusal.
+ *   - the ownership half (a bound membership belonging to somebody else)
+ *     is defence in depth: nothing but a direct TenantContext::set() can
+ *     produce it.
+ *   - memberMayRequest's INV-4 refusal is also unreachable over HTTP,
+ *     including for a super admin: ResolveTenant filters status = Active,
+ *     so a non-Active membership binds as null and meets not_permitted
+ *     first. It is kept for the future non-HTTP caller, and pinned by a
+ *     test that opens the gate deliberately.
  *
  * NARROWED against the reference, explicitly (plan divergence 3): no
  * copyId input. The reference records which scanned copy prompted a

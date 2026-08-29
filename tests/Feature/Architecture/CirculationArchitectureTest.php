@@ -3,17 +3,22 @@
 use Illuminate\Support\Facades\Route;
 
 it('every circulation write transaction opens with a FOR UPDATE — the grep pin', function () {
-    // Belt to the per-command query-log braces: each Action file must
-    // contain lockForUpdate. Position is pinned per command in its own
-    // test; this catches a NEW circulation Action shipped without any lock
-    // at all.
+    // Belt to the per-command query-log braces: each Action file named
+    // below must contain lockForUpdate. Position is pinned per command in
+    // its own test.
     //
-    // CreateBorrowRequest is deliberately absent: it takes no lock at all
-    // (plan divergence 2 — an exclusive re-read of the books row here
-    // closes an AB-BA cycle against UpdateBook). Its duplicate rule is the
+    // The list is hand-maintained, and since Phase 2a it has its first
+    // documented exemption — so it no longer catches a NEW circulation
+    // Action shipped without a lock merely by existing. It catches a lock
+    // REMOVED from one of the four commands that must keep theirs; adding
+    // a fifth Action means deciding, in this file, which side it is on.
+    //
+    // CreateBorrowRequest is that exemption: it takes no lock at all (plan
+    // divergence 2 — an exclusive re-read of the books row here closes an
+    // AB-BA cycle against UpdateBook). Its duplicate rule is the
     // borrow_requests_one_live_per_title_member index, and
-    // CreateBorrowRequestTest greps the file for lockForUpdate to keep the
-    // absence true.
+    // CreateBorrowRequestTest greps that file for both spellings the
+    // Global Constraint names, so the absence stays true.
     foreach ([
         app_path('Actions/Circulation/LendCopy.php'),
         app_path('Actions/Circulation/ReceiveReturn.php'),
