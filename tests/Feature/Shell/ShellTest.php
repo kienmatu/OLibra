@@ -100,7 +100,15 @@ it('redirects a guest from the profile area, 404s a signed-in non-member', funct
     }
 });
 
-it('serves the profile skeleton to an approved reader', function () {
+// The name says "reader area" rather than "skeleton": three of these
+// five paths are real screens now (history and overview from 1c, and
+// notifications from 2a's Task 16), and only 'profile' and
+// 'profile/donations' still render under-construction. What this block
+// has always asserted is the ACCESS half — that role:reader admits an
+// approved reader to every path in the group — which is as true of a
+// finished screen as of a placeholder, and is the half its sibling
+// above (the non-member's 404) is the mirror of.
+it('serves the whole reader profile area to an approved reader', function () {
     ['a' => $a] = TenantHarness::twoCollidingShelves();
     $reader = TenantHarness::readerFor($a);
 

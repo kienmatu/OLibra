@@ -31,7 +31,16 @@ export const copy = {
     shelf: {
         catalogue: "Danh mục",
         search: "Tìm kiếm",
-        announcements: "Thông báo",
+        // "Bản tin", not "Thông báo" — the reference's own name for the
+        // shelf bulletin (public-header.tsx:279), chosen there
+        // precisely so the personal bell below can keep "Thông báo".
+        // Renamed at Task 16, which added that bell: until then the two
+        // never appeared together, and afterwards the shelf home
+        // rendered two links a tap apart reading the same word to two
+        // different places. The ROUTE is still shelves.announcements;
+        // only the Vietnamese changed, and shelves/show.tsx is the one
+        // place that renders it (grepped resources/js at this commit).
+        announcements: "Bản tin",
         profile: "Hồ sơ",
         manage: "Quản lý",
     },
@@ -501,11 +510,15 @@ export const copy = {
             cancelButton: "Huỷ yêu cầu",
         },
     },
-    // Its OWN section, not merged into `shelf.announcements` ("Thông báo",
-    // the shelf's bulletin board) despite the identical word: this file's
-    // rule is namespace per concept, never merge on coincidental wording.
-    // One is what the shelf tells everybody; this is what the shelf told
-    // YOU. Every sentence a row shows comes from the server
+    // "Thông báo" belongs HERE, to the personal bell, and the shelf's
+    // bulletin is `shelf.announcements` = "Bản tin" — the reference's
+    // split, adopted at Task 16 rather than reinvented. The first draft of
+    // this section noticed the two carried the identical word and argued
+    // only that the KEYS should not merge, which left the shelf home
+    // showing two links a tap apart both reading "Thông báo"; the reference
+    // had already paid for that mistake once and renamed the bulletin. One
+    // is what the shelf tells everybody, this is what the shelf told YOU.
+    // Every sentence a row shows comes from the server
     // (NotificationSentences) — nothing here names a notification kind.
     notifications: {
         bell: "Thông báo",

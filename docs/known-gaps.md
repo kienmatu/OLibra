@@ -2402,9 +2402,26 @@ Recorded per task as it lands, not at the end of the phase.
   per-session.** A callable shared prop is resolved by `Inertia\PropsResolver`
   only while an `Inertia\Response` is built, so no non-Inertia response —
   a `back()` redirect, a streamed CSV — runs the count. It DOES run one
-  indexed `count(*)` on every Inertia page render, which is the intended
-  cost and is measured by `MyNotificationsTest` in both directions
-  (zero count statements on the mark-all POST; exactly one on the profile
-  overview, whose controller never asks for notifications). Replacing the
-  closure with its value reddens the first of those two blocks — verified
-  by making that exact mutation, not inferred from the framework.
+  `count(*)` on every Inertia page render, measured by `MyNotificationsTest`
+  in both directions (zero count statements on the mark-all POST; exactly
+  one on the profile overview, whose controller never asks for
+  notifications). Replacing the closure with its value reddens the first of
+  those two blocks — verified by making that exact mutation, not inferred
+  from the framework.
+  **That count is not served by `notifications_unread`, and an earlier
+  version of this entry said "one indexed count" on the strength of the
+  index merely existing.** `read_at` is in no index at all, so on a real
+  plan the optimizer has nothing to seek on: EXPLAIN of
+  `select count(*) … where user_id = ? and read_at is null and
+  bookshelf_id = ?` against `laravel-mariadb-1` over 400 seeded rows
+  returns `type: ALL, key: null, rows: 400, Extra: Using where` — a full
+  table scan (against an empty table it picked
+  `notifications_bookshelf_id_foreign`; either way, never
+  `notifications_unread`). The postgres original's index for this was
+  partial (`where read_at is null`) and the MariaDB migration dropped the
+  predicate because MariaDB has no partial index, which is exactly where
+  the unread half of the access path went. Accepted for now — BR §1's
+  parish shelf has hundreds of rows, not millions, and the scan is bounded
+  by one shelf — but if the bell ever feels slow the fix is an index that
+  actually covers the predicate (`(user_id, read_at)`), not caching the
+  count.

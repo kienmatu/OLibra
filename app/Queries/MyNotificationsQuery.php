@@ -23,14 +23,25 @@ use App\Support\Notifications\NotificationSentences;
  * instant, so the timestamps tie BY CONSTRUCTION and the v7 id is the
  * deterministic mechanism (measured cost of leaving ties unordered, twice
  * in the reference: rows repeating and vanishing across pages). On today's
- * MariaDB the tiebreak is REDUNDANT and written down anyway: EXPLAIN shows
- * this query served from notifications_unread (user_id, created_at) with
- * no filesort, and InnoDB appends the primary key to a secondary index, so
- * the descending scan already emits descending id within a tie — deleting
- * ->orderByDesc('id') leaves MyNotificationsTest wholly green (measured).
- * That is an accident of the index and the engine, not a plan the query
- * asked for; the line states the intent so a later index change cannot
- * quietly take it away. MyNotificationsTest's tie block records the same
+ * MariaDB the tiebreak is REDUNDANT and written down anyway.
+ *
+ * The plan below is this statement's own, re-measured against
+ * laravel-mariadb-1 over 400 seeded rows spread across two shelves and two
+ * users (an earlier version of this docblock quoted a plan captured from a
+ * `select id` probe, which is a different query and reported `Using index`;
+ * that cannot be true here, since kind, payload and read_at are none of
+ * them in notifications_unread):
+ *
+ *   type: range | key: notifications_unread | rows: 200 | Extra: Using where
+ *
+ * What matters is what is ABSENT: no `Using filesort`, so the ordering is
+ * the index's. InnoDB appends the primary key to a secondary index, so the
+ * descending scan already emits descending id within a created_at tie —
+ * which is why deleting ->orderByDesc('id') leaves MyNotificationsTest
+ * wholly green (measured directly, not inferred from the plan). That is an
+ * accident of this index and this engine, not something the query asked
+ * for; the line states the intent so a later index change cannot quietly
+ * take it away. MyNotificationsTest's tie block records the same
  * measurement and the mutation that DOES redden it.
  */
 final class MyNotificationsQuery

@@ -135,12 +135,14 @@ it('two notifications written in the same instant come back newest-first by id',
     //
     // WHAT THIS BLOCK DOES AND DOES NOT PIN, measured rather than assumed.
     // It is NOT falsifiable by deleting orderByDesc('id'): removing it
-    // leaves every block in this file green. EXPLAIN says why — it resolves as
-    // `type: ref, key: notifications_unread, Extra: Using where; Using
-    // index` over (user_id, created_at), and InnoDB appends the primary key
-    // to every secondary index, so a DESCENDING scan of that index already
-    // emits descending id within a created_at tie. The explicit tiebreak
-    // makes the guarantee the plan's, not the storage engine's.
+    // leaves every block in this file green — measured directly, by making
+    // that deletion and running the file. The query's own docblock carries
+    // the re-measured EXPLAIN and the reason (no `Using filesort`, plus
+    // InnoDB appending the primary key to notifications_unread, so a
+    // descending scan already emits descending id inside a created_at
+    // tie). It is NOT restated here, because this comment previously
+    // carried a plan captured from a differently-shaped probe and a
+    // maintainer reading two copies of a plan trusts neither.
     // It IS falsifiable in the direction that matters: mutating the
     // tiebreak to ->orderBy('id') (ascending) reddens exactly this block
     // and nothing else — measured. So this pins the ORDER READERS SEE,
@@ -184,15 +186,19 @@ it('the page renders with the unread subtitle and the bell prop carries the coun
 });
 
 it('the mark-read POSTs work over HTTP and land back on the page', function () {
+    // ONE actingAs for the whole method, reused. The two calls this block
+    // used to make named the same user, so SessionGuard's cache could not
+    // bite — but it was the exact shape mynFix's docblock says it dropped
+    // actingAs to avoid, and a rule kept everywhere except where it looks
+    // harmless is a rule nobody downstream believes.
     [$shelf, $reader, $rows] = mynFix(2, 'dong-thap-myn-post');
+    $asReader = test()->actingAs($reader);
 
-    test()->actingAs($reader)
-        ->post("/shelves/{$shelf->slug}/profile/notifications/{$rows[0]->id}/read")
+    $asReader->post("/shelves/{$shelf->slug}/profile/notifications/{$rows[0]->id}/read")
         ->assertRedirect();
     expect($rows[0]->fresh()->read_at)->not->toBeNull();
 
-    test()->actingAs($reader)
-        ->post("/shelves/{$shelf->slug}/profile/notifications/read-all")
+    $asReader->post("/shelves/{$shelf->slug}/profile/notifications/read-all")
         ->assertRedirect();
     expect(Notification::query()->whereNull('read_at')->count())->toBe(0);
 });

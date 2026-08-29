@@ -105,11 +105,17 @@ export default function ProfileNotifications() {
             </div>
 
             {/*
-             * bootstrap/app.php turns every RuleViolated into
-             * back()->withErrors(['rule' => …]), and back() follows the
-             * Referer — so a refusal raised by an action posted FROM this
-             * page lands here. Outside the list, so it is not attached to
-             * a row that may no longer be the one it concerned.
+             * NOTHING can fill this slot today, and the slack is
+             * deliberate. Both actions posted from this page are
+             * MarkNotificationRead's, and neither can refuse: they are
+             * unconditional query-builder updates whose zero-row outcome
+             * (a double-tap, somebody else's id) is an ordinary answer, not
+             * a RuleViolated. It is here because bootstrap/app.php routes
+             * every RuleViolated through back()->withErrors(['rule' => …])
+             * and back() follows the Referer, so the day a refusing action
+             * IS posted from this page its Vietnamese has somewhere to land
+             * instead of vanishing. Outside the list on purpose, so it is
+             * never attached to a row that may not be the one it concerned.
              */}
             {errors.rule ? (
                 <p
