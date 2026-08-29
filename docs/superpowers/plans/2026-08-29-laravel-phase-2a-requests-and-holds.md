@@ -38,15 +38,15 @@
 
    Both are clustered-record locks, so the secondary-index luck that saves the `book_copies ↔ memberships` near-miss (known-gaps.md:1706-1724) does not apply, and the reachable case is mundane: a title being renamed while a child taps *Xin mượn* on it.
 
-   **The decision, and it is a decision, not a menu:** this command takes no `lockForUpdate` anywhere, and the rule the lock was protecting becomes a **partial unique index** — `borrow_requests.live_request_key`, a STORED generated column `IF(deleted_at IS NULL AND status IN ('pending','approved'), CONCAT(book_id, ':', member_id), NULL)` under a UNIQUE constraint (Task 1's migration). Three shipped tables already carry exactly this shape — `loans.active_copy_id` (INV-1), `profile_change_requests.pending_user_id` (INV-13), `bookshelves.slug` — and it is strictly stronger than any lock could be: two taps in the same millisecond cannot both land, at any isolation level, from any number of PHP workers. The plain read stays as the *sentence* half (the friendly refusal in the common case); the losing insert's errno 1062 is translated by the shipped `App\Support\UniqueViolation::translate`, matched BY CONSTRAINT NAME, exactly as `LendCopy` translates `loans_one_active_per_copy`. This is 1c's own two-part shape ("locked re-reads + pure predicates for the common case; the INSERT, judged by the index, for the case BR §2 describes") with the lock half removed because it has nothing left to serialise.
+   **The decision, and it is a decision, not a menu:** this command takes no `lockForUpdate` anywhere, and the rule the lock was protecting becomes a **partial unique index** — `borrow_requests.live_request_key`, a STORED generated column `IF(deleted_at IS NULL AND status IN ('pending','approved'), CONCAT(book_id, ':', member_id), NULL)` under a UNIQUE constraint (Task 1's migration). Three shipped tables already carry exactly this shape — `loans.active_copy_id` (INV-1), `profile_change_requests.pending_user_id` (INV-13), `bookshelves.slug` — and it is strictly stronger than any lock could be: two taps in the same millisecond cannot both land, at any isolation level, from any number of PHP workers. The plain read stays as the *sentence* half (the friendly refusal in the common case); the losing insert's errno 1062 is translated by the shipped `App\Support\UniqueViolation::translate`, matched BY CONSTRAINT NAME, exactly as `LendCopy` translates `loans_one_active_per_copy`. This is 1c's own two-part shape ("locked re-reads + pure predicates for the common case; the INSERT, judged by the index, for the case BR §2 describes") with the lock half removed because the uniqueness it was protecting is now the index's job — NOT because the write stopped serialising; see the paragraph below, which is careful about exactly this.
 
-   Moving the serialisation point to `bookshelves` instead — matching `UpdateBook`/`AllocateCopyCodes` — was the other candidate, and it is rejected on ONE ground, which is enough: it would create a NEW edge of the cycle known-gaps.md:1653-1700 has already REPRODUCED with two real OS processes — a transaction holding `X(bookshelves)` and then wanting `S(users:actor)` through its own audit insert, against `UpdateReaderProfile`/`SetReaderCredentials` (`app/Actions/Members/UpdateReaderProfile.php:56,61,69` — X `memberships`, X `users`, then the audit insert) holding `X(users)` and wanting `S(bookshelves)`. Adding the reader-facing queue entry point to that family is the opposite of the fix.
+   Moving the serialisation point to `bookshelves` instead — matching `UpdateBook`/`AllocateCopyCodes` — was the other candidate, and it is rejected on ONE ground, which is enough: it would create a NEW edge of the cycle known-gaps.md:1653-1700 has already REPRODUCED with two real OS processes — a transaction holding `X(bookshelves)` and then wanting `S(users:actor)` through its own audit insert, against `UpdateReaderProfile`/`SetReaderCredentials` (`app/Actions/Members/UpdateReaderProfile.php:61,69,108` — X `memberships`, X `users`, then the audit insert) holding `X(users)` and wanting `S(bookshelves)`. Adding the reader-facing queue entry point to that family is the opposite of the fix.
 
-   **A second reason was offered in an earlier draft and is withdrawn as false**, recorded here rather than quietly deleted because it is the kind of plausible sentence this project keeps having to run down. It said option 2 "would make every child's *Xin mượn* queue behind a bulk `AddCopies` run". Measured with the no-lock design in place: a transaction holding `SELECT id FROM bookshelves WHERE id = ? FOR UPDATE` makes an ordinary `INSERT INTO borrow_requests` wait ~3 s before it lands — because `borrow_requests_bookshelf_id_foreign` takes a SHARED lock on that shelf row on every insert, which known-gaps.md:1633-1640 already records. The queueing exists with or without option 2; what option 2 would have added is the exclusive edge, not the wait. No weight rests on the withdrawn claim.
+   **A second reason was offered in an earlier draft and is withdrawn as false**, recorded here rather than quietly deleted because it is the kind of plausible sentence this project keeps having to run down. It said option 2 "would make every child's *Xin mượn* queue behind a bulk `AddCopies` run". Measured with the no-lock design in place: a transaction holding `SELECT id FROM bookshelves WHERE id = ? FOR UPDATE` makes an ordinary `INSERT INTO borrow_requests` wait for that transaction's whole life (a deliberate 3 s sleep) before it lands — because `borrow_requests_bookshelf_id_foreign` takes a SHARED lock on that shelf row on every insert, which known-gaps.md:1633-1640 already records. The queueing exists with or without option 2; what option 2 would have added is the exclusive edge, not the wait. No weight rests on the withdrawn claim.
 
    **No cycle-freedom claim is made anywhere in this plan — not for this command, not for any other.** The house rule is that such a claim needs two real OS processes to earn it, and this plan contains no task that runs them; the residual window in divergence 1 is likewise recorded, never claimed away. What IS claimed here is exactly one thing, and it is pinned by a test rather than by reading: **`CreateBorrowRequest` contains no `lockForUpdate` call at all** (Task 4's grep pin, plus a query-log filter). No inference is drawn from it.
 
-   In particular, **the index does not remove serialisation; it relocates it**, and the plan says so rather than implying otherwise. An INSERT holds an implicit exclusive record lock on the unique-index entry it creates until the transaction commits, so two racing creates for the same `(book_id, member_id)` really do queue — measured: the loser waited ~3 s behind a deliberately-slowed winner before receiving `ERROR 1062 … for key 'borrow_requests_one_live_per_title_member'`. What changes versus a `books` `FOR UPDATE` is not "no waiting" but *which row is locked and by what*: an index entry created by this insert, rather than a `books` row that `UpdateBook` also takes exclusively. The waiting is fine; the AB–BA was not.
+   In particular, **the index does not remove serialisation; it relocates it**, and the plan says so rather than implying otherwise. An INSERT holds an implicit exclusive record lock on the unique-index entry it creates until the transaction commits, so two racing creates for the same `(book_id, member_id)` really do queue — measured: the loser waited for the winner's whole transaction (a deliberate 3 s sleep — the duration is the sleep, not a property of the index) before receiving `ERROR 1062 … for key 'borrow_requests_one_live_per_title_member'`. What changes versus a `books` `FOR UPDATE` is not "no waiting" but *which row is locked and by what*: an index entry created by this insert, rather than a `books` row that `UpdateBook` also takes exclusively. The waiting is fine; the AB–BA was not.
 
    Verified live against the `laravel-mariadb-1` container before this plan was fixed, not reasoned about: the DDL applies to the shipped `borrow_requests` table; a second `pending` row for the same `(book_id, member_id)` raises `ERROR 1062 (23000): Duplicate entry 'b1:u1' for key 'borrow_requests_one_live_per_title_member'`; `approved` holds the key as `pending` does; and `fulfilled`, `rejected`, `cancelled`, `expired` and soft-deleted rows every one release it, so a reader whose request ended may queue for that title again.
 3. **`CreateBorrowRequest` ships without the reference's optional `copyId`** (the QR-scan "which copy prompted this" record, `borrow-request-by-copy.test.ts`). Nothing in 2a can produce a scanned copy id — `ResolveCopyById`, the scan pages and the labels themselves are 2c. Shipping the parameter with no caller would be the "implemented, reachable from nowhere" shape 1b's ledger existed to close. The 1c `ReceiveReturn` precedent applies: the narrowing is stated in the Action's docblock, recorded in known-gaps (Task 19) with the exact reference behaviour 2c restores — the nullable `copy_id` on create, the same-title/same-shelf/not-deleted guards, the `copy_id` key in the `request.created` audit payload (which this plan writes as an always-present `null` so the payload shape does not change when 2c lands).
@@ -992,17 +992,30 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
     //      is how a guard gets deleted. Skipping strings fixes both at
     //      once and subsumes the narrower fix of counting T_CURLY_OPEN and
     //      T_DOLLAR_OPEN_CURLY_BRACES as opening braces.
-    //   3. The pre-filter knows `?->notify(` as well as `->notify(`, or
-    //      the nullsafe file never reaches the walk at all.
+    //   3. The pre-filter is `->notify` with NO paren, so it admits both
+    //      `?->notify(` and `->notify (`; anything narrower than the walk
+    //      means a file never reaches the walk at all.
     //
     // Known and deliberate: the walk is CONSERVATIVE about transactions it
-    // cannot see. An Action that wrapped its transaction in a helper —
-    // `$this->atomically(fn () => … notify …)` — would be reported as an
-    // offender even though it is correct, because nothing named
-    // `transaction` opens the brace. No shipped Action does that, and the
-    // failure direction is the safe one (a false alarm, never a silent
-    // pass). If one ever appears, teach the walk that helper's name; do
-    // not conclude the guard is wrong.
+    // cannot see. It recognises a transaction body only when a `{` follows
+    // the token `transaction` LEXICALLY — so all three of these report a
+    // correct call as an offender: a helper wrapper
+    // (`$this->atomically(fn () => … notify …)`), a closure assigned to a
+    // variable first (`$work = function () { … notify … }; DB::transaction($work);`)
+    // and a first-class callable (`DB::transaction($this->work(...))`). No
+    // shipped Action uses any of the three, and the failure direction is
+    // the safe one (a false alarm, never a silent pass). If one appears,
+    // teach the walk that shape; do not conclude the guard is wrong.
+    //
+    // Second known bound: there is NO receiver filter. Any `->notify(`
+    // under app/ outside a transaction is an offender, whatever the object
+    // — `$this->slack->notify('deploy finished')` would redden this. That
+    // is harmless today (`grep -rn -- "->notify(" app/` finds nothing, and
+    // no class uses Laravel's Notifiable trait), but `$user->notify(new
+    // Foo)` is idiomatic Laravel, so the first person to write one will
+    // redden the phase's headline guard on correct code. Add a receiver
+    // check then — reddening correct code is precisely how a guard ends up
+    // deleted by someone in a hurry.
     $files = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)
     );
@@ -1018,7 +1031,13 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
         // Notifier's own declaration is `public function notify(`, never
         // `->notify(`, so the class that defines the method is skipped
         // here and pinned by the rollback test instead.
-        if (! str_contains($code, '->notify(') && ! str_contains($code, '?->notify(')) {
+        // Deliberately '->notify' without the paren: `->notify ('u', $k)`
+        // (space before the paren) would otherwise never reach the walk,
+        // which matches on TOKENS and would have caught it. Pint's
+        // no_spaces_after_function_name flags that spelling too, so this is
+        // belt-and-braces — but a pre-filter narrower than the walk it
+        // guards is a hole in the cheapest possible place.
+        if (! str_contains($code, '->notify')) {
             continue;
         }
         $rel = str_replace(base_path().'/', '', $path);
@@ -1315,7 +1334,7 @@ In `app/Actions/Members/ApproveMembership.php`: constructor gains `private Notif
             $this->notifier->notify($membership->user_id, NotificationKind::MembershipApproved);
 ```
 
-In `app/Actions/Members/RejectMembership.php`: same shape, after its audit write. The reason is written **unconditionally**, and there is no null branch, because the shipped Action's signature is `execute(User $actor, Membership $membership, string $reason)` — non-nullable — and it throws `reject_reason_required` at line 31 when `trim($reason) === ''`. By the time this line runs the reason is a non-empty string. `trim($reason)` is what `rejection_reason` and the audit payload already store (lines 45 and 49), so this is the same value, spelled the same way:
+In `app/Actions/Members/RejectMembership.php`: same shape, after its audit write. The reason is written **unconditionally**, and there is no null branch, because the shipped Action's signature is `execute(User $actor, Membership $membership, string $reason)` — non-nullable — and it throws `reject_reason_required` at line 31 when `trim($reason) === ''`. By the time this line runs the reason is a non-empty string. `trim($reason)` is what `rejection_reason` and the audit payload already store (lines 44 and 48), so this is the same value, spelled the same way:
 
 ```php
             $this->notifier->notify(
@@ -4494,7 +4513,7 @@ final class BorrowRequestQueueQuery
 
 In `app/Queries/ManagerDashboardQuery.php`: constructor gains `private BorrowRequestQueueQuery $queue`; `counts` gains `'pendingRequests' => $this->queue->countWaiting(),` with a comment ("delegated, not restated — the card and the screen it links to cannot drift; the mirror rule the overdue card already follows"). Update the `@return` shape.
 
-**One shipped test in that file breaks and must be updated in the same commit, deliberately:** `it('counts only the bound shelf, proven by distinguishable figures')` asserts the WHOLE return with `expect($d)->toBe([...])`, so adding a key to `counts` reddens it. That is the assertion doing its job — add `'pendingRequests' => 0` to its expected `counts` array (the fixture seeds no requests) rather than loosening the assertion to `toMatchArray`.
+**One shipped test in that file breaks and must be updated in the same commit, deliberately:** `it('counts only the bound shelf, proven by distinguishable figures')` asserts the WHOLE return with `expect($d)->toBe([...])`, so adding a key to `counts` reddens it. That is the assertion doing its job — add `'pendingRequests' => 0` to its expected `counts` array (the fixture seeds no requests) rather than loosening the assertion to `toMatchArray`. Append it LAST in `counts`, matching the position the query emits it: `toBe` is `assertSame`, and `===` on arrays compares key ORDER, so prepending in one place and appending in the other reddens the test with a confusing diff.
 
 Then append the new test. The fixture helper is `mdqFix()` (`tests/Feature/Oversight/ManagerDashboardQueryTest.php:25`); it takes no arguments, binds the tenant and the acting manager itself, and returns `compact('shelf', 'other')` — an associative array, so destructure by key:
 
@@ -4950,19 +4969,27 @@ use App\Models\User;
 use App\Queries\MyDashboardQuery;
 use App\Support\TenantContext;
 
-/** @return array{Bookshelf, User, Book, Book} */
+/** @return array{Bookshelf, User, Book, Book, User} */
 function drhFix(string $slug = 'dong-thap-drh'): array
 {
     app(TenantContext::class)->actSystemWide();
     $shelf = Bookshelf::factory()->create(['slug' => $slug, 'settings' => []]);
     $reader = User::factory()->create(['full_name' => 'Têrêsa Bạn Đọc Nhỏ']);
     $membership = Membership::factory()->for($shelf)->create(['user_id' => $reader->id, 'role' => 'reader', 'status' => 'active']);
+    // A manager exists so that a decided row can name a plausible decider.
+    // `decided_by` pointing at the requester is the same class of impossible
+    // state as an approved row with no copy_id: no command writes it, and a
+    // fixture that encodes one teaches this test's next reader a shape that
+    // cannot occur. Nothing in MyDashboardQuery reads the column — which is
+    // the reason it went unnoticed, not a reason to leave it wrong.
+    $manager = User::factory()->create(['full_name' => 'Maria Quản Lý Kho']);
+    Membership::factory()->for($shelf)->create(['user_id' => $manager->id, 'role' => 'manager', 'status' => 'active']);
     $bookA = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Dế Mèn Phiêu Lưu Ký', 'slug' => 'de-men']);
     $bookB = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Hoàng Tử Bé', 'slug' => 'hoang-tu-be']);
     app(TenantContext::class)->set($shelf, $membership);
     test()->actingAs($reader);
 
-    return [$shelf, $reader, $bookA, $bookB];
+    return [$shelf, $reader, $bookA, $bookB, $manager];
 }
 
 it('my pending request reports my derived position — others ahead counted, others behind not', function () {
@@ -4991,7 +5018,7 @@ it('my pending request reports my derived position — others ahead counted, oth
 });
 
 it('an approved request carries the hold expiry and no position; decided rows are absent', function () {
-    [$shelf, $reader, $bookA, $bookB] = drhFix('dong-thap-drh-hold');
+    [$shelf, $reader, $bookA, $bookB, $manager] = drhFix('dong-thap-drh-hold');
     app(TenantContext::class)->actSystemWide();
     // The FULL approval shape — copy_id, hold_expires_at, decided_by,
     // decided_at together, and the copy held (Global Constraints). An
@@ -5005,13 +5032,13 @@ it('an approved request carries the hold expiry and no position; decided rows ar
         'bookshelf_id' => $shelf->id, 'book_id' => $bookA->id, 'member_id' => $reader->id,
         'status' => RequestStatus::Approved, 'requested_at' => now()->subDay(),
         'copy_id' => $heldCopy->id,
-        'hold_expires_at' => now()->addDays(2), 'decided_by' => $reader->id, 'decided_at' => now(),
+        'hold_expires_at' => now()->addDays(2), 'decided_by' => $manager->id, 'decided_at' => now(),
     ]);
     // A decided row exists TO be excluded — the exclusion has substance.
     BorrowRequest::query()->create([
         'bookshelf_id' => $shelf->id, 'book_id' => $bookB->id, 'member_id' => $reader->id,
         'status' => RequestStatus::Rejected, 'requested_at' => now()->subDays(2),
-        'decided_by' => $reader->id, 'decided_at' => now(),
+        'decided_by' => $manager->id, 'decided_at' => now(),
     ]);
     app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $reader->id)->firstOrFail());
 
@@ -6099,7 +6126,7 @@ final class MyNotificationsQuery
 
         // array_values around the whole thing, and the (string) cast on
         // createdAt, are both level-8 requirements rather than taste —
-        // MyLoanHistoryQuery.php:28 writes it the same way. ->values()
+        // MyLoanHistoryQuery.php:29 writes it the same way. ->values()
         // ->all() gives PHPStan array<int, …>, not list<…>, so the
         // declared shape above fails without the wrap; and
         // Carbon::toISOString() is ?string (readAt is legitimately
@@ -6694,7 +6721,7 @@ Read first: ruling 1's full context above, BR §7.2's `approved → expired` arr
 - `ReleaseExpiredHold::execute(User $actor, BorrowRequest $request): array{requestId: string, copyId: string}` — throws `request_not_held` (not approved / no copy) | `hold_not_expired` (the hold still stands — a manager may not yank a live hold); audit `request.expired`; NO notification (the child was told the deadline at approval; BR §15 lists no lapsed-hold event).
 - Transaction: copy lock FIRST (from the snapshot's `copy_id` — an approved row always names one), request lock second — the Task 5 order exactly. The expiry check compares the LOCKED row's `hold_expires_at` against `Clock::now()` — this command is the one writer of the `expired` status, and it writes it only for a hold the clock has already ended (derived state stays derived; the write is a RECORD of the lapse a manager chose to act on, not a job's tidy-up).
 
-- [ ] **Step 1: Write the failing tests** — `tests/Feature/Circulation/ReleaseExpiredHoldTest.php` with fixture `ehxFix` (clone `corFix`'s approved-variant skeleton, slug base `dong-thap-ehx`, the manager acting): five tests — (1) a lapsed hold releases: `Carbon::setTestNow(now()->addDays(4))` after fixture, execute, expect request `Expired`, copy `Available`, audit row `request.expired` with before `{status: approved}` / after `{status: expired, copy_id, title, userId}`, result carries both ids; (2) a LIVE hold refuses `hold_not_expired` and writes nothing; (3) a pending request refuses `request_not_held`; (4) the lock order pin — copy first, request second (`$log[0]`/`$log[1]`, the Task 7 idiom verbatim); (5) the released copy is immediately approvable onto the next reader (chain: release, then `ApproveBorrowRequest` for a second pending request **by a DIFFERENT reader** — `borrow_requests_one_live_per_title_member` allows one live row per title per reader — onto the same copy succeeds; `DB::flushQueryLog()` between commands if logging); (6) a copy that has since gone to `lost` is left alone by the guarded release, and the expiry is still recorded (`request.expired` written, request `expired`, copy still `lost`) — the pin for mutation check 2 below. Write the real code for all six following Task 7's test file as the template — same imports, same fixture discipline, distinct names.
+- [ ] **Step 1: Write the failing tests** — `tests/Feature/Circulation/ReleaseExpiredHoldTest.php` with fixture `ehxFix` (clone `corFix`'s approved-variant skeleton, slug base `dong-thap-ehx`, the manager acting): six tests — (1) a lapsed hold releases: `Carbon::setTestNow(now()->addDays(4))` after fixture, execute, expect request `Expired`, copy `Available`, audit row `request.expired` with before `{status: approved}` / after `{status: expired, copy_id, title, userId}`, result carries both ids; (2) a LIVE hold refuses `hold_not_expired` and writes nothing; (3) a pending request refuses `request_not_held`; (4) the lock order pin — copy first, request second (`$log[0]`/`$log[1]`, the Task 7 idiom verbatim); (5) the released copy is immediately approvable onto the next reader (chain: release, then `ApproveBorrowRequest` for a second pending request **by a DIFFERENT reader** — `borrow_requests_one_live_per_title_member` allows one live row per title per reader — onto the same copy succeeds; `DB::flushQueryLog()` between commands if logging); (6) a copy that has since gone to `lost` is left alone by the guarded release, and the expiry is still recorded (`request.expired` written, request `expired`, copy still `lost`) — the pin for mutation check 2 below. Write the real code for all six following Task 7's test file as the template — same imports, same fixture discipline, distinct names.
 
 - [ ] **Step 2: Run to verify failure** — `make test FILTER=ReleaseExpiredHoldTest`.
 
@@ -6885,8 +6912,8 @@ git commit -m "test: 2a guarantee sweep — the ops walk, the durable record, th
 
 - **Pint:** all 43 blocks that begin `<?php` were written to files and run through `pint --test`. Result: `PASS 43 files`. `php -l` clean on all 43.
 - **Larastan level 8:** the 21 blocks that are real `app/` classes were staged at their namespace paths, together with the GROWN `NotificationKind`, `NotificationSentences`, `LendingSettings` and `LoanTerms` (so that a case or method a later task adds could not masquerade as an error), and `./vendor/bin/phpstan analyse --level=8` was run over the repo's own `phpstan.neon` paths — `app`, `database`, `routes`, the whole tree, not a subset. Result: `[OK] No errors`. The two `use` fragments that edit shipped Actions (`ApproveMembership`, `RejectMembership`) were applied to the real files and analysed the same way: clean.
-- **The first version of this claim was FALSE and a re-review caught it.** It said all blocks passed level 8 when only five had ever been staged. Two did not: `MyNotificationsQuery` (`Carbon::toISOString()` is `?string`, and `->values()->all()` is `array<int, …>` not `list<…>` — both now fixed the way `MyLoanHistoryQuery.php:28` does it), and the `RejectMembership` notify fragment (`$reason === null` is dead code against a non-nullable parameter the Action already refuses empty — `Strict comparison … will always evaluate to false`). Both are fixed above and both were re-run.
-- **Not covered by any of this, and deliberately so:** the `.tsx`/`.ts` blocks (no PHP tooling applies; the executor's Biome/tsc/build gates are the check) and the code FRAGMENTS that are snippets rather than whole files — they have no compilable context on their own. Where a fragment edits a shipped file, it was staged into that file and analysed; where it edits a file this plan creates, the created file was analysed with the fragment applied.
+- **The first version of this claim was FALSE and a re-review caught it.** It said all blocks passed level 8 when only five had ever been staged. Two did not: `MyNotificationsQuery` (`Carbon::toISOString()` is `?string`, and `->values()->all()` is `array<int, …>` not `list<…>` — both now fixed the way `MyLoanHistoryQuery.php:29` does it), and the `RejectMembership` notify fragment (`$reason === null` is dead code against a non-nullable parameter the Action already refuses empty — `Strict comparison … will always evaluate to false`). Both are fixed above and both were re-run.
+- **Not covered by any of this, and deliberately so:** the `.tsx`/`.ts` blocks (no PHP tooling applies; the executor's Biome/tsc/build gates are the check) and the code FRAGMENTS that are snippets rather than whole files — they have no compilable context on their own. Where a fragment edits a shipped file, **only the two `use`/notify fragments in Task 2 were staged** into `ApproveMembership.php` / `RejectMembership.php` and analysed. The other shipped-file fragments — `AuditLogQuery`'s fourth join, `AuditSentences`' arms, `LendCopy`'s collected-hold close, `ManagerDashboardQuery`'s constructor and `counts` — were NOT staged; each mirrors an adjacent shipped line in the same file, and `make analyse` at that task's own commit is the check. (A verification round caught this bullet over-claiming, which is worth naming: the one paragraph whose job is to state what was NOT checked is the last place to be loose.) Where a fragment edits a file this plan creates, the created file was analysed with the fragment applied.
 
 **5. Census integrity re-checked.** Literal `RuleViolated` codes added to the list: `duplicate_request` (T4), `request_not_pending`+`copy_not_found` (T5), `not_own_request`+`request_already_fulfilled` (T7), `hold_expired`+`request_not_held` (T9), `request_not_queued` (T10), `hold_not_expired` (T18) — each in the task that mints the literal. `AuditSentences`' docblock count moves 21 → 27 across Tasks 4, 5, 6, 7, 8, 18, one increment per task (T4 states the arithmetic). Predicate codes stay out (censused in `RequestRulesTest`). Audit actions and their sentences land writer-and-map-together in Tasks 4, 5, 6, 7, 8 (`request.fulfilled`), 18 — matching `AuditActionCensusTest`'s both-directions rule at every commit. Notification kinds land case+sentence+writer+census-row together in Tasks 2, 5, 6, 10 (second door), 17.
 
