@@ -31,10 +31,21 @@ interface PageProps extends SharedData {
          * are complementary by construction: the query derives
          * queuePosition only for a pending row (null for an approved one),
          * and hold_expires_at is only ever written in the same ->update()
-         * that sets status to approved — ApproveBorrowRequest:155-161 and
+         * that sets status to approved — ApproveBorrowRequest:156-162 and
          * ReceiveReturn:246-252, the column's only two writers under app/
          * (grepped). An approved row whose hold has been cleared is what
          * heldLineNoDate covers.
+         *
+         * DIVERGENCE, recorded rather than fixed (review round 1, item 5):
+         * holdExpiresAt is rendered as a deadline with NO comparison
+         * against the clock, so an approved request whose hold lapsed
+         * yesterday still reads "nhận trước ...". The manager's queue does
+         * make that distinction — Task 11 gave BorrowRequestQueueQuery a
+         * per-row `holdExpired` flag — so the two screens of one phase
+         * disagree about the same row. Faithful to the reference, which
+         * has no expiry check on this page either, and left alone because
+         * expiring a hold is a sweep nothing in 2a runs; whoever adds that
+         * sweep should give this line the same flag.
          */
         myRequest: {
             requestId: string;
@@ -48,7 +59,7 @@ interface PageProps extends SharedData {
 }
 
 export default function ShelfBook() {
-    const { detail, firstContact, shelf, errors, flash } = usePage<PageProps>().props;
+    const { detail, firstContact, shelf, role, errors, flash } = usePage<PageProps>().props;
     const requestForm = useForm({});
     const cancelForm = useForm({});
     // Narrowed once, so the JSX below and the cancel POST read the same
@@ -142,12 +153,35 @@ export default function ShelfBook() {
                     {/* The answer to a tap belongs ABOVE the control that
                         caused it (the reference's placement). flash.success
                         carries request_success_flash / request_cancel_flash;
-                        errors.rule carries every RuleViolated sentence
-                        bootstrap/app.php redirects back with — the reader can
-                        genuinely cause duplicate_request (a stale page tapped
-                        twice) and membership_not_active_cannot_request (a
-                        membership suspended between render and tap), and a
-                        memberless super admin reaches not_permitted. */}
+                        errors.rule carries the RuleViolated sentence
+                        bootstrap/app.php redirects back with. Traced through
+                        the shipped middleware rather than copied from the
+                        reference, which is gated differently, exactly two
+                        codes can land here and neither is the one that
+                        comment names:
+
+                        - duplicate_request — any reader, a stale page tapped
+                          twice. This is what the banner is mostly for.
+                        - not_permitted — a SUPER ADMIN only. Gate::before
+                          (AppServiceProvider:126-132) grants act-as-* to
+                          them alone, so they are the only caller who can
+                          pass EnsureShelfRole with a null membership and
+                          reach CreateBorrowRequest's null check. Either they
+                          post the URL directly (the button is hidden for
+                          them, see below), or they were an active member at
+                          render and their membership went away before the
+                          tap.
+
+                        membership_not_active_cannot_request is NOT reachable,
+                        though the reference's twin comment lists it, and
+                        neither is not_permitted for an ORDINARY reader whose
+                        membership vanishes mid-page: ResolveTenant:67 filters
+                        on status = Active, so both bind a null membership,
+                        the act-as-reader gate (AppServiceProvider:147-179)
+                        returns false for a non-super-admin, and
+                        EnsureShelfRole 404s them off the page before any
+                        Action runs. CreateBorrowRequest's own docblock
+                        (:81-85) says the same about the first of those. */}
                     {flash.success ? (
                         <p
                             role="status"
@@ -170,8 +204,22 @@ export default function ShelfBook() {
                         a refusal the reader can do nothing with. And two
                         labels, one command — CreateBorrowRequest reads no
                         book_copies at all, so joining a queue and collecting a
-                        free copy are the same write; only the wording moves. */}
-                    {shelf === null ? null : mine ? (
+                        free copy are the same write; only the wording moves.
+
+                        `role === null` hides the control entirely, the
+                        reference's `membershipId === null` guard (sach/[slug]
+                        :549). That viewer is a memberless super admin —
+                        Gate::before opens act-as-reader for them, so they
+                        reach this page, but ResolveTenant binds no membership
+                        and CreateBorrowRequest would refuse them
+                        not_permitted. A button that is going to say no is the
+                        shape this run of work removes, and hiding it does not
+                        strand the refusal: the banner above still renders
+                        not_permitted for a super admin who posts the URL
+                        directly or whose membership went away between render
+                        and tap, and renders duplicate_request — the code an
+                        ordinary reader actually causes — either way. */}
+                    {shelf === null || role === null ? null : mine ? (
                         <div className="mt-6 max-w-sm rounded-md border p-4">
                             <p className="text-sm font-medium">
                                 {mine.queuePosition !== null

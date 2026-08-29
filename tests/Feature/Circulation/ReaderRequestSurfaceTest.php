@@ -149,6 +149,34 @@ it('POST profile/requests/{borrowRequest}/cancel withdraws my own request', func
     expect($request->fresh()->status)->toBe(RequestStatus::Cancelled);
 });
 
+it('a draft book 404s on the request POST, the same way the page itself does', function () {
+    // Review round 1, item 2. Book::getRouteKeyName() is `slug`, so this
+    // URL is guessable, and nothing in the binding, this controller or
+    // CreateBorrowRequest reads is_published — the sibling GET
+    // (Reader\BookController:25, "hidden means absent") was the only
+    // thing filtering drafts. Without the same abort_unless here, a shelf
+    // reader who guesses a draft slug gets a 302 and a success flash while
+    // a slug that does not exist gets a 404: an existence oracle over
+    // unpublished titles, spec §5.4's exact shape. The row would also
+    // surface on the manager's queue, whose waiting() builder joins books
+    // with no is_published filter.
+    //
+    // The reference omits this check on the premise that a draft is one a
+    // reader has no URL for; this task creates that URL, so the premise no
+    // longer holds and the inherited decision is reversed here.
+    [$shelf, $reader] = rrsFix('dong-thap-rrs-draft');
+    app(TenantContext::class)->actSystemWide();
+    $draft = Book::query()->create([
+        'bookshelf_id' => $shelf->id, 'title' => 'Đất Rừng Phương Nam', 'slug' => 'dat-rung',
+        'is_published' => false,
+    ]);
+
+    test()->actingAs($reader)->post("/shelves/{$shelf->slug}/books/{$draft->slug}/request")
+        ->assertNotFound();
+
+    expect(BorrowRequest::query()->withoutGlobalScopes()->count())->toBe(0);
+});
+
 it('a guest is redirected to login on the request POST', function () {
     // Named for what it asserts: the non-member case is the it() below,
     // which has to be its own block anyway (SessionGuard caches the
@@ -177,8 +205,14 @@ it('a signed-in non-member 404s on the cancel POST too, and neither refusal is a
     // act-as-reader ability) is therefore never the thing this caller
     // meets: it would throw AuthorizationException and render 403, and
     // this assertion is what would go red if the route ever lost
-    // role:reader. assertNotFound() is assertStatus(404), so a 403 fails
-    // it; the explicit not-403 line below says so at the point of reading.
+    // role:reader — measured both ways, on each route separately, by
+    // adding ->withoutMiddleware('role:reader') and watching the 404
+    // become a 403.
+    //
+    // The not-403 line below CANNOT fail independently: assertNotFound()
+    // is assertStatus(404), which a 403 already fails. It is kept purely
+    // for readability, so the property this block exists for is legible
+    // without knowing what assertNotFound expands to.
     [$shelf, , $book] = rrsFix('dong-thap-rrs-nonmember-cancel');
     app(TenantContext::class)->actSystemWide();
     $stranger = User::factory()->create(['full_name' => 'Người Lạ Thứ Hai']);
@@ -193,6 +227,29 @@ it('a signed-in non-member 404s on the cancel POST too, and neither refusal is a
 
     $response->assertNotFound();
     expect($response->getStatusCode())->not->toBe(403);
+});
+
+it('an ordinary reader whose membership is suspended meets a 404, not a sentence', function () {
+    // Review round 1, item 3, pinned rather than only commented. The
+    // reference's own comment claims a suspended membership surfaces
+    // membership_not_active_cannot_request on this page; under THIS app's
+    // gating it cannot. ResolveTenant:67 filters on status = Active, so a
+    // suspended reader binds a null membership; the act-as-reader gate
+    // (AppServiceProvider:147-179) returns false for a non-super-admin;
+    // EnsureShelfRole 404s them before any Action runs. The same reasoning
+    // is why not_permitted is a SUPER ADMIN's refusal only — Gate::before
+    // (:126-132) is what lets a null membership through, and it fires for
+    // nobody else. Both halves of book.tsx's banner comment rest on this.
+    [$shelf, $reader, $book] = rrsFix('dong-thap-rrs-suspended');
+    app(TenantContext::class)->actSystemWide();
+    Membership::query()->where('user_id', $reader->id)->update([
+        'status' => 'suspended', 'suspension_reason' => 'thử nghiệm',
+    ]);
+
+    test()->actingAs($reader)->post("/shelves/{$shelf->slug}/books/{$book->slug}/request")
+        ->assertNotFound();
+
+    expect(BorrowRequest::query()->withoutGlobalScopes()->count())->toBe(0);
 });
 
 it('a memberless super admin meets not_permitted as a Vietnamese sentence on the page they came from', function () {

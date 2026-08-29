@@ -72,6 +72,20 @@ final class BookDetailQuery
         // pair BorrowRequestQueueQuery numbers by), so it cannot drift
         // from a stored column. An approved request has a hold, not a
         // position.
+        //
+        // DIVERGENCE from the manager's own numbering of the same queue,
+        // recorded rather than reconciled (review round 1, item 5). The
+        // count below is over PENDING rows only; BorrowRequestQueueQuery's
+        // ROW_NUMBER partitions over its whole where-in set, pending AND
+        // approved (BorrowRequestQueueQuery.php:173). So for a title with
+        // one live hold, the manager's screen shows position 2 for the
+        // first pending row while this page tells that same reader "vị trí
+        // 1". Both are faithful ports of their own reference screens, and
+        // both readings are defensible — the reader is being told how many
+        // people are ahead of them IN THE QUEUE, the manager is being shown
+        // every live row in order — but the two ship in the same phase and
+        // nothing else in the code says they number different sets, so it
+        // is said here and in the twin comment on the manager side.
         $mine = $viewer === null ? null : BorrowRequest::query()
             ->where('book_id', $book->id)
             ->where('member_id', $viewer->id)

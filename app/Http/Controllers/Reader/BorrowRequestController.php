@@ -51,6 +51,21 @@ class BorrowRequestController extends Controller
 {
     public function store(Request $request, Bookshelf $shelf, Book $book, CreateBorrowRequest $create): RedirectResponse
     {
+        // The SAME guard the sibling GET carries (Reader\BookController:25,
+        // "hidden means absent"), and it has to be repeated because the
+        // binding resolves drafts — the manager route shares the model —
+        // and neither CreateBorrowRequest nor BookPolicy reads
+        // is_published. Without it, {book} being a slug makes this URL
+        // guessable and a draft would answer 302 + success where a
+        // nonexistent slug answers 404: an existence oracle over
+        // unpublished titles (spec §5.4), and a queue row on the manager's
+        // screen for a book no reader can see. The reference leaves the
+        // check out on the premise that a draft is one a reader has no URL
+        // for; this controller is what created the URL, so the premise no
+        // longer holds. Measured before the fix: the draft POST returned
+        // 302, not 404.
+        abort_unless($book->is_published, 404);
+
         /** @var User $user */
         $user = $request->user();
         $create->execute($user, $book);

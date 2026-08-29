@@ -2351,11 +2351,15 @@ Recorded per task as it lands, not at the end of the phase.
   (`detail.myRequest.*`, `errors.rule`) and stops there — it never sees
   which string the button renders or which id the cancel form posts.
   Measured rather than assumed, on this branch: swapping the two arms of
-  the availability ternary so a title with copies free offers *Đăng ký chờ
-  mượn* and one with none offers *Xin mượn* left `make test` at
-  1180 passed (7555 assertions), `laravel:typecheck` clean,
-  `laravel:lint` at its three pre-existing warnings and `laravel:build`
-  successful. Restored. This is the same shape as the dashboard stat-card
-  entry above, now with a second worked example; it is a gap in the
-  toolchain, not in this task, and closing it means a frontend rendering
-  test setup for `resources/js`, which no phase has scoped yet.
+  the availability ternary — so a title with copies free offers *Đăng ký
+  chờ mượn* and one with none offers *Xin mượn* — left **every gate this
+  repo has green**: `make test` fully passing with no test reddened by the
+  swap, `laravel:typecheck` clean, `laravel:lint` at its pre-existing
+  warning set and `laravel:build` successful. Restored. (Stated as "no
+  test reddened" rather than as a suite total on purpose: a count goes
+  stale the next time anyone adds a test, and this entry's claim must not
+  go stale with it — the point is that nothing in the suite can see the
+  swap at all.) This is the same shape as the dashboard stat-card entry
+  above, now with a second worked example; it is a gap in the toolchain,
+  not in this task, and closing it means a frontend rendering test setup
+  for `resources/js`, which no phase has scoped yet.

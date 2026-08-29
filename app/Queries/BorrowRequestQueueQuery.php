@@ -170,6 +170,18 @@ final class BorrowRequestQueueQuery
                 'memberships.id as membership_id', 'memberships.parish_unit_l1_id', 'memberships.parish_unit_l2_id',
                 'book_copies.code as copy_code',
             ])
+            // DIVERGENCE from the reader's own place in this same queue,
+            // recorded rather than reconciled (Task 12 review round 1,
+            // item 5). This ROW_NUMBER partitions over the whole where-in
+            // set at :141 — pending AND approved — while
+            // BookDetailQuery's myRequest counts PENDING rows ahead only.
+            // For a title with one live hold, this screen shows position 2
+            // for the first pending row and the reader's own book page
+            // tells them "vị trí 1" about it. Both are faithful ports of
+            // their own reference screens; the two ship in the same phase,
+            // so the disagreement is written down on both sides instead of
+            // being discovered from a volunteer and a child comparing
+            // phones.
             ->selectRaw('ROW_NUMBER() OVER (PARTITION BY borrow_requests.book_id ORDER BY borrow_requests.requested_at ASC, borrow_requests.id ASC) as position')
             ->orderBy('books.title_folded')->orderBy('books.id')
             ->orderBy('borrow_requests.requested_at')->orderBy('borrow_requests.id')
@@ -250,6 +262,16 @@ final class BorrowRequestQueueQuery
                 // CancelOwnRequest.php:44-62 enumerates — that comment
                 // says FOUR and names this one, in the same commit as
                 // this file.
+                //
+                // And the ONLY reader of it in the app: Task 12's reader
+                // book page renders holdExpiresAt as a deadline with no
+                // comparison against the clock at all, so a lapsed hold
+                // still reads "nhận trước ..." to the child while reading
+                // expired to the volunteer. Recorded on both sides
+                // (resources/js/pages/shelves/book.tsx's myRequest
+                // docblock carries the twin) rather than fixed, because
+                // nothing in 2a sweeps an expired hold; whoever adds that
+                // sweep should give the reader's line this same flag.
                 'holdExpired' => $holdExpiresAt !== null && $holdExpiresAt->lessThanOrEqualTo($now),
             ];
             $queues[$bid]['waiting'] = count($queues[$bid]['requests']);
