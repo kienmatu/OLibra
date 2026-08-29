@@ -14,6 +14,7 @@ return [
     'membership_rejected' => 'Đơn đăng ký của bạn chưa được duyệt:because.',
 
     'request_approved' => ':book đã sẵn sàng, bạn đến nhận trước ngày :until nhé.',
+    'request_rejected' => 'Yêu cầu mượn :book chưa được duyệt:because.',
     // Underscore-prefixed because it is a HELPER line, not a kind: a
     // payload with no hold_until still needs a sentence, and
     // NotificationSentencesTest's census holds the non-underscored keys

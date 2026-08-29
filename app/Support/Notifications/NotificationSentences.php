@@ -39,6 +39,10 @@ final class NotificationSentences
                     ? strtr(self::line('_request_approved_no_date'), [':book' => $book])
                     : strtr(self::line('request_approved'), [':book' => $book, ':until' => $until]);
             })(),
+            NotificationKind::RequestRejected => strtr(self::line('request_rejected'), [
+                ':book' => self::which(self::str($payload, 'title')),
+                ':because' => self::because(self::str($payload, 'reason')),
+            ]),
         };
     }
 

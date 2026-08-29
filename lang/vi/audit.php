@@ -41,6 +41,7 @@ return [
     'loan_lost' => 'kết thúc một lượt mượn vì sách bị mất',
     'request_created' => 'gửi yêu cầu mượn :title',
     'request_approved' => 'giữ chỗ một cuốn sách cho bạn đọc đang chờ',
+    'request_rejected' => 'từ chối yêu cầu mượn :title của :subject:because',
 
     // — bạn đọc —
     'membership_registered' => 'nhận đăng ký của :name',

@@ -26,4 +26,5 @@ enum NotificationKind: string
     case MembershipApproved = 'membership_approved';
     case MembershipRejected = 'membership_rejected';
     case RequestApproved = 'request_approved';
+    case RequestRejected = 'request_rejected';
 }

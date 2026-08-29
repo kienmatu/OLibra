@@ -23,6 +23,7 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
         app_path('Actions/Circulation/ApproveBorrowRequest.php'),
         app_path('Actions/Circulation/LendCopy.php'),
         app_path('Actions/Circulation/ReceiveReturn.php'),
+        app_path('Actions/Circulation/RejectBorrowRequest.php'),
         app_path('Actions/Circulation/RenewLoan.php'),
         app_path('Actions/Circulation/VoidLoan.php'),
     ] as $file) {

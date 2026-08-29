@@ -95,6 +95,21 @@ it('request.approved reads as a hold made for a waiting reader, with no title to
         ->toBe('Maria Quản Lý Kho đã giữ chỗ một cuốn sách cho bạn đọc đang chờ');
 });
 
+it('request.rejected names the title, the reader, and the reason when there is one', function () {
+    // Same reason request.created and request.approved have their own
+    // case above: this file has no every-action sweep, so an action with
+    // no case here has a lang line nothing pins — deleting
+    // lang/vi/audit.php's request_rejected line would otherwise leave
+    // the suite green.
+    expect(AuditSentences::sentence('request.rejected', audFacts(
+        actor: 'Maria Quản Lý Kho', subject: 'Têrêsa Bạn Đọc Nhỏ',
+        after: ['status' => 'rejected', 'title' => 'Totto-chan Bên Cửa Sổ', 'reason' => 'thiếu thẻ'],
+    )))->toBe('Maria Quản Lý Kho đã từ chối yêu cầu mượn Totto-chan Bên Cửa Sổ của Têrêsa Bạn Đọc Nhỏ vì thiếu thẻ')
+        // No subject, no reason, no title: every fallback fires at once.
+        ->and(AuditSentences::sentence('request.rejected', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã từ chối yêu cầu mượn một cuốn sách của một bạn đọc');
+});
+
 it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', function () {
     // false alone cannot distinguish the type guard from a mutant that
     // replaces `is_string($bag[$key])` with a `(string)` cast: (string)
@@ -106,7 +121,7 @@ it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', fun
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
-it('groupOf answers the family for the 23 actions and null for a stranger', function () {
+it('groupOf answers the family for the 24 actions and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
@@ -119,7 +134,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(23);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(24);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

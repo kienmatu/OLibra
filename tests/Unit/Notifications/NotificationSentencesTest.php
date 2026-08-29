@@ -29,6 +29,13 @@ it('request_approved renders the title and the deadline as a Vietnamese date', f
         ->toBe('Hoàng Tử Bé đã sẵn sàng, bạn đến nhận sớm nhé.');
 });
 
+it('request_rejected carries the title and, when given, the reason', function () {
+    expect(NotificationSentences::sentence('request_rejected', ['title' => 'Totto-chan Bên Cửa Sổ', 'reason' => 'thiếu thẻ']))
+        ->toBe('Yêu cầu mượn Totto-chan Bên Cửa Sổ chưa được duyệt vì thiếu thẻ.')
+        ->and(NotificationSentences::sentence('request_rejected', []))
+        ->toBe('Yêu cầu mượn cuốn sách chưa được duyệt.');
+});
+
 it('an unknown stored kind renders the neutral line, never the raw token', function () {
     // Rows written by an older or newer build survive a deploy; a kind
     // this build does not know is a real state, not a programming error
