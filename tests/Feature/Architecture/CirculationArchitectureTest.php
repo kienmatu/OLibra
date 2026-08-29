@@ -56,14 +56,39 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     }
 });
 
-it('HandoverRequest and the borrow-request commands have no route — Phase 2\'s, by decision', function () {
+it('HandoverRequest and the manager\'s borrow-request screens have no route — still Task 14\'s, by decision', function () {
     // The 1a DeleteBook / 1b ManagerRegisterReader precedent: absence is
     // pinned so wiring one later is a decision, not an accident.
+    //
+    // 'requests/{' LEFT this list in Task 12, and that departure is the
+    // decision, taken in the same commit as the route: the reader's own
+    // create and cancel are wired now, and the test below is the presence
+    // pin that replaces the absence. 'handover' and 'borrow-requests/{'
+    // — the MANAGER's side, approve/reject/handover — stay forbidden
+    // until Task 14.
     $uris = collect(Route::getRoutes()->getRoutes())->map(fn ($r) => $r->uri());
 
-    foreach (['handover', 'borrow-requests/{', 'requests/{'] as $fragment) {
+    foreach (['handover', 'borrow-requests/{'] as $fragment) {
         expect($uris->first(fn (string $uri) => str_contains($uri, $fragment)))
             ->toBeNull("unexpected Phase-2 route: {$fragment}");
+    }
+});
+
+it('the reader request routes exist, reader-gated — 2a\'s decision, no longer an absence', function () {
+    // Reader-gated is the whole of the 404: neither POST carries a field,
+    // so neither has a Form Request to hold an abort_unless(..., 404), and
+    // EnsureShelfRole's abort(404) is the only producer. Lose role:reader
+    // here and a non-member's refusal becomes the Action's
+    // AuthorizationException, which Laravel renders 403 — an existence
+    // oracle over the URL space (spec §5.4). ReaderRequestSurfaceTest
+    // asserts the 404 over HTTP; this asserts the middleware that makes it.
+    $routes = collect(Route::getRoutes()->getRoutes());
+    $create = $routes->first(fn ($r) => $r->getName() === 'shelves.books.request');
+    $cancel = $routes->first(fn ($r) => $r->getName() === 'shelves.profile.requests.cancel');
+
+    foreach ([$create, $cancel] as $route) {
+        expect($route)->not->toBeNull()
+            ->and($route->gatherMiddleware())->toContain('role:reader');
     }
 });
 

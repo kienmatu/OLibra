@@ -450,6 +450,14 @@ export const copy = {
             prev: "Trước",
             next: "Sau",
         },
+        requests: {
+            requestButton: "Xin mượn",
+            queueButton: "Đăng ký chờ mượn",
+            waitingLine: "Bạn đang chờ cuốn này · vị trí {position}",
+            heldLine: "Sách đã để dành cho bạn · nhận trước {time} ngày {date}",
+            heldLineNoDate: "Sách đã để dành cho bạn",
+            cancelButton: "Huỷ yêu cầu",
+        },
     },
 } as const;
 

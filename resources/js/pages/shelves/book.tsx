@@ -1,7 +1,10 @@
-import { Head, usePage } from "@inertiajs/react";
+import { Head, useForm, usePage } from "@inertiajs/react";
+import { route } from "ziggy-js";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import AppLayout from "@/layouts/app-layout";
 import { copy, t } from "@/lib/copy";
+import { formatInstantParts } from "@/lib/dates";
 import type { SharedData } from "@/types";
 
 interface PageProps extends SharedData {
@@ -22,13 +25,35 @@ interface PageProps extends SharedData {
         description: string | null;
         onLoan: number;
         queueLength: number;
+        /**
+         * The VIEWER's own live request for this title, or null — mirrors
+         * BookDetailQuery's myRequest key exactly. The two nullable fields
+         * are complementary by construction: the query derives
+         * queuePosition only for a pending row (null for an approved one),
+         * and hold_expires_at is only ever written in the same ->update()
+         * that sets status to approved — ApproveBorrowRequest:155-161 and
+         * ReceiveReturn:246-252, the column's only two writers under app/
+         * (grepped). An approved row whose hold has been cleared is what
+         * heldLineNoDate covers.
+         */
+        myRequest: {
+            requestId: string;
+            status: "pending" | "approved";
+            queuePosition: number | null;
+            holdExpiresAt: string | null;
+        } | null;
         currentLoan: { holderName: string | null; daysRemaining: number; dueOn: string } | null;
     };
     firstContact: { name: string; phone: string } | null;
 }
 
 export default function ShelfBook() {
-    const { detail, firstContact } = usePage<PageProps>().props;
+    const { detail, firstContact, shelf, errors, flash } = usePage<PageProps>().props;
+    const requestForm = useForm({});
+    const cancelForm = useForm({});
+    // Narrowed once, so the JSX below and the cancel POST read the same
+    // non-null row rather than re-checking it inside a callback.
+    const mine = detail.myRequest;
 
     const holderLine = detail.currentLoan
         ? detail.currentLoan.holderName === null
@@ -113,6 +138,108 @@ export default function ShelfBook() {
                             </p>
                         ) : null}
                     </div>
+
+                    {/* The answer to a tap belongs ABOVE the control that
+                        caused it (the reference's placement). flash.success
+                        carries request_success_flash / request_cancel_flash;
+                        errors.rule carries every RuleViolated sentence
+                        bootstrap/app.php redirects back with — the reader can
+                        genuinely cause duplicate_request (a stale page tapped
+                        twice) and membership_not_active_cannot_request (a
+                        membership suspended between render and tap), and a
+                        memberless super admin reaches not_permitted. */}
+                    {flash.success ? (
+                        <p
+                            role="status"
+                            className="mt-6 max-w-sm rounded-md border border-green-700/30 bg-green-700/10 px-3 py-2 text-sm"
+                        >
+                            {flash.success}
+                        </p>
+                    ) : null}
+                    {errors.rule ? (
+                        <p
+                            role="alert"
+                            className="mt-6 max-w-sm rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+                        >
+                            {errors.rule}
+                        </p>
+                    ) : null}
+
+                    {/* A request in flight REPLACES the button rather than
+                        sitting beside it: pressing twice is duplicate_request,
+                        a refusal the reader can do nothing with. And two
+                        labels, one command — CreateBorrowRequest reads no
+                        book_copies at all, so joining a queue and collecting a
+                        free copy are the same write; only the wording moves. */}
+                    {shelf === null ? null : mine ? (
+                        <div className="mt-6 max-w-sm rounded-md border p-4">
+                            <p className="text-sm font-medium">
+                                {mine.queuePosition !== null
+                                    ? t(copy.circulation.requests.waitingLine, {
+                                          position: mine.queuePosition,
+                                      })
+                                    : mine.holdExpiresAt
+                                      ? t(copy.circulation.requests.heldLine, {
+                                            ...formatInstantParts(mine.holdExpiresAt),
+                                        })
+                                      : copy.circulation.requests.heldLineNoDate}
+                            </p>
+                            <form
+                                className="mt-3"
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    cancelForm.post(
+                                        route("shelves.profile.requests.cancel", {
+                                            shelf: shelf.slug,
+                                            borrowRequest: mine.requestId,
+                                        }),
+                                        { preserveScroll: true },
+                                    );
+                                }}
+                            >
+                                <Button
+                                    type="submit"
+                                    variant="outline"
+                                    className="h-11"
+                                    disabled={cancelForm.processing}
+                                >
+                                    {copy.circulation.requests.cancelButton}
+                                </Button>
+                            </form>
+                        </div>
+                    ) : (
+                        <form
+                            className="mt-6"
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                requestForm.post(
+                                    route("shelves.books.request", {
+                                        shelf: shelf.slug,
+                                        book: detail.slug,
+                                    }),
+                                    { preserveScroll: true },
+                                );
+                            }}
+                        >
+                            {/* The page's one primary action (design rule 3):
+                                this is the only Button on the page at all, and
+                                the only other bg-primary element is the
+                                availability Badge, which is a status, not an
+                                action. h-14 px-8 text-base is the shipped
+                                primary shape — lend/confirm.tsx:101 and
+                                returns/index.tsx:176 — and h-14 is the 56px
+                                that rule 4 asks of a primary button. */}
+                            <Button
+                                type="submit"
+                                className="h-14 px-8 text-base"
+                                disabled={requestForm.processing}
+                            >
+                                {detail.copiesAvailable > 0
+                                    ? copy.circulation.requests.requestButton
+                                    : copy.circulation.requests.queueButton}
+                            </Button>
+                        </form>
+                    )}
 
                     <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                         {metadata

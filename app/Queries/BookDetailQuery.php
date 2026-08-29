@@ -2,6 +2,7 @@
 
 namespace App\Queries;
 
+use App\Enums\RequestStatus;
 use App\Models\Book;
 use App\Models\BorrowRequest;
 use App\Models\Loan;
@@ -17,7 +18,9 @@ use Carbon\CarbonImmutable;
  * predicate, daysRemaining from due_on against the clock (never a stored
  * column — "there is no is_overdue column, and there must never be one"),
  * queueLength from the count of pending requests (BR §7.2: the queue IS
- * the pending set; no separate reservation concept).
+ * the pending set; no separate reservation concept), and — Phase 2a —
+ * myRequest, the VIEWER's own live row in that same set, numbered on read
+ * rather than stored.
  *
  * The is_published gate is the CONTROLLER's (a draft 404s before this
  * runs) — this query serves an already-resolved model.
@@ -39,8 +42,18 @@ final class BookDetailQuery
         private Clock $clock,
     ) {}
 
-    /** @return array<string, mixed> */
-    public function run(Book $book): array
+    /**
+     * $viewer is who is READING this page, and it is a parameter rather
+     * than an Auth:: call inside the query for the reason
+     * MyDashboardQuery::run(User $reader) is: the caller knows. Nullable
+     * because the query must answer for a caller with no viewer at all —
+     * ReaderQueriesTest calls it that way — though over HTTP today the
+     * one route that reaches it sits in an `auth` group, so
+     * BookController's $request->user() is never null there.
+     *
+     * @return array<string, mixed>
+     */
+    public function run(Book $book, ?User $viewer = null): array
     {
         $withCounts = $this->withCopyCounts(Book::query())
             ->with('category:id,name,slug')
@@ -50,6 +63,40 @@ final class BookDetailQuery
             ->where('book_id', $book->id)
             ->where('status', 'pending')
             ->count();
+
+        // The viewer's own place in this title's queue, or null. Own =
+        // member_id (a users id, despite the column's name — the schema's
+        // recurring trap) equals the signed-in user, never a membership
+        // id. Position is derived on read: pending rows ahead + 1, by the
+        // queue's own two ordering keys (requested_at, then id — the same
+        // pair BorrowRequestQueueQuery numbers by), so it cannot drift
+        // from a stored column. An approved request has a hold, not a
+        // position.
+        $mine = $viewer === null ? null : BorrowRequest::query()
+            ->where('book_id', $book->id)
+            ->where('member_id', $viewer->id)
+            ->whereIn('status', [RequestStatus::Pending, RequestStatus::Approved])
+            ->orderBy('requested_at')->orderBy('id')
+            ->first();
+        $myRequest = null;
+        if ($mine !== null) {
+            $ahead = $mine->status === RequestStatus::Pending
+                ? BorrowRequest::query()
+                    ->where('book_id', $book->id)
+                    ->where('status', RequestStatus::Pending)
+                    ->where(function ($q) use ($mine) {
+                        $q->where('requested_at', '<', $mine->requested_at)
+                            ->orWhere(fn ($qq) => $qq->where('requested_at', $mine->requested_at)->where('id', '<', $mine->id));
+                    })
+                    ->count()
+                : null;
+            $myRequest = [
+                'requestId' => $mine->id,
+                'status' => $mine->status->value,
+                'queuePosition' => $ahead === null ? null : $ahead + 1,
+                'holdExpiresAt' => $mine->hold_expires_at?->toISOString(),
+            ];
+        }
 
         // Materialise the AsArrayObject (or a null shelf) into a plain
         // array first: `null['key']` is a PHP warning, and PHPUnit treats
@@ -94,6 +141,7 @@ final class BookDetailQuery
             'language' => $withCounts->language,
             'onLoan' => (int) $withCounts->getAttribute('on_loan_count'),
             'queueLength' => $queueLength,
+            'myRequest' => $myRequest,
             'currentLoan' => $currentLoan,
         ]);
     }

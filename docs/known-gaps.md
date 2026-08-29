@@ -2339,3 +2339,23 @@ Recorded per task as it lands, not at the end of the phase.
   schema should migrate `olibra_testing` and point `DB_DATABASE` at it
   for that one shell session, or write the probe as a real (throwaway)
   Pest test instead of reaching for tinker.
+- **Task 12's book-page request block is unverified by every gate in this
+  repo, and the specific thing that ships green is the wrong Vietnamese
+  label on the "Xin mượn" button.** `resources/js/pages/shelves/book.tsx`
+  gained the request/cancel block, and nothing renders it: there is no
+  `*.test.tsx` anywhere under `resources/js` (`find resources/js -name
+  "*.test.ts*"` returns nothing), and `package.json`'s `test` /
+  `test:watch` scripts both `cd old_next` first, so the only vitest in
+  this repo runs against the frozen Next.js app. `assertInertia` in
+  `ReaderRequestSurfaceTest` reads the server-side props
+  (`detail.myRequest.*`, `errors.rule`) and stops there — it never sees
+  which string the button renders or which id the cancel form posts.
+  Measured rather than assumed, on this branch: swapping the two arms of
+  the availability ternary so a title with copies free offers *Đăng ký chờ
+  mượn* and one with none offers *Xin mượn* left `make test` at
+  1180 passed (7555 assertions), `laravel:typecheck` clean,
+  `laravel:lint` at its three pre-existing warnings and `laravel:build`
+  successful. Restored. This is the same shape as the dashboard stat-card
+  entry above, now with a second worked example; it is a gap in the
+  toolchain, not in this task, and closing it means a frontend rendering
+  test setup for `resources/js`, which no phase has scoped yet.

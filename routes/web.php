@@ -14,6 +14,7 @@ use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
+use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\SearchController;
@@ -80,6 +81,13 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/catalogue', [CatalogueController::class, 'index'])->name('catalogue');
         Route::get('/search', [SearchController::class, 'index'])->name('search');
         Route::get('/books/{book}', [ReaderBookController::class, 'show'])->name('books.show');
+        // BR §16.1's "Xin mượn". The 404 a non-member gets here is
+        // EnsureShelfRole's (this group's role:reader), not a Form
+        // Request's — this POST has no fields and therefore no Form
+        // Request to hold an abort_unless(..., 404), so the middleware is
+        // the whole of it. CirculationArchitectureTest pins that the
+        // middleware is still on the route.
+        Route::post('/books/{book}/request', [ReaderBorrowRequestController::class, 'store'])->name('books.request');
         Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
         Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
@@ -110,6 +118,19 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/donations', [ShellController::class, 'underConstruction'])->name('donations');
         Route::get('/overview', [MyLoansController::class, 'overview'])->name('overview');
         Route::post('/loans/{loan}/renew', [MyLoansController::class, 'renew'])->name('loans.renew');
+        // One route, two doors. The reference defines exactly one
+        // cancelRequestAction, and it lives in the PROFILE area
+        // (ho-so/reader-actions.ts:148) while being posted from both
+        // ho-so/tong-quan (:255) and the book page (sach/[slug]:570) —
+        // grepped, all three call sites. So the withdrawal sits here with
+        // the reader's other own-row actions, and the book page names
+        // this route rather than growing a second.
+        // {borrowRequest} resolves through
+        // Bookshelf::borrowRequests() under scopeBindings(), and through
+        // BookshelfScope on the model independently — this file's own
+        // documented double layer, either half sufficient (measured; see
+        // that relation's docblock).
+        Route::post('/requests/{borrowRequest}/cancel', [ReaderBorrowRequestController::class, 'cancel'])->name('requests.cancel');
     });
 
     // ── The manager area: role:manager = act-as-manager or 404 ──────────
