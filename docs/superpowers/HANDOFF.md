@@ -251,7 +251,38 @@ Nothing merged; no PR open.
   over — false, because `LendCopy` never re-reads the request row this command was asked about. While
   fixing it the implementer found a THIRD overstatement of its own ("on LOCKED rows" for two plain
   reads) and fixed that too.
-- **10 `ReceiveReturn` re-widened** — next.
+- **10 `ReceiveReturn` re-widened** — `3831c97`, `15b5dac` · approved after 1 review round. **The task
+  the phase was cut around, and it landed.** A second shipped 1c command modified, its signature
+  changed (`void` → the reference's result shape), `ReturnController::store` updated in the same
+  commit so every commit stays green, and the SECOND door onto `request_approved`. 1c's
+  `ReceiveReturnTest` untouched and 12/12 green, verified by the re-reviewer against the fix stat —
+  which matters doubly, because the fix round deliberately touched the plain-return path.
+  **The headline guarantee is real and is pinned honestly.** The plan's own first reviewer had caught,
+  in the plan TEXT before any code existed, that a "nothing observes it as available" assertion could
+  be satisfied by its own `FOR UPDATE` select. It is not: the load-bearing observation is
+  `DB::getQueryLog()`, which issues no SQL, the three `'for update'` occurrences in the test file are
+  string literals compared against logged text, and mutation 1 falsifies it by count. The isolation
+  half — a second connection observing mid-transaction — is NOT earnable under `RefreshDatabase`, and
+  the report says so rather than implying otherwise.
+  **The third lock's direction claim survived an independent enumeration** of every `lockForUpdate`
+  site under `app/` plus `HandoverRequest`'s delegation: nothing anywhere holds a request lock and
+  then wants a *loan*, which is what a new AB–BA pair would have required, so this command joins the
+  copy→request side and adds no direction. Both `request_approved` doors match byte for byte.
+  Its Important was **plan-mandated and the plan lost**: the brief's own Step 3 code specified
+  `(string) $copy->book?->title`, which fed both the audit bag and the notification, so a soft-deleted
+  book's row stored `""` where 1c stored `null` — on the merged plain path. The self-review had cleared
+  it against `AuditSentences::str()` (which maps `""` → `null`) but not against `payloadRows` →
+  `renderValue`, which `json_encode`s untrimmed. Now nullable in the audit bag, cast only for the
+  notification, and pinned in **both** directions.
+- **11 the queue query** — next.
+
+**Trap-passing is now measurably working.** Task 10's implementer proactively found and fixed the
+neighbouring-file fallout its own change caused — the now-false `known-gaps.md` "deliberately
+narrower" entry, a false docblock sentence in the guard's own test file, and four stale line
+references across three files — because the dispatch carried that failure mode as a named trap
+rather than leaving it to a reviewer. It then caught its OWN fix-round correction being false before
+shipping it (a draft claimed `grep -rn Notifiable app/` finds nothing; it finds two comment lines in
+`Bookshelf.php`). First time in the phase the ten-times failure mode was stopped before the commit.
 
 **A plan promise withdrawn at Task 9, and two constraints it puts on Task 18.** Divergence 11 said
 the handover race yields "a stale *sentence* … never a wrong write". False: if a cancel commits in
