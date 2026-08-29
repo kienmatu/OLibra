@@ -209,14 +209,19 @@ it('a reader at the shelf\'s own limit reads loan_limit_reached', function () {
 });
 
 it('a loan out is findable by title, by reader and by the code on the copy', function () {
-    lqFix();
+    [, , , , $book] = lqFix();
     $q = app(SearchLoansForReturnQuery::class);
 
     foreach (['de men', 'ngoc anh', 'dt-0102'] as $needle) {
         $rows = $q->run($needle);
         expect($rows)->toHaveCount(1, "needle: {$needle}")
             ->and($rows[0]['copyCode'])->toBe('DT-0102')
-            ->and($rows[0]['borrowerName'])->toBe('Têrêsa Đặng Ngọc Ánh');
+            ->and($rows[0]['borrowerName'])->toBe('Têrêsa Đặng Ngọc Ánh')
+            // Task 15's return screen resolves the waiting-readers panel
+            // from THIS field (BorrowRequestQueueQuery::run($bookId)) —
+            // pinned here so a row shape change is caught at the query,
+            // not discovered as a null bookId three files downstream.
+            ->and($rows[0]['bookId'])->toBe($book->id);
     }
 });
 

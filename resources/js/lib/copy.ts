@@ -440,6 +440,11 @@ export const copy = {
             lostConfirmButton: "Xác nhận báo mất",
             noneFound: "Không tìm thấy lượt mượn nào đang mở.",
             chooseFirst: "Tìm và chọn lượt mượn cần xử lý.",
+            waitingLegend: "{count} bạn đọc đang chờ cuốn này",
+            noHoldOption: "Không giữ chỗ, trả về kệ",
+            holdForOption: "Giữ chỗ cho {name}",
+            holdForRequestedSuffix: "đăng ký {time} ngày {date}",
+            nothingAutomatic: "Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.",
         },
         overdue: {
             title: "Sách quá hạn",

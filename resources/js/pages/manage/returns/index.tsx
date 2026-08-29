@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import ManageLayout from "@/layouts/manage-layout";
 import { copy, t } from "@/lib/copy";
-import { formatDate } from "@/lib/dates";
+import { formatDate, formatInstantParts } from "@/lib/dates";
 import type { SharedData } from "@/types";
 
 interface LoanRow {
@@ -19,10 +19,22 @@ interface LoanRow {
     daysRemaining: number;
 }
 
+/** One row of the chosen loan's title's PENDING queue — the same shape
+ * BorrowRequestQueueQuery::run() reports, narrowed to the three fields
+ * this panel shows (app/Http/Controllers/Manage/ReturnController.php). */
+interface WaitingReader {
+    requestId: string;
+    readerName: string;
+    requestedAt: string;
+}
+
 interface PageProps extends SharedData {
     filters: { q: string };
     loans: LoanRow[];
     chosenLoanId: string | null;
+    /** null when no loan is chosen; else the chosen loan's title's
+     * pending requests in queue order — possibly empty. */
+    waiting: WaitingReader[] | null;
 }
 
 const CONDITIONS = [
@@ -35,10 +47,15 @@ const CONDITIONS = [
 ] as const;
 
 export default function ReturnsIndex() {
-    const { shelf, filters, loans, chosenLoanId, errors, flash } = usePage<PageProps>().props;
+    const { shelf, filters, loans, chosenLoanId, waiting, errors, flash } =
+        usePage<PageProps>().props;
     const [q, setQ] = useState(filters.q);
     // BR §16.3: Nguyên vẹn preselected — the common case is two taps.
-    const form = useForm({ condition: "perfect", note: "" });
+    // hold_for_request_id defaults to "" — not holding is the default
+    // (OPS §5: "the manager decides, because the next reader may not be
+    // standing there") — and ReceiveReturnRequest::prepareForValidation()
+    // is what turns that empty string back into the absence of a choice.
+    const form = useForm({ condition: "perfect", note: "", hold_for_request_id: "" });
     if (!shelf) return null;
 
     const chosen = loans.find((l) => l.loanId === chosenLoanId) ?? null;
@@ -156,6 +173,82 @@ export default function ReturnsIndex() {
                             <p className="mt-1 text-sm text-destructive">{errors.condition}</p>
                         ) : null}
                     </fieldset>
+
+                    {waiting !== null && waiting.length > 0 ? (
+                        <fieldset className="rounded-md border p-4">
+                            <legend className="px-1 text-sm font-medium">
+                                {t(copy.circulation.returns.waitingLegend, {
+                                    count: waiting.length,
+                                })}
+                            </legend>
+                            <div className="space-y-2">
+                                {/* Not holding is the default (OPS §5) —
+                                    first, and checked. The empty value is
+                                    the absence of a choice, not a request
+                                    id of zero length. */}
+                                <label
+                                    htmlFor="hold-none"
+                                    className="flex min-h-11 items-center gap-2.5 text-sm"
+                                >
+                                    <input
+                                        type="radio"
+                                        id="hold-none"
+                                        name="hold_for_request_id"
+                                        value=""
+                                        defaultChecked
+                                        onChange={() => form.setData("hold_for_request_id", "")}
+                                        className="size-5 accent-primary"
+                                    />
+                                    {copy.circulation.returns.noHoldOption}
+                                </label>
+                                {waiting.map((entry) => {
+                                    const requested = formatInstantParts(entry.requestedAt);
+                                    const optionLabel = t(copy.circulation.returns.holdForOption, {
+                                        name: entry.readerName,
+                                    });
+                                    const requestedSuffix = t(
+                                        copy.circulation.returns.holdForRequestedSuffix,
+                                        requested,
+                                    );
+                                    return (
+                                        <label
+                                            key={entry.requestId}
+                                            htmlFor={`hold-${entry.requestId}`}
+                                            className="flex min-h-11 items-center gap-2.5 text-sm"
+                                        >
+                                            <input
+                                                type="radio"
+                                                id={`hold-${entry.requestId}`}
+                                                name="hold_for_request_id"
+                                                value={entry.requestId}
+                                                onChange={() =>
+                                                    form.setData(
+                                                        "hold_for_request_id",
+                                                        entry.requestId,
+                                                    )
+                                                }
+                                                className="size-5 accent-primary"
+                                            />
+                                            <span>
+                                                {optionLabel}
+                                                <span className="text-muted-foreground">
+                                                    {` · ${requestedSuffix}`}
+                                                </span>
+                                            </span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-3 text-sm text-muted-foreground">
+                                {copy.circulation.returns.nothingAutomatic}
+                            </p>
+                            {errors.hold_for_request_id ? (
+                                <p className="mt-1 text-sm text-destructive">
+                                    {errors.hold_for_request_id}
+                                </p>
+                            ) : null}
+                        </fieldset>
+                    ) : null}
 
                     {worse ? (
                         <div className="space-y-1.5">

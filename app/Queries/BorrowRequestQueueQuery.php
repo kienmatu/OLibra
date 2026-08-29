@@ -95,12 +95,17 @@ use RuntimeException;
  * overstates the layering by one. The controllers behind those three
  * queries — OverdueController::index, DashboardController::index,
  * MyLoansController::overview — are bare Inertia::render with a query and
- * carry no Gate at all (opened, 2026-08-30), and so does this query's own
- * caller, Manage\BorrowRequestController::index. A controller Gate is
- * real on some manage READ screens (BookController, LostCopiesController,
- * ReaderController, RegistrationQueueController all call
- * Gate::authorize('viewAny', ...)) and simply absent on others; the
- * middleware is the layer common to all of them.
+ * carry no Gate at all (opened, 2026-08-30), and neither do this query's
+ * two run() callers, Manage\BorrowRequestController::index and (Phase 2a
+ * Task 15) Manage\ReturnController::index, which narrows run() to the
+ * chosen loan's title for the return screen's waiting panel — both sit
+ * inside the same 'manage' route group's role:manager middleware
+ * (routes/web.php), so the guard this paragraph is arguing about is the
+ * same one either way. A controller Gate is real on some manage READ
+ * screens (BookController, LostCopiesController, ReaderController,
+ * RegistrationQueueController all call Gate::authorize('viewAny', ...))
+ * and simply absent on others; the middleware is the layer common to all
+ * of them.
  *
  * An inline Gate::authorize here would also break the one legitimate
  * non-HTTP caller this plan creates, ManagerDashboardQuery's delegation
