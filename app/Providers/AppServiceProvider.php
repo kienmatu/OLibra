@@ -6,11 +6,13 @@ use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
 use App\Models\Book;
 use App\Models\BookCopy;
+use App\Models\BorrowRequest;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
 use App\Policies\BookCopyPolicy;
 use App\Policies\BookPolicy;
+use App\Policies\BorrowRequestPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
 use App\Support\HashedDatabaseSessionHandler;
@@ -187,5 +189,14 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(BookCopy::class, BookCopyPolicy::class);
         Gate::policy(Membership::class, MembershipPolicy::class);
         Gate::policy(Loan::class, LoanPolicy::class);
+
+        // Phase 2a. Laravel's convention-based discovery (App\Models\X ->
+        // App\Policies\XPolicy) already finds this one — verified by
+        // running BorrowRequestPolicyTest green with this line absent — so
+        // it is written for the reader of this file rather than for the
+        // container: the four lines above are the codebase's index of which
+        // models have a policy, and a model missing from it reads as a
+        // model with none.
+        Gate::policy(BorrowRequest::class, BorrowRequestPolicy::class);
     }
 }

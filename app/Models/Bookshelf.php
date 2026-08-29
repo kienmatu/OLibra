@@ -93,6 +93,36 @@ class Bookshelf extends Model
     }
 
     /**
+     * What scopeBindings() resolves the {borrowRequest} route parameter
+     * through. Unlike {book} and {loan} — where routes/web.php's corrected
+     * comment records that BookshelfScope alone already produces every 404
+     * the scoped binding is credited with — this relation is not merely
+     * defence in depth for the binding: without it the child binding has no
+     * relation to guess and the route throws instead of resolving, which
+     * BorrowRequestPolicyTest saw for real before this method existed
+     * ("Call to undefined method App\Models\Bookshelf::borrowRequests()").
+     * BookshelfScope on BorrowRequest is still the layer that does the
+     * tenant filtering; both are pinned in that file.
+     *
+     * @return HasMany<BorrowRequest, $this>
+     */
+    public function borrowRequests(): HasMany
+    {
+        return $this->hasMany(BorrowRequest::class);
+    }
+
+    /**
+     * The same shape for {notification} (Task 16's bell). Notification
+     * carries BelongsToBookshelf like every other scoped model.
+     *
+     * @return HasMany<Notification, $this>
+     */
+    public function notifications(): HasMany
+    {
+        return $this->hasMany(Notification::class);
+    }
+
+    /**
      * Feedback.bookshelf_id is nullable and Feedback deliberately does not
      * carry BelongsToBookshelf (see its docblock), so a shelf-scoped read
      * cannot go through a global scope. Routing it through THIS relation
