@@ -25,10 +25,25 @@ use App\Models\BookCopy;
  * manager_notes: `book_copies.*` would hydrate `condition_note` (a
  * private per-copy note written by AssessCondition/ReceiveReturn —
  * `resources/js/pages/manage/books/show.tsx` declares it in its
- * TypeScript interface but never reads it back out, so it does not
- * reach a screen today) and `retired_reason` onto the model even though
- * the map below never reads either back out. Naming columns closes that
- * at the query rather than trusting the map alone.
+ * TypeScript interface but never RENDERS it) and `retired_reason` onto
+ * the model even though the map below never reads either back out.
+ * Naming columns closes that at the query rather than trusting the map
+ * alone.
+ *
+ * CORRECTION (whole-branch review, finding 3): the previous wording here
+ * claimed condition_note "does not reach a screen today", full stop.
+ * That is false in the direction that matters for a decision resting on
+ * it — AssessCondition.php puts `conditionNote` straight into the audit
+ * `after` payload, and the manager audit page's row expansion renders
+ * raw before/after payloads (Task 10), so a manager who expands a
+ * `copy.condition_assessed` row DOES see it, same as ReceiveReturn's
+ * `condition` key on `loan.returned`. The exclusion from this export
+ * stands regardless — the audit expansion is manager-gated and one
+ * record at a time (ReadersExportQuery's own bound: a downloadable file
+ * is a different distribution surface), same shape as manager_notes
+ * being readable on a single reader's page yet excluded from
+ * ReadersExportQuery — but "does not reach a screen" is not why, and
+ * must not be cited as if it were.
  */
 final class BooksExportQuery
 {

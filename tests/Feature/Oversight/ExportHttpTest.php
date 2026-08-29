@@ -224,6 +224,54 @@ it('a shelf slug with non-ASCII text or a percent never 500s the export', functi
     }
 });
 
+it('an other-shelf manager, a suspended manager, and a super admin — the rest of the actor matrix', function () {
+    // Whole-branch review, finding 4 (minor): only guest and reader were
+    // covered here — the shape most likely to leak first (a manager who
+    // simply is not entitled to THIS shelf, one whose entitlement was
+    // revoked, and the one actor the role gate deliberately bypasses)
+    // was asserted correct by review, never by a named test. A
+    // children's-records download is exactly where this matrix matters
+    // most: EnsureShelfRole (routes/web.php's 'role:manager' middleware)
+    // resolves 'act-as-manager' purely off TenantContext's membership for
+    // THIS request's shelf (AppServiceProvider's $roleGate), so an
+    // other-shelf manager's membership is null here and a suspended
+    // manager's status check fails the same gate — both 404, the same
+    // "URL space confirms nothing" shape as the reader case above.
+    // is_super_admin instead short-circuits Gate::before for every
+    // act-as-* ability regardless of membership (AppServiceProvider),
+    // so the super admin succeeds on a shelf they may never have joined.
+    $f = xphFix();
+
+    $otherShelfManager = User::factory()->create(['full_name' => 'Manager Tủ Khác XPH']);
+    $anotherShelf = Bookshelf::factory()->create(['slug' => 'other-manager-xph', 'settings' => []]);
+    Membership::factory()->for($anotherShelf)->create([
+        'user_id' => $otherShelfManager->id, 'role' => 'manager', 'status' => 'active',
+    ]);
+
+    $suspendedManager = User::factory()->create(['full_name' => 'Manager Bị Đình Chỉ XPH']);
+    Membership::factory()->for($f['shelf'])->create([
+        'user_id' => $suspendedManager->id, 'role' => 'manager', 'status' => 'suspended',
+    ]);
+
+    $superAdmin = User::factory()->superAdmin()->create(['full_name' => 'Admin Toàn Quyền XPH']);
+    // Deliberately NO membership at all on $f['shelf'] — the point of
+    // this actor is that Gate::before grants act-as-manager without one.
+
+    foreach (['books', 'readers', 'loans'] as $kind) {
+        $this->actingAs($otherShelfManager)
+            ->post("/shelves/{$f['shelf']->slug}/manage/exports/{$kind}")
+            ->assertNotFound();
+
+        $this->actingAs($suspendedManager)
+            ->post("/shelves/{$f['shelf']->slug}/manage/exports/{$kind}")
+            ->assertNotFound();
+
+        $this->actingAs($superAdmin)
+            ->post("/shelves/{$f['shelf']->slug}/manage/exports/{$kind}")
+            ->assertOk();
+    }
+});
+
 it('shares a real, non-empty csrfToken prop — the token every audit-page form submits', function () {
     // Deleting HandleInertiaRequests::share()'s 'csrfToken' => ... line
     // leaves the FULL suite green (nothing else reads the prop from the

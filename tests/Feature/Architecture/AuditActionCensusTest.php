@@ -69,3 +69,57 @@ it('every audit action written under app/ has a sentence, and every sentence has
     // its writer and its map entry in the same commit, or this goes red.
     expect(array_keys($written))->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS));
 });
+
+it('every ->record( call site names its action as a literal, per file', function () {
+    // The census above matches ONLY `->record('literal.action', ...)` —
+    // a writer that instead computes its action name (`->record($action,
+    // ...)`, `->record(self::ACTION, ...)`, string interpolation, …) is
+    // invisible to that regex. That is not a neutral gap: it fails
+    // OPEN. Such a call is dropped from $written entirely, so it is
+    // simultaneously absent from "every written action has a sentence"
+    // (nothing to check) and cannot make the count in either direction
+    // disagree — the set-equal assertion above balances with the ghost
+    // write on neither side. The row it produces at runtime renders
+    // AuditSentences' "undescribed system action" fallback to whichever
+    // volunteer opens the audit page, which is exactly the failure this
+    // whole file exists to prevent, and the docblock on the literal-only
+    // regex above says so explicitly: "a dynamic action name … is
+    // therefore banned: if one ever appears, this census is the test to
+    // extend, loudly." This is that extension.
+    //
+    // Every call site in this codebase is `$this->audit->record(...)`
+    // (AuditRecorder is the only class with a record() method under
+    // app/ as of this writing), so comparing "how many times does
+    // `->record(` appear in this file" against "how many of those are
+    // followed by a literal `'x.y'`/`\"x.y\"` string" is a sound proxy
+    // for "every call in this file uses a literal", with no other
+    // record() call in app/ to produce a false positive.
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($files as $file) {
+        if (! str_ends_with($file->getPathname(), '.php')) {
+            continue;
+        }
+        $code = stripCommentTokens((string) file_get_contents($file->getPathname()));
+
+        preg_match_all('/->record\(/', $code, $allCalls);
+        if ($allCalls[0] === []) {
+            continue;
+        }
+
+        preg_match_all(
+            '/->record\(\s*\n?\s*[\'"]([a-z_]+\.[a-z_]+)[\'"]/',
+            $code,
+            $literalCalls,
+        );
+
+        expect(count($literalCalls[0]))->toBe(count($allCalls[0]), sprintf(
+            '%s calls ->record() %d time(s) but only %d use a literal \'x.y\' action string — '
+            .'a computed action name is invisible to the census above and renders the '
+            ."undescribed-action fallback to a volunteer.\n%s",
+            $file->getPathname(), count($allCalls[0]), count($literalCalls[0]), $file->getPathname(),
+        ));
+    }
+});

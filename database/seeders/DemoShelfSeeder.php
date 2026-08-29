@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\AuditLog;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
@@ -10,10 +9,12 @@ use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\ParishUnit;
 use App\Models\User;
+use App\Support\AuditRecorder;
 use App\Support\Clock;
 use App\Support\TenantContext;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 /** The AGENTS.md demo fixtures — local development only, never production. */
 class DemoShelfSeeder extends Seeder
@@ -42,7 +43,7 @@ class DemoShelfSeeder extends Seeder
             ?? User::factory()->withCredentials('quanly')->create([
                 'saint_name' => 'Giuse', 'full_name' => 'Trần Minh',
             ]);
-        Membership::query()->firstOrCreate(
+        $managerMembership = Membership::query()->firstOrCreate(
             ['bookshelf_id' => $shelf->id, 'user_id' => $manager->id],
             ['role' => 'manager', 'status' => 'active'],
         );
@@ -182,27 +183,40 @@ class DemoShelfSeeder extends Seeder
         // filter anywhere in this seeder would turn that suite red.
         if ($shelf->auditLogs()->doesntExist()) {
             $seededLoan = $shelf->loans()->first();
-            AuditLog::query()->create([
-                'bookshelf_id' => $shelf->id, 'actor_id' => $manager->id,
-                'action' => 'loan.created', 'entity_type' => 'loan',
-                'entity_id' => $seededLoan?->id,
-                'before' => ['copy_state' => 'available'],
-                'after' => $seededLoan === null ? null : [
+
+            // Fix round (whole-branch review, finding 4): these two rows
+            // used to go straight through AuditLog::query()->create(),
+            // bypassing AuditRecorder entirely — no AuditSecrets walk, no
+            // tenant-bound check, and invisible to
+            // AuditActionCensusTest's writer inventory (that census scans
+            // for `->record(`, not for a raw AuditLog insert). Both
+            // actions here already have a mapped sentence, so today's two
+            // rows render correctly either way — but nothing stopped a
+            // third demo row from being minted with an unmapped action
+            // and rendering the "undescribed system action" fallback on
+            // the demo shelf, silently, since this call site was never
+            // measured. AuditRecorder needs a bound tenant AND an
+            // authenticated actor (it reads both from context, never from
+            // a parameter — see its own docblock) neither of which a
+            // seeder has by default; bound and logged in for exactly this
+            // block, cleared right after.
+            app(TenantContext::class)->set($shelf, $managerMembership);
+            Auth::login($manager);
+
+            app(AuditRecorder::class)->record('loan.created', 'loan', $seededLoan?->id,
+                ['copy_state' => 'available'],
+                $seededLoan === null ? null : [
                     'copy_state' => 'on_loan',
                     'borrower_id' => $seededLoan->borrower_id,
                     'due_on' => $seededLoan->due_on->toDateString(),
                     'title' => $seededLoan->copy?->book?->title,
-                ],
-                'context' => [],
-            ]);
-            AuditLog::query()->create([
-                'bookshelf_id' => $shelf->id, 'actor_id' => $manager->id,
-                'action' => 'membership.approved', 'entity_type' => 'membership',
-                'entity_id' => $shelf->memberships()
-                    ->where('role', 'reader')->where('status', 'active')->value('id'),
-                'before' => ['status' => 'pending'], 'after' => ['status' => 'active'],
-                'context' => [],
-            ]);
+                ]);
+
+            app(AuditRecorder::class)->record('membership.approved', 'membership',
+                $shelf->memberships()->where('role', 'reader')->where('status', 'active')->value('id'),
+                ['status' => 'pending'], ['status' => 'active']);
+
+            Auth::logout();
         }
 
         // This is the last seeder in the run today, so leaving the

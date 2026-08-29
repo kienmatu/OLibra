@@ -122,19 +122,17 @@ function xpqFix(): array
         'borrower_id' => $child->id, 'lent_by' => $manager->id,
         'lent_at' => '2026-08-09 12:00:51', 'due_on' => '2026-08-23', 'status' => 'active',
     ]);
-    // Both return_note AND void_reason set — not a state a real loan
-    // reaches (the two are mutually exclusive by status), but the ONLY
-    // way to make the `??` operand order in LoansExportQuery observable:
-    // when at most one side is ever non-null, either order returns the
-    // same value. Pins that `return_note` wins, deliberately, over a
-    // synthetic collision.
+    // Fix round (finding 3): return_note is now excluded from the
+    // export as the same kind of private free-text remark
+    // BooksExportQuery excludes condition_note for — set here
+    // specifically so the returned row has NO note, proving return_note
+    // does not leak into the file even though this row carries one.
     Loan::query()->create([
         'bookshelf_id' => $shelf->id, 'copy_id' => $dCopy->id, 'book_id' => $dBook->id,
         'borrower_id' => $child->id, 'lent_by' => $manager->id, 'received_by' => $receiver->id,
         'lent_at' => '2026-07-20 04:00:00', 'due_on' => '2026-08-03', 'status' => 'returned',
         'returned_at' => '2026-08-01 03:00:00', 'return_condition' => 'worn',
         'return_note' => 'sách ướt nhẹ khi trả',
-        'void_reason' => 'không nên có ở đây — chỉ để chứng minh thứ tự toán tử',
     ]);
 
     // Foreign shelf: one of everything, names that would be visible if
@@ -230,12 +228,11 @@ it('loans: complete history newest first, voided included with its reason as the
         ->and($rows[1]['status'])->toBe('voided')
         ->and($rows[1]['note'])->toBe('bấm nhầm bản sách')
         ->and($rows[2]['status'])->toBe('returned')
-        // return_note ?? void_reason: this loan has BOTH set (a
-        // synthetic collision no real loan reaches — see the fixture),
-        // deliberately, because with only one side ever non-null either
-        // operand order returns the same value. Swapping the operands
-        // in LoansExportQuery turns this red.
-        ->and($rows[2]['note'])->toBe('sách ướt nhẹ khi trả')
+        // return_note is excluded (fix round, finding 3): the returned
+        // row's own DB row carries 'sách ướt nhẹ khi trả' in
+        // return_note, and it must NOT surface in the note cell.
+        ->and($rows[2]['note'])->toBeNull()
+        ->and(array_column($rows, 'note'))->not->toContain('sách ướt nhẹ khi trả')
         // lentBy/receivedBy are DISTINCT people here on purpose — a
         // toContain-based check on the whole row cannot tell the pair
         // apart if the query swapped them; a keyed assertion can.
@@ -365,6 +362,7 @@ it('the three export queries never SELECT the private column their sibling table
 
     expect($columns)->not->toContain('manager_notes')
         ->and($columns)->not->toContain('notes')       // loans.notes
+        ->and($columns)->not->toContain('return_note')  // fix round, finding 3
         ->and($columns)->not->toContain('condition_note')
         ->and($columns)->not->toContain('retired_reason');
 });

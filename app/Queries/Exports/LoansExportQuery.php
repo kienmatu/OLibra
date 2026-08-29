@@ -40,6 +40,30 @@ use App\Models\Loan;
  * `return_photo_url` and the internal actor/request ids the map below
  * never reads. Naming columns closes that at the query rather than
  * trusting the map alone.
+ *
+ * FIX ROUND (whole-branch review, finding 3): `return_note` used to be
+ * one of the named columns and rode into the `note` cell ahead of
+ * `void_reason`. That contradicted BooksExportQuery's own
+ * `condition_note` exclusion — ReceiveReturn writes the SAME trimmed
+ * string into both `loans.return_note` and `book_copies.condition_note`
+ * in one call (its own docblock: "condition_note moves with condition —
+ * one judgement"), so exporting one and excluding the other for the
+ * identical value made the exclusion arbitrary rather than principled.
+ * Resolved by ReadersExportQuery's own stated bound — "a downloadable
+ * file is a different distribution surface than a page rendered one
+ * record at a time" — applied to its harder case: `condition_note` at
+ * least reaches a per-record screen's TypeScript interface (even if
+ * unread today; see BooksExportQuery's docblock) and a manager-gated
+ * audit expansion (AssessCondition's `conditionNote` in the `after`
+ * payload). `return_note` reaches NEITHER — no screen anywhere renders
+ * it — so if the harder case is excluded, the easier one cannot be
+ * included. `return_note` is dropped from both this select and the
+ * `note` map; only `void_reason` remains, which is not a comparable
+ * free-text aside but the specific, required-by-BR-§11 explanation for
+ * why a loan record exists with no lending in it — "why is there no
+ * loan here" needing an answer six months later is precisely the
+ * disclosure the export's own reason to exist demands, unlike an
+ * optional remark about how damp the book was.
  */
 final class LoansExportQuery
 {
@@ -53,7 +77,7 @@ final class LoansExportQuery
             ->leftJoin('users as lender', 'lender.id', '=', 'loans.lent_by')
             ->leftJoin('users as receiver', 'receiver.id', '=', 'loans.received_by')
             ->select('loans.id', 'loans.status', 'loans.lent_at', 'loans.due_on',
-                'loans.returned_at', 'loans.return_condition', 'loans.return_note',
+                'loans.returned_at', 'loans.return_condition',
                 'loans.void_reason',
                 'books.title', 'book_copies.code as copy_code',
                 'borrower.full_name as borrower_name',
@@ -73,9 +97,13 @@ final class LoansExportQuery
             'returnCondition' => $loan->return_condition?->value,
             'lentBy' => $loan->getAttribute('lender_name'),
             'receivedBy' => $loan->getAttribute('receiver_name'),
-            // One note column rather than three near-empty ones: a loan
-            // carries at most one of these.
-            'note' => $loan->return_note ?? $loan->void_reason,
+            // void_reason only — NOT return_note (fix round, finding 3
+            // above): a voided loan's reason is BR §11's required "why is
+            // there no loan here" answer, not a private free-text remark
+            // like return_note/condition_note, which never reach any
+            // screen and are excluded here for the same reason
+            // BooksExportQuery excludes condition_note.
+            'note' => $loan->void_reason,
         ])->all());
     }
 
