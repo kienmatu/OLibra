@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Draft — awaiting the product owner's answers to the two open questions below, and Opus review, before any code.
+**Status:** Reviewed and fixed (2026-08-29, post-review round). Both product-owner questions are ANSWERED and recorded as rulings below — nothing in this plan is still open. Ready to execute.
 
 **Goal:** The waiting queue, end to end: a reader presses "Xin mượn" on a title (`CreateBorrowRequest`), a manager works the queue — approve onto a copy with a visible hold expiry (`ApproveBorrowRequest`), decline with an optional reason (`RejectBorrowRequest`), hand the held book over (`HandoverRequest` → the one `LendCopy` implementation) — a reader withdraws their own place (`CancelOwnRequest`), `ReceiveReturn` is re-widened to its reference shape so a returned copy can be held for the next child without ever being observably available in between, every reader-facing event lands as an in-app notification written in the same transaction as the fact it announces, and the 07:00 Asia/Ho_Chi_Minh sweep writes the due-soon and overdue reminders that no command can (`reminders:sweep`).
 
@@ -16,7 +16,7 @@
 
 **Who approves and rejects — verified, not assumed.** The scope note asked whether approve/reject is "manager or volunteer". The reference's rule is `requireManager` on all three manager-side commands (`approve-borrow-request.ts`, `reject-borrow-request.ts`, `handover-request.ts`) and on the queue query (`get-borrow-request-queue.ts`). In this system the volunteers standing at the shelf ARE the members holding the `manager` role (BR §13.1; BR §16 titles its manager walks "the volunteer walks"); there is no separate volunteer role in `membership_role` (`reader | manager | admin`). So: `role:manager` middleware plus `act-as-manager` gates, exactly as 1c gated lend/return. `create` and `cancel` are `reader (own … only)` per OPS §4.2, enforced the way the reference enforces them — by comparing user ids, never by rank alone.
 
-**The query census (OPS §3).** This plan implements `GetBorrowRequestQueue` (§3.3, with its `bookId` narrowing for the return screen and the badge-count companion), `GetMyNotifications` (§3.2), and the **requests half of `GetMyDashboard`** that 1c's plan explicitly left as "an explicit empty state until then" (1c open question 5). It extends `GetManagerDashboard` with the third of BR §16.3's four stat cards (pending requests — the fourth, pending comments, is 2b's) and `GetBookDetail` (reader) with the caller's own request. `ResolveCopyById` stays 2c's.
+**The query census (OPS §3).** This plan implements `GetBorrowRequestQueue` (§3.3, with its `bookId` narrowing for the return screen and the badge-count companion), `GetMyNotifications` (§3.2), and the **requests half of `GetMyDashboard`** that 1c's plan explicitly left as "an explicit empty state until then" (1c's open question 5). It extends `GetManagerDashboard` with the third of BR §16.3's four stat cards (pending requests — the fourth, pending comments, is 2b's) and `GetBookDetail` (reader) with the caller's own request. `ResolveCopyById` stays 2c's.
 
 **Architecture:** unchanged from 1a–1d: single-purpose Action classes in `app/Actions/Circulation/`, pure predicates in `app/Support/Circulation/`, read shapes in `app/Queries/`, Form Requests in `app/Http/Requests/Circulation/`, thin controllers, Inertia pages, Vietnamese copy in `resources/js/lib/copy.ts` + `lang/vi/`, English URIs. The one NEW architectural element is `app/Support/Notifications/` — the kinds map, the sentence renderer and the write path — mirroring `app/Support/Audit/`'s shape, because the reference's `src/domain/notifications/` makes exactly the same argument for it that `audit-actions.ts` made for the audit map: the map is the type, an uncovered kind is a build failure, and the Vietnamese is rendered from the stored payload at read time, never stored pre-glued.
 
@@ -29,7 +29,22 @@
 1. **The lock order extends 1c's, and it is: copy → loan → membership → request, audit last.** 1c fixed copy-before-loan and copy-before-membership; every command here that touches a request row alongside a copy or loan takes the request lock LAST. Concretely: `ApproveBorrowRequest` locks the **copy** (its input) then the **request**; `CancelOwnRequest` locks the **copy** first *when the route-bound snapshot names one* (`copy_id` is an in-memory attribute, no query — the exact 1c `ReceiveReturn` idiom), then the **request**; `ReceiveReturn` locks copy → loan → the **pending hold-for request** (a third lock the reference never took — its `resolveHold` was a plain read that a concurrent `CancelOwnRequest` could invalidate mid-transaction); `RejectBorrowRequest` touches no copy and locks only the request; `LendCopy` keeps copy → membership and its collected-hold close is a guarded UPDATE on a row whose copy lock it already holds; `HandoverRequest` takes **no locks of its own** (divergence 11). Each locking command's test pins lock **position** with the `$log[0]` query-log idiom, `DB::flushQueryLog()` between commands (never `disableQueryLog()`, which does not clear the buffer).
 
    **One residual window is documented rather than claimed away, and no cycle-free claim is made for it.** `CancelOwnRequest` bound while its request was `pending` (snapshot `copy_id` null → no copy lock taken) can find, under its request lock, that a concurrent approval has since attached a copy; its guarded release (`UPDATE book_copies SET state='available' WHERE id=? AND state='held'`) then wants a copy lock *after* the request lock — the one place this phase's order inverts. The partner that could hold that copy X while wanting this request X is a mid-flight `HandoverRequest`/`LendCopy` collecting the same hold. The interleaving requires the reader's cancel to bind pre-approval and reach its copy write mid-handover of a hold approved after their page loaded; the loser gets InnoDB's 1213 and the transaction rolls back whole (nothing half-applied — that is the transaction's property). The reference took **zero** locks in any of these commands, so every schedule this window admits, the reference admitted plus more. Task 19 records the window in `docs/known-gaps.md` with this exact interleaving, per the house rule that a *deadlock-freedom* claim needs two real OS processes — this plan claims a *window*, not its absence, so the burden is the record, not the reproduction.
-2. **`CreateBorrowRequest` locks the book row as its first statement — stronger than the reference, which documents its own race and ships it.** The reference's `duplicate_request` check is a plain read ("no unique index on `(book_id, member_id)` — verified against `pg_indexes`… two taps in the same second produce two pending rows", its own docblock). The house rule is lock-first-then-check, and the natural serialisation point for "one place in this title's queue per reader" is the title: `Book::query()->lockForUpdate()` first, so two taps serialise and the second reads the first's committed row. The 1c divergence-3 precedent (INV-5's count gained the membership lock the reference never had). No AB–BA risk: nothing else in the shipped codebase takes an X lock on a `books` row (1a's `AllocateCopyCodes` X-locks `bookshelves`), and this command, holding book X, then wants only S parents (`bookshelves`, `users`) plus its own insert — a one-directional wait, never a cycle.
+2. **`CreateBorrowRequest` takes NO lock at all, and the duplicate rule becomes a constraint instead.** The reference's `duplicate_request` check is a plain read ("no unique index on `(book_id, member_id)` — verified against `pg_indexes`… two taps in the same second produce two pending rows", its own docblock). This plan's first draft answered that with `Book::query()->lockForUpdate()` as the transaction's first statement. **That was wrong, and it is withdrawn.** `app/Actions/Catalogue/UpdateBook.php:73-84` opens its transaction with `DB::table('bookshelves')->where('id', $bookshelfId)->lockForUpdate()` and then WRITES the book row — an exclusive lock on the `books` clustered record — while this command's own `borrow_requests` insert and its audit insert each take a SHARED lock on the shelf's `bookshelves` row through their `RESTRICT` foreign keys (`2026_08_26_000019_add_composite_tenant_fks.php:34` for the composite book FK; `docs/known-gaps.md:1633-1640` records the audit-insert edge). A book lock here therefore closes a real AB–BA cycle:
+
+   ```
+   T1  UpdateBook (a manager fixes a typo):    X(bookshelves S1) ──► wants X(books B)
+   T2  CreateBorrowRequest (a child taps):     X(books B)        ──► wants S(bookshelves S1)
+   ```
+
+   Both are clustered-record locks, so the secondary-index luck that saves the `book_copies ↔ memberships` near-miss (known-gaps.md:1706-1724) does not apply, and the reachable case is mundane: a title being renamed while a child taps *Xin mượn* on it.
+
+   **The decision, and it is a decision, not a menu:** this command takes no `lockForUpdate` anywhere, and the rule the lock was protecting becomes a **partial unique index** — `borrow_requests.live_request_key`, a STORED generated column `IF(deleted_at IS NULL AND status IN ('pending','approved'), CONCAT(book_id, ':', member_id), NULL)` under a UNIQUE constraint (Task 1's migration). Three shipped tables already carry exactly this shape — `loans.active_copy_id` (INV-1), `profile_change_requests.pending_user_id` (INV-13), `bookshelves.slug` — and it is strictly stronger than any lock could be: two taps in the same millisecond cannot both land, at any isolation level, from any number of PHP workers. The plain read stays as the *sentence* half (the friendly refusal in the common case); the losing insert's errno 1062 is translated by the shipped `App\Support\UniqueViolation::translate`, matched BY CONSTRAINT NAME, exactly as `LendCopy` translates `loans_one_active_per_copy`. This is 1c's own two-part shape ("locked re-reads + pure predicates for the common case; the INSERT, judged by the index, for the case BR §2 describes") with the lock half removed because it has nothing left to serialise.
+
+   Moving the serialisation point to `bookshelves` instead — matching `UpdateBook`/`AllocateCopyCodes` — was the other candidate, and it is rejected for two reasons. It would make every child's *Xin mượn* queue behind a bulk `AddCopies` run, which holds that one shelf row exclusively for its whole transaction. And it would create a NEW edge of the cycle known-gaps.md:1653-1700 has already REPRODUCED with two real OS processes: a transaction holding `X(bookshelves)` and then wanting `S(users:actor)` through its own audit insert, against `UpdateReaderProfile`/`SetReaderCredentials` holding `X(users)` and wanting `S(bookshelves)`. Adding the reader-facing queue entry point to that family is the opposite of the fix.
+
+   **No cycle-freedom claim is made anywhere in this plan — not for this command, not for any other.** The house rule is that such a claim needs two real OS processes to earn it, and this plan contains no task that runs them; the residual window in divergence 1 is likewise recorded, never claimed away. What IS claimed here is narrower and is pinned by a test rather than by reading: `CreateBorrowRequest` contains no `lockForUpdate` call at all (Task 4's grep pin), so it cannot be the exclusive-lock holder on either side of any wait-for edge.
+
+   Verified live against the `laravel-mariadb-1` container before this plan was fixed, not reasoned about: the DDL applies to the shipped `borrow_requests` table; a second `pending` row for the same `(book_id, member_id)` raises `ERROR 1062 (23000): Duplicate entry 'b1:u1' for key 'borrow_requests_one_live_per_title_member'`; `approved` holds the key as `pending` does; and `fulfilled`, `rejected`, `cancelled`, `expired` and soft-deleted rows every one release it, so a reader whose request ended may queue for that title again.
 3. **`CreateBorrowRequest` ships without the reference's optional `copyId`** (the QR-scan "which copy prompted this" record, `borrow-request-by-copy.test.ts`). Nothing in 2a can produce a scanned copy id — `ResolveCopyById`, the scan pages and the labels themselves are 2c. Shipping the parameter with no caller would be the "implemented, reachable from nowhere" shape 1b's ledger existed to close. The 1c `ReceiveReturn` precedent applies: the narrowing is stated in the Action's docblock, recorded in known-gaps (Task 19) with the exact reference behaviour 2c restores — the nullable `copy_id` on create, the same-title/same-shelf/not-deleted guards, the `copy_id` key in the `request.created` audit payload (which this plan writes as an always-present `null` so the payload shape does not change when 2c lands).
 4. **The `membershipId` input is dropped; the session is the scope.** The reference's create takes a caller-supplied `membershipId` and compares it against `ctx.actor.membershipId` because its form posted a hidden field. Here `TenantContext::membership()` IS the caller's own membership of the bound shelf (ResolveTenant resolved it from the session — the same place the reference's `guards.ts` resolved its), so there is no field to lie in; the Action still compares `membership->user_id` against the acting user defensively. Same shape for `CancelOwnRequest`: OWNERSHIP is `borrow_requests.member_id === $actor->id` — both sides `users.id`, the trap the reference's docblock calls out by name (a membership id on either side is never equal and every cancel would refuse).
 5. **Notification payload dates are Asia/Ho_Chi_Minh civil dates, rendered d/m/Y.** The reference stores `hold_until` and `due_on` as `toISOString().slice(0,10)` — the **UTC** civil date — and renders them raw ("nhận trước ngày 2026-09-01"). Every other date in this system is the parish's day (`Clock::today()`, BR §5.4), and AGENTS.md's language rule is "dates read as dates". So the payload stores `Y-m-d` computed in `Asia/Ho_Chi_Minh`, and `NotificationSentences` renders it `d/m/Y`. Two small, named corrections to the reference, both citing house rules older than this plan.
@@ -39,7 +54,9 @@
 9. **The sweep inserts through Eloquent, not `INSERT … SELECT`.** The reference's two set-based inserts rely on Postgres generating ids; here every id is an application-generated UUIDv7 (`HasUuids`) and MariaDB 10.11 has no v7 function, so the command selects the candidate loans (two queries) and creates `Notification` rows one by one inside one transaction. The idempotence predicate is identical in meaning: per loan and per kind, "already told" is the existence of a notification with the same user, kind, `due_on` and title — the notification itself is the cursor, exactly as `sweep.ts` argues (no `last_swept_at` to drift, roll back, or be reset by a restore).
 10. **The bell is a header link with a count, not a dropdown.** The shipped Laravel layout is deliberately spare (no badges anywhere; the 1d dashboard's cards are the counts). `unreadNotifications` becomes a lazy shared prop and the header renders "Thông báo (3)" linking to the notifications page — BR §15's "a bell with an unread count" satisfied without inventing a dropdown no other screen has.
 11. **`HandoverRequest`'s pre-flight reads run OUTSIDE any transaction, and the one write transaction is `LendCopy`'s.** The reference reads the request unlocked and delegates; under the house rule "every circulation write transaction's first statement is a lock", the clean port is: no transaction of handover's own — its reads pick the kind sentence (`hold_expired`, `request_not_held`), then `LendCopy::execute` opens the transaction with the copy lock and re-establishes every fact on locked rows. A hold that lapses or is cancelled in the microseconds between produces `copy_not_available` instead of `hold_expired` — a stale *sentence* in a race the reference had identically, never a wrong write. Locking the request first instead would invert divergence 1's order against `LendCopy` and `CancelOwnRequest` and manufacture the AB–BA this ordering exists to avoid.
-12. **Refusal code spellings are the reference's `errors.ts`, sentences verbatim** (the two-ledger rule). New keys this plan adds to `lang/vi/rules.php`: `duplicate_request`, `membership_not_active_cannot_request`, `request_not_pending`, `request_not_queued`, `no_copy_available`, `chosen_copy_lost_or_retired`, `hold_expired`, `request_not_held`, `not_own_request`, `request_already_fulfilled`, `copy_not_found` — all eleven exist in OPS §4.2 / `errors.ts` already, so unlike 1c's `title_has_no_copies` **no OPS amendment is needed for any refusal this plan ships** (open question 1's option B would add one audit action, and carries its own OPS edit).
+12. **Refusal code spellings are the reference's `errors.ts`, sentences verbatim** (the two-ledger rule). New keys this plan adds to `lang/vi/rules.php`: `duplicate_request`, `membership_not_active_cannot_request`, `request_not_pending`, `request_not_queued`, `no_copy_available`, `chosen_copy_lost_or_retired`, `hold_expired`, `request_not_held`, `not_own_request`, `request_already_fulfilled`, `copy_not_found` — all eleven exist in `errors.ts` already, so unlike 1c's `title_has_no_copies` **no OPS amendment is needed for the refusal SENTENCES this plan ships**. One precision the review earned: `request_not_held` has **no failure-mode entry under any OPS §4.2 command** (checked by opening the file). That is defensible — OPS §4.2's `HandoverRequest` entry states its failure modes as the `/errors.ts` disjunction rather than enumerating them, and every other code this plan uses IS enumerated — but "defensible" is a thing the record must say out loud, so Task 19's OPS walk states it explicitly instead of letting this blanket sentence cover it silently. Ruling 1 adds one audit action and carries its own OPS edit (Task 18), plus one authored code, `hold_not_expired`, which has no `errors.ts` spelling and gets the `title_has_no_copies` treatment: minted with its OPS entry in the same commit.
+13. **An `available` copy under somebody else's live hold is lendable, and that hole is PORTED, not closed.** `LoanRules::copyLendable`'s `available` branch returns null without looking at holds — the faithful port of `old_next/src/domain/circulation/policy.ts:86-108`. The row is reachable with shipped 1a commands: approve onto copy C (`held`), `ReportCopyLost` (C → `lost`, the request still `approved` with a live hold), `MarkCopyFound` (C → `available`) — now a walk-up lend of C takes a copy promised to somebody else. `ApproveBorrowRequest` refuses that row (Task 5's two-clause predicate has a named test for it); `LendCopy` does not, and neither does the reference. The port keeps the reference's behaviour and adds the one guarantee that matters: the walk-up lend must never CLOSE the other reader's request (`$collectedHoldId`'s second half). Task 8 seeds exactly this row and asserts both halves — the lend succeeds, the foreign hold stays `approved` with a null `fulfilled_loan_id` — which is also what makes Task 8's second mutation check fire. Task 19 records the hole in known-gaps with this reachability walk.
+14. **`ChooseCopy` is NOT taught the hold predicate; `ApproveBorrowRequest` keeps step 1 and step 3 in sync instead.** known-gaps' Phase-2 landmine ("the moment `ApproveBorrowRequest` exists and flips a copy to `held`, step 1 (search) and step 3 (confirm) will disagree unless `ApproveBorrowRequest` keeps them in sync or `ChooseCopy` is taught the same predicate") names two acceptable resolutions and this plan takes the first, deliberately. `CountsCopies::borrowable()` (`app/Queries/Concerns/CountsCopies.php:33-48`) excludes an `available` copy under a live hold; `ChooseCopy::lowestLendable` (`app/Support/Circulation/ChooseCopy.php:47`) branches on `book_copies.state` alone. Every hold-creating command in this plan writes `held` in the SAME transaction as the hold (Tasks 5 and 10), so the two predicates select the same set and the quick-lend walk stays coherent with no change to `ChooseCopy` — which is pure over a `Collection<BookCopy>` and would have to be given hold data by every caller to learn the predicate. The residual is exactly divergence 13's row, and only that row. Task 19 pins the agreement with a test and amends the landmine entry to this disposition rather than leaving it open.
 
 ## Global Constraints
 
@@ -47,12 +64,12 @@ Phase 0's, 1a's, 1b's, 1c's and 1d's Global Constraints all still bind — branc
 
 - **`old_next/` is read-only.** `git diff origin/main...HEAD -- old_next/` stays empty for the whole branch. Task 19 runs that exact command and pastes its (empty) output.
 - **Nothing may read before the lock, and the order is copy → loan → membership → request** (divergence 1). Route-bound models are stale snapshots; an in-memory attribute read (`$request->copy_id`) is not a query and may steer which lock comes first. Every check after a lock reads locked rows or queries issued after the first lock. `DB::flushQueryLog()` between commands in any multi-command lock-position test.
-- **Derived state is computed on read** (BR §8): hold expiry is `hold_expires_at` compared against the injected clock at read time — the `expired` status value exists in the CHECK and **nothing in this plan writes it** (open question 1's option B is the one candidate writer, and only on the owner's yes). `holdExpired` on the queue is computed per row; a lapsed hold "arrives as absence" through the `hold_expires_at > now` filter, which is what makes `LoanRules::copyLendable`'s null-holder branch fire. If a task seems to need a job that flips `approved` rows to `expired`, the task is wrong.
+- **Derived state is computed on read** (BR §8): hold expiry is `hold_expires_at` compared against the injected clock at read time. `holdExpired` on the queue is computed per row; a lapsed hold "arrives as absence" through the `hold_expires_at > now` filter, which is what makes `LoanRules::copyLendable`'s null-holder branch fire. **Exactly one thing in this plan writes the `expired` status: `ReleaseExpiredHold` (Task 18), on the owner's ruling 1** — and it writes it only as the RECORD of a lapse the clock had already produced, at a manager's explicit request, guarded on `hold_expires_at <= now`. Expiry itself stays derived; nothing computes status from a job. If a task seems to need a *scheduled* job that flips `approved` rows to `expired`, the task is wrong — the sweep (Task 17) writes notification rows and nothing else.
 - **Domain time goes through `App\Support\Clock`** — nothing calls `now()`/`Carbon::now()` directly; the sweep's window arithmetic starts from `Clock::today()` (the Asia/Ho_Chi_Minh civil date), hold expiry from `Clock::now()` (UTC instant) via `LoanTerms::holdExpiry`.
-- **Every reader-facing notification is written by `Notifier::notify()` inside the command's own `DB::transaction`** — a notification cannot outlive a rolled-back approval, and an approval cannot commit without its notification. The sweep is the one non-command writer (OPS §7's argued exception) and writes its own rows with explicit `bookshelf_id` under `actSystemWide()`. `NotificationsAreReaderFacingTest` holds the kind↔writer table set-equal in both directions at every commit, so **every task that adds a kind adds its writer, its `lang/vi/notifications.php` sentence, its `NotificationSentences` match arm and its table row in the same commit**.
+- **Every reader-facing notification is written by `Notifier::notify()` inside the command's own `DB::transaction`** — a notification cannot outlive a rolled-back approval, and an approval cannot commit without its notification. **That sentence is a guarantee, so it gets a guard that can fail**: `NotificationsAreReaderFacingTest`'s fourth test tokenises every file that calls `notifier->notify(` and asserts each call's byte offset falls inside a `DB::transaction(` closure's brace range — the token-walking shape `AuditActionCensusTest` already uses (Task 2 writes it; every later writer is covered by it automatically). This exists because moving `$this->notifier->notify(...)` to after `DB::transaction(...)` returns otherwise leaves every behavioural test in this plan green — Phase 1d's exact finding (a headline guard unwireable with 1,028 tests passing), which this project has decided not to accept a second time. The sweep is the one non-command writer (OPS §7's argued exception), writes its own rows with explicit `bookshelf_id` under `actSystemWide()`, and is named in the guard's allow-list. `NotificationsAreReaderFacingTest` also holds the kind↔writer table set-equal in both directions at every commit, so **every task that adds a kind adds its writer, its `lang/vi/notifications.php` sentence, its `NotificationSentences` match arm and its table row in the same commit**.
 - **`borrow_requests.member_id` and `notifications.user_id` are `users(id)`, never membership ids** — the recurring trap the reference names in four separate docblocks. Every variable carrying one is named for the id it holds (`$userId`, `$heldForUserId`); `Notifier::notify()`'s parameter is `string $userId`.
 - **Anti-enumeration (BR §5.4): refusals over HTTP are 404, never 403.** New routes sit behind `role:manager`/`role:reader`; every new Form Request `authorize()` is `abort_unless(Gate::allows(...), 404)`. "No such request", "another shelf's request" and "already decided" share one code per command (the reference's argument, kept): `request_not_pending` for approve/reject, `request_not_held` for handover, `not_own_request` for cancel.
-- **Soft deletion is undo (BR §11):** `BorrowRequest` uses `SoftDeletes` and no query in this plan calls `withTrashed()`; the duplicate check, the queue, the hold reads and the sweep all see live rows only, via the model's own scope. No new uniqueness rule is added (divergence 2 chose a lock, not an index), so no generated column is needed.
+- **Soft deletion is undo (BR §11):** `BorrowRequest` uses `SoftDeletes` and no query in this plan calls `withTrashed()`; the duplicate check, the queue, the hold reads and the sweep all see live rows only, via the model's own scope. **One new uniqueness rule IS added** (divergence 2): `borrow_requests_one_live_per_title_member` over the STORED generated column `live_request_key`, whose expression names `deleted_at IS NULL` explicitly, so a soft-deleted row frees its slot the way `bookshelves.slug_active` does — verified live, not assumed (divergence 2's paragraph carries the command output). Every fixture in this plan that seeds two `pending`-or-`approved` rows for one title therefore uses two DIFFERENT readers; Task 1 states the rule and the tasks that seed rivals (5, 8, 9, 10, 12, 13) each honour it.
 - **No hand-written `where('bookshelf_id', <value>)`** — tenancy comes from `BookshelfScope`. The queue query's `memberships` join uses **column-to-column** equality (`memberships.bookshelf_id = borrow_requests.bookshelf_id`) — a join predicate, not a tenant filter; Task 11 confirms `TenancyArchitectureTest` stays green and says why in a comment at the join.
 - **`SessionGuard` caches the `actingAs` user for a whole test method** — every actor switch is its own `it()` block or a fresh request. Fired four times on this project; zero tolerance.
 - **UUID v7 keys are chronologically monotonic** — every ordering test seeds OUT of intended order, and every same-instant tiebreak test pins the mechanism (`orderBy('id')`) explicitly with a comment when the v7 id equals creation order by construction.
@@ -61,18 +78,18 @@ Phase 0's, 1a's, 1b's, 1c's and 1d's Global Constraints all still bind — branc
 - **Free-text rules lead with `bail` and carry `encoding:UTF-8`** (`reason`); `FreeTextEncodingGuardTest` sweeps every Form Request automatically — new requests must pass it, not be exempted from it. Id-shaped inputs that reach a query without route binding (`copy_id`, `hold_for_request_id`) are validated `uuid` in the Form Request so an emoji in a form post is a validation message, never an errno 1267 collation 500 (the `SafeId` lesson, PR #62).
 - **A `returned` loan fixture carries `return_condition`** (`loans_returned_has_condition` has broken four fixtures on this repo); an `approved` request fixture carries `copy_id`, `hold_expires_at`, `decided_by`, `decided_at` together — the shape every live approval writes — and its copy is `held`, or the fixture describes a state no command produces.
 - **Fixture names dodge `UserFactory`'s pool** ('Trần Minh' is in it verbatim) and `DemoShelfSeeder`; the second-shelf template needs `TenantContext::actSystemWide()` before creating rows, then `set()` to rebind.
-- **Test helper names are process-global** (AGENTS.md). Registered by this plan, checked against `grep -rhn "^function " tests/` (the 1a–1d registry: `lendFix`, `retFix`, `renFix`, `voidFix`, `qlFix`, `rqFixture`, `rdrHold` etc. are TAKEN): `nwpFix` (Task 2), `cbrFix` (4), `abrFix` (5), `rjbFix` (6), `corFix` (7), `lchFix` (8), `hovFix` (9), `rrwFix` (10), `quqFix` (11), `rrsFix` (12), `drhFix` (13), `mqsFix` (14), `rhoFix` (15), `mynFix` (16), `swpFix` (17), `ehxFix` (18, conditional). Before adding any further helper, grep first.
+- **Test helper names are process-global** (AGENTS.md), and so is a top-level `const`. The COMPLETE list this plan mints — corrected after the review found the first version incomplete, so treat it as the registry, not as a sample: `lrkFix` and `lrkRow` (Task 1), `nwpFix` (2), `brpFix` (3), `cbrFix` (4), `abrFix` (5), `rjbFix` (6), `corFix` (7), `lchFix` (8), `hovFix` (9), `rrwFix` (10), `quqFix` and `quqRequest` (11), `rrsFix` (12), `drhFix` (13), `mqsFix` (14), `rhoFix` (15), `mynFix` (16), `swpFix` (17), `ehxFix` (18) — **twenty functions** — plus one top-level constant, `OPS_SECTION_7` (Task 2's census table), which is a global symbol under the same rule and would fatal on redeclaration exactly as a function would. Checked against `grep -rhn "^function \|^const " tests/`: no collision with the 1a–1d registry (`lendFix`, `retFix`, `renFix`, `voidFix`, `qlFix`, `rqFixture`, `rdrHold` etc. are TAKEN). Before adding any further helper OR constant, grep first — for both keywords.
 - **`make test FILTER=…`** runs a filtered suite; `make lint` is Pint; `make analyse` is Larastan; the JS gates run via the repo's standard scripts (Biome, tsc, `bun run build` — see AGENTS.md / package.json). Scratch output goes to `.artifacts/` (gitignored).
 
-## Open questions for the product owner — answered before code starts
+## Product-owner rulings — ANSWERED. Do not relitigate.
 
-Two genuine product decisions surfaced by this port. Neither is decided by this plan; each is presented with its options and a concrete worked example per option, and the plan marks exactly which tasks change on each answer. Everything else the port raised is either a named divergence above (technical, argued from house rules) or a reference decision this plan ports as-is (listed after the questions).
+This port surfaced two genuine product decisions. **Kien answered both on 2026-08-29, before any code**, and they are recorded here (and in `docs/superpowers/HANDOFF.md`) as settled. The reasoning is kept because the reasoning is what stops the question being reopened; the options are kept because a ruling with its rejected alternative beside it is a ruling somebody can check. Nothing below is still open.
 
-### OQ1 — a lapsed hold has no manager exit. Port the gap, or build the one command BR §7.2 already draws?
+### RULING 1 (was OQ1) — a lapsed hold gets a manager exit. `ReleaseExpiredHold` SHIPS; **Task 18 EXECUTES.**
 
 **Context.** When a hold lapses (the reader never came), the copy sits in `held` and the request in `approved`. The queue screen keeps the row, flagged "Thời gian giữ chỗ đã hết" — deliberately, so the one thing going wrong stays visible. But **the reference gives the manager no way to act on it**: *Xác nhận trao sách* refuses with `hold_expired` ("…Bạn đọc cần đăng ký lại."), *Từ chối* exists only on `pending` rows (`RejectBorrowRequest` refuses `approved` with `request_not_pending`), and grep confirms no command in `old_next/src/domain/` performs `approved → expired` or frees a held copy except the READER's own `CancelOwnRequest` (`grep -rn "state = 'available'" old_next/src/domain` finds only cancel, void-loan and mark-copy-found). The queue query's own docblock says "a manager has to record `held → available` or offer it to the next reader" — and no command does it. BR §7.2 draws the arrow (`approved → expired — hold lapsed, reader never collected`), the `expired` status is in the CHECK constraint, `HandoverRequest` even checks for it defensively — and nothing ever writes it. This is the `ManagerRegisterReader` shape 1c's settled decision 3 named: a reference **gap**, not a reference **decision**.
 
-**Option A — port the gap faithfully.** The expired row stays on the queue screen with only the handover button (which refuses); the copy is freed only if the reader cancels. Worked example — the row a volunteer sees, before and forever after:
+**The rejected option (A) — port the gap faithfully.** The expired row would stay on the queue screen with only the handover button (which refuses); the copy freed only if the reader cancels. Worked example — the row a volunteer would see, before and forever after:
 
 > **1** · **Têrêsa Lê Ngọc Ánh** — Đăng ký 14:05 24/08 · Giáo họ Đức Mẹ
 > 🕒 Thời gian giữ chỗ đã hết lúc 07:00 28/08 · bản DT-0142
@@ -80,7 +97,7 @@ Two genuine product decisions surfaced by this port. Neither is decided by this 
 
 DT-0142's copy row on the book page reads **Đang giữ chỗ** indefinitely; `SearchBooksForLending` counts it unavailable; the next child asking for the title is told nothing is free while the book sits on the shelf. Known-gaps records the dead end verbatim.
 
-**Option B — build the exit: a `ReleaseExpiredHold` command (Task 18, written below in full, executed only on this answer).** One button on the expired row only — **Trả về kệ** — performing `approved → expired` (BR §7.2's own arrow, at last written by something) + `held → available` in one transaction, copy locked first, guarded on the hold actually having lapsed by the clock (`hold_expires_at <= now`, else refused — a manager may not yank a live hold; offering the freed copy to the next reader is then one ordinary *Duyệt & giữ chỗ*). New audit action `request.expired`, and — the `title_has_no_copies` precedent — an OPS §4.2 amendment naming the command, in the same commit that mints it. Worked example, the same row after the ruling:
+**THE RULING (B) — build the exit: a `ReleaseExpiredHold` command (Task 18, written below in full, and Task 18 EXECUTES).** One button on the expired row only — **Trả về kệ** — performing `approved → expired` (BR §7.2's own arrow, at last written by something) + `held → available` in one transaction, copy locked first, guarded on the hold actually having lapsed by the clock (`hold_expires_at <= now`, else refused — a manager may not yank a live hold; offering the freed copy to the next reader is then one ordinary *Duyệt & giữ chỗ*). New audit action `request.expired`, and — the `title_has_no_copies` precedent — an OPS §4.2 amendment naming the command, in the same commit that mints it. Worked example, the same row after the ruling:
 
 > **1** · **Têrêsa Lê Ngọc Ánh** — Đăng ký 14:05 24/08 · Giáo họ Đức Mẹ
 > 🕒 Thời gian giữ chỗ đã hết lúc 07:00 28/08 · bản DT-0142
@@ -88,22 +105,24 @@ DT-0142's copy row on the book page reads **Đang giữ chỗ** indefinitely; `S
 
 Tapping *Trả về kệ*: the row leaves the queue (status `expired`, terminal), DT-0142 flips to **Còn sách**, the audit log gains "Maria Quản Lý Kho đã kết thúc giữ chỗ quá hạn của Têrêsa Lê Ngọc Ánh và trả bản sách về kệ", and no notification is written (BR §15 lists no "your hold lapsed" event — the child was already told the deadline in the approval notification).
 
-*Default if unanswered: A (parity).* On B, Task 18 executes and Task 19's known-gaps entry records the ruling instead of the gap.
+**Kien's words, recorded:** the reference's gap strands a copy in `held` forever unless the READER cancels, and a volunteer standing at the shelf with a book in their hand needs a way to put it back. The plan had defaulted to A on parity grounds; the owner overrode that default deliberately.
 
-### OQ2 — must a manager give a reason when rejecting a borrow request? (OPS §4.2's own open question, Q2)
+**What this ruling changes across the plan, so nothing is left half-answered:** Task 18 executes (it is no longer conditional, and its heading says so). The Global Constraints' derived-state bullet no longer says "nothing in this plan writes `expired`" — `ReleaseExpiredHold` does, and the bullet now says which and under what guard. `HandoverRequest`'s `RequestStatus::Expired → hold_expired` branch stops being defensive-against-nothing and becomes REACHABLE — a manager releases a lapsed hold while a stale queue page still shows its handover button — so Task 9 carries a named test for that branch and the docblock says so. `request.expired` is the phase's sixth new audit action, taking `AuditSentences`' count to 27 (Task 8's edit). Task 19's known-gaps entry records the ruling instead of the gap, and OPS §4.2 gains the command entry in Task 18's own commit.
+
+### RULING 2 (was OQ2) — the reject reason stays **OPTIONAL**. (OPS §4.2's own open question, Q2, now closed.)
 
 **Context.** `RejectMembership` and `RejectProfileChange` both REQUIRE a reason and their screens say so ("Từ chối cần ghi lý do"); the borrow queue's *Từ chối* carries no such statement, OPS lists no `reason_required` failure mode for `RejectBorrowRequest`, and the reference implements **optional** with a named test ("the reason is optional, and an empty one is stored as no reason") and a hint on the form ("Không bắt buộc."). OPS's open-question note calls the inconsistency with the other two rejection flows "unintentional rather than a deliberate product decision"-looking.
 
-**Option A — optional (the reference's shipped reading; this plan's default).** The reject disclosure:
+**THE RULING (A) — optional, the reference's shipped reading.** The reject disclosure:
 
 > Lý do từ chối — *Không bắt buộc.*
 > [________________]  [Xác nhận từ chối]
 
 Submitted empty: `decision_note` stores NULL (an empty box is no reason, not a reason that says nothing), the audit sentence reads "…đã từ chối yêu cầu mượn Dế Mèn Phiêu Lưu Ký của Têrêsa Lê Ngọc Ánh" (no because-clause), and the reader's notification reads **"Yêu cầu mượn Dế Mèn Phiêu Lưu Ký chưa được duyệt."**
 
-**Option B — required (align with the other two rejection flows).** The form says "Từ chối cần ghi lý do", `reason` becomes `required` in `RejectBorrowRequestRequest`, an empty submit is a per-field validation error (message: 1b's existing `reject_reason_required` sentence, "Vui lòng ghi lý do từ chối." — no new key), and the reader always sees the because-clause: **"Yêu cầu mượn Dế Mèn Phiêu Lưu Ký chưa được duyệt vì sách đang được kiểm kê."** On B this plan enforces in the Form Request only and keeps the Action accepting null (the reference Action has a named test accepting null, and later port work diffs against it) — Task 6 marks the exact lines that change.
+**The rejected option (B) — required, aligning with the other two rejection flows.** The form would say "Từ chối cần ghi lý do", `reason` would become `required` in `RejectBorrowRequestRequest`, an empty submit a per-field validation error, and the reader would always see a because-clause. Rejected: parity with the reference, whose inconsistency with `RejectMembership`/`RejectProfileChange` OPS itself only ever described as *looking* unintentional. Reversing this later is one validation word and one hint string.
 
-*Default if unanswered: A (parity; reversing later is one validation line and one hint string).*
+**What this ruling changes across the plan:** **Tasks 6 and 14 take NO B-delta.** The inline "on OQ2 = B…" notes in those two tasks are deleted — the Form Request rule is `['bail', 'nullable', 'string', 'max:500', 'encoding:UTF-8']`, full stop; `rejectReasonHint` is `"Không bắt buộc."`, full stop; the Action's named test "the reason is optional, and an empty one is stored as no reason" is the shipped behaviour, not a behaviour that survives a switch. An empty box stores NULL — an empty box is no reason, not a reason that says nothing.
 
 ### Ported readings — settled by the reference or an earlier phase, listed so nobody relitigates them silently
 
@@ -121,6 +140,8 @@ Submitted empty: `decision_note` stores NULL (an empty box is no reason, not a r
 ## File Structure
 
 ```
+database/migrations/
+  2026_08_29_000001_add_borrow_requests_live_request_key.php   the partial unique index divergence 2 chose instead of a lock
 app/Support/Circulation/
   RequestRules.php         copyHoldable / memberMayRequest (pure; INV-3/4/7 from the request side)
   LoanTerms.php            (modified: + holdExpiry — hold_days after an instant, one home)
@@ -132,12 +153,12 @@ app/Support/Notifications/
 app/Actions/Circulation/
   CreateBorrowRequest.php  reader joins the queue (book lock first — divergence 2; no copyId — divergence 3)
   ApproveBorrowRequest.php pending → approved, copy → held, hold clock from the injected clock
-  RejectBorrowRequest.php  pending → rejected, optional reason (OQ2), notify
+  RejectBorrowRequest.php  pending → rejected, optional reason (ruling 2), notify
   CancelOwnRequest.php     own request → cancelled, guarded copy release
   HandoverRequest.php      pre-flight sentences, then THE LendCopy implementation (divergence 11)
   LendCopy.php             (modified: hold read after locks, held-for-me live, collected-hold close)
   ReceiveReturn.php        (modified: re-widened to the reference's full shape — the 1c promise)
-  ReleaseExpiredHold.php   (Task 18 — ONLY on OQ1 = B)
+  ReleaseExpiredHold.php   (Task 18 — SHIPS, on ruling 1)
 app/Actions/Members/
   ApproveMembership.php    (modified: + membership_approved notify, same transaction)
   RejectMembership.php     (modified: + membership_rejected notify, same transaction)
@@ -152,10 +173,10 @@ app/Queries/
 app/Console/Commands/SweepReminders.php   reminders:sweep — 07:00 Asia/Ho_Chi_Minh (Phase 0's reserved line)
 app/Http/Requests/Circulation/
   ApproveBorrowRequestRequest.php  copy_id (uuid)
-  RejectBorrowRequestRequest.php   reason (nullable on OQ2=A; bail + encoding:UTF-8)
+  RejectBorrowRequestRequest.php   reason (nullable — ruling 2; bail + encoding:UTF-8)
   ReceiveReturnRequest.php         (modified: + hold_for_request_id (nullable uuid))
 app/Http/Controllers/Manage/
-  BorrowRequestController.php   index / approve / reject / handover (+ release on OQ1=B)
+  BorrowRequestController.php   index / approve / reject / handover / release (release added in Task 18)
   ReturnController.php          (modified: waiting panel data + hold_for_request_id through)
 app/Http/Controllers/Reader/
   BorrowRequestController.php   store (from book detail) / cancel (book detail + dashboard)
@@ -180,7 +201,7 @@ lang/vi/audit.php             (extended — the five request.* sentences, group 
 lang/vi/notifications.php     NEW — the kinds' sentences (grown per task)
 app/Support/Audit/AuditSentences.php  (modified: five request.* entries + phrase arms)
 database/seeders/DemoShelfSeeder.php  (extended: one pending request, one approved hold, one notification)
-docs/OPERATIONS.md            (modified ONLY on OQ1 = B)
+docs/OPERATIONS.md            (modified in Task 18 — §4.2 gains ReleaseExpiredHold, on ruling 1)
 tests/Feature/Architecture/NotificationsAreReaderFacingTest.php   NEW — the ported census
 tests/Feature/Architecture/CirculationArchitectureTest.php        (modified: absence pins → presence pins)
 tests/Unit/Circulation/RequestRulesTest.php  tests/Unit/Notifications/…
@@ -189,11 +210,12 @@ tests/Feature/Circulation/…  tests/Feature/Notifications/…  docs/known-gaps.
 
 ---
 
-### Task 1: Request groundwork — the refusal sentences, `RequestRules`, `LoanTerms::holdExpiry`, the settings, the audit subject join
+### Task 1: Request groundwork — the live-request unique index, the refusal sentences, `RequestRules`, `LoanTerms::holdExpiry`, the settings, the audit subject join
 
-Read first: `old_next/src/domain/circulation/policy.ts` (`copyHoldable` and `memberMayRequest` docblocks — the arguments this task ports), `old_next/src/domain/circulation/settings.ts` (`holdDaysFor`), `old_next/src/domain/kernel/errors.ts:105-165` (the sentences, verbatim), and 1c's Task 1 (the shape this task copies).
+Read first: `old_next/src/domain/circulation/policy.ts` (`copyHoldable` and `memberMayRequest` docblocks — the arguments this task ports), `old_next/src/domain/circulation/settings.ts` (`holdDaysFor`), `old_next/src/domain/kernel/errors.ts:105-165` (the sentences, verbatim), 1c's Task 1 (the shape this task copies), and — for Step 0's migration — `database/migrations/2026_08_26_000007_create_loans_table.php:70-81` (`loans.active_copy_id`, the generated-column-plus-unique idiom this copies verbatim) and `2026_08_26_000016_create_profile_change_requests_table.php:40-53`.
 
 **Files:**
+- Create: `database/migrations/2026_08_29_000001_add_borrow_requests_live_request_key.php`
 - Modify: `lang/vi/rules.php` (append keys — never rewrite earlier phases')
 - Create: `app/Support/Circulation/RequestRules.php`
 - Modify: `app/Support/Circulation/LoanTerms.php` (append `holdExpiry`)
@@ -202,6 +224,7 @@ Read first: `old_next/src/domain/circulation/policy.ts` (`copyHoldable` and `mem
 - Test: `tests/Unit/Circulation/RequestRulesTest.php`
 - Test: `tests/Unit/Circulation/LoanTermsTest.php` (append)
 - Test: `tests/Unit/Circulation/LendingSettingsTest.php` (append)
+- Test: `tests/Feature/Schema/LiveRequestKeyTest.php`
 
 **Interfaces:**
 - Consumes: `App\Enums\CopyState`, `App\Enums\MembershipStatus`, `App\Models\Bookshelf`, `Carbon\CarbonImmutable`.
@@ -211,6 +234,149 @@ Read first: `old_next/src/domain/circulation/policy.ts` (`copyHoldable` and `mem
   - `RequestRules::CODES` — `list<string>` of every code the two predicates return, censused against `lang/vi/rules.php` by `RequestRulesTest` (the `LoanRulesTest` precedent — these are returned as data, so the app-wide literal census cannot see them).
   - `LoanTerms::holdExpiry(CarbonImmutable $now, int $holdDays): CarbonImmutable` — `hold_days` after the instant, fixed-length wall time (no timezone/DST reasoning applies — unlike `dueDateFor`, this produces an instant, not a civil date; the reference's `holdExpiryFrom` note). Written from the injected clock and compared against the injected clock everywhere it is read.
   - `LendingSettings` gains `public readonly int $holdDays` (default 3 — BR §5.5's hold_days) and `public readonly int $dueSoonDays` (default 3 — the sweep's per-shelf window, `bookshelves.settings->due_soon_days`, the reference's QA-remediation Task 23/24 pair).
+  - `borrow_requests_one_live_per_title_member` — the constraint NAME every later `UniqueViolation::translate` call matches on (Task 4). Nothing else in the codebase may spell it differently.
+
+- [ ] **Step 0: The live-request unique index (divergence 2)**
+
+Create `database/migrations/2026_08_29_000001_add_borrow_requests_live_request_key.php`:
+
+```php
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        // Divergence 2. "One live place in this title's queue per reader"
+        // was going to be a FOR UPDATE on the books row; that closes a real
+        // AB-BA cycle against UpdateBook (which X-locks bookshelves, then
+        // writes the book row, while every insert here wants S on that same
+        // bookshelves row through its RESTRICT foreign keys). The rule
+        // becomes a constraint instead — the single-column-predicate form
+        // loans.active_copy_id and profile_change_requests.pending_user_id
+        // already use: the key exists only while the row is LIVE and
+        // undecided, NULLs are distinct, so every terminal status and a soft
+        // delete free the slot and the reader may queue for that title again.
+        //
+        // 73 = 36 + 1 + 36, ascii_bin to match book_id and member_id exactly
+        // (a differing collation on either side would compare, and index,
+        // wrongly).
+        DB::statement("
+            ALTER TABLE borrow_requests ADD COLUMN live_request_key VARCHAR(73)
+                CHARACTER SET ascii COLLATE ascii_bin
+                GENERATED ALWAYS AS (
+                    IF(deleted_at IS NULL AND status IN ('pending', 'approved'),
+                       CONCAT(book_id, ':', member_id), NULL)
+                ) STORED
+        ");
+        DB::statement('
+            ALTER TABLE borrow_requests
+            ADD CONSTRAINT borrow_requests_one_live_per_title_member UNIQUE (live_request_key)
+        ');
+    }
+
+    public function down(): void
+    {
+        DB::statement('ALTER TABLE borrow_requests DROP INDEX borrow_requests_one_live_per_title_member');
+        DB::statement('ALTER TABLE borrow_requests DROP COLUMN live_request_key');
+    }
+};
+```
+
+Create `tests/Feature/Schema/LiveRequestKeyTest.php` — the constraint's own test, because a structural guarantee nothing asserts is a comment:
+
+```php
+<?php
+
+use App\Enums\RequestStatus;
+use App\Models\Book;
+use App\Models\Bookshelf;
+use App\Models\BorrowRequest;
+use App\Models\Membership;
+use App\Models\User;
+use App\Support\TenantContext;
+use Illuminate\Database\QueryException;
+
+/**
+ * Shelf + one reader + one book. @return array{Bookshelf, User, Book}
+ */
+function lrkFix(string $slug = 'dong-thap-lrk'): array
+{
+    app(TenantContext::class)->actSystemWide();
+    $shelf = Bookshelf::factory()->create(['slug' => $slug, 'settings' => []]);
+    $reader = User::factory()->create(['full_name' => 'Têrêsa Bạn Đọc Nhỏ']);
+    $membership = Membership::factory()->for($shelf)->create([
+        'user_id' => $reader->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Dế Mèn Phiêu Lưu Ký', 'slug' => 'de-men']);
+    app(TenantContext::class)->set($shelf, $membership);
+
+    return [$shelf, $reader, $book];
+}
+
+/** @param array<string, mixed> $extra */
+function lrkRow(Bookshelf $shelf, Book $book, User $reader, string $status, array $extra = []): BorrowRequest
+{
+    return BorrowRequest::query()->create(array_merge([
+        'bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'member_id' => $reader->id,
+        'status' => $status, 'requested_at' => now(),
+    ], $extra));
+}
+
+it('a second live request for the same title by the same reader is refused by the database', function () {
+    [$shelf, $reader, $book] = lrkFix();
+    lrkRow($shelf, $book, $reader, 'pending');
+
+    expect(fn () => lrkRow($shelf, $book, $reader, 'pending'))
+        ->toThrow(QueryException::class, 'borrow_requests_one_live_per_title_member');
+});
+
+it('approved holds the slot exactly as pending does', function () {
+    [$shelf, $reader, $book] = lrkFix('dong-thap-lrk-approved');
+    lrkRow($shelf, $book, $reader, 'approved', ['hold_expires_at' => now()->addDays(3)]);
+
+    expect(fn () => lrkRow($shelf, $book, $reader, 'pending'))
+        ->toThrow(QueryException::class, 'borrow_requests_one_live_per_title_member');
+});
+
+it('every terminal status frees the slot, and so does a soft delete', function () {
+    // Five separate rows would collide with each other, so each ending is
+    // taken in turn on ONE row: end it, queue again, end that, and so on.
+    [$shelf, $reader, $book] = lrkFix('dong-thap-lrk-free');
+    foreach (['fulfilled', 'rejected', 'cancelled', 'expired'] as $ending) {
+        $row = lrkRow($shelf, $book, $reader, 'pending');
+        BorrowRequest::query()->whereKey($row->id)->update(['status' => $ending]);
+    }
+    $live = lrkRow($shelf, $book, $reader, 'pending');
+    $live->delete();                                  // SoftDeletes
+
+    // The slot is free after all five endings: this insert is the proof.
+    expect(lrkRow($shelf, $book, $reader, 'pending')->status)->toBe(RequestStatus::Pending);
+});
+
+it('a different reader, and a different title, never collide', function () {
+    [$shelf, $reader, $book] = lrkFix('dong-thap-lrk-distinct');
+    lrkRow($shelf, $book, $reader, 'pending');
+
+    app(TenantContext::class)->actSystemWide();
+    $other = User::factory()->create(['full_name' => 'Anna Người Khác']);
+    Membership::factory()->for($shelf)->create(['user_id' => $other->id, 'role' => 'reader', 'status' => 'active']);
+    $otherBook = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Hoàng Tử Bé', 'slug' => 'hoang-tu-be']);
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $reader->id)->firstOrFail());
+
+    lrkRow($shelf, $book, $other, 'pending');         // same title, other reader
+    lrkRow($shelf, $otherBook, $reader, 'pending');   // other title, same reader
+
+    expect(BorrowRequest::query()->count())->toBe(3);
+});
+```
+
+Run: `make test FILTER=LiveRequestKeyTest`. Expected: PASS after `php artisan migrate` (the suite migrates its own database). Mutation check: change the generated expression's `status IN ('pending', 'approved')` to `status = 'pending'` → "approved holds the slot exactly as pending does" red; restore.
+
+Two helper names for the registry: `lrkFix`, `lrkRow` (Task 1) — Global Constraints' list is amended by this task, and it is the only task that adds a helper the registry did not already name.
 
 - [ ] **Step 1: Append the refusal sentences**
 
@@ -235,6 +401,16 @@ In `lang/vi/rules.php`, append after the 1c/1d block (spellings and sentences ve
     'return_hold_success_flash' => 'Đã nhận trả bản :code và giữ chỗ cho bạn đọc đang chờ.',
     'approve_success_flash' => 'Đã giữ chỗ — bạn đọc sẽ được báo, hạn đến nhận :until.',
     'reject_request_flash' => 'Đã từ chối yêu cầu — bạn đọc sẽ được báo.',
+    // The handover flash. 1c's lend_success_flash takes :name/:title, and
+    // the handover controller has neither at hand — it holds the request
+    // and LendCopy's dueOn. Minted HERE, in the one task that owns this
+    // block, rather than retroactively edited into it from Task 14.
+    'lend_success_flash_short' => 'Đã trao sách — hạn trả :due.',
+    'release_hold_flash' => 'Đã trả bản sách về kệ.',
+    // Authored on ruling 1 (no errors.ts spelling): a manager may not yank
+    // a live hold. OPS §4.2 gains its entry in Task 18's own commit — the
+    // title_has_no_copies two-ledger precedent.
+    'hold_not_expired' => 'Thời gian giữ chỗ chưa hết, không thể trả về kệ.',
 ```
 
 `chosen_copy_lost_or_retired` is a distinct code from 1c's `copy_lost_or_retired` because OPS gives the two commands different sentences ("Bản sách **đã chọn**…" — the copy a manager picked from a list a moment ago, not the one in their hand); do not collapse them. None of these keys exists yet — verify with `grep -c "'copy_not_found'" lang/vi/rules.php` (expect 0) before appending; `membership_not_found` (1b) is a different key and stays untouched.
@@ -517,8 +693,8 @@ Run: `make test FILTER=AuditLogQuery` — expected: PASS (the join is additive; 
 
 ```bash
 make lint && make analyse
-git add lang/vi/rules.php app/Support/Circulation/ app/Queries/AuditLogQuery.php tests/Unit/Circulation/
-git commit -m "feat: request groundwork — the sentences, requestrules, hold expiry, the audit subject key"
+git add database/migrations/2026_08_29_000001_add_borrow_requests_live_request_key.php lang/vi/rules.php app/Support/Circulation/ app/Queries/AuditLogQuery.php tests/Unit/Circulation/ tests/Feature/Schema/LiveRequestKeyTest.php
+git commit -m "feat: request groundwork — the live-request index, the sentences, requestrules, hold expiry, the audit subject key"
 ```
 
 ---
@@ -551,6 +727,7 @@ Create `tests/Unit/Notifications/NotificationSentencesTest.php`:
 ```php
 <?php
 
+use App\Support\Notifications\NotificationKind;
 use App\Support\Notifications\NotificationSentences;
 
 it('membership_approved renders its fixed sentence', function () {
@@ -579,8 +756,8 @@ it('an unknown stored kind renders the neutral line, never the raw token', funct
 it('every enum case has a lang line, and no lang line is orphaned', function () {
     $lines = require __DIR__.'/../../../lang/vi/notifications.php';
     $kinds = array_map(
-        fn (\App\Support\Notifications\NotificationKind $k) => $k->value,
-        \App\Support\Notifications\NotificationKind::cases(),
+        fn (NotificationKind $k) => $k->value,
+        NotificationKind::cases(),
     );
     // Kind keys only — helper lines are prefixed with underscore.
     $langKinds = array_values(array_filter(array_keys($lines), fn (string $k) => ! str_starts_with($k, '_')));
@@ -600,8 +777,8 @@ use App\Models\Bookshelf;
 use App\Models\Membership;
 use App\Models\Notification;
 use App\Models\User;
-use App\Support\Notifications\Notifier;
 use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 
@@ -707,9 +884,21 @@ it('every notification is written where OPERATIONS §7 says it is', function () 
         }
         $code = stripCommentTokens((string) file_get_contents($path));
         foreach (NotificationKind::cases() as $kind) {
-            // NotificationKind::Case in a notify() call, or the raw string
-            // in a direct insert (the sweep's shape).
-            if (str_contains($code, 'NotificationKind::'.$kind->name) || str_contains($code, "'{$kind->value}'")) {
+            // The enum case, ONLY. The first draft of this census also
+            // matched the raw string "'{$kind->value}'", to catch a direct
+            // insert — and it was RED on the commit that introduced it,
+            // because app/Support/Audit/AuditSentences.php:138-139 carries
+            // the lang keys 'membership_approved' and 'membership_rejected'
+            // as live code, which stripCommentTokens rightly does not strip.
+            // Renaming those audit keys to dodge a test would churn 1b's
+            // shipped sentences, so the test narrows instead: every writer
+            // in this system reaches a kind through the enum, the sweep
+            // (Task 17) included — it passes NotificationKind::LoanDueSoon
+            // to its own tell() helper and writes $kind->value from there,
+            // never a literal. If a future writer ever needs the raw
+            // string, it adds itself to this census by hand, in the commit
+            // that needs it, with the reason.
+            if (str_contains($code, 'NotificationKind::'.$kind->name)) {
                 $writers[$kind->value][] = str_replace(base_path().'/', '', $path);
             }
         }
@@ -757,7 +946,96 @@ it('nothing outside the write path and the sweep inserts a notification row', fu
 
     expect($offenders)->toEqual([]);
 });
+
+it('every notify() call sits inside its command\'s own DB::transaction closure', function () {
+    // THE PHASE'S HEADLINE GUARANTEE, made falsifiable. Global Constraints
+    // claims "a notification cannot outlive a rolled-back approval, and an
+    // approval cannot commit without its notification" — and without this
+    // test, moving $this->notifier->notify(...) to AFTER
+    // DB::transaction(...) returns in ApproveBorrowRequest,
+    // RejectBorrowRequest or ReceiveReturn leaves every behavioural test in
+    // this plan green. That is Phase 1d's finding verbatim (a headline
+    // guard deletable with 1,028 tests passing), and this project decided
+    // not to accept it a second time.
+    //
+    // A token walk, not a regex: brace depth is not a regular language and
+    // "inside the closure" is exactly a brace-range question. Comments are
+    // stripped first (the AuditActionCensusTest helper) so a docblock
+    // showing a notify() call is not a call site.
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)
+    );
+
+    $offenders = [];
+    $checked = 0;
+    foreach ($files as $file) {
+        $path = $file->getPathname();
+        if (! str_ends_with($path, '.php')) {
+            continue;
+        }
+        $code = stripCommentTokens((string) file_get_contents($path));
+        // Notifier's own declaration is `public function notify(`, never
+        // `->notify(`, so the class that defines the method is skipped
+        // here and pinned by the rollback test instead.
+        if (! str_contains($code, '->notify(')) {
+            continue;
+        }
+        $rel = str_replace(base_path().'/', '', $path);
+
+        $depth = 0;
+        $txDepths = [];     // brace depths whose body is a DB::transaction closure
+        $armed = false;     // `transaction` seen; its closure body not yet opened
+        $previous = null;
+        foreach (token_get_all($code) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_WHITESPACE) {
+                    continue;
+                }
+                if ($token[0] === T_STRING && $token[1] === 'transaction') {
+                    $armed = true;
+                    $previous = $token;
+
+                    continue;
+                }
+                if ($token[0] === T_STRING && $token[1] === 'notify'
+                    && is_array($previous) && $previous[0] === T_OBJECT_OPERATOR) {
+                    $checked++;
+                    if ($txDepths === []) {
+                        $offenders[] = $rel.' (line '.$token[2].')';
+                    }
+                }
+                $previous = $token;
+
+                continue;
+            }
+            if ($token === '{') {
+                $depth++;
+                if ($armed) {
+                    $txDepths[] = $depth;
+                    $armed = false;
+                }
+            } elseif ($token === '}') {
+                if ($txDepths !== [] && end($txDepths) === $depth) {
+                    array_pop($txDepths);
+                }
+                $depth--;
+            } elseif ($token === ';') {
+                // A `DB::transaction(fn () => …);` opens no brace — disarm
+                // so the next unrelated `{` is not mistaken for its body.
+                $armed = false;
+            }
+            $previous = $token;
+        }
+    }
+
+    expect($offenders)->toEqual([])
+        // A guard that inspected nothing would pass silently. This task
+        // ships two call sites; Tasks 5, 6 and 10 add three more.
+        ->and($checked)->toBeGreaterThanOrEqual(2);
+});
 ```
+
+(The walk above was run before this plan was fixed, against four constructed files: a compliant Action, one with the notify moved after the transaction, `Notifier` itself, and a file whose only `->notify(` is inside a comment. Output: `checked=2`, offenders = the moved call alone. It catches what it claims to catch, ignores the declaration, and is not fooled by a comment.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -858,27 +1136,10 @@ final class NotificationSentences
         };
     }
 
-    /** `Dế Mèn Phiêu Lưu Ký` when stored, `cuốn sách` when not. */
-    private static function which(?string $title): string
-    {
-        return $title ?? self::line('_which');
-    }
-
     /** ` vì <reason>`, or nothing — a rejection with no reason is still a sentence. */
     private static function because(?string $reason): string
     {
         return $reason === null ? '' : strtr(self::line('_because'), [':reason' => $reason]);
-    }
-
-    /** `Y-m-d` (Asia/Ho_Chi_Minh civil date, plan divergence 5) → `d/m/Y`. */
-    private static function date(?string $ymd): ?string
-    {
-        if ($ymd === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd) !== 1) {
-            return null;
-        }
-        [$y, $m, $d] = explode('-', $ymd);
-
-        return "{$d}/{$m}/{$y}";
     }
 
     /** @param array<string, mixed> $payload */
@@ -891,8 +1152,14 @@ final class NotificationSentences
 
     private static function line(string $key): string
     {
-        /** @var array<string, string> $lines */
-        static $lines;
+        // `= null` is not decoration: a bare `static $lines;` makes the
+        // variable a non-nullable `mixed` that always exists, and Larastan
+        // level 8 rejects the `??=` beneath it as nullCoalesce.variable.
+        // AuditSentences::lines() (app/Support/Audit/AuditSentences.php:206)
+        // writes it this way for exactly this reason, and that is why it
+        // passes today.
+        /** @var array<string, string>|null $lines */
+        static $lines = null;
         $lines ??= require dirname(__DIR__, 3).'/lang/vi/notifications.php';
 
         return $lines[$key];
@@ -900,7 +1167,7 @@ final class NotificationSentences
 }
 ```
 
-(`which()` and `date()` are unused until Tasks 5/17 add their arms — mark both `@phpstan-ignore-next-line` ONLY if Larastan flags unused private methods; otherwise leave clean. If it does flag them, prefer adding them in Task 5 instead of suppressing — the executor picks whichever keeps level 8 clean without ignores.)
+**`which()` and `date()` are deliberately NOT in this file yet.** They have no caller until Task 5's `request_approved` arm, and Larastan level 8 reports an uncalled private static method as `method.unused` — the whole class fails `make analyse` at this commit if they ship here. (Measured, not guessed: this exact file, placed under `app/Support/Notifications/` and run through `./vendor/bin/phpstan analyse --level=8`, produced three errors — `which() is unused`, `date() is unused`, and the `nullCoalesce.variable` above; with those three corrections it is clean, and Pint passes.) Task 5 adds `which()` in the same edit that first calls it; Task 5 also adds `date()`, which Task 17 then reuses. The `_which` lang line ships here regardless — it is `_`-prefixed, so the lang census does not require a kind for it, and shipping the sentence beside the kind it belongs to would be the churn this split avoids.
 
 Create `app/Support/Notifications/Notifier.php`:
 
@@ -978,8 +1245,10 @@ Expected: PASS — including 1b's untouched membership suites.
 
 Mutation checks (perform, observe red, restore, observe green, `git status --porcelain` clean):
 1. Comment out the `notify` call in `ApproveMembership` → `NotificationsAreReaderFacingTest` "every notification is written where OPERATIONS §7 says it is" AND `NotificationWritePathTest` "approving a registration tells the reader" both red.
-2. Comment out the `notify` call in `RejectMembership` → "a rejection carries its reason to the reader" AND the reader-facing census both red. Restore. (A nested-transaction mutation on `Notifier` is NOT a valid check here — Laravel nests as savepoints, so the rollback test would stay green either way; the transactional guarantee is pinned by the rollback test's direct shape, and the same-transaction placement in the Actions is a review item, stated in each call site's comment.)
+2. Comment out the `notify` call in `RejectMembership` → "a rejection carries its reason to the reader" AND the reader-facing census both red. Restore. (A nested-transaction mutation on `Notifier` is NOT a valid check here — Laravel nests as savepoints, so the rollback test would stay green either way; the transactional guarantee is pinned by the rollback test's direct shape and by mutation 4 below.)
 3. Add a fake `Notification::query()->create` to any controller → the third architecture test goes red.
+4. **The headline guard's own mutation, and the one that matters most:** in `ApproveMembership`, MOVE the `$this->notifier->notify(...)` line from inside the `DB::transaction` closure to immediately after the transaction returns — a change no behavioural test can see. Expected: "every notify() call sits inside its command's own DB::transaction closure" goes red, naming the file and the line. Restore, confirm green, `git status --porcelain` clean. If this mutation does NOT redden that test, the guard is broken and nothing in this task may be committed until it is fixed — that failure would be Phase 1d's finding recurring, which is the one outcome this task exists to prevent.
+5. Delete the `->and($checked)->toBeGreaterThanOrEqual(2)` assertion and rename `Notifier::notify` to `notifyReader` everywhere → the guard's brace walk would now inspect zero call sites and pass vacuously; with the assertion in place it goes red. Restore both.
 
 ```bash
 make lint && make analyse
@@ -1170,7 +1439,7 @@ Read first: `old_next/src/domain/circulation/commands/create-borrow-request.ts` 
 
 | Check | Serialised by | Structural backstop |
 |---|---|---|
-| duplicate (pending/approved for this title+reader) | the **book-row** `FOR UPDATE`, transaction's first statement — every create for this title serialises (divergence 2) | none — the reference documents the same check with NO lock and no index; the lock is this port's addition |
+| duplicate (pending/approved for this title+reader) | **nothing — this command takes no lock at all** (divergence 2: a `books` `FOR UPDATE` here closes a real AB–BA cycle against `UpdateBook`, so the lock is withdrawn) | **`borrow_requests_one_live_per_title_member`** (Task 1's Step 0). The plain read is the sentence half; the losing insert's 1062 is translated by constraint name. This is the ONE check in the phase whose backstop is structural rather than a lock — and it is the stronger of the two |
 | membership active (INV-4) | nothing (plain read of the session's membership) — unreachable over HTTP anyway (ported reading 1) | none |
 
 - [ ] **Step 1: Write the failing tests**
@@ -1290,17 +1559,29 @@ it('a suspended reader is refused in the queue\'s own words', function () {
     expect(BorrowRequest::query()->count())->toBe(0);
 });
 
-it('the book lock is the transaction\'s first statement', function () {
-    [, $reader, , $book] = cbrFix('dong-thap-cbr-lock');
-
+it('this command takes no row lock at all — divergence 2, pinned rather than described', function () {
+    // The withdrawn book lock closed an AB-BA cycle against UpdateBook
+    // (which X-locks bookshelves, then writes the book row, while this
+    // command's inserts want S on that same bookshelves row through their
+    // RESTRICT foreign keys). "It takes no lock" is a claim a grep can
+    // falsify, unlike a claim about cycles — so this is the claim made.
     DB::flushQueryLog();
     DB::enableQueryLog();
+    [, $reader, , $book] = cbrFix('dong-thap-cbr-nolock');
+    DB::flushQueryLog();
     app(CreateBorrowRequest::class)->execute($reader, $book);
     $log = DB::getQueryLog();
     DB::disableQueryLog();
 
-    expect(str_contains($log[0]['query'], 'books'))->toBeTrue($log[0]['query'])
-        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue($log[0]['query']);
+    $locking = array_values(array_filter(
+        $log,
+        fn (array $q) => str_contains(strtolower($q['query']), 'for update'),
+    ));
+    expect($locking)->toBe([]);
+    // And the source itself, so a lock added to a branch the fixture does
+    // not reach is caught too.
+    expect(file_get_contents(app_path('Actions/Circulation/CreateBorrowRequest.php')))
+        ->not->toContain('lockForUpdate');
 });
 
 it('INV-8: the create writes one audit record storing the title and both ids', function () {
@@ -1365,6 +1646,8 @@ use App\Support\AuditRecorder;
 use App\Support\Circulation\RequestRules;
 use App\Support\Clock;
 use App\Support\TenantContext;
+use App\Support\UniqueViolation;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -1376,12 +1659,27 @@ use Illuminate\Support\Facades\Gate;
  * object — the claim is made by ApproveBorrowRequest, by a manager, on a
  * copy they chose. Nothing here reads book_copies at all.
  *
- * Lock order (plan divergence 2, STRONGER than the reference): the book
- * row FIRST, so every create for this title serialises and the
- * duplicate_request check reads a rival's committed row instead of
- * racing it. The reference documents this exact race ("two taps in the
- * same second produce two pending rows") and ships it; the house rule is
- * lock-first-then-check.
+ * NO LOCK IS TAKEN HERE, and that absence is deliberate (plan divergence
+ * 2). An earlier draft opened with Book::query()->lockForUpdate(); that
+ * closes a real AB-BA cycle against UpdateBook, which takes X on the
+ * shelf's bookshelves row and then WRITES the book row, while this
+ * command's borrow_requests insert and its audit insert each want S on
+ * that same bookshelves row through their RESTRICT foreign keys. The rule
+ * the lock protected — one live place in this title's queue per reader —
+ * is a CONSTRAINT instead: borrow_requests_one_live_per_title_member over
+ * the generated column live_request_key, which nothing can race at any
+ * isolation level. The read below is the sentence half (the friendly
+ * refusal in the common case); the losing insert's errno 1062 is
+ * translated by constraint name, exactly as LendCopy translates
+ * loans_one_active_per_copy. The reference documents the race it ships
+ * ("two taps in the same second produce two pending rows"); this port
+ * closes it structurally rather than by serialising the whole title.
+ *
+ * No claim is made here, or anywhere in this phase, that the codebase is
+ * deadlock-free — that claim needs two real OS processes to earn. The
+ * claim is only this: no lockForUpdate appears in this file, so this
+ * command cannot hold the exclusive side of any wait-for edge. Its test
+ * greps for exactly that.
  *
  * The membership is the SESSION's, never a form field (plan divergence
  * 4): TenantContext::membership() is what ResolveTenant resolved for the
@@ -1414,8 +1712,9 @@ final class CreateBorrowRequest
         Gate::forUser($actor)->authorize('create', BorrowRequest::class);
 
         return DB::transaction(function () use ($actor, $book): array {
-            // FIRST statement — see the class docblock.
-            $book = Book::query()->lockForUpdate()->findOrFail($book->id);
+            // The latest committed row, not the route-bound snapshot — but
+            // NOT locked (see the class docblock).
+            $book = Book::query()->findOrFail($book->id);
 
             $membership = $this->tenant->membership();
             if ($membership === null || $membership->user_id !== $actor->id) {
@@ -1427,7 +1726,9 @@ final class CreateBorrowRequest
 
             // approved counts as well as pending: a child holding a copy
             // must not also stand in the queue for the same title.
-            // Soft-deleted rows are excluded by the model's own scope.
+            // Soft-deleted rows are excluded by the model's own scope —
+            // and by live_request_key's own expression, which names
+            // deleted_at, so the read and the index select the same set.
             $existing = BorrowRequest::query()
                 ->where('book_id', $book->id)
                 ->where('member_id', $membership->user_id)
@@ -1437,12 +1738,22 @@ final class CreateBorrowRequest
                 throw new RuleViolated('duplicate_request');
             }
 
-            $request = BorrowRequest::query()->create([
-                'book_id' => $book->id,
-                'member_id' => $membership->user_id,
-                'status' => RequestStatus::Pending,
-                'requested_at' => $this->clock->now(),
-            ]);
+            try {
+                $request = BorrowRequest::query()->create([
+                    'book_id' => $book->id,
+                    'member_id' => $membership->user_id,
+                    'status' => RequestStatus::Pending,
+                    'requested_at' => $this->clock->now(),
+                ]);
+            } catch (QueryException $e) {
+                // Divergence 2's loser: the read above missed because the
+                // rival committed after it. Matched BY CONSTRAINT NAME so
+                // an unrelated 1062 is never dressed up as the wrong
+                // refusal; anything else rethrows untouched.
+                UniqueViolation::translate($e, [
+                    'borrow_requests_one_live_per_title_member' => 'duplicate_request',
+                ]);
+            }
 
             $this->audit->record('request.created', 'request', $request->id,
                 // Null rather than an invented "before": the row did not exist.
@@ -1476,7 +1787,7 @@ In `lang/vi/audit.php`, after the loan lines (group `— mượn trả —`):
     'request_created' => 'gửi yêu cầu mượn :title',
 ```
 
-In `app/Support/Audit/AuditSentences.php`: `ACTIONS` gains `'request.created' => 'loans',` (the reference groups `request.*` with `loan.*` — "one family to a volunteer", its `muon-tra` group), and `phrase()` gains the arm:
+In `app/Support/Audit/AuditSentences.php`: **the class docblock's opening line says "21 entries" (`app/Support/Audit/AuditSentences.php:8-9`) and it must be corrected in the same edit that changes the count — every time, in every task, not once at the end.** 2a adds six actions: `request.created` (this task, → 22), `request.approved` (T5, → 23), `request.rejected` (T6, → 24), `request.cancelled` (T7, → 25), `request.fulfilled` (T8, → 26), `request.expired` (T18, → **27**, the number the branch ends on). A docblock that counts wrong is the same defect as a map that maps wrong — `AuditActionCensusTest` holds the map honest and nothing holds the prose honest but this instruction. `ACTIONS` gains `'request.created' => 'loans',` (the reference groups `request.*` with `loan.*` — "one family to a volunteer", its `muon-tra` group), and `phrase()` gains the arm:
 
 ```php
             'request.created' => strtr(self::line('request_created'), [':title' => self::which(self::str($after, 'title'))]),
@@ -1486,7 +1797,16 @@ In `app/Support/Audit/AuditSentences.php`: `ACTIONS` gains `'request.created' =>
 
 In `tests/Unit/Catalogue/RuleViolatedCodesHaveSentencesTest.php`, add `'duplicate_request',` to the `toEqualCanonicalizing` list (alphabetical position). `not_permitted` and `membership_not_active_cannot_request` are NOT added: the first is already listed (1b), the second is thrown as a variable and censused by `RequestRulesTest`.
 
-In `tests/Feature/Architecture/CirculationArchitectureTest.php`, the lockForUpdate grep-pin list gains `app_path('Actions/Circulation/CreateBorrowRequest.php')`.
+In `tests/Feature/Architecture/CirculationArchitectureTest.php`, the lockForUpdate grep-pin list does **NOT** gain this Action — it takes no lock (divergence 2). Add the exemption comment above the list instead, so the absence is a recorded decision rather than an omission:
+
+```php
+    // CreateBorrowRequest is deliberately absent: it takes no lock at all
+    // (plan divergence 2 — a books FOR UPDATE here closes an AB-BA cycle
+    // against UpdateBook). Its duplicate rule is the
+    // borrow_requests_one_live_per_title_member index, and
+    // CreateBorrowRequestTest greps the file for lockForUpdate to keep the
+    // absence true.
+```
 
 - [ ] **Step 5: Run all touched suites**
 
@@ -1495,8 +1815,9 @@ Expected: PASS.
 
 - [ ] **Step 6: Mutation checks, then commit**
 
-1. Drop `->lockForUpdate()` from the book read → the lock-position test goes red (named: "the book lock is the transaction's first statement"). Restore.
+1. ADD `->lockForUpdate()` back to the book read → "this command takes no row lock at all" goes red on both of its assertions (the query log and the source grep). Restore. (The mutation is backwards on purpose: the property under guard is an absence, and an absence is only guarded if putting the thing back is caught.)
 2. Change `whereIn(... Pending, Approved)` to Pending only → "a second request … pending or approved" goes red. Restore.
+2b. **The backstop check — the one mutation that must NOT redden.** Delete the whole `$existing` read and its `throw`, leaving only the insert and its catch. Expected: "a second request for the same title is refused, pending or approved" STILL PASSES, now travelling through errno 1062 and `UniqueViolation::translate` instead of the read; the refusal is still `duplicate_request`, still a `RuleViolated`, never a 500. If it instead fails with a `QueryException`, the constraint name in the translate map does not match the migration's and both must be fixed before this task ships. Restore the read (it is the friendly path; the index is the guarantee). Task 1's `LiveRequestKeyTest` proves the constraint independently.
 3. Delete the `request_created` line from `lang/vi/audit.php` → `AuditSentencesTest`'s existing every-action-renders sweep (or, if that sweep enumerates from ACTIONS, the census) goes red. If NEITHER goes red, add to `tests/Unit/Audit/AuditSentencesTest.php` a one-line render test for `request.created` before proceeding — a sentence nothing pins is not shipped. Restore.
 
 ```bash
@@ -1658,6 +1979,43 @@ it('an AVAILABLE copy under a live hold is refused — the two-clause predicate,
         ->toThrow(RuleViolated::class, 'no_copy_available');
 });
 
+it('a LAPSED rival hold is no obstacle — the expiry filter, pinned directly', function () {
+    // The mirror of the test above, and the one that makes the
+    // `hold_expires_at > now` filter falsifiable: same shape, same rival
+    // row, only the deadline moved into the past. BR §8 — no job flipped
+    // anything; the clock alone made the hold absent, and the copy the
+    // ex-holder never collected was put back on the shelf by an ordinary
+    // ReleaseExpiredHold (ruling 1) or was never taken off it. Delete the
+    // filter and the rival reads as live: this test goes red with
+    // no_copy_available while the live-hold test above stays green, which
+    // is why BOTH are needed.
+    Carbon::setTestNow(Carbon::parse('2026-08-28 07:00:00', 'UTC'));
+    [$shelf, $manager, $reader, $copy, $request] = abrFix([], 'dong-thap-abr-lapsed');
+    app(TenantContext::class)->actSystemWide();
+    $rival = User::factory()->create(['full_name' => 'Anna Người Không Đến']);
+    Membership::factory()->for($shelf)->create(['user_id' => $rival->id, 'role' => 'reader', 'status' => 'active']);
+    BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $request->book_id, 'member_id' => $rival->id,
+        'status' => RequestStatus::Approved, 'requested_at' => now()->subDays(5),
+        'copy_id' => $copy->id, 'hold_expires_at' => now()->subDay(),   // LAPSED
+        'decided_by' => $manager->id, 'decided_at' => now()->subDays(5),
+    ]);
+    // The copy is available: the lapsed holder never came, and the shelf
+    // has it back. (A different reader, so the live-request unique index
+    // — Task 1 — is not in play.)
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $manager->id)->firstOrFail());
+
+    $result = app(ApproveBorrowRequest::class)->execute($manager, $request, $copy->id);
+
+    expect($request->fresh()->status)->toBe(RequestStatus::Approved)
+        ->and($result['copyId'])->toBe($copy->id)
+        ->and($copy->fresh()->state)->toBe(CopyState::Held)
+        // And the lapsed row was left exactly as it was — approving over
+        // a dead hold is not a licence to rewrite it.
+        ->and(BorrowRequest::query()->where('member_id', $rival->id)->sole()->status)
+        ->toBe(RequestStatus::Approved);
+});
+
 it('a request that has already been decided cannot be approved again', function () {
     [, $manager, , $copy, $request] = abrFix([], 'dong-thap-abr-decided');
     BorrowRequest::query()->whereKey($request->id)->update(['status' => RequestStatus::Rejected]);
@@ -1724,8 +2082,8 @@ use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanTerms;
 use App\Support\Circulation\RequestRules;
 use App\Support\Clock;
-use App\Support\Notifications\Notifier;
 use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -1861,7 +2219,30 @@ final class ApproveBorrowRequest
     'request_approved_no_date' => ':book đã sẵn sàng, bạn đến nhận sớm nhé.',
 ```
 
-(`request_approved_no_date` is a helper for a payload missing `hold_until` — but a bare non-`_`-prefixed key would fail the lang census. Prefix it: `'_request_approved_no_date'`.) `NotificationSentences::sentence` gains:
+(`request_approved_no_date` is a helper for a payload missing `hold_until` — but a bare non-`_`-prefixed key would fail the lang census. Prefix it: `'_request_approved_no_date'`.)
+
+**`NotificationSentences` gains its two helpers HERE, in the commit that first calls them** (Task 2 deliberately shipped without them — Larastan level 8 reports an uncalled private static method as `method.unused` and would have failed `make analyse` at that commit; measured, not guessed). Add both beside `because()`:
+
+```php
+    /** `Dế Mèn Phiêu Lưu Ký` when stored, `cuốn sách` when not. */
+    private static function which(?string $title): string
+    {
+        return $title ?? self::line('_which');
+    }
+
+    /** `Y-m-d` (Asia/Ho_Chi_Minh civil date, plan divergence 5) → `d/m/Y`. */
+    private static function date(?string $ymd): ?string
+    {
+        if ($ymd === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd) !== 1) {
+            return null;
+        }
+        [$y, $m, $d] = explode('-', $ymd);
+
+        return "{$d}/{$m}/{$y}";
+    }
+```
+
+`date()` is called by this task's arm and again by Task 17's due-soon arm; `which()` by this task's arm, Task 6's and Task 17's. Both have a caller from this commit onward, so level 8 stays clean with no ignores. Then `NotificationSentences::sentence` gains:
 
 ```php
             NotificationKind::RequestApproved => (function () use ($payload): string {
@@ -1894,7 +2275,7 @@ Expected: PASS.
 
 Mutation checks (red → restore → green each):
 1. Swap the two lock lines → "the copy lock is first…" red.
-2. Drop the `hold_expires_at > now` filter from the rival-hold read → "an AVAILABLE copy under a live hold…" stays green (the rival hold is live there) — so instead: change the filter to `<` → that same test goes red (the live hold reads as absent). Restore.
+2. Drop the `hold_expires_at > now` filter from the rival-hold read entirely → "a LAPSED rival hold is no obstacle" goes red (the dead hold now reads as live and the approval is refused `no_copy_available`), while "an AVAILABLE copy under a live hold" stays green. Restore. Then change the filter to `<` → the live-hold test goes red instead. Restore. Both directions are checked because either one alone leaves half the predicate unguarded — this was a review finding: the first draft conceded the filter was untestable and substituted a weaker mutation.
 3. Comment out the `notify` call → the notification test AND the reader-facing census both red.
 
 ```bash
@@ -1907,7 +2288,7 @@ git commit -m "feat: approveborrowrequest — copy locked first, held in the sam
 
 ### Task 6: `RejectBorrowRequest` — terminal, kept, optionally explained
 
-Read first: `old_next/src/domain/circulation/commands/reject-borrow-request.ts` (whole file), `borrow-requests.test.ts` tests 16–18, and **OQ2's answer** (this task is written for A/optional; the B deltas are marked inline).
+Read first: `old_next/src/domain/circulation/commands/reject-borrow-request.ts` (whole file), `borrow-requests.test.ts` tests 16–18, and **ruling 2** — the reason is OPTIONAL, settled. This task carries no conditional deltas; the earlier "on OQ2 = B…" notes are deleted, not hidden.
 
 **Files:**
 - Create: `app/Actions/Circulation/RejectBorrowRequest.php`
@@ -1936,6 +2317,7 @@ use App\Models\BorrowRequest;
 use App\Models\Membership;
 use App\Models\Notification;
 use App\Models\User;
+use App\Queries\AuditLogQuery;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 
@@ -1977,11 +2359,9 @@ it('rejecting is terminal, keeps the row, and records the reason', function () {
 });
 
 it('the reason is optional, and an empty one is stored as no reason', function () {
-    // OQ2 = A (the reference's shipped reading, named test kept). On
-    // OQ2 = B this test KEEPS PASSING — the requirement moves to the Form
-    // Request (Task 14), and the Action still accepts null.
-    [, , , $request] = rjbFix('dong-thap-rjb-noreason');
-    $manager = User::query()->where('full_name', 'Maria Quản Lý Kho')->firstOrFail();
+    // Ruling 2: optional, the reference's shipped reading, its named test
+    // kept. This is the behaviour, not a behaviour that survives a switch.
+    [, $manager, , $request] = rjbFix('dong-thap-rjb-noreason');
 
     app(RejectBorrowRequest::class)->execute($manager, $request, '   ');
 
@@ -2028,7 +2408,7 @@ it('INV-8: request.rejected names the reader and the reason, and the audit scree
     // The Task-1 subject join, pinned here: the rendered sentence names
     // the reader from the payload's userId. Drop that join and THIS goes
     // red (the mutation check below performs exactly that).
-    $rendered = app(\App\Queries\AuditLogQuery::class)->run(page: 1);
+    $rendered = app(AuditLogQuery::class)->run(page: 1);
     $line = collect($rendered['rows'])->firstWhere('action', 'request.rejected');
     expect($line['sentence'])->toContain('Têrêsa Bạn Đọc Nhỏ')
         ->and($line['sentence'])->toContain('vì thiếu thẻ');
@@ -2055,8 +2435,8 @@ use App\Models\BorrowRequest;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
-use App\Support\Notifications\Notifier;
 use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -2066,8 +2446,9 @@ use Illuminate\Support\Facades\Gate;
  * §11): the row stays with its reason, so "why did this not happen" has
  * an answer six months later.
  *
- * The reason is OPTIONAL (OQ2 = A, the reference's shipped reading with
- * its named test): OPS §4.2 lists no reason_required here, unlike the
+ * The reason is OPTIONAL (product-owner ruling 2, the reference's
+ * shipped reading with its named test): OPS §4.2 lists no
+ * reason_required here, unlike the
  * registration and profile-change rejections. It lands in decision_note
  * — decided_by/decided_at/decision_note are shared by approval and
  * rejection alike. An empty box is NO reason, not a reason that says
@@ -2604,20 +2985,49 @@ it('INV-3: a lapsed hold makes the copy lendable to nobody, its own ex-holder in
     expect($hold->fresh()->status)->toBe(RequestStatus::Approved);   // nothing wrote 'expired'
 });
 
-it('a hold belonging to somebody else is never the one a lend closes', function () {
-    // The copy is AVAILABLE and a live hold names reader A on a
-    // DIFFERENT copy of the same title; lending this copy to reader B
-    // must not touch A's request. Distinct identities per row.
+it('an AVAILABLE copy under somebody else\'s live hold still lends — and never closes their request', function () {
+    // TWO things at once, and both are deliberate (plan divergence 13).
+    //
+    // (a) The lend SUCCEEDS. LoanRules::copyLendable's available branch
+    //     does not look at holds — the faithful port of the reference's
+    //     policy.ts:86-108, hole included. The row is reachable with
+    //     shipped 1a commands: approve onto this copy (held), ReportCopyLost
+    //     (lost, the request still approved with a live hold),
+    //     MarkCopyFound (available). ApproveBorrowRequest refuses that row
+    //     (Task 5 has the named test); LendCopy does not, and neither does
+    //     the reference. Task 19 records it in known-gaps.
+    //
+    // (b) The lend must NEVER close the other reader's request. That is
+    //     the second half of $collectedHoldId, and this row is the only
+    //     one that can exercise it — the fixture's own hold names DT-0001,
+    //     so a hold on a DIFFERENT copy leaves $hold null and the branch
+    //     untested. (The first draft did exactly that, and its mutation
+    //     check could not fire; this is the correction.)
+    //
+    // A third reader owns the foreign hold, not the fixture's holder:
+    // holder already has a live approved row for this title, and
+    // borrow_requests_one_live_per_title_member (Task 1) allows one.
     [$shelf, $manager, , $other, , $hold] = lchFix('dong-thap-lch-foreign');
     app(TenantContext::class)->actSystemWide();
     $free = BookCopy::query()->create([
         'bookshelf_id' => $shelf->id, 'book_id' => $hold->book_id, 'code' => 'DT-0044', 'state' => 'available',
+    ]);
+    $promised = User::factory()->create(['full_name' => 'Phêrô Người Được Hứa']);
+    Membership::factory()->for($shelf)->create(['user_id' => $promised->id, 'role' => 'reader', 'status' => 'active']);
+    $foreignHold = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $hold->book_id, 'member_id' => $promised->id,
+        'status' => RequestStatus::Approved, 'requested_at' => now()->subHours(2),
+        'copy_id' => $free->id, 'hold_expires_at' => now()->addDays(2),
+        'decided_by' => $manager->id, 'decided_at' => now()->subHours(2),
     ]);
     app(TenantContext::class)->set($shelf->fresh(), Membership::query()->whereHas('user', fn ($q) => $q->where('full_name', 'Maria Quản Lý Kho'))->firstOrFail());
 
     $result = app(LendCopy::class)->execute($manager, $free, $other);
 
     expect(Loan::query()->findOrFail($result['loanId'])->request_id)->toBeNull()
+        ->and($foreignHold->fresh()->status)->toBe(RequestStatus::Approved)
+        ->and($foreignHold->fresh()->fulfilled_loan_id)->toBeNull()
+        // The fixture's own hold, on the other copy, is untouched too.
         ->and($hold->fresh()->status)->toBe(RequestStatus::Approved);
 });
 
@@ -2727,7 +3137,7 @@ Add the `use App\Models\BorrowRequest;` and `use App\Enums\RequestStatus;` impor
 Run: `make test FILTER=LendCopy` (BOTH files — the 1c suite must stay green untouched) and `make test FILTER=AuditActionCensusTest`.
 Expected: PASS.
 
-Mutation checks: (1) change `$hold?->member_id` back to `null` in the predicate call → "a held copy is lendable to its holder…" red. (2) drop the `$hold->member_id === $membership->user_id` half of `$collectedHoldId` → "a hold belonging to somebody else is never the one a lend closes" red (it closes A's request for B's walk-up… construct: the foreign-hold test's available copy has no hold on itself, so verify which test reddens — if none does, the fixture must gain a live hold naming reader A on the SAME copy being lent to B with state available; adjust the fixture until this mutation is caught, then restore). (3) drop the expiry filter → "a lapsed hold makes the copy lendable to nobody" red. Restore all; `git status --porcelain` clean.
+Mutation checks: (1) change `$hold?->member_id` back to `null` in the predicate call → "a held copy is lendable to its holder…" red. (2) drop the `$hold->member_id === $membership->user_id` half of `$collectedHoldId` (leaving `$collectedHoldId = $hold?->id`) → "an AVAILABLE copy under somebody else's live hold still lends — and never closes their request" red on both of its request assertions: the walk-up lend closes Phêrô's row as `fulfilled` and stamps his `fulfilled_loan_id` with a loan that is not his. This is the mutation the first draft could not fire, because its fixture put the foreign hold on a different copy than the one being lent; the corrected fixture puts it on the SAME copy, which is also the row divergence 13 is about. (3) drop the expiry filter → "a lapsed hold makes the copy lendable to nobody" red. Restore all; `git status --porcelain` clean.
 
 ```bash
 make lint && make analyse
@@ -2833,23 +3243,56 @@ it('a hold that lapsed by the clock alone can no longer be handed over', functio
         ->and($copy->fresh()->state)->toBe(CopyState::Held);
 });
 
-it('a request with nothing held for it is refused, whatever state it is in', function () {
-    foreach ([
-        ['status' => RequestStatus::Pending, 'copy_id' => null, 'hold_expires_at' => null, 'decided_by' => null, 'decided_at' => null],
-        ['status' => RequestStatus::Rejected],
-        ['status' => RequestStatus::Cancelled, 'cancelled_at' => now()],
-        ['status' => RequestStatus::Fulfilled],
-    ] as $i => $override) {
-        [, $manager, , , $hold] = hovFix('dong-thap-hov-unheld-'.$i);
-        BorrowRequest::query()->whereKey($hold->id)->update($override);
+it('a request with nothing held for it is refused, whatever state it is in', function (string $case, array $override) {
+    // A DATASET, not a foreach. hovFix ends with test()->actingAs($manager),
+    // and SessionGuard caches the acting user for a whole test METHOD —
+    // calling the fixture four times inside one it() is the zero-tolerance
+    // violation Global Constraints names (fired four times on this
+    // project). Each dataset case is its own test method, so each gets its
+    // own guard, its own database state and its own slug.
+    //
+    // copy_id is left SET on the three decided cases on purpose: nulling it
+    // would trip the first check and the STATUS branch would never run.
+    // These are stale-queue-page shapes — the row moved on while the page
+    // stood still — which is exactly what request_not_held answers.
+    [, $manager, , , $hold] = hovFix('dong-thap-hov-unheld-'.$case);
+    BorrowRequest::query()->whereKey($hold->id)->update($override);
 
-        expect(fn () => app(HandoverRequest::class)->execute($manager, $hold->fresh()))
-            ->toThrow(RuleViolated::class, 'request_not_held');
-    }
+    expect(fn () => app(HandoverRequest::class)->execute($manager, $hold->fresh()))
+        ->toThrow(RuleViolated::class, 'request_not_held');
+})->with([
+    'pending' => ['pending', ['status' => 'pending', 'copy_id' => null, 'hold_expires_at' => null, 'decided_by' => null, 'decided_at' => null]],
+    'rejected' => ['rejected', ['status' => 'rejected']],
+    'cancelled' => ['cancelled', ['status' => 'cancelled', 'cancelled_at' => '2026-08-28 00:00:00']],
+    'fulfilled' => ['fulfilled', ['status' => 'fulfilled']],
+]);
+
+it('a hold whose row already carries the expired status refuses with hold_expired', function () {
+    // Ruling 1 made this branch REACHABLE: ReleaseExpiredHold (Task 18) is
+    // the one writer of `expired`, and a manager who releases a lapsed hold
+    // while a volunteer's queue page still shows its handover button
+    // produces exactly this row. Before that ruling the branch was
+    // defensive against nothing and the docblock said so; it no longer
+    // does, and this test is why. The SENTENCE matters as much as the
+    // refusal: request_not_held ("Yêu cầu này không có bản sách nào đang
+    // được giữ chỗ") would be a false statement about a row that plainly
+    // names a copy — hold_expired names the remedy ("Bạn đọc cần đăng ký
+    // lại").
+    [, $manager, , $copy, $hold] = hovFix('dong-thap-hov-expired');
+    BorrowRequest::query()->whereKey($hold->id)->update(['status' => 'expired']);
+
+    expect(fn () => app(HandoverRequest::class)->execute($manager, $hold->fresh()))
+        ->toThrow(RuleViolated::class, 'hold_expired');
+    expect(Loan::query()->count())->toBe(0)
+        ->and($copy->fresh()->state)->toBe(CopyState::Held);
 });
 
-it('a suspended holder, and one at the loan limit, are refused at handover — LendCopy\'s own sentences', function () {
-    [$shelf, $manager, $holder, , $hold] = hovFix('dong-thap-hov-susp');
+it('a suspended holder is refused at handover — LendCopy\'s own sentence, not a second definition', function () {
+    // Named for what it asserts. The first draft called this "a suspended
+    // holder, AND ONE AT THE LOAN LIMIT, are refused" and tested only the
+    // suspension; the limit case belongs to LendCopyTest, which owns
+    // memberMayBorrow's count, and is not restated here.
+    [, $manager, $holder, , $hold] = hovFix('dong-thap-hov-susp');
     Membership::query()->whereKey($holder->id)->update(['status' => 'suspended', 'suspension_reason' => 'thử nghiệm']);
 
     expect(fn () => app(HandoverRequest::class)->execute($manager, $hold))
@@ -2965,9 +3408,15 @@ final class HandoverRequest
             throw new RuleViolated('request_not_held');
         }
         if ($request->status === RequestStatus::Expired) {
-            // Defensive: nothing writes 'expired' today (BR §8 derives
-            // expiry on read; open question 1's option B is the one
-            // candidate writer). A row carrying it still refuses rightly.
+            // REACHABLE, not defensive. ReleaseExpiredHold (product-owner
+            // ruling 1) is the one writer of `expired`, and a manager who
+            // releases a lapsed hold while a volunteer's queue page still
+            // shows its handover button produces exactly this row. It
+            // takes its own branch rather than falling through to the
+            // status check below because request_not_held would be a false
+            // statement about a row that plainly names a copy —
+            // hold_expired names the remedy instead. HandoverRequestTest
+            // pins it by name.
             throw new RuleViolated('hold_expired');
         }
         if ($request->status !== RequestStatus::Approved) {
@@ -3223,10 +3672,20 @@ it('the lock order is copy, loan, then the hold-for request', function () {
         ->and(str_contains($log[2]['query'], 'borrow_requests'))->toBeTrue($log[2]['query'])
         ->and(str_contains(strtolower($log[2]['query']), 'for update'))->toBeTrue($log[2]['query']);
 
-    // And the copy write is ONE statement, straight to held — grep the
-    // log for updates touching book_copies: exactly one, containing
-    // 'held', none containing 'available'.
-    $copyWrites = array_values(array_filter($log, fn (array $q) => str_contains($q['query'], 'update') && str_contains($q['query'], 'book_copies')));
+    // And the copy write is ONE statement, straight to held.
+    //
+    // str_starts_with, not str_contains: the transaction's FIRST statement
+    // is `select * from `book_copies` … limit 1 for update`, which
+    // contains the substring "update" inside "for update" — a
+    // str_contains filter matches it, returns two entries, and reads the
+    // SELECT as the copy write, whose text has no `state`. (Shipped
+    // precedent for the log text: tests/Feature/Circulation/
+    // LendCopyTest.php:221 asserts on exactly that string.) Anchoring at
+    // the start of the statement leaves only real UPDATEs.
+    $copyWrites = array_values(array_filter(
+        $log,
+        fn (array $q) => str_starts_with(trim($q['query']), 'update `book_copies`'),
+    ));
     expect($copyWrites)->toHaveCount(1)
         ->and(str_contains($copyWrites[0]['query'], 'state'))->toBeTrue($copyWrites[0]['query']);
 });
@@ -3267,8 +3726,8 @@ use App\Support\AuditRecorder;
 use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
-use App\Support\Notifications\Notifier;
 use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -3490,7 +3949,7 @@ Read first: `old_next/src/domain/circulation/queries/get-borrow-request-queue.ts
 - Create: `app/Queries/BorrowRequestQueueQuery.php`
 - Modify: `app/Queries/ManagerDashboardQuery.php` (+ `counts.pendingRequests`)
 - Test: `tests/Feature/Circulation/BorrowRequestQueueQueryTest.php`
-- Test: `tests/Feature/Manage/ManagerDashboardQueryTest.php` (append — read the existing file's location first; 1d owns it, append in its idiom)
+- Test: `tests/Feature/Oversight/ManagerDashboardQueryTest.php` (append; 1d owns it — the path is `Oversight/`, not `Manage/`, verified by listing the directory)
 
 **Interfaces:**
 - Produces:
@@ -3526,6 +3985,7 @@ afterEach(fn () => Carbon::setTestNow());
 
 /**
  * Shelf bound to an acting manager; caller seeds its own books/requests.
+ *
  * @return array{Bookshelf, User}
  */
 function quqFix(string $slug = 'dong-thap-quq'): array
@@ -3743,7 +4203,7 @@ use App\Support\Circulation\LendingSettings;
 use App\Support\Clock;
 use App\Support\Members\ParishUnits;
 use App\Support\TenantContext;
-use Illuminate\Support\Facades\Gate;
+use Carbon\CarbonImmutable;
 use RuntimeException;
 
 /**
@@ -3775,6 +4235,15 @@ use RuntimeException;
  * filter), for the id and parish placement alone: an inner join would
  * drop every request whose reader has left, precisely the row a manager
  * needs in order to clear it.
+ *
+ * NO INLINE GATE, and that is the house shape, not an omission: every
+ * shipped query in app/Queries/ relies on the route's role middleware
+ * plus the controller's own Gate — OverdueLoansQuery::run(string $sort),
+ * ManagerDashboardQuery::run() and MyDashboardQuery::run(User) each carry
+ * none (verified by opening all three). An inline Gate::authorize here
+ * would also break the one legitimate non-HTTP caller this plan creates,
+ * ManagerDashboardQuery's delegation to countWaiting(). Task 14's routes
+ * carry role:manager and its architecture test asserts so.
  */
 final class BorrowRequestQueueQuery
 {
@@ -3787,7 +4256,6 @@ final class BorrowRequestQueueQuery
     /** @return list<array<string, mixed>> */
     public function run(?string $bookId = null): array
     {
-        Gate::authorize('act-as-manager');
         $shelf = $this->tenant->bookshelf();
         if ($shelf === null) {
             throw new RuntimeException('BorrowRequestQueueQuery needs a bound tenant.');
@@ -3878,15 +4346,23 @@ final class BorrowRequestQueueQuery
                     $context['taxonomy'], $context['units'],
                     $r->getAttribute('parish_unit_l1_id'), $r->getAttribute('parish_unit_l2_id'),
                 ),
-                'requestedAt' => \Carbon\CarbonImmutable::parse((string) $r->getAttribute('requested_at'), 'UTC')->toISOString(),
-                'status' => (string) $r->getAttribute('status'),
+                'requestedAt' => CarbonImmutable::parse((string) $r->getAttribute('requested_at'), 'UTC')->toISOString(),
+                // ->status->value, NOT (string) $r->getAttribute('status').
+                // $r is a BorrowRequest and the model casts status to
+                // RequestStatus (app/Models/BorrowRequest.php:21), so the
+                // cast form is (string) on an enum OBJECT — a fatal on
+                // every row, taking down every queue test, the manager
+                // queue screen, the return screen's waiting panel and the
+                // dashboard card. Task 13 gets this right; this line did
+                // not, until the review ran it down.
+                'status' => $r->status->value,
                 'copyId' => $r->getAttribute('copy_id'),
                 'copyCode' => $r->getAttribute('copy_code'),
-                'holdExpiresAt' => $holdExpiresAt === null ? null : \Carbon\CarbonImmutable::parse((string) $holdExpiresAt, 'UTC')->toISOString(),
+                'holdExpiresAt' => $holdExpiresAt === null ? null : CarbonImmutable::parse((string) $holdExpiresAt, 'UTC')->toISOString(),
                 // BR §8, derived against the injected clock; false for a
                 // pending row, which has no hold to have expired.
                 'holdExpired' => $holdExpiresAt !== null
-                    && \Carbon\CarbonImmutable::parse((string) $holdExpiresAt, 'UTC')->lessThanOrEqualTo($now),
+                    && CarbonImmutable::parse((string) $holdExpiresAt, 'UTC')->lessThanOrEqualTo($now),
             ];
             $queues[$bid]['waiting'] = count($queues[$bid]['requests']);
         }
@@ -3901,8 +4377,6 @@ final class BorrowRequestQueueQuery
      */
     public function countWaiting(): int
     {
-        Gate::authorize('act-as-manager');
-
         return BorrowRequest::query()
             ->join('books', function ($join) {
                 $join->on('books.id', '=', 'borrow_requests.book_id')->whereNull('books.deleted_at');
@@ -3916,20 +4390,44 @@ final class BorrowRequestQueueQuery
 }
 ```
 
-(Adjust the two `Gate::authorize` lines to the house idiom the shipped queries use — read `OverdueLoansQuery`'s guard first and copy it; if queries there rely on route middleware instead of an inline gate, drop these lines and say so in the docblock. The row-shape accessor style follows `MyDashboardQuery`'s `getAttribute` idiom. If `books.author` is not a column — check the 1a migration — drop it from the select and the shape.)
+(Both questions the first draft left to the executor are answered above and in the block itself, checked by opening the files rather than inferred. **The inline gates are gone** — `OverdueLoansQuery::run(string $sort = 'most-late')`, `ManagerDashboardQuery::run()` and `MyDashboardQuery::run(User $reader)` carry no `Gate::` call of any kind, so this query carries none either, and the docblock says why. **`books.author` IS a column** — `database/migrations/2026_08_26_000005_create_books_table.php:24`, `$table->string('author')->nullable()` — so it stays in the select and in the returned shape. The row-shape accessor style follows `MyDashboardQuery`'s `getAttribute` idiom, except for `status`, which goes through the model's cast; see the comment at that line.)
 
-In `app/Queries/ManagerDashboardQuery.php`: constructor gains `private BorrowRequestQueueQuery $queue`; `counts` gains `'pendingRequests' => $this->queue->countWaiting(),` with a comment ("delegated, not restated — the card and the screen it links to cannot drift; the mirror rule the overdue card already follows"). Update the `@return` shape. Append to the existing `ManagerDashboardQueryTest` (in its own idiom — read the file first):
+In `app/Queries/ManagerDashboardQuery.php`: constructor gains `private BorrowRequestQueueQuery $queue`; `counts` gains `'pendingRequests' => $this->queue->countWaiting(),` with a comment ("delegated, not restated — the card and the screen it links to cannot drift; the mirror rule the overdue card already follows"). Update the `@return` shape.
+
+Append to `tests/Feature/Oversight/ManagerDashboardQueryTest.php`. Read the file's first fifteen lines to pick up its fixture helper's name and return shape, then write the seeding against it; everything below the fixture line is exact and ships as written:
 
 ```php
 it('pendingRequests counts pending and approved, and mirrors the queue count exactly', function () {
-    // Fixture: one pending + one approved + one cancelled request (reuse
-    // the file's existing fixture helpers; seed the three rows directly).
-    // Assert: counts.pendingRequests === 2 AND equals
-    // app(BorrowRequestQueueQuery::class)->countWaiting().
+    // <the file's own fixture call, giving $shelf and a bound acting
+    // manager — 1d's helper, not a new one>
+    $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Hoàng Tử Bé', 'slug' => 'hoang-tu-be-mdq']);
+    // Three readers, because borrow_requests_one_live_per_title_member
+    // (Task 1) allows one live row per title per reader — and because a
+    // count that cannot tell three people apart is not a count.
+    foreach ([
+        ['Anna Chờ Duyệt', 'pending'],
+        ['Giuse Đang Giữ Chỗ', 'approved'],
+        ['Têrêsa Đã Huỷ', 'cancelled'],
+    ] as [$name, $status]) {
+        $u = User::factory()->create(['full_name' => $name]);
+        Membership::factory()->for($shelf)->create(['user_id' => $u->id, 'role' => 'reader', 'status' => 'active']);
+        BorrowRequest::query()->create([
+            'bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'member_id' => $u->id,
+            'status' => $status, 'requested_at' => now(),
+            'cancelled_at' => $status === 'cancelled' ? now() : null,
+        ]);
+    }
+
+    $counts = app(ManagerDashboardQuery::class)->run()['counts'];
+
+    // The cancelled row is the thing being excluded, and it exists —
+    // a fixture with nothing to exclude cannot prove exclusion.
+    expect($counts['pendingRequests'])->toBe(2)
+        ->and($counts['pendingRequests'])->toBe(app(BorrowRequestQueueQuery::class)->countWaiting());
 });
 ```
 
-(Write the real fixture against the file's existing helpers — the comment above is the specification of WHAT to assert, not a placeholder to ship; the executor fills the seeding lines from the file's own idiom, as every appended-test step in 1c did.)
+(Add whichever of `Book`, `BorrowRequest`, `Membership`, `User`, `ManagerDashboardQuery`, `BorrowRequestQueueQuery` the file does not already import.)
 
 - [ ] **Step 4: Run, mutation-check, commit**
 
@@ -3951,7 +4449,8 @@ Read first: `old_next/src/app/tu-sach/[shelf]/(doc-gia)/sach/[slug]/page.tsx:480
 
 **Files:**
 - Create: `app/Http/Controllers/Reader/BorrowRequestController.php`
-- Modify: `app/Queries/BookDetailQuery.php` (+ `myRequest`)
+- Modify: `app/Queries/BookDetailQuery.php` (+ `myRequest`, and `run()` gains a `?User $viewer` parameter — a signature change, see Interfaces)
+- Modify: `app/Http/Controllers/Reader/BookController.php` (`show()` gains `Request $request` and passes `$request->user()` — the query's only call site)
 - Modify: `routes/web.php` (reader request routes)
 - Modify: `resources/js/pages/shelves/book.tsx` (the request block)
 - Modify: `resources/js/lib/copy.ts` (+ `circulation.requests` section)
@@ -3962,7 +4461,8 @@ Read first: `old_next/src/app/tu-sach/[shelf]/(doc-gia)/sach/[slug]/page.tsx:480
 - Routes (inside the reader group / profile group):
   - `POST /shelves/{shelf}/books/{book}/request` → `store` — name `shelves.books.request` (reader group).
   - `POST /shelves/{shelf}/profile/requests/{borrowRequest}/cancel` → `cancel` — name `shelves.profile.requests.cancel` (profile group; also posted from the book page — one route, two doors, like the reference's one `cancelRequestAction`).
-- `BookDetailQuery` gains `myRequest`: the signed-in reader's own `pending|approved` request for this book — `null` or `{requestId, status, queuePosition (?int — pending: count of pending rows ahead + 1; approved: null), holdExpiresAt (?string ISO)}`. `queueLength` (shipped) is untouched.
+- **`BookDetailQuery::run` changes signature**, and that is an interface change, not prose: `run(Book $book): array` (`app/Queries/BookDetailQuery.php:43` as shipped — it takes no viewer and reads no `Auth`) becomes **`run(Book $book, ?User $viewer = null): array`**. It has exactly one call site, `app/Http/Controllers/Reader/BookController::show`, whose signature gains `Request $request` as its first parameter so it can pass `$request->user()`; nullable because a guest reads this page and has no request to have made. Do not reach for `TenantContext::membership()?->user_id` instead — a memberless super admin viewing the page would resolve to null there for a different reason, and the parameter is the honest shape (`MyDashboardQuery::run(User $reader)` is the precedent).
+- `BookDetailQuery`'s returned array gains `myRequest`: the viewer's own `pending|approved` request for this book — `null` (always, for a guest) or `{requestId, status, queuePosition (?int — pending: count of pending rows ahead + 1; approved: null), holdExpiresAt (?string ISO)}`. `queueLength` (shipped) is untouched.
 - No Form Requests: neither post carries fields; authorization is the route middleware + the Action's Gate (the 1c renew-POST precedent).
 
 - [ ] **Step 1: Write the failing tests**
@@ -3984,6 +4484,7 @@ use Inertia\Testing\AssertableInertia;
 
 /**
  * Shelf + reader + one published book with one available copy.
+ *
  * @return array{Bookshelf, User, Book}
  */
 function rrsFix(string $slug = 'dong-thap-rrs'): array
@@ -4095,7 +4596,10 @@ it('POST profile/requests/{borrowRequest}/cancel withdraws my own request', func
     expect($request->fresh()->status)->toBe(RequestStatus::Cancelled);
 });
 
-it('a guest is redirected, a non-member 404s — the request POST is reader-gated', function () {
+it('a guest is redirected to login on the request POST', function () {
+    // Named for what it asserts: the non-member case is the it() below,
+    // which has to be its own block anyway (SessionGuard caches the
+    // acting user for a whole test method).
     [$shelf, , $book] = rrsFix('dong-thap-rrs-guest');
 
     test()->post("/shelves/{$shelf->slug}/books/{$book->slug}/request")->assertRedirect('/login');
@@ -4174,15 +4678,17 @@ class BorrowRequestController extends Controller
 }
 ```
 
-In `app/Queries/BookDetailQuery.php`: the run method (read its signature — it receives the viewer or reads `Auth`; follow the shipped shape) gains, beside `queueLength`:
+In `app/Queries/BookDetailQuery.php`: `run(Book $book): array` becomes `run(Book $book, ?User $viewer = null): array` (add the `App\Models\User` import), and `app/Http/Controllers/Reader/BookController::show` gains `Request $request` as its first parameter and calls `$detail->run($book, $request->user())`. Nothing else calls this query — `Manage\BookController` uses `ManagerBookDetailQuery`, a different class. Then, beside `queueLength`:
 
 ```php
-        // The caller's own place in this title's queue, or null. Own =
+        // The viewer's own place in this title's queue, or null. Own =
         // member_id (a users id) equals the signed-in user — never a
         // membership id. Position is derived on read: pending rows ahead
         // + 1, by the queue's own two ordering keys; an approved request
-        // has a hold, not a position.
-        $mine = BorrowRequest::query()
+        // has a hold, not a position. A guest has no request to have made,
+        // and $viewer being nullable is how that reads at the call site
+        // rather than being hidden behind an Auth:: call inside a query.
+        $mine = $viewer === null ? null : BorrowRequest::query()
             ->where('book_id', $book->id)
             ->where('member_id', $viewer->id)
             ->whereIn('status', [RequestStatus::Pending, RequestStatus::Approved])
@@ -4209,7 +4715,7 @@ In `app/Queries/BookDetailQuery.php`: the run method (read its signature — it 
         }
 ```
 
-and the returned array gains `'myRequest' => $myRequest,`. (Thread `$viewer` the way the query already receives the current user — if it does not, add a `User $viewer` parameter and update its one controller call site.)
+and the returned array gains `'myRequest' => $myRequest,`.
 
 In `resources/js/lib/copy.ts`, inside `circulation`, add:
 
@@ -4270,7 +4776,7 @@ In `resources/js/pages/shelves/book.tsx`: extend the page props type with `myReq
         }}
     >
         <Button type="submit" disabled={requestForm.processing}>
-            {detail.availableCopies > 0
+            {detail.copiesAvailable > 0
                 ? copy.circulation.requests.requestButton
                 : copy.circulation.requests.queueButton}
         </Button>
@@ -4278,7 +4784,7 @@ In `resources/js/pages/shelves/book.tsx`: extend the page props type with `myReq
 )}
 ```
 
-with `const requestForm = useForm({});` and `const cancelForm = useForm({});` at the top, and the flash/`errors.rule` banners in the page's existing pattern (read the shipped page for the exact prop names — `detail.availableCopies` may be spelled differently; use the page's real availability field; the two-labels-one-command rule is the reference's, the label moves and the POST does not).
+with `const requestForm = useForm({});` and `const cancelForm = useForm({});` at the top, and the flash/`errors.rule` banners in the page's existing pattern. The availability field is **`detail.copiesAvailable`** — checked by opening `resources/js/pages/shelves/book.tsx`, whose `PageProps["detail"]` declares `copiesTotal`, `copiesAvailable`, `availability`, `onLoan` and `queueLength`; there is no `availableCopies`. The two-labels-one-command rule is the reference's: the label moves with availability, the POST does not.
 
 - [ ] **Step 4: Flip the architecture pin**
 
@@ -4307,7 +4813,7 @@ Mutation check: swap `member_id` for `membership` anything in the myRequest read
 
 ```bash
 make lint && make analyse
-git add routes/web.php app/Http/Controllers/Reader/BorrowRequestController.php app/Queries/BookDetailQuery.php resources/js/ tests/
+git add routes/web.php app/Http/Controllers/Reader/ app/Queries/BookDetailQuery.php resources/js/ tests/
 git commit -m "feat: xin muon on book detail — create and cancel, the session as the scope"
 ```
 
@@ -4506,7 +5012,46 @@ with a small `CancelRequestButton` component in the same file posting `shelves.p
 
 - [ ] **Step 4: Run, JS gates, commit**
 
-Run: `make test FILTER=MyDashboardRequestsTest && make test FILTER=MyDashboard` (1c's suite stays green). JS gates clean. Mutation check: drop the tiebreak (`id <`) branch from the ahead-count → no test reddens UNLESS positions tie — add nothing; instead verify the same-instant case is covered by Task 11's queue test and note in the test file header that the dashboard's tiebreak is pinned transitively by asserting both derive from the same two keys; if the reviewer wants it directly pinned, seed two same-instant requests here and assert positions 1 and 2 by id order — do that now, as its own `it()` block, seeded out of id-intent order is impossible for same-instant v7 ids, so the block pins the MECHANISM (`orderBy('id')`) and says so in a comment (Global Constraints' UUID rule).
+Run: `make test FILTER=MyDashboardRequestsTest && make test FILTER=MyDashboard` (1c's suite stays green). JS gates clean.
+
+First add the same-instant test — the tiebreak is pinned HERE, directly, not deferred to another task's transitive coverage (the first draft's version of this step offered the executor three options and no decision; this is the decision):
+
+```php
+it('two requests at the same instant are numbered by id, the mechanism named', function () {
+    // requested_at ties by construction — two children queueing after the
+    // same Sunday mass. UUIDv7 ids are chronologically monotonic, so the
+    // row created first has the lower id and MUST be position 1: seeding
+    // "out of intended order" is impossible for a same-instant pair, so
+    // this block pins the MECHANISM (orderBy('id') as the tiebreak) rather
+    // than an ordering the fixture could have shuffled. Global
+    // Constraints' UUIDv7 rule allows exactly this, with this comment.
+    [$shelf, $reader, $bookA] = drhFix('dong-thap-drh-tie');
+    app(TenantContext::class)->actSystemWide();
+    $instant = now();
+    $ahead = User::factory()->create(['full_name' => 'Anna Cùng Lúc']);
+    Membership::factory()->for($shelf)->create(['user_id' => $ahead->id, 'role' => 'reader', 'status' => 'active']);
+    $first = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $bookA->id, 'member_id' => $ahead->id,
+        'status' => RequestStatus::Pending, 'requested_at' => $instant,
+    ]);
+    $second = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $bookA->id, 'member_id' => $reader->id,
+        'status' => RequestStatus::Pending, 'requested_at' => $instant,
+    ]);
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $reader->id)->firstOrFail());
+
+    // The premise the assertion rests on, asserted rather than assumed:
+    // v7 monotonicity is what makes "created first" and "lower id" the
+    // same statement.
+    expect($first->id < $second->id)->toBeTrue();
+
+    $dashboard = app(MyDashboardQuery::class)->run($reader);
+
+    expect($dashboard['requests'][0]['queuePosition'])->toBe(2);
+});
+```
+
+Mutation check for it: delete the `->orWhere(fn ($qq) => $qq->where('requested_at', $r->requested_at)->where('id', '<', $r->id))` branch from the ahead-count → this test goes red (position collapses to 1 for both rows). Restore. Task 11's queue test pins the same tiebreak on the manager's side; the two must not disagree, which is why both are pinned rather than one leaning on the other.
 
 ```bash
 make lint && make analyse
@@ -4518,7 +5063,9 @@ git commit -m "feat: the reader dashboard's requests half — position derived, 
 
 ### Task 14: The manager's queue screen — `/manage/borrow-requests`, approve / reject / handover
 
-Read first: `old_next/src/app/tu-sach/[shelf]/quan-ly/yeu-cau-muon/page.tsx` (WHOLE file — the per-row rules: approve on the first pending row only, reject on every pending row, the one solid button on the approved row, the lapsed-hold note, and the Bỏ-qua-is-gone comment block), `old_next/tests/lib/borrow-request-actions.test.ts`, **OQ2's answer** (this task is written for A).
+Read first: `old_next/src/app/tu-sach/[shelf]/quan-ly/yeu-cau-muon/page.tsx` (WHOLE file — the per-row rules: approve on the first pending row only, reject on every pending row, the one solid button on the approved row, the lapsed-hold note, and the Bỏ-qua-is-gone comment block), `old_next/tests/lib/borrow-request-actions.test.ts`, and **ruling 2** — the reject reason is optional, settled, no delta to carry.
+
+**Note on the release button:** ruling 1 ships `ReleaseExpiredHold`, and Task 18 adds a fourth POST route and a *Trả về kệ* button to the page this task creates. Build the page here without it; Task 18's edit is additive and its own commit. The architecture presence-pin below therefore lists three route names now and gains the fourth in Task 18.
 
 **Files:**
 - Create: `app/Http/Controllers/Manage/BorrowRequestController.php`
@@ -4538,7 +5085,7 @@ Read first: `old_next/src/app/tu-sach/[shelf]/quan-ly/yeu-cau-muon/page.tsx` (WH
   - `POST /manage/borrow-requests/{borrowRequest}/approve` → `approve` — `shelves.manage.borrow-requests.approve`.
   - `POST /manage/borrow-requests/{borrowRequest}/reject` → `reject` — `shelves.manage.borrow-requests.reject`.
   - `POST /manage/borrow-requests/{borrowRequest}/handover` → `handover` — `shelves.manage.borrow-requests.handover`.
-- `ApproveBorrowRequestRequest`: `copy_id => ['bail', 'required', 'string', 'uuid']` (an empty select posts `''` → a field error before the Action — "approving with no free copy is a sentence, not a failed uuid cast", the reference's named test). `RejectBorrowRequestRequest`: `reason => ['bail', 'nullable', 'string', 'max:500', 'encoding:UTF-8']` (OQ2=B: `'required'` replaces `'nullable'`, message via `reject_reason_required`). Both `authorize()`: `abort_unless(Gate::allows('act-as-manager'), 404)`.
+- `ApproveBorrowRequestRequest`: `copy_id => ['bail', 'required', 'string', 'uuid']` (an empty select posts `''` → a field error before the Action — "approving with no free copy is a sentence, not a failed uuid cast", the reference's named test). `RejectBorrowRequestRequest`: `reason => ['bail', 'nullable', 'string', 'max:500', 'encoding:UTF-8']` — `nullable`, settled by ruling 2, with no conditional branch. Both `authorize()`: `abort_unless(Gate::allows('act-as-manager'), 404)`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4619,8 +5166,8 @@ it('approving with no free copy is a field error, not a failed uuid cast', funct
 });
 
 it('POST reject with an empty reason box is accepted and stores no reason', function () {
-    // OQ2 = A. On B: this posts a reason instead and a second test
-    // asserts the empty box is a field error keyed reject_reason_required.
+    // Ruling 2: the reason is optional, settled. An empty box is NO
+    // reason — decision_note NULL — not a reason that says nothing.
     [$shelf, $manager, , , $request] = mqsFix('dong-thap-mqs-reject');
 
     $response = test()->actingAs($manager)->post(
@@ -4669,10 +5216,26 @@ it('a lapsed hold\'s handover comes back as the hold_expired sentence', function
 });
 
 it('a reader 404s on the queue screen and on every POST', function () {
+    // All four surfaces, in one it() because the actor never changes —
+    // one actingAs, four requests, which SessionGuard is perfectly happy
+    // with. The name says "every POST", so every POST is here; the first
+    // draft asserted only the GET.
     [$shelf, , , $copy, $request] = mqsFix('dong-thap-mqs-reader');
     $reader = User::query()->where('full_name', 'Têrêsa Bạn Đọc Nhỏ')->firstOrFail();
+    $base = "/shelves/{$shelf->slug}/manage/borrow-requests";
 
-    test()->actingAs($reader)->get("/shelves/{$shelf->slug}/manage/borrow-requests")->assertNotFound();
+    test()->actingAs($reader)->get($base)->assertNotFound();
+    // 404, never 403 — BR §5.4: a reader must not learn the request
+    // exists. The Form Requests' authorize() aborts before validation, so
+    // a well-formed body is answered the same way as an empty one.
+    test()->actingAs($reader)->post("{$base}/{$request->id}/approve", ['copy_id' => $copy->id])->assertNotFound();
+    test()->actingAs($reader)->post("{$base}/{$request->id}/reject", ['reason' => 'thử'])->assertNotFound();
+    test()->actingAs($reader)->post("{$base}/{$request->id}/handover")->assertNotFound();
+
+    // And nothing happened on the way past.
+    expect($request->fresh()->status)->toBe(RequestStatus::Pending)
+        ->and($copy->fresh()->state)->toBe(CopyState::Available)
+        ->and(Loan::query()->count())->toBe(0);
 });
 
 it('the dashboard shows the third card, counting this queue', function () {
@@ -4755,8 +5318,12 @@ class RejectBorrowRequestRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // OQ2 = A: optional. On B, 'nullable' becomes 'required' and
-            // messages() maps reason.required to rules.reject_reason_required.
+            // Optional, per product-owner ruling 2 (settled 2026-08-29):
+            // OPS §4.2 lists no reason_required for this command, unlike
+            // the registration and profile-change rejections, and the
+            // reference ships optional with a named test. bail first and
+            // encoding:UTF-8 because this is free text
+            // (FreeTextEncodingGuardTest sweeps for exactly that).
             'reason' => ['bail', 'nullable', 'string', 'max:500', 'encoding:UTF-8'],
         ];
     }
@@ -4780,6 +5347,7 @@ use App\Models\Bookshelf;
 use App\Models\BorrowRequest;
 use App\Models\User;
 use App\Queries\BorrowRequestQueueQuery;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -4840,12 +5408,12 @@ class BorrowRequestController extends Controller
 
         return redirect()
             ->route('shelves.manage.borrow-requests', ['shelf' => $shelf->slug])
-            ->with('success', __('rules.lend_success_flash_short', ['due' => \Carbon\Carbon::parse($result['dueOn'])->format('d/m/Y')]));
+            ->with('success', __('rules.lend_success_flash_short', ['due' => Carbon::parse($result['dueOn'])->format('d/m/Y')]));
     }
 }
 ```
 
-(`lend_success_flash_short`: read `lang/vi/rules.php` — 1c's `lend_success_flash` takes `:name`/`:title` the handover flow doesn't have at hand; add `'lend_success_flash_short' => 'Đã trao sách — hạn trả :due.',` to the Task-1 flash block IN THIS TASK if not already present, keeping the two-ledger rule trivially satisfied since flash lines are not OPS failure modes.)
+(`lend_success_flash_short` already exists: Task 1 mints it in the flash block it owns, with the reason — 1c's `lend_success_flash` takes `:name`/`:title` this flow does not have at hand. Nothing is retroactively edited into an earlier task's committed block.)
 
 - [ ] **Step 4: The page, the nav, the card**
 
@@ -4883,7 +5451,7 @@ class BorrowRequestController extends Controller
     },
 ```
 
-(On OQ2 = B, `rejectReasonHint` becomes `"Từ chối cần ghi lý do."`.)
+(`rejectReasonHint` is `"Không bắt buộc."` — ruling 2, no alternative.)
 
 Create `resources/js/pages/manage/borrow-requests.tsx` — the reference page's structure in the house's spare idiom. Per book: a card with title (serif), author, "{n} người đang chờ"; rows in order; per row: position number, name, `requestedLine` (+ parish line when non-empty, ` · ` separated); THEN by status:
 
@@ -4960,7 +5528,7 @@ Read first: `old_next/src/app/tu-sach/[shelf]/quan-ly/nhan-tra/page.tsx:100-395`
 
 **Interfaces:**
 - `index` prop added: `waiting: list<array{requestId: string, readerName: string, requestedAt: string}> | null` — null when no loan chosen; else the chosen loan's title's PENDING requests in queue order (`BorrowRequestQueueQuery::run($bookId)`, first queue's requests filtered to `status === 'pending'` — the same query the queue screen reads, so the two screens cannot show two answers; approved rows are NOT offered: their copy exists already).
-- `ReceiveReturnRequest` gains `'hold_for_request_id' => ['bail', 'nullable', 'string', 'uuid']`; the controller converts `''` to null before it validates? No — the radio's "no hold" value posts `""`, and `nullable` + `uuid` REFUSES `''`… so the rule is `['bail', 'nullable', 'string', 'uuid']` with `$request->merge(['hold_for_request_id' => $request->input('hold_for_request_id') ?: null])` in `prepareForValidation()` — an empty string becomes the absence it means ("the absence of a choice to hold, not a request id of zero length").
+- `ReceiveReturnRequest` gains `'hold_for_request_id' => ['bail', 'nullable', 'string', 'uuid']` **plus a `prepareForValidation()`**, and the pair is required, not belt-and-braces: the radio's "no hold" option posts `""`, and `nullable` does not treat an empty string as absent for a `uuid` rule — it would be a validation error on the ordinary path. `prepareForValidation()` merges `''` to `null` first, so an empty string becomes the absence it means ("the absence of a choice to hold, not a request id of zero length"), and the test "the empty radio value means no hold" is what keeps that true.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4982,8 +5550,14 @@ use App\Support\TenantContext;
 use Inertia\Testing\AssertableInertia;
 
 /**
- * Shelf + manager + an active loan + one pending request for its title.
- * @return array{Bookshelf, User, Loan, BorrowRequest}
+ * Shelf + manager + an active loan + one PENDING request for its title +
+ * a second reader whose request for the same title is already APPROVED
+ * on a second copy. The approved row is not decoration: the waiting panel
+ * offers pending rows only, and a fixture with nothing to exclude cannot
+ * prove exclusion (Global Constraints' Pest rule). It is also what makes
+ * this task's mutation check able to fire.
+ *
+ * @return array{Bookshelf, User, Loan, BorrowRequest, BorrowRequest}
  */
 function rhoFix(string $slug = 'dong-thap-rho'): array
 {
@@ -4995,8 +5569,14 @@ function rhoFix(string $slug = 'dong-thap-rho'): array
     Membership::factory()->for($shelf)->create(['user_id' => $borrower->id, 'role' => 'reader', 'status' => 'active']);
     $waiter = User::factory()->create(['full_name' => 'Têrêsa Người Đang Chờ']);
     Membership::factory()->for($shelf)->create(['user_id' => $waiter->id, 'role' => 'reader', 'status' => 'active']);
+    $holder = User::factory()->create(['full_name' => 'Anna Đã Được Giữ Chỗ']);
+    Membership::factory()->for($shelf)->create(['user_id' => $holder->id, 'role' => 'reader', 'status' => 'active']);
     $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Dế Mèn Phiêu Lưu Ký', 'slug' => 'de-men']);
     $copy = BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'code' => 'DT-0001', 'state' => 'on_loan']);
+    // The approved row's own copy — an approved request always names one
+    // and its copy is held, or the fixture describes a state no command
+    // produces (Global Constraints).
+    $heldCopy = BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'code' => 'DT-0002', 'state' => 'held']);
     $loan = Loan::query()->create([
         'bookshelf_id' => $shelf->id, 'copy_id' => $copy->id, 'book_id' => $book->id,
         'borrower_id' => $borrower->id, 'lent_by' => $manager->id,
@@ -5006,18 +5586,32 @@ function rhoFix(string $slug = 'dong-thap-rho'): array
         'bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'member_id' => $waiter->id,
         'status' => RequestStatus::Pending, 'requested_at' => now(),
     ]);
+    // A DIFFERENT reader: borrow_requests_one_live_per_title_member
+    // (Task 1) allows one live row per title per reader.
+    $approved = BorrowRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'member_id' => $holder->id,
+        'status' => RequestStatus::Approved, 'requested_at' => now()->subHour(),
+        'copy_id' => $heldCopy->id, 'hold_expires_at' => now()->addDays(2),
+        'decided_by' => $manager->id, 'decided_at' => now()->subHour(),
+    ]);
 
-    return [$shelf, $manager, $loan, $request];
+    return [$shelf, $manager, $loan, $request, $approved];
 }
 
 it('the chosen loan surfaces who is waiting, pending only, before confirmation', function () {
-    [$shelf, $manager, $loan, $request] = rhoFix();
+    [$shelf, $manager, $loan, $request, $approved] = rhoFix();
 
     test()->actingAs($manager)
         ->get("/shelves/{$shelf->slug}/manage/returns?loan={$loan->id}")
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->where('waiting.0.requestId', $request->id)
-            ->where('waiting.0.readerName', 'Têrêsa Người Đang Chờ'));
+            ->where('waiting.0.readerName', 'Têrêsa Người Đang Chờ')
+            // PENDING ONLY, and the approved row exists to prove it: Anna
+            // already has DT-0002 put aside for her, so offering this
+            // returned copy to her would put two copies under one request.
+            // One entry, and it is not hers.
+            ->count('waiting', 1));
+    expect($approved->fresh()->status)->toBe(RequestStatus::Approved);
 });
 
 it('with nobody waiting the panel data is empty, and no loan chosen means null', function () {
@@ -5151,7 +5745,7 @@ and the rule `'hold_for_request_id' => ['bail', 'nullable', 'string', 'uuid'],`.
 
 Run: `make test FILTER=ReturnHoldOfferTest && make test FILTER=ReceiveReturn && make test FILTER=SearchLoansForReturn` — PASS. JS gates clean.
 
-Mutation check: include approved rows in `$waiting` (drop the pending filter) → "the chosen loan surfaces who is waiting, pending only…" stays green (fixture has no approved row) — so FIRST extend that fixture with an approved row for the same title, assert it absent from `waiting`, watch it fail under the mutation, restore. (The fixture-must-contain-the-excluded-thing rule.)
+Mutation check: drop the `$r['status'] === 'pending'` filter from `$waiting` → "the chosen loan surfaces who is waiting, pending only…" goes red on its `count('waiting', 1)` assertion (Anna's approved row appears as a second offer). Restore. The fixture already contains the row to be excluded — `rhoFix` seeds it, with its own held copy — so this mutation fires as written; the earlier draft told the executor to go and build that fixture mid-check, which is a fixture the plan should simply contain.
 
 ```bash
 make lint && make analyse
@@ -5202,6 +5796,7 @@ use Inertia\Testing\AssertableInertia;
 /**
  * Shelf + reader with $count notifications (alternating kinds), written
  * OLDEST-FIRST so created_at desc must invert creation order.
+ *
  * @return array{Bookshelf, User, list<Notification>}
  */
 function mynFix(int $count = 3, string $slug = 'dong-thap-myn'): array
@@ -5290,6 +5885,33 @@ it('a reader cannot mark somebody else\'s notification read — a silent no-op',
     app(MarkNotificationRead::class)->one($reader, $foreign->id);   // no exception
 
     expect($foreign->fresh()->read_at)->toBeNull();
+});
+
+it('two notifications written in the same instant come back newest-first by id', function () {
+    // The sweep writes many rows in ONE instant, so created_at ties BY
+    // CONSTRUCTION and orderByDesc('id') is the only thing separating
+    // them — the reference measured the cost of omitting it twice (rows
+    // repeating and vanishing across pages). UUIDv7 ids are chronologically
+    // monotonic, so the row created SECOND has the higher id and must come
+    // first: seeding "out of intended order" is impossible for a
+    // same-instant pair, so this block pins the MECHANISM and says so
+    // (Global Constraints' UUIDv7 rule). Pinned HERE rather than deferred
+    // to Task 17, which asserts idempotence and not ordering.
+    [, $reader] = mynFix(0, 'dong-thap-myn-tie');
+    $instant = now();
+    $first = Notification::query()->create([
+        'user_id' => $reader->id, 'kind' => 'membership_approved',
+        'payload' => [], 'created_at' => $instant,
+    ]);
+    $second = Notification::query()->create([
+        'user_id' => $reader->id, 'kind' => 'membership_rejected',
+        'payload' => [], 'created_at' => $instant,
+    ]);
+    expect($first->id < $second->id)->toBeTrue();
+
+    $rows = app(MyNotificationsQuery::class)->run($reader)['rows'];
+
+    expect(array_column($rows, 'id'))->toBe([$second->id, $first->id]);
 });
 
 it('marking read writes no audit entry, deliberately', function () {
@@ -5589,12 +6211,14 @@ use App\Models\User;
 use App\Queries\ManagerDashboardQuery;
 use App\Support\TenantContext;
 use Carbon\Carbon;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Artisan;
 
 afterEach(fn () => Carbon::setTestNow());
 
 /**
  * One shelf, one borrower, one active loan due on $dueOn.
+ *
  * @return array{Bookshelf, User, Loan}
  */
 function swpFix(string $dueOn, array $settings = [], string $slug = 'dong-thap-swp'): array
@@ -5717,7 +6341,7 @@ it('the sweep crosses shelves, because a nightly job serves every parish', funct
 });
 
 it('the 07:00 Asia/Ho_Chi_Minh schedule line exists — Phase 0\'s reservation discharged', function () {
-    $schedule = app(\Illuminate\Console\Scheduling\Schedule::class);
+    $schedule = app(Schedule::class);
     $event = collect($schedule->events())
         ->first(fn ($e) => str_contains((string) $e->command, 'reminders:sweep'));
 
@@ -5746,7 +6370,9 @@ use App\Support\Circulation\LendingSettings;
 use App\Support\Clock;
 use App\Support\Notifications\NotificationKind;
 use App\Support\TenantContext;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -5796,7 +6422,10 @@ final class SweepReminders extends Command
         $today = $clock->today();
         $now = $clock->now();
 
-        [$dueSoon, $overdue] = DB::transaction(function () use ($clock, $today, $now): array {
+        // $clock is deliberately NOT in the use() list: $today and $now are
+        // already taken from it above, and an unused import is a Pint
+        // failure (lambda_not_used_import).
+        [$dueSoon, $overdue] = DB::transaction(function () use ($today, $now): array {
             // Per-shelf windows, one read. Keyed by shelf id.
             $windows = Bookshelf::query()->get()
                 ->mapWithKeys(fn (Bookshelf $s) => [$s->id => LendingSettings::fromShelf($s)->dueSoonDays]);
@@ -5805,14 +6434,14 @@ final class SweepReminders extends Command
             $candidates = Loan::query()
                 ->where('status', LoanStatus::Active)
                 ->where('due_on', '>=', $today)
-                ->where('due_on', '<=', \Carbon\CarbonImmutable::parse($today)->addDays($maxWindow)->toDateString())
+                ->where('due_on', '<=', CarbonImmutable::parse($today)->addDays($maxWindow)->toDateString())
                 ->join('books', 'books.id', '=', 'loans.book_id')
                 ->select('loans.*', 'books.title')
                 ->get()
                 // The shelf's OWN window, per row — the broad SQL window
                 // only bounds the candidate read.
                 ->filter(function (Loan $l) use ($today, $windows): bool {
-                    $limit = \Carbon\CarbonImmutable::parse($today)->addDays((int) ($windows[$l->bookshelf_id] ?? 3))->toDateString();
+                    $limit = CarbonImmutable::parse($today)->addDays((int) ($windows[$l->bookshelf_id] ?? 3))->toDateString();
 
                     return $l->due_on->toDateString() <= $limit;
                 });
@@ -5838,8 +6467,8 @@ final class SweepReminders extends Command
         return self::SUCCESS;
     }
 
-    /** @param \Illuminate\Support\Collection<int, Loan> $loans */
-    private function tell(\Illuminate\Support\Collection $loans, NotificationKind $kind, \Carbon\CarbonImmutable $now): int
+    /** @param Collection<int, Loan> $loans */
+    private function tell(Collection $loans, NotificationKind $kind, CarbonImmutable $now): int
     {
         $written = 0;
         foreach ($loans as $loan) {
@@ -5929,23 +6558,23 @@ git commit -m "feat: reminders:sweep — housekeeping bounded, idempotent by the
 
 ---
 
-### Task 18: `ReleaseExpiredHold` — the lapsed hold's exit (EXECUTED ONLY ON OQ1 = B; on A, skip whole and let Task 19 record the gap)
+### Task 18: `ReleaseExpiredHold` — the lapsed hold's exit (product-owner ruling 1; this task EXECUTES)
 
-Read first: OQ1's full context above, BR §7.2's `approved → expired` arrow, `old_next/src/app/tu-sach/[shelf]/quan-ly/yeu-cau-muon/page.tsx:110-140` (the HoldNote), the `title_has_no_copies` OPS-amendment precedent (1c settled decision 4).
+Read first: ruling 1's full context above, BR §7.2's `approved → expired` arrow, `old_next/src/app/tu-sach/[shelf]/quan-ly/yeu-cau-muon/page.tsx:110-140` (the HoldNote), the `title_has_no_copies` OPS-amendment precedent (1c settled decision 4), and Task 9's `hold_expired` branch — this command is what makes that branch reachable.
 
 **Files:**
 - Create: `app/Actions/Circulation/ReleaseExpiredHold.php`
 - Modify: `app/Policies/BorrowRequestPolicy.php` (+ `release` → act-as-manager)
 - Modify: `app/Support/Audit/AuditSentences.php` (+ `request.expired`), `lang/vi/audit.php`
 - Modify: `docs/OPERATIONS.md` (§4.2 gains the command entry — the one OPS amendment this plan can make, on the owner's ruling)
-- Modify: `routes/web.php` (+ `POST /manage/borrow-requests/{borrowRequest}/release` → `shelves.manage.borrow-requests.release`), `app/Http/Controllers/Manage/BorrowRequestController.php` (+ `release`), `resources/js/pages/manage/borrow-requests.tsx` (the Trả về kệ button on expired rows only), `resources/js/lib/copy.ts` (+ `manageRequests.releaseButton: "Trả về kệ"`), `lang/vi/rules.php` (+ `'hold_not_expired' => 'Thời gian giữ chỗ chưa hết, không thể trả về kệ.'` and `'release_hold_flash' => 'Đã trả bản sách về kệ.'` — `hold_not_expired` is a NEW code with no `errors.ts` spelling, authored on the ruling exactly as `title_has_no_copies` was, and the OPS entry below is its second ledger), `RuleViolatedCodesHaveSentencesTest` (+ `hold_not_expired`, `request_not_held` already listed), `CirculationArchitectureTest` (lock list + this Action)
+- Modify: `routes/web.php` (+ `POST /manage/borrow-requests/{borrowRequest}/release` → `shelves.manage.borrow-requests.release`), `app/Http/Controllers/Manage/BorrowRequestController.php` (+ `release`), `resources/js/pages/manage/borrow-requests.tsx` (the Trả về kệ button on expired rows only), `resources/js/lib/copy.ts` (+ `manageRequests.releaseButton: "Trả về kệ"`), `RuleViolatedCodesHaveSentencesTest` (+ `hold_not_expired`; `request_not_held` was added by Task 9), `CirculationArchitectureTest` (lock list + this Action). **`lang/vi/rules.php` needs no edit here** — Task 1 already minted `hold_not_expired` and `release_hold_flash` in the flash block it owns, with the reason (`hold_not_expired` is a NEW code with no `errors.ts` spelling, authored on the ruling exactly as `title_has_no_copies` was; the OPS entry below is its second ledger)
 - Test: `tests/Feature/Circulation/ReleaseExpiredHoldTest.php`
 
 **Interfaces:**
 - `ReleaseExpiredHold::execute(User $actor, BorrowRequest $request): array{requestId: string, copyId: string}` — throws `request_not_held` (not approved / no copy) | `hold_not_expired` (the hold still stands — a manager may not yank a live hold); audit `request.expired`; NO notification (the child was told the deadline at approval; BR §15 lists no lapsed-hold event).
 - Transaction: copy lock FIRST (from the snapshot's `copy_id` — an approved row always names one), request lock second — the Task 5 order exactly. The expiry check compares the LOCKED row's `hold_expires_at` against `Clock::now()` — this command is the one writer of the `expired` status, and it writes it only for a hold the clock has already ended (derived state stays derived; the write is a RECORD of the lapse a manager chose to act on, not a job's tidy-up).
 
-- [ ] **Step 1: Write the failing tests** — `tests/Feature/Circulation/ReleaseExpiredHoldTest.php` with fixture `ehxFix` (clone `corFix`'s approved-variant skeleton, slug base `dong-thap-ehx`, the manager acting): five tests — (1) a lapsed hold releases: `Carbon::setTestNow(now()->addDays(4))` after fixture, execute, expect request `Expired`, copy `Available`, audit row `request.expired` with before `{status: approved}` / after `{status: expired, copy_id, title, userId}`, result carries both ids; (2) a LIVE hold refuses `hold_not_expired` and writes nothing; (3) a pending request refuses `request_not_held`; (4) the lock order pin — copy first, request second (`$log[0]`/`$log[1]`, the Task 7 idiom verbatim); (5) the released copy is immediately approvable onto the next reader (chain: release, then `ApproveBorrowRequest` for a second pending request onto the same copy succeeds — `DB::flushQueryLog()` between commands if logging). Write the real code for all five following Task 7's test file as the template — same imports, same fixture discipline, distinct names.
+- [ ] **Step 1: Write the failing tests** — `tests/Feature/Circulation/ReleaseExpiredHoldTest.php` with fixture `ehxFix` (clone `corFix`'s approved-variant skeleton, slug base `dong-thap-ehx`, the manager acting): five tests — (1) a lapsed hold releases: `Carbon::setTestNow(now()->addDays(4))` after fixture, execute, expect request `Expired`, copy `Available`, audit row `request.expired` with before `{status: approved}` / after `{status: expired, copy_id, title, userId}`, result carries both ids; (2) a LIVE hold refuses `hold_not_expired` and writes nothing; (3) a pending request refuses `request_not_held`; (4) the lock order pin — copy first, request second (`$log[0]`/`$log[1]`, the Task 7 idiom verbatim); (5) the released copy is immediately approvable onto the next reader (chain: release, then `ApproveBorrowRequest` for a second pending request **by a DIFFERENT reader** — `borrow_requests_one_live_per_title_member` allows one live row per title per reader — onto the same copy succeeds; `DB::flushQueryLog()` between commands if logging); (6) a copy that has since gone to `lost` is left alone by the guarded release, and the expiry is still recorded (`request.expired` written, request `expired`, copy still `lost`) — the pin for mutation check 2 below. Write the real code for all six following Task 7's test file as the template — same imports, same fixture discipline, distinct names.
 
 - [ ] **Step 2: Run to verify failure** — `make test FILTER=ReleaseExpiredHoldTest`.
 
@@ -5970,7 +6599,7 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * BR §7.2's approved → expired, at last written by something — the
- * product owner's OQ1 ruling (2a plan): the reference left a lapsed
+ * product owner's ruling 1 (2a plan): the reference left a lapsed
  * hold with no manager exit (the copy in `held` forever unless the
  * reader cancelled), and the queue query's own docblock demanded a
  * command that never existed. This is that command: the manager records
@@ -6032,11 +6661,11 @@ final class ReleaseExpiredHold
 }
 ```
 
-Audit sentence: `'request_expired' => 'kết thúc giữ chỗ quá hạn của :subject và trả bản sách về kệ',` + map entry (`'request.expired' => 'loans'`) + arm (the `request.rejected` construction minus `:because`). Controller `release` method + route + the button on expired rows only (`entry.holdExpired ? <ReleaseForm/> : null`, `variant="outline"` — the handover stays the solid one) + flash `release_hold_flash`. OPS §4.2 amendment, after `CancelOwnRequest`:
+Audit sentence: `'request_expired' => 'kết thúc giữ chỗ quá hạn của :subject và trả bản sách về kệ',` + map entry (`'request.expired' => 'loans'`) + arm (the `request.rejected` construction minus `:because`). **`AuditSentences`' class docblock count goes 26 → 27 in this same edit** — the branch's final number (Task 4 states the arithmetic). Controller `release` method + route + the button on expired rows only (`entry.holdExpired ? <ReleaseForm/> : null`, `variant="outline"` — the handover stays the solid one) + flash `release_hold_flash`. OPS §4.2 amendment, after `CancelOwnRequest`:
 
 ```markdown
 #### `ReleaseExpiredHold`
-*Added 2026-08-29 (Laravel migration, phase 2a — product-owner ruling, OQ1).* A manager records a lapsed hold's end: `approved → expired` (§7.2's arrow, previously written by nothing) and the copy `held → available`, one transaction. The guard is the clock's own verdict — a live hold cannot be released here.
+*Added 2026-08-29 (Laravel migration, phase 2a — product-owner ruling 1).* A manager records a lapsed hold's end: `approved → expired` (§7.2's arrow, previously written by nothing) and the copy `held → available`, one transaction. The guard is the clock's own verdict — a live hold cannot be released here.
 
 - **Inputs:** `bookshelfId`, `requestId`
 - **Caller:** `manager`
@@ -6047,7 +6676,13 @@ Audit sentence: `'request_expired' => 'kết thúc giữ chỗ quá hạn của 
   - `hold_not_expired` — "Thời gian giữ chỗ chưa hết, không thể trả về kệ."
 ```
 
-- [ ] **Step 4: Run, mutation-check (drop the expiry guard → test 2 red; restore), commit**
+Task 14's architecture presence-pin gains a fourth name in this commit: `'shelves.manage.borrow-requests.release'`, asserted `role:manager` like the other three.
+
+- [ ] **Step 4: Run, mutation-check, commit**
+
+Run: `make test FILTER=ReleaseExpiredHoldTest && make test FILTER=HandoverRequestTest && make test FILTER=AuditActionCensusTest && make test FILTER=ManagerQueueScreenTest` — PASS. The handover suite is in that list on purpose: this command is what makes its `hold_expired`-on-an-`expired`-row test describe a reachable state rather than a defensive one, and the two must go green together.
+
+Mutation checks: (1) drop the `hold_expires_at > now` guard → test 2 ("a LIVE hold refuses `hold_not_expired`") red; restore. (2) drop the `->where('state', CopyState::Held)` guard from the copy release → no test reddens with the fixtures as written, so ALSO seed, in test 1, a variant where the copy has since gone to `lost`: the release must still record `request.expired` and must NOT flip a lost copy to available. Write that as a sixth test now rather than leaving the guard unpinned. (3) remove the audit `record` call → `AuditActionCensusTest` red (a sentence with no writer); restore.
 
 ```bash
 make lint && make analyse
@@ -6080,7 +6715,9 @@ Open each named file and record the disposition table in known-gaps (the 1c prec
 | `CreateBorrowRequest` / `ApproveBorrowRequest` / `RejectBorrowRequest` / `CancelOwnRequest` / `HandoverRequest` | shipped (Tasks 4–9) |
 | `ReceiveReturn` | RE-WIDENED to the reference's full shape (Task 10) — the 1c narrowing entry below is discharged |
 | `SkipRequest` | closed WITHOUT implementation: the product owner removed *Bỏ qua* from the reference (queue page comment block, 2026-08-09); *Từ chối* is the one manager decision on a pending row |
-| `ReleaseExpiredHold` | per OQ1 — shipped (Task 18) or the recorded gap (option A's dead-end paragraph, verbatim from the plan) |
+| `ReleaseExpiredHold` | shipped (Task 18), on ruling 1 — with its own OPS §4.2 entry written in that task's commit |
+| `request_not_held`'s absence from OPS §4.2 | **stated, not covered over.** No §4.2 command enumerates this code; OPS states `HandoverRequest`'s failure modes as the `/errors.ts` disjunction rather than a list, which is why the plan's divergence 12 could say "no OPS amendment is needed". Record here that the walk checked and found it, that the disjunction is the reason it is acceptable, and that the code's Vietnamese sentence lives in `lang/vi/rules.php` under this phase's block — so a future OPS edit that switches `HandoverRequest` to an enumerated list has one thing to add and a note saying so |
+| `ChooseCopy` vs `CountsCopies::borrowable()` | **dispositioned, not left as a landmine** (divergence 14) — see step 3 below |
 | `GetBorrowRequestQueue`, `GetMyNotifications`, `GetMyDashboard` (requests half), `MarkNotificationRead`/`MarkAllNotificationsRead` | shipped |
 | the sweep | shipped as `reminders:sweep`, scheduled 07:00 Asia/Ho_Chi_Minh |
 | `CreateBorrowRequest`'s `copyId` | NARROWED — 2c restores it with the scan pages (the exact reference behaviour listed: nullable copy of the same title, same shelf, not deleted; audit `copy_id` fills) |
@@ -6091,8 +6728,11 @@ Open each named file and record the disposition table in known-gaps (the 1c prec
 2. **Discharge** "`LendCopy`'s hold-collection branch is unported…" — same treatment.
 3. **Amend** "`RenewLoan`'s queue check has no structural backstop" — "Phase 2 decides whether the queue check needs a lock" becomes the decision: it keeps the plain read (divergence 8's indistinguishability argument, spelled out), now REACHABLE since requests exist, and the racing-request case is benign by argument, not by absence.
 4. **Discharge** "`ApproveMembership`/`RejectMembership` write NO notification rows yet" (known-gaps:1035) — Task 2 landed both.
-5. **Add** the Phase 2a section: the cancel-window residual (divergence 1's exact interleaving, and why no cycle-freedom is claimed); the suspended-reader unreachability of `memberMayRequest`/cancel (ported reading 1); the `comment_approved` kind arriving in 2b and the BR §15 profile-change pair being Phase 3's to decide (divergence 7); the freeCopies state-equals-borrowable note (Task 11's comment, recorded durably); the OQ1 disposition; the frontend blind spot extending to the new pages (the dashboard card mutation check in Task 14 that no test can catch — HANDOFF's open item, restated for the three new screens).
-6. **Update HANDOFF.md**: the 2a row → plan committed, tasks 1–19 with commit hashes as they land (the executing session maintains it; this step seeds the structure).
+5. **Amend** the Phase-2 landmine entry — "Step 1's block flag is hold-aware; `ChooseCopy` is not" (`docs/known-gaps.md:1725-1736`) — from a warning into the recorded disposition (divergence 14). Its own words offer two resolutions; write down which was taken and why: **`ApproveBorrowRequest` keeps them in sync** — it flips the copy to `held` in the same transaction as the hold, so `ChooseCopy::lowestLendable`'s state-only branch and `CountsCopies::borrowable()`'s state-plus-no-live-hold branch select the same set — and `ChooseCopy` is left alone, because it is pure over a `Collection<BookCopy>` and would have to be handed hold data by every caller to learn the predicate. Name the one residual: an `available` copy under a live hold, reachable only through `ReportCopyLost` + `MarkCopyFound` on a held copy (divergence 13), where the two DO still disagree and the walk-up lend wins. Add the pin in the same commit — a test in `tests/Feature/Circulation/` that approves a request onto a copy and then asserts `SearchBooksForLendingQuery`'s `blocked` flag and `ChooseCopy::lowestLendable` agree that the title has nothing lendable; without it this row is a paragraph, and a paragraph is what the entry was already.
+6. **Add** the C1 record: `CreateBorrowRequest` was going to take a `books` `FOR UPDATE` and does not, because `UpdateBook` X-locks `bookshelves` and then writes the book row while every insert here wants S on that same `bookshelves` row — the AB–BA the review found by reading `UpdateBook.php:73-84` against `2026_08_26_000019_add_composite_tenant_fks.php:34`. Record the diagram, the rejected `bookshelves`-first alternative and WHY it was rejected (it would join the users-actor cycle at known-gaps:1653-1700, already reproduced with two OS processes, and would serialise every child's *Xin mượn* behind a bulk `AddCopies`), and the constraint that replaced the lock with its verified 1062 behaviour. State plainly that **no cycle-freedom claim is made anywhere in the 2a branch**, and that the only lock-related claim made — "`CreateBorrowRequest` takes no `lockForUpdate`" — is pinned by a grep test rather than argued.
+7. **Add** divergence 13's hole: an `available` copy under somebody else's live hold is lendable, the reference has it identically (`policy.ts:86-108`), the reachability walk is `ApproveBorrowRequest` → `ReportCopyLost` → `MarkCopyFound`, and what is guarded instead is that such a lend never closes the other reader's request (Task 8's named test). This is a ported hole with a stated answer, not an unknown.
+8. **Add** the rest of the Phase 2a section: the cancel-window residual (divergence 1's exact interleaving, and why no cycle-freedom is claimed); the suspended-reader unreachability of `memberMayRequest`/cancel (ported reading 1); the `comment_approved` kind arriving in 2b and the BR §15 profile-change pair being Phase 3's to decide (divergence 7); the freeCopies state-equals-borrowable note (Task 11's comment, recorded durably); ruling 1's disposition (the gap is closed, with the command and the OPS entry that closed it); the frontend blind spot extending to the new pages (the dashboard card mutation check in Task 14 that no test can catch — HANDOFF's open item, restated for the three new screens).
+9. **Update HANDOFF.md**: the 2a row → plan committed, tasks 1–19 with commit hashes as they land (the executing session maintains it; this step seeds the structure).
 
 - [ ] **Step 4: The demo seed**
 
@@ -6100,7 +6740,7 @@ Open each named file and record the disposition table in known-gaps (the 1c prec
 
 - [ ] **Step 5: The whole-branch mutation spot-checks (the 1d lesson — the headline guard must not be deletable)**
 
-Three cross-task checks, each performed and restored: (1) delete `Notifier`'s use in ALL three circulation writers at once → at least three named tests red (list them); (2) gut `NotificationsAreReaderFacingTest`'s table to `[]` → its own second test red (the census cannot be emptied silently); (3) remove the `Schedule::command('reminders:sweep'…)` line → the schedule test red. `git status --porcelain` clean after.
+Four cross-task checks, each performed and restored: (1) delete `Notifier`'s use in ALL three circulation writers at once → at least three named tests red (list them); (2) gut `NotificationsAreReaderFacingTest`'s table to `[]` → its own second test red (the census cannot be emptied silently); (3) remove the `Schedule::command('reminders:sweep'…)` line → the schedule test red; (4) **the 1d lesson applied to this phase's own headline claim**: in `ApproveBorrowRequest`, `RejectBorrowRequest` AND `ReceiveReturn` at once, move each `$this->notifier->notify(...)` to after its `DB::transaction(...)` returns → the transaction-placement guard names all three files and their lines, and nothing else in the suite reddens. That "nothing else reddens" half is the point: it is the measurement of how much this phase's guarantee depended on one architecture test. Record the observed output in the task log. `git status --porcelain` clean after.
 
 - [ ] **Step 6: Commit**
 
@@ -6115,16 +6755,16 @@ git commit -m "test: 2a guarantee sweep — the ops walk, the durable record, th
 
 **1. Spec coverage.** The scope's seven numbered items, each to a task: (1) lifecycle create/cancel/approve/reject/handover → Tasks 4, 7, 5, 6, 9; (2) INV-03 and queue semantics ported without invented ordering → Tasks 8 (held-for-me live), 11 (requested_at asc, id asc; folded title between books — the reference's own keys); (3) `ReceiveReturn` re-widening, all four named facts in one transaction → Task 10; (4) notification kinds, write path, reader list, mark-read, the reader-facing architecture intent → Tasks 2 and 16; (5) the 07:00 sweep on Phase 0's reserved line, the housekeeping bound understood and tested first → Task 17; (6) manager and reader screens, Vietnamese copy, English URIs → Tasks 12–16; (7) audit sentences for every new audited action → Tasks 4–8, 10 (and 18 conditionally); no new CSV columns exist (no export touches requests — verified against 1d's three export queries, none of which reads `borrow_requests` or `notifications`). NOT-in-2a items stayed out; the two things that could not be built without later phases (`copyId` needing 2c's scanner; `comment_approved` needing 2b's moderation) are named divergences 3 and 7, not silent widenings.
 
-**2. Placeholder scan.** Two steps intentionally delegate line-level plumbing to the executor against a named shipped file (Task 11's dashboard-test fixture; Task 18's five tests from Task 7's template) — each states exactly WHAT to assert and WHICH file's idiom to copy, which is the 1c convention for appending to files another phase owns, not a TBD. No "add validation", no "handle edge cases", no bare "similar to Task N" without the template being named and the differences enumerated.
+**2. Placeholder scan (re-run after the review, which found four unresolved instructions the first pass did not count).** Every "if X, do Y; otherwise Z" has been resolved by opening the file: Task 11's inline gates are GONE (no shipped query carries one — `OverdueLoansQuery`, `ManagerDashboardQuery`, `MyDashboardQuery` all checked); `books.author` EXISTS and stays; Task 12's availability field is `detail.copiesAvailable` (checked in `book.tsx`); Task 11's dashboard test lives in `tests/Feature/Oversight/`, not `Manage/`; Task 13's Step 4 now names one test and writes it out instead of offering three options; Task 8's mutation check 2 has a fixture that fires it; Task 15's mutation check has its excluded row seeded in the fixture; `lend_success_flash_short`, `hold_not_expired` and `release_hold_flash` are minted in Task 1 rather than edited retroactively into its committed block. Two steps still delegate line-level plumbing against a named shipped file — Task 11's dashboard-test fixture CALL (the assertions are written out) and Task 18's six tests from Task 7's template — each stating exactly WHAT to assert and WHICH file's idiom to copy, the 1c convention for appending to a file another phase owns. No "add validation", no "handle edge cases", no bare "similar to Task N".
 
 **3. Type consistency.** `RequestRules::copyHoldable(CopyState, ?string): ?string` (Tasks 1→5); `LoanTerms::holdExpiry(CarbonImmutable, int): CarbonImmutable` (1→5, 10, 18); `Notifier::notify(string, NotificationKind, array): void` (2→5, 6, 10); `CreateBorrowRequest::execute(User, Book): array{requestId}` (4→12); `ApproveBorrowRequest::execute(User, BorrowRequest, string): array{requestId, copyId, holdExpiresAt}` (5→14); `RejectBorrowRequest::execute(User, BorrowRequest, ?string)` (6→14); `CancelOwnRequest::execute(User, BorrowRequest): array{requestId, releasedCopyId}` (7→12, 13); `HandoverRequest::execute(User, BorrowRequest): array{loanId, dueOn}` (9→14); `ReceiveReturn::execute(…, ?string $holdForRequestId): array{loanId, queuedRequestId}` (10→15); `BorrowRequestQueueQuery::run(?string)/countWaiting()` (11→14, 15, and ManagerDashboardQuery); `MyNotificationsQuery::run(User, int)` (16); route names used by pages match the routes declared (`shelves.books.request`, `shelves.profile.requests.cancel`, `shelves.manage.borrow-requests[.approve/.reject/.handover]`, `shelves.profile.notifications[.read/.read-all]`).
 
-**4. House rules visibility.** Lock-first + `$log[0]` pins: Tasks 4, 5, 6, 7, 10 (and 18); the one order inversion is documented, not hidden (divergence 1, Task 7, Task 19). 404-never-403: both Form Requests + route-gating tests (12, 14, 16). Derived state: `holdExpired`/queue position/`expired`-never-written each carry their argument and a test. Composite-FK/tenancy: no new tables; the one join that touches `bookshelf_id` is column-to-column with the TenancyArchitectureTest run named (11). Soft-delete-aware: no new uniqueness; every exclusion test seeds the excluded thing. Mutation testing: every task ends with named break-observe-restore checks. SessionGuard: every actor switch is its own `it()`. UUIDv7: every ordering fixture seeds out of order or pins the mechanism by name. Pest traps: absence proofs use `array_key_exists`, exclusion fixtures contain the excluded row.
+**4. House rules visibility.** Lock-first + `$log[0]` pins: Tasks 5, 6, 7, 10, 18; Task 4 pins the OPPOSITE — an absence of locks — with a query-log filter and a source grep, because divergence 2 withdrew its lock (C1). The one order inversion is documented, not hidden (divergence 1, Task 7, Task 19), and **no cycle-freedom claim appears anywhere in this plan**: the phase contains no two-OS-process harness, so it makes no claim that would need one. 404-never-403: both Form Requests + route-gating tests (12, 14, 16 — and 14's reader test now exercises all four surfaces, not just the GET). Derived state: `holdExpired`, queue position, and `expired`-written-only-by-`ReleaseExpiredHold`-under-a-clock-guard each carry their argument and a test. Composite-FK/tenancy: no new tables; one new column and one new unique index (Task 1), both verified live against the real MariaDB before the plan shipped; the one join that touches `bookshelf_id` is column-to-column with the TenancyArchitectureTest run named (11). Soft-delete-aware: the new uniqueness names `deleted_at IS NULL` in its own expression and its test proves a soft delete frees the slot; every exclusion test seeds the excluded thing. Mutation testing: every task ends with named break-observe-restore checks, and three of them are corrections the review forced — Task 4's is inverted (add the lock back), Task 8's fixture now puts the foreign hold on the copy being lent, Task 15's excluded row is in the fixture rather than built mid-check. SessionGuard: every actor switch is its own `it()` or its own dataset case (Task 9's four unheld states are a `->with()` dataset, not a `foreach`). UUIDv7: every ordering fixture seeds out of order, or pins the mechanism by name with the monotonicity premise itself asserted (Tasks 13 and 16). Pest traps: absence proofs use `array_key_exists`, exclusion fixtures contain the excluded row. Level 8 and Pint: every literal PHP block in this plan was extracted to a file and run through `pint --test` and `phpstan --level=8` before the plan was committed — that is how C5's fourteen style failures and C6's three level-8 errors were found, and how the corrected blocks were confirmed clean.
 
-**5. Census integrity re-checked.** Literal `RuleViolated` codes added to the list: `duplicate_request` (T4), `request_not_pending`+`copy_not_found` (T5), `not_own_request`+`request_already_fulfilled` (T7), `hold_expired`+`request_not_held` (T9), `request_not_queued` (T10), `hold_not_expired` (T18, conditional) — each in the task that mints the literal. Predicate codes stay out (censused in `RequestRulesTest`). Audit actions and their sentences land writer-and-map-together in Tasks 4, 5, 6, 7, 8 (`request.fulfilled`), 18 — matching `AuditActionCensusTest`'s both-directions rule at every commit. Notification kinds land case+sentence+writer+census-row together in Tasks 2, 5, 6, 10 (second door), 17.
+**5. Census integrity re-checked.** Literal `RuleViolated` codes added to the list: `duplicate_request` (T4), `request_not_pending`+`copy_not_found` (T5), `not_own_request`+`request_already_fulfilled` (T7), `hold_expired`+`request_not_held` (T9), `request_not_queued` (T10), `hold_not_expired` (T18) — each in the task that mints the literal. `AuditSentences`' docblock count moves 21 → 27 across Tasks 4, 5, 6, 7, 8, 18, one increment per task (T4 states the arithmetic). Predicate codes stay out (censused in `RequestRulesTest`). Audit actions and their sentences land writer-and-map-together in Tasks 4, 5, 6, 7, 8 (`request.fulfilled`), 18 — matching `AuditActionCensusTest`'s both-directions rule at every commit. Notification kinds land case+sentence+writer+census-row together in Tasks 2, 5, 6, 10 (second door), 17.
 
 ## Execution notes
 
-- Task order is dependency order; nothing may be reordered past its consumers (2 before 5/6/10; 8 before 9; 11 before 14/15).
-- OQ1 and OQ2 are answered by Kien BEFORE Task 4 starts; Task 18 runs or is skipped per OQ1, and Tasks 6/14 carry their OQ2=B deltas inline.
+- Task order is dependency order; nothing may be reordered past its consumers (1 before everything — its migration is what makes Task 4's duplicate rule real; 2 before 5/6/10; 8 before 9; 11 before 14/15; 14 before 18, which adds a button to 14's page).
+- Both product-owner questions are ANSWERED (rulings 1 and 2, above). **Task 18 executes.** Tasks 6 and 14 carry no conditional deltas — the reject reason is optional, full stop.
 - Per the standing instructions: Fable wrote this plan; Opus reviews it before any code; execution runs task-brief → implement → review-package → review per task, ending in a PR with a whole-branch review, then Kien merges.
