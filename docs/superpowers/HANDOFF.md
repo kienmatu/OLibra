@@ -126,9 +126,40 @@ Its findings were accuracy defects, fixed in `e680f1d`:
 ## Phase 2a — task ledger
 
 Plan `49e6c93` → review 1 → fix `f68f8f8` → review 2 → fix `b15f582` → verification →
-accuracy fixes `e680f1d`. **Task 1 dispatched** (the refusal sentences, `RequestRules`,
-`LoanTerms::holdExpiry`, the `LendingSettings` days, the `AuditLogQuery` subject join, and
-the `live_request_key` migration). Nothing merged; no PR open.
+accuracy fixes `e680f1d`. Then per task: implement → review (fresh agent) → fix round.
+Nothing merged; no PR open.
+
+- **1 groundwork** — `555f9a8`, `cc2ee28` · approved. The `live_request_key` index, `RequestRules`,
+  `LoanTerms::holdExpiry`, the `LendingSettings` days, the `AuditLogQuery` subject join, the
+  eleven sentences. Review's four must-fixes: a docblock claiming no writer had ever written
+  `$.userId` (three shipped actions had, since 1b); the new audit join **unguarded** (breaking it
+  left all 1,044 tests green) — pinned rather than deferred; a stale plan file-map line still
+  saying "book lock first"; and "3 days is exactly 72 hours, no DST" (measured **71** across a
+  spring-forward). The migration's two DDL statements now roll back as one.
+- **2 notifications** — `cb67f1e`, `a196b17` · approved. The write path plus the phase's headline
+  guard. **The review broke that guard while it was green:** its `$checked >= 2` floor does not
+  grow, so adding one compliant call covered a writer that had moved its notify outside the
+  transaction. Floor now derived per file from `OPS_SECTION_7`. The guard also armed on ANY
+  identifier named `transaction` (a property or method by that name made a call invisible), so
+  "a false alarm, never a silent pass" was false. Then the fix round found a **fifth** defect the
+  reviewer's 28-shape sweep missed: nested interpolation `"a {$o->m("b {$p->q}")} c"` desynced the
+  quote toggle and reddened CORRECT code — string tracking deleted entirely in favour of counting
+  `T_CURLY_OPEN`. 35-case attack set, 0 mismatches. `known-gaps` was false again (7th).
+- **3 policy + binding** — `fe23d54`, `01e2aa8` · approved. Nine actor cases, not the plan's two.
+  The review disproved the premise the whole test file rested on: **Laravel re-bootstraps per test
+  file**, so no runtime-registered route survives — `Route::has(...)` could never be true, and the
+  probe was carrying neither `auth` nor `role:reader` while the real routes will carry both. Probe
+  moved onto the real URI and the real stack; three new tests it unlocks. The implementer then found
+  dropping `auth` left all 18 green (`EnsureShelfRole` redirects a guest by itself on a KNOWN slug),
+  and pinned it with an unknown-slug case. New `PolicyRegistrationTest` covers all five policies,
+  derived both ways.
+- **4 `CreateBorrowRequest`** — dispatched.
+
+**One correction landed at the source** (`d93d4e9`): the 404-never-403 rule was cited as "BR §5.4"
+throughout the plan, `known-gaps.md` and a shipped docblock. `BUSINESS-REQUIREMENTS.md` §5.4 is
+"What is recorded about each thing" and `grep -in "enumerat"` over it returns nothing. The section
+number is right, the document was not — it is the **migration design spec's** §5.4, "The
+TenantIsolation suite". Fixed before it could propagate into the remaining sixteen tasks.
 
 ## Phase 1d — closed
 
