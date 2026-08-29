@@ -233,7 +233,35 @@ Nothing merged; no PR open.
   `before` bag stored the literal `['copy_state' => 'available']`, which became a fabricated record
   once a collected hold reaches the lend from `held`; it now stores the real prior state, matching
   `lend-copy.ts:290`, byte-identical for walk-up lends (now pinned), and nothing downstream reads it.
-- **9 `HandoverRequest`** — next.
+- **9 `HandoverRequest`** — `c6f15e5`, `5d2b16d` · approved after 1 review round. Divergence 11
+  honoured exactly: no transaction, no lock, delegation only — and it now has an EXECUTABLE pin
+  (two query-log blocks: the first `FOR UPDATE` is on `book_copies`, and no locking read touches
+  `borrow_requests`), which the coordinator required over the brief's comment-only shape, because
+  nothing otherwise caught the inverse mistake — adding a request lock here would invert the lock
+  order and create the twin of the AB–BA edge Task 8 had made one commit earlier. Measured: adding
+  `lockForUpdate()` to the pre-flight gives `2 failed, 12 passed`. **Its own self-review found a real
+  hole before any reviewer did:** `Gate::authorize('handover', …)` was pinned by nothing — the whole
+  suite stayed green with the call deleted — closed with a block that rebinds `TenantContext` rather
+  than taking a second `actingAs`, and which discriminates for a subtle reason (the row is `expired`,
+  so deleting the gate changes the exception CLASS). Both of its refusals of the brief were verified
+  as accurate corrections of a wrong brief rather than the narrowing-into-untruth that produced three
+  of this project's nine failures. Its Important was a fourth instance of that family all the same:
+  the architecture test's exemption comment kept the broad claim ("every fact they read is
+  re-established on locked rows") that the Action's own docblock had already retracted two files
+  over — false, because `LendCopy` never re-reads the request row this command was asked about. While
+  fixing it the implementer found a THIRD overstatement of its own ("on LOCKED rows" for two plain
+  reads) and fixed that too.
+- **10 `ReceiveReturn` re-widened** — next.
+
+**A plan promise withdrawn at Task 9, and two constraints it puts on Task 18.** Divergence 11 said
+the handover race yields "a stale *sentence* … never a wrong write". False: if a cancel commits in
+the window it releases the copy to `available` and the delegation then writes an ordinary walk-up
+loan closing nobody's request. Right copy, right reader, and the reference had unlocked reads too —
+so nothing changes in code, but the promise is withdrawn in the plan rather than left standing.
+Task 18's `ReleaseExpiredHold` reproduces the same shape, and it also **must not null
+`borrow_requests.copy_id`** when it releases: `HandoverRequest`'s `Expired → hold_expired` branch
+fires only while `copy_id` is populated, so nulling it would kill that branch in production while
+Task 9's test — which sets `status` alone — stayed green.
 
 **The one thing on this branch that is genuinely new risk, and Kien should see it.** Task 8 CREATED
 an AB–BA lock edge that did not exist before. `LendCopy` now holds the copy lock and then locks a
