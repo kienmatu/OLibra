@@ -336,7 +336,35 @@ Nothing merged; no PR open.
   doors, and keep only the one negative code-level fact that has a test behind it. **Complete
   enumerations are the hardest claims to verify and the easiest to falsify silently** — every future
   Action throwing through a shared renderer invalidates one. Worth applying to the remaining tasks.
-- **13** — next.
+- **13 the dashboard's requests half** — `090c189`, `37c3fc5`, `0287626` · approved after 2 rounds.
+  The implementer did two things unprompted that the trap list is meant to produce: the
+  neighbouring-comment grep found a SECOND file carrying the same stale "the requests half is
+  Phase 2's" claim (`MyLoansController`, outside its brief) and it fixed both; and it **refused its
+  own brief's comment text**, which said the reader and manager surfaces "cannot disagree" — false
+  against the divergence documented one task earlier, and writing it would have put a fourth wrong
+  spelling of the rule into the code. Both calls were upheld on review.
+  Its Importants: the list ordering was pinned by nothing (all four brief-supplied fixtures leave
+  the reader exactly one row, so both `orderBy` calls delete green — the brief's gap, closed with an
+  out-of-order fixture that asserts its own id relationships rather than assuming them), and this
+  diff falsified a neighbouring comment's COUNT.
+- **14 the manager's queue screen** — next.
+
+**The rule this phase earned, and the one to carry into 2b and 2c.** A complete enumeration in a
+comment has now been wrong FIVE times on this branch — "the codes a reader can cause", "exactly two
+codes", "the two screens", and twice more in the corrections themselves. The failure is the claim
+SHAPE, not the authors: a shared renderer, a new surface, or a new writer silently falsifies every
+enumeration downstream of it, and no phrase-scoped grep finds them, because the author greps for the
+claim they remember rather than for claims their change breaks.
+
+Two habits came out of it, both now in every dispatch:
+- **Do not enumerate.** Describe the mechanism, name the doors, and keep only code-level claims that
+  have a test behind them.
+- **Sweep for what your change falsifies, not for what you remember.** When you add a surface, grep
+  for the words that COUNT surfaces — "two screens", "both", "the only", "exactly", "no other".
+
+A third, smaller one, from Task 13's last round: "the same X" is a claim too. Two things can share
+a field name and differ in the copy key — and if the comment exists to be found by grep, the
+difference is the whole point.
 
 **Four of this phase's twelve false claims were written by the coordinator, all one pattern:**
 reasoning about a mechanism from its name rather than its implementation — a `getQueryLog()`
