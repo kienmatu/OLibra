@@ -5,12 +5,13 @@ namespace App\Queries;
 use App\Enums\CopyState;
 use App\Enums\RequestStatus;
 use App\Models\BookCopy;
+use App\Models\Bookshelf;
 use App\Models\BorrowRequest;
 use App\Support\Circulation\LendingSettings;
 use App\Support\Clock;
 use App\Support\Members\ParishUnits;
 use App\Support\TenantContext;
-use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use RuntimeException;
 
 /**
@@ -28,12 +29,21 @@ use RuntimeException;
  *
  * THE ORDER IS TOTAL and one half of it is folded: title_folded then
  * book id between titles (byte order puts every Đất above every Alice —
- * the defect the reference shipped twice), requested_at then id within
- * one (two children queueing after the same Sunday mass tie to the
- * second, and untied rows renumber between reads). position's window
- * uses the SAME two keys as the outer order, so the number printed
- * beside a row and the row's place cannot disagree. Not paged: the set
- * is bounded by its own state.
+ * a defect found in three instances across two audits, U2's two
+ * catalogue queries and U3's getReadersList — not the reference's
+ * BR §7.2, which says only "ordered by request time" and names no
+ * tiebreak at all), requested_at then id within one (two children
+ * queueing after the same Sunday mass tie to the second; the missing
+ * tiebreak is a SEPARATE defect the reference shipped twice — U2 measured
+ * a 304→229 paged-walk collapse, U3 found two tiebreak tests green
+ * against the broken query — and `borrow-request-queue.test.ts:367-452`
+ * is the reference's answer: a 28-row, four-title/three-instant fixture
+ * built non-degenerate on purpose, asserted against the full
+ * lexicographic order rather than "ascending by id" — the shape a
+ * BROKEN query produces on its own when nothing ties). position's
+ * window uses the SAME two keys as the outer order, so the number
+ * printed beside a row and the row's place cannot disagree. Not paged:
+ * the set is bounded by its own state.
  *
  * SCOPING: BookshelfScope on BorrowRequest does the tenancy; users
  * carries no scope and is joined directly (it can only narrow);
@@ -42,6 +52,21 @@ use RuntimeException;
  * filter), for the id and parish placement alone: an inner join would
  * drop every request whose reader has left, precisely the row a manager
  * needs in order to clear it.
+ *
+ * run() AND countWaiting() SHARE waiting() below — one builder, one
+ * predicate, one bound-tenant guard — rather than two statements that
+ * merely read identically today: identical text in two method bodies is
+ * still a drift-capable pair (review, fix round 1), and the earlier
+ * shape let countWaiting() answer a cross-tenant count under
+ * TenantContext::actSystemWide() while run() correctly refused — the
+ * badge and the list disagreeing in exactly the mode the headline
+ * requirement forbids. TenancyArchitectureTest's grep does not reach
+ * ANY of this: it looks for a WHERE-shaped Eloquent call, the dynamic
+ * magic-where variant, or a raw-SQL WHERE clause naming the shelf
+ * column; waiting()'s memberships join is an ON clause instead, and the
+ * scoping itself is BookshelfScope on the base BorrowRequest query, not
+ * a hand-written filter here — confirmed by running
+ * TenancyArchitectureTest against this file.
  *
  * NO INLINE GATE, and that is the house shape, not an omission: every
  * shipped query in app/Queries/ relies on the route's role middleware
@@ -61,40 +86,64 @@ final class BorrowRequestQueueQuery
         private ParishContextQuery $parishContext,
     ) {}
 
-    /** @return list<array<string, mixed>> */
-    public function run(?string $bookId = null): array
+    /**
+     * The one place the bound-tenant guard lives — waiting() calls this
+     * for its side effect (the throw); run() calls it again for the
+     * Bookshelf itself, non-null by construction, so Larastan sees a
+     * real narrowing rather than a comment asserting one.
+     */
+    private function boundShelf(): Bookshelf
     {
         $shelf = $this->tenant->bookshelf();
         if ($shelf === null) {
             throw new RuntimeException('BorrowRequestQueueQuery needs a bound tenant.');
         }
-        $holdDays = LendingSettings::fromShelf($shelf)->holdDays;
-        $now = $this->clock->now();
 
-        $rows = BorrowRequest::query()
+        return $shelf;
+    }
+
+    /**
+     * The joined, status-filtered builder run() and countWaiting() both
+     * build on — so a caller under TenantContext::actSystemWide()
+     * (boundShelf() throwing) gets the SAME refusal from countWaiting()
+     * that run() has always given, instead of a cross-tenant count with
+     * no list to match it.
+     *
+     * @return Builder<BorrowRequest>
+     */
+    private function waiting(): Builder
+    {
+        $this->boundShelf();
+
+        return BorrowRequest::query()
             ->join('books', function ($join) {
                 $join->on('books.id', '=', 'borrow_requests.book_id')->whereNull('books.deleted_at');
             })
             ->join('users', function ($join) {
                 $join->on('users.id', '=', 'borrow_requests.member_id')->whereNull('users.deleted_at');
             })
+            ->whereIn('borrow_requests.status', [RequestStatus::Pending, RequestStatus::Approved]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function run(?string $bookId = null): array
+    {
+        $shelf = $this->boundShelf();
+        $base = $this->waiting();
+        $holdDays = LendingSettings::fromShelf($shelf)->holdDays;
+        $now = $this->clock->now();
+
+        $rows = $base
             ->leftJoin('memberships', function ($join) {
                 // Column-to-column shelf equality: a JOIN predicate — the
                 // person may hold memberships of several shelves, and the
                 // parish line must be THIS shelf's. Not a tenant filter
-                // (BookshelfScope on borrow_requests already did that);
-                // TenancyArchitectureTest's grep looks for a WHERE-shaped
-                // Eloquent call, the dynamic magic-where variant, or a
-                // raw-SQL WHERE clause, naming the shelf column, and this
-                // is an ON clause instead, so the join predicate below
-                // stays green — confirmed by running
-                // TenancyArchitectureTest against this file.
+                // (BookshelfScope on borrow_requests already did that).
                 $join->on('memberships.user_id', '=', 'borrow_requests.member_id')
                     ->on('memberships.bookshelf_id', '=', 'borrow_requests.bookshelf_id')
                     ->whereNull('memberships.deleted_at');
             })
             ->leftJoin('book_copies', 'book_copies.id', '=', 'borrow_requests.copy_id')
-            ->whereIn('borrow_requests.status', [RequestStatus::Pending, RequestStatus::Approved])
             ->when($bookId !== null, fn ($q) => $q->where('borrow_requests.book_id', $bookId))
             ->select([
                 'borrow_requests.id as request_id', 'borrow_requests.book_id',
@@ -147,7 +196,16 @@ final class BorrowRequestQueueQuery
                     ])->values()->all(),
                 ];
             }
-            $holdExpiresAt = $r->getAttribute('hold_expires_at');
+            // Magic property, not getAttribute(): requested_at and
+            // hold_expires_at are real casts() entries (unlike the
+            // select-aliased columns below), so $r already hands back a
+            // Carbon instance — reading it as (string) and reparsing
+            // (the shape this line replaced, review fix round 1) throws
+            // away Carbon's default __toString() has no microseconds,
+            // silently truncating the DATETIME(6) column to whole
+            // seconds in both the emitted ISO string and the expiry
+            // comparison below.
+            $holdExpiresAt = $r->hold_expires_at;
             $queues[$bid]['requests'][] = [
                 'requestId' => (string) $r->getAttribute('request_id'),
                 'position' => (int) $r->getAttribute('position'),
@@ -158,10 +216,10 @@ final class BorrowRequestQueueQuery
                     $context['taxonomy'], $context['units'],
                     $r->getAttribute('parish_unit_l1_id'), $r->getAttribute('parish_unit_l2_id'),
                 ),
-                'requestedAt' => CarbonImmutable::parse((string) $r->getAttribute('requested_at'), 'UTC')->toISOString(),
+                'requestedAt' => $r->requested_at->toISOString(),
                 // ->status->value, NOT (string) $r->getAttribute('status').
                 // $r is a BorrowRequest and the model casts status to
-                // RequestStatus (app/Models/BorrowRequest.php:21), so the
+                // RequestStatus (app/Models/BorrowRequest.php:22), so the
                 // cast form is (string) on an enum OBJECT — a fatal on
                 // every row, taking down every queue test, the manager
                 // queue screen, the return screen's waiting panel and the
@@ -169,15 +227,14 @@ final class BorrowRequestQueueQuery
                 'status' => $r->status->value,
                 'copyId' => $r->getAttribute('copy_id'),
                 'copyCode' => $r->getAttribute('copy_code'),
-                'holdExpiresAt' => $holdExpiresAt === null ? null : CarbonImmutable::parse((string) $holdExpiresAt, 'UTC')->toISOString(),
+                'holdExpiresAt' => $holdExpiresAt?->toISOString(),
                 // BR §8, derived against the injected clock; false for a
                 // pending row, which has no hold to have expired. A
                 // FOURTH reader of a hold, alongside the three
-                // CancelOwnRequest.php:44-61 enumerates — that comment is
-                // updated, to say FOUR and to name this one, in the same
-                // commit as this file.
-                'holdExpired' => $holdExpiresAt !== null
-                    && CarbonImmutable::parse((string) $holdExpiresAt, 'UTC')->lessThanOrEqualTo($now),
+                // CancelOwnRequest.php:44-62 enumerates — that comment
+                // says FOUR and names this one, in the same commit as
+                // this file.
+                'holdExpired' => $holdExpiresAt !== null && $holdExpiresAt->lessThanOrEqualTo($now),
             ];
             $queues[$bid]['waiting'] = count($queues[$bid]['requests']);
         }
@@ -187,19 +244,11 @@ final class BorrowRequestQueueQuery
 
     /**
      * The badge/card count — counted the way the list is selected, never
-     * a shorter way that happens to agree today: same statuses, same
-     * live-book and live-user joins that could drop a row.
+     * a shorter way that happens to agree today: waiting() is the same
+     * builder run() starts from, so the two cannot drift.
      */
     public function countWaiting(): int
     {
-        return BorrowRequest::query()
-            ->join('books', function ($join) {
-                $join->on('books.id', '=', 'borrow_requests.book_id')->whereNull('books.deleted_at');
-            })
-            ->join('users', function ($join) {
-                $join->on('users.id', '=', 'borrow_requests.member_id')->whereNull('users.deleted_at');
-            })
-            ->whereIn('borrow_requests.status', [RequestStatus::Pending, RequestStatus::Approved])
-            ->count();
+        return $this->waiting()->count();
     }
 }
