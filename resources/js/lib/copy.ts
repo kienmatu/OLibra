@@ -501,6 +501,29 @@ export const copy = {
             cancelButton: "Huỷ yêu cầu",
         },
     },
+    // Its OWN section, not merged into `shelf.announcements` ("Thông báo",
+    // the shelf's bulletin board) despite the identical word: this file's
+    // rule is namespace per concept, never merge on coincidental wording.
+    // One is what the shelf tells everybody; this is what the shelf told
+    // YOU. Every sentence a row shows comes from the server
+    // (NotificationSentences) — nothing here names a notification kind.
+    notifications: {
+        bell: "Thông báo",
+        bellWithCount: "Thông báo ({count})",
+        title: "Thông báo",
+        allRead: "Bạn đã đọc hết rồi.",
+        unreadCount: "Bạn có {count} thông báo chưa đọc.",
+        markAll: "Đánh dấu đã đọc hết",
+        markOne: "Đánh dấu đã đọc",
+        newBadge: "Mới",
+        empty: "Chưa có thông báo nào. Khi đơn đăng ký hoặc yêu cầu mượn của bạn được duyệt, bạn sẽ thấy ở đây.",
+        backToOverview: "Về trang của tôi",
+        // The same shape manageAudit.when uses, deliberately: a
+        // notification's arrival is an instant, and this is the one
+        // Vietnamese glue ("lúc", "ngày") the server does not supply,
+        // because formatInstantParts renders the two NUMBERS locally.
+        receivedAt: "lúc {time} ngày {date}",
+    },
 } as const;
 
 /**

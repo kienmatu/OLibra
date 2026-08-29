@@ -50,5 +50,16 @@ export interface SharedData {
     errors: Record<string, string>;
     /** A one-shot success message set by a redirect — Tasks 11 and 13 use it too. */
     flash: { success: string | null };
+    /**
+     * BR §15's bell count, for the header link in `app-layout`.
+     *
+     * `null` means "this viewer gets no bell", and it is the server's
+     * decision, not the layout's: a guest, a page with no shelf bound, and
+     * a signed-in non-member on one of the shelf's ungated pages all get
+     * null, because none of them can open the notifications page.
+     * `0` is different and is a real answer — a member with an empty bell,
+     * who still gets the link. See HandleInertiaRequests::share().
+     */
+    unreadNotifications: number | null;
     [key: string]: unknown;
 }

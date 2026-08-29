@@ -18,6 +18,7 @@ use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\MyLoansController;
+use App\Http\Controllers\Reader\NotificationController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
@@ -115,7 +116,19 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     Route::prefix('profile')->name('profile.')->middleware(['auth', 'role:reader'])->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('show');
         Route::get('/history', [MyLoansController::class, 'history'])->name('history');
-        Route::get('/notifications', [ShellController::class, 'underConstruction'])->name('notifications');
+        // The bell. read-all is declared BEFORE the bound route — the
+        // house habit (spec §6's static-before-bound discipline), even
+        // though these two cannot collide: read-all is one segment after
+        // /notifications and the other is two.
+        Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications');
+        Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+        // {notification} resolves through Bookshelf::notifications() under
+        // scopeBindings(), and through BookshelfScope on the model
+        // independently — this file's own documented double layer. Neither
+        // layer scopes by PERSON: a notification belonging to another
+        // reader OF THIS SHELF binds fine and is refused one layer down,
+        // by MarkNotificationRead's user_id key, as a silent no-op.
+        Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
         Route::get('/donations', [ShellController::class, 'underConstruction'])->name('donations');
         Route::get('/overview', [MyLoansController::class, 'overview'])->name('overview');
         Route::post('/loans/{loan}/renew', [MyLoansController::class, 'renew'])->name('loans.renew');

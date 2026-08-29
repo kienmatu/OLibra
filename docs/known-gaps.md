@@ -2382,3 +2382,29 @@ Recorded per task as it lands, not at the end of the phase.
   above, now with a second worked example; it is a gap in the toolchain,
   not in this task, and closing it means a frontend rendering test setup
   for `resources/js`, which no phase has scoped yet.
+- **Task 16's notifications page and header bell are unverified by every
+  gate in this repo, for the same toolchain reason as the two entries
+  above.** `resources/js/pages/shelves/profile/notifications.tsx` and the
+  bell link in `resources/js/layouts/app-layout.tsx` are structurally
+  untested: `MyNotificationsTest`'s `assertInertia` reads `mine.unread` and
+  `unreadNotifications` and stops there, so it never sees which string a
+  row renders, whether the unread tint and the word *Mới* both appear, or
+  which notification id a row's form posts. What IS pinned server-side —
+  and was chosen deliberately for that reason — is *who gets a bell at
+  all*: `unreadNotifications` is `null` for a guest, for a page with no
+  shelf bound and for a signed-in non-member, and the layout renders the
+  link on `!== null` rather than deciding membership itself. The first
+  draft of that layout condition (`shelf && auth.user`, as the brief
+  specified) put the link in front of a signed-in non-member on the
+  shelf's ungated `feedback` page and 404'd them; that is now two test
+  blocks, not a comment.
+- **`unreadNotifications` is lazy, and "lazy" here means per-render, not
+  per-session.** A callable shared prop is resolved by `Inertia\PropsResolver`
+  only while an `Inertia\Response` is built, so no non-Inertia response —
+  a `back()` redirect, a streamed CSV — runs the count. It DOES run one
+  indexed `count(*)` on every Inertia page render, which is the intended
+  cost and is measured by `MyNotificationsTest` in both directions
+  (zero count statements on the mark-all POST; exactly one on the profile
+  overview, whose controller never asks for notifications). Replacing the
+  closure with its value reddens the first of those two blocks — verified
+  by making that exact mutation, not inferred from the framework.

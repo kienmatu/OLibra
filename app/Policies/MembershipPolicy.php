@@ -31,7 +31,14 @@ use Illuminate\Support\Facades\Gate;
  * a future GetMyProfile/reader profile page hands every reader a
  * permanent 403. That self-view ability is Phase 3's, same as the
  * propose/approve verbs, and does not exist yet; routes/web.php's
- * `profile.*` group is `under-construction` for exactly this reason.
+ * `profile.show` route — the reader's own membership record, the page
+ * `GetMyProfile` would feed — is still `under-construction` for exactly
+ * this reason. (Narrowed from "the `profile.*` group" at Task 16, which
+ * made `profile.notifications` real: 1c gave the group `history` and
+ * `overview`, 2a gave it the request withdrawal and now the bell, and none
+ * of those reads a membership row, so the group-wide claim had been stale
+ * for two phases. `profile.donations` is also still a placeholder, but for
+ * its own reason — `GetMyDonations` is a later phase's — not this one.)
  *
  * Status-code note for whoever wires ANY of these into a controller:
  * `EnsureShelfRole` (the `role:*` route middleware) 404s a refusal —
