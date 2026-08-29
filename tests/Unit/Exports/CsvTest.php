@@ -35,6 +35,18 @@ it('neutralises a leader hidden behind a non-breaking or zero-width space — wi
     }
 });
 
+it('still neutralises a formula leader when the rest of the cell is malformed UTF-8', function () {
+    // preg_replace(..., '/u') returns NULL — not the subject — on invalid
+    // UTF-8, and (string) null is '', which would make the leading-space
+    // strip silently match nothing and let the leader through unguarded.
+    // Fix round: the null-coalesce in Csv::neutralise() falls back to the
+    // untouched cell so the leader is still found.
+    expect(Csv::neutralise("=SUM(\xFF)"))->toBe("'=SUM(\xFF)")
+        ->and(Csv::neutralise("- ghé ch\xFF"))->toBe("'- ghé ch\xFF")
+        // The cell's own bytes stay sacred even on the fail-open path.
+        ->and(substr(Csv::neutralise("=SUM(\xFF)"), 1))->toBe("=SUM(\xFF)");
+});
+
 it('protects a leading-zero all-digit cell — every Vietnamese phone number', function () {
     expect(Csv::neutralise('0912345678'))->toBe("'0912345678")
         // Anchored: a cell BEGINNING with a space is not the all-digits

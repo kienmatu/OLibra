@@ -19,6 +19,16 @@ use App\Models\BookCopy;
  * tie cannot lose a row — but two identical titles swapping places
  * between two exports of the same data is a diff a volunteer cannot
  * explain, and the key costs nothing.
+ *
+ * The select names every book_copies column this query needs rather
+ * than `book_copies.*`, the same hygiene ReadersExportQuery applies to
+ * manager_notes: `book_copies.*` would hydrate `condition_note` (a
+ * private per-copy note written by AssessCondition/ReceiveReturn —
+ * `resources/js/pages/manage/books/show.tsx` declares it in its
+ * TypeScript interface but never reads it back out, so it does not
+ * reach a screen today) and `retired_reason` onto the model even though
+ * the map below never reads either back out. Naming columns closes that
+ * at the query rather than trusting the map alone.
  */
 final class BooksExportQuery
 {
@@ -32,7 +42,9 @@ final class BooksExportQuery
                 $join->on('categories.id', '=', 'books.category_id')
                     ->whereNull('categories.deleted_at');
             })
-            ->select('book_copies.*', 'books.title', 'books.author', 'books.publisher',
+            ->select('book_copies.id', 'book_copies.code', 'book_copies.state',
+                'book_copies.condition', 'book_copies.acquired_on', 'book_copies.acquired_from',
+                'books.title', 'books.author', 'books.publisher',
                 'books.published_year', 'books.isbn', 'books.page_count', 'books.is_published',
                 'categories.name as category_name')
             ->orderBy('books.title_folded')

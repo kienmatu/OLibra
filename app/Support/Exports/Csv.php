@@ -51,7 +51,14 @@ final class Csv
         if ($cell === '') {
             return $cell;
         }
-        $leader = substr((string) preg_replace(self::LEADING_SPACE, '', $cell), 0, 1);
+        // preg_replace with /u returns NULL — not the original string — on
+        // a malformed-UTF-8 subject, and (string) null is '': a leader
+        // hidden behind bad bytes would then match nothing and ship raw.
+        // The null-coalesce restores the pre-/u byte behaviour (strip
+        // fails, fall back to the untouched cell) so widening the class
+        // to catch NBSP/ZWSP never weakens the guard on the input it
+        // cannot parse.
+        $leader = substr(preg_replace(self::LEADING_SPACE, '', $cell) ?? $cell, 0, 1);
         if (in_array($leader, self::FORMULA_LEADERS, true)) {
             return "'".$cell;
         }

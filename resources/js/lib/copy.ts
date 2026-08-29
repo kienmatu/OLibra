@@ -268,6 +268,7 @@ export const copy = {
             phoneMissingReason: "Lý do chưa có số điện thoại",
             email: "Email",
             parish: "Đơn vị",
+            joinedOn: "Ngày tham gia",
         },
         managerNotes: "Ghi chú của quản lý",
         suspensionReason: "Lý do tạm khoá",

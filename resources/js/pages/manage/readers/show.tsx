@@ -33,6 +33,14 @@ interface ReaderDetail {
     email: string | null;
     hasCredentials: boolean;
     username: string | null;
+    // approvedAt, not joinedOn: the query names it after the column
+    // (memberships.approved_at) it reads; the readers CSV's "Ngày tham
+    // gia" column reads the same instant folded to a civil day. Fix
+    // round on task 8: the export carried this fact behind a bound that
+    // claimed the reader-detail page already showed it, and it did not —
+    // rendered here so the bound is actually true rather than merely
+    // asserted (docs/OPERATIONS.md's GetReaderDetail entry, BR §16.3).
+    approvedAt: string | null;
     managerNotes: string | null;
     rejectionReason: string | null;
     suspensionReason: string | null;
@@ -48,6 +56,15 @@ interface PageProps extends SharedData {
     taxonomy: ParishTaxonomyProp;
     units: ParishUnitProp[];
 }
+
+// dateStyle+timeStyle, Asia/Ho_Chi_Minh: approvedAt is a UTC instant
+// (memberships.approved_at), and the reader-detail page renders every
+// instant in the shelf's own timezone (audit.tsx, books/show.tsx).
+const JOINED_ON = new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Asia/Ho_Chi_Minh",
+});
 
 function ValueRow({ label, value }: { label: string; value: string }) {
     return (
@@ -130,6 +147,14 @@ export default function ReaderShow() {
                             ) : null}
                             <ValueRow label={f.email} value={reader.email ?? "—"} />
                             <ValueRow label={f.parish} value={reader.parishLine || "—"} />
+                            <ValueRow
+                                label={f.joinedOn}
+                                value={
+                                    reader.approvedAt
+                                        ? JOINED_ON.format(new Date(reader.approvedAt))
+                                        : "—"
+                                }
+                            />
                             {reader.managerNotes ? (
                                 <ValueRow
                                     label={copy.readerDetail.managerNotes}

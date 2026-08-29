@@ -31,6 +31,15 @@ use App\Models\Loan;
  * Order is newest first — a loan's identity is WHEN, and the volunteer
  * opening this file is looking for last week — with id desc closing the
  * tie two books handed over in one visit create.
+ *
+ * The select names every loans column this query needs rather than
+ * `loans.*`, the same hygiene ReadersExportQuery applies to
+ * manager_notes: `loans.*` would hydrate `notes` — a free-text column
+ * this codebase creates in migration but no command writes and no
+ * screen renders, `manager_notes`'s exact pre-leak status — plus
+ * `return_photo_url` and the internal actor/request ids the map below
+ * never reads. Naming columns closes that at the query rather than
+ * trusting the map alone.
  */
 final class LoansExportQuery
 {
@@ -43,7 +52,10 @@ final class LoansExportQuery
             ->join('users as borrower', 'borrower.id', '=', 'loans.borrower_id')
             ->leftJoin('users as lender', 'lender.id', '=', 'loans.lent_by')
             ->leftJoin('users as receiver', 'receiver.id', '=', 'loans.received_by')
-            ->select('loans.*', 'books.title', 'book_copies.code as copy_code',
+            ->select('loans.id', 'loans.status', 'loans.lent_at', 'loans.due_on',
+                'loans.returned_at', 'loans.return_condition', 'loans.return_note',
+                'loans.void_reason',
+                'books.title', 'book_copies.code as copy_code',
                 'borrower.full_name as borrower_name',
                 'lender.full_name as lender_name', 'receiver.full_name as receiver_name')
             ->orderByDesc('loans.lent_at')
@@ -69,7 +81,13 @@ final class LoansExportQuery
 
     private static function instant(mixed $utc): ?string
     {
+        // ->copy() first: Illuminate\Support\Carbon is MUTABLE and
+        // ->timezone() shifts and returns $this, so without the copy
+        // this permanently rewrites the timezone of the caller's cached
+        // `lent_at`/`returned_at` attribute — harmless today only
+        // because nothing reads it again in this request, not because
+        // the call is side-effect-free.
         return $utc === null ? null
-            : $utc->timezone('Asia/Ho_Chi_Minh')->format('Y-m-d H:i:s');
+            : $utc->copy()->timezone('Asia/Ho_Chi_Minh')->format('Y-m-d H:i:s');
     }
 }
