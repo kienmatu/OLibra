@@ -7,8 +7,16 @@ use App\Support\Notifications\NotificationKind;
  * requirements give the reason ("avoids notification fatigue for
  * volunteers and removes any dependency on timely background work").
  * "Never" is the hard shape to test, so this enumerates the call sites
- * and pins them against OPS §7's own table. Adding a notification
- * anywhere fails this until the table is updated deliberately.
+ * and pins them against a HAND TRANSCRIPTION of OPS §7's table. Adding a
+ * notification anywhere fails this until the table is updated
+ * deliberately.
+ *
+ * The bound, stated rather than implied: nothing mechanically ties the
+ * constant below to docs/OPERATIONS.md §7, so a wrong transcription is
+ * invisible to this test. It currently holds two of §7's eight rows —
+ * the two whose commands exist — and both were checked against the
+ * document by hand at this commit. Every task that adds a row transcribes
+ * its own; the same care is the only thing keeping this honest.
  *
  * Grown per task: each task that adds a kind adds its writer AND its row
  * here in the same commit (plan divergence 7). comment_approved arrives
@@ -47,7 +55,13 @@ it('every notification is written where OPERATIONS §7 says it is', function () 
             // never a literal. If a future writer ever needs the raw
             // string, it adds itself to this census by hand, in the commit
             // that needs it, with the reason.
-            if (str_contains($code, 'NotificationKind::'.$kind->name)) {
+            // \b-anchored, not str_contains: kinds grow per task by
+            // design, and the first nesting pair (a RequestApproved beside
+            // a RequestApprovedByReturn, say) would make every writer of
+            // the longer name register as a writer of the shorter one — a
+            // census that silently over-reports writers is worse than one
+            // that under-reports, because it goes green on a lie.
+            if (preg_match('/\bNotificationKind::'.$kind->name.'\b/', $code) === 1) {
                 $writers[$kind->value][] = str_replace(base_path().'/', '', $path);
             }
         }
@@ -112,45 +126,86 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
     // stripped first (line-preservingly — see $strip below) so a docblock
     // showing a notify() call is not a call site.
     //
-    // Three things in the walk are corrections to a first version that a
-    // review broke in both directions, and none of them is decoration:
+    // Four things in the walk are corrections to earlier versions that
+    // reviews broke in BOTH directions, and none of them is decoration:
     //
     //   1. T_NULLSAFE_OBJECT_OPERATOR is accepted beside T_OBJECT_OPERATOR.
     //      Without it `$this->notifier?->notify(...)` moved AFTER the
-    //      transaction is INVISIBLE — zero call sites counted, no offender,
-    //      and the $checked floor below satisfied by other files. One
-    //      Action written with `?->` would walk straight through the
-    //      phase's headline guarantee in silence: Phase 1d's finding
-    //      reproduced inside the guard built to prevent it.
-    //   2. Anything inside a string is skipped entirely, tracked by the
-    //      `"` / backtick character tokens and T_START_HEREDOC /
-    //      T_END_HEREDOC. Two reasons, both measured. `"$obj->notify"`
-    //      tokenises as T_VARIABLE + T_OBJECT_OPERATOR + T_STRING — a
-    //      property read in a string registers as a CALL SITE. And an
-    //      interpolation unbalances the brace ledger: `"bản {$code}"`
-    //      emits its `{` as the ARRAY token T_CURLY_OPEN (so `$token ===
-    //      '{'` is false and depth is never incremented) while its `}`
-    //      arrives as a plain character (so depth IS decremented). One
-    //      ordinary Vietnamese line — `"Đã cho mượn bản {$code}"` — inside
-    //      a transaction closure therefore made a COMPLIANT notify()
-    //      report as an offender. A red architecture test on correct code
-    //      is how a guard gets deleted. Skipping strings fixes both at
-    //      once and subsumes the narrower fix of counting T_CURLY_OPEN and
-    //      T_DOLLAR_OPEN_CURLY_BRACES as opening braces.
-    //   3. The pre-filter is `->notify` with NO paren, so it admits both
-    //      `?->notify(` and `->notify (`; anything narrower than the walk
-    //      means a file never reaches the walk at all.
+    //      transaction is INVISIBLE — zero call sites counted and no
+    //      offender. One Action written with `?->` would walk straight
+    //      through the phase's headline guarantee in silence: Phase 1d's
+    //      finding reproduced inside the guard built to prevent it.
+    //
+    //   2. Interpolation braces are COUNTED, not skipped. `"bản {$code}"`
+    //      emits its `{` as the array token T_CURLY_OPEN (so a bare
+    //      `$token === '{'` never increments depth) while its `}` arrives
+    //      as a plain character (so depth IS decremented). One ordinary
+    //      Vietnamese line inside a transaction closure therefore made a
+    //      COMPLIANT notify() report as an offender.
+    //
+    //      The first fix for that was to skip everything inside a string,
+    //      tracking `"` characters as a toggle. That fix was itself wrong,
+    //      and a harness of 35 shapes found it: a `"` token cannot tell an
+    //      opening quote from a closing one, and interpolations NEST, so
+    //      `"a {$o->m("b {$p->q}")} c"` — legal PHP — walks the toggle
+    //      1,0,1,0 where the truth is 1,2,1,0. The inner `}` then landed
+    //      OUTSIDE the toggle's idea of the string and closed the
+    //      transaction closure's range early, reporting a compliant call
+    //      as an offender. Measured in the real file, not theorised: with
+    //      that line added above ApproveMembership's unmoved notify, this
+    //      test went red naming it.
+    //
+    //      Counting T_CURLY_OPEN and T_DOLLAR_OPEN_CURLY_BRACES as opening
+    //      braces removes the need to know where strings are at all. Every
+    //      brace, in code or in an interpolation, is now balanced by the
+    //      plain `}` that closes it, at any nesting depth. Braces inside a
+    //      single-quoted string, a nowdoc, or a flat "abc" never reach the
+    //      walk as characters — those are single tokens — so there is
+    //      nothing left for a string tracker to do.
+    //
+    //   3. A call site requires the NEXT token to be `(`. This is what
+    //      replaced the string-skipping half of the old fix: `"$obj->notify"`
+    //      tokenises as T_VARIABLE + T_OBJECT_OPERATOR + T_STRING, so a
+    //      property read inside a string used to register as a CALL SITE.
+    //      A property read is not followed by `(`; a call is. (Whitespace
+    //      is filtered out below, so `->notify ("u", $k)` — Pint rejects
+    //      that spelling anyway — is still seen as a call.)
+    //
+    //   4. Arming requires a CALL to something named `transaction`, not
+    //      merely the token. It used to arm on any T_STRING whose text was
+    //      `transaction`, and a review broke that with two ordinary shapes
+    //      that reported no offender for a call inside no transaction:
+    //
+    //          if ($this->transaction) { $this->notifier->notify(...); }
+    //          public function transaction(): void { $this->notifier->notify(...); }
+    //
+    //      A property read and a method DECLARATION, neither of which opens
+    //      a transaction. Arming now needs both halves of a call: the token
+    //      before is `::`, `->` or `?->` (rejecting the declaration, whose
+    //      predecessor is `function`) and the token after is `(` (rejecting
+    //      the property read).
+    //
+    // The pre-filter is `->notify` with NO paren, so it admits both
+    // `?->notify(` and `->notify (`; anything narrower than the walk means
+    // a file never reaches the walk at all.
     //
     // Known and deliberate: the walk is CONSERVATIVE about transactions it
     // cannot see. It recognises a transaction body only when a `{` follows
-    // the token `transaction` LEXICALLY — so all three of these report a
-    // correct call as an offender: a helper wrapper
+    // a call to something named `transaction` LEXICALLY — so all three of
+    // these report a correct call as an offender: a helper wrapper
     // (`$this->atomically(fn () => … notify …)`), a closure assigned to a
     // variable first (`$work = function () { … notify … }; DB::transaction($work);`)
     // and a first-class callable (`DB::transaction($this->work(...))`). No
-    // shipped Action uses any of the three, and the failure direction is
-    // the safe one (a false alarm, never a silent pass). If one appears,
-    // teach the walk that shape; do not conclude the guard is wrong.
+    // shipped Action uses any of the three; if one appears, teach the walk
+    // that shape rather than concluding the guard is wrong.
+    //
+    // The remaining known gaps are therefore all false ALARMS — the three
+    // wrapper shapes above. No silent pass is known, and none of the 35
+    // shapes this walk has been run against produces one. That is a
+    // stronger claim than this file used to make and it is still not a
+    // proof: what is asserted here is "no silent pass is known", never
+    // "never a silent pass". The earlier version DID assert the stronger
+    // sentence, and the two shapes in correction 4 falsified it.
     //
     // Second known bound: there is NO receiver filter. Any `->notify(`
     // under app/ outside a transaction is an offender, whatever the object
@@ -162,13 +217,15 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
     // headline guard on correct code. Add a receiver check then —
     // reddening correct code is precisely how a guard ends up deleted by
     // someone in a hurry.
+    //
     // stripCommentTokens (used by the three censuses above, which report
     // FILE names only) deletes a comment's text outright, newlines and
     // all. This test reports a LINE, so it strips comments the
-    // line-preserving way instead — measured, not tidied: with the shared
-    // helper, mutation 4 (the moved notify) reported
-    // `ApproveMembership.php (line 53)` for a call that is on line 69,
-    // because the class docblock above it is sixteen lines long. A guard
+    // line-preserving way instead — measured, not tidied. ApproveMembership's
+    // notify call is on line 71; comments deleted outright, it lands on
+    // line 55, and 55 in the real file is unrelated code. (Re-measure
+    // rather than trusting these two numbers if the file moves: the point
+    // is the sixteen-line class docblock, not the arithmetic.) A guard
     // that names a line holding unrelated code is a guard whose next
     // reader concludes it is broken, and this is the guard this project
     // decided must survive.
@@ -197,7 +254,8 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
     );
 
     $offenders = [];
-    $checked = 0;
+    /** @var array<string, int> $callSites */
+    $callSites = [];        // relative path => notify() call sites the walk saw
     foreach ($files as $file) {
         $path = $file->getPathname();
         if (! str_ends_with($path, '.php')) {
@@ -218,63 +276,50 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
         }
         $rel = str_replace(base_path().'/', '', $path);
 
+        // Whitespace is dropped up front so "the token before" and "the
+        // token after" mean the previous and next MEANINGFUL ones, and the
+        // arming condition can look one token ahead without re-deriving
+        // the skip at three separate call sites.
+        $tokens = array_values(array_filter(
+            token_get_all($code),
+            static fn (array|string $t): bool => ! is_array($t) || $t[0] !== T_WHITESPACE,
+        ));
+
         $depth = 0;
         $txDepths = [];     // brace depths whose body is a DB::transaction closure
-        $armed = false;     // `transaction` seen; its closure body not yet opened
-        $inString = 0;      // inside a double-quoted string, backtick or heredoc
-        $previous = null;
-        foreach (token_get_all($code) as $token) {
+        $armed = false;     // a `transaction(` call seen; its body not yet opened
+        foreach ($tokens as $i => $token) {
+            $previous = $tokens[$i - 1] ?? null;
+            $next = $tokens[$i + 1] ?? null;
+
             if (is_array($token)) {
-                if ($token[0] === T_WHITESPACE) {
-                    continue;
-                }
-                if ($token[0] === T_START_HEREDOC) {
-                    $inString++;
-                    $previous = $token;
+                // An interpolation's opening brace arrives as one of these
+                // ARRAY tokens while its closing brace arrives as a plain
+                // `}` character. Counting them here is what keeps the brace
+                // ledger balanced through `"bản {$code}"` — see the note
+                // above on why this replaced string-skipping.
+                if ($token[0] === T_CURLY_OPEN || $token[0] === T_DOLLAR_OPEN_CURLY_BRACES) {
+                    $depth++;
 
                     continue;
                 }
-                if ($token[0] === T_END_HEREDOC) {
-                    $inString--;
-                    $previous = $token;
-
-                    continue;
-                }
-                if ($inString > 0) {
-                    $previous = $token;
-
-                    continue;
-                }
-                if ($token[0] === T_STRING && $token[1] === 'transaction') {
+                if ($token[0] === T_STRING && $token[1] === 'transaction'
+                    && is_array($previous)
+                    && in_array($previous[0], [T_DOUBLE_COLON, T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)
+                    && $next === '(') {
                     $armed = true;
-                    $previous = $token;
 
                     continue;
                 }
                 if ($token[0] === T_STRING && $token[1] === 'notify'
                     && is_array($previous)
-                    && ($previous[0] === T_OBJECT_OPERATOR || $previous[0] === T_NULLSAFE_OBJECT_OPERATOR)) {
-                    $checked++;
+                    && ($previous[0] === T_OBJECT_OPERATOR || $previous[0] === T_NULLSAFE_OBJECT_OPERATOR)
+                    && $next === '(') {
+                    $callSites[$rel] = ($callSites[$rel] ?? 0) + 1;
                     if ($txDepths === []) {
                         $offenders[] = $rel.' (line '.$token[2].')';
                     }
                 }
-                $previous = $token;
-
-                continue;
-            }
-            // A plain `"` or backtick token only appears around a string
-            // that interpolates or escapes — a flat "abc" arrives as one
-            // T_CONSTANT_ENCAPSED_STRING and never gets here — so these
-            // come in pairs and toggling is sound.
-            if ($token === '"' || $token === '`') {
-                $inString = $inString === 0 ? 1 : 0;
-                $previous = $token;
-
-                continue;
-            }
-            if ($inString > 0) {
-                $previous = $token;
 
                 continue;
             }
@@ -294,12 +339,41 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
                 // so the next unrelated `{` is not mistaken for its body.
                 $armed = false;
             }
-            $previous = $token;
+        }
+    }
+
+    // A guard that inspected nothing would pass silently, so the walk has
+    // to prove it SAW every writer. The first version asserted a magic
+    // `$checked >= 2` instead, and a review broke it while it was green:
+    // it added a second compliant notify inside ApproveMembership's
+    // closure (standing in for any future writer) and renamed
+    // RejectMembership's call while MOVING IT OUTSIDE its transaction.
+    // $checked was still 2, the floor was still met, and the phase's
+    // headline guard stayed GREEN while a notification was written after
+    // its transaction returned. A frozen number goes inert the moment a
+    // third writer lands; worse, a global count lets one file's calls pay
+    // for another file's silence.
+    //
+    // So the floor is per-FILE and derived from the census table above:
+    // every command the table names must contribute at least one call site
+    // the walk actually saw. It grows with every task that adds a row, and
+    // no amount of inflation elsewhere can cover a writer that went quiet.
+    //
+    // One exclusion, and it is not a fudge: the sweep (Task 17) is OPS §7's
+    // argued non-command exception. It writes through
+    // Notification::query()->create under actSystemWide(), never through
+    // Notifier, so the two census rows it will own contribute no `->notify`
+    // call site for the walk to find — by design, not by omission.
+    $sweep = 'app/Console/Commands/SweepReminders.php';
+    $silent = [];
+    foreach (OPS_SECTION_7 as $writers) {
+        foreach ($writers as $writer) {
+            if ($writer !== $sweep && ($callSites[$writer] ?? 0) === 0) {
+                $silent[] = $writer;
+            }
         }
     }
 
     expect($offenders)->toEqual([])
-        // A guard that inspected nothing would pass silently. This task
-        // ships two call sites; Tasks 5, 6 and 10 add three more.
-        ->and($checked)->toBeGreaterThanOrEqual(2);
+        ->and($silent)->toEqual([]);
 });

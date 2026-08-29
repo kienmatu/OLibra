@@ -1032,10 +1032,20 @@ the full suite ran green.
   escape hatch is the intended surface — and the plan-header's open
   question 1 (active vs pending) should be re-confirmed with the product
   owner before 1c wires it.
-- **`ApproveMembership`/`RejectMembership` write NO notification rows yet.**
-  The reference writes `membership_approved`/`membership_rejected` inside
-  the command transaction (OPS §7). Phase 2 must add both writes when the
-  notification system lands — the Actions carry the same note.
+- **`ApproveMembership`/`RejectMembership` now write their notification
+  rows; this entry records the shipped state, not a gap.** 1b left both
+  writes to Phase 2 and both Actions carried a "Phase 2 must add…"
+  docblock paragraph saying so. Phase 2a Task 2 added them and deleted
+  both paragraphs: each Action writes `membership_approved` /
+  `membership_rejected` through `App\Support\Notifications\Notifier`
+  inside the transaction that already writes the status change and the
+  audit row (OPS §7). The transactional half is not a comment — it is
+  pinned by `NotificationsAreReaderFacingTest`'s "every notify() call sits
+  inside its command's own DB::transaction closure", a token walk that
+  reddens when a call is moved after the transaction returns, and by
+  `NotificationWritePathTest`'s rollback test, which proves the row
+  present inside the transaction before failing it. Nothing here is
+  outstanding.
 - **`POST /register` is throttled on two keys, both numbers invented here**
   — 30/minute per IP (burst) and 20/day per SHA-256 of the submitted phone,
   falling back to the IP when the phone is blank. A decision taken on the

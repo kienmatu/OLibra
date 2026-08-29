@@ -40,7 +40,19 @@ final class NotificationSentences
         return $reason === null ? '' : strtr(self::line('_because'), [':reason' => $reason]);
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * A payload field as a non-blank string, or null.
+     *
+     * One deliberate divergence from kinds.ts, named because it is a
+     * divergence: the reference tests `value.trim() !== ""` but returns
+     * the RAW value, so a stored `" thiếu thông tin "` renders with its
+     * padding inside the sentence. This trims what it returns. Both
+     * writers store trim($reason) today, so nothing observable changes —
+     * it matters only for a row written by hand or by a future caller
+     * that does not trim, where the reference would render " vì  X  ."
+     *
+     * @param  array<string, mixed>  $payload
+     */
     private static function str(array $payload, string $key): ?string
     {
         $value = $payload[$key] ?? null;

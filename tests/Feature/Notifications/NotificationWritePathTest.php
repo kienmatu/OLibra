@@ -52,9 +52,13 @@ it('a rejection carries its reason to the reader', function () {
 
     app(RejectMembership::class)->execute($manager, $membership, 'chưa đủ thông tin liên hệ');
 
-    $row = Notification::query()->firstOrFail();
-    expect($row->kind)->toBe('membership_rejected')
-        ->and($row->payload)->toMatchArray(['reason' => 'chưa đủ thông tin liên hệ']);
+    // The COUNT matters here for the same reason it does above: a
+    // rejection that also told the manager would satisfy firstOrFail()
+    // and every other assertion in this block.
+    $rows = Notification::query()->get();
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]->kind)->toBe('membership_rejected')
+        ->and($rows[0]->payload)->toMatchArray(['reason' => 'chưa đủ thông tin liên hệ']);
 });
 
 it('a notification cannot survive the transaction that wrote it failing', function () {
@@ -63,13 +67,24 @@ it('a notification cannot survive the transaction that wrote it failing', functi
     // Notifier writes inside the CALLER's transaction — fail the caller
     // mid-flight and nothing survives (OPS §7: written by the command
     // named, in the same transaction as the state change it announces).
+    //
+    // The mid-transaction assertion is a POSITIVE CONTROL, not belt and
+    // braces. Without it this test asserts an absence only, and an absence
+    // is exactly what a gutted Notifier produces: replace notify()'s body
+    // with a bare `return;` and a count-zero-at-the-end test stays green,
+    // unable to tell "rolled back" from "never written". The row is
+    // therefore proved present INSIDE the transaction first, so the final
+    // zero can only mean the rollback took it.
+    $insideTx = null;
     try {
-        DB::transaction(function () use ($membership): void {
+        DB::transaction(function () use ($membership, &$insideTx): void {
             app(Notifier::class)->notify($membership->user_id, NotificationKind::MembershipApproved);
+            $insideTx = Notification::query()->count();
             throw new RuntimeException('mid-flight failure');
         });
     } catch (RuntimeException) {
     }
 
-    expect(Notification::query()->count())->toBe(0);
+    expect($insideTx)->toBe(1)
+        ->and(Notification::query()->count())->toBe(0);
 });
