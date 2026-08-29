@@ -40,9 +40,13 @@
 
    **The decision, and it is a decision, not a menu:** this command takes no `lockForUpdate` anywhere, and the rule the lock was protecting becomes a **partial unique index** — `borrow_requests.live_request_key`, a STORED generated column `IF(deleted_at IS NULL AND status IN ('pending','approved'), CONCAT(book_id, ':', member_id), NULL)` under a UNIQUE constraint (Task 1's migration). Three shipped tables already carry exactly this shape — `loans.active_copy_id` (INV-1), `profile_change_requests.pending_user_id` (INV-13), `bookshelves.slug` — and it is strictly stronger than any lock could be: two taps in the same millisecond cannot both land, at any isolation level, from any number of PHP workers. The plain read stays as the *sentence* half (the friendly refusal in the common case); the losing insert's errno 1062 is translated by the shipped `App\Support\UniqueViolation::translate`, matched BY CONSTRAINT NAME, exactly as `LendCopy` translates `loans_one_active_per_copy`. This is 1c's own two-part shape ("locked re-reads + pure predicates for the common case; the INSERT, judged by the index, for the case BR §2 describes") with the lock half removed because it has nothing left to serialise.
 
-   Moving the serialisation point to `bookshelves` instead — matching `UpdateBook`/`AllocateCopyCodes` — was the other candidate, and it is rejected for two reasons. It would make every child's *Xin mượn* queue behind a bulk `AddCopies` run, which holds that one shelf row exclusively for its whole transaction. And it would create a NEW edge of the cycle known-gaps.md:1653-1700 has already REPRODUCED with two real OS processes: a transaction holding `X(bookshelves)` and then wanting `S(users:actor)` through its own audit insert, against `UpdateReaderProfile`/`SetReaderCredentials` holding `X(users)` and wanting `S(bookshelves)`. Adding the reader-facing queue entry point to that family is the opposite of the fix.
+   Moving the serialisation point to `bookshelves` instead — matching `UpdateBook`/`AllocateCopyCodes` — was the other candidate, and it is rejected on ONE ground, which is enough: it would create a NEW edge of the cycle known-gaps.md:1653-1700 has already REPRODUCED with two real OS processes — a transaction holding `X(bookshelves)` and then wanting `S(users:actor)` through its own audit insert, against `UpdateReaderProfile`/`SetReaderCredentials` (`app/Actions/Members/UpdateReaderProfile.php:56,61,69` — X `memberships`, X `users`, then the audit insert) holding `X(users)` and wanting `S(bookshelves)`. Adding the reader-facing queue entry point to that family is the opposite of the fix.
 
-   **No cycle-freedom claim is made anywhere in this plan — not for this command, not for any other.** The house rule is that such a claim needs two real OS processes to earn it, and this plan contains no task that runs them; the residual window in divergence 1 is likewise recorded, never claimed away. What IS claimed here is narrower and is pinned by a test rather than by reading: `CreateBorrowRequest` contains no `lockForUpdate` call at all (Task 4's grep pin), so it cannot be the exclusive-lock holder on either side of any wait-for edge.
+   **A second reason was offered in an earlier draft and is withdrawn as false**, recorded here rather than quietly deleted because it is the kind of plausible sentence this project keeps having to run down. It said option 2 "would make every child's *Xin mượn* queue behind a bulk `AddCopies` run". Measured with the no-lock design in place: a transaction holding `SELECT id FROM bookshelves WHERE id = ? FOR UPDATE` makes an ordinary `INSERT INTO borrow_requests` wait ~3 s before it lands — because `borrow_requests_bookshelf_id_foreign` takes a SHARED lock on that shelf row on every insert, which known-gaps.md:1633-1640 already records. The queueing exists with or without option 2; what option 2 would have added is the exclusive edge, not the wait. No weight rests on the withdrawn claim.
+
+   **No cycle-freedom claim is made anywhere in this plan — not for this command, not for any other.** The house rule is that such a claim needs two real OS processes to earn it, and this plan contains no task that runs them; the residual window in divergence 1 is likewise recorded, never claimed away. What IS claimed here is exactly one thing, and it is pinned by a test rather than by reading: **`CreateBorrowRequest` contains no `lockForUpdate` call at all** (Task 4's grep pin, plus a query-log filter). No inference is drawn from it.
+
+   In particular, **the index does not remove serialisation; it relocates it**, and the plan says so rather than implying otherwise. An INSERT holds an implicit exclusive record lock on the unique-index entry it creates until the transaction commits, so two racing creates for the same `(book_id, member_id)` really do queue — measured: the loser waited ~3 s behind a deliberately-slowed winner before receiving `ERROR 1062 … for key 'borrow_requests_one_live_per_title_member'`. What changes versus a `books` `FOR UPDATE` is not "no waiting" but *which row is locked and by what*: an index entry created by this insert, rather than a `books` row that `UpdateBook` also takes exclusively. The waiting is fine; the AB–BA was not.
 
    Verified live against the `laravel-mariadb-1` container before this plan was fixed, not reasoned about: the DDL applies to the shipped `borrow_requests` table; a second `pending` row for the same `(book_id, member_id)` raises `ERROR 1062 (23000): Duplicate entry 'b1:u1' for key 'borrow_requests_one_live_per_title_member'`; `approved` holds the key as `pending` does; and `fulfilled`, `rejected`, `cancelled`, `expired` and soft-deleted rows every one release it, so a reader whose request ended may queue for that title again.
 3. **`CreateBorrowRequest` ships without the reference's optional `copyId`** (the QR-scan "which copy prompted this" record, `borrow-request-by-copy.test.ts`). Nothing in 2a can produce a scanned copy id — `ResolveCopyById`, the scan pages and the labels themselves are 2c. Shipping the parameter with no caller would be the "implemented, reachable from nowhere" shape 1b's ledger existed to close. The 1c `ReceiveReturn` precedent applies: the narrowing is stated in the Action's docblock, recorded in known-gaps (Task 19) with the exact reference behaviour 2c restores — the nullable `copy_id` on create, the same-title/same-shelf/not-deleted guards, the `copy_id` key in the `request.created` audit payload (which this plan writes as an always-present `null` so the payload shape does not change when 2c lands).
@@ -107,7 +111,7 @@ Tapping *Trả về kệ*: the row leaves the queue (status `expired`, terminal)
 
 **Kien's words, recorded:** the reference's gap strands a copy in `held` forever unless the READER cancels, and a volunteer standing at the shelf with a book in their hand needs a way to put it back. The plan had defaulted to A on parity grounds; the owner overrode that default deliberately.
 
-**What this ruling changes across the plan, so nothing is left half-answered:** Task 18 executes (it is no longer conditional, and its heading says so). The Global Constraints' derived-state bullet no longer says "nothing in this plan writes `expired`" — `ReleaseExpiredHold` does, and the bullet now says which and under what guard. `HandoverRequest`'s `RequestStatus::Expired → hold_expired` branch stops being defensive-against-nothing and becomes REACHABLE — a manager releases a lapsed hold while a stale queue page still shows its handover button — so Task 9 carries a named test for that branch and the docblock says so. `request.expired` is the phase's sixth new audit action, taking `AuditSentences`' count to 27 (Task 8's edit). Task 19's known-gaps entry records the ruling instead of the gap, and OPS §4.2 gains the command entry in Task 18's own commit.
+**What this ruling changes across the plan, so nothing is left half-answered:** Task 18 executes (it is no longer conditional, and its heading says so). The Global Constraints' derived-state bullet no longer says "nothing in this plan writes `expired`" — `ReleaseExpiredHold` does, and the bullet now says which and under what guard. `HandoverRequest`'s `RequestStatus::Expired → hold_expired` branch stops being defensive-against-nothing and becomes REACHABLE — a manager releases a lapsed hold while a stale queue page still shows its handover button — so Task 9 carries a named test for that branch and the docblock says so. `request.expired` is the phase's sixth new audit action, taking `AuditSentences`' count to 27 — written by **Task 18**, in the commit that mints the command (Task 8 owns `request.fulfilled`, the fifth). 21 + 6 = 27. Task 19's known-gaps entry records the ruling instead of the gap, and OPS §4.2 gains the command entry in Task 18's own commit.
 
 ### RULING 2 (was OQ2) — the reject reason stays **OPTIONAL**. (OPS §4.2's own open question, Q2, now closed.)
 
@@ -962,6 +966,43 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
     // "inside the closure" is exactly a brace-range question. Comments are
     // stripped first (the AuditActionCensusTest helper) so a docblock
     // showing a notify() call is not a call site.
+    //
+    // Three things in the walk are corrections to a first version that a
+    // review broke in both directions, and none of them is decoration:
+    //
+    //   1. T_NULLSAFE_OBJECT_OPERATOR is accepted beside T_OBJECT_OPERATOR.
+    //      Without it `$this->notifier?->notify(...)` moved AFTER the
+    //      transaction is INVISIBLE — zero call sites counted, no offender,
+    //      and the $checked floor below satisfied by other files. One
+    //      Action written with `?->` would walk straight through the
+    //      phase's headline guarantee in silence: Phase 1d's finding
+    //      reproduced inside the guard built to prevent it.
+    //   2. Anything inside a string is skipped entirely, tracked by the
+    //      `"` / backtick character tokens and T_START_HEREDOC /
+    //      T_END_HEREDOC. Two reasons, both measured. `"$obj->notify"`
+    //      tokenises as T_VARIABLE + T_OBJECT_OPERATOR + T_STRING — a
+    //      property read in a string registers as a CALL SITE. And an
+    //      interpolation unbalances the brace ledger: `"bản {$code}"`
+    //      emits its `{` as the ARRAY token T_CURLY_OPEN (so `$token ===
+    //      '{'` is false and depth is never incremented) while its `}`
+    //      arrives as a plain character (so depth IS decremented). One
+    //      ordinary Vietnamese line — `"Đã cho mượn bản {$code}"` — inside
+    //      a transaction closure therefore made a COMPLIANT notify()
+    //      report as an offender. A red architecture test on correct code
+    //      is how a guard gets deleted. Skipping strings fixes both at
+    //      once and subsumes the narrower fix of counting T_CURLY_OPEN and
+    //      T_DOLLAR_OPEN_CURLY_BRACES as opening braces.
+    //   3. The pre-filter knows `?->notify(` as well as `->notify(`, or
+    //      the nullsafe file never reaches the walk at all.
+    //
+    // Known and deliberate: the walk is CONSERVATIVE about transactions it
+    // cannot see. An Action that wrapped its transaction in a helper —
+    // `$this->atomically(fn () => … notify …)` — would be reported as an
+    // offender even though it is correct, because nothing named
+    // `transaction` opens the brace. No shipped Action does that, and the
+    // failure direction is the safe one (a false alarm, never a silent
+    // pass). If one ever appears, teach the walk that helper's name; do
+    // not conclude the guard is wrong.
     $files = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)
     );
@@ -977,7 +1018,7 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
         // Notifier's own declaration is `public function notify(`, never
         // `->notify(`, so the class that defines the method is skipped
         // here and pinned by the rollback test instead.
-        if (! str_contains($code, '->notify(')) {
+        if (! str_contains($code, '->notify(') && ! str_contains($code, '?->notify(')) {
             continue;
         }
         $rel = str_replace(base_path().'/', '', $path);
@@ -985,10 +1026,28 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
         $depth = 0;
         $txDepths = [];     // brace depths whose body is a DB::transaction closure
         $armed = false;     // `transaction` seen; its closure body not yet opened
+        $inString = 0;      // inside a double-quoted string, backtick or heredoc
         $previous = null;
         foreach (token_get_all($code) as $token) {
             if (is_array($token)) {
                 if ($token[0] === T_WHITESPACE) {
+                    continue;
+                }
+                if ($token[0] === T_START_HEREDOC) {
+                    $inString++;
+                    $previous = $token;
+
+                    continue;
+                }
+                if ($token[0] === T_END_HEREDOC) {
+                    $inString--;
+                    $previous = $token;
+
+                    continue;
+                }
+                if ($inString > 0) {
+                    $previous = $token;
+
                     continue;
                 }
                 if ($token[0] === T_STRING && $token[1] === 'transaction') {
@@ -998,12 +1057,28 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
                     continue;
                 }
                 if ($token[0] === T_STRING && $token[1] === 'notify'
-                    && is_array($previous) && $previous[0] === T_OBJECT_OPERATOR) {
+                    && is_array($previous)
+                    && ($previous[0] === T_OBJECT_OPERATOR || $previous[0] === T_NULLSAFE_OBJECT_OPERATOR)) {
                     $checked++;
                     if ($txDepths === []) {
                         $offenders[] = $rel.' (line '.$token[2].')';
                     }
                 }
+                $previous = $token;
+
+                continue;
+            }
+            // A plain `"` or backtick token only appears around a string
+            // that interpolates or escapes — a flat "abc" arrives as one
+            // T_CONSTANT_ENCAPSED_STRING and never gets here — so these
+            // come in pairs and toggling is sound.
+            if ($token === '"' || $token === '`') {
+                $inString = $inString === 0 ? 1 : 0;
+                $previous = $token;
+
+                continue;
+            }
+            if ($inString > 0) {
                 $previous = $token;
 
                 continue;
@@ -1035,7 +1110,21 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
 });
 ```
 
-(The walk above was run before this plan was fixed, against four constructed files: a compliant Action, one with the notify moved after the transaction, `Notifier` itself, and a file whose only `->notify(` is inside a comment. Output: `checked=2`, offenders = the moved call alone. It catches what it claims to catch, ignores the declaration, and is not fooled by a comment.)
+The walk was run over a nine-file corpus before this plan was committed, and the table below is its actual output — the first version of this guard was wrong on three of the nine, in both directions:
+
+| Case | Result | |
+|---|---|---|
+| notify inside the closure | `checked=1` offenders NONE | correct |
+| notify moved after the transaction | `checked=1` offender at the moved line | mutation 4 fires |
+| notify inside a closure nested in the closure | `checked=1` offenders NONE | correct |
+| two transactions, one notify between them | `checked=3` offender on the middle one | correct |
+| `"$obj->notify"` plus a heredoc, no real call | `checked=0` offenders NONE | **was `checked=2`, two false offenders** |
+| `"bản {$code}"` interpolation inside the closure, notify inside | `checked=1` offenders NONE | **was a false offender — the brace ledger** |
+| `?->notify(` after the transaction | `checked=1` offender at that line | **was `checked=0`, INVISIBLE** |
+| `DB::transaction(fn () => …);` then notify in a `foreach` | `checked=1` offender | correct — that notify really is outside |
+| transaction wrapped in a helper, notify inside | `checked=1` offender | conservative false alarm, documented above |
+
+Run over this plan's own four notify-bearing full-file blocks (`ApproveBorrowRequest`, `RejectBorrowRequest`, `ReceiveReturn`, and the rollback test): `checked=1` and no offenders on every one.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1226,17 +1315,17 @@ In `app/Actions/Members/ApproveMembership.php`: constructor gains `private Notif
             $this->notifier->notify($membership->user_id, NotificationKind::MembershipApproved);
 ```
 
-In `app/Actions/Members/RejectMembership.php`: same shape, after its audit write, with the reason travelling (read the Action first — it already trims the reason to null; pass exactly what `rejection_reason` stored):
+In `app/Actions/Members/RejectMembership.php`: same shape, after its audit write. The reason is written **unconditionally**, and there is no null branch, because the shipped Action's signature is `execute(User $actor, Membership $membership, string $reason)` — non-nullable — and it throws `reject_reason_required` at line 31 when `trim($reason) === ''`. By the time this line runs the reason is a non-empty string. `trim($reason)` is what `rejection_reason` and the audit payload already store (lines 45 and 49), so this is the same value, spelled the same way:
 
 ```php
             $this->notifier->notify(
                 $membership->user_id,
                 NotificationKind::MembershipRejected,
-                $reason === null ? [] : ['reason' => $reason],
+                ['reason' => trim($reason)],
             );
 ```
 
-(Use the Action's own trimmed-reason variable name — read the file; if its variable is `$trimmed` or inline, adapt without changing its semantics.) Delete both "Phase 2 must add…" docblock paragraphs; add the imports.
+(The first draft wrote `$reason === null ? [] : ['reason' => $reason]` and told the executor to "adapt if its variable is `$trimmed` or inline". Both were wrong: Larastan level 8 reports `Strict comparison using === between non-empty-string and null will always evaluate to false` on that line, and the hedge is what let it through. There is nothing to adapt — read the file, use `trim($reason)`.) Delete both "Phase 2 must add…" docblock paragraphs, and add the two imports **in Pint's order** — `App\Support\Notifications\NotificationKind` and `App\Support\Notifications\Notifier` sort AFTER `App\Support\Members\MembershipTransitions`, not beside `App\Support\AuditRecorder`; dropping them next to the alphabetically-nearest-looking line is an `ordered_imports` failure, which is the single defect that recurred most often across this plan's blocks.
 
 - [ ] **Step 5: Run, mutation-check, commit**
 
@@ -1249,6 +1338,8 @@ Mutation checks (perform, observe red, restore, observe green, `git status --por
 3. Add a fake `Notification::query()->create` to any controller → the third architecture test goes red.
 4. **The headline guard's own mutation, and the one that matters most:** in `ApproveMembership`, MOVE the `$this->notifier->notify(...)` line from inside the `DB::transaction` closure to immediately after the transaction returns — a change no behavioural test can see. Expected: "every notify() call sits inside its command's own DB::transaction closure" goes red, naming the file and the line. Restore, confirm green, `git status --porcelain` clean. If this mutation does NOT redden that test, the guard is broken and nothing in this task may be committed until it is fixed — that failure would be Phase 1d's finding recurring, which is the one outcome this task exists to prevent.
 5. Delete the `->and($checked)->toBeGreaterThanOrEqual(2)` assertion and rename `Notifier::notify` to `notifyReader` everywhere → the guard's brace walk would now inspect zero call sites and pass vacuously; with the assertion in place it goes red. Restore both.
+6. **The nullsafe hole, which mutation 4 does NOT cover.** Do mutation 4 again, but write the moved call as `$this->notifier?->notify(...)`. Expected: still red, still naming the file and line. Before the review this mutation passed silently — `?->` is `T_NULLSAFE_OBJECT_OPERATOR`, the walk matched only `T_OBJECT_OPERATOR`, so the call was not even counted and the `$checked` floor was met by the other file. Restore.
+7. **The interpolation false positive, which no other check covers because it reddens CORRECT code.** In `ApproveMembership`, inside the transaction closure and ABOVE the (unmoved, compliant) notify call, add a throwaway line with an interpolated Vietnamese string — `$note = "Đã duyệt {$membership->id} rồi";`. Expected: the guard STAYS GREEN. Before the review it went red, because the interpolation's opening brace arrives as the array token `T_CURLY_OPEN` (never incrementing depth) while its closing brace arrives as a plain character (decrementing it), so the closure's range closed early and a compliant call looked outside. A guard that reddens on ordinary copy is a guard somebody deletes. Remove the line.
 
 ```bash
 make lint && make analyse
@@ -1677,9 +1768,15 @@ use Illuminate\Support\Facades\Gate;
  *
  * No claim is made here, or anywhere in this phase, that the codebase is
  * deadlock-free — that claim needs two real OS processes to earn. The
- * claim is only this: no lockForUpdate appears in this file, so this
- * command cannot hold the exclusive side of any wait-for edge. Its test
- * greps for exactly that.
+ * claim is only this: no lockForUpdate appears in this file. Its test
+ * greps for exactly that, and draws no further inference — the INSERT
+ * below still holds an implicit exclusive record lock on the unique-index
+ * entry until commit, so a racing create for the same (book_id,
+ * member_id) BLOCKS on it and then receives 1062 (measured at ~3 s behind
+ * a slowed winner). Both the read above and that 1062 resolve to the same
+ * duplicate_request sentence, so the racer's experience is identical
+ * either way; what the withdrawn books lock would have added is not the
+ * waiting but an exclusive edge on a row UpdateBook also takes.
  *
  * The membership is the SESSION's, never a form field (plan divergence
  * 4): TenantContext::membership() is what ResolveTenant resolved for the
@@ -2216,10 +2313,13 @@ final class ApproveBorrowRequest
 
 ```php
     'request_approved' => ':book đã sẵn sàng, bạn đến nhận trước ngày :until nhé.',
-    'request_approved_no_date' => ':book đã sẵn sàng, bạn đến nhận sớm nhé.',
+    // Underscore-prefixed because it is a HELPER line, not a kind: a
+    // payload with no hold_until still needs a sentence, and
+    // NotificationSentencesTest's census holds the non-underscored keys
+    // set-equal to NotificationKind::cases(). A bare
+    // 'request_approved_no_date' would fail that census on this commit.
+    '_request_approved_no_date' => ':book đã sẵn sàng, bạn đến nhận sớm nhé.',
 ```
-
-(`request_approved_no_date` is a helper for a payload missing `hold_until` — but a bare non-`_`-prefixed key would fail the lang census. Prefix it: `'_request_approved_no_date'`.)
 
 **`NotificationSentences` gains its two helpers HERE, in the commit that first calls them** (Task 2 deliberately shipped without them — Larastan level 8 reports an uncalled private static method as `method.unused` and would have failed `make analyse` at that commit; measured, not guessed). Add both beside `because()`:
 
@@ -4394,12 +4494,13 @@ final class BorrowRequestQueueQuery
 
 In `app/Queries/ManagerDashboardQuery.php`: constructor gains `private BorrowRequestQueueQuery $queue`; `counts` gains `'pendingRequests' => $this->queue->countWaiting(),` with a comment ("delegated, not restated — the card and the screen it links to cannot drift; the mirror rule the overdue card already follows"). Update the `@return` shape.
 
-Append to `tests/Feature/Oversight/ManagerDashboardQueryTest.php`. Read the file's first fifteen lines to pick up its fixture helper's name and return shape, then write the seeding against it; everything below the fixture line is exact and ships as written:
+**One shipped test in that file breaks and must be updated in the same commit, deliberately:** `it('counts only the bound shelf, proven by distinguishable figures')` asserts the WHOLE return with `expect($d)->toBe([...])`, so adding a key to `counts` reddens it. That is the assertion doing its job — add `'pendingRequests' => 0` to its expected `counts` array (the fixture seeds no requests) rather than loosening the assertion to `toMatchArray`.
+
+Then append the new test. The fixture helper is `mdqFix()` (`tests/Feature/Oversight/ManagerDashboardQueryTest.php:25`); it takes no arguments, binds the tenant and the acting manager itself, and returns `compact('shelf', 'other')` — an associative array, so destructure by key:
 
 ```php
 it('pendingRequests counts pending and approved, and mirrors the queue count exactly', function () {
-    // <the file's own fixture call, giving $shelf and a bound acting
-    // manager — 1d's helper, not a new one>
+    ['shelf' => $shelf] = mdqFix();
     $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Hoàng Tử Bé', 'slug' => 'hoang-tu-be-mdq']);
     // Three readers, because borrow_requests_one_live_per_title_member
     // (Task 1) allows one live row per title per reader — and because a
@@ -4427,7 +4528,7 @@ it('pendingRequests counts pending and approved, and mirrors the queue count exa
 });
 ```
 
-(Add whichever of `Book`, `BorrowRequest`, `Membership`, `User`, `ManagerDashboardQuery`, `BorrowRequestQueueQuery` the file does not already import.)
+(Add whichever of `Book`, `BorrowRequest`, `Membership`, `User`, `ManagerDashboardQuery`, `BorrowRequestQueueQuery` the file does not already import — it already has `Book`, `BookCopy`, `Membership`, `User` and `ManagerDashboardQuery`.)
 
 - [ ] **Step 4: Run, mutation-check, commit**
 
@@ -4841,6 +4942,7 @@ Create `tests/Feature/Circulation/MyDashboardRequestsTest.php`:
 
 use App\Enums\RequestStatus;
 use App\Models\Book;
+use App\Models\BookCopy;
 use App\Models\Bookshelf;
 use App\Models\BorrowRequest;
 use App\Models\Membership;
@@ -4891,9 +4993,18 @@ it('my pending request reports my derived position — others ahead counted, oth
 it('an approved request carries the hold expiry and no position; decided rows are absent', function () {
     [$shelf, $reader, $bookA, $bookB] = drhFix('dong-thap-drh-hold');
     app(TenantContext::class)->actSystemWide();
+    // The FULL approval shape — copy_id, hold_expires_at, decided_by,
+    // decided_at together, and the copy held (Global Constraints). An
+    // approved request with no copy_id is a state no command produces,
+    // and a fixture describing one teaches the reader of this test a
+    // shape that cannot occur.
+    $heldCopy = BookCopy::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $bookA->id, 'code' => 'DT-0007', 'state' => 'held',
+    ]);
     BorrowRequest::query()->create([
         'bookshelf_id' => $shelf->id, 'book_id' => $bookA->id, 'member_id' => $reader->id,
         'status' => RequestStatus::Approved, 'requested_at' => now()->subDay(),
+        'copy_id' => $heldCopy->id,
         'hold_expires_at' => now()->addDays(2), 'decided_by' => $reader->id, 'decided_at' => now(),
     ]);
     // A decided row exists TO be excluded — the exclusion has substance.
@@ -5986,18 +6097,27 @@ final class MyNotificationsQuery
     {
         $limit = max(1, min(100, $limit));
 
-        $rows = Notification::query()
+        // array_values around the whole thing, and the (string) cast on
+        // createdAt, are both level-8 requirements rather than taste —
+        // MyLoanHistoryQuery.php:28 writes it the same way. ->values()
+        // ->all() gives PHPStan array<int, …>, not list<…>, so the
+        // declared shape above fails without the wrap; and
+        // Carbon::toISOString() is ?string (readAt is legitimately
+        // nullable and keeps the nullsafe, createdAt is not and gets the
+        // cast). Both were caught by running phpstan over this block, not
+        // by reading it.
+        $rows = array_values(Notification::query()
             ->where('user_id', $reader->id)
             ->orderByDesc('created_at')->orderByDesc('id')
             ->limit($limit)
             ->get()
-            ->map(fn (Notification $n) => [
+            ->map(fn (Notification $n): array => [
                 'id' => $n->id,
                 'kind' => $n->kind,
                 'sentence' => NotificationSentences::sentence($n->kind, (array) $n->payload),
-                'createdAt' => $n->created_at->toISOString(),
+                'createdAt' => (string) $n->created_at->toISOString(),
                 'readAt' => $n->read_at?->toISOString(),
-            ])->values()->all();
+            ])->values()->all());
 
         $unread = Notification::query()
             ->where('user_id', $reader->id)
@@ -6729,7 +6849,9 @@ Open each named file and record the disposition table in known-gaps (the 1c prec
 3. **Amend** "`RenewLoan`'s queue check has no structural backstop" — "Phase 2 decides whether the queue check needs a lock" becomes the decision: it keeps the plain read (divergence 8's indistinguishability argument, spelled out), now REACHABLE since requests exist, and the racing-request case is benign by argument, not by absence.
 4. **Discharge** "`ApproveMembership`/`RejectMembership` write NO notification rows yet" (known-gaps:1035) — Task 2 landed both.
 5. **Amend** the Phase-2 landmine entry — "Step 1's block flag is hold-aware; `ChooseCopy` is not" (`docs/known-gaps.md:1725-1736`) — from a warning into the recorded disposition (divergence 14). Its own words offer two resolutions; write down which was taken and why: **`ApproveBorrowRequest` keeps them in sync** — it flips the copy to `held` in the same transaction as the hold, so `ChooseCopy::lowestLendable`'s state-only branch and `CountsCopies::borrowable()`'s state-plus-no-live-hold branch select the same set — and `ChooseCopy` is left alone, because it is pure over a `Collection<BookCopy>` and would have to be handed hold data by every caller to learn the predicate. Name the one residual: an `available` copy under a live hold, reachable only through `ReportCopyLost` + `MarkCopyFound` on a held copy (divergence 13), where the two DO still disagree and the walk-up lend wins. Add the pin in the same commit — a test in `tests/Feature/Circulation/` that approves a request onto a copy and then asserts `SearchBooksForLendingQuery`'s `blocked` flag and `ChooseCopy::lowestLendable` agree that the title has nothing lendable; without it this row is a paragraph, and a paragraph is what the entry was already.
-6. **Add** the C1 record: `CreateBorrowRequest` was going to take a `books` `FOR UPDATE` and does not, because `UpdateBook` X-locks `bookshelves` and then writes the book row while every insert here wants S on that same `bookshelves` row — the AB–BA the review found by reading `UpdateBook.php:73-84` against `2026_08_26_000019_add_composite_tenant_fks.php:34`. Record the diagram, the rejected `bookshelves`-first alternative and WHY it was rejected (it would join the users-actor cycle at known-gaps:1653-1700, already reproduced with two OS processes, and would serialise every child's *Xin mượn* behind a bulk `AddCopies`), and the constraint that replaced the lock with its verified 1062 behaviour. State plainly that **no cycle-freedom claim is made anywhere in the 2a branch**, and that the only lock-related claim made — "`CreateBorrowRequest` takes no `lockForUpdate`" — is pinned by a grep test rather than argued.
+6. **Add** the C1 record: `CreateBorrowRequest` was going to take a `books` `FOR UPDATE` and does not, because `UpdateBook` X-locks `bookshelves` and then writes the book row while every insert here wants S on that same `bookshelves` row — the AB–BA the review found by reading `UpdateBook.php:73-84` against `2026_08_26_000019_add_composite_tenant_fks.php:34`. Record the diagram, the rejected `bookshelves`-first alternative and the ONE reason it was rejected — it would join the users-actor cycle at known-gaps:1653-1700, already reproduced with two OS processes — and the constraint that replaced the lock with its verified 1062 behaviour. Record ALSO, in the same entry, the reason that was offered and withdrawn: "option 2 would serialise every *Xin mượn* behind a bulk `AddCopies`" is FALSE, because `borrow_requests_bookshelf_id_foreign` makes that insert wait on the shelf row either way (measured: ~3 s behind a held `FOR UPDATE`, with the no-lock design in place), which known-gaps:1633-1640 already records. This file has been factually wrong six times in the same way; an entry that says which of its own sentences did not survive being run is worth more than one that only states the survivor.
+
+   State plainly that **no cycle-freedom claim is made anywhere in the 2a branch**, and state the lock claim as what it is: `CreateBorrowRequest` contains no `lockForUpdate` (pinned by Task 4's grep), which is NOT the same as taking no exclusive lock — its INSERT holds an implicit exclusive record lock on the unique index entry, and a racing insert blocks on it until commit and then receives 1062 (measured: the loser waited ~3 s before its verdict). Both outcomes resolve to the same `duplicate_request` sentence.
 7. **Add** divergence 13's hole: an `available` copy under somebody else's live hold is lendable, the reference has it identically (`policy.ts:86-108`), the reachability walk is `ApproveBorrowRequest` → `ReportCopyLost` → `MarkCopyFound`, and what is guarded instead is that such a lend never closes the other reader's request (Task 8's named test). This is a ported hole with a stated answer, not an unknown.
 8. **Add** the rest of the Phase 2a section: the cancel-window residual (divergence 1's exact interleaving, and why no cycle-freedom is claimed); the suspended-reader unreachability of `memberMayRequest`/cancel (ported reading 1); the `comment_approved` kind arriving in 2b and the BR §15 profile-change pair being Phase 3's to decide (divergence 7); the freeCopies state-equals-borrowable note (Task 11's comment, recorded durably); ruling 1's disposition (the gap is closed, with the command and the OPS entry that closed it); the frontend blind spot extending to the new pages (the dashboard card mutation check in Task 14 that no test can catch — HANDOFF's open item, restated for the three new screens).
 9. **Update HANDOFF.md**: the 2a row → plan committed, tasks 1–19 with commit hashes as they land (the executing session maintains it; this step seeds the structure).
@@ -6753,13 +6875,18 @@ git commit -m "test: 2a guarantee sweep — the ops walk, the durable record, th
 
 ## Self-review (performed at planning time)
 
-**1. Spec coverage.** The scope's seven numbered items, each to a task: (1) lifecycle create/cancel/approve/reject/handover → Tasks 4, 7, 5, 6, 9; (2) INV-03 and queue semantics ported without invented ordering → Tasks 8 (held-for-me live), 11 (requested_at asc, id asc; folded title between books — the reference's own keys); (3) `ReceiveReturn` re-widening, all four named facts in one transaction → Task 10; (4) notification kinds, write path, reader list, mark-read, the reader-facing architecture intent → Tasks 2 and 16; (5) the 07:00 sweep on Phase 0's reserved line, the housekeeping bound understood and tested first → Task 17; (6) manager and reader screens, Vietnamese copy, English URIs → Tasks 12–16; (7) audit sentences for every new audited action → Tasks 4–8, 10 (and 18 conditionally); no new CSV columns exist (no export touches requests — verified against 1d's three export queries, none of which reads `borrow_requests` or `notifications`). NOT-in-2a items stayed out; the two things that could not be built without later phases (`copyId` needing 2c's scanner; `comment_approved` needing 2b's moderation) are named divergences 3 and 7, not silent widenings.
+**1. Spec coverage.** The scope's seven numbered items, each to a task: (1) lifecycle create/cancel/approve/reject/handover → Tasks 4, 7, 5, 6, 9; (2) INV-03 and queue semantics ported without invented ordering → Tasks 8 (held-for-me live), 11 (requested_at asc, id asc; folded title between books — the reference's own keys); (3) `ReceiveReturn` re-widening, all four named facts in one transaction → Task 10; (4) notification kinds, write path, reader list, mark-read, the reader-facing architecture intent → Tasks 2 and 16; (5) the 07:00 sweep on Phase 0's reserved line, the housekeeping bound understood and tested first → Task 17; (6) manager and reader screens, Vietnamese copy, English URIs → Tasks 12–16; (7) audit sentences for every new audited action → Tasks 4–8, 10 and 18; no new CSV columns exist (no export touches requests — verified against 1d's three export queries, none of which reads `borrow_requests` or `notifications`). NOT-in-2a items stayed out; the two things that could not be built without later phases (`copyId` needing 2c's scanner; `comment_approved` needing 2b's moderation) are named divergences 3 and 7, not silent widenings.
 
 **2. Placeholder scan (re-run after the review, which found four unresolved instructions the first pass did not count).** Every "if X, do Y; otherwise Z" has been resolved by opening the file: Task 11's inline gates are GONE (no shipped query carries one — `OverdueLoansQuery`, `ManagerDashboardQuery`, `MyDashboardQuery` all checked); `books.author` EXISTS and stays; Task 12's availability field is `detail.copiesAvailable` (checked in `book.tsx`); Task 11's dashboard test lives in `tests/Feature/Oversight/`, not `Manage/`; Task 13's Step 4 now names one test and writes it out instead of offering three options; Task 8's mutation check 2 has a fixture that fires it; Task 15's mutation check has its excluded row seeded in the fixture; `lend_success_flash_short`, `hold_not_expired` and `release_hold_flash` are minted in Task 1 rather than edited retroactively into its committed block. Two steps still delegate line-level plumbing against a named shipped file — Task 11's dashboard-test fixture CALL (the assertions are written out) and Task 18's six tests from Task 7's template — each stating exactly WHAT to assert and WHICH file's idiom to copy, the 1c convention for appending to a file another phase owns. No "add validation", no "handle edge cases", no bare "similar to Task N".
 
 **3. Type consistency.** `RequestRules::copyHoldable(CopyState, ?string): ?string` (Tasks 1→5); `LoanTerms::holdExpiry(CarbonImmutable, int): CarbonImmutable` (1→5, 10, 18); `Notifier::notify(string, NotificationKind, array): void` (2→5, 6, 10); `CreateBorrowRequest::execute(User, Book): array{requestId}` (4→12); `ApproveBorrowRequest::execute(User, BorrowRequest, string): array{requestId, copyId, holdExpiresAt}` (5→14); `RejectBorrowRequest::execute(User, BorrowRequest, ?string)` (6→14); `CancelOwnRequest::execute(User, BorrowRequest): array{requestId, releasedCopyId}` (7→12, 13); `HandoverRequest::execute(User, BorrowRequest): array{loanId, dueOn}` (9→14); `ReceiveReturn::execute(…, ?string $holdForRequestId): array{loanId, queuedRequestId}` (10→15); `BorrowRequestQueueQuery::run(?string)/countWaiting()` (11→14, 15, and ManagerDashboardQuery); `MyNotificationsQuery::run(User, int)` (16); route names used by pages match the routes declared (`shelves.books.request`, `shelves.profile.requests.cancel`, `shelves.manage.borrow-requests[.approve/.reject/.handover]`, `shelves.profile.notifications[.read/.read-all]`).
 
-**4. House rules visibility.** Lock-first + `$log[0]` pins: Tasks 5, 6, 7, 10, 18; Task 4 pins the OPPOSITE — an absence of locks — with a query-log filter and a source grep, because divergence 2 withdrew its lock (C1). The one order inversion is documented, not hidden (divergence 1, Task 7, Task 19), and **no cycle-freedom claim appears anywhere in this plan**: the phase contains no two-OS-process harness, so it makes no claim that would need one. 404-never-403: both Form Requests + route-gating tests (12, 14, 16 — and 14's reader test now exercises all four surfaces, not just the GET). Derived state: `holdExpired`, queue position, and `expired`-written-only-by-`ReleaseExpiredHold`-under-a-clock-guard each carry their argument and a test. Composite-FK/tenancy: no new tables; one new column and one new unique index (Task 1), both verified live against the real MariaDB before the plan shipped; the one join that touches `bookshelf_id` is column-to-column with the TenancyArchitectureTest run named (11). Soft-delete-aware: the new uniqueness names `deleted_at IS NULL` in its own expression and its test proves a soft delete frees the slot; every exclusion test seeds the excluded thing. Mutation testing: every task ends with named break-observe-restore checks, and three of them are corrections the review forced — Task 4's is inverted (add the lock back), Task 8's fixture now puts the foreign hold on the copy being lent, Task 15's excluded row is in the fixture rather than built mid-check. SessionGuard: every actor switch is its own `it()` or its own dataset case (Task 9's four unheld states are a `->with()` dataset, not a `foreach`). UUIDv7: every ordering fixture seeds out of order, or pins the mechanism by name with the monotonicity premise itself asserted (Tasks 13 and 16). Pest traps: absence proofs use `array_key_exists`, exclusion fixtures contain the excluded row. Level 8 and Pint: every literal PHP block in this plan was extracted to a file and run through `pint --test` and `phpstan --level=8` before the plan was committed — that is how C5's fourteen style failures and C6's three level-8 errors were found, and how the corrected blocks were confirmed clean.
+**4. House rules visibility.** Lock-first + `$log[0]` pins: Tasks 5, 6, 7, 10, 18; Task 4 pins the OPPOSITE — an absence of locks — with a query-log filter and a source grep, because divergence 2 withdrew its lock (C1). The one order inversion is documented, not hidden (divergence 1, Task 7, Task 19), and **no cycle-freedom claim appears anywhere in this plan**: the phase contains no two-OS-process harness, so it makes no claim that would need one. 404-never-403: both Form Requests + route-gating tests (12, 14, 16 — and 14's reader test now exercises all four surfaces, not just the GET). Derived state: `holdExpired`, queue position, and `expired`-written-only-by-`ReleaseExpiredHold`-under-a-clock-guard each carry their argument and a test. Composite-FK/tenancy: no new tables; one new column and one new unique index (Task 1), both verified live against the real MariaDB before the plan shipped; the one join that touches `bookshelf_id` is column-to-column with the TenancyArchitectureTest run named (11). Soft-delete-aware: the new uniqueness names `deleted_at IS NULL` in its own expression and its test proves a soft delete frees the slot; every exclusion test seeds the excluded thing. Mutation testing: every task ends with named break-observe-restore checks, and three of them are corrections the review forced — Task 4's is inverted (add the lock back), Task 8's fixture now puts the foreign hold on the copy being lent, Task 15's excluded row is in the fixture rather than built mid-check. SessionGuard: every actor switch is its own `it()` or its own dataset case (Task 9's four unheld states are a `->with()` dataset, not a `foreach`). UUIDv7: every ordering fixture seeds out of order, or pins the mechanism by name with the monotonicity premise itself asserted (Tasks 13 and 16). Pest traps: absence proofs use `array_key_exists`, exclusion fixtures contain the excluded row. Level 8 and Pint — stated precisely, because the first version of this sentence was itself the seventh instance of the failure it describes. What was run, and what it covered:
+
+- **Pint:** all 43 blocks that begin `<?php` were written to files and run through `pint --test`. Result: `PASS 43 files`. `php -l` clean on all 43.
+- **Larastan level 8:** the 21 blocks that are real `app/` classes were staged at their namespace paths, together with the GROWN `NotificationKind`, `NotificationSentences`, `LendingSettings` and `LoanTerms` (so that a case or method a later task adds could not masquerade as an error), and `./vendor/bin/phpstan analyse --level=8` was run over the repo's own `phpstan.neon` paths — `app`, `database`, `routes`, the whole tree, not a subset. Result: `[OK] No errors`. The two `use` fragments that edit shipped Actions (`ApproveMembership`, `RejectMembership`) were applied to the real files and analysed the same way: clean.
+- **The first version of this claim was FALSE and a re-review caught it.** It said all blocks passed level 8 when only five had ever been staged. Two did not: `MyNotificationsQuery` (`Carbon::toISOString()` is `?string`, and `->values()->all()` is `array<int, …>` not `list<…>` — both now fixed the way `MyLoanHistoryQuery.php:28` does it), and the `RejectMembership` notify fragment (`$reason === null` is dead code against a non-nullable parameter the Action already refuses empty — `Strict comparison … will always evaluate to false`). Both are fixed above and both were re-run.
+- **Not covered by any of this, and deliberately so:** the `.tsx`/`.ts` blocks (no PHP tooling applies; the executor's Biome/tsc/build gates are the check) and the code FRAGMENTS that are snippets rather than whole files — they have no compilable context on their own. Where a fragment edits a shipped file, it was staged into that file and analysed; where it edits a file this plan creates, the created file was analysed with the fragment applied.
 
 **5. Census integrity re-checked.** Literal `RuleViolated` codes added to the list: `duplicate_request` (T4), `request_not_pending`+`copy_not_found` (T5), `not_own_request`+`request_already_fulfilled` (T7), `hold_expired`+`request_not_held` (T9), `request_not_queued` (T10), `hold_not_expired` (T18) — each in the task that mints the literal. `AuditSentences`' docblock count moves 21 → 27 across Tasks 4, 5, 6, 7, 8, 18, one increment per task (T4 states the arithmetic). Predicate codes stay out (censused in `RequestRulesTest`). Audit actions and their sentences land writer-and-map-together in Tasks 4, 5, 6, 7, 8 (`request.fulfilled`), 18 — matching `AuditActionCensusTest`'s both-directions rule at every commit. Notification kinds land case+sentence+writer+census-row together in Tasks 2, 5, 6, 10 (second door), 17.
 
