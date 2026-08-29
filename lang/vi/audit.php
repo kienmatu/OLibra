@@ -39,6 +39,7 @@ return [
     'loan_renewed' => 'gia hạn một lượt mượn',
     'loan_voided' => 'huỷ một lượt mượn:because',
     'loan_lost' => 'kết thúc một lượt mượn vì sách bị mất',
+    'request_created' => 'gửi yêu cầu mượn :title',
 
     // — bạn đọc —
     'membership_registered' => 'nhận đăng ký của :name',

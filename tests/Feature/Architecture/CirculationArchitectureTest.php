@@ -7,6 +7,13 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     // contain lockForUpdate. Position is pinned per command in its own
     // test; this catches a NEW circulation Action shipped without any lock
     // at all.
+    //
+    // CreateBorrowRequest is deliberately absent: it takes no lock at all
+    // (plan divergence 2 — an exclusive re-read of the books row here
+    // closes an AB-BA cycle against UpdateBook). Its duplicate rule is the
+    // borrow_requests_one_live_per_title_member index, and
+    // CreateBorrowRequestTest greps the file for lockForUpdate to keep the
+    // absence true.
     foreach ([
         app_path('Actions/Circulation/LendCopy.php'),
         app_path('Actions/Circulation/ReceiveReturn.php'),

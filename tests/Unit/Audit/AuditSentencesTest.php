@@ -30,6 +30,21 @@ it('an unknown action gets the fallback phrase and NEVER the raw name', function
         ->and($s)->not->toContain('bookshelf.created');
 });
 
+it('request.created names the title, and falls back when the payload has none', function () {
+    // Required by the plan's Step 6 mutation 3, whose own escape clause
+    // this is: deleting lang/vi/audit.php's request_created line reddens
+    // NOTHING otherwise — measured, the whole suite stayed green at 1085
+    // passed. There is no every-action-renders sweep in this file; its
+    // cases are per-action, so a new action needs its own. Without this,
+    // request.created's sentence is a string nothing pins.
+    expect(AuditSentences::sentence('request.created', audFacts(
+        actor: 'Têrêsa Bạn Đọc Nhỏ',
+        after: ['status' => 'pending', 'title' => 'Dế Mèn Phiêu Lưu Ký'],
+    )))->toBe('Têrêsa Bạn Đọc Nhỏ đã gửi yêu cầu mượn Dế Mèn Phiêu Lưu Ký')
+        ->and(AuditSentences::sentence('request.created', audFacts(actor: 'Têrêsa Bạn Đọc Nhỏ')))
+        ->toBe('Têrêsa Bạn Đọc Nhỏ đã gửi yêu cầu mượn một cuốn sách');
+});
+
 it('a missing subject falls back to "một bạn đọc", a missing title to "một cuốn sách"', function () {
     expect(AuditSentences::sentence('membership.approved', audFacts(actor: 'Maria Q')))
         ->toBe('Maria Q đã duyệt tài khoản của một bạn đọc')
@@ -74,7 +89,7 @@ it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', fun
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
-it('groupOf answers the family for the 21 actions and null for a stranger', function () {
+it('groupOf answers the family for the 22 actions and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
@@ -87,7 +102,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(21);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(22);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {
