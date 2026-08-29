@@ -1,6 +1,7 @@
 <?php
 
 use App\Support\Circulation\LoanTerms;
+use Carbon\CarbonImmutable;
 
 it('the due date is loan_days from today', function () {
     expect(LoanTerms::dueDateFor('2026-08-28', 14))->toBe('2026-09-11');
@@ -30,4 +31,19 @@ it('days remaining counts down to zero on the due day and goes negative after', 
     expect(LoanTerms::daysRemaining('2026-08-30', '2026-08-28'))->toBe(2)
         ->and(LoanTerms::daysRemaining('2026-08-28', '2026-08-28'))->toBe(0)
         ->and(LoanTerms::daysRemaining('2026-08-28', '2026-08-31'))->toBe(-3);
+});
+
+it('a hold placed now lapses hold_days later, as an instant, wall-time exact', function () {
+    $now = CarbonImmutable::parse('2026-08-28 07:30:00', 'UTC');
+
+    expect(LoanTerms::holdExpiry($now, 3)->toIso8601ZuluString())
+        ->toBe('2026-08-31T07:30:00Z')
+        // Fixed-length wall time: 3 days is exactly 72 hours from the
+        // instant — no end-of-day rounding, unlike due dates. The hold ends
+        // mid-morning if it started mid-morning (the reference's
+        // holdExpiryFrom, kept). Pinned as a second instant rather than a
+        // diff — Carbon's diff sign conventions are exactly the kind of
+        // trap plan code has failed gates on before.
+        ->and(LoanTerms::holdExpiry($now, 1)->toIso8601ZuluString())
+        ->toBe('2026-08-29T07:30:00Z');
 });

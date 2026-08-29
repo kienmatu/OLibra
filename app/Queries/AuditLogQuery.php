@@ -90,7 +90,8 @@ final class AuditLogQuery
             // The subject, resolved from an id the ROW holds, in order of
             // preference: entity_id first (the thing the entry is about),
             // the payload's borrower second (a loan's entity is the loan;
-            // the person is inside it). Nothing else is consulted.
+            // the person is inside it), the payload's userId last (a
+            // request's entity is the request). Nothing else is consulted.
             ->leftJoin('users as subject_user', function ($join) {
                 $join->on('subject_user.id', '=', 'audit_log.entity_id')
                     ->where('audit_log.entity_type', '=', 'user');
@@ -111,9 +112,21 @@ final class AuditLogQuery
                     "CONVERT(JSON_UNQUOTE(JSON_EXTRACT(audit_log.after, '$.borrower_id')) USING ascii) COLLATE ascii_bin"
                 ));
             })
+            // request.* entries store the reader under $.userId (the
+            // reference's key — its subject join reads borrower_id AND
+            // userId; 1d ported only the first because no shipped writer
+            // used the second until Phase 2a). Same CONVERT/COLLATE guard:
+            // JSON_UNQUOTE yields utf8mb4, users.id is ascii_bin, and the
+            // raw comparison is errno 1267 — this repo's six-times-paid
+            // live 500.
+            ->leftJoin('users as payload_subject', function ($join) {
+                $join->on('payload_subject.id', '=', DB::raw(
+                    "CONVERT(JSON_UNQUOTE(JSON_EXTRACT(audit_log.after, '$.userId')) USING ascii) COLLATE ascii_bin"
+                ));
+            })
             ->select('audit_log.*')
             ->selectRaw('actor_user.full_name as actor_name')
-            ->selectRaw('coalesce(subject_user.full_name, member_user.full_name, payload_user.full_name) as subject_name')
+            ->selectRaw('coalesce(subject_user.full_name, member_user.full_name, payload_user.full_name, payload_subject.full_name) as subject_name')
             ->orderByDesc('audit_log.occurred_at')
             ->orderByDesc('audit_log.id')
             ->limit(self::PAGE_SIZE)

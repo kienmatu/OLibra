@@ -11,9 +11,8 @@ use App\Models\Bookshelf;
  * "default to 3" is how one later stops matching the settings screen.
  *
  * The defaults are the values nearly every shelf uses: a shelf that has
- * never opened its settings screen stores {} and gets 14/3/1/7 from here,
- * not from a column. hold_days is deliberately absent until Phase 2 —
- * nothing in 1c reads it.
+ * never opened its settings screen stores {} and gets 14/3/1/7/3/3 from
+ * here, not from a column.
  */
 final readonly class LendingSettings
 {
@@ -22,6 +21,8 @@ final readonly class LendingSettings
         public int $maxConcurrentLoans,
         public int $maxRenewals,
         public int $renewalDays,
+        public int $holdDays,
+        public int $dueSoonDays,
     ) {}
 
     public static function fromShelf(Bookshelf $shelf): self
@@ -33,6 +34,12 @@ final readonly class LendingSettings
             maxConcurrentLoans: (int) ($settings['max_concurrent_loans'] ?? 3),
             maxRenewals: (int) ($settings['max_renewals'] ?? 1),
             renewalDays: (int) ($settings['renewal_days'] ?? 7),
+            // BR §5.5's hold_days — how long a hold stands (default 3).
+            holdDays: (int) ($settings['hold_days'] ?? 3),
+            // The sweep's per-shelf due-soon window (default 3) — the
+            // reference's QA Task 23/24 pair: a setting the nightly job
+            // actually obeys, or it is inert.
+            dueSoonDays: (int) ($settings['due_soon_days'] ?? 3),
         );
     }
 }

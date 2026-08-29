@@ -42,6 +42,23 @@ final class LoanTerms
         return (int) self::date($today)->diffInDays(self::date($dueOn), false);
     }
 
+    /**
+     * When a hold placed NOW lapses — hold_days after the instant, in
+     * fixed-length wall time. No timezone or DST reasoning applies, unlike
+     * dueDateFor: this produces an INSTANT (hold_expires_at is
+     * DATETIME(6) UTC), not a civil date. What matters is only which
+     * clock the arithmetic starts from — the injected one, because every
+     * later read of hold_expires_at compares it against the same injected
+     * clock (the reference's holdExpiryFrom argument, kept whole). Moved
+     * here rather than written privately in two commands:
+     * ApproveBorrowRequest and ReceiveReturn write the same column from
+     * the same rule.
+     */
+    public static function holdExpiry(CarbonImmutable $now, int $holdDays): CarbonImmutable
+    {
+        return $now->addDays($holdDays);
+    }
+
     private static function date(string $ymd): CarbonImmutable
     {
         return CarbonImmutable::createFromFormat('!Y-m-d', $ymd, 'UTC') ?: throw new \InvalidArgumentException("not a date: {$ymd}");
