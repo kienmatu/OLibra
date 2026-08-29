@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Draft
+**Status:** Complete
 
 **Goal:** Phase 1's core loop made visible: the audit log rendered as BR §14's readable Vietnamese sentences with the raw before/after behind an expansion (`GetAuditLog`, shelf-scoped), the manager dashboard's stat cards and shelf totals computed live at query time (`GetManagerDashboard`, BR §8: never a stored counter), and the three CSV exports (`ExportBooksCSV`, `ExportReadersCSV`, `ExportLoansCSV`) as BOM-carrying, formula-neutralised, streamed files a volunteer can open in Excel without mojibake — completing spec §11's Phase 1 list: "the audit log, the manager dashboard … CSV export" (BR §1.4's own Phase 1 sentence names the audit log and the dashboard; BR §2 is where "CSV export of books, readers, and loans ships in Phase 1" is written).
 
