@@ -227,9 +227,16 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
     // Second known bound: there is NO receiver filter. Any `->notify(`
     // under app/ outside a transaction is an offender, whatever the object
     // — `$this->slack->notify('deploy finished')` would redden this. That
-    // is harmless today (`grep -rn -- "->notify(" app/` finds nothing but
-    // this task's own two call sites, and no class uses Laravel's
-    // Notifiable trait), but `$user->notify(new Foo)` is idiomatic
+    // is harmless today — re-grepped at Task 10, because the count this
+    // sentence used to carry ("this task's own two call sites") went stale
+    // the moment 2a started adding writers: `grep -rn -- "->notify(" app/`
+    // finds FIVE call sites, in ApproveMembership, RejectMembership,
+    // ApproveBorrowRequest, RejectBorrowRequest and ReceiveReturn, all of
+    // them this system's own Notifier, and no class USES Laravel's
+    // Notifiable trait (`grep -rn "use Notifiable|Notifications\\Notifiable"
+    // app/` finds one hit and it is a comment — Bookshelf.php:134, flagging
+    // that its own notifications() relation would collide with the trait's
+    // if the trait were ever added) — but `$user->notify(new Foo)` is idiomatic
     // Laravel, so the first person to write one will redden the phase's
     // headline guard on correct code. Add a receiver check then —
     // reddening correct code is precisely how a guard ends up deleted by

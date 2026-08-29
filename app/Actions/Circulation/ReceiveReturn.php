@@ -152,7 +152,22 @@ final class ReceiveReturn
             // Read once and STORED in both the audit row and the
             // notification payload (P1 §3.2a), so neither restates history
             // when UpdateBook later corrects the title.
-            $title = (string) $copy->book?->title;
+            //
+            // NULLABLE here, cast only at the notification below, and the
+            // asymmetry is deliberate. $copy->book is null when the book
+            // has been soft-deleted, and 1c's merged plain-return path
+            // stored that null in the audit bag. Coercing it to "" would
+            // silently change what a MERGED command records: the sentence
+            // is unaffected (AuditSentences::str trims "" back to null)
+            // but the audit expansion's payload row goes through
+            // renderValue, which json_encodes with no trimming and would
+            // render `""` where every earlier row reads `null`. The
+            // notification takes the cast because Notifier's payload is
+            // rendered as a string and a null title there has no reader —
+            // ApproveBorrowRequest.php:154's shape exactly, where the cast
+            // feeds a notification and never an audit row. Both spellings
+            // are pinned by ReceiveReturnHoldTest's soft-deleted-book test.
+            $title = $copy->book?->title;
 
             ConditionAssessment::query()->create([
                 'copy_id' => $copy->id,
@@ -258,7 +273,7 @@ final class ReceiveReturn
                 // rolled-back hold. The date is the PARISH's day
                 // (divergence 5).
                 $this->notifier->notify($hold->member_id, NotificationKind::RequestApproved, [
-                    'title' => $title,
+                    'title' => (string) $title,
                     'hold_until' => $holdExpiresAt->timezone('Asia/Ho_Chi_Minh')->toDateString(),
                 ]);
             }

@@ -68,6 +68,12 @@ it('nothing is held automatically when the manager does not ask', function () {
 
     expect($copy->fresh()->state)->toBe(CopyState::Available)
         ->and($queue[0]->fresh()->status)->toBe(RequestStatus::Pending)
+        // The exclusions, with two queued readers actually seeded: no
+        // second audit row and no bell. "Nothing is held" is not just the
+        // request's status — an automatic hold that wrote request.approved
+        // or told a child their book was ready would be exactly as wrong.
+        ->and(AuditLog::query()->where('action', 'request.approved')->exists())->toBeFalse()
+        ->and(Notification::query()->count())->toBe(0)
         // …but the earliest waiter IS reported, so the confirmation can
         // offer them (BR §16.3: "the confirmation says so immediately").
         ->and($result['queuedRequestId'])->toBe($queue[0]->id);
@@ -106,7 +112,14 @@ it('holding for the next reader is a second fact, in the same transaction, and t
 });
 
 it('the hold writes request.approved beside loan.returned, and tells the child — one transaction', function () {
-    Carbon::setTestNow(Carbon::parse('2026-08-28 07:00:00', 'UTC'));
+    // 17:30 UTC, NOT 07:00: the three-day expiry lands 2026-08-31 17:30
+    // UTC, which is already 2026-09-01 in Asia/Ho_Chi_Minh. At 07:00 the
+    // two calendars agree and hold_until reads 2026-08-31 whether the
+    // conversion is there or not — measured: deleting ->timezone(...)
+    // from ReceiveReturn left the whole suite green on the old clock.
+    // Divergence 5 is now pinned at BOTH doors that write this payload,
+    // not only at ApproveBorrowRequest's.
+    Carbon::setTestNow(Carbon::parse('2026-08-28 17:30:00', 'UTC'));
     [, $manager, $loan, $copy, $queue] = rrwFix(queued: 1, slug: 'dong-thap-rrw-audit');
 
     app(ReceiveReturn::class)->execute($manager, $loan, CopyCondition::Perfect, null, null, $queue[0]->id);
@@ -127,7 +140,7 @@ it('the hold writes request.approved beside loan.returned, and tells the child �
     $note = Notification::query()->firstOrFail();
     expect($note->user_id)->toBe($queue[0]->member_id)
         ->and($note->kind)->toBe('request_approved')
-        ->and($note->payload)->toMatchArray(['title' => 'Dế Mèn Phiêu Lưu Ký', 'hold_until' => '2026-08-31']);
+        ->and($note->payload)->toMatchArray(['title' => 'Dế Mèn Phiêu Lưu Ký', 'hold_until' => '2026-09-01']);
 });
 
 it('holding for a request that is no longer queued fails cleanly, and the return rolls back with it', function () {
@@ -158,6 +171,100 @@ it('holding for a request queued against a different title fails the same way', 
 
     expect(fn () => app(ReceiveReturn::class)->execute($manager, $loan, CopyCondition::Perfect, null, null, $foreign->id))
         ->toThrow(RuleViolated::class, 'request_not_queued');
+});
+
+it('holding for a pending request on ANOTHER shelf fails the same way', function () {
+    // The cross-shelf refusal claimed in ReceiveReturn's comment, made
+    // executable. Two things are asserted, and the FIRST is the one that
+    // isolates the mechanism, because the second is OVER-DETERMINED and
+    // that was measured, not assumed: replacing the Action's resolve with
+    // withoutGlobalScopes() leaves this test GREEN, since the foreign
+    // request necessarily carries a foreign book_id and the title clause
+    // refuses it anyway. It cannot carry ours — creating a borrow_request
+    // with bookshelf_id = shelf 2 and book_id = shelf 1's book raises
+    // errno 1452 on borrow_requests_book_fk (run live against
+    // laravel-mariadb-1). So `find()` returning null under the bound
+    // tenant is what pins BookshelfScope, before the title clause is ever
+    // reached; the throw below pins the refusal a manager would actually
+    // meet.
+    [$shelf, $manager, $loan] = rrwFix(0, 'dong-thap-rrw-othershelf');
+    app(TenantContext::class)->actSystemWide();
+    $otherShelf = Bookshelf::factory()->create(['slug' => 'cai-lay-rrw', 'settings' => []]);
+    $u = User::factory()->create(['full_name' => 'Anna Tủ Sách Khác']);
+    Membership::factory()->for($otherShelf)->create(['user_id' => $u->id, 'role' => 'reader', 'status' => 'active']);
+    $otherBook = Book::query()->create([
+        'bookshelf_id' => $otherShelf->id, 'title' => 'Dế Mèn Phiêu Lưu Ký', 'slug' => 'de-men',
+    ]);
+    $foreign = BorrowRequest::query()->create([
+        'bookshelf_id' => $otherShelf->id, 'book_id' => $otherBook->id, 'member_id' => $u->id,
+        'status' => RequestStatus::Pending, 'requested_at' => now(),
+    ]);
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $manager->id)->firstOrFail());
+
+    expect(BorrowRequest::query()->find($foreign->id))->toBeNull();
+    expect(fn () => app(ReceiveReturn::class)->execute($manager, $loan, CopyCondition::Perfect, null, null, $foreign->id))
+        ->toThrow(RuleViolated::class, 'request_not_queued');
+});
+
+it('holding for a request another manager already approved onto a different copy fails the same way', function () {
+    // OPS §4.2's second half, in its own right: the cancelled case above
+    // covers "the reader cancelled between page load and confirm"; this is
+    // "another manager approved them onto a different copy". Same code,
+    // different status — and the status branch is what refuses it, since
+    // the book_id still matches.
+    [$shelf, $manager, $loan, , $queue] = rrwFix(queued: 1, slug: 'dong-thap-rrw-approved');
+    app(TenantContext::class)->actSystemWide();
+    $otherCopy = BookCopy::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $loan->book_id, 'code' => 'DT-0009', 'state' => 'held',
+    ]);
+    BorrowRequest::query()->whereKey($queue[0]->id)->update([
+        'status' => RequestStatus::Approved, 'copy_id' => $otherCopy->id,
+        'hold_expires_at' => now()->addDays(3), 'decided_at' => now(), 'decided_by' => $manager->id,
+    ]);
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $manager->id)->firstOrFail());
+
+    expect(fn () => app(ReceiveReturn::class)->execute($manager, $loan, CopyCondition::Perfect, null, null, $queue[0]->id))
+        ->toThrow(RuleViolated::class, 'request_not_queued');
+    expect($loan->fresh()->status)->toBe(LoanStatus::Active);
+});
+
+it('T27 on the HELD side: a torn copy still goes to the reader whose turn it is', function () {
+    // 1c pins T27 on the available side (ReceiveReturnTest: "a worse
+    // condition NEVER diverts the copy away from available"). The
+    // re-widened file's docblock claims the same of the held side, and a
+    // claim in a docblock is not a pin — this is the pin. A Rách copy is
+    // exactly as holdable the instant it returns; the condition record is
+    // what a manager reads before deciding, by hand, to retire.
+    [, $manager, $loan, $copy, $queue] = rrwFix(queued: 1, slug: 'dong-thap-rrw-t27');
+
+    app(ReceiveReturn::class)->execute($manager, $loan, CopyCondition::Torn, 'rách gáy', null, $queue[0]->id);
+
+    $fresh = $copy->fresh();
+    expect($fresh->state)->toBe(CopyState::Held)
+        ->and($fresh->condition)->toBe(CopyCondition::Torn)
+        ->and($fresh->condition_note)->toBe('rách gáy')
+        ->and($queue[0]->fresh()->status)->toBe(RequestStatus::Approved);
+});
+
+it('a soft-deleted book leaves the audit title NULL and the notification title a string', function () {
+    // The audit bag keeps 1c's nullable spelling and the notification takes
+    // the cast, and NEITHER may drift into the other. AuditSentences::str
+    // maps "" back to null so the SENTENCE cannot tell them apart — but
+    // renderValue json_encodes the payload row with no trimming, so a
+    // coerced "" would render `""` where every 1c row reads `null`. That
+    // is a merged command's audit trail changing shape, which this task
+    // had no warrant to do.
+    [$shelf, $manager, $loan, , $queue] = rrwFix(queued: 1, slug: 'dong-thap-rrw-gone-book');
+    app(TenantContext::class)->actSystemWide();
+    Book::query()->whereKey($loan->book_id)->delete();   // soft delete
+    app(TenantContext::class)->set($shelf->fresh(), Membership::query()->where('user_id', $manager->id)->firstOrFail());
+
+    app(ReceiveReturn::class)->execute($manager, $loan, CopyCondition::Perfect, null, null, $queue[0]->id);
+
+    $after = (array) AuditLog::query()->where('action', 'loan.returned')->firstOrFail()->after;
+    expect($after)->toHaveKey('title')
+        ->and($after['title'])->toBeNull()
+        ->and(Notification::query()->firstOrFail()->payload['title'])->toBe('');
 });
 
 it('the lock order is copy, loan, then the hold-for request', function () {
