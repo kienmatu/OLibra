@@ -43,12 +43,23 @@ use Illuminate\Support\Facades\Gate;
  *
  * hold_expires_at and copy_id are LEFT WHERE THEY STAND — the record of
  * what the reader gave up. Blanking them would erase it, and they are not
- * stale: today's THREE readers of a hold — CountsCopies::borrowable's NOT
+ * stale: today's FOUR readers of a hold — CountsCopies::borrowable's NOT
  * EXISTS clause (CountsCopies:45), ApproveBorrowRequest's live-hold probe
- * (ApproveBorrowRequest:133) and LendCopy's collected-hold probe
- * (LendCopy:111, added when Phase 2a re-widened that command) — every one
- * of them filters on status = approved before it compares the expiry
- * (grepped, not assumed), so a cancelled row's hold is inert.
+ * (ApproveBorrowRequest:133), LendCopy's collected-hold probe
+ * (LendCopy:111, added when Phase 2a re-widened that command) and
+ * BorrowRequestQueueQuery's per-row holdExpired flag (Task 11) — every
+ * one of them keeps this row's hold inert once cancelled, though not by
+ * an identical mechanism: the first three filter on status = approved
+ * before comparing the expiry (grepped, not assumed); the fourth instead
+ * only ever evaluates a request whose status is pending or approved in
+ * the first place (its own where-in), and within that set a pending row
+ * never carries a non-null hold_expires_at — only ApproveBorrowRequest
+ * and ReceiveReturn ever write the column, and both do so in the same
+ * ->update() call that sets status to approved (grepped: `'hold_expires_at'
+ * =>` matches four lines under app/Actions, two per file — one the write,
+ * one the audit payload's ISO-string copy — and no third file) — so a
+ * cancelled row, having left both statuses, is invisible to it rather
+ * than filtered out of it.
  *
  * OWNERSHIP is the whole of the permission and both sides are users.id:
  * borrow_requests.member_id against $actor->id. member_id's name says

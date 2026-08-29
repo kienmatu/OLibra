@@ -3,9 +3,11 @@
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
+use App\Models\BorrowRequest;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
+use App\Queries\BorrowRequestQueueQuery;
 use App\Queries\ManagerDashboardQuery;
 use App\Queries\OverdueLoansQuery;
 use App\Support\TenantContext;
@@ -129,7 +131,7 @@ it('counts only the bound shelf, proven by distinguishable figures', function ()
     $d = app(ManagerDashboardQuery::class)->run();
 
     expect($d)->toBe([
-        'counts' => ['overdue' => 1, 'pendingRegistrations' => 1],
+        'counts' => ['overdue' => 1, 'pendingRegistrations' => 1, 'pendingRequests' => 0],
         'totals' => ['titles' => 2, 'copies' => 3, 'onLoan' => 1, 'readers' => 3],
     ]);
     // Shelf B would have contributed: +1 title, +2 copies, +2 pending,
@@ -159,4 +161,32 @@ it('the overdue card agrees with the overdue list it opens', function () {
 
     expect(app(ManagerDashboardQuery::class)->run()['counts']['overdue'])
         ->toBe(count(app(OverdueLoansQuery::class)->run()));
+});
+
+it('pendingRequests counts pending and approved, and mirrors the queue count exactly', function () {
+    ['shelf' => $shelf] = mdqFix();
+    $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Hoàng Tử Bé', 'slug' => 'hoang-tu-be-mdq']);
+    // Three readers, because borrow_requests_one_live_per_title_member
+    // (Task 1) allows one live row per title per reader — and because a
+    // count that cannot tell three people apart is not a count.
+    foreach ([
+        ['Anna Chờ Duyệt', 'pending'],
+        ['Giuse Đang Giữ Chỗ', 'approved'],
+        ['Têrêsa Đã Huỷ', 'cancelled'],
+    ] as [$name, $status]) {
+        $u = User::factory()->create(['full_name' => $name]);
+        Membership::factory()->for($shelf)->create(['user_id' => $u->id, 'role' => 'reader', 'status' => 'active']);
+        BorrowRequest::query()->create([
+            'bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'member_id' => $u->id,
+            'status' => $status, 'requested_at' => now(),
+            'cancelled_at' => $status === 'cancelled' ? now() : null,
+        ]);
+    }
+
+    $counts = app(ManagerDashboardQuery::class)->run()['counts'];
+
+    // The cancelled row is the thing being excluded, and it exists —
+    // a fixture with nothing to exclude cannot prove exclusion.
+    expect($counts['pendingRequests'])->toBe(2)
+        ->and($counts['pendingRequests'])->toBe(app(BorrowRequestQueueQuery::class)->countWaiting());
 });

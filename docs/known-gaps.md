@@ -2276,3 +2276,22 @@ Recorded per task as it lands, not at the end of the phase.
   about this branch, not something enforced; the entry above says "no route
   reaches it today" for that reason. Widening the fragment list is cheap
   and belongs to whichever task first adds a queue URL.
+- **`BorrowRequestQueueQueryTest`'s ordering fixture cannot catch a
+  dropped `id` tiebreak, because it never seeds a genuine tie.** Task
+  11's brief specified a mutation check — drop `orderBy('borrow_requests.id')`
+  from both the outer order and the `ROW_NUMBER()` window, expect "groups
+  by book and numbers each reader's place…" to redden. Run against this
+  branch's fixtures (2026-08-30), it does not: every seeded pair of
+  requests for one book carries a distinct `requested_at` (08:00 vs
+  09:00), so ordering by `requested_at` alone already produces the
+  correct, deterministic order — the `id` tiebreak is untested precisely
+  because nothing in the suite ties two requests' timestamps for the
+  same book. The code is still correct (BR §7.2's tiebreak rule is
+  implemented, matching the reference's `r.id` column exactly, and the
+  reference's own test suite is where that rule was first justified —
+  see the file's docblock), but this branch's test for it currently
+  proves nothing. A fixture creating two `BorrowRequest` rows for the
+  same book with an identical `requested_at` (then asserting position 1
+  goes to the lower id) would close the gap; it was not added here
+  because widening the brief's own verbatim fixture was out of this
+  task's scope.
