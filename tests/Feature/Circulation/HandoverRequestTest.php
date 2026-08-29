@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Support\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 
 afterEach(fn () => Carbon::setTestNow());
 
@@ -211,4 +212,66 @@ it('a reader is refused by the gate before the row is described at all', functio
 
     expect(fn () => app(HandoverRequest::class)->execute($holder->user, $hold->fresh()))
         ->toThrow(AuthorizationException::class);
+});
+
+/**
+ * The locking reads of a handover, in issue order. Filtered rather than
+ * indexed like LendCopyTest's brace, because this flow's log opens with
+ * the pre-flight's plain selects — and matched on a leading `select` so
+ * that LendCopy's guarded `update borrow_requests set …` can never be
+ * mistaken for a locking read of that table.
+ *
+ * getQueryLog is sound here and only here: Connection::run() logs after
+ * the callback returns, so a statement that THROWS is invisible to it.
+ * Both blocks below are happy paths for that reason.
+ *
+ * @param  list<array{query: string, ...}>  $log
+ * @return list<string>
+ */
+function hovLockingReads(array $log): array
+{
+    return array_values(array_filter(
+        array_column($log, 'query'),
+        fn (string $q) => str_starts_with(strtolower(ltrim($q)), 'select')
+            && str_contains(strtolower($q), 'for update'),
+    ));
+}
+
+it('the first FOR UPDATE of a handover is on book_copies — divergence 11, executable', function () {
+    // Divergence 11 says this command takes no locks of its own, so the
+    // first locking read in the WHOLE flow must be LendCopy's copy lock.
+    // The inverse mistake this pins is the natural-looking one: adding
+    // lockForUpdate() to the pre-flight request re-read to "make it safe".
+    // That lock lands ahead of book_copies, inverting divergence 1's
+    // copy-then-request order and manufacturing an AB-BA cycle against
+    // LendCopy's own guarded borrow_requests update — the twin of the edge
+    // Task 8 created. Measured: `->lockForUpdate()` on this command's
+    // findOrFail reddens this block.
+    [, $manager, , , $hold] = hovFix('dong-thap-hov-lock-order');
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    app(HandoverRequest::class)->execute($manager, $hold);
+    $locking = hovLockingReads(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($locking)->not->toBe([]);
+    expect(str_contains($locking[0], 'book_copies'))->toBeTrue($locking[0]);
+});
+
+it('a handover takes no locking read of borrow_requests at all — its own half of divergence 11', function () {
+    // Its own block, not an ->and() on the one above: the same mutation
+    // reddens both facts, and Pest aborts a test METHOD at the first
+    // failed expect, so a single block could only ever show one of them.
+    // This is the stronger statement of the two — ordering says the
+    // request lock is not FIRST, this says there is none.
+    [, $manager, , , $hold] = hovFix('dong-thap-hov-lock-absence');
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    app(HandoverRequest::class)->execute($manager, $hold);
+    $locking = hovLockingReads(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect(array_values(array_filter($locking, fn (string $q) => str_contains($q, 'borrow_requests'))))->toBe([]);
 });

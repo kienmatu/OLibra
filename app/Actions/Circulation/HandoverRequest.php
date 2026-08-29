@@ -28,27 +28,47 @@ use Illuminate\Support\Facades\Gate;
  * divergence 11): they choose the KIND sentence — hold_expired names the
  * remedy where copy_not_available would be a false statement about a
  * book on the shelf; request_not_held covers a stale queue page's
- * pending/rejected/cancelled/fulfilled row. Every fact that decides
- * whether the book may MOVE is re-established on LOCKED rows one call
- * later, inside LendCopy's transaction, whose first statement is the
- * copy lock: the copy's state, whose live hold it carries (the same
- * ordered read through the same expiry filter) and this reader's status
- * and active-loan count. What a race between the two costs is therefore
- * a sentence, not a row. A hold cancelled in the microseconds between is
- * refused down there as copy_not_available while the copy is still held,
- * or — CancelOwnRequest having released it to available in the same
- * breath — lent to the reader standing at the table as an ordinary
- * walk-up lend that closes nobody's request; a holder whose membership is
- * soft-deleted in that window meets LendCopy's findOrFail and becomes a
- * 404 rather than request_not_held. The reference's own reads were
- * equally unlocked, and none of these outcomes writes against another
- * reader's row. Read from the two files' shapes, not measured: a
- * two-connection race cannot run under RefreshDatabase (1a divergence 2).
+ * pending/rejected/cancelled/fulfilled row.
+ *
+ * SOME of what they read is re-established one call later and some is
+ * not, and the difference is the whole cost of this shape. Re-established:
+ * the copy row and this reader's membership row, both re-read FOR UPDATE
+ * as LendCopy's first two statements (LendCopy.php:79, :81), and the
+ * copy's live-hold probe and the reader's active-loan count, plain reads
+ * taken after both locks and serialised by them (that command's own
+ * docblock makes the argument). NOT re-established: this request itself.
+ * LendCopy never reads borrow_requests by the id this command was asked
+ * about — its probe is by copy_id through the expiry filter, and what it
+ * compares is member_id (:108-118, :142) — so the request's status, its
+ * copy_id and its identity as the hold being collected are pre-flight
+ * facts and stay pre-flight facts. What survives is narrower than "the
+ * race costs a sentence": what survives is that the book cannot move to
+ * a reader the LOCKED rows do not admit.
+ *
+ * Three race outcomes follow, and the third is a WRITE, not a stale
+ * sentence. A hold cancelled in the microseconds between is refused
+ * below as copy_not_available while the copy is still held. A holder
+ * whose membership is soft-deleted in that window meets LendCopy's
+ * findOrFail and becomes a 404 rather than request_not_held. And a
+ * cancel that also released the copy held → available
+ * (CancelOwnRequest.php:151-152) leaves LendCopy nothing to refuse: it
+ * writes an ordinary walk-up loan for the reader standing at the table,
+ * closing nobody's request. That is a real loan against a cancelled
+ * request — benign in the room (the book goes to the person holding out
+ * their hands) and it takes no other reader's turn, but it is a write,
+ * and the plan's divergence 11 is being amended to say so rather than
+ * promise "never a wrong write". Read from the two files' shapes, not
+ * measured: a two-connection race cannot run under RefreshDatabase
+ * (1a divergence 2).
  *
  * Taking a borrow_requests lock here first, to close that window, would
  * invert divergence 1's copy-then-request order and manufacture an AB-BA
- * cycle against LendCopy itself. CirculationArchitectureTest's lock
- * grep-pin records this file's absence from its list for that reason.
+ * cycle against LendCopy's own guarded request update (LendCopy.php:241).
+ * That is why this file is absent from CirculationArchitectureTest's lock
+ * grep-pin, and the absence is pinned executably rather than by comment:
+ * HandoverRequestTest's two query-log braces assert the first FOR UPDATE
+ * of the whole flow is on book_copies, and that no locking read of
+ * borrow_requests occurs in it at all.
  *
  * The first-hold check: LendCopy collects the EARLIEST live approved
  * hold on the copy; here the request is the input, so this command

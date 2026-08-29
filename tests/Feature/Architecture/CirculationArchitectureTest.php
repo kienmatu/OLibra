@@ -20,13 +20,28 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     // CreateBorrowRequestTest greps that file for both spellings the
     // Global Constraint names, so the absence stays true.
     //
-    // HandoverRequest is the second: it takes no locks of its
-    // own (plan divergence 11) — its one write transaction is LendCopy's,
-    // whose lock position LendCopyTest already pins. Taking a
-    // borrow_requests lock here before delegating would invert divergence
-    // 1's copy-then-request order and manufacture an AB-BA cycle against
-    // LendCopy itself; its pre-flight reads choose a sentence, and every
-    // fact they read is re-established on locked rows one call later.
+    // HandoverRequest is the second: it takes no locks of its own (plan
+    // divergence 11) — its one write transaction is LendCopy's, whose
+    // lock position LendCopyTest already pins. Taking a borrow_requests
+    // lock here before delegating would invert divergence 1's
+    // copy-then-request order and manufacture an AB-BA cycle against
+    // LendCopy's own guarded request update (LendCopy.php:241). That
+    // inverse mistake is pinned executably, not by this comment:
+    // HandoverRequestTest's two query-log braces assert the first FOR
+    // UPDATE of the whole flow is on book_copies and that no locking read
+    // of borrow_requests appears in it at all.
+    //
+    // What that exemption costs is NOT nothing, and this comment is not
+    // the place to imply otherwise: HandoverRequest's pre-flight reads
+    // pick a sentence, and only some of what they read is re-established
+    // afterwards. LendCopy re-reads the COPY and the MEMBERSHIP rows FOR
+    // UPDATE (LendCopy.php:79, :81) and takes its hold probe and loan
+    // count after both; it never reads borrow_requests by the id this
+    // command was asked about — its probe is by copy_id and compares
+    // member_id (:108-118, :142) — so that request's status, its copy_id
+    // and its identity as the hold being collected are pre-flight facts
+    // only. HandoverRequest's own docblock is the longer form of this
+    // note and bounds what a race there can produce.
     foreach ([
         app_path('Actions/Circulation/ApproveBorrowRequest.php'),
         app_path('Actions/Circulation/CancelOwnRequest.php'),
