@@ -33,15 +33,42 @@ use Illuminate\Support\Facades\Gate;
  * unique index, under REPEATABLE READ, where an early stale snapshot lets
  * two concurrent transactions each honestly see "no clash" (the exact shape
  * AllocateCopyCodes' docblock documents for copy codes, ISBN and slug, and
- * UpdateBook's ISBN check turned out to share). This command has no such
- * check: `busy` and `whereDoesntHave('loans')` are not racing to avoid
- * colliding with a concurrent writer's un-committed intent — a concurrent
- * loan or copy-state change that lands after this transaction's own read is
- * either serialised by row locks it already implies (an UPDATE to a copy
- * row this transaction is not touching cannot corrupt this one) or is a
- * legitimate interleaving with no "two commits, one impossible state" outcome
- * the way two live books sharing one ISBN would be. There is no unindexed
- * uniqueness invariant here for a stale snapshot to let slip past.
+ * UpdateBook's ISBN check turned out to share). This command's OWN checks
+ * (`busy`, `whereDoesntHave('loans')`) do not race a concurrent writer's
+ * un-committed intent — true as far as it goes.
+ *
+ * CORRECTED (whole-branch review, PR #62, finding 4): the paragraph used to
+ * end there, concluding "no unindexed uniqueness invariant here for a stale
+ * snapshot to let slip past" — i.e. no lock needed, full stop. That was
+ * true when this class shipped (1a, no circulation yet) and is FALSE today:
+ * Phase 1c's `LendCopy` gives this transaction's REPEATABLE READ snapshot
+ * exactly the race its own reasoning said didn't exist. `whereDoesntHave
+ * ('loans')` above is read from this transaction's snapshot, pinned at its
+ * first statement (the `$busy` check); a `LendCopy` that inserts a new
+ * loan against one of this book's copies and commits AFTER that snapshot
+ * was pinned but BEFORE this transaction reaches its own `deletable`
+ * fetch is invisible to `whereDoesntHave('loans')` — the copy reads as
+ * having no loans, and gets soft-deleted anyway, with a freshly-committed
+ * ACTIVE loan now pointing at it. `ReceiveReturn.php:57` and
+ * `VoidLoan.php:56` both resolve that copy with a plain
+ * `BookCopy::query()->lockForUpdate()->findOrFail(...)` — no
+ * `withTrashed()` — so once this race lands, that loan can never be
+ * returned or voided; it is not merely "an unusual state", it is a
+ * transition with no ROUTE OUT.
+ *
+ * NOT FIXED HERE — recorded (docs/known-gaps.md, "Phase 1c — Circulation")
+ * instead, for two reasons: (1) `DeleteBook` is unrouted (Q7 above) — zero
+ * live exposure until a confirmation flow ships it, so there is no
+ * regression to ship urgently; (2) the honest fix is a real design choice,
+ * not a one-line patch — either give this command a first-statement lock
+ * over the book's own copies (the `AllocateCopyCodes` shape, which would
+ * also need deciding what a blocked concurrent `LendCopy` on one of those
+ * copies should see), or teach `ReceiveReturn`/`VoidLoan` to resolve a
+ * soft-deleted copy with `withTrashed()` (a broader semantic change: can a
+ * manager return or void a loan whose book no longer exists? almost
+ * certainly yes, but that is Phase 2/a dedicated task's call, not this fix
+ * round's). Whichever the next author picks, they now have a docblock that
+ * names the real race instead of one that argues it away.
  */
 final class DeleteBook
 {

@@ -47,6 +47,9 @@ class HandleInertiaRequests extends Middleware
                 'name' => $shelf->name,
             ],
             'role' => $context->membership()?->role?->value,
+            'flash' => [
+                'success' => fn () => $request->session()->get('success'),
+            ],
         ];
     }
 }

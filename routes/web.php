@@ -2,12 +2,17 @@
 
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
+use App\Http\Controllers\Manage\LendController;
+use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
+use App\Http\Controllers\Manage\OverdueController;
 use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
+use App\Http\Controllers\Manage\ReturnController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\CatalogueController;
+use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
@@ -97,10 +102,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // it does for the reader group above.
     Route::prefix('profile')->name('profile.')->middleware(['auth', 'role:reader'])->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('show');
-        Route::get('/history', [ShellController::class, 'underConstruction'])->name('history');
+        Route::get('/history', [MyLoansController::class, 'history'])->name('history');
         Route::get('/notifications', [ShellController::class, 'underConstruction'])->name('notifications');
         Route::get('/donations', [ShellController::class, 'underConstruction'])->name('donations');
-        Route::get('/overview', [ShellController::class, 'underConstruction'])->name('overview');
+        Route::get('/overview', [MyLoansController::class, 'overview'])->name('overview');
+        Route::post('/loans/{loan}/renew', [MyLoansController::class, 'renew'])->name('loans.renew');
     });
 
     // ── The manager area: role:manager = act-as-manager or 404 ──────────
@@ -116,11 +122,20 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     Route::prefix('manage')->name('manage.')->middleware(['auth', 'role:manager'])->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('dashboard');
 
-        Route::get('/lend', [ShellController::class, 'underConstruction'])->name('lend');
-        Route::get('/lend/reader', [ShellController::class, 'underConstruction'])->name('lend.reader');
-        Route::get('/lend/confirm', [ShellController::class, 'underConstruction'])->name('lend.confirm');
-        Route::get('/returns', [ShellController::class, 'underConstruction'])->name('returns');
-        Route::get('/returns/lost', [ShellController::class, 'underConstruction'])->name('returns.lost');
+        Route::get('/lend', [LendController::class, 'index'])->name('lend');
+        Route::get('/lend/reader', [LendController::class, 'reader'])->name('lend.reader');
+        // BR §16.3's escape hatch (plan settled decision 3): 1b built
+        // ManagerRegisterReader and deferred exactly this screen to 1c.
+        // Static segment, no binding — declaration order against
+        // /lend/reader is irrelevant, but keep it adjacent so the flow
+        // reads in the order a volunteer walks it.
+        Route::get('/lend/reader/new', [LendController::class, 'newReader'])->name('lend.reader.create');
+        Route::post('/lend/reader', [LendController::class, 'storeReader'])->name('lend.reader.store');
+        Route::get('/lend/confirm', [LendController::class, 'confirm'])->name('lend.confirm');
+        Route::post('/lend', [LendController::class, 'store'])->name('lend.store');
+        Route::get('/returns', [ReturnController::class, 'index'])->name('returns');
+        Route::get('/returns/lost', [ReturnController::class, 'lost'])->name('returns.lost');
+        Route::post('/returns/{loan}', [ReturnController::class, 'store'])->name('returns.store');
 
         // ORDER IS LOAD-BEARING (spec §6): create BEFORE {reader}, or
         // Laravel binds "create" as a membership id. RouteOrderTest pins it.
@@ -164,7 +179,8 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/copies/{bookCopy}/mark-found', [CopyController::class, 'markFound'])->name('copies.mark-found');
 
         Route::get('/borrow-requests', [ShellController::class, 'underConstruction'])->name('borrow-requests');
-        Route::get('/overdue', [ShellController::class, 'underConstruction'])->name('overdue');
+        Route::get('/overdue', [OverdueController::class, 'index'])->name('overdue');
+        Route::post('/loans/{loan}/void', [LoanController::class, 'void'])->name('loans.void');
         Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');
         Route::post('/registrations/{reader}/approve', [RegistrationQueueController::class, 'approve'])->name('registrations.approve');
         Route::post('/registrations/{reader}/reject', [RegistrationQueueController::class, 'reject'])->name('registrations.reject');

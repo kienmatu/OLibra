@@ -9,10 +9,10 @@ use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\ProfileChangeRequest;
 use App\Models\User;
+use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
 use App\Support\Members\ParishUnits;
 use App\Support\TenantContext;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 /**
@@ -24,8 +24,8 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
  * display-only stub (its lifecycle is Phase 3's).
  *
  * days-remaining / overdue are derived from Clock::today() at read time
- * (BR §8). 1c will centralise this math in app/Support/Circulation and
- * this query switches to it then — known-gaps carries the hand-off.
+ * (BR §8), through App\Support\Circulation\LoanTerms — the one home 1c
+ * centralises this math in, closing the known-gaps hand-off from 1b.
  *
  * Task 14 review flag: this class never re-verified the $membership it was
  * handed against the currently BOUND tenant. `Loan::query()` below carries
@@ -67,7 +67,7 @@ final class ReaderDetailQuery
         }
 
         $context = $this->parish->run();
-        $today = CarbonImmutable::parse($this->clock->today());
+        $today = $this->clock->today();
 
         $loans = Loan::query()
             ->where('borrower_id', $person->id)
@@ -81,7 +81,7 @@ final class ReaderDetailQuery
         $copies = BookCopy::query()->withTrashed()->whereIn('id', $loans->pluck('copy_id'))->get()->keyBy('id');
 
         $currentLoans = $loans->map(function (Loan $loan) use ($books, $copies, $today): array {
-            $due = CarbonImmutable::parse((string) $loan->due_on);
+            $dueOn = $loan->due_on->toDateString();
 
             return [
                 'loanId' => $loan->id,
@@ -89,9 +89,9 @@ final class ReaderDetailQuery
                 'title' => $books[$loan->book_id]->title ?? '',
                 'coverUrl' => $books[$loan->book_id]->cover_url ?? null,
                 'copyCode' => $copies[$loan->copy_id]->code ?? '',
-                'dueOn' => $due->toDateString(),
-                'isOverdue' => $due->lessThan($today),
-                'daysRemaining' => (int) $today->diffInDays($due, false),
+                'dueOn' => $dueOn,
+                'isOverdue' => LoanTerms::isOverdue($dueOn, $today),
+                'daysRemaining' => LoanTerms::daysRemaining($dueOn, $today),
             ];
         })->all();
 

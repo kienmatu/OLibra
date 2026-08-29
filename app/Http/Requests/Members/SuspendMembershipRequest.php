@@ -25,7 +25,10 @@ class SuspendMembershipRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        return ['reason' => ['required', 'string', 'max:1000']];
+        // bail + encoding:UTF-8 — Task 12 sweep: this is "the void reason
+        // (predicted by Task 6's review)" the carry-over note names —
+        // reason writes to memberships.suspension_reason (utf8mb4).
+        return ['reason' => ['bail', 'required', 'string', 'max:1000', 'encoding:UTF-8']];
     }
 
     /** @return array<string, string> */

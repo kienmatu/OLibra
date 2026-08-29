@@ -6,10 +6,12 @@ use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
 use App\Models\Book;
 use App\Models\BookCopy;
+use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
 use App\Policies\BookCopyPolicy;
 use App\Policies\BookPolicy;
+use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\Members\Phone;
@@ -184,5 +186,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Book::class, BookPolicy::class);
         Gate::policy(BookCopy::class, BookCopyPolicy::class);
         Gate::policy(Membership::class, MembershipPolicy::class);
+        Gate::policy(Loan::class, LoanPolicy::class);
     }
 }

@@ -21,7 +21,10 @@ class RejectMembershipRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        return ['reason' => ['required', 'string', 'max:1000']];
+        // bail + encoding:UTF-8 — Task 12 sweep: reason writes to
+        // memberships.rejection_reason (utf8mb4); same guard as
+        // VoidLoanRequest/CopyNoteRequest.
+        return ['reason' => ['bail', 'required', 'string', 'max:1000', 'encoding:UTF-8']];
     }
 
     /** @return array<string, string> OPS §4.3's own sentence, not validation.php's generic one */

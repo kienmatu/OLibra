@@ -49,9 +49,13 @@ class UpdateReaderProfileRequest extends FormRequest
             'date_of_birth' => ['nullable', 'string', 'max:10'],
             'father_name' => ['nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'mother_name' => ['nullable', 'string', 'max:255', 'encoding:UTF-8'],
+            // phone is exempt (Phone::assert() gates it before storage,
+            // see RegisterMembershipRequest); phone_missing_reason is not
+            // gated downstream (ProfileFields::normalisePatch() only
+            // trims it), so it gets the same guard (Task 12 sweep).
             'phone' => ['nullable', 'string', 'max:32'],
-            'phone_missing_reason' => ['nullable', 'string', 'max:1000'],
-            'email' => ['nullable', 'email', 'max:255'],
+            'phone_missing_reason' => ['bail', 'nullable', 'string', 'max:1000', 'encoding:UTF-8'],
+            'email' => ['bail', 'nullable', 'email', 'max:255'],
         ];
     }
 }

@@ -1363,3 +1363,594 @@ the full suite ran green.
   since the failing branch cannot be reached over HTTP today) and asserts
   a denied `authorize()` throws `NotFoundHttpException`, not the default
   `AuthorizationException`.
+- **Phase 1c, Task 5 fix round: a suspended reader cannot renew a loan
+  already in their hands.**
+  BR/OPS §4.2's open question ("Q4") asked whether INV-4 (suspension
+  blocks new loans, existing ones survive) should still let a suspended
+  reader renew. This phase's answer, 2026-08-29: no — a suspended reader
+  cannot renew, matching the reference, and closing the question rather
+  than leaving it open. `App\Http\Middleware\ResolveTenant::handle()`
+  (`app/Http/Middleware/ResolveTenant.php:67`) is the ONLY place a
+  membership is ever resolved into `TenantContext`, and its query is
+  filtered `->where('status', Active)` — so a suspended reader's
+  `TenantContext::membership()` is null on every real route, renew
+  included, and `App\Policies\LoanPolicy::renew()`'s `act-as-reader`
+  delegation (`Gate::forUser($actor)->authorize('renew', $loan)` in
+  `App\Actions\Circulation\RenewLoan::execute`) refuses before the
+  action's own logic ever runs. The reference is not authority for the
+  other reading either: `requireReader`
+  (`old_next/src/domain/catalogue/policy.ts:269`) never reads membership
+  status, but only because the reference applies that filter one layer
+  up, in `membershipFor` (`old_next/src/auth/guards.ts:56-65`) —
+  `and m.status = 'active'`, with the comment "A suspended member is not
+  a reader of this shelf, though their existing loans survive (INV-4)."
+  `ResolveTenant`'s filter is the faithful port of that exact line, so
+  the "allowed" reading is equally unreachable in the reference itself.
+  Delivering the "allowed" reading here for real would mean changing how
+  suspension resolves for EVERY reader route (not adding a carve-out
+  inside `RenewLoan` alone), since `ResolveTenant` is the single
+  membership-resolution point every reader ability shares — a change out
+  of scope for this task. Pinned by
+  `tests/Feature/Circulation/RenewLoanTest.php`'s "Q4" test, which
+  exercises the real refusal (an `AuthorizationException` from the
+  `act-as-reader` gate, via a fixture that mirrors `ResolveTenant`'s own
+  status filter rather than binding a suspended membership straight into
+  `TenantContext`, a shape no controller produces).
+- **Phase 1c, Task 12 carry-over: `CopyNoteRequest`'s `note` reached the
+  database as invalid UTF-8 and 500'd — the fourth confirmed occurrence of
+  the class of bug PR #61 first named.** Task 11's reviewer proved by
+  execution that a manager posting invalid UTF-8 to
+  `shelves.manage.copies.report-lost` got a real HTTP 500:
+  `app/Http/Requests/Catalogue/CopyNoteRequest.php` validated `note` as
+  `['nullable', 'string', 'max:1000']` — no `encoding:UTF-8` — so the value
+  reached `ReportCopyLost`/`MarkCopyFound`'s write to `book_copies` (a
+  utf8mb4 column), tripped MariaDB errno 1366, unmapped, and crashed a
+  legitimate workflow reachable from both Task 11's new lost screen and the
+  pre-existing catalogue UI. Fixed by adding `bail` + `encoding:UTF-8`, the
+  identical shape `ReceiveReturnRequest` (Task 11) and the new
+  `VoidLoanRequest` (Task 12) already carry. Reproduced live and proved by
+  `tests/Feature/Catalogue/CatalogueHostileInputTest.php`'s first test
+  (500 before the fix, `assertSessionHasErrors('note')` after).
+
+  **The sweep, not just the instance:** every Form Request under
+  `app/Http/Requests/` was read and every free-text field inventoried.
+  Four more live, reachable instances of the identical class turned up and
+  were fixed the same way — `AssessConditionRequest::note`,
+  `RetireCopyRequest::reason`, `StoreBookRequest`/`UpdateBookRequest`'s
+  `title`/`author`/`publisher`/`isbn`/`description`/`language`,
+  `AddCopiesRequest::donor_name`, `RejectMembershipRequest::reason`,
+  `SuspendMembershipRequest::reason` (this is "the void reason predicted
+  by Task 6's review" the Task 12 brief named), `SetReaderCredentialsRequest
+  ::username`, `RegisterMembershipRequest::username`/`phone_missing_reason`,
+  `RegisterReaderOnBehalfRequest::phone_missing_reason` and
+  `UpdateReaderProfileRequest::phone_missing_reason` — thirteen fields
+  across nine files, each confirmed to write straight to a utf8mb4 column
+  with no encoding check by reading its Action's write path (not assumed).
+  Fields left WITHOUT the rule, and why each is safe without it: `phone`
+  everywhere (gated by `Phone::assert()`'s strict `\d{9,11}` regex before
+  any write), `category_slug` (a `Category::query()->where('slug', ...)`
+  lookup only — proved live that a WHERE bind on invalid UTF-8 returns no
+  match rather than throwing on this column, so an unmatched slug refuses
+  as `category_not_found` before any write. **Fix round correction: this
+  is collation-dependent, not a general truth about WHERE binds.**
+  `categories.slug` and `users.username` are `utf8mb4`, the same charset
+  family PDO sends the bind as, so MariaDB just compares bytes and finds
+  no match. A column declared `ascii_bin` — `memberships.id`, and every
+  other id/role/status column in this schema — throws instead: MariaDB
+  refuses to compare `ascii_bin` against an incoming `utf8mb4_unicode_ci`
+  bind at all, with errno 1267 ("Illegal mix of collations"), regardless
+  of whether the bytes would have matched. This was proved the hard way:
+  `StoreBookRequest`/`AddCopiesRequest`'s `donor_membership_id` ran
+  exactly this WHERE-lookup shape against `memberships.id` (`ascii_bin`)
+  with no `bail` ahead of the `uuid` format check, and invalid UTF-8 that
+  failed `uuid` still reached the lookup and 500'd live — the fifth
+  confirmed occurrence of the class of bug this section otherwise
+  describes, fixed by adding `bail` (see
+  `tests/Feature/Catalogue/CatalogueHostileInputTest.php`). The correct
+  rule: a WHERE bind on invalid UTF-8 is safe-by-refusal only against a
+  column whose collation is in the same charset family as the bind
+  (utf8mb4-family columns here); against an ascii-family column it throws
+  just as a write would, and that path needs the identical `bail` /
+  `encoding:UTF-8` discipline as a write path, not a free pass because
+  it is "only a lookup".) `shelf` on the public register
+  form (the identical WHERE-only shape, also a utf8mb4 column), `parish_unit_l1_id`/
+  `parish_unit_l2_id` (validated by `ParishUnits::validateSelection()`
+  against a Collection already loaded into PHP memory — a string compare,
+  not a DB bind), `QuickLendRegisterReaderRequest::book` (a lookup key
+  stripped via `Arr::except()` before the domain write ever sees it),
+  `password` fields (hashed via `Hash::make()`, never stored raw), `uuid`-
+  and `email`-format fields (their own charset guards), and
+  `ReceiveReturnRequest::condition`/`AssessConditionRequest::condition`
+  (`Rule::enum(...)`, which already rejects anything but a fixed ASCII
+  set). `date_of_birth` on `UpdateReaderProfileRequest` is exempt too —
+  `ProfileFields::normalisePatch()` regex-validates the `Y-m-d` shape
+  before storage.
+
+  **Pinned by a class-level gate, not per-instance smoke tests:**
+  `tests/Feature/Architecture/FreeTextEncodingGuardTest.php` scans every
+  class under `app/Http/Requests/`, calls its `rules()`, and requires
+  `encoding:UTF-8` on every field whose ruleset contains the bare `string`
+  rule UNLESS the field is named in that test's own documented exemption
+  list (the same reasons as above, written once and checked for
+  staleness by its own second test). Mutation-proved twice: reverting
+  `RetireCopyRequest::reason`'s fix turned the gate red, by name,
+  restored to green; a scaffolded sixth Form Request with an unguarded
+  `note` field (`FakeFifthOccurrenceRequest`, deleted immediately after)
+  also turned it red, by name — proving a future occurrence fails this
+  gate without anyone having to rediscover the class of bug by hand.
+
+  **One adjacent, DIFFERENT class of gap found during the same file-by-
+  file read, left unfixed as out of this task's scope:** five Catalogue
+  Form Requests — `AddCopiesRequest`, `AssessConditionRequest`,
+  `RetireCopyRequest`, `StoreBookRequest`, `UpdateBookRequest` — still
+  return the bare `bool` from `Gate::allows(...)`/`$model instanceof X &&
+  Gate::allows(...)` in `authorize()`, which Laravel's default
+  `failedAuthorization()` renders as a 403, not a 404 — the exact
+  BR §5.4 anti-enumeration hazard "PR #61 fix round, Task 4" (see above)
+  already fixed on the five Members Form Requests by switching to
+  `abort_unless(..., 404)`. Every route reaching these five sits inside
+  `['auth', 'role:manager']` (`routes/web.php`), so — identically to the
+  Members case — `EnsureShelfRole` 404s a non-manager before any of these
+  ever runs, making the branch provably unreachable over HTTP today; this
+  is a backstop-only gap against a future middleware-ordering change, not
+  a live hole. Not fixed here because it is a different class of bug from
+  the free-text encoding sweep this task's carry-over was scoped to (an
+  authorization-response-code shape, not a validation-guard shape), and
+  fixing five files' `authorize()` methods was not exercised by any
+  red/green mutation run in this task. Left for whichever task next
+  touches these five files, or a dedicated backstop sweep mirroring PR
+  #61 Task 4's own — the fix shape (`abort_unless(Gate::allows(...), 404)`)
+  is already established and copy-pasteable.
+
+- **Fix round: `encoding:UTF-8` guards byte VALIDITY, not byte
+  CONTENT — the framing that it keeps "hostile bytes" out of the database
+  overstates what the rule buys.** `encoding:UTF-8` is `mb_check_encoding($value,
+  'UTF-8')`, which answers exactly one question — is this a well-formed
+  UTF-8 byte sequence — and NUL (`\x00`) and the other C0 control bytes
+  are all well-formed single-byte UTF-8 code points, so the rule accepts
+  them. Proved live:
+  `Validator::make(['reason' => "khoa \x00 \x01 that"], ['reason' =>
+  ['bail','required','string','max:1000','encoding:UTF-8']])->fails()`
+  returns `false`. In practice this means a manager can void a loan with
+  a NUL byte embedded in `loans.void_reason`, or create a book whose
+  title carries control characters, and every guard this fix round added
+  or hardened waves it through — not a 500 (MariaDB's utf8mb4 columns
+  store NUL/control bytes without complaint) and not a member of the
+  class of bug this task swept (an unmapped `QueryException`), just
+  content the UI and any future export never expected to render.
+  **Decision: not given its own guard in this fix round.** Two reasons.
+  First, scope: this task's brief was the encoding-validity class of bug
+  and the gate that catches it, not general free-text sanitisation —
+  the entry above (Task 1c, control characters/RTL override chars: "left
+  for whichever task does the phase's input-sanitisation sweep") already
+  named the correct home for this, a single shared sanitisation step
+  every free-text write path applies identically, not a second one-off
+  rule bolted onto `encoding:UTF-8`'s exemption table. Second, severity:
+  nothing observed renders these bytes unsafely today (no raw HTML
+  output of free-text fields found in this sweep), so this is a
+  data-hygiene concern, not a live injection or crash vector. Recorded
+  here, not silently accepted, so whoever does that sanitisation sweep
+  has this as a confirmed, reproduced input rather than a rediscovery.
+
+## Phase 1c — Circulation
+
+The durable record of `docs/superpowers/plans/2026-08-29-laravel-phase-1c-circulation.md`
+(lending, returns, renewal, voiding, overdue, the reader's own loan
+pages). Written by Task 14 after the full suite ran green.
+
+- **The OPS §4.2/§4.3 walk, verified against the shipped branch, not
+  read off the plan document:**
+
+  | Entry | Disposition |
+  |---|---|
+  | `LendCopy` | shipped (Task 3), both entry points (dashboard flow + book detail); §4.2's failure-mode list amended in Task 1 with `title_has_no_copies` |
+  | `HandoverRequest` | Phase 2 (holds); route absence pinned (`CirculationArchitectureTest`) |
+  | `ReceiveReturn` | shipped narrowed (Task 4); hold branch Phase 2 |
+  | `RenewLoan` | shipped (Task 5); Q4 = renewal is status-gated, closed and pinned by name |
+  | `VoidLoan` | shipped (Task 6) + a button OPS never specified |
+  | `CreateBorrowRequest` / `ApproveBorrowRequest` / `RejectBorrowRequest` / `CancelOwnRequest` | Phase 2 |
+  | `SkipRequest` | Phase 2 — and no reference implementation exists to port |
+  | `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans`, `GetMyDashboard` (loans half), `GetMyLoanHistory` | shipped |
+  | `GetBorrowRequestQueue` | Phase 2 |
+  | `GetManagerDashboard`, `ExportLoansCSV` | 1d |
+  | `ResolveCopyById` | Phase 2 |
+  | `ManagerRegisterReader` (§4.3) | Action shipped in 1b, surface shipped here — closes 1b's last "implemented, reachable from nowhere" entry (see below) |
+
+  Every code path above was walked by opening the named file, not
+  inferred from the table cell — `RenewLoan`'s Q4 disposition and
+  `ReceiveReturn`'s narrowing are each their own entry below with the
+  file and line evidence.
+
+- **`ReceiveReturn`'s contract is deliberately narrower than the
+  reference, and Phase 2 must restore four things in one pass.**
+  `app/Actions/Circulation/ReceiveReturn.php`'s own docblock names the
+  gap: no `holdForRequestId` parameter, no `queuedRequestId` return
+  value, no `request.approved` second audit row, no notification. The
+  reference (`old_next/src/domain/circulation/commands/
+  receive-return.ts`) does all four inside the SAME transaction as the
+  return itself: it resolves a hold via `holdForRequestId`, stamps
+  `hold_expires_at` from the injected clock (not a bare `now()`) when
+  approving one, writes a `request.approved` audit row alongside
+  `loan.returned`, and — separately — always computes `queuedRequestId`
+  by reading the pending-request queue in `requested_at asc, id asc`
+  order AFTER every write in the transaction has landed, so the answer
+  reflects the state the return itself just produced. None of this is
+  reachable in 1c (nothing creates a `BorrowRequest` outside the seed
+  data), so nothing tests it either — Phase 2 re-widens the signature
+  to the reference's exact shape when holds exist, not before.
+- **`LendCopy`'s hold-collection branch is unported, and the predicate
+  it depends on is already live and waiting.** The reference closes a
+  collected hold inside the SAME transaction as the lend
+  (`request.fulfilled`, `old_next/src/domain/circulation/commands/
+  lend-copy.ts:220`); this port's `LendCopy::execute` always passes
+  `null` for `$heldForUserId` (`app/Actions/Circulation/LendCopy.php`'s
+  class docblock says so explicitly). `LoanRules::copyLendable`'s
+  held-for-me clause (`$state === CopyState::Held && $heldForUserId ===
+  $forUserId`, `app/Support/Circulation/LoanRules.php:54`) is already
+  unit-tested and correct — Phase 2 only has to wire the real holder
+  through and add the collected-hold close, not invent the predicate.
+- **INV-5's guarantee is a membership-row lock, not an index — stronger
+  than the reference, but bypassable outside `LendCopy`.**
+  `app/Actions/Circulation/LendCopy.php:75` locks the reader's
+  `Membership` row as the SECOND statement in the transaction (copy
+  first, per the lock-order entry below), so a rival lend for the same
+  reader waits behind that lock before counting active loans — the
+  reference has no such serialisation and its own count can race past
+  the limit (plan divergence 3). The only INDEX-backed circulation
+  invariant remains INV-1 (`loans_one_active_per_copy`,
+  `2026_08_26_000007_create_loans_table.php:76-81`); a future caller
+  that mutates `loans`/`memberships` without going through `LendCopy`
+  bypasses INV-5 entirely, because nothing in the schema enforces it.
+- **`RenewLoan`'s queue check has no structural backstop.**
+  `app/Actions/Circulation/RenewLoan.php:70` takes exactly ONE lock (the
+  loan row) and then runs a plain, unlocked
+  `BorrowRequest::query()->where('book_id', ...)->where('status',
+  Pending)->exists()` — a request for the same title committing between
+  that read and the renewal's own commit is invisible to it. Unreachable
+  in 1c (nothing creates a `BorrowRequest` outside seed data, so nothing
+  can race this check); Phase 2 decides whether the queue check needs a
+  lock once requests are live.
+- **The `ReceiveReturn` / `ReportCopyLost` / `VoidLoan` lock order
+  (copy, then loan) is a convention every command's source enforces by
+  hand, not a database-level guarantee.** Verified by reading each
+  file's first two statements: `ReceiveReturn.php:57-59`,
+  `VoidLoan.php:56-57` both lock `BookCopy` before `Loan`;
+  `LendCopy.php:73-75` locks `BookCopy` before `Membership` (a
+  different second party, same "copy first" rule). Nothing in the
+  schema stops a future circulation command from taking the loan lock
+  first — it would simply re-open the AB-BA deadlock this phase closed
+  (Task 4's divergence 2, reproduced with two real OS processes, not
+  simulated). Any new circulation write must follow copy-first or prove
+  its own ordering is deadlock-free.
+- **The implicit FK shared locks, and the shelf-row contention they
+  create, are real and unavoidable with today's schema.** Every
+  circulation command's audit insert takes a shared lock on the
+  shelf's own `bookshelves` row (MySQL/MariaDB InnoDB locks the parent
+  row of a `RESTRICT`-on-delete foreign key on every child insert);
+  `LendCopy`'s own loan insert additionally takes shared locks on
+  `bookshelves`/`books`/`book_copies`/`users` through their own foreign
+  keys. Separately, `AllocateCopyCodes` — 1a's copy-numbering
+  allocator, still used by `CreateBook`/`AddCopies` — takes an
+  EXCLUSIVE lock on that same `bookshelves` row for the whole of its
+  transaction (`app/Actions/Catalogue/AllocateCopyCodes.php:80-83`,
+  `DB::table('bookshelves')->where('id', $bookshelfId)
+  ->lockForUpdate()`), confirmed by reading the file directly. Between
+  the FOUR CIRCULATION commands (`LendCopy`, `ReceiveReturn`,
+  `RenewLoan`, `VoidLoan`) and `AllocateCopyCodes`, the wait really is
+  one-directional — a circulation command never takes an exclusive lock
+  `AllocateCopyCodes` would need — so a slow lend, return, renewal or
+  void never deadlocks against a bulk copy-add on the same shelf; it
+  only ever waits behind it (BR §2's plain error stays about the unique
+  index, not this lock).
+  **CORRECTED (whole-branch review, PR #62): that sentence used to read
+  as a system-wide guarantee ("no deadlock cycle exists ... never the
+  reverse"). It does not hold system-wide — it holds only for the four
+  circulation commands above, and one PHASE 1B EDGE reopens the exact
+  reverse this note used to rule out.** `audit_log.actor_id` is a
+  single-column FK straight to `users.id`
+  (`2026_08_26_000015_create_audit_log_table.php:28`), so EVERY audit
+  insert also takes a shared lock on the ACTING user's own `users` row —
+  a second FK edge this note did not name, independent of the
+  `bookshelves` one above. `UpdateReaderProfile.php:69` and
+  `SetReaderCredentials.php:59` each take an EXCLUSIVE lock
+  (`lockForUpdate()`) on the SUBJECT reader's `users` row before their
+  own audit insert runs. The reverse edge exists the moment that same
+  person is, in a concurrent transaction, the ACTOR of a command that
+  already holds `bookshelves` X and then wants that person's `users` S —
+  exactly `AllocateCopyCodes`/`AddCopies`, run by a manager adding
+  copies to their own shelf while a super admin corrects that same
+  manager's profile:
+  - T1 (`UpdateReaderProfile`/`SetReaderCredentials`): X `memberships` →
+    X `users` (the manager being corrected) → audit insert → wants
+    S `bookshelves` (the audit row's `bookshelf_id` FK).
+  - T2 (`AllocateCopyCodes` inside `AddCopies`, run BY that manager):
+    X `bookshelves` → ... → audit insert naming that manager as
+    `actor_id` → wants S `users` (the same row T1 already holds X on).
+  **Reproduced, not asserted: two real OS processes (`pcntl_fork()`,
+  one PDO connection each against the real `mariadb` container),
+  replaying exactly these two lock sequences with a deliberate
+  interleaving delay, produced a genuine `SQLSTATE[40001]: ... 1213
+  Deadlock found when trying to get lock; try restarting transaction`
+  — InnoDB's own detector, not a simulation.** This is a Phase 1a
+  (`AllocateCopyCodes`) × Phase 1b (`UpdateReaderProfile`,
+  `SetReaderCredentials`) cycle, not something Phase 1c introduced, but
+  it sat behind a sentence THIS phase's own document had written as a
+  system-wide guarantee — corrected here so Phase 2 does not build the
+  borrow-request commands trusting a claim already false today. **What a
+  future author must check before adding any new write path that (a)
+  exclusive-locks a `users` row before its own audit insert, or (b)
+  holds an exclusive lock across an audit insert naming a DIFFERENT
+  actor than the row already locked: does the acting user of your new
+  command's audit insert ever coincide with a row some OTHER in-flight
+  command might already hold exclusively (or vice versa)?** Only a
+  matching row on both sides creates the cycle — an unrelated actor
+  never collides — but "the actor happens to be the same person as the
+  subject of a concurrent unrelated write" is exactly the shape that
+  looks impossible until named, which is what happened here.
+  Recorded so Phase 2 does not rediscover it by a slow lend during a
+  large `AddCopies` call, and so a future command that reverses the
+  direction (locks `bookshelves` X, then waits on something circulation
+  already holds S on) is recognised as the cycle it would create.
+- **The near-miss that makes the OBVIOUS `book_copies` ↔ `memberships`
+  cycle not exist, recorded because it is design luck, not a guarantee
+  — verified live, not assumed.** `book_copies.acquired_from_membership_id`
+  is a donated copy's donor, and `book_copies_acquired_from_membership_fk`
+  is a COMPOSITE foreign key, `(bookshelf_id,
+  acquired_from_membership_id)` → `memberships (bookshelf_id, id)`
+  (`2026_08_26_000019_add_composite_tenant_fks.php:19,30`) — pointing at
+  the SECONDARY unique index `memberships_bookshelf_id_id_key`, not the
+  primary key. `LendCopy.php:74`'s `Membership::query()->lockForUpdate()
+  ->findOrFail($membership->id)` looks the row up by `id` alone, which
+  InnoDB serves from the CLUSTERED (primary-key) record. A composite-FK
+  insert on `book_copies` naming that same membership as its donor takes
+  its shared lock via the secondary index record instead — a different
+  physical lock than the one `LendCopy`'s exclusive lock holds, on the
+  same logical row. The two simply never contend, not because a rule
+  forbids it but because MariaDB happens to lock a unique secondary
+  index and a clustered primary key as separate structures. Worth
+  naming for the same reason as the corrected entry above: a future
+  schema change that pointed a new FK at `memberships`'s PRIMARY KEY
+  instead of the secondary `(bookshelf_id, id)` unique — a plausible
+  simplification, since the two are trivially equivalent VALUES — would
+  turn this near-miss into a real collision with `LendCopy`'s lock,
+  silently, with no test in this suite positioned to notice until it
+  deadlocks under real concurrent load.
+- **Step 1's block flag is hold-aware; `ChooseCopy` is not — a Phase 2
+  landmine, not a bug today.** `SearchBooksForLendingQuery` derives its
+  `blocked` flag from `CountsCopies::borrowable()`, which excludes an
+  `available` copy carrying an unexpired approved hold from the
+  available count; `ChooseCopy::lowestLendable` picks the lowest-coded
+  copy by `book_copies.state` alone and knows nothing about holds. The
+  two agree today only because nothing in 1c can create a hold. The
+  moment `ApproveBorrowRequest` exists and flips a copy to `held`, step
+  1 (search) and step 3 (confirm) will disagree unless `ApproveBorrowRequest`
+  keeps them in sync or `ChooseCopy` is taught the same predicate —
+  exactly the failure mode plan divergence 9 exists to flag in advance.
+- **The copyless-title refusal is a deliberate, ruled divergence from
+  the reference — `title_has_no_copies` replaces `copy_not_available`
+  for a title with zero recorded copies.** The reference folds a
+  copyless title into the same `copy_not_available` sentence a title
+  with only lost/retired copies gets; the product owner ruled that
+  false for a shelf where no copy was ever entered (plan settled
+  decision 4). Verified: the Vietnamese sentence
+  ("Cuốn này chưa có bản sách nào trong tủ.") is asserted directly in
+  `tests/Feature/Circulation/LendingQueriesTest.php`'s copyless-title
+  test, `docs/OPERATIONS.md` §4.2's `LendCopy` entry carries the code,
+  and `SearchBooksForLendingQuery`/`ChooseCopy::lowestLendable` both
+  branch on the identical three-way reason
+  (recorded-count-zero / none-returnable / otherwise) — change one
+  without the other and step 1 and step 3 disagree on a title with no
+  copies. Its own census lives in `ChooseCopyTest`
+  (`title_has_no_copies` is data returned by a query, never a literal
+  `new RuleViolated('title_has_no_copies')`, so
+  `RuleViolatedCodesHaveSentencesTest`'s glob correctly does not see
+  it — do not add it there). The no-copy-selector divergence from BR
+  §16.3 (divergence 9) is unrelated and unchanged.
+- **1b's `ManagerRegisterReader` route-absence pin is discharged, not
+  deleted.** Confirmed by reading both files directly:
+  `app/Actions/Members/ManagerRegisterReader.php:44` registers at
+  `MembershipStatus::Active`; `app/Actions/Members/
+  RegisterMemberOnBehalf.php:38` registers at `MembershipStatus::Pending`
+  — the whole of BR §16.1 (on-behalf, pending, needs approval) versus
+  §16.3 (quick-lend escape hatch, active immediately) rides on that one
+  parameter. `tests/Feature/Architecture/MembersArchitectureTest.php`
+  now pins PRESENCE the same way 1b pinned absence: exactly one
+  controller (`LendController`) reaches `ManagerRegisterReader`, and
+  `ReaderController` reaches only `RegisterMemberOnBehalf`. 1b's open
+  question 1 (whether OPS §4.3's inferred `active` disposition is what
+  the product owner actually wants) is still formally open — a live
+  surface now depends on the answer, where before it was theoretical.
+- **The `VoidLoan` button and all three flash sentences
+  (`lend_success_flash`, `return_success_flash`, `renew_success_flash`)
+  are authored by this plan, not specified by OPS** — the same
+  `member_has_active_loans` precedent 1b recorded for an invented
+  sentence. Verified present in `lang/vi/rules.php:62-64` and referenced
+  from `LendController::store`, `ReturnController::store` and
+  `MyLoansController::renew` respectively.
+- **Due-soon/overdue notifications do not exist yet.** Nothing in this
+  phase writes a `notifications` row for an approaching or passed due
+  date — grepped `app/Actions/Circulation` and found no `Notification::`
+  reference anywhere in it. Phase 2's sweep; the overdue SCREEN itself
+  (`OverdueLoansQuery` + `OverdueController`) is live, correct, and
+  reachable from the manager nav today (BR §8) — only the proactive
+  notification is missing, not the read surface.
+
+- **Carry-over from Task 13's review, closed this task: no test proved
+  the reader's own-loans READS exclude another reader's loan on the
+  SAME shelf, and the fixture shape was the reason.** Every fixture in
+  `tests/Feature/Circulation/ReaderDashboardScreenTest.php`,
+  `ReaderDashboardHostileInputTest.php` and
+  `ReaderDashboardAuthorizationTest.php` seeded exactly one reader with
+  one loan per shelf, so a bare `count()`/`total` assertion could not
+  distinguish "scoped to THIS borrower" from "scoped to the whole
+  shelf" — dropping `MyDashboardQuery`/`MyLoanHistoryQuery`'s
+  `where('borrower_id', ...)` and replacing it with a vacuous
+  `whereNotNull('borrower_id')` left the entire suite green except for
+  two new tests added this task
+  (`tests/Feature/Circulation/ReaderDashboardScreenTest.php`, "the
+  overview excludes another reader's active loan on the same shelf" and
+  "the history excludes another reader's loan on the same shelf"),
+  which went red exactly as expected and were restored afterward. (The
+  unit-level `MyDashboardQueryTest.php` already carried an equivalent
+  two-reader fixture and DID catch this at the query layer — the gap
+  was specifically at the HTTP/screen layer, which is what the two new
+  tests close.)
+- **The fixture-shape sweep found the identical gap one phase earlier,
+  fixed here as "cheap": `ReaderDetailQuery`'s `currentLoans` and
+  `pendingProfileChange`.** `app/Queries/ReaderDetailQuery.php:72-76`
+  filters loans by `where('borrower_id', $person->id)`, and every test
+  exercising it in `tests/Feature/Members/ReaderQueriesTest.php` seeded
+  exactly one reader with one active loan on the shelf — the same
+  fixture-shape gap as above, one phase upstream of it. Two tests added
+  ("currentLoans excludes another reader's active loan on the same
+  shelf", "pendingProfileChange never picks up another reader's pending
+  change on the same shelf"), each proved by mutation (replacing the
+  `borrower_id`/`user_id` filter with a vacuous `whereNotNull` turned
+  the new test red and nothing else in the file; restored after). The
+  rest of this phase's read queries
+  (`SearchBooksForLendingQuery`/`SearchReadersForLendingQuery`/
+  `SearchLoansForReturnQuery` in `LendingQueriesTest.php`,
+  `OverdueLoansQuery` in `OverdueLoansQueryTest.php`) were also walked
+  and found already fixture-rich enough to distinguish their scoping —
+  multiple readers with different active-loan counts, multiple copies
+  in different states, multiple loans across active/returned/lost
+  status — so no further fixture changes were made there.
+
+### PR #62 review, fix round
+
+- **The sixth confirmed occurrence of the ascii_bin free-text 500, this
+  time one layer outside the Form Request gate the last sweep swept.**
+  `ReaderController::index`'s `?unit=` reaches
+  `ReadersListQuery::run()`'s `parishUnitId` filter
+  (`app/Queries/ReadersListQuery.php:50-55`), bound straight into
+  `memberships.parish_unit_l1_id`/`parish_unit_l2_id` — both ascii_bin.
+  Reproduced live over real HTTP, logged in, as the shelf's own manager:
+  `GET /shelves/{shelf}/manage/readers?unit=Giáo họ Đức Mẹ` and
+  `?unit=📚` both 500'd with `SQLSTATE[HY000]: 1267 Illegal mix of
+  collations (ascii_bin,IMPLICIT) and (utf8mb4_unicode_ci,COERCIBLE)` —
+  ordinary Vietnamese text, not hostile bytes. Fixed by refusing a
+  non-UUID-shaped `unit` the same way M7's garbage-fold branch refuses a
+  garbage `q`: `whereRaw('1 = 0')`, matching nothing rather than
+  crashing. Pinned by
+  `tests/Feature/Members/ReaderQueriesTest.php`'s "a non-UUID-shaped
+  parish-unit filter matches nothing instead of 500ing" — mutation
+  verified: reverting the guard reproduces the identical live 1267
+  error inside the test, and nothing else in the file breaks.
+- **`LendController::confirm`'s `?reader=` was the highest-value
+  UNPINNED line in the whole diff.** Its hand-rolled
+  `preg_match('/^[0-9a-f-]{36}$/', $membershipId)` was the only thing
+  between that query value and `Membership::find()`'s ascii_bin bind —
+  and nothing in the suite pinned it: deleting the check left the full
+  suite green while the live route 500'd on both invalid bytes and on
+  an ordinary 36-character Vietnamese string. Replaced with
+  `App\Support\SafeId::isUuid()` — a thin wrapper over
+  `Illuminate\Support\Str::isUuid()`, the SAME check Laravel's own
+  route-model-binding layer already performs for every model using
+  `HasUuids` (`Illuminate\Database\Eloquent\Concerns
+  \HasUniqueStringIds::resolveRouteBindingQuery()`) before a query ever
+  runs — rather than a second, weaker, hand-rolled definition of "looks
+  like a UUID." `ReadersListQuery`'s fix above shares the same class.
+  Pinned by `tests/Feature/Circulation/QuickLendScreensTest.php`'s "a
+  non-UUID-shaped ?reader= never reaches the membership bind" —
+  mutation verified the same way (reverting to an unconditional `find()`
+  reproduces the live 1267 error inside the test).
+- **The controller-layer inventory the last sweep's gate does not cover
+  (a THIRD blind spot, alongside the two `FreeTextEncodingGuardTest`
+  already names): raw query parameters and route segments read by
+  controllers, outside any Form Request, are invisible to a gate that
+  only scans `app/Http/Requests/`.** Every `QueryParam::first()`/
+  `QueryParam::input()` call site in `app/Http/Controllers` was walked:
+  - `ReaderController::index` `?unit=` → ascii_bin (`memberships
+    .parish_unit_l1_id`/`l2_id`) — **was vulnerable, fixed above.**
+  - `LendController::confirm` `?reader=` → ascii_bin
+    (`memberships.id`) — **was guarded by a weak regex, replaced with
+    `SafeId::isUuid()` above.**
+  - `LendController::index`/`reader`/`newReader` `?book=` →
+    `Book::where('slug', ...)` — `books.slug` is `utf8mb4_bin`, not
+    ascii_bin; confirmed live safe by posting `?book=%FF%FE` (invalid
+    UTF-8 bytes), which returned `200`, not a 500.
+  - `Manage\BookController::index` `?category=` and
+    `Reader\CatalogueController::index` `?category=` →
+    `whereHas('category', ... where('slug', ...))` — `categories.slug`
+    is also `utf8mb4_bin`; same reasoning, not re-tested live since the
+    column-charset argument is identical to `books.slug` above.
+  - `Manage\ReturnController::index`/`lost` `?loan=` → resolved against
+    an in-memory `collect($rows)->firstWhere('loanId', $chosen)` — never
+    reaches a database bind at all.
+  - `RegistrationController::create` `?shelf=` →
+    `Bookshelf::where('slug', ...)` — `bookshelves.slug` is
+    `utf8mb4_bin` — safe, same reasoning.
+  - Every `?q=` (`ReaderController`, `Manage\BookController`,
+    `Reader\SearchController`, `Manage\LendController`) → folded via
+    `Fold::fold()` before a `LIKE` on a `utf8mb4` `*_folded` column, and
+    the M7 branch already turns a garbage fold into `1 = 0` — safe.
+  - Every remaining `QueryParam` call (`?status=`, `?sort=`, `?page=`)
+    is either compared against a fixed enum-backed column or cast to
+    `int` — provably non-text.
+  - Implicit ROUTE-SEGMENT bindings (`{reader}` → `Membership`,
+    `{loan}` → `Loan`, `{bookCopy}` → `BookCopy`, all ascii_bin `id`
+    columns) turned out to be a false alarm, confirmed live: every one
+    of those models uses `HasUuids`, and Laravel's own
+    `HasUniqueStringIds::resolveRouteBindingQuery()` already rejects a
+    non-UUID-shaped route value with a clean 404 BEFORE the query runs
+    — `GET /shelves/{shelf}/manage/readers/Giáo` 404s cleanly with zero
+    additional database queries (verified with `DB::listen` recording
+    nothing beyond the tenant-resolution queries, and the response's
+    bound exception confirmed as `ModelNotFoundException`, not a
+    `QueryException`). `{shelf}` and `{book}` use their own
+    `getRouteKeyName()` override (`slug`, `utf8mb4_bin`) and were never
+    at risk.
+  Recorded here as the third blind spot the encoding gate does not
+  cover, alongside the two `FreeTextEncodingGuardTest`'s own docblock
+  already names (a rule built conditionally on `$this->input(...)`, and
+  a field injected in `prepareForValidation()`) — all three share the
+  same root cause: the gate can only see what `rules()` returns on an
+  unbound `FormRequest` instance, and none of these three shapes is
+  reachable that way. A future hostile-input sweep of a NEW controller
+  should walk every `QueryParam::first()`/`QueryParam::input()` call
+  site the same way this one did, not assume the Form Request gate
+  already covers it.
+- **The lock-order document's "never the reverse" claim did not hold —
+  corrected, with the reverse edge reproduced live.** See the corrected
+  entry above, under "The implicit FK shared locks..." — the original
+  sentence was scoped to circulation-vs-`AllocateCopyCodes` only in the
+  reviewer's re-reading, not as originally written. A `users`-row FK
+  edge (`audit_log.actor_id`) that the original note never named creates
+  a genuine AB-BA cycle between `UpdateReaderProfile`/
+  `SetReaderCredentials` (Phase 1b) and `AllocateCopyCodes` (Phase 1a)
+  when the same person is simultaneously the SUBJECT of one and the
+  ACTOR of the other. Reproduced with two real OS processes
+  (`pcntl_fork()`, two independent PDO connections against the real
+  `mariadb` container replaying each command's exact lock sequence with
+  a deliberate interleaving delay): a genuine `SQLSTATE[40001]: ... 1213
+  Deadlock found when trying to get lock` from InnoDB's own detector,
+  not simulated. The near-miss that keeps the more OBVIOUS
+  `book_copies`↔`memberships` pair from also cycling (a composite FK
+  pointing at a secondary unique index vs. `LendCopy`'s primary-key
+  `lockForUpdate()`) is recorded alongside it, as design luck rather
+  than a guarantee.
+- **`DeleteBook`'s "no lock needed" argument was stale the moment
+  `LendCopy` shipped — docblock corrected, interaction recorded rather
+  than fixed.** See `app/Actions/Catalogue/DeleteBook.php`'s corrected
+  docblock: a `LendCopy` committing a new loan against one of a book's
+  copies after `DeleteBook`'s REPEATABLE READ snapshot was pinned, but
+  before `DeleteBook`'s own `whereDoesntHave('loans')` fetch runs, is
+  invisible to that snapshot — the copy gets soft-deleted anyway, with
+  an active loan now pointing at it that `ReceiveReturn.php:57` and
+  `VoidLoan.php:56` can never resolve (`findOrFail`, no
+  `withTrashed()`). Not fixed in this round: `DeleteBook` is unrouted
+  (zero live exposure today), and the honest fix is a real design
+  choice between two nontrivial options (lock the book's copies inside
+  `DeleteBook`, or teach `ReceiveReturn`/`VoidLoan` to resolve a
+  soft-deleted copy) that belongs with whoever routes this command, not
+  a fix-round patch.
+- **`FreeTextEncodingGuardTest`'s `QuickLendRegisterReaderRequest::book`
+  exemption cited the wrong command.** It read "before
+  `RegisterMemberOnBehalf::execute()` ever sees the array"; the actual
+  call site is `LendController::storeReader`, which calls
+  `ManagerRegisterReader::execute()` — a different Action entirely. The
+  reasoning was still correct (the field is stripped via `Arr::except()`
+  before either Action would see it), only the citation was wrong, in a
+  test whose entire value is that every exemption cites the exact code
+  proving it safe. Corrected in
+  `tests/Feature/Architecture/FreeTextEncodingGuardTest.php`.

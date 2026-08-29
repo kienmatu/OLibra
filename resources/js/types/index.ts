@@ -40,5 +40,7 @@ export interface SharedData {
     role: SharedRole;
     /** Inertia's own Middleware::share() — validation errors, keyed by field. */
     errors: Record<string, string>;
+    /** A one-shot success message set by a redirect — Tasks 11 and 13 use it too. */
+    flash: { success: string | null };
     [key: string]: unknown;
 }

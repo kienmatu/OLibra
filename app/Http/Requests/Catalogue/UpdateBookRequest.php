@@ -24,16 +24,18 @@ class UpdateBookRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
+        // bail + encoding:UTF-8 — Task 12 sweep, StoreBookRequest's
+        // reasoning verbatim (same fields, same UpdateBook write path).
         return [
-            'title' => ['sometimes', 'required', 'string', 'max:500'],
-            'author' => ['sometimes', 'required', 'string', 'max:255'],
+            'title' => ['sometimes', 'bail', 'required', 'string', 'max:500', 'encoding:UTF-8'],
+            'author' => ['sometimes', 'bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
             'category_slug' => ['sometimes', 'required', 'string', 'max:255'],
-            'publisher' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'publisher' => ['sometimes', 'bail', 'nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'published_year' => ['sometimes', 'nullable', 'integer', 'min:1000', 'max:2100'],
             'page_count' => ['sometimes', 'nullable', 'integer', 'min:1'],
-            'isbn' => ['sometimes', 'nullable', 'string', 'max:32'],
-            'description' => ['sometimes', 'nullable', 'string', 'max:5000'],
-            'language' => ['sometimes', 'nullable', 'string', 'max:8'],
+            'isbn' => ['sometimes', 'bail', 'nullable', 'string', 'max:32', 'encoding:UTF-8'],
+            'description' => ['sometimes', 'bail', 'nullable', 'string', 'max:5000', 'encoding:UTF-8'],
+            'language' => ['sometimes', 'bail', 'nullable', 'string', 'max:8', 'encoding:UTF-8'],
             'is_published' => ['sometimes', 'boolean'],
         ];
     }

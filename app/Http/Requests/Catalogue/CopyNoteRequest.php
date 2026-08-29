@@ -19,8 +19,14 @@ class CopyNoteRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
+        // bail + encoding:UTF-8 — Task 12 carry-over fix: a manager posting
+        // invalid UTF-8 here reached ReportCopyLost/MarkCopyFound's write
+        // to book_copies, tripped MariaDB errno 1366 (invalid string for
+        // the utf8mb4 column), unmapped, and 500'd — reproduced live and
+        // proved by CatalogueHostileInputTest. Same shape as
+        // ReceiveReturnRequest (Task 11) and VoidLoanRequest (Task 12).
         return [
-            'note' => ['nullable', 'string', 'max:1000'],
+            'note' => ['bail', 'nullable', 'string', 'max:1000', 'encoding:UTF-8'],
         ];
     }
 }

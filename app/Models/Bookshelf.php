@@ -80,6 +80,19 @@ class Bookshelf extends Model
     }
 
     /**
+     * What scopeBindings() resolves the {loan} route parameter through.
+     * BookshelfScope on Loan (App\Models\Concerns\BelongsToBookshelf)
+     * independently 404s a foreign shelf's loan id — the two-layer note in
+     * routes/web.php.
+     *
+     * @return HasMany<Loan, $this>
+     */
+    public function loans(): HasMany
+    {
+        return $this->hasMany(Loan::class);
+    }
+
+    /**
      * Feedback.bookshelf_id is nullable and Feedback deliberately does not
      * carry BelongsToBookshelf (see its docblock), so a shelf-scoped read
      * cannot go through a global scope. Routing it through THIS relation

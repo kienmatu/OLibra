@@ -1,23 +1,65 @@
 <?php
 
-use App\Actions\Members\ManagerRegisterReader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-it('ManagerRegisterReader is wired to NO route — 1c\'s quick-lend is its screen', function () {
-    // The DeleteBook precedent: implemented and tested, and adding the
-    // route is a DECISION (with the plan-header open question 1 attached),
-    // not an accident. No controller may reference the Action at all —
-    // stronger than walking the route table, which only sees wired methods.
+it('ManagerRegisterReader is wired to exactly ONE route — 1c\'s quick-lend escape hatch', function () {
+    // 1b DEFERRED this screen; it did not forbid it. That plan's
+    // divergence 8 says verbatim that "the quick-lend escape hatch
+    // (/manage/lend/reader) is 1c's surface", and its open question 1
+    // chose an ACTIVE membership on the stated ground that a pending
+    // result "would defeat the escape hatch's purpose". 1c built the
+    // screen on the product owner's ruling (1c plan, settled decision 3),
+    // so the pin flips from absence to presence: the deferral is
+    // discharged, and what must now not change silently is that exactly
+    // ONE controller reaches this Action, and it is the lend flow's.
+    //
+    // The 1b shape is kept — a file grep, not a route walk — because it
+    // still catches the thing a route walk cannot: a SECOND controller
+    // calling the Action from somewhere that was never meant to create an
+    // active member without an approval record.
+    //
+    // Carry-over fix, Task 10 review Minor #3: `glob('{,*/}*.php')` only
+    // ever walks ONE directory level below Http/Controllers — a controller
+    // nested two levels deep (Http/Controllers/Manage/Sub/Foo.php) never
+    // matches the glob pattern at all, so it is invisible to this pin
+    // regardless of what it contains. Reproduced live: a scaffolded
+    // Http/Controllers/Manage/Nested/FakeNestedController.php injecting
+    // ManagerRegisterReader left this test green under the old glob, then
+    // went red under the RecursiveIteratorIterator walk below (same shape
+    // "only the three sanctioned Actions..." below already uses for this
+    // exact reason). basename() alone would also collide two
+    // same-named controllers in different directories; the relative path
+    // from app_path() is what the recursive walk records instead.
     $hits = [];
-    foreach (glob(app_path('Http/Controllers/{,*/}*.php'), GLOB_BRACE) ?: [] as $file) {
-        if (str_contains((string) file_get_contents($file), 'ManagerRegisterReader')) {
-            $hits[] = $file;
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path('Http/Controllers')));
+    foreach ($files as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+        if (str_contains((string) file_get_contents($file->getPathname()), 'ManagerRegisterReader')) {
+            $hits[] = basename($file->getPathname());
         }
     }
 
-    expect($hits)->toBe([])
-        ->and(class_exists(ManagerRegisterReader::class))->toBeTrue();
+    expect($hits)->toBe(['LendController.php']);
+
+    $route = collect(Route::getRoutes()->getRoutes())
+        ->first(fn ($r) => $r->getName() === 'shelves.manage.lend.reader.store');
+
+    expect($route)->not->toBeNull()
+        ->and($route->gatherMiddleware())->toContain('role:manager');
+});
+
+it('the on-behalf form still reaches RegisterMemberOnBehalf, and only it', function () {
+    // The other half of settled decision 3's boundary: wiring the hatch
+    // must not have quietly re-pointed the readers list's form at the
+    // active-membership command. BR §16.1 is explicit that registering on
+    // behalf still creates a pending application.
+    $reader = (string) file_get_contents(app_path('Http/Controllers/Manage/ReaderController.php'));
+
+    expect(str_contains($reader, 'RegisterMemberOnBehalf'))->toBeTrue()
+        ->and(str_contains($reader, 'ManagerRegisterReader'))->toBeFalse();
 });
 
 it('readers/create is declared before readers/{reader}, or "create" binds as an id', function () {

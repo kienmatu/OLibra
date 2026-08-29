@@ -111,10 +111,18 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
     // demo person whose (bookshelf, user) pair didn't already have a row —
     // Maria, Têrêsa, Anna, and the super-admin (reused by name, but with no
     // prior membership on this shelf) becomes a fourth, pending: 1 + 4.
+    //
+    // Task 14 added a living shelf: two NEW, distinctly-named borrowers
+    // (Vũ Thị Đang Mượn, Bùi Văn Trễ Hạn — never reusing a full_name minted
+    // above, the seeder's own name-reuse trap) each with their own active
+    // reader membership, plus one active and one overdue loan against two
+    // of the eight seeded copies. +2 users, +2 memberships, +2 loans.
     expect(DB::table('bookshelves')->count())->toBe(1)
-        ->and(DB::table('users')->count())->toBe(5)
-        ->and(DB::table('memberships')->count())->toBe(5)
+        ->and(DB::table('users')->count())->toBe(7)
+        ->and(DB::table('memberships')->count())->toBe(7)
         ->and(DB::table('parish_units')->count())->toBe(5)
         ->and(DB::table('books')->count())->toBe(4)
-        ->and(DB::table('book_copies')->count())->toBe(8);
+        ->and(DB::table('book_copies')->count())->toBe(8)
+        ->and(DB::table('loans')->count())->toBe(2)
+        ->and(DB::table('book_copies')->where('state', 'on_loan')->count())->toBe(2);
 });

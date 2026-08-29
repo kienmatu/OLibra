@@ -9,6 +9,7 @@ use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
 use App\Queries\Concerns\CountsCopies;
+use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
 
 /**
@@ -83,11 +84,12 @@ final class ManagerBookDetailQuery
                 'acquiredFromMembershipName' => $donorMembership !== null
                     ? $donorUsers->get($donorMembership->user_id)?->full_name
                     : null,
+                'activeLoanId' => $loan?->id,
                 'holderName' => $loan !== null ? $borrowers->get($loan->borrower_id)?->full_name : null,
                 // due_on is NOT NULL — a nullsafe on it is itself a level-8
                 // error; only the loan may be absent.
                 'dueOn' => $loan !== null ? $loan->due_on->toDateString() : null,
-                'isOverdue' => $loan !== null && $loan->due_on->toDateString() < $today,
+                'isOverdue' => $loan !== null && LoanTerms::isOverdue($loan->due_on->toDateString(), $today),
                 'lostReportedAt' => $copy->lost_reported_at?->toIso8601String(),
                 'retiredAt' => $copy->retired_at?->toIso8601String(),
                 'retiredReason' => $copy->retired_reason,

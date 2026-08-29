@@ -39,20 +39,57 @@ class StoreBookRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
+        // bail + encoding:UTF-8 on every free-text field (Task 12 sweep):
+        // title/author/publisher/isbn/description/language/donor_name all
+        // write straight to `books`/`book_copies` (utf8mb4 columns) inside
+        // CreateBook::execute()'s transaction — the identical class of bug
+        // CopyNoteRequest carried (invalid UTF-8 -> unmapped QueryException
+        // -> 500). category_slug is exempt: CreateBook only ever uses it
+        // in a WHERE lookup (Category::query()->where('slug', ...)), which
+        // proved safe against invalid UTF-8 live (a non-matching WHERE,
+        // not a write) — an unmatched slug 400s as category_not_found
+        // before any write happens.
+        //
+        // CORRECTION (fix round): that "a WHERE bind on invalid UTF-8
+        // returns no match rather than throwing" claim is
+        // COLLATION-DEPENDENT, not a general truth — it holds here only
+        // because `categories.slug` is `utf8mb4`, the same charset family
+        // PDO sends the bind as. donor_membership_id below binds into
+        // `memberships.id`, which is `ascii_bin`: MariaDB refuses to
+        // compare an ascii_bin column against an incoming
+        // utf8mb4_unicode_ci bind at all (errno 1267, "Illegal mix of
+        // collations"), unmapped, a raw 500 — this is exactly the bug a
+        // missing `bail` let through here (see
+        // tests/Feature/Catalogue/CatalogueHostileInputTest.php and
+        // docs/known-gaps.md for the corrected rule and the live repro).
+        // A WHERE lookup is only safe-by-refusal against invalid UTF-8
+        // when the column's collation is in the same charset family as
+        // the bind; otherwise it needs the same bail/encoding discipline
+        // as a write.
         return [
-            'title' => ['required', 'string', 'max:500'],
-            'author' => ['required', 'string', 'max:255'],
+            'title' => ['bail', 'required', 'string', 'max:500', 'encoding:UTF-8'],
+            'author' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
             'category_slug' => ['required', 'string', 'max:255'],
-            'publisher' => ['nullable', 'string', 'max:255'],
+            'publisher' => ['bail', 'nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'published_year' => ['nullable', 'integer', 'min:1000', 'max:2100'],
             'page_count' => ['nullable', 'integer', 'min:1'],
-            'isbn' => ['nullable', 'string', 'max:32'],
-            'description' => ['nullable', 'string', 'max:5000'],
-            'language' => ['nullable', 'string', 'max:8'],
+            'isbn' => ['bail', 'nullable', 'string', 'max:32', 'encoding:UTF-8'],
+            'description' => ['bail', 'nullable', 'string', 'max:5000', 'encoding:UTF-8'],
+            'language' => ['bail', 'nullable', 'string', 'max:8', 'encoding:UTF-8'],
             'is_published' => ['nullable', 'boolean'],
             'copy_count' => ['required', 'integer', 'min:1', 'max:200'],
             'donor_membership_id' => [
-                'nullable', 'uuid', 'prohibits:donor_name',
+                // bail — fix round: `uuid` is a value guard, not an
+                // ordering guard. Without `bail`, a value that FAILS
+                // `uuid` still reaches the closure below, which binds
+                // those same bytes into Membership::query()->whereKey().
+                // memberships.id is ascii_bin (see the migration); an
+                // invalid-UTF-8 string arrives at that bind as
+                // utf8mb4_unicode_ci, and MariaDB refuses the mix with
+                // errno 1267 ("Illegal mix of collations"), unmapped, a
+                // raw 500 — proved live, see
+                // tests/Feature/Catalogue/CatalogueHostileInputTest.php.
+                'bail', 'nullable', 'uuid', 'prohibits:donor_name',
                 function (string $attribute, mixed $value, \Closure $fail): void {
                     if (! Membership::query()->whereKey($value)->exists()) {
                         $fail(__('validation.exists', [
@@ -61,7 +98,7 @@ class StoreBookRequest extends FormRequest
                     }
                 },
             ],
-            'donor_name' => ['nullable', 'string', 'max:255'],
+            'donor_name' => ['bail', 'nullable', 'string', 'max:255', 'encoding:UTF-8'],
             'acquired_on' => ['nullable', 'date_format:Y-m-d'],
         ];
     }

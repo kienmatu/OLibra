@@ -36,6 +36,15 @@ use Illuminate\Support\Facades\Gate;
  * unchanged because the shape of the bug is the same single-row
  * read-modify-write, just against a different arrow in the transition
  * table.
+ *
+ * REVISED (1c, divergence 2): a LOCKING read, issued after this
+ * transaction's copy lock — the global circulation order (copy
+ * before loan). The plain read it replaces saw 'active' from
+ * its own snapshot and then updated blindly: racing
+ * ReceiveReturn, that update waited on the return's row lock
+ * and then flipped a committed 'returned' loan to 'lost'. The
+ * locking read sees the latest committed row instead, so a
+ * return that won cleanly leaves nothing here to close.
  */
 final class ReportCopyLost
 {
@@ -65,7 +74,7 @@ final class ReportCopyLost
                 'note' => $note,
             ]);
 
-            $loan = $copy->loans()->where('status', 'active')->first();
+            $loan = $copy->loans()->where('status', 'active')->lockForUpdate()->first();
 
             if ($loan instanceof Loan) {
                 $loan->update([

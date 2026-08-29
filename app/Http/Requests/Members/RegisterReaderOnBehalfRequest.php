@@ -45,9 +45,12 @@ class RegisterReaderOnBehalfRequest extends FormRequest
             'date_of_birth' => ['required', 'date_format:Y-m-d'],
             'father_name' => ['required', 'string', 'max:255', 'encoding:UTF-8'],
             'mother_name' => ['required', 'string', 'max:255', 'encoding:UTF-8'],
+            // phone is exempt (Phone::assert() gates it before storage,
+            // see RegisterMembershipRequest); phone_missing_reason is not
+            // gated downstream, so it gets the same guard (Task 12 sweep).
             'phone' => ['nullable', 'string', 'max:32'],
-            'phone_missing_reason' => ['nullable', 'string', 'max:1000'],
-            'email' => ['nullable', 'email', 'max:255'],
+            'phone_missing_reason' => ['bail', 'nullable', 'string', 'max:1000', 'encoding:UTF-8'],
+            'email' => ['bail', 'nullable', 'email', 'max:255'],
             'parish_unit_l1_id' => ['nullable', 'string', 'max:36'],
             'parish_unit_l2_id' => ['nullable', 'string', 'max:36'],
         ];

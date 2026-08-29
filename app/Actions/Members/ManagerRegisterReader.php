@@ -18,8 +18,12 @@ use Illuminate\Support\Facades\Gate;
  * product owner still owes the final word; reversing it is the ::Active
  * below plus one assertion.
  *
- * NO ROUTE THIS PHASE — 1c's quick-lend is the screen; the architecture
- * suite pins the absence (Task 16), the DeleteBook precedent.
+ * WIRED IN 1c, as 1b said it would be: LendController::newReader /
+ * ::storeReader serve GET /manage/lend/reader/new and POST
+ * /manage/lend/reader, BR §16.3's escape hatch. MembersArchitectureTest
+ * now pins that exactly one controller reaches this Action — a second one
+ * would be an active membership created outside the one moment the
+ * product sanctions it.
  */
 final class ManagerRegisterReader
 {
