@@ -1369,7 +1369,7 @@ the full suite ran green.
   `FormRequest::failedAuthorization()` renders as a 403. Every route that
   reaches these is `role:manager`-gated, and `EnsureShelfRole` 404s a
   non-manager before any controller or Form Request runs — its own
-  docblock names the exact 403-vs-404 hazard BR §5.4's anti-enumeration
+  docblock names the exact 403-vs-404 hazard spec §5.4's anti-enumeration
   rule cares about — so today these branches are provably unreachable
   (`MembershipPolicy`'s methods are all literally `act-as-manager`, the
   identical check the middleware already made). Fixed anyway, as a
@@ -1503,7 +1503,7 @@ the full suite ran green.
   return the bare `bool` from `Gate::allows(...)`/`$model instanceof X &&
   Gate::allows(...)` in `authorize()`, which Laravel's default
   `failedAuthorization()` renders as a 403, not a 404 — the exact
-  BR §5.4 anti-enumeration hazard "PR #61 fix round, Task 4" (see above)
+  spec §5.4 anti-enumeration hazard "PR #61 fix round, Task 4" (see above)
   already fixed on the five Members Form Requests by switching to
   `abort_unless(..., 404)`. Every route reaching these five sits inside
   `['auth', 'role:manager']` (`routes/web.php`), so — identically to the

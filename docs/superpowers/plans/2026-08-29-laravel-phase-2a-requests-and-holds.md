@@ -51,7 +51,7 @@
    Verified live against the `laravel-mariadb-1` container before this plan was fixed, not reasoned about: the DDL applies to the shipped `borrow_requests` table; a second `pending` row for the same `(book_id, member_id)` raises `ERROR 1062 (23000): Duplicate entry 'b1:u1' for key 'borrow_requests_one_live_per_title_member'`; `approved` holds the key as `pending` does; and `fulfilled`, `rejected`, `cancelled`, `expired` and soft-deleted rows every one release it, so a reader whose request ended may queue for that title again.
 3. **`CreateBorrowRequest` ships without the reference's optional `copyId`** (the QR-scan "which copy prompted this" record, `borrow-request-by-copy.test.ts`). Nothing in 2a can produce a scanned copy id — `ResolveCopyById`, the scan pages and the labels themselves are 2c. Shipping the parameter with no caller would be the "implemented, reachable from nowhere" shape 1b's ledger existed to close. The 1c `ReceiveReturn` precedent applies: the narrowing is stated in the Action's docblock, recorded in known-gaps (Task 19) with the exact reference behaviour 2c restores — the nullable `copy_id` on create, the same-title/same-shelf/not-deleted guards, the `copy_id` key in the `request.created` audit payload (which this plan writes as an always-present `null` so the payload shape does not change when 2c lands).
 4. **The `membershipId` input is dropped; the session is the scope.** The reference's create takes a caller-supplied `membershipId` and compares it against `ctx.actor.membershipId` because its form posted a hidden field. Here `TenantContext::membership()` IS the caller's own membership of the bound shelf (ResolveTenant resolved it from the session — the same place the reference's `guards.ts` resolved its), so there is no field to lie in; the Action still compares `membership->user_id` against the acting user defensively. Same shape for `CancelOwnRequest`: OWNERSHIP is `borrow_requests.member_id === $actor->id` — both sides `users.id`, the trap the reference's docblock calls out by name (a membership id on either side is never equal and every cancel would refuse).
-5. **Notification payload dates are Asia/Ho_Chi_Minh civil dates, rendered d/m/Y.** The reference stores `hold_until` and `due_on` as `toISOString().slice(0,10)` — the **UTC** civil date — and renders them raw ("nhận trước ngày 2026-09-01"). Every other date in this system is the parish's day (`Clock::today()`, BR §5.4), and AGENTS.md's language rule is "dates read as dates". So the payload stores `Y-m-d` computed in `Asia/Ho_Chi_Minh`, and `NotificationSentences` renders it `d/m/Y`. Two small, named corrections to the reference, both citing house rules older than this plan.
+5. **Notification payload dates are Asia/Ho_Chi_Minh civil dates, rendered d/m/Y.** The reference stores `hold_until` and `due_on` as `toISOString().slice(0,10)` — the **UTC** civil date — and renders them raw ("nhận trước ngày 2026-09-01"). Every other date in this system is the parish's day (`Clock::today()`, spec §5.4), and AGENTS.md's language rule is "dates read as dates". So the payload stores `Y-m-d` computed in `Asia/Ho_Chi_Minh`, and `NotificationSentences` renders it `d/m/Y`. Two small, named corrections to the reference, both citing house rules older than this plan.
 6. **`request.approved`'s audit payload carries `userId` from BOTH doors.** The reference writes it from `ApproveBorrowRequest` and omits it from `ReceiveReturn`'s hold branch, which makes the second door's entry subject-less in the audit browser. One payload shape, both doors — the reference's own "same payload shape … so one resolution rule covers both" comment, applied to itself.
 7. **The kinds map grows per task and holds six kinds at this phase's end** — `membership_approved`, `membership_rejected`, `request_approved`, `request_rejected`, `loan_due_soon`, `loan_overdue`. The reference's seventh, `comment_approved`, arrives in 2b with `ApproveComment`, its writer, because the ported architecture test (`NotificationsAreReaderFacingTest`) holds kind↔writer set-equal in both directions at every commit — a kind with no writer is exactly what it exists to refuse. (BR §15 also lists profile-change approved/rejected notifications; the reference implements neither — no kind, no writer — and the profile-change queues are Phase 3's, so Task 19 records that pair in known-gaps as Phase 3's to decide, with the BR line cited.)
 8. **`RenewLoan`'s queue check stays a plain, unlocked read** — the decision 1c's known-gaps entry deferred to "Phase 2". A pending request committing between that read and the renewal's commit is indistinguishable, to every observer, from one arriving a second after the renewal — the reader keeps a book they were entitled to renew at the instant they asked. The reference made the same read the same way. Task 19 updates the known-gaps entry from "Phase 2 decides" to this decision and its reasoning.
@@ -72,7 +72,12 @@ Phase 0's, 1a's, 1b's, 1c's and 1d's Global Constraints all still bind — branc
 - **Domain time goes through `App\Support\Clock`** — nothing calls `now()`/`Carbon::now()` directly; the sweep's window arithmetic starts from `Clock::today()` (the Asia/Ho_Chi_Minh civil date), hold expiry from `Clock::now()` (UTC instant) via `LoanTerms::holdExpiry`.
 - **Every reader-facing notification is written by `Notifier::notify()` inside the command's own `DB::transaction`** — a notification cannot outlive a rolled-back approval, and an approval cannot commit without its notification. **That sentence is a guarantee, so it gets a guard that can fail**: `NotificationsAreReaderFacingTest`'s fourth test tokenises every file that calls `notifier->notify(` and asserts each call's byte offset falls inside a `DB::transaction(` closure's brace range — the token-walking shape `AuditActionCensusTest` already uses (Task 2 writes it; every later writer is covered by it automatically). This exists because moving `$this->notifier->notify(...)` to after `DB::transaction(...)` returns otherwise leaves every behavioural test in this plan green — Phase 1d's exact finding (a headline guard unwireable with 1,028 tests passing), which this project has decided not to accept a second time. The sweep is the one non-command writer (OPS §7's argued exception), writes its own rows with explicit `bookshelf_id` under `actSystemWide()`, and is named in the guard's allow-list. `NotificationsAreReaderFacingTest` also holds the kind↔writer table set-equal in both directions at every commit, so **every task that adds a kind adds its writer, its `lang/vi/notifications.php` sentence, its `NotificationSentences` match arm and its table row in the same commit**.
 - **`borrow_requests.member_id` and `notifications.user_id` are `users(id)`, never membership ids** — the recurring trap the reference names in four separate docblocks. Every variable carrying one is named for the id it holds (`$userId`, `$heldForUserId`); `Notifier::notify()`'s parameter is `string $userId`.
-- **Anti-enumeration (BR §5.4): refusals over HTTP are 404, never 403.** New routes sit behind `role:manager`/`role:reader`; every new Form Request `authorize()` is `abort_unless(Gate::allows(...), 404)`. "No such request", "another shelf's request" and "already decided" share one code per command (the reference's argument, kept): `request_not_pending` for approve/reject, `request_not_held` for handover, `not_own_request` for cancel.
+- **Anti-enumeration (spec §5.4 — the MIGRATION DESIGN spec's "The TenantIsolation
+  suite", NOT `BUSINESS-REQUIREMENTS.md`, whose §5.4 is "What is recorded about each
+  thing" and contains no such rule; a Task 3 review caught this document mis-cited as
+  "BR §5.4" throughout the plan, `docs/known-gaps.md` and one shipped docblock, and
+  `grep -in "enumerat" docs/BUSINESS-REQUIREMENTS.md` returns nothing): refusals over
+  HTTP are 404, never 403.** New routes sit behind `role:manager`/`role:reader`; every new Form Request `authorize()` is `abort_unless(Gate::allows(...), 404)`. "No such request", "another shelf's request" and "already decided" share one code per command (the reference's argument, kept): `request_not_pending` for approve/reject, `request_not_held` for handover, `not_own_request` for cancel.
 - **Soft deletion is undo (BR §11):** `BorrowRequest` uses `SoftDeletes` and no query in this plan calls `withTrashed()`; the duplicate check, the queue, the hold reads and the sweep all see live rows only, via the model's own scope. **One new uniqueness rule IS added** (divergence 2): `borrow_requests_one_live_per_title_member` over the STORED generated column `live_request_key`, whose expression names `deleted_at IS NULL` explicitly, so a soft-deleted row frees its slot the way `bookshelves.slug_active` does — verified live, not assumed (divergence 2's paragraph carries the command output). Every fixture in this plan that seeds two `pending`-or-`approved` rows for one title therefore uses two DIFFERENT readers; Task 1 states the rule and the tasks that seed rivals (5, 8, 9, 10, 12, 13) each honour it.
 - **No hand-written `where('bookshelf_id', <value>)`** — tenancy comes from `BookshelfScope`. The queue query's `memberships` join uses **column-to-column** equality (`memberships.bookshelf_id = borrow_requests.bookshelf_id`) — a join predicate, not a tenant filter; Task 11 confirms `TenancyArchitectureTest` stays green and says why in a comment at the join.
 - **`SessionGuard` caches the `actingAs` user for a whole test method** — every actor switch is its own `it()` block or a fresh request. Fired four times on this project; zero tolerance.
@@ -1455,7 +1460,7 @@ use Illuminate\Support\Facades\Gate;
  * OPS §4.2's callers, delegating to the act-as gates the way LoanPolicy
  * does. Ownership is deliberately NOT here: cancel's "own request only"
  * folds into the Action's not_own_request (both sides users.id), because
- * a policy-level 403 would confirm the request exists — BR §5.4.
+ * a policy-level 403 would confirm the request exists — spec §5.4.
  */
 final class BorrowRequestPolicy
 {
@@ -2231,7 +2236,7 @@ use Illuminate\Support\Facades\Gate;
  * $copyId is a raw string (form field, not a binding); the Form Request
  * validated it uuid, and find() on a non-row is copy_not_found — one
  * answer for "no such copy", "another shelf's copy" (BookshelfScope) and
- * "a copy of a different title", deliberately (BR §5.4).
+ * "a copy of a different title", deliberately (spec §5.4).
  */
 final class ApproveBorrowRequest
 {
@@ -5363,7 +5368,7 @@ it('a reader 404s on the queue screen and on every POST', function () {
     $base = "/shelves/{$shelf->slug}/manage/borrow-requests";
 
     test()->actingAs($reader)->get($base)->assertNotFound();
-    // 404, never 403 — BR §5.4: a reader must not learn the request
+    // 404, never 403 — spec §5.4: a reader must not learn the request
     // exists. The Form Requests' authorize() aborts before validation, so
     // a well-formed body is answered the same way as an empty one.
     test()->actingAs($reader)->post("{$base}/{$request->id}/approve", ['copy_id' => $copy->id])->assertNotFound();
@@ -5414,7 +5419,7 @@ class ApproveBorrowRequestRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        // 404, never 403 — BR §5.4, the PR #61 shape.
+        // 404, never 403 — spec §5.4, the PR #61 shape.
         abort_unless(Gate::allows('act-as-manager'), 404);
 
         return true;
