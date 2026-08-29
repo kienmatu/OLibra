@@ -3,6 +3,7 @@
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
+use App\Http\Controllers\Manage\DashboardController;
 use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
@@ -121,7 +122,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // URL space. tests/Feature/Authz/EnsureShelfRoleTest.php is the
     // canonical ['auth', 'tenant', 'role:*'] shape this copies.
     Route::prefix('manage')->name('manage.')->middleware(['auth', 'role:manager'])->group(function () {
-        Route::get('/', [ShellController::class, 'underConstruction'])->name('dashboard');
+        Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
         Route::get('/lend', [LendController::class, 'index'])->name('lend');
         Route::get('/lend/reader', [LendController::class, 'reader'])->name('lend.reader');

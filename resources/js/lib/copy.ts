@@ -315,6 +315,27 @@ export const copy = {
         prevPage: "Trang trước",
         nextPage: "Trang sau",
     },
+    manageDashboard: {
+        // "Tổng quan", not "Trang chính": copy.manage.dashboard — the nav
+        // entry that opens this page — already says "Tổng quan", and a nav
+        // word that opens a differently-headed page is two names for one
+        // screen. Duplicated as a literal rather than referencing
+        // copy.manage.dashboard because `copy` is one object literal and
+        // cannot refer to itself mid-definition.
+        title: "Tổng quan",
+        overdueCard: "Quá hạn",
+        registrationsCard: "Chờ duyệt tài khoản",
+        viewList: "Xem danh sách",
+        lendAction: "Cho mượn",
+        lendSub: "Tìm sách · chọn người đọc · xác nhận",
+        returnAction: "Nhận trả",
+        returnSub: "Tìm sách đang mượn · kiểm tra tình trạng",
+        totalsHeading: "Tình hình tủ sách",
+        totalTitles: "Đầu sách",
+        totalCopies: "Bản sách",
+        totalOnLoan: "Đang cho mượn",
+        totalReaders: "Bạn đọc",
+    },
     circulation: {
         rules: {
             copy_not_available: "Bản sách này đang được mượn hoặc đang giữ chỗ.",
