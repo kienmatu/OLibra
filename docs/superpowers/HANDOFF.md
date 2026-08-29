@@ -173,7 +173,33 @@ Nothing merged; no PR open.
   is inside `cbrFix` itself), and the suggested `getQueryLog()` layer-pin is a **tautology** —
   `Connection::run()` logs only after the callback returns, so a throwing insert is never logged
   (`getQueryLog()`=0, `beforeExecuting()`=1). `DB::beforeExecuting` shipped instead.
-- **5 `ApproveBorrowRequest`** — next.
+- **5 `ApproveBorrowRequest`** — `cda2f7c`, `b3e144c` · approved on the FIRST review with zero
+  Criticals and zero Importants, the first task this phase to manage that. The reviewer spot-checked
+  every external citation the new comments make — `kinds.ts:73-74`, `audit-actions.ts:407-410`,
+  `OPERATIONS.md:1119-1126`'s eight-row table, the `ascii_bin` column behind the measured errno
+  1267, the SoftDeletes claim, the census-exclusion claim — and all of them held. It also checked
+  the lock order against every shipped circulation command (`LendCopy` copy→membership,
+  `ReceiveReturn` copy→loan, `VoidLoan` copy→loan, `RenewLoan` loan-only, this one copy→request)
+  and confirmed nothing else in the codebase locks a `borrow_requests` row, so no AB–BA pair is
+  introduced. Seven Minors; four were fixed in `b3e144c` (a comment crediting the audit entry with
+  storing the title when only the notification does; a `known-gaps.md` entry claiming a stronger
+  route pin than the test's three URI fragments catch; a doubled `Clock::now()` whose two instants
+  differ in production; an inert `orderBy` implying queue semantics `copyHoldable` does not have).
+  **A new trap worth knowing:** `CirculationArchitectureTest`'s no-wall-clock grep reads RAW source
+  including comments, and its lookbehind exempts only `->`, so writing the literal `Clock::now()`
+  *in a comment* reddens the suite. Measured, and now recorded in the comment that hit it.
+- **6 `RejectBorrowRequest`** — next.
+
+**A second plan defect struck at the source** (this commit): Task 5's Step 6 mutation 2 predicted
+that flipping the hold filter to `<` reddens "the live-hold test **instead**". It reddens BOTH —
+the live rival drops out of the filter so its approval wrongly succeeds, and the lapsed rival enters
+it so its approval is wrongly refused. Stronger than predicted, not weaker; both tests stay
+load-bearing. Corrected rather than struck.
+
+**Owed to Kien, found during Task 5 and NOT fixed:** `make lint` is not pristine on this branch —
+three Biome warnings plus one info in `resources/js`, and a Biome schema-version mismatch (2.5.8
+config against a 2.5.10 CLI). All pre-existing and untouched by Phase 2a; the gate has been reported
+green while carrying them. The whole-branch review inherits it.
 
 **Struck from the plan at the source** (this commit): Task 4's Step 6 **mutation 2** was
 unsatisfiable and contradicted mutation 2b by construction — narrowing the duplicate read to
