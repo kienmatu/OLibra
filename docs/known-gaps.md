@@ -1562,7 +1562,7 @@ pages). Written by Task 14 after the full suite ran green.
   |---|---|
   | `LendCopy` | shipped (Task 3), both entry points (dashboard flow + book detail); §4.2's failure-mode list amended in Task 1 with `title_has_no_copies` |
   | `HandoverRequest` | Phase 2 (holds); route absence pinned (`CirculationArchitectureTest`) |
-  | `ReceiveReturn` | shipped narrowed (Task 4); hold branch Phase 2 |
+  | `ReceiveReturn` | shipped narrowed (Task 4); hold branch re-widened by Phase 2a Task 10 — see the struck entry below |
   | `RenewLoan` | shipped (Task 5); Q4 = renewal is status-gated, closed and pinned by name |
   | `VoidLoan` | shipped (Task 6) + a button OPS never specified |
   | `CreateBorrowRequest` / `ApproveBorrowRequest` / `RejectBorrowRequest` / `CancelOwnRequest` | Phase 2 |
@@ -1578,23 +1578,41 @@ pages). Written by Task 14 after the full suite ran green.
   `ReceiveReturn`'s narrowing are each their own entry below with the
   file and line evidence.
 
-- **`ReceiveReturn`'s contract is deliberately narrower than the
-  reference, and Phase 2 must restore four things in one pass.**
-  `app/Actions/Circulation/ReceiveReturn.php`'s own docblock names the
-  gap: no `holdForRequestId` parameter, no `queuedRequestId` return
-  value, no `request.approved` second audit row, no notification. The
-  reference (`old_next/src/domain/circulation/commands/
-  receive-return.ts`) does all four inside the SAME transaction as the
-  return itself: it resolves a hold via `holdForRequestId`, stamps
-  `hold_expires_at` from the injected clock (not a bare `now()`) when
-  approving one, writes a `request.approved` audit row alongside
-  `loan.returned`, and — separately — always computes `queuedRequestId`
-  by reading the pending-request queue in `requested_at asc, id asc`
-  order AFTER every write in the transaction has landed, so the answer
-  reflects the state the return itself just produced. None of this is
-  reachable in 1c (nothing creates a `BorrowRequest` outside the seed
-  data), so nothing tests it either — Phase 2 re-widens the signature
-  to the reference's exact shape when holds exist, not before.
+- **~~`ReceiveReturn`'s contract is deliberately narrower than the
+  reference, and Phase 2 must restore four things in one pass~~ —
+  CLOSED by Phase 2a Task 10.** All four are back, in one commit and one
+  transaction: the `$holdForRequestId` parameter, the `queuedRequestId`
+  return value (the signature changed from `void` to
+  `array{loanId: string, queuedRequestId: ?string}`), the
+  `request.approved` audit row beside `loan.returned`, and the
+  `request_approved` notification. The entry is struck here rather than
+  left for the phase's wrap-up task, for the reason the `LendCopy` entry
+  below gives: a known-gap that has silently become false is worse than
+  one that is merely missing. Two things about the port are worth
+  keeping, because they are NOT what the reference does:
+
+  - **A third lock the reference never took.** Its `resolveHold` was a
+    plain read; ours is `BorrowRequest::query()->lockForUpdate()`, third
+    in the order copy → loan → request, so a concurrent
+    `CancelOwnRequest` cannot invalidate the row between the resolve and
+    the hold write. That puts `ReceiveReturn` on the same side of
+    divergence 1's recorded AB–BA edge as `ApproveBorrowRequest` and
+    `LendCopy` (holding the copy, wanting the request), a third
+    participant on an edge already recorded rather than a new direction
+    — read off the `lockForUpdate` call sites under `app/Actions`, not
+    reproduced, and no cycle-freedom claim is made either way.
+  - **`request.approved`'s audit payload carries `userId` from this door
+    too** (plan divergence 6). The reference writes it only from
+    `ApproveBorrowRequest`, which leaves the second door's entry
+    subject-less in the audit browser.
+
+  The `queuedRequestId` read is still what the entry described: the
+  pending queue for this title in `requested_at asc, id asc` order, read
+  AFTER every write in the transaction, so a just-held request is no
+  longer pending and the answer is the next person along.
+  `tests/Feature/Circulation/ReceiveReturnHoldTest.php` pins all of it;
+  1c's `ReceiveReturnTest` was not touched and stayed green, which is
+  the evidence the plain-return path did not move.
 - **~~`LendCopy`'s hold-collection branch is unported~~ — CLOSED by
   Phase 2a Task 8 (`6985690`, `9cea723`).** This entry said
   `LendCopy::execute` "always passes `null` for `$heldForUserId`" and
@@ -1634,9 +1652,10 @@ pages). Written by Task 14 after the full suite ran green.
 - **The `ReceiveReturn` / `ReportCopyLost` / `VoidLoan` lock order
   (copy, then loan) is a convention every command's source enforces by
   hand, not a database-level guarantee.** Verified by reading each
-  file's first two statements: `ReceiveReturn.php:57-59`,
+  file's first two statements: `ReceiveReturn.php:109-111` (was `:57-59`
+  before Phase 2a Task 10 re-widened the file),
   `VoidLoan.php:56-57` both lock `BookCopy` before `Loan`;
-  `LendCopy.php:73-75` locks `BookCopy` before `Membership` (a
+  `LendCopy.php:79-81` locks `BookCopy` before `Membership` (a
   different second party, same "copy first" rule). Nothing in the
   schema stops a future circulation command from taking the loan lock
   first — it would simply re-open the AB-BA deadlock this phase closed
@@ -1957,7 +1976,7 @@ pages). Written by Task 14 after the full suite ran green.
   copies after `DeleteBook`'s REPEATABLE READ snapshot was pinned, but
   before `DeleteBook`'s own `whereDoesntHave('loans')` fetch runs, is
   invisible to that snapshot — the copy gets soft-deleted anyway, with
-  an active loan now pointing at it that `ReceiveReturn.php:57` and
+  an active loan now pointing at it that `ReceiveReturn.php:109` and
   `VoidLoan.php:56` can never resolve (`findOrFail`, no
   `withTrashed()`). Not fixed in this round: `DeleteBook` is unrouted
   (zero live exposure today), and the honest fix is a real design

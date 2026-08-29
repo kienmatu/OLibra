@@ -19,7 +19,12 @@ use App\Support\Notifications\NotificationKind;
  * chối" | `RejectBorrowRequest`, matching §7's table row for row). §7's
  * own "Sách đã sẵn sàng để nhận" row is NOT a fifth: the document itself
  * calls it the same trigger as "Yêu cầu mượn được duyệt", which is why
- * request_approved is one kind with one writer here rather than two.
+ * request_approved is one KIND — not two — however many commands write
+ * it. Task 10 made that distinction load-bearing: the table's
+ * request_approved row now names TWO writers, because §7's own
+ * ApproveBorrowRequest cell says "(and the equivalent effect inside
+ * ReceiveReturn when it holds for the next reader)". Re-transcribed from
+ * docs/OPERATIONS.md:1112-1124 by hand at that commit, all four rows.
  * Every task that adds a row transcribes its own; the same care is the
  * only thing keeping this honest.
  *
@@ -31,10 +36,12 @@ use App\Support\Notifications\NotificationKind;
 const OPS_SECTION_7 = [
     'membership_approved' => ['app/Actions/Members/ApproveMembership.php'],
     'membership_rejected' => ['app/Actions/Members/RejectMembership.php'],
-    // §7 names a second door for this one — "and the equivalent effect
-    // inside ReceiveReturn when it holds for the next reader" — which
-    // Task 10 re-widens and appends here, in its own commit.
-    'request_approved' => ['app/Actions/Circulation/ApproveBorrowRequest.php'],
+    'request_approved' => [
+        'app/Actions/Circulation/ApproveBorrowRequest.php',
+        // "…and the equivalent effect inside ReceiveReturn when it holds
+        // for the next reader" — OPS §7, verbatim. One kind, two doors.
+        'app/Actions/Circulation/ReceiveReturn.php',
+    ],
     'request_rejected' => ['app/Actions/Circulation/RejectBorrowRequest.php'],
 ];
 

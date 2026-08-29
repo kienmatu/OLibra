@@ -23,8 +23,11 @@ use Inertia\Response;
  * route, because "Bạn đọc báo làm mất" is ReportCopyLost's second entry
  * point, not a ReceiveReturn variant (OPS §4.2).
  *
- * The queued-reader offer (OPS §5 steps 3-4) is ABSENT until Phase 2 —
- * plan divergence 4; there is no queue to check yet.
+ * The queued-reader offer's screen work lands in Task 15; the Action is
+ * already the full shape. ReceiveReturn::execute now takes an optional
+ * $holdForRequestId and returns the earliest reader still waiting — this
+ * call site passes neither and reads neither, so the screen behaves
+ * exactly as it did in 1c until Task 15 wires OPS §5 steps 3-4.
  */
 class ReturnController extends Controller
 {
