@@ -274,7 +274,45 @@ Nothing merged; no PR open.
   it against `AuditSentences::str()` (which maps `""` → `null`) but not against `payloadRows` →
   `renderValue`, which `json_encode`s untrimmed. Now nullable in the audit bag, cast only for the
   notification, and pinned in **both** directions.
-- **11 the queue query** — next.
+- **11 `BorrowRequestQueueQuery`** — `30fe2ac`, `2e8503f`, `c8f9163` · approved after 2 review rounds.
+  The phase's first read-side task, and the one that produced its most interesting argument. The
+  query itself was verified sound INDEPENDENTLY of `TenancyArchitectureTest` — whose own comment
+  names `join()` conditions as a blind spot, so a green run there proves less than it looks: the
+  reviewer checked instead that `BookshelfScope` qualifies its predicate as `<table>.bookshelf_id`
+  (so the join is anchored to the already-constrained column and cannot widen the tenant) and that
+  `memberships_one_per_shelf UNIQUE (member_key)` makes fan-out impossible.
+  Five Importants. Two were the brief losing to itself: it demanded the badge and list be
+  "structurally impossible" to disagree and then mandated two method bodies duplicating the filters
+  character for character (now one shared `waiting()` builder), and it set a mutation gate the task
+  left unmet on scope grounds when the plan's Global Constraints made it owed. One was a real
+  divergence — under `actSystemWide()` `run()` threw while `countWaiting()` returned a count spanning
+  **every shelf**, a cross-tenant badge beside a list that refuses to render; both now go through one
+  bound-tenant guard. And the soft-delete join predicates were pinned by nothing: deleting all four
+  left every test green, because Eloquent's `SoftDeletes` scope does not reach a raw `join`.
+  **The eleventh occurrence of the failure mode landed in the entry written to record a gap** — a
+  `known-gaps.md` note that misattributed the `id` tiebreak to BR §7.2 (which contains no tiebreak
+  rule), cited a docblock that does not exist, and prescribed exactly the degenerate two-row fixture
+  the reference documents as having produced two false-green tiebreak tests against a broken query.
+
+  **The finding worth Kien's attention: one of this phase's tests pins spelling, not behaviour, and
+  that is now known and written down.** The reference's tiebreak fixture was discriminating because
+  of POSTGRES, not because of its shape — 28 rows is chosen for being past the threshold below which
+  Postgres sorts stably, forcing an unstable sort that permutes ties. Correct order IS ascending id
+  on both engines; no fixture can make the correct answer differ from it, and the only lever is the
+  engine shuffling ties, which MariaDB does not offer at this size. So the fixture was ported
+  faithfully and lost its discriminating property to the engine. The tiebreak is therefore pinned by
+  a generated-SQL assertion — a golden-string test — which the coordinator ruled satisfies the plan's
+  constraint (that constraint's own premise is the case where behaviour cannot discriminate, and what
+  it asks for there is an explicit pin plus a comment). The bound is now stated everywhere it is
+  claimed: it holds while MariaDB's filesort stays in-memory and order-preserving, and is untested
+  against a sort-buffer spill to merge passes or a join-reordering plan change.
+- **12 the queue screen's controller** — next.
+
+**A hazard for every future agent on this repo, now in `known-gaps.md`:** `php artisan tinker`
+bypasses `phpunit.xml`'s `force="true"` overrides entirely, so diagnostics run against the real dev
+database `olibra`, not `olibra_testing`. Task 11's implementer hit this, disclosed it, and cleaned up
+row by row. Verified at `phpunit.xml:59-90` and `.env:194`; `--env=testing` does not fix it, because
+this repo has no `.env.testing`.
 
 **Trap-passing is now measurably working.** Task 10's implementer proactively found and fixed the
 neighbouring-file fallout its own change caused — the now-false `known-gaps.md` "deliberately
