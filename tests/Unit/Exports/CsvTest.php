@@ -24,6 +24,17 @@ it('neutralises a leader hidden behind leading whitespace — Excel strips befor
     }
 });
 
+it('neutralises a leader hidden behind a non-breaking or zero-width space — widened, unverified against real Excel', function () {
+    // NBSP (U+00A0) and ZWSP (U+200B): neither is in the reference's own
+    // dismissed cases (fullwidth equals, Unicode minus). Widening the strip
+    // to catch them is strictly safer even though whether Excel's own CSV
+    // import strips them first is unverified here and in the reference.
+    foreach (["\u{00A0}=1", "\u{200B}=1"] as $cell) {
+        expect(Csv::neutralise($cell))->toBe("'".$cell)
+            ->and(substr(Csv::neutralise($cell), 1))->toBe($cell);
+    }
+});
+
 it('protects a leading-zero all-digit cell — every Vietnamese phone number', function () {
     expect(Csv::neutralise('0912345678'))->toBe("'0912345678")
         // Anchored: a cell BEGINNING with a space is not the all-digits

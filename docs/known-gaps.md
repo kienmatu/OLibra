@@ -1978,3 +1978,16 @@ pages). Written by Task 14 after the full suite ran green.
   into `context`, this guard must grow a third argument, or that payload
   ships unchecked. Recorded here so that day is an addition to a known
   plan, not a rediscovery.
+- **`Csv::neutralise`'s widened leading-whitespace strip (Phase 1d Task 8
+  carry-over) guards against an UNVERIFIED fact about Excel.** The strip
+  now also swallows U+00A0 (NBSP) and U+200B (ZWSP) ahead of a formula
+  leader, on top of the ASCII whitespace the reference (`old_next/src/lib/csv.ts`)
+  already stripped — see `app/Support/Exports/Csv.php`'s `LEADING_SPACE`
+  docblock. The reference's own docblock records testing and dismissing
+  only a fullwidth equals and a Unicode minus; NBSP/ZWSP were never
+  considered in either codebase, and whether Excel's own CSV importer
+  strips them before its formula detection has not been observed against
+  a real Excel — the widening is done on the "strictly safer" argument
+  (an unnecessary apostrophe costs nothing) alone, not on a confirmed
+  fact. `CsvTest`'s NBSP/ZWSP case pins the current, safer behaviour;
+  nobody should read that test as proof of what Excel does.

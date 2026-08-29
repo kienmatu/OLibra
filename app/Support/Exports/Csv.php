@@ -28,8 +28,23 @@ final class Csv
      */
     private const array FORMULA_LEADERS = ['=', '+', '-', '@'];
 
-    /** Excel strips these before deciding whether a cell is a formula. */
-    private const string LEADING_SPACE = "/^[\t\r\n ]+/";
+    /**
+     * Excel strips these before deciding whether a cell is a formula.
+     *
+     * ASCII whitespace plus U+00A0 (NBSP) and U+200B (ZWSP) — the reference's
+     * own docblock (old_next/src/lib/csv.ts) records testing and dismissing
+     * only a fullwidth equals and a Unicode minus; it never considered a
+     * non-breaking or zero-width space ahead of a formula leader, and
+     * neither did this port until CsvTest's NBSP/ZWSP cases. Whether Excel's
+     * own CSV importer strips these before ITS formula detection is
+     * UNVERIFIED here and in the reference — nobody has watched a real
+     * Excel import a cell shaped like "\u{00A0}=1". Widening the strip is
+     * strictly safer regardless: a cell neutralised unnecessarily only
+     * gains a leading apostrophe, so the strip is widened on that argument
+     * alone, not on a confirmed fact about Excel's behaviour. Do not read
+     * this guard as proof Excel needs it.
+     */
+    private const string LEADING_SPACE = "/^[\t\r\n \x{00A0}\x{200B}]+/u";
 
     public static function neutralise(string $cell): string
     {
