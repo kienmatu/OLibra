@@ -427,7 +427,35 @@ Nothing merged; no PR open.
   **The Clock constraint had been asserted all phase and was enforced by nothing.** Swapping
   `Clock::today()` for a UTC date string reddened **exactly one test out of 1,244** — the block added
   in this round. Every other block ran at an hour where the Ho Chi Minh and UTC civil dates agree.
-- **18 `ReleaseExpiredHold`** — next.
+- **18 `ReleaseExpiredHold`** — `3ddfbdb`, `4b454c1`, `b46eedc` · approved after 2 rounds. The last
+  feature task, shipped on the owner's ruling 1. The clock guard reads the **locked** row and is
+  exactly complementary to `HandoverRequest`'s boundary, so at `hold_expires_at == now` the handover
+  refuses and the release succeeds — no hold with an expiry is both un-handoverable and un-releasable.
+  The one OPS §4.2 amendment this plan was permitted landed with it.
+
+  **The constraint carried nine tasks forward was proven by mutation, and its proof is the point.**
+  `ReleaseExpiredHold` must not null `borrow_requests.copy_id`, or `HandoverRequest`'s
+  `Expired → hold_expired` branch dies in production while Task 9's suite stays green. Adding
+  `'copy_id' => null` reddens the two new blocks — one on the exact substitution — **while
+  `HandoverRequestTest` stays 14/14**, because that file hand-writes the status and so keeps `copy_id`
+  populated regardless. The new test is the only construction in the suite that reaches that branch
+  from a **command-produced** row, which is exactly why the pin had to live here and not there.
+- **19 wrap-up** — next.
+
+**Two rulings from this task that generalise, and both are the same disease:**
+
+- **Stop counting.** Its sweep grepped the phrases it remembered (`expired`, "nothing writes") while
+  the claims that broke were **count words** — "three decisions", "five abilities" — in sentences that
+  never mention the subject. A count-word grep over every touched file then found a fifth staleness
+  the phrase sweep could not have. Where a count was already stale, the ruling was to **drop the
+  number and state the property**: the arguments all survived; only the arithmetic kept breaking.
+- **Stop citing line numbers into files that can move.** A citation fix landed on `:250` while the
+  same commit added eight lines above the target — so the correction was wrong by more than the
+  original error and collaterally broke three untouched citations. A line number is an enumeration of
+  position: it goes stale silently, and this phase produced off-by-one citations at Tasks 11, 13, 16
+  and 18. Nine were converted to greppable symbol references, and the rule is written into
+  `ReleaseExpiredHold`'s docblock so the absence of coordinates reads as deliberate. Line numbers
+  into `old_next/` and `lang/` stay — those files are not moving.
 
 **A failure-mode sub-species this task named, worth carrying into 2b/2c:** twice now the thing that
 was wrong was not a claim about the code but **the justification for not measuring it**. Task 17 said
