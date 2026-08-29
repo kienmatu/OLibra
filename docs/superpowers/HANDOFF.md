@@ -382,7 +382,33 @@ Nothing merged; no PR open.
   Fixed with controlled radios plus a reset effect, and the reviewer traced the fix against Inertia's
   own source to confirm `setData`'s stability, so the effect's dependency omission is correct rather
   than a suppressed bug.
-- **16 the notifications surface** — next.
+- **16 the notifications surface** — `f38a5dd`, `5319406`, `50fa513` · approved after 2 rounds. It
+  caught a defect in its own brief (the prescribed bell condition would have shown a signed-in
+  non-member a link to a page that 404s them, reachable through the shelf's deliberately ungated
+  `/feedback` route) and its own ordering test's false green (the same engine-supplied shape Task 11
+  hit: deleting the tiebreak changes nothing because the plan has no filesort and InnoDB appends the
+  PK, while mutating it to *ascending* does redden). It also renamed the shelf bulletin to **"Bản
+  tin"** on a coordinator ruling — the new bell put a second "Thông báo" link in the header of the
+  same page, and the reference had resolved exactly that collision the other way after paying for it
+  once.
+
+  **The find that matters for production, and the ruling I reversed on it.** The bell's unread
+  `count(*)` runs once per Inertia render on **every page for every signed-in reader**, and it was a
+  **full table scan** — the reference's index was partial (`where read_at is null`), MariaDB has no
+  partial indexes, so the porting migration dropped the predicate and left `read_at` in no index at
+  all. The first retraction accepted that cost as "bounded by one shelf". It was not: this is a
+  shared multi-tenant install ("one tenant among many", `BUSINESS-REQUIREMENTS.md:57`, `SDD.md:228`),
+  a `type: ALL` scan reads every row across every bookshelf, and `BookshelfScope`'s predicate is a
+  post-scan filter, not a scan boundary. **Every shelf's readers were paying for every other shelf's
+  notification volume, on every page render** — growing with the install, not with the parish.
+  I had been prepared to carry that forward as a recorded gap; on the true cost I ruled the index
+  ships now. `notifications_unread_by_user (user_id, read_at)` takes the count from
+  `type: ALL, key: null, rows: 400` to `index_merge intersect, rows: 66, Using index` — no base-table
+  rows read at all — while the list query's plan is **unchanged and still filesort-free**, which was
+  the trap the ruling could have created and was measured rather than assumed. The `down()` was
+  reasoned against `user_id`'s FK (the FK's supporting index is the *other* one, untouched) and the
+  index is pinned in the schema census, falsified by removing the migration.
+- **17 the reminder sweep** — next.
 
 **Two rulings on this task's authorization surface, both no-change:** the queue GET's single
 middleware layer is the house idiom (`OverdueController` and `DashboardController` carry no
