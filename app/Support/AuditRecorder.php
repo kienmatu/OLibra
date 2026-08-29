@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\AuditLog;
+use App\Support\Audit\AuditSecrets;
 use Illuminate\Support\Facades\Auth;
 use RuntimeException;
 
@@ -31,6 +32,8 @@ final class AuditRecorder
      */
     public function record(string $action, string $entityType, ?string $entityId, ?array $before, ?array $after): void
     {
+        AuditSecrets::assertNoSecrets($before, $after);
+
         $bookshelfId = $this->context->bookshelfId();
 
         if ($bookshelfId === null) {

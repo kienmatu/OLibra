@@ -9,10 +9,12 @@ use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\ParishUnit;
 use App\Models\User;
+use App\Support\AuditRecorder;
 use App\Support\Clock;
 use App\Support\TenantContext;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 /** The AGENTS.md demo fixtures — local development only, never production. */
 class DemoShelfSeeder extends Seeder
@@ -41,7 +43,7 @@ class DemoShelfSeeder extends Seeder
             ?? User::factory()->withCredentials('quanly')->create([
                 'saint_name' => 'Giuse', 'full_name' => 'Trần Minh',
             ]);
-        Membership::query()->firstOrCreate(
+        $managerMembership = Membership::query()->firstOrCreate(
             ['bookshelf_id' => $shelf->id, 'user_id' => $manager->id],
             ['role' => 'manager', 'status' => 'active'],
         );
@@ -169,6 +171,52 @@ class DemoShelfSeeder extends Seeder
                     'due_on' => Carbon::parse($today)->subDays(10)->toDateString(), 'status' => 'active',
                 ]);
             }
+        }
+
+        // Task 10: a living audit page — DemoShelfSeeder inserts models
+        // directly (no commands run), so without this the audit page is an
+        // empty state beside a shelf that visibly has books and loans.
+        // $shelf->auditLogs() — the hasMany relation added on Bookshelf for
+        // this purpose — not a hand-written filter naming the bookshelf
+        // column: TenancyArchitectureTest confines that kind of filtering
+        // to BookshelfScope/ResolveTenant/AuditLogQuery only, and a literal
+        // filter anywhere in this seeder would turn that suite red.
+        if ($shelf->auditLogs()->doesntExist()) {
+            $seededLoan = $shelf->loans()->first();
+
+            // Fix round (whole-branch review, finding 4): these two rows
+            // used to go straight through AuditLog::query()->create(),
+            // bypassing AuditRecorder entirely — no AuditSecrets walk, no
+            // tenant-bound check, and invisible to
+            // AuditActionCensusTest's writer inventory (that census scans
+            // for `->record(`, not for a raw AuditLog insert). Both
+            // actions here already have a mapped sentence, so today's two
+            // rows render correctly either way — but nothing stopped a
+            // third demo row from being minted with an unmapped action
+            // and rendering the "undescribed system action" fallback on
+            // the demo shelf, silently, since this call site was never
+            // measured. AuditRecorder needs a bound tenant AND an
+            // authenticated actor (it reads both from context, never from
+            // a parameter — see its own docblock) neither of which a
+            // seeder has by default; bound and logged in for exactly this
+            // block, cleared right after.
+            app(TenantContext::class)->set($shelf, $managerMembership);
+            Auth::login($manager);
+
+            app(AuditRecorder::class)->record('loan.created', 'loan', $seededLoan?->id,
+                ['copy_state' => 'available'],
+                $seededLoan === null ? null : [
+                    'copy_state' => 'on_loan',
+                    'borrower_id' => $seededLoan->borrower_id,
+                    'due_on' => $seededLoan->due_on->toDateString(),
+                    'title' => $seededLoan->copy?->book?->title,
+                ]);
+
+            app(AuditRecorder::class)->record('membership.approved', 'membership',
+                $shelf->memberships()->where('role', 'reader')->where('status', 'active')->value('id'),
+                ['status' => 'pending'], ['status' => 'active']);
+
+            Auth::logout();
         }
 
         // This is the last seeder in the run today, so leaving the

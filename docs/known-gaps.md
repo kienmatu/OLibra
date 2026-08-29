@@ -1077,10 +1077,17 @@ the full suite ran green.
   move the due-date math to `app/Support/Circulation/` and point this
   query at it — two definitions of "overdue" is the drift BR §8 exists to
   prevent, and this one is temporary by declared intent.
-- **There is no `assertNoSecrets` audit walker.** The reference's kernel
-  walked every audit bag for hash-shaped values; here the no-secret rule
-  is held by `SetReaderCredentialsTest`'s row assertions only. If a later
-  phase adds an audit helper, port the walker there.
+- **Resolved by Phase 1d Task 2:** `app/Support/Audit/AuditSecrets.php`
+  now ports the reference's walker (`assertNoSecrets`, wired into
+  `AuditRecorder::record` as its first statement) and this entry no
+  longer holds — see the three entries below for what the port
+  deliberately still does not cover. Kept, struck through in spirit
+  rather than deleted, so a reader who remembers this line finds the
+  update rather than a silent disappearance: ~~There is no
+  `assertNoSecrets` audit walker. The reference's kernel walked every
+  audit bag for hash-shaped values; here the no-secret rule is held by
+  `SetReaderCredentialsTest`'s row assertions only. If a later phase
+  adds an audit helper, port the walker there.~~
 - **The reader-detail edit form does not offer parish-unit placement.**
   OPS §4.3's UpdateReaderProfile inputs are person fields only; placement
   is set at registration (on-behalf form) and by Phase 3's
@@ -1954,3 +1961,252 @@ pages). Written by Task 14 after the full suite ran green.
   test whose entire value is that every exemption cites the exact code
   proving it safe. Corrected in
   `tests/Feature/Architecture/FreeTextEncodingGuardTest.php`.
+- **`AuditSecrets::assertNoSecrets` (Phase 1d Task 2) checks KEYS, not
+  values, and is not retroactive.** A secret string pasted into an
+  innocuous key (`['note' => 'mat-khau-123']`) is invisible to it and
+  stays a code-review matter — pinned as a test
+  (`tests/Unit/Audit/AuditSecretsTest.php`, "names the two things it
+  deliberately does not check") rather than left implicit. It also
+  governs writes from this commit forward only: existing `audit_log` rows
+  are clean because all 21 shipped payload shapes were checked by hand at
+  plan time (the same test's "every payload shape the 21 shipped writers
+  produce passes" case), not because the guard walked them retroactively
+  — there was no guard when they were written.
+- **`AuditSecrets` does not walk `context`.** `AuditRecorder::record`
+  writes `context` as `[]` on every path today, and `assertNoSecrets`
+  takes `before`/`after` only — so the day a command puts anything real
+  into `context`, this guard must grow a third argument, or that payload
+  ships unchecked. Recorded here so that day is an addition to a known
+  plan, not a rediscovery.
+- **`Csv::neutralise`'s widened leading-whitespace strip (Phase 1d Task 8
+  carry-over) guards against an UNVERIFIED fact about Excel.** The strip
+  now also swallows U+00A0 (NBSP) and U+200B (ZWSP) ahead of a formula
+  leader, on top of the ASCII whitespace the reference (`old_next/src/lib/csv.ts`)
+  already stripped — see `app/Support/Exports/Csv.php`'s `LEADING_SPACE`
+  docblock. The reference's own docblock records testing and dismissing
+  only a fullwidth equals and a Unicode minus; NBSP/ZWSP were never
+  considered in either codebase, and whether Excel's own CSV importer
+  strips them before its formula detection has not been observed against
+  a real Excel — the widening is done on the "strictly safer" argument
+  (an unnecessary apostrophe costs nothing) alone, not on a confirmed
+  fact. `CsvTest`'s NBSP/ZWSP case pins the current, safer behaviour;
+  nobody should read that test as proof of what Excel does.
+- **No `$this->post(...)` HTTP test in this suite can exercise
+  `VerifyCsrfToken`/`PreventRequestForgery` end to end — softened from an
+  earlier "ever," which overstated it (Task 9 fix round, 2026-08-29).**
+  `vendor/laravel/framework/.../PreventRequestForgery.php`'s `handle()`
+  passes every request through untouched when
+  `$this->app->runningInConsole() && $this->app->runningUnitTests()` is
+  true — which is always true for a Pest run's `$this->post(...)` calls,
+  independent of any token. `tests/Feature/Oversight/ExportHttpTest.php`
+  (Phase 1d Task 9) confirmed this by reading the vendor source rather
+  than trusting a green suite. What "ever" got wrong: a unit test can
+  still construct the middleware directly with a double whose
+  `runningUnitTests()` returns `false`, which genuinely exercises
+  `handle()`'s token check outside the short-circuit — nobody has written
+  that test in this suite, but the mechanism does not rule it out, and
+  "ever" is exactly the word the next person will cite when declining to
+  write it. What Task 9's fix round DID newly pin, straight off a real
+  Inertia response rather than by reading code: the `csrfToken` shared
+  prop (`HandleInertiaRequests::share()`) is present and equals the live
+  session token (`ExportHttpTest.php`, "shares a real, non-empty
+  csrfToken prop"), mutation-proved by deleting the share line — the
+  suite goes red where it previously stayed green. The hidden `_token`
+  field on each of the audit page's three download forms is still
+  checked by reading `audit.tsx`, not by a request that ever fails
+  without a token. If a future change moves any manage-area route
+  outside the default `web` middleware group, or edits
+  `bootstrap/app.php`'s `append()` to drop CSRF, nothing here would go
+  red for the route itself. This is a suite-wide gap, not specific to
+  Task 9's route — recorded here because Task 9 is the first place a
+  route's CSRF protection was actually load-bearing enough to go looking
+  for it.
+
+## Phase 1d — Oversight
+
+The durable record of `docs/superpowers/plans/2026-08-29-laravel-phase-1d-oversight.md`
+(the audit log surfaced as readable sentences, the manager dashboard,
+CSV export). Written by Task 10 after walking the shipped branch —
+every claim below was checked against the named file or a passing test,
+not copied from the plan document, and one place where the plan's own
+text turned out wrong is called out rather than repeated.
+
+- **The OPS §3.3 walk, verified by opening each named file/route, not
+  inferred from the plan:**
+
+  | Row | Disposition, verified |
+  |---|---|
+  | `GetManagerDashboard` | shipped, narrowed to two of BR §16.3's four stat cards (`app/Queries/ManagerDashboardQuery.php`: `counts.overdue`, `counts.pendingRegistrations`; `totals` carries titles/copies/onLoan/readers) |
+  | `GetAuditLog` (shelf-scoped) | shipped (`app/Queries/AuditLogQuery.php`), excludes null-`bookshelf_id` rows by its own `scoped()` filter |
+  | `ExportBooksCSV` / `ExportReadersCSV` / `ExportLoansCSV` | shipped, one controller (`app/Http/Controllers/Manage/ExportController.php`), one `POST /shelves/{shelf}/manage/exports/{kind}` route (`routes/web.php:198`) |
+  | `GetStatistics` | **Phase 2** — confirmed still absent from `app/Queries`; `/manage/statistics` route still resolves to `ShellController::underConstruction` |
+  | `GetBorrowRequestQueue`, `GetDonationQueue`, `GetCommentsList`, `GetAnnouncementsList` (manager) | **Phase 2** — no matching class under `app/Queries` |
+  | `GetPendingProfileChanges` | **Phase 3** — the propose/approve queue does not exist; `UpdateReaderProfile`'s direct correction (1b) is the only reader-profile write path today |
+  | `GetShelfSettings` (manager, read-only) | **Phase 3** — `/manage/settings` route still `under-construction` |
+  | `ListTitlesForLabels`, `ListCopiesForLabels`, `ExportLabelSheetPDF`, `ResolveCopyById` | **Phase 2** — QR labels, per 1c's own census |
+  | All of OPS §3.4 (`GetAdminOverview` … `DownloadSystemBackup`, 11 rows) | **Phase 3** — no `admin/`-prefixed manage query exists yet; `AuditLogQuery` deliberately excludes the null-`bookshelf_id` rows this cross-shelf browser will need |
+  | Notification commands, `GetMyNotifications`, the reminder sweep | **Phase 2** |
+
+- **The audit-action census as shipped, counted independently rather than
+  trusted from the plan:** `grep -rn -- "->record(" app/` finds **23**
+  call sites across 22 files; the literal action-name strings at those
+  call sites collapse to **21** distinct actions (`ReportCopyLost.php`
+  alone writes two — `copy.lost_reported` and `loan.lost` — which is the
+  whole of the 23-to-21 arithmetic). The census test itself is
+  `tests/Feature/Architecture/AuditActionCensusTest.php`: it strips every
+  `T_COMMENT`/`T_DOC_COMMENT` token before matching (so a call site
+  mentioned only in a docblock, or commented out mid-refactor, cannot
+  masquerade as live), then holds the writer set and `AuditSentences`'s
+  map set-equal in both directions — a sentence with no writer and a
+  writer with no sentence are both failures, not just one direction.
+- **The dashboard narrowing:** `ManagerDashboardQuery::run()` (verified
+  by reading the file, not the plan's description) ships exactly two of
+  BR §16.3's four stat cards — `overdue` and `pendingRegistrations` —
+  and no substitute is promoted into the other two slots. *Yêu cầu
+  mượn* and *Bình luận chờ duyệt* return only with Phase 2's borrow and
+  comment-moderation queues, and per the plan's own instruction **must
+  be added to `ManagerDashboardQuery` + the dashboard page + its tests
+  in the same slice as those queues**, mirroring each queue's own
+  membership rule — the plan names one subtlety to carry forward: the
+  borrow queue's count includes rows in **both** `pending` and
+  `approved` status, not `pending` alone. There is no activity feed on
+  this dashboard; the audit browser (`GetAuditLog`) is the feed, which
+  is the reference's own final state, not a Phase-1d omission.
+- **The three narrowed payloads, confirmed against the Action source
+  each writes from:**
+  - `credentials.set` stores no payload (`SetReaderCredentials.php`
+    calls `$this->audit->record(..., null, null)`) — by design, BR §14's
+    "the field that changed must never be recorded." Its expansion shows
+    nothing; that is correct, not a bug.
+  - `membership.registered` stores five keys (`userId`, `fullName`,
+    `status`, `parishUnitL1Id`, `parishUnitL2Id`) — no phone, no date of
+    birth, no parent names — 1b's own privacy narrowing, unchanged by
+    this phase.
+  - `loan.returned`'s condition transition — **restored** this task
+    (Step 1, product-owner ruling 2026-08-29): `before.condition` is now
+    the copy's condition captured immediately after the copy lock, read
+    into `$previousCondition` before `$copy->update()` overwrites the
+    row three statements later (`app/Actions/Circulation/ReceiveReturn.php`).
+    `ReceiveReturnTest.php`'s "1d amendment" test sends a copy out `worn`
+    and back `torn`, and asserts `before.condition === 'worn'` **and**
+    `after.condition === 'torn'` in one expectation — checked live by
+    reverting the capture to `$copy->condition?->value` (reading the
+    row post-update): both that test and the pre-existing INV-8 test
+    turned red, both reporting `torn`/`slightly_worn` `before` values
+    that never happened, confirming the expectation catches the exact
+    defect shape the amendment exists to prevent, not just the key's
+    presence.
+- **`AuditLogQuery` is the third named exemption in
+  `TenancyArchitectureTest`'s hand-written-`bookshelf_id`-filter
+  allowlist** (`BookshelfScope`, `ResolveTenant`, `AuditLogQuery`) —
+  because `AuditLog` carries no `BelongsToBookshelf` (its `bookshelf_id`
+  is nullable; global administrative rows have none). The cross-shelf
+  isolation property this exemption gives up structurally now lives in
+  `tests/Feature/Oversight/AuditLogQueryTest.php`'s two-shelf-plus-
+  global-row test, which proves the scoping by planting rows on two
+  shelves and one with a null `bookshelf_id`, then asserting exactly the
+  shelf's own rows come back — proof by identity, not by convention. A
+  Phase 3 cross-shelf audit browser must NOT widen this class to serve
+  both jobs — it needs its own query and its own super-admin gate, since
+  `AuditLogQuery::scoped()` throws on a null bound tenant by design.
+- **Exports are deliberately unaudited** (no `->record(` call anywhere
+  in `ExportController.php`, confirmed by reading the file — an open
+  question in OPS §3.3 the plan carried forward rather than closed),
+  are **POST-only** — `GET /shelves/{shelf}/manage/exports/{kind}`
+  answers **405**, pinned live by `ExportHttpTest.php`'s "GET is
+  refused" test, because a GET is a bookmarkable, history-resident link
+  to a file of children's records and Laravel's `VerifyCsrfToken` only
+  guards a POST — and are **synchronous and streamed but explicitly NOT
+  memory-bounded**: `ExportController::store` runs the whole query and
+  builds the whole `ExportTables` grid *before* `response()->stream()`
+  is even called, because the queries need the bound tenant and
+  `TenantContext` is not guaranteed to survive into the streaming
+  callback, which runs after the middleware stack has already returned.
+  Only the byte concatenation into the output buffer is incremental —
+  the reference's own ~100k-row horizon and this port's unbounded result
+  set are carried forward as an open limit, not closed. The two
+  candidate fixes if a shelf's export approaches that scale: a cursor
+  paired with an explicit shelf id captured into the closure (so the
+  tenant survives the callback without `TenantContext`), or a queued
+  export with roughly the existing cron sweep's one-minute latency.
+- **The subject join's collation guard, recorded with its measurement.**
+  `app/Queries/AuditLogQuery.php`'s `payload_user` join reads
+  `CONVERT(JSON_UNQUOTE(JSON_EXTRACT(audit_log.after, '$.borrower_id'))
+  USING ascii) COLLATE ascii_bin` against `users.id` — measured on
+  MariaDB 10.11.19 (the version this repo's container runs): a
+  **non-ASCII constant or bind** compared directly against an
+  `ascii_bin` column raises errno 1267 (this repo's own six-times-paid
+  live 500, per the guard's own docblock); a non-ASCII value arriving
+  through `JSON_UNQUOTE(JSON_EXTRACT(...))` does **not** raise it —
+  MySQL/MariaDB's coercibility rules (coercibility 4 for a function
+  result) let the column's own collation win, so the comparison
+  degrades per row instead of raising, matching nothing rather than
+  crashing. The `CONVERT ... COLLATE` is kept as defence in depth on top
+  of that: it costs no index (`EXPLAIN` shows `eq_ref` on `PRIMARY`
+  either way, with or without the cast) and changes no matching row for
+  any ASCII `borrower_id` (every real one, since `users.id` is
+  `ascii_bin`). The hostile-payload test this guard is pinned by asserts
+  the OUTCOME (200, correct subject resolution, no 500) — not the SQL
+  text of the guard itself, which a future refactor is free to change as
+  long as the outcome holds. **Not yet added:** Phase 2's
+  `request.rejected` sentence will need a `userId` payload branch joined
+  the same way — one more `coalesce()` argument on the existing join,
+  noted here so it is an addition to a known shape, not a rediscovery of
+  the collation problem.
+- **`AuditSecrets` matches the JSON serialiser by construction, and its
+  two stated bounds.** `app/Support/Audit/AuditSecrets.php::toWalkable()`
+  calls `json_encode()`/`json_decode()` on any object value rather than
+  reimplementing PHP's serialisation rules — which is what closed the
+  `ArrayObject`/`ArrayIterator` special case (json_encode hard-codes
+  their internal storage as the serialised value; neither implements
+  `JsonSerializable`, so an object-vars-based walk saw `[]` and passed a
+  payload straight through) without that case ever being enumerated by
+  name, and let a *second*, separate object-depth cap be deleted — the
+  array-depth cap (6) is now the only depth boundary left in the file.
+  Its two bounds, each pinned by its own test in
+  `tests/Unit/Audit/AuditSecretsTest.php`: it checks **keys, not
+  values** (a secret string pasted into an innocuous key like `note` is
+  invisible to it), and it walks `before`/`after` only — `context`,
+  which `AuditRecorder::record` writes as `[]` on every one of the 23
+  call sites today, is entirely unchecked, so the first command that
+  puts anything real into `context` must widen `assertNoSecrets` to a
+  third argument in the same commit. It is **not retroactive**: it
+  governs writes from its own commit forward only, and the 21 shipped
+  payload shapes were confirmed clean by hand (and by the full suite),
+  never by scanning the database.
+- **Correction to the plan's own Step 4: the branch minted TWO new
+  `RuleViolated` codes this phase, not one.** The plan's header states
+  "exactly **one** new `RuleViolated` code is minted (`audit_forbidden_field`
+  …)" and Step 4's verification command is written to expect exactly one
+  matching line from `git diff 6661991 -- app/`. Run as written, that
+  command returns **three** added lines, not one: `audit_forbidden_field`
+  (once) and `audit_nesting_too_deep` (twice — the array-depth guard and
+  the encode-failure guard in `AuditSecrets::walk()`/`toWalkable()`).
+  Neither code nor its `lang/vi/rules.php` sentence existed at baseline
+  `6661991` (`git show 6661991:lang/vi/rules.php` has no `audit_` entries
+  at all) — both are genuinely new, and
+  `tests/Unit/Catalogue/RuleViolatedCodesHaveSentencesTest.php`'s own
+  canonical list already names both explicitly, so the shipped code and
+  its test were correct throughout; only the plan's prose and its
+  verification-command comment were wrong. This is exactly the failure
+  shape this file exists to catch — a plausible count, never run — and is
+  recorded here rather than silently corrected, per this task's own
+  brief ("the file has been factually wrong six times, always the same
+  way").
+- **No test in this suite would catch a regression in three places, named
+  plainly rather than assumed safe:**
+  - **Swapping the two dashboard stat cards' values is invisible to
+    every gate**, restated from Phase 1c's own frontend-rendering gap:
+    `DashboardScreenTest.php` asserts on `dashboard.counts.overdue` /
+    `dashboard.counts.pendingRegistrations` as server-side Inertia props
+    only; nothing in this repo renders `dashboard.tsx` and reads back
+    which number sits under which Vietnamese label, so a mis-wired
+    `<StatCard>` prop ships green.
+  - **A future command that writes real data into `context` ships
+    unaudited by `AuditSecrets`** until `assertNoSecrets` is deliberately
+    widened to a third argument — nothing today would fail if that
+    widening were skipped, because no shipped writer exercises the gap.
+  - **The CSV export's ~100k-row horizon has no test that would fail
+    as a shelf approaches it** — `ExportHttpTest.php` exercises small
+    fixtures only; the memory/time behaviour at scale is asserted in
+    this document, not by any test that could go red.

@@ -43,6 +43,7 @@ export const copy = {
         books: "Sách",
         overdue: "Quá hạn",
         settings: "Cài đặt",
+        audit: "Nhật ký",
     },
     admin: {
         title: "Quản trị hệ thống",
@@ -267,6 +268,7 @@ export const copy = {
             phoneMissingReason: "Lý do chưa có số điện thoại",
             email: "Email",
             parish: "Đơn vị",
+            joinedOn: "Ngày tham gia",
         },
         managerNotes: "Ghi chú của quản lý",
         suspensionReason: "Lý do tạm khoá",
@@ -287,6 +289,60 @@ export const copy = {
         suspendSubmit: "Tạm khoá",
         reactivate: "Mở khoá lại",
         markLeft: "Đánh dấu đã rời",
+    },
+    manageAudit: {
+        title: "Nhật ký",
+        lead: "Mọi thay đổi trong tủ sách, ai làm và lúc nào.",
+        when: "lúc {time} ngày {date}",
+        groupAll: "Tất cả",
+        groups: {
+            loans: "Mượn và trả",
+            books: "Sách",
+            readers: "Bạn đọc",
+        },
+        actorLabel: "Người thực hiện",
+        actorAll: "Mọi người",
+        actorEntries: "({count} lượt)",
+        fromLabel: "Từ ngày",
+        toLabel: "Đến ngày",
+        filter: "Lọc",
+        empty: "Chưa có hoạt động nào được ghi lại.",
+        detail: "Chi tiết",
+        rawAction: "Thao tác: {action}",
+        fieldHeader: "Trường",
+        beforeHeader: "Trước",
+        afterHeader: "Sau",
+        totalEntries: "{count} lượt ghi",
+        prevPage: "Trang trước",
+        nextPage: "Trang sau",
+    },
+    manageExports: {
+        heading: "Xuất dữ liệu",
+        lead: "Tệp CSV mở được bằng Excel — sao lưu dữ liệu của tủ sách.",
+        books: "Tải danh mục sách",
+        readers: "Tải danh sách bạn đọc",
+        loans: "Tải lịch sử mượn trả",
+    },
+    manageDashboard: {
+        // "Tổng quan", not "Trang chính": copy.manage.dashboard — the nav
+        // entry that opens this page — already says "Tổng quan", and a nav
+        // word that opens a differently-headed page is two names for one
+        // screen. Duplicated as a literal rather than referencing
+        // copy.manage.dashboard because `copy` is one object literal and
+        // cannot refer to itself mid-definition.
+        title: "Tổng quan",
+        overdueCard: "Quá hạn",
+        registrationsCard: "Chờ duyệt tài khoản",
+        viewList: "Xem danh sách",
+        lendAction: "Cho mượn",
+        lendSub: "Tìm sách · chọn người đọc · xác nhận",
+        returnAction: "Nhận trả",
+        returnSub: "Tìm sách đang mượn · kiểm tra tình trạng",
+        totalsHeading: "Tình hình tủ sách",
+        totalTitles: "Đầu sách",
+        totalCopies: "Bản sách",
+        totalOnLoan: "Đang cho mượn",
+        totalReaders: "Bạn đọc",
     },
     circulation: {
         rules: {

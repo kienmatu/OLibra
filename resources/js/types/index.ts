@@ -38,6 +38,14 @@ export interface SharedData {
     auth: { user: SharedAuthUser | null };
     shelf: SharedShelf | null;
     role: SharedRole;
+    /**
+     * For the plain <form method="post"> CSV downloads (Task 9): an
+     * Inertia router.post cannot receive a streamed file response, so
+     * those forms submit as ordinary browser POSTs and need the token
+     * VerifyCsrfToken demands, carried here rather than only on the one
+     * page that currently renders such a form.
+     */
+    csrfToken: string;
     /** Inertia's own Middleware::share() — validation errors, keyed by field. */
     errors: Record<string, string>;
     /** A one-shot success message set by a redirect — Tasks 11 and 13 use it too. */

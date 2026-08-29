@@ -81,6 +81,14 @@ it('confines bookshelf_id filtering to the two named files', function () {
     $allowed = [
         'app/Models/Scopes/BookshelfScope.php',
         'app/Http/Middleware/ResolveTenant.php',   // the population step itself (Task 16)
+        // Phase 1d: AuditLog is one of the two models this file pins as
+        // EXEMPT from BelongsToBookshelf (nullable bookshelf_id — global
+        // rows exist), so no scope filters it and its one read query must
+        // write the where itself. The isolation property this grep can no
+        // longer guarantee for that file moves to
+        // tests/Feature/Oversight/AuditLogQueryTest.php's two-shelf-plus-
+        // global-row test, which proves it by identity, not by convention.
+        'app/Queries/AuditLogQuery.php',
     ];
 
     // Filter-shaped patterns, not assignments: where('bookshelf_id'),

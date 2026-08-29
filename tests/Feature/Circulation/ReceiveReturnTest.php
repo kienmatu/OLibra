@@ -133,12 +133,27 @@ it('INV-8: the return audits before and after, storing the title and the borrowe
 
     $entry = AuditLog::query()->where('action', 'loan.returned')->firstOrFail();
     $after = (array) $entry->after;
-    expect((array) $entry->before)->toMatchArray(['status' => 'active', 'copy_state' => 'on_loan'])
+    expect((array) $entry->before)->toMatchArray(['status' => 'active', 'copy_state' => 'on_loan', 'condition' => 'perfect'])
         ->and($after['status'])->toBe('returned')
         ->and($after['copy_state'])->toBe('available')
         ->and($after['condition'])->toBe('slightly_worn')
         ->and($after['title'])->toBe('Hoàng Tử Bé')
         ->and($after['borrower_id'])->toBe($loan->borrower_id);
+});
+
+it('1d amendment: the audit before.condition is the PRE-return value, not the value $copy->update() just wrote', function () {
+    [, $manager, $loan, $copy] = retFix(slug: 'dong-thap-ret-cond');
+    $copy->update(['condition' => 'worn']);
+
+    app(ReceiveReturn::class)->execute($manager, $loan, CopyCondition::Torn);
+
+    $entry = AuditLog::query()->where('action', 'loan.returned')->firstOrFail();
+    // Asserted together on purpose: a version that reads $copy->condition
+    // AFTER the copy row is rewritten would record 'torn' -> 'torn' here,
+    // and an expectation that only checked before['condition']'s presence
+    // would pass against that broken spelling.
+    expect((array) $entry->before)->toMatchArray(['condition' => 'worn'])
+        ->and((array) $entry->after)->toMatchArray(['condition' => 'torn']);
 });
 
 it('the copy lock is the transaction\'s first statement, the loan lock its second', function () {

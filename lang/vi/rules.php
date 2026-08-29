@@ -56,6 +56,13 @@ return [
     'title_has_no_copies' => 'Cuốn này chưa có bản sách nào trong tủ.',
     'reason_required' => 'Vui lòng ghi lý do huỷ.',
 
+    // ── Oversight (Phase 1d) ──────────────────────────────────────────
+    // Authored by this plan, not OPS (the member_has_active_loans
+    // precedent): the code guards a programming error, so the sentence
+    // tells the volunteer the one thing they can do about it.
+    'audit_forbidden_field' => 'Không thể ghi nhật ký cho thao tác này. Vui lòng báo quản trị viên.',
+    'audit_nesting_too_deep' => 'Dữ liệu ghi nhật ký lồng quá sâu, không thể lưu. Vui lòng báo quản trị viên.',
+
     // A UI sentence, not a refusal — kept beside them so server copy stays
     // in lang/vi/. The census test only walks `new RuleViolated(...)`
     // literals, so this key is inert to it.

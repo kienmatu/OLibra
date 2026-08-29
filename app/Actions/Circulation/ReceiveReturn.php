@@ -64,6 +64,10 @@ final class ReceiveReturn
 
             $now = $this->clock->now();
             $trimmedNote = ($note === null || trim($note) === '') ? null : trim($note);
+            // Captured BEFORE the $copy->update() below rewrites the row —
+            // reading $copy->condition inside the audit call would yield the
+            // NEW value, recording a transition that never happened.
+            $previousCondition = $copy->condition->value;
 
             ConditionAssessment::query()->create([
                 'copy_id' => $copy->id,
@@ -91,7 +95,17 @@ final class ReceiveReturn
             ]);
 
             $this->audit->record('loan.returned', 'loan', $loan->id,
-                ['status' => 'active', 'copy_state' => 'on_loan'],
+                [
+                    'status' => 'active',
+                    'copy_state' => 'on_loan',
+                    // Restored to the reference's shape (1d open question 3,
+                    // owner-approved): the condition TRANSITION is what a
+                    // damage-dispute investigation opens the expansion for.
+                    // $previousCondition, NOT $copy->condition — the copy row
+                    // was rewritten six lines up. Old rows lack the key and
+                    // render an em dash, which is correct.
+                    'condition' => $previousCondition,
+                ],
                 [
                     'status' => 'returned',
                     'copy_state' => 'available',

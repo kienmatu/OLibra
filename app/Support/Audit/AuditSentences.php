@@ -1,0 +1,219 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support\Audit;
+
+/**
+ * BR §14's readable sentences, and the closed map of actions this build
+ * can describe — 21 entries, one per audit action a shipped command
+ * writes (AuditActionCensusTest holds the two sets equal in both
+ * directions). Pure: the lang file is loaded by require, so nothing here
+ * needs the framework, and the wording ships in lang/vi where server
+ * copy lives (spec §7).
+ *
+ * No branch of sentence() interpolates $action — a raw action name in
+ * front of a volunteer is a failure, not a fallback (the reference's
+ * §3.1 rule). The stored name belongs to the expansion, where
+ * AuditLogQuery places it.
+ *
+ * The actor's ROLE is deliberately never rendered, although BR §14's
+ * example carries one ("Quản lý Maria Lan"): audit_log stores no role,
+ * and a manager later made a reader would have every historical sentence
+ * relabelled — a claim about authority the log never recorded (the
+ * reference's argument, kept).
+ */
+final class AuditSentences
+{
+    /** @var array<string, string> action => group ('loans'|'books'|'readers') */
+    public const array ACTIONS = [
+        'book.created' => 'books',
+        'book.updated' => 'books',
+        'book.deleted' => 'books',
+        'copy.added' => 'books',
+        'copy.condition_assessed' => 'books',
+        'copy.lost_reported' => 'books',
+        'copy.found' => 'books',
+        'copy.retired' => 'books',
+        'loan.created' => 'loans',
+        'loan.returned' => 'loans',
+        'loan.renewed' => 'loans',
+        'loan.voided' => 'loans',
+        'loan.lost' => 'loans',
+        'membership.registered' => 'readers',
+        'membership.approved' => 'readers',
+        'membership.rejected' => 'readers',
+        'membership.suspended' => 'readers',
+        'membership.reactivated' => 'readers',
+        'membership.left' => 'readers',
+        'credentials.set' => 'readers',
+        'profile.corrected' => 'readers',
+    ];
+
+    public const array GROUPS = ['loans', 'books', 'readers'];
+
+    /** @return list<string> */
+    public static function actionsInGroup(string $group): array
+    {
+        return array_keys(array_filter(self::ACTIONS, fn (string $g) => $g === $group));
+    }
+
+    public static function groupOf(string $action): ?string
+    {
+        return self::ACTIONS[$action] ?? null;
+    }
+
+    /** @param array{actor: ?string, subject: ?string, before: ?array<string, mixed>, after: ?array<string, mixed>} $facts */
+    public static function sentence(string $action, array $facts): string
+    {
+        return strtr(self::line('frame'), [
+            ':actor' => $facts['actor'] ?? self::line('system_actor'),
+            ':phrase' => self::phrase($action, $facts),
+        ]);
+    }
+
+    /**
+     * The expansion's field/value rows — the stored values rendered as
+     * JSON and nothing prettier (BR §14 puts the raw values here; a
+     * Vietnamese rendering would be a re-derivation one layer down). An
+     * em dash marks a key the bag does not hold AT ALL; the string
+     * "null" marks one it holds as null — "not recorded" and "recorded
+     * as nothing" are different facts, and an investigation that cannot
+     * tell them apart is reading a different log (the reference's
+     * measured lesson: its accidental `?? "—"` fallback erased the
+     * distinction with every test green).
+     *
+     * @param  ?array<string, mixed>  $before
+     * @param  ?array<string, mixed>  $after
+     * @return list<array{field: string, before: string, after: string}>
+     */
+    public static function payloadRows(?array $before, ?array $after): array
+    {
+        $keys = array_unique(array_merge(array_keys($before ?? []), array_keys($after ?? [])));
+        sort($keys);
+
+        return array_map(fn (string $field) => [
+            'field' => $field,
+            'before' => self::renderValue($before, $field),
+            'after' => self::renderValue($after, $field),
+        ], $keys);
+    }
+
+    /** @param array{actor: ?string, subject: ?string, before: ?array<string, mixed>, after: ?array<string, mixed>} $facts */
+    private static function phrase(string $action, array $facts): string
+    {
+        $before = $facts['before'];
+        $after = $facts['after'];
+        $subject = $facts['subject'];
+
+        return match ($action) {
+            'book.created' => strtr(self::line('book_created'), [':title' => self::which(self::str($after, 'title'))]),
+            'book.updated' => strtr(self::line('book_updated'), [':title' => self::which(self::str($after, 'title'))]),
+            'book.deleted' => strtr(self::line('book_deleted'), [':title' => self::which(self::str($before, 'title'))]),
+            'copy.added' => ($code = self::str($after, 'code')) !== null
+                ? strtr(self::line('copy_added'), [':code' => $code])
+                : self::line('copy_added_bare'),
+            'copy.condition_assessed' => ($word = self::conditionWord($after)) !== null
+                ? strtr(self::line('copy_condition_assessed'), [':condition' => $word])
+                : self::line('copy_condition_assessed_bare'),
+            'copy.retired' => strtr(self::line('copy_retired'), [':because' => self::because(self::str($after, 'reason'))]),
+            'copy.lost_reported' => self::line('copy_lost_reported'),
+            'copy.found' => self::line('copy_found'),
+            'loan.created' => $subject !== null
+                ? strtr(self::line('loan_created'), [':subject' => $subject, ':title' => self::which(self::str($after, 'title'))])
+                : strtr(self::line('loan_created_bare'), [':title' => self::which(self::str($after, 'title'))]),
+            'loan.returned' => strtr(self::line('loan_returned'), [
+                ':title' => self::which(self::str($after, 'title')),
+                ':from' => $subject !== null ? strtr(self::line('loan_returned_from'), [':subject' => $subject]) : '',
+                ':state' => ($word = self::conditionWord($after)) !== null
+                    ? strtr(self::line('loan_returned_state'), [':condition' => $word])
+                    : '',
+            ]),
+            'loan.renewed' => self::line('loan_renewed'),
+            'loan.voided' => strtr(self::line('loan_voided'), [':because' => self::because(self::str($after, 'reason'))]),
+            'loan.lost' => self::line('loan_lost'),
+            'membership.registered' => ($name = self::str($after, 'fullName')) !== null
+                ? strtr(self::line('membership_registered'), [':name' => $name])
+                : self::line('membership_registered_bare'),
+            'membership.approved' => strtr(self::line('membership_approved'), [':subject' => self::who($subject)]),
+            'membership.rejected' => strtr(self::line('membership_rejected'), [
+                ':subject' => self::who($subject),
+                ':because' => self::because(self::str($after, 'reason')),
+            ]),
+            'membership.suspended' => strtr(self::line('membership_suspended'), [':subject' => self::who($subject)]),
+            'membership.reactivated' => strtr(self::line('membership_reactivated'), [':subject' => self::who($subject)]),
+            'membership.left' => strtr(self::line('membership_left'), [':subject' => self::who($subject)]),
+            'credentials.set' => strtr(self::line('credentials_set'), [':subject' => self::who($subject)]),
+            'profile.corrected' => strtr(self::line('profile_corrected'), [':subject' => self::who($subject)]),
+            default => self::line('unknown'),
+        };
+    }
+
+    /**
+     * A trimmed, non-empty STRING at $key, or null — never a coerced
+     * bool/number (the reference's str()).
+     *
+     * @param  ?array<string, mixed>  $bag
+     */
+    private static function str(?array $bag, string $key): ?string
+    {
+        if ($bag === null || ! array_key_exists($key, $bag) || ! is_string($bag[$key])) {
+            return null;
+        }
+        $trimmed = trim($bag[$key]);
+
+        return $trimmed === '' ? null : $trimmed;
+    }
+
+    /** @param ?array<string, mixed> $after */
+    private static function conditionWord(?array $after): ?string
+    {
+        $raw = self::str($after, 'condition');
+        /** @var array<string, string> $words */
+        $words = self::lines()['conditions'];
+
+        return $raw !== null && array_key_exists($raw, $words) ? $words[$raw] : null;
+    }
+
+    private static function because(?string $reason): string
+    {
+        return $reason === null ? '' : strtr(self::line('because'), [':reason' => $reason]);
+    }
+
+    private static function who(?string $subject): string
+    {
+        return $subject ?? self::line('someone');
+    }
+
+    private static function which(?string $title): string
+    {
+        return $title ?? self::line('some_book');
+    }
+
+    /** @param ?array<string, mixed> $bag */
+    private static function renderValue(?array $bag, string $field): string
+    {
+        if ($bag === null || ! array_key_exists($field, $bag)) {
+            return '—';
+        }
+
+        return (string) json_encode($bag[$field], JSON_UNESCAPED_UNICODE);
+    }
+
+    /** @return array<string, mixed> */
+    private static function lines(): array
+    {
+        static $lines = null;
+
+        return $lines ??= require dirname(__DIR__, 3).'/lang/vi/audit.php';
+    }
+
+    private static function line(string $key): string
+    {
+        // The (string) cast is not decoration: lines() is
+        // array<string, mixed> (the 'conditions' entry is a nested array),
+        // so Larastan level 8 rejects a bare return against a string
+        // return type. `make analyse` is run at every commit.
+        return (string) self::lines()[$key];
+    }
+}

@@ -1,7 +1,10 @@
 <?php
 
+use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
+use App\Http\Controllers\Manage\DashboardController;
+use App\Http\Controllers\Manage\ExportController;
 use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
@@ -120,7 +123,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // URL space. tests/Feature/Authz/EnsureShelfRoleTest.php is the
     // canonical ['auth', 'tenant', 'role:*'] shape this copies.
     Route::prefix('manage')->name('manage.')->middleware(['auth', 'role:manager'])->group(function () {
-        Route::get('/', [ShellController::class, 'underConstruction'])->name('dashboard');
+        Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
         Route::get('/lend', [LendController::class, 'index'])->name('lend');
         Route::get('/lend/reader', [LendController::class, 'reader'])->name('lend.reader');
@@ -187,12 +190,12 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/comments', [ShellController::class, 'underConstruction'])->name('comments');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
-        Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
+        Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
         Route::get('/statistics', [ShellController::class, 'underConstruction'])->name('statistics');
         Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
         Route::get('/qr-labels', [ShellController::class, 'underConstruction'])->name('qr-labels');
         Route::get('/exports/qr-labels', [ShellController::class, 'underConstruction'])->name('exports.qr-labels');
-        Route::get('/exports/{kind}', [ShellController::class, 'underConstruction'])->name('exports.show');
+        Route::post('/exports/{kind}', [ExportController::class, 'store'])->name('exports.run');
     });
 });
 
