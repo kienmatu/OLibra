@@ -36,7 +36,16 @@ it('INV-7: a lost or retired copy has its own sentence, and it beats the hold br
 });
 
 it('INV-4: no status other than active may join a queue, in the queue\'s own words', function () {
-    foreach ([MembershipStatus::Pending, MembershipStatus::Suspended, MembershipStatus::Left, MembershipStatus::Rejected] as $status) {
+    // Derived from ::cases(), not a hand-written list of the four: a sixth
+    // MembershipStatus added later must be answered by this predicate, and
+    // a literal list would stay green while silently not covering it.
+    $refusing = array_values(array_filter(
+        MembershipStatus::cases(),
+        fn (MembershipStatus $s) => $s !== MembershipStatus::Active,
+    ));
+    expect($refusing)->not->toBeEmpty();   // a list with nothing to refuse proves nothing
+
+    foreach ($refusing as $status) {
         expect(RequestRules::memberMayRequest($status))
             ->toBe('membership_not_active_cannot_request', "status {$status->value} should refuse");
     }

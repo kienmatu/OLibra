@@ -155,7 +155,7 @@ app/Support/Notifications/
   NotificationSentences.php  kind + payload → the Vietnamese a reader reads; unknown kind → neutral line
   Notifier.php             one reader-facing row, inside the CALLER's transaction, user ids only
 app/Actions/Circulation/
-  CreateBorrowRequest.php  reader joins the queue (book lock first — divergence 2; no copyId — divergence 3)
+  CreateBorrowRequest.php  reader joins the queue (NO lock at all — divergence 2; no copyId — divergence 3)
   ApproveBorrowRequest.php pending → approved, copy → held, hold clock from the injected clock
   RejectBorrowRequest.php  pending → rejected, optional reason (ruling 2), notify
   CancelOwnRequest.php     own request → cancelled, guarded copy release

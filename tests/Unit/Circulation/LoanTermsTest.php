@@ -38,12 +38,15 @@ it('a hold placed now lapses hold_days later, as an instant, wall-time exact', f
 
     expect(LoanTerms::holdExpiry($now, 3)->toIso8601ZuluString())
         ->toBe('2026-08-31T07:30:00Z')
-        // Fixed-length wall time: 3 days is exactly 72 hours from the
-        // instant — no end-of-day rounding, unlike due dates. The hold ends
-        // mid-morning if it started mid-morning (the reference's
-        // holdExpiryFrom, kept). Pinned as a second instant rather than a
-        // diff — Carbon's diff sign conventions are exactly the kind of
-        // trap plan code has failed gates on before.
+        // Fixed WALL time: the hold ends at the time of day it started, no
+        // end-of-day rounding, unlike due dates (the reference's
+        // holdExpiryFrom, kept). On this UTC clock that is also exactly 72
+        // hours; on a clock with a DST transition it would not be, because
+        // addDays() is calendar-aware — see holdExpiry's docblock, and note
+        // that neither UTC nor Asia/Ho_Chi_Minh has such a transition.
+        // Pinned as a second instant rather than a diff — Carbon's diff
+        // sign conventions are exactly the kind of trap plan code has
+        // failed gates on before.
         ->and(LoanTerms::holdExpiry($now, 1)->toIso8601ZuluString())
         ->toBe('2026-08-29T07:30:00Z');
 });

@@ -29,10 +29,27 @@ return new class extends Migration
                        CONCAT(book_id, ':', member_id), NULL)
                 ) STORED
         ");
-        DB::statement('
-            ALTER TABLE borrow_requests
-            ADD CONSTRAINT borrow_requests_one_live_per_title_member UNIQUE (live_request_key)
-        ');
+        // Two DDL statements, and MariaDB rolls back neither. On a table
+        // that already holds two live rows for one (book_id, member_id)
+        // the column lands and the constraint raises 1062 — leaving a
+        // migration that can never be retried, because the retry's first
+        // statement is then 1060 "Duplicate column name" (both reproduced
+        // live on a clone of the shipped table). borrow_requests has no
+        // writer yet, so today that is theoretical; it will not be
+        // theoretical forever. Undo the column by hand so a failed
+        // migration leaves the table exactly as it found it, and rethrow —
+        // the operator still has to go and resolve the duplicate rows the
+        // 1062 is telling them about.
+        try {
+            DB::statement('
+                ALTER TABLE borrow_requests
+                ADD CONSTRAINT borrow_requests_one_live_per_title_member UNIQUE (live_request_key)
+            ');
+        } catch (Throwable $e) {
+            DB::statement('ALTER TABLE borrow_requests DROP COLUMN live_request_key');
+
+            throw $e;
+        }
     }
 
     public function down(): void

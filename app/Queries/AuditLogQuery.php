@@ -112,10 +112,27 @@ final class AuditLogQuery
                     "CONVERT(JSON_UNQUOTE(JSON_EXTRACT(audit_log.after, '$.borrower_id')) USING ascii) COLLATE ascii_bin"
                 ));
             })
-            // request.* entries store the reader under $.userId (the
-            // reference's key — its subject join reads borrower_id AND
-            // userId; 1d ported only the first because no shipped writer
-            // used the second until Phase 2a). Same CONVERT/COLLATE guard:
+            // request.* entries store the reader under $.userId — the
+            // reference's key, whose subject join reads borrower_id AND
+            // userId. 1d ported only borrower_id. That was not because
+            // nothing wrote $.userId: Registration::auditAfter has written
+            // it since 1b (6c1cc43), so every membership.registered row
+            // carries one. Those rows resolve through the membership join
+            // TWO positions ahead of this one in the coalesce below, so
+            // adding this join changes nothing observable until request.*
+            // arrives — inert, but not for the reason an earlier draft of
+            // this comment gave.
+            //
+            // Structurally this is also NOT the reference's shape:
+            // get-audit-log.ts:190-199 uses one join with a CASE (take
+            // borrower_id, else userId) where this uses two joins and a
+            // coalesce. They diverge only when after.borrower_id is a real
+            // uuid that resolves to no user while after.userId resolves to
+            // one — unreachable here, since users are never hard-deleted
+            // and every reference is RESTRICT. Written down so a later
+            // reader does not take the two forms for identical.
+            //
+            // Same CONVERT/COLLATE guard as the join above:
             // JSON_UNQUOTE yields utf8mb4, users.id is ascii_bin, and the
             // raw comparison is errno 1267 — this repo's six-times-paid
             // live 500.
