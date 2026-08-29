@@ -4,7 +4,7 @@ Committed on purpose: the per-task ledger under `.superpowers/sdd/` is gitignore
 dies with its plan, so this file is what lets a **different session** pick the work up.
 Update it as each task lands.
 
-**Last updated:** 2026-08-29, after Phase 1d Task 6 (its review in flight).
+**Last updated:** 2026-08-29, after Phase 1d Task 6 approved (Task 7 in flight).
 
 ## Where things stand
 
@@ -27,8 +27,9 @@ Branch `feat/phase-1d-oversight`, 10 tasks, plan committed at `541a017`.
 - **3 AuditLogQuery** — `97675c0`, `b4c0252` · approved
 - **4 Audit screen** — `6ee9b79` · approved
 - **5 Dashboard query** — `13f95ed` · approved
-- **6 Dashboard screen** — `7e9bd75` · review in flight
-- 7 `Csv` helper · 8 export queries · 9 export route · 10 wrap-up — not started
+- **6 Dashboard screen** — `7e9bd75` · approved
+- **7 `Csv` helper** — in flight
+- 8 export queries · 9 export route · 10 wrap-up — not started
 
 Suite at 997 passing. All gates green (Pest, Pint, Larastan level 8, Biome, tsc, Vite build).
 
@@ -69,6 +70,15 @@ recorded; the audit log reads **all of it**, 25/page, filtered, never pruned.
   merge. Unchanged since Phase 1a.
 - **`docs/HOSTING.md` rows 2–14 are unrun.** The deploy pipeline has never touched the
   cPanel host.
+
+## Open item worth a decision later
+
+**This repo has no frontend rendering tests at all** (the only vitest scripts point at
+`old_next`). Task 6's reviewer proved the consequence: swapping the two stat cards' values on
+the dashboard leaves all 23 of its tests — plus Pint, Larastan, Biome, tsc and the build —
+entirely green, because `assertInertia` checks server-side props only. No page in this
+codebase can catch a mis-wired label/value pair. Recorded in Phase 1d's known-gaps; whether
+to adopt component-level tests is a real decision, not a task.
 
 ## Read next
 
