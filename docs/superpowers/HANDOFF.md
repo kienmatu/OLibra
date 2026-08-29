@@ -306,7 +306,45 @@ Nothing merged; no PR open.
   it asks for there is an explicit pin plus a comment). The bound is now stated everywhere it is
   claimed: it holds while MariaDB's filesort stays in-memory and order-preserving, and is untested
   against a sort-buffer spill to merge passes or a join-reordering plan change.
-- **12 the queue screen's controller** — next.
+- **12 the reader's request surface** — `c6600eb`, `c25bf0c`, `2f2eb83` · approved after 2 review
+  rounds. The first task in the phase a person will actually see, and it discharged both items held
+  since Task 4. **404-never-403 is measured, not assumed:** removing `role:reader` turns the
+  non-member's 404 into a 403, and the reviewer independently traced why the Actions' own
+  `Gate::authorize` can never be what an HTTP caller meets — both policies ask `act-as-reader`, the
+  identical ability `EnsureShelfRole` just checked for the identical user, so no state passes the
+  middleware and fails the policy. **`not_permitted` has a real UI path**, pinned by a memberless
+  super admin POSTing and reading the Vietnamese sentence off the page's props.
+  Two Importants. The **draft-book existence oracle** is the one worth knowing about: the request
+  POST accepted an unpublished book where the sibling GET 404s it, so a guessed draft slug returned
+  302 + success flash while a nonexistent one returned 404 — and the row then surfaced on the manager
+  queue. The reference omits that filter deliberately, but on the premise that "a draft book is one a
+  reader has no URL for anyway" — **and this task created that URL**, so the inherited decision rested
+  on a premise the same commit falsified. Closed with `abort_unless`, pinned, plus a zero-rows
+  assertion.
+  **Coordinator ruling, reversing the implementer:** the "Xin mượn" button is HIDDEN for a memberless
+  viewer, restoring the reference's behaviour. Its argument for showing it — that hiding would make
+  `not_permitted` unreachable — was false about its own test, which POSTs directly over HTTP and never
+  renders the page; hiding leaves that test green character for character.
+
+  **The lesson of this task is a claim SHAPE, and it generalises.** One comment in `book.tsx` was
+  wrong three times running, every time by asserting a **complete enumeration** of refusal codes —
+  first by including one that is unreachable, then by excluding two that are reachable (the banner
+  is not scoped to the create route: `bootstrap/app.php` renders every `RuleViolated` through
+  `back()->withErrors` and `back()` follows the Referer, so the cancel door feeds the same banner).
+  A sibling file's untouched docblock already contradicted the third version as it was being written.
+  The fix was not a better list: it was to stop enumerating, describe the mechanism, name the two
+  doors, and keep only the one negative code-level fact that has a test behind it. **Complete
+  enumerations are the hardest claims to verify and the easiest to falsify silently** — every future
+  Action throwing through a shared renderer invalidates one. Worth applying to the remaining tasks.
+- **13** — next.
+
+**Four of this phase's twelve false claims were written by the coordinator, all one pattern:**
+reasoning about a mechanism from its name rather than its implementation — a `getQueryLog()`
+assertion that was a tautology (T4), "`RuleViolated` is a 404" (T6), "split the `expect` chain into
+separate statements" (T8, when a failed `expect` aborts the whole method), and "an ordinary reader
+whose membership vanishes reaches the banner" (T12, when they meet a 404). Every one was caught by
+an implementer measuring instead of complying, because every dispatch carries the instruction to do
+exactly that. That instruction is load-bearing and should stay in the remaining briefs.
 
 **A hazard for every future agent on this repo, now in `known-gaps.md`:** `php artisan tinker`
 bypasses `phpunit.xml`'s `force="true"` overrides entirely, so diagnostics run against the real dev
