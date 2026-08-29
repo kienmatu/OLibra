@@ -44,6 +44,7 @@ return [
     'request_rejected' => 'từ chối yêu cầu mượn :title của :subject:because',
     'request_cancelled' => 'rút lại yêu cầu mượn :title',
     'request_fulfilled' => 'giao cuốn sách đã giữ chỗ cho bạn đọc',
+    'request_expired' => 'kết thúc giữ chỗ quá hạn của :subject và trả bản sách về kệ',
 
     // — bạn đọc —
     'membership_registered' => 'nhận đăng ký của :name',

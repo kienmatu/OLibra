@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Manage;
 use App\Actions\Circulation\ApproveBorrowRequest;
 use App\Actions\Circulation\HandoverRequest;
 use App\Actions\Circulation\RejectBorrowRequest;
+use App\Actions\Circulation\ReleaseExpiredHold;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Circulation\ApproveBorrowRequestRequest;
 use App\Http\Requests\Circulation\RejectBorrowRequestRequest;
@@ -41,15 +42,26 @@ use Inertia\Response;
  * HandoverRequest's Gate::forUser()->authorize() raising an
  * AuthorizationException, which Laravel renders 403. That status is the
  * existence oracle spec §5.4 forbids, so the middleware is the load-
- * bearing guard for this one POST rather than a second belt.
+ * bearing guard for that POST rather than a second belt.
+ *
+ * release() (Task 18, ruling 1) is the second of that shape and was
+ * added deliberately rather than by omission — the coordinator's ruling
+ * is that a bodiless POST does not acquire a Form Request solely to hold
+ * an abort_unless(…, 404). RE-MEASURED for it rather than argued by
+ * analogy from handover's number: with `role:manager` dropped from the
+ * manage group and the reader block reduced to the release POST alone
+ * (a failed assertion aborts the whole method, so the three POSTs ahead
+ * of it hide anything behind them), that POST answered 403 —
+ * ReleaseExpiredHold's own Gate::forUser()->authorize(). Restored, and
+ * the same 200 on the GET came back with it.
  *
  * NOTHING IS CAUGHT HERE. bootstrap/app.php renders EVERY RuleViolated
  * from ANY Action as back()->withErrors(['rule' => __('rules.'.$code)]),
  * and back() follows the Referer — so the page's errors.rule banner
  * displays whatever code the Actions behind its forms threw. No list of
  * those codes is written down here: this phase has had five wrong
- * enumerations, and each of the three Actions can grow a refusal without
- * touching this file.
+ * enumerations, and every Action behind this page's forms can grow a
+ * refusal without touching this file.
  */
 class BorrowRequestController extends Controller
 {
@@ -104,5 +116,27 @@ class BorrowRequestController extends Controller
         return redirect()
             ->route('shelves.manage.borrow-requests', ['shelf' => $shelf->slug])
             ->with('success', __('rules.lend_success_flash_short', ['due' => Carbon::parse($result['dueOn'])->format('d/m/Y')]));
+    }
+
+    /**
+     * Ruling 1's Trả về kệ. Bodiless like handover() above and, like it,
+     * carrying no Form Request: there is no field to validate, and this
+     * project does not add one solely to hold an abort_unless(…, 404)
+     * (the Task 12 shape, accepted). The same asymmetry handover()'s
+     * docblock records therefore applies here — with role:manager
+     * hypothetically dropped, this POST would answer 403 from
+     * ReleaseExpiredHold's own Gate where approve and reject answer 404 —
+     * and it is unreachable while the middleware stands.
+     */
+    public function release(Request $request, Bookshelf $shelf, BorrowRequest $borrowRequest, ReleaseExpiredHold $release): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $release->execute($user, $borrowRequest);
+
+        return redirect()
+            ->route('shelves.manage.borrow-requests', ['shelf' => $shelf->slug])
+            ->with('success', __('rules.release_hold_flash'));
     }
 }

@@ -62,4 +62,13 @@ final class BorrowRequestPolicy
     {
         return Gate::forUser($user)->allows('act-as-manager');
     }
+
+    // Ruling 1's exit from a lapsed hold. A manager ability like the
+    // three above, and for the same reason the others give: WHOSE the row
+    // is was settled by the binding, and WHAT it is — approved, held,
+    // actually lapsed — is ReleaseExpiredHold's own to answer.
+    public function release(User $user, BorrowRequest $request): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
+    }
 }

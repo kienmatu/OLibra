@@ -6,7 +6,7 @@ namespace App\Support\Audit;
 
 /**
  * BR §14's readable sentences, and the closed map of actions this build
- * can describe — 26 entries, one per audit action a shipped command
+ * can describe — 27 entries, one per audit action a shipped command
  * writes (AuditActionCensusTest holds the two sets equal in both
  * directions). Pure: the lang file is loaded by require, so nothing here
  * needs the framework, and the wording ships in lang/vi where server
@@ -49,6 +49,11 @@ final class AuditSentences
         'request.rejected' => 'loans',
         'request.cancelled' => 'loans',
         'request.fulfilled' => 'loans',
+        // Ruling 1's lapsed-hold exit (ReleaseExpiredHold): the same
+        // "muon-tra" family as the rest of request.*, because what a
+        // volunteer is reading about is a book that came back to the
+        // shelf.
+        'request.expired' => 'loans',
         'membership.registered' => 'readers',
         'membership.approved' => 'readers',
         'membership.rejected' => 'readers',
@@ -164,6 +169,12 @@ final class AuditSentences
             // or the reader. Same shape as request.approved: a fixed
             // phrase, the same one however thin the payload is.
             'request.fulfilled' => self::line('request_fulfilled'),
+            // The reader is named and the book is not — ruling 1's own
+            // worked example. A manager ending somebody's lapsed hold is
+            // a sentence about whose turn ended; which copy went back is
+            // in the payload rows one tap away. Same :subject fallback as
+            // every other arm that names one.
+            'request.expired' => strtr(self::line('request_expired'), [':subject' => self::who($subject)]),
             'membership.registered' => ($name = self::str($after, 'fullName')) !== null
                 ? strtr(self::line('membership_registered'), [':name' => $name])
                 : self::line('membership_registered_bare'),

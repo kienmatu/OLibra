@@ -156,6 +156,45 @@ it('a lapsed hold\'s handover comes back as the hold_expired sentence', function
     expect(session('errors')->first('rule'))->toBe(__('rules.hold_expired'));
 });
 
+it('POST release puts a lapsed hold\'s copy back on the shelf, with its own flash', function () {
+    // Ruling 1's button, over HTTP: the route, the controller and
+    // release_hold_flash, none of which ReleaseExpiredHoldTest touches.
+    [$shelf, $manager, , $copy, $request] = mqsFix('dong-thap-mqs-release');
+    BookCopy::query()->whereKey($copy->id)->update(['state' => 'held']);
+    BorrowRequest::query()->whereKey($request->id)->update([
+        'status' => RequestStatus::Approved, 'copy_id' => $copy->id,
+        'hold_expires_at' => now()->subHour(), 'decided_by' => $manager->id, 'decided_at' => now()->subDays(3),
+    ]);
+
+    $response = test()->actingAs($manager)->post(
+        "/shelves/{$shelf->slug}/manage/borrow-requests/{$request->id}/release",
+    );
+
+    $response->assertRedirect()->assertSessionHas('success', __('rules.release_hold_flash'));
+    expect($request->fresh()->status)->toBe(RequestStatus::Expired)
+        ->and($copy->fresh()->state)->toBe(CopyState::Available);
+});
+
+it('a live hold\'s release comes back as the hold_not_expired sentence', function () {
+    // The other half of ruling 1's guard, in its own block for the same
+    // reason the lapsed-handover blocks around it are separate: a failed
+    // expect() aborts the whole method, so the sentence a refusal produces
+    // and the state it leaves behind do not share one.
+    [$shelf, $manager, , $copy, $request] = mqsFix('dong-thap-mqs-release-live');
+    BookCopy::query()->whereKey($copy->id)->update(['state' => 'held']);
+    BorrowRequest::query()->whereKey($request->id)->update([
+        'status' => RequestStatus::Approved, 'copy_id' => $copy->id,
+        'hold_expires_at' => now()->addDays(2), 'decided_by' => $manager->id, 'decided_at' => now(),
+    ]);
+
+    $response = test()->actingAs($manager)->post(
+        "/shelves/{$shelf->slug}/manage/borrow-requests/{$request->id}/release",
+    );
+
+    $response->assertSessionHasErrors(['rule']);
+    expect(session('errors')->first('rule'))->toBe(__('rules.hold_not_expired'));
+});
+
 it('the lapsed row is still on the screen, flagged — hiding it would hide the problem', function () {
     // Trap 1: two facts that must both be shown failing need two it()
     // blocks, so the sentence above and the row's survival below are
@@ -209,13 +248,14 @@ it('a reader 404s on the queue screen', function () {
 });
 
 it('a reader 404s on every POST, and nothing happens on the way past', function () {
-    // The name says "every POST", so every POST is here; the first draft
-    // asserted only the GET. All three in ONE block is deliberate and is
-    // not the mistake item 1 corrected: these three are the same fact
-    // about three sibling routes, and if the first one regresses the
-    // other two are not independent evidence — whereas the GET and the
-    // POSTs fail for genuinely different reasons (no Form Request vs. a
-    // Form Request's own abort_unless), which is why THAT split matters.
+    // The name says "every POST", so every POST is here — four of them
+    // since Task 18's release; the first draft asserted only the GET. All
+    // four in ONE block is deliberate and is not the mistake item 1
+    // corrected: these are the same fact about sibling routes, and if the
+    // first one regresses the others are not independent evidence —
+    // whereas the GET and the POSTs fail for genuinely different reasons
+    // (no Form Request vs. a Form Request's own abort_unless), which is
+    // why THAT split matters.
     [$shelf, , , $copy, $request] = mqsFix('dong-thap-mqs-reader-post');
     $reader = User::query()->where('full_name', 'Têrêsa Bạn Đọc Nhỏ')->firstOrFail();
     $base = "/shelves/{$shelf->slug}/manage/borrow-requests";
@@ -227,6 +267,7 @@ it('a reader 404s on every POST, and nothing happens on the way past', function 
     test()->actingAs($reader)->post("{$base}/{$request->id}/approve", ['copy_id' => $copy->id])->assertNotFound();
     test()->actingAs($reader)->post("{$base}/{$request->id}/reject", ['reason' => 'thử'])->assertNotFound();
     test()->actingAs($reader)->post("{$base}/{$request->id}/handover")->assertNotFound();
+    test()->actingAs($reader)->post("{$base}/{$request->id}/release")->assertNotFound();
 
     expect($request->fresh()->status)->toBe(RequestStatus::Pending)
         ->and($copy->fresh()->state)->toBe(CopyState::Available)

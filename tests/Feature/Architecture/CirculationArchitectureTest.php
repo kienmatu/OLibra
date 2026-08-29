@@ -25,7 +25,7 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     // lock position LendCopyTest already pins. Taking a borrow_requests
     // lock here before delegating would invert divergence 1's
     // copy-then-request order and manufacture an AB-BA cycle against
-    // LendCopy's own guarded request update (LendCopy.php:241). That
+    // LendCopy's own guarded request update (LendCopy.php:250). That
     // inverse mistake is pinned executably, not by this comment:
     // HandoverRequestTest's two query-log braces assert the first FOR
     // UPDATE of the whole flow is on book_copies and that no locking read
@@ -48,6 +48,7 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
         app_path('Actions/Circulation/LendCopy.php'),
         app_path('Actions/Circulation/ReceiveReturn.php'),
         app_path('Actions/Circulation/RejectBorrowRequest.php'),
+        app_path('Actions/Circulation/ReleaseExpiredHold.php'),
         app_path('Actions/Circulation/RenewLoan.php'),
         app_path('Actions/Circulation/VoidLoan.php'),
     ] as $file) {
@@ -85,6 +86,14 @@ it('the borrow-request manager routes exist, manager-gated — 2a\'s decision, n
         'shelves.manage.borrow-requests.approve',
         'shelves.manage.borrow-requests.reject',
         'shelves.manage.borrow-requests.handover',
+        // Task 18's fourth POST (ruling 1). Bodiless like the handover,
+        // so it has no Form Request either and role:manager is the whole
+        // of its 404 — and the measurement above was RE-TAKEN for it, not
+        // inherited: dropping 'role:manager' and running the reader block
+        // reduced to this POST alone (an earlier failed assertion would
+        // otherwise abort the method before reaching it) answered 403,
+        // from ReleaseExpiredHold's own Gate. Restored afterwards.
+        'shelves.manage.borrow-requests.release',
     ] as $name) {
         $route = $routes->first(fn ($r) => $r->getName() === $name);
         expect($route)->not->toBeNull($name)

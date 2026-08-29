@@ -225,6 +225,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/borrow-requests/{borrowRequest}/approve', [ManageBorrowRequestController::class, 'approve'])->name('borrow-requests.approve');
         Route::post('/borrow-requests/{borrowRequest}/reject', [ManageBorrowRequestController::class, 'reject'])->name('borrow-requests.reject');
         Route::post('/borrow-requests/{borrowRequest}/handover', [ManageBorrowRequestController::class, 'handover'])->name('borrow-requests.handover');
+        // Ruling 1's exit from a lapsed hold. Bodiless, like the handover
+        // beside it: nothing is chosen, so there is no field to validate
+        // and no Form Request — role:manager is what produces the 404
+        // (CirculationArchitectureTest pins the gate on all four names).
+        Route::post('/borrow-requests/{borrowRequest}/release', [ManageBorrowRequestController::class, 'release'])->name('borrow-requests.release');
         Route::get('/overdue', [OverdueController::class, 'index'])->name('overdue');
         Route::post('/loans/{loan}/void', [LoanController::class, 'void'])->name('loans.void');
         Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');

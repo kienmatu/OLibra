@@ -248,9 +248,55 @@ function HandoverForm({ shelfSlug, requestId }: { shelfSlug: string; requestId: 
             {/* A LAPSED HOLD KEEPS ITS BUTTON. HandoverRequest refuses it
                 with "Thời gian giữ chỗ đã hết. Bạn đọc cần đăng ký lại.",
                 which tells the volunteer what to do; a missing button
-                tells them nothing. h-14 is design rule 4's 56px. */}
+                tells them nothing — and on a lapsed row it is no longer
+                the only thing offered, since ReleaseForm appears beside
+                it. h-14 is design rule 4's 56px. */}
             <Button type="submit" className="h-14 px-6 text-base" disabled={form.processing}>
                 {copy.manageRequests.handoverButton}
+            </Button>
+        </form>
+    );
+}
+
+/**
+ * *Trả về kệ* — the lapsed hold's exit (product-owner ruling 1). Shown on
+ * a lapsed row and nowhere else: the same holdExpired flag HoldNote reads,
+ * derived by the server against the injected clock, never re-derived here
+ * off the browser's.
+ *
+ * OUTLINE, not solid: the handover keeps the screen's one primary action
+ * (design rule 3), and on a lapsed row the two sit side by side —
+ * confirming a handover to a child who did turn up late is still the
+ * likelier tap, and putting the book back is the one the volunteer takes
+ * when nobody came.
+ *
+ * The flag decides only whether the button is OFFERED. The guard is
+ * ReleaseExpiredHold's own, re-read under the copy and request locks, so
+ * a hand-made POST against a live hold is answered hold_not_expired
+ * rather than yanking it. Through this page that refusal is not reachable
+ * in the other direction either — a row goes live → lapsed and never
+ * back, because the two writers of hold_expires_at (ApproveBorrowRequest
+ * and ReceiveReturn's second door onto a hold, grepped) both write it on
+ * a PENDING row. The sentence exists for the command, not for the button.
+ */
+function ReleaseForm({ shelfSlug, requestId }: { shelfSlug: string; requestId: string }) {
+    const form = useForm({});
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(
+            route("shelves.manage.borrow-requests.release", {
+                shelf: shelfSlug,
+                borrowRequest: requestId,
+            }),
+            { preserveScroll: true },
+        );
+    };
+
+    return (
+        <form onSubmit={submit}>
+            <Button type="submit" variant="outline" className="h-11" disabled={form.processing}>
+                {copy.manageRequests.releaseButton}
             </Button>
         </form>
     );
@@ -327,9 +373,10 @@ export default function ManageBorrowRequests() {
                 back here. Which codes those are is deliberately not
                 written down, and neither is how many forms feed it: each
                 form on this page posts to an Action of its own, every one
-                of them free to grow a refusal, and Task 18 adds another
-                button to this same page. This phase has already published
-                five enumerations that turned out to be wrong. */}
+                of them free to grow a refusal, and Task 18 added one more
+                form after this note was first written. This phase has
+                already published five enumerations that turned out to be
+                wrong. */}
             {flash.success ? (
                 <p
                     role="status"
@@ -423,6 +470,12 @@ export default function ManageBorrowRequests() {
                                                 shelfSlug={shelf.slug}
                                                 requestId={entry.requestId}
                                             />
+                                            {entry.holdExpired ? (
+                                                <ReleaseForm
+                                                    shelfSlug={shelf.slug}
+                                                    requestId={entry.requestId}
+                                                />
+                                            ) : null}
                                         </QueueRow>
                                     ) : (
                                         <QueueRow

@@ -22,10 +22,14 @@ use RuntimeException;
  *
  * WHAT COUNTS AS QUEUED: pending and approved, nothing else. The
  * approved row is the one the manager most needs — the child whose copy
- * waits on the shelf. `expired` is the status a lapsed hold WOULD carry
- * if anything wrote it, and nothing does: holdExpired below is computed
- * per row against the injected clock, and the lapsed row STAYS, flagged
- * — hiding it would hide the one thing on the screen going wrong.
+ * waits on the shelf. A lapsed hold is not a status here: holdExpired
+ * below is computed per row against the injected clock, and the lapsed
+ * row STAYS, flagged — hiding it would hide the one thing on the screen
+ * going wrong. `expired` IS written, by exactly one command
+ * (ReleaseExpiredHold, ruling 1, Task 18) and only when a manager presses
+ * Trả về kệ on such a row; that is what takes the row out of this
+ * where-in and off the screen, which is the point of pressing it. Nothing
+ * else writes the status and no job does.
  *
  * THE ORDER IS TOTAL and one half of it is folded: title_folded then
  * book id between titles (byte order puts every Đất above every Alice —
@@ -194,7 +198,7 @@ final class BorrowRequestQueueQuery
             // recorded rather than reconciled (Task 12 review round 1,
             // item 5; MyDashboardQuery named alongside BookDetailQuery,
             // Task 13 fix round 1, item 4). This ROW_NUMBER partitions
-            // over the whole where-in set at :141 — pending AND approved —
+            // over the whole where-in set at :165 — pending AND approved —
             // while BookDetailQuery's myRequest counts PENDING rows ahead
             // only. For a title with one live hold, this screen shows
             // position 2 for the first pending row and the reader's own
@@ -292,14 +296,17 @@ final class BorrowRequestQueueQuery
                 // reader book page renders holdExpiresAt as a deadline
                 // with no comparison at all, so a lapsed hold still reads
                 // "nhận trước ..." to the child while reading expired to
-                // the volunteer. This flag now has a consumer — Task 14's
-                // resources/js/pages/manage/borrow-requests.tsx picks the
-                // holdExpiredNote/holdNote wording off it, and does the
-                // comparison nowhere itself. Recorded on both sides
+                // the volunteer. This flag now has two consumers — Task
+                // 14's resources/js/pages/manage/borrow-requests.tsx picks
+                // the holdExpiredNote/holdNote wording off it and Task 18
+                // shows its Trả về kệ button off it, neither doing the
+                // comparison itself. Recorded on both sides
                 // (resources/js/pages/shelves/book.tsx's myRequest
-                // docblock carries the twin) rather than fixed, because
-                // nothing in 2a sweeps an expired hold; whoever adds that
-                // sweep should give the reader's line this same flag.
+                // docblock carries the twin) rather than fixed: no job
+                // sweeps a lapsed hold, and until a manager releases one
+                // the reader's line goes on reading "nhận trước ...".
+                // After a release the row is `expired` and leaves this
+                // query and both reader screens alike.
                 'holdExpired' => $holdExpiresAt !== null && $holdExpiresAt->lessThanOrEqualTo($now),
             ];
             $queues[$bid]['waiting'] = count($queues[$bid]['requests']);

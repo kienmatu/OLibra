@@ -124,7 +124,13 @@ it('a hold whose row already carries the expired status refuses with hold_expire
     // while a volunteer's queue page still shows its handover button
     // produces exactly this row. Before that ruling the branch was
     // defensive against nothing and the docblock said so; it no longer
-    // does, and this test is why. The SENTENCE matters as much as the
+    // does, and this test is why. THE STATUS IS WRITTEN BY HAND HERE, so
+    // this block alone cannot tell whether the command that produces it
+    // leaves copy_id populated — nulling it would reroute the handover to
+    // request_not_held with this test still green (measured). The block
+    // that runs both commands in sequence is
+    // ReleaseExpiredHoldTest's "after a release the stale queue page's
+    // handover says hold_expired, not request_not_held". The SENTENCE matters as much as the
     // refusal: request_not_held ("Yêu cầu này không có bản sách nào đang
     // được giữ chỗ") would be a false statement about a row that plainly
     // names a copy — hold_expired names the remedy ("Bạn đọc cần đăng ký

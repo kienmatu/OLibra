@@ -385,6 +385,7 @@ export const copy = {
         rejectReasonHint: "Không bắt buộc.",
         rejectConfirm: "Xác nhận từ chối",
         handoverButton: "Xác nhận trao sách",
+        releaseButton: "Trả về kệ",
         nothingAutomatic: "Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.",
     },
     circulation: {

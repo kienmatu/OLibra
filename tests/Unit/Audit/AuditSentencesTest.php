@@ -147,6 +147,28 @@ it('request.fulfilled reads as a held book handed over, with no title to lose', 
         ->toBe('Maria Quản Lý Kho đã giao cuốn sách đã giữ chỗ cho bạn đọc');
 });
 
+it('request.expired names the reader whose hold lapsed, and no book', function () {
+    // Same reason request.created, request.approved, request.rejected,
+    // request.cancelled and request.fulfilled have their own case above:
+    // this file has no every-action sweep, so an action with no case here
+    // has a lang line nothing pins — deleting lang/vi/audit.php's
+    // request_expired line would otherwise leave the suite green.
+    //
+    // Ruling 1's own worked example is the first expectation, character
+    // for character. The payload DOES carry a title (the expansion's rows
+    // need it), and the sentence must not grow one: a manager reading this
+    // line is being told whose turn ended, and the copy is one tap away.
+    expect(AuditSentences::sentence('request.expired', audFacts(
+        actor: 'Maria Quản Lý Kho', subject: 'Têrêsa Lê Ngọc Ánh',
+        after: ['status' => 'expired', 'copy_id' => 'c1', 'title' => 'Hoàng Tử Bé', 'userId' => 'u1'],
+    )))->toBe('Maria Quản Lý Kho đã kết thúc giữ chỗ quá hạn của Têrêsa Lê Ngọc Ánh và trả bản sách về kệ')
+        // No subject in the facts at all — AuditLogQuery resolves one
+        // through LEFT joins, so null is a shape this arm has to render:
+        // the fallback fires and the sentence still reads.
+        ->and(AuditSentences::sentence('request.expired', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã kết thúc giữ chỗ quá hạn của một bạn đọc và trả bản sách về kệ');
+});
+
 it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', function () {
     // false alone cannot distinguish the type guard from a mutant that
     // replaces `is_string($bag[$key])` with a `(string)` cast: (string)
@@ -158,7 +180,7 @@ it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', fun
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
-it('groupOf answers the family for the 26 actions and null for a stranger', function () {
+it('groupOf answers the family for the 27 actions and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
@@ -171,7 +193,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(26);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(27);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

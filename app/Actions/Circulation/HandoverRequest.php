@@ -59,11 +59,16 @@ use Illuminate\Support\Facades\Gate;
  * and the plan's divergence 11 is being amended to say so rather than
  * promise "never a wrong write". Read from the two files' shapes, not
  * measured: a two-connection race cannot run under RefreshDatabase
- * (1a divergence 2).
+ * (1a divergence 2). Since Task 18 the cancel is not the only command
+ * that can produce that third outcome: ReleaseExpiredHold releases the
+ * copy the same way (held → available, status off `approved`), so a
+ * release committing inside this same window ends identically — and a
+ * release that commits BEFORE the fresh read above is the ordinary case
+ * instead, answered by the Expired branch below.
  *
  * Taking a borrow_requests lock here first, to close that window, would
  * invert divergence 1's copy-then-request order and manufacture an AB-BA
- * cycle against LendCopy's own guarded request update (LendCopy.php:241).
+ * cycle against LendCopy's own guarded request update (LendCopy.php:250).
  * That is why this file is absent from CirculationArchitectureTest's lock
  * grep-pin, and the absence is pinned executably rather than by comment:
  * HandoverRequestTest's two query-log braces assert the first FOR UPDATE
@@ -122,10 +127,15 @@ final class HandoverRequest
             throw new RuleViolated('request_not_held');
         }
         if ($request->status === RequestStatus::Expired) {
-            // REACHABLE, not defensive. ReleaseExpiredHold (product-owner
-            // ruling 1) is the one writer of `expired`, and a manager who
-            // releases a lapsed hold while a volunteer's queue page still
-            // shows its handover button produces exactly this row. It
+            // REACHABLE, not defensive, and since Task 18 reachable in
+            // fact and not only in principle: ReleaseExpiredHold
+            // (product-owner ruling 1) is the one writer of `expired`, it
+            // is shipped, and a manager who releases a lapsed hold while a
+            // volunteer's queue page still shows its handover button
+            // produces exactly this row. ReleaseExpiredHoldTest runs the
+            // two commands in sequence and lands here, which is also what
+            // pins that the release must leave copy_id populated — the
+            // check one line above would otherwise fire first. It
             // takes its own branch rather than falling through to the
             // status check below because request_not_held would be a false
             // statement about a row that plainly names a copy —

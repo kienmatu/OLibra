@@ -359,6 +359,17 @@ A reader withdraws their own pending or held request, from the dashboard §16.2 
   - `not_own_request` — "Bạn không thể huỷ yêu cầu của người khác." (should be structurally unreachable via UI, but the command must still check)
   - `request_already_fulfilled` — "Yêu cầu này đã được trao sách, không thể huỷ."
 
+#### `ReleaseExpiredHold`
+*Added 2026-08-29 (Laravel migration, phase 2a — product-owner ruling 1).* A manager records a lapsed hold's end: `approved → expired` (§7.2's arrow, previously written by nothing) and the copy `held → available`, one transaction. The guard is the clock's own verdict — a live hold cannot be released here. The reference has no such command: its lapsed hold leaves the copy in `held` until the reader cancels, which the owner overrode.
+
+- **Inputs:** `bookshelfId`, `requestId`
+- **Caller:** `manager`
+- **Invariants enforced:** INV-2, INV-8; §8 (expiry is decided by comparing `hold_expires_at` to now — this command records a lapse, it never creates one)
+- **Audit action:** `request.expired`
+- **Failure modes:**
+  - `request_not_held` — "Yêu cầu này không có bản sách nào đang được giữ chỗ."
+  - `hold_not_expired` — "Thời gian giữ chỗ chưa hết, không thể trả về kệ."
+
 ### 4.3 Members
 
 #### `RegisterMembership`

@@ -96,7 +96,7 @@ function brpActAs(Bookshelf $shelf, User $user): void
         ->firstOrFail());
 }
 
-it('a reader may create and cancel; only a manager may approve, reject, hand over', function () {
+it('a reader may create and cancel; only a manager may approve, reject, hand over, release', function () {
     [$shelf, , $reader, $request] = brpFix();
     brpActAs($shelf, $reader);
 
@@ -104,10 +104,13 @@ it('a reader may create and cancel; only a manager may approve, reject, hand ove
         ->and(Gate::forUser($reader)->allows('cancel', $request))->toBeTrue()
         ->and(Gate::forUser($reader)->allows('approve', $request))->toBeFalse()
         ->and(Gate::forUser($reader)->allows('reject', $request))->toBeFalse()
-        ->and(Gate::forUser($reader)->allows('handover', $request))->toBeFalse();
+        ->and(Gate::forUser($reader)->allows('handover', $request))->toBeFalse()
+        // Ruling 1's sixth ability (Task 18). A lapsed hold is a
+        // manager's row to end, not the queue's own reader's.
+        ->and(Gate::forUser($reader)->allows('release', $request))->toBeFalse();
 });
 
-it('a manager holds all five abilities — act-as-manager implies act-as-reader', function () {
+it('a manager holds all six abilities — act-as-manager implies act-as-reader', function () {
     // The shipped hierarchy IS the one the plan hoped for: the gates are
     // MembershipRole::atLeast() (app/Enums/MembershipRole.php), rank-based,
     // so manager (2) satisfies act-as-reader (1). BR §13's admin ⊃ manager
@@ -115,13 +118,13 @@ it('a manager holds all five abilities — act-as-manager implies act-as-reader'
     [$shelf, $manager, , $request] = brpFix('dong-thap-brp-mgr');
     brpActAs($shelf, $manager);
 
-    foreach (['approve', 'reject', 'handover', 'cancel'] as $ability) {
+    foreach (['approve', 'reject', 'handover', 'release', 'cancel'] as $ability) {
         expect(Gate::forUser($manager)->allows($ability, $request))->toBeTrue($ability);
     }
     expect(Gate::forUser($manager)->allows('create', BorrowRequest::class))->toBeTrue();
 });
 
-it('an admin holds all five abilities too — the top of the shelf hierarchy', function () {
+it('an admin holds all six abilities too — the top of the shelf hierarchy', function () {
     [$shelf, , , $request] = brpFix('dong-thap-brp-adm');
     app(TenantContext::class)->actSystemWide();
     $admin = User::factory()->create(['full_name' => 'Giuse Cha Xứ Coi Sóc']);
@@ -130,7 +133,7 @@ it('an admin holds all five abilities too — the top of the shelf hierarchy', f
     ]);
     brpActAs($shelf, $admin);
 
-    foreach (['approve', 'reject', 'handover', 'cancel'] as $ability) {
+    foreach (['approve', 'reject', 'handover', 'release', 'cancel'] as $ability) {
         expect(Gate::forUser($admin)->allows($ability, $request))->toBeTrue($ability);
     }
     expect(Gate::forUser($admin)->allows('create', BorrowRequest::class))->toBeTrue();
@@ -144,11 +147,11 @@ it('an admin holds all five abilities too — the top of the shelf hierarchy', f
  *
  * These falsify the POLICY's bodies, not the shared act-as-* gate
  * (GateTest.php covers that closure exhaustively): replacing any of the
- * five methods with `return true;` has to turn something red, and only an
+ * six methods with `return true;` has to turn something red, and only an
  * assertion made through these exact abilities can do it.
  */
 
-it('a signed-in user with the tenant context entirely unset holds none of the five', function () {
+it('a signed-in user with the tenant context entirely unset holds none of the six', function () {
     // Not "a guest", which is what this was called until the review
     // pointed out that the actor is a real User row: a true guest never
     // reaches a policy at all (Authenticate redirects first — pinned over
@@ -160,18 +163,18 @@ it('a signed-in user with the tenant context entirely unset holds none of the fi
     $signedIn = User::factory()->create(['full_name' => 'Anna Người Lạ Qua Đường']);
     app(TenantContext::class)->clear();
 
-    foreach (['create', 'cancel', 'approve', 'reject', 'handover'] as $ability) {
+    foreach (['create', 'cancel', 'approve', 'reject', 'handover', 'release'] as $ability) {
         expect(Gate::forUser($signedIn)->allows($ability, $request))->toBeFalse($ability);
     }
     expect(Gate::forUser($signedIn)->allows('create', BorrowRequest::class))->toBeFalse();
 });
 
-it('a non-member of this shelf (membership resolved to null) holds none of the five', function () {
+it('a non-member of this shelf (membership resolved to null) holds none of the six', function () {
     [$shelf, , , $request] = brpFix('dong-thap-brp-nonmember');
     $stranger = User::factory()->create(['full_name' => 'Phêrô Khách Lạ']);
     app(TenantContext::class)->set($shelf, null);
 
-    foreach (['create', 'cancel', 'approve', 'reject', 'handover'] as $ability) {
+    foreach (['create', 'cancel', 'approve', 'reject', 'handover', 'release'] as $ability) {
         expect(Gate::forUser($stranger)->allows($ability, $request))->toBeFalse($ability);
     }
 });
@@ -181,12 +184,12 @@ it('a membership belonging to a different user authorizes nobody else', function
     $stranger = User::factory()->create(['full_name' => 'Anna Kẻ Mượn Danh']);
     brpActAs($shelf, $manager);   // the MANAGER's row, bound for a stranger
 
-    foreach (['create', 'cancel', 'approve', 'reject', 'handover'] as $ability) {
+    foreach (['create', 'cancel', 'approve', 'reject', 'handover', 'release'] as $ability) {
         expect(Gate::forUser($stranger)->allows($ability, $request))->toBeFalse($ability);
     }
 });
 
-it('a suspended member holds none of the five — INV-4 at the gate', function () {
+it('a suspended member holds none of the six — INV-4 at the gate', function () {
     // ResolveTenant never binds a suspended membership (it filters
     // status = active), so over HTTP this is unreachable today — the same
     // accepted-as-unreachable shape LoanPolicy::renew's docblock records.
@@ -200,12 +203,12 @@ it('a suspended member holds none of the five — INV-4 at the gate', function (
     ]);
     app(TenantContext::class)->set($shelf, $membership);
 
-    foreach (['create', 'cancel', 'approve', 'reject', 'handover'] as $ability) {
+    foreach (['create', 'cancel', 'approve', 'reject', 'handover', 'release'] as $ability) {
         expect(Gate::forUser($suspended)->allows($ability, $request))->toBeFalse($ability);
     }
 });
 
-it('a soft-deleted membership holds none of the five', function () {
+it('a soft-deleted membership holds none of the six', function () {
     [$shelf, , , $request] = brpFix('dong-thap-brp-trashed');
     app(TenantContext::class)->actSystemWide();
     $removed = User::factory()->create(['full_name' => 'Giuse Đã Rời Tủ Sách']);
@@ -216,16 +219,16 @@ it('a soft-deleted membership holds none of the five', function () {
     expect($membership->trashed())->toBeTrue();
     app(TenantContext::class)->set($shelf, $membership);
 
-    foreach (['create', 'cancel', 'approve', 'reject', 'handover'] as $ability) {
+    foreach (['create', 'cancel', 'approve', 'reject', 'handover', 'release'] as $ability) {
         expect(Gate::forUser($removed)->allows($ability, $request))->toBeFalse($ability);
     }
 });
 
-it('a super administrator holds all five with no membership at all', function () {
+it('a super administrator holds all six with no membership at all', function () {
     // The SHIPPED hierarchy, pinned rather than assumed: AppServiceProvider's
     // Gate::before returns true for any ability whose name starts with
     // 'act-as-' when users.is_super_admin is set — BR §13.1's ROLE_RANK
-    // .super_admin = 4, above every shelf role. Because all five of this
+    // .super_admin = 4, above every shelf role. Because all six of this
     // policy's methods delegate to an act-as-* gate, the flag reaches them;
     // a method that grew its own non-delegating check would NOT be covered
     // by that bypass, which is why this is asserted through the abilities.
@@ -233,7 +236,7 @@ it('a super administrator holds all five with no membership at all', function ()
     $super = User::factory()->superAdmin()->create(['full_name' => 'Maria Quản Trị Hệ Thống']);
     app(TenantContext::class)->set($shelf, null);
 
-    foreach (['create', 'cancel', 'approve', 'reject', 'handover'] as $ability) {
+    foreach (['create', 'cancel', 'approve', 'reject', 'handover', 'release'] as $ability) {
         expect(Gate::forUser($super)->allows($ability, $request))->toBeTrue($ability);
     }
 });

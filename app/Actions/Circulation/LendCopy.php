@@ -209,12 +209,18 @@ final class LendCopy
                 // count — $collectedHoldId already came from a row read
                 // inside this transaction, under its copy lock.
                 //
-                // CancelOwnRequest is the only shipped command that can
-                // move an approved row anywhere else (RejectBorrowRequest
-                // refuses anything but pending; nothing writes 'expired'
-                // at all — grepped), and it is also this statement's lock
-                // counterparty. THIS COMMIT CREATED THAT EDGE: before it,
-                // LendCopy touched no borrow_requests row at all.
+                // TWO shipped commands can move an approved row
+                // elsewhere (RejectBorrowRequest still refuses anything
+                // but pending): CancelOwnRequest, and — since Task 18 —
+                // ReleaseExpiredHold, which writes approved → expired.
+                // Only the first is this statement's lock counterparty.
+                // ReleaseExpiredHold takes the COPY lock first and the
+                // request lock second — the same direction this command
+                // takes them, so the pair does not invert; and once it has
+                // committed, the hold it ended is `expired` and the probe
+                // above no longer finds it. THIS COMMIT CREATED THE CancelOwnRequest EDGE:
+                // before it, LendCopy touched no borrow_requests row at
+                // all.
                 //
                 // The cycle, for one (copy C, request R) pair: this
                 // command holds C's lock from its first statement and asks

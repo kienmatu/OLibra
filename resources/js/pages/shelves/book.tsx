@@ -56,10 +56,16 @@ interface PageProps extends SharedData {
          * — so the two reader-facing screens disagree with the one
          * manager-facing screen about the same row. Faithful
          * to the reference, which has no expiry check on either reader
-         * page, and left alone because expiring a hold is a sweep nothing
-         * in 2a runs; whoever adds that sweep should give both
-         * copy.circulation.requests.heldLine and
-         * copy.circulation.myLoans.requestHeldLine the same flag.
+         * page, and left alone because no JOB expires a hold — Task 18's
+         * ReleaseExpiredHold is a manager pressing Trả về kệ, not a sweep,
+         * and this line goes on saying "nhận trước ..." for as long as
+         * nobody presses it. What that command does change is the END of
+         * this divergence: once released the row is `expired`, which
+         * BookDetailQuery's and MyDashboardQuery's pending/approved
+         * filters both exclude, so it leaves these two screens entirely
+         * rather than sitting there stale. Whoever gives a lapsed hold its
+         * own wording should give both copy.circulation.requests.heldLine
+         * and copy.circulation.myLoans.requestHeldLine the same flag.
          */
         myRequest: {
             requestId: string;
