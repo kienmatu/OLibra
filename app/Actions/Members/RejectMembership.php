@@ -8,6 +8,8 @@ use App\Models\Membership;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Members\MembershipTransitions;
+use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -16,13 +18,13 @@ use Illuminate\Support\Facades\Gate;
  * (BR §2). Nothing is deleted. The reason is required by the database too
  * (memberships_rejected_has_reason) — checking it here first is what turns
  * a constraint error into OPS §4.3's named refusal.
- *
- * Phase 2 must add the membership_rejected notification write (with the
- * reason in its payload) here, in this transaction — known-gaps, Task 16.
  */
 final class RejectMembership
 {
-    public function __construct(private AuditRecorder $audit) {}
+    public function __construct(
+        private AuditRecorder $audit,
+        private Notifier $notifier,
+    ) {}
 
     public function execute(User $actor, Membership $membership, string $reason): void
     {
@@ -46,6 +48,17 @@ final class RejectMembership
 
             $this->audit->record('membership.rejected', 'membership', $membership->id,
                 $before, ['status' => 'rejected', 'reason' => trim($reason)]);
+
+            // OPS §7's second row. The reason is the whole point of this
+            // sentence, and it is unconditional: execute()'s signature is
+            // non-nullable and the guard above has already refused a blank
+            // one, so by here $reason is a non-empty string — the same
+            // trim($reason) rejection_reason and the audit payload store.
+            $this->notifier->notify(
+                $membership->user_id,
+                NotificationKind::MembershipRejected,
+                ['reason' => trim($reason)],
+            );
         });
     }
 }

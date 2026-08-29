@@ -8,6 +8,8 @@ use App\Models\Membership;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
+use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -27,15 +29,13 @@ use Illuminate\Support\Facades\Gate;
  * Clears suspension_reason as well as rejection_reason, defensively: "no
  * active row carries a live suspension reason" is this command's own
  * guarantee, not a reachability accident borrowed from upstream.
- *
- * Phase 2 must add the membership_approved notification write here, in
- * this same transaction (OPS §7) — recorded in known-gaps by Task 16.
  */
 final class ApproveMembership
 {
     public function __construct(
         private Clock $clock,
         private AuditRecorder $audit,
+        private Notifier $notifier,
     ) {}
 
     public function execute(User $actor, Membership $membership): void
@@ -64,6 +64,11 @@ final class ApproveMembership
 
             $this->audit->record('membership.approved', 'membership', $membership->id,
                 $before, ['status' => 'active']);
+
+            // OPS §7's first row: "Đăng ký được duyệt — ApproveMembership".
+            // member's user_id, resolved from the locked row — never the
+            // membership id (the recurring trap).
+            $this->notifier->notify($membership->user_id, NotificationKind::MembershipApproved);
         });
     }
 }
