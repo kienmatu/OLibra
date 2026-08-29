@@ -40,8 +40,13 @@ over-wide shape Phase 1 was split for. The cut:
 
 ## Phase 2a — current position
 
-Branch `feat/phase-2-community`, cut from `main` at `317a3b3`. Plan not yet written
-(Fable writes it, Opus reviews it — see standing instructions). No tasks dispatched.
+Branch `feat/phase-2-community`, cut from `main` at `317a3b3`.
+
+Plan written by Fable and committed at `49e6c93`:
+`plans/2026-08-29-laravel-phase-2a-requests-and-holds.md`, **19 tasks**, 6,130 lines.
+Both of its open questions are ANSWERED (see rulings below) — Task 18 executes.
+
+Opus plan review is the gate before any code. No tasks dispatched yet.
 
 ## Phase 1d — closed
 
@@ -83,6 +88,15 @@ hashed phone); the reactivate button ships.
 **Phase 1c** — the quick-lend escape hatch is wired (this made 1b's `active` ruling real);
 a suspended reader **cannot** renew (accepted as unreachable, matching the reference); the
 void-loan button ships; a copyless title gets its own true refusal sentence.
+
+**Phase 2a** — OQ1 = **B**: a lapsed hold gets a manager exit. `ReleaseExpiredHold` ships
+(plan Task 18 EXECUTES), one **Trả về kệ** button on expired rows only, guarded on the clock
+(`hold_expires_at <= now` — a manager may not yank a live hold), writing BR §7.2's own
+`approved → expired` arrow plus `held → available` in one transaction, new audit action
+`request.expired`, OPS §4.2 amended in the same commit. Kien overrode the plan's parity
+default: the reference's gap strands a copy in `held` forever unless the READER cancels.
+OQ2 = **A**: the reject reason stays **optional** (parity; the form says "Không bắt buộc.",
+an empty box stores NULL). Tasks 6/14 take no B-delta.
 
 **Phase 1d** — the audit expansion shows **raw before/after, manager-gated** (verified: it
 reveals strictly less than the reader-detail screen already does); `loan.returned`'s previous
