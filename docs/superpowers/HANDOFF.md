@@ -4,8 +4,8 @@ Committed on purpose: the per-task ledger under `.superpowers/sdd/` is gitignore
 dies with its plan, so this file is what lets a **different session** pick the work up.
 Update it as each task lands.
 
-**Last updated:** 2026-08-29, after Phase 1d Task 10 (the last task of Phase 1d, and of
-Phase 1 entirely).
+**Last updated:** 2026-08-29. Phase 1d complete; PR #63 is open, reviewed and awaiting
+Kien's merge decision.
 
 ## Where things stand
 
@@ -15,7 +15,7 @@ Phase 1 entirely).
 | 1a Catalogue | `plans/2026-08-27-laravel-phase-1a-catalogue.md` | #60 | merged |
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
-| **1d Oversight** | `plans/2026-08-29-laravel-phase-1d-oversight.md` | not opened | **all 10 tasks done — ready for PR** |
+| **1d Oversight** | `plans/2026-08-29-laravel-phase-1d-oversight.md` | **#63** | **open, reviewed, awaiting merge** |
 
 Phase 1d completes BR §1.4's core loop. After it: Phase 2 (Community), 3 (Network), 4 (Cutover).
 
@@ -32,9 +32,14 @@ Branch `feat/phase-1d-oversight`, 10 tasks, plan committed at `541a017`.
 - **7 `Csv` helper** — `d75f53d` · approved
 - **8 export queries** — `afbcc17`, `62bd534` · approved, two nits carried into 9
 - **9 export route** — `52283bd`, `d52d17e`, `9978e71`, `7089338` · approved
-- **10 wrap-up** — `41c1e4c`, `794cac4`, `9109585` · done (last task of Phase 1d, and of Phase 1)
+- **10 wrap-up** — `41c1e4c`, `794cac4`, `9109585` · approved
 
-Suite at 1,028 passing. All gates green (Pest, Pint, Larastan level 8, Biome, tsc, Vite build).
+PR #63 opened, whole-branch reviewed. Its Critical — the audit secrets guard could be
+unwired with the whole suite green — plus two Importants fixed in `3d3362f`; a docblock
+that repeated a false "reaches no screen" claim corrected in `e599c6a`.
+
+Suite at 1,031 passing. All gates green (Pest, Pint, Larastan level 8, Biome, tsc, Vite build).
+**Phase 1 — BR §1.4's core loop — is complete once #63 merges.** Phase 2 (Community) is next.
 Phase 1d has no open PR yet — the next step is opening one and running the whole-branch
 review (see "How the loop runs" below), the way each of 1a–1c closed.
 
