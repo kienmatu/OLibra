@@ -408,7 +408,40 @@ Nothing merged; no PR open.
   the trap the ruling could have created and was measured rather than assumed. The `down()` was
   reasoned against `user_id`'s FK (the FK's supporting index is the *other* one, untouched) and the
   index is pinned in the schema census, falsified by removing the migration.
-- **17 the reminder sweep** — next.
+- **17 `reminders:sweep`** — `af4cf4a`, `e85a8fa`, `dcd1543` · approved after 2 rounds. The phase's
+  only scheduled job and only non-command notification writer. Its tenancy half — the part that could
+  have been catastrophic — came back correct and properly tested, and its housekeeping bound is a real
+  test rather than a sentence: the dashboard's overdue count is computed at query time with no stored
+  column behind it, so that block reddens the day derived state stops being derived. It also passed in
+  RED, before the job existed, which is the correct signature for a test whose whole claim is that
+  nothing a user sees depends on the job running.
+
+  **Coordinator ruling, overriding both the plan and the reference: `bookshelf_id` joined the
+  idempotence key.** The probe was `user_id + kind + due_on + title` and ran cross-shelf, because
+  `BookshelfScope` no-ops under `actSystemWide()`. Multi-shelf membership is a recorded design fact —
+  so a reader on two shelves with the same title due the same day got **exactly one** notification,
+  filed under whichever loan the sweep reached first, and never appearing on the other shelf's bell at
+  all. **Silent suppression, not duplication.** The reference's predicate is identical and its fidelity
+  buys nothing against a reader who is simply never told. Measured both ways.
+
+  **The Clock constraint had been asserted all phase and was enforced by nothing.** Swapping
+  `Clock::today()` for a UTC date string reddened **exactly one test out of 1,244** — the block added
+  in this round. Every other block ran at an hour where the Ho Chi Minh and UTC civil dates agree.
+- **18 `ReleaseExpiredHold`** — next.
+
+**A failure-mode sub-species this task named, worth carrying into 2b/2c:** twice now the thing that
+was wrong was not a claim about the code but **the justification for not measuring it**. Task 17 said
+the sweep's reads were bounded by "a shelf's active loans" (they are cross-shelf, and unindexed for
+that predicate); Task 16 quoted an `EXPLAIN` captured from a differently-shaped probe. Wrong reasoning
+is how a measurement never gets taken — so a sentence explaining why something was *not* measured
+deserves the same scrutiny as a measurement.
+
+**And one about where disclosures live.** Task 17 disclosed a real cost — that adding the sweep to the
+tenancy tripwire's allow-list exempts the **whole file**, so a future *second* hand-written
+`bookshelf_id` filter there would be silent where it used to fail the build — but wrote it only in the
+task report, which is **gitignored and dies with the workspace**. It now sits at the allow-list entry
+and in `known-gaps.md`. The rule: a disclosure that only exists in `.superpowers/sdd/` has not been
+made.
 
 **Two rulings on this task's authorization surface, both no-change:** the queue GET's single
 middleware layer is the house idiom (`OverdueController` and `DashboardController` carry no
