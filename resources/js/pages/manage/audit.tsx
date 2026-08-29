@@ -31,7 +31,7 @@ interface PageProps extends SharedData {
 const GROUP_KEYS = ["loans", "books", "readers"] as const;
 
 export default function ManageAudit() {
-    const { shelf, filters, actors, log } = usePage<PageProps>().props;
+    const { shelf, filters, actors, log, csrfToken } = usePage<PageProps>().props;
     if (!shelf) return null;
 
     const go = (next: Partial<PageProps["filters"] & { page: number }>) =>
@@ -200,6 +200,34 @@ export default function ManageAudit() {
                     )}
                 </div>
             )}
+
+            <section className="mt-10 rounded-lg border p-4">
+                <h2 className="text-lg font-semibold">{copy.manageExports.heading}</h2>
+                <p className="mb-3 text-sm text-muted-foreground">{copy.manageExports.lead}</p>
+                <div className="flex flex-wrap gap-3">
+                    {(
+                        [
+                            ["books", copy.manageExports.books],
+                            ["readers", copy.manageExports.readers],
+                            ["loans", copy.manageExports.loans],
+                        ] as const
+                    ).map(([kind, label]) => (
+                        <form
+                            key={kind}
+                            method="post"
+                            action={route("shelves.manage.exports.run", {
+                                shelf: shelf.slug,
+                                kind,
+                            })}
+                        >
+                            <input type="hidden" name="_token" value={csrfToken} />
+                            <button type="submit" className="rounded-md border px-4 py-2 text-sm">
+                                {label}
+                            </button>
+                        </form>
+                    ))}
+                </div>
+            </section>
         </ManageLayout>
     );
 }

@@ -4,6 +4,7 @@ use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
+use App\Http\Controllers\Manage\ExportController;
 use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
@@ -194,7 +195,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
         Route::get('/qr-labels', [ShellController::class, 'underConstruction'])->name('qr-labels');
         Route::get('/exports/qr-labels', [ShellController::class, 'underConstruction'])->name('exports.qr-labels');
-        Route::get('/exports/{kind}', [ShellController::class, 'underConstruction'])->name('exports.show');
+        Route::post('/exports/{kind}', [ExportController::class, 'store'])->name('exports.run');
     });
 });
 

@@ -316,6 +316,13 @@ export const copy = {
         prevPage: "Trang trước",
         nextPage: "Trang sau",
     },
+    manageExports: {
+        heading: "Xuất dữ liệu",
+        lead: "Tệp CSV mở được bằng Excel — sao lưu dữ liệu của tủ sách.",
+        books: "Tải danh mục sách",
+        readers: "Tải danh sách bạn đọc",
+        loans: "Tải lịch sử mượn trả",
+    },
     manageDashboard: {
         // "Tổng quan", not "Trang chính": copy.manage.dashboard — the nav
         // entry that opens this page — already says "Tổng quan", and a nav

@@ -47,6 +47,10 @@ class HandleInertiaRequests extends Middleware
                 'name' => $shelf->name,
             ],
             'role' => $context->membership()?->role?->value,
+            // For the plain <form method="post"> downloads (an Inertia
+            // router.post cannot receive a file): the token VerifyCsrfToken
+            // will demand.
+            'csrfToken' => $request->session()->token(),
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
             ],
