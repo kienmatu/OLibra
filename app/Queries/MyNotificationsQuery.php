@@ -34,6 +34,12 @@ use App\Support\Notifications\NotificationSentences;
  *
  *   type: range | key: notifications_unread | rows: 200 | Extra: Using where
  *
+ * Re-measured AGAIN, unchanged, after 2026_08_30_000001 added
+ * notifications_unread_by_user (user_id, read_at) for the bell's count:
+ * the new index joins possible_keys and is NOT chosen, and there is still
+ * no `Using filesort`. Checked rather than assumed — a new candidate index
+ * can move a plan nobody meant to move, and this one rides the ORDER BY.
+ *
  * What matters is what is ABSENT: no `Using filesort`, so the ordering is
  * the index's. InnoDB appends the primary key to a secondary index, so the
  * descending scan already emits descending id within a created_at tie —

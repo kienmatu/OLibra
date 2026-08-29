@@ -249,6 +249,15 @@ it('names the access-path indexes exactly, over information_schema', function ()
     expect(array_map(fn ($r) => $r->column_name, adminIndexColumns('notifications', 'notifications_unread')))
         ->toBe(['user_id', 'created_at']);
 
+    // Added by 2026_08_30_000001 for Task 16's bell count, and pinned here
+    // because losing it is SILENT: no test reddens, no gate complains, and
+    // the count merely goes back to the `type: ALL` full scan of every
+    // tenant's notifications that it planned as before the index existed
+    // (docs/known-gaps.md carries both plans). The most expensive kind of
+    // regression is the one only a stopwatch can see.
+    expect(array_map(fn ($r) => $r->column_name, adminIndexColumns('notifications', 'notifications_unread_by_user')))
+        ->toBe(['user_id', 'read_at']);
+
     expect(array_map(fn ($r) => $r->column_name, adminIndexColumns('audit_log', 'audit_log_actor')))
         ->toBe(['actor_id', 'occurred_at']);
 

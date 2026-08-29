@@ -61,6 +61,19 @@ class HandleInertiaRequests extends Middleware
             // the mark-all POST; exactly one on a page whose controller
             // never asks for notifications).
             //
+            // One count per render is affordable only because
+            // 2026_08_30_000001 gave notifications an index that can serve
+            // it. Before that index this planned as `type: ALL, rows: 400`
+            // over a 400-row two-shelf table — a full scan of EVERY
+            // tenant's rows, because read_at was in no index and
+            // BookshelfScope's bookshelf_id is an ordinary WHERE clause,
+            // applied after the scan, not a scan boundary. On a shared
+            // install (BUSINESS-REQUIREMENTS.md:57 and SDD.md:228 both
+            // describe Phase 1 as "one tenant among many") that made one
+            // parish's bell cost grow with every other parish's volume.
+            // Now: `type: index_merge … Using intersect(...); Using index,
+            // rows: 66` — covering, and bounded by this user's unread rows.
+            //
             // NULL is "render no bell", and the third clause is a DEVIATION
             // from task-16-brief.md, which asked for "a user is signed in
             // AND a shelf is bound" alone. Measured, not theorised: the

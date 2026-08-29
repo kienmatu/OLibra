@@ -2408,20 +2408,37 @@ Recorded per task as it lands, not at the end of the phase.
   notifications). Replacing the closure with its value reddens the first of
   those two blocks — verified by making that exact mutation, not inferred
   from the framework.
-  **That count is not served by `notifications_unread`, and an earlier
-  version of this entry said "one indexed count" on the strength of the
-  index merely existing.** `read_at` is in no index at all, so on a real
-  plan the optimizer has nothing to seek on: EXPLAIN of
-  `select count(*) … where user_id = ? and read_at is null and
-  bookshelf_id = ?` against `laravel-mariadb-1` over 400 seeded rows
-  returns `type: ALL, key: null, rows: 400, Extra: Using where` — a full
-  table scan (against an empty table it picked
-  `notifications_bookshelf_id_foreign`; either way, never
-  `notifications_unread`). The postgres original's index for this was
-  partial (`where read_at is null`) and the MariaDB migration dropped the
-  predicate because MariaDB has no partial index, which is exactly where
-  the unread half of the access path went. Accepted for now — BR §1's
-  parish shelf has hundreds of rows, not millions, and the scan is bounded
-  by one shelf — but if the bell ever feels slow the fix is an index that
-  actually covers the predicate (`(user_id, read_at)`), not caching the
-  count.
+  **That count needed an index, which this task shipped rather than
+  deferred — and the entry this replaces got the cost wrong in the
+  reader's favour.** `read_at` was in no index at all (the postgres
+  original's was partial, `where read_at is null`, and
+  `2026_08_26_000014_create_notifications_table.php` dropped the predicate
+  because MariaDB has no partial index), so EXPLAIN of the real statement
+  over 400 rows spread across two shelves returned `type: ALL, key: null,
+  rows: 400, Extra: Using where` — both existing indexes offered in
+  `possible_keys` and both rejected. The first version of this entry called
+  that "bounded by one shelf". **It was not, and that is the correction
+  that mattered:** a `type: ALL` scan reads every physical row in
+  `notifications` across every bookshelf sharing the database, and
+  `BookshelfScope` contributes an ordinary WHERE clause applied *after* the
+  scan, never a scan boundary. `rows: 400` is the whole table, not the
+  ~200 belonging to the shelf under test. On a deliberately multi-tenant
+  install (`docs/BUSINESS-REQUIREMENTS.md:57` and `docs/SDD.md:228`, both
+  of which describe Phase 1 as "one tenant among many" — the point of the
+  shared cPanel hosting target) that meant every shelf's readers paying for
+  every other shelf's notification volume, on every page render, growing
+  with the install rather than with the parish.
+  `2026_08_30_000001_add_notifications_unread_by_user_index.php` adds
+  `notifications_unread_by_user (user_id, read_at)`. Re-measured on the
+  same 400-row fixture: `type: index_merge, key:
+  notifications_unread_by_user,notifications_bookshelf_id_foreign, rows:
+  66, Extra: Using intersect(…); Using where; Using index` — covering (no
+  table rows read at all) and bounded by one user's unread rows, which does
+  not grow with other tenants. **No residual worth recording:** a
+  hypothetical three-column `(user_id, read_at, bookshelf_id)` was measured
+  side by side and plans as a single `type: ref … rows: 67` seek — the same
+  bound, for a wider index, so the two-column shape ships.
+  The list query was re-measured after the migration too, because a new
+  candidate index can move a plan nobody meant to move: unchanged at `type:
+  range, key: notifications_unread, rows: 200`, with the new index in
+  `possible_keys` and not chosen, and **still no `Using filesort`**.
