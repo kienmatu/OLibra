@@ -1991,19 +1991,33 @@ pages). Written by Task 14 after the full suite ran green.
   (an unnecessary apostrophe costs nothing) alone, not on a confirmed
   fact. `CsvTest`'s NBSP/ZWSP case pins the current, safer behaviour;
   nobody should read that test as proof of what Excel does.
-- **No test in this suite can exercise CSRF, for any POST route, ever.**
+- **No `$this->post(...)` HTTP test in this suite can exercise
+  `VerifyCsrfToken`/`PreventRequestForgery` end to end — softened from an
+  earlier "ever," which overstated it (Task 9 fix round, 2026-08-29).**
   `vendor/laravel/framework/.../PreventRequestForgery.php`'s `handle()`
   passes every request through untouched when
   `$this->app->runningInConsole() && $this->app->runningUnitTests()` is
-  true — which is always true for a Pest run, independent of any token.
-  `tests/Feature/Oversight/ExportHttpTest.php` (Phase 1d Task 9) confirmed
-  this by reading the vendor source rather than trusting a green suite;
-  the export route's CSRF wiring (`HandleInertiaRequests`'s `csrfToken`
-  shared prop, the hidden `_token` field on each of the audit page's three
-  download forms) was checked by reading the code, not by a request that
-  ever fails without a token. If a future change moves any manage-area
-  route outside the default `web` middleware group, or edits
+  true — which is always true for a Pest run's `$this->post(...)` calls,
+  independent of any token. `tests/Feature/Oversight/ExportHttpTest.php`
+  (Phase 1d Task 9) confirmed this by reading the vendor source rather
+  than trusting a green suite. What "ever" got wrong: a unit test can
+  still construct the middleware directly with a double whose
+  `runningUnitTests()` returns `false`, which genuinely exercises
+  `handle()`'s token check outside the short-circuit — nobody has written
+  that test in this suite, but the mechanism does not rule it out, and
+  "ever" is exactly the word the next person will cite when declining to
+  write it. What Task 9's fix round DID newly pin, straight off a real
+  Inertia response rather than by reading code: the `csrfToken` shared
+  prop (`HandleInertiaRequests::share()`) is present and equals the live
+  session token (`ExportHttpTest.php`, "shares a real, non-empty
+  csrfToken prop"), mutation-proved by deleting the share line — the
+  suite goes red where it previously stayed green. The hidden `_token`
+  field on each of the audit page's three download forms is still
+  checked by reading `audit.tsx`, not by a request that ever fails
+  without a token. If a future change moves any manage-area route
+  outside the default `web` middleware group, or edits
   `bootstrap/app.php`'s `append()` to drop CSRF, nothing here would go
-  red. This is a suite-wide gap, not specific to Task 9's route — recorded
-  here because Task 9 is the first place a route's CSRF protection was
-  actually load-bearing enough to go looking for it.
+  red for the route itself. This is a suite-wide gap, not specific to
+  Task 9's route — recorded here because Task 9 is the first place a
+  route's CSRF protection was actually load-bearing enough to go looking
+  for it.

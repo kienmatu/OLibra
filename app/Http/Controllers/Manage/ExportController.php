@@ -12,6 +12,7 @@ use App\Queries\Exports\ReadersExportQuery;
 use App\Support\Clock;
 use App\Support\Exports\Csv;
 use App\Support\Exports\ExportTables;
+use App\Support\Fold;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -78,12 +79,47 @@ class ExportController extends Controller
             // when the header is long gone in a Downloads folder.
             'Content-Disposition' => HeaderUtils::makeDisposition(
                 HeaderUtils::DISPOSITION_ATTACHMENT,
-                "{$kinds[$kind]['label']} — {$shelf->name} — {$date}.csv",
-                "{$kind}-{$shelf->slug}-{$date}.csv",
+                "{$kinds[$kind]['label']} — ".self::dispositionLabel($shelf->name)." — {$date}.csv",
+                "{$kind}-".self::dispositionFallback($shelf->slug)."-{$date}.csv",
             ),
             // A file of children's records is never cached, by the browser
             // or anything between it and here.
             'Cache-Control' => 'no-store, private',
         ]);
+    }
+
+    /**
+     * HeaderUtils::makeDisposition()'s UTF-8 `filename` argument throws
+     * InvalidArgumentException on a bare '/' or '\' — and nothing at the
+     * database level stops a shelf name from carrying either
+     * ("Giáo xứ Thánh Tâm / Chi nhánh 2" is an ordinary parish name, not a
+     * crafted one). Diacritics are fine here (rawurlencode handles them);
+     * only the two path separators are dangerous for this argument, so
+     * only those are replaced.
+     */
+    private static function dispositionLabel(string $name): string
+    {
+        return str_replace(['/', '\\'], '-', $name);
+    }
+
+    /**
+     * The ASCII `filenameFallback` argument is stricter still: it throws
+     * on ANY non-ASCII byte and on a literal '%', on top of the same '/'
+     * and '\' ban — a shelf slug is equally unvalidated free text at the
+     * database level, so "probe-đông" and "probe-100%" both reach
+     * makeDisposition() raw today. Fold::fold() already reduces its input
+     * to [a-z0-9 ]+ (Vietnamese diacritics included) and turns everything
+     * else — slashes, percents, any other Unicode — into spaces, so
+     * routing the slug through it and hyphenating (the same shape
+     * App\Support\Catalogue\Slugs::fromTitle() uses for book slugs) yields
+     * a fallback makeDisposition() can never reject. A slug that folds to
+     * nothing (punctuation-only) falls back to a fixed label rather than
+     * an empty filename segment.
+     */
+    private static function dispositionFallback(string $slug): string
+    {
+        $folded = str_replace(' ', '-', Fold::fold($slug));
+
+        return $folded === '' ? 'tu-sach' : $folded;
     }
 }

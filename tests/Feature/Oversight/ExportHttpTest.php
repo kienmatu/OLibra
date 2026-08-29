@@ -6,6 +6,7 @@ use App\Models\Bookshelf;
 use App\Models\Membership;
 use App\Models\User;
 use App\Support\TenantContext;
+use Inertia\Testing\AssertableInertia as Assert;
 
 /** Grep first: `grep -rn "^function xphFix" tests/`. */
 function xphFix(): array
@@ -60,8 +61,16 @@ it('neutralises a hostile stored title end to end', function () {
         ->post("/shelves/{$f['shelf']->slug}/manage/exports/books")
         ->streamedContent();
 
-    expect($bytes)->toContain('\'=HYPERLINK')          // apostrophe-neutralised…
-        ->and($bytes)->not->toContain("\n=HYPERLINK"); // …never cell-leading
+    // The fixture title itself carries a `"`, so Csv::quote() wraps the
+    // whole cell in quotes regardless of neutralisation — a raw row can
+    // never start with an unquoted "\n=HYPERLINK" either way, which made
+    // the line this replaces pass whether or not neutralisation ran (the
+    // `'=HYPERLINK` assertion above it is what actually exercises the
+    // apostrophe). The real cell-leading question, once a field is
+    // quoted, is whether the byte immediately inside the opening quote is
+    // the neutralising apostrophe or the raw formula leader.
+    expect($bytes)->toContain('\'=HYPERLINK')           // apostrophe-neutralised…
+        ->and($bytes)->not->toContain('"=HYPERLINK');   // …never leads inside the quote
 });
 
 it('404s a reader', function () {
@@ -133,12 +142,107 @@ it('GET is refused — a file of children\'s records is never a link', function 
 });
 
 it('readers and loans stream too, each with its own header row', function () {
+    // Pinned on the FULL header row, not the first column: books' and
+    // loans' first header are both literally 'Tên sách' (lang/vi/
+    // exports.php), so a `loans` map entry rewired to run BooksExportQuery
+    // would still start with 'Tên sách' and pass a first-column-only
+    // check — proven by mutation (see task-9-report.md's fix section):
+    // swapping the `loans` table callable for ExportTables::books(...)
+    // left the old toStartWith('Tên sách') assertion green. readers'
+    // first header ('Tên thánh') is already distinct from both of the
+    // other two, checked here too so that is not merely lucky.
     $f = xphFix();
 
-    foreach (['readers' => 'Tên thánh', 'loans' => 'Tên sách'] as $kind => $firstHeader) {
+    $expected = [
+        'readers' => ['Tên thánh', 'Họ và tên', 'Ngày sinh', 'Tên cha', 'Tên mẹ',
+            'Số điện thoại', 'Email', 'Đơn vị', 'Trạng thái', 'Vai trò',
+            'Có tài khoản đăng nhập', 'Ngày tham gia'],
+        'loans' => ['Tên sách', 'Mã bản sách', 'Người mượn', 'Ngày mượn', 'Hạn trả',
+            'Ngày trả', 'Trạng thái', 'Chất lượng khi trả', 'Người cho mượn',
+            'Người nhận trả', 'Ghi chú'],
+    ];
+    // books_headers[0] === loans_headers[0] === 'Tên sách': make that
+    // collision explicit rather than trusting the arrays above to differ.
+    $booksHeaders = require base_path('lang/vi/exports.php');
+    expect($booksHeaders['books_headers'][0])->toBe($expected['loans'][0]);
+
+    foreach ($expected as $kind => $headers) {
         $bytes = $this->actingAs($f['manager'])
             ->post("/shelves/{$f['shelf']->slug}/manage/exports/{$kind}")
             ->streamedContent();
-        expect(explode("\r\n", substr($bytes, 3))[0])->toStartWith($firstHeader);
+        $headerLine = explode("\r\n", substr($bytes, 3))[0];
+        expect($headerLine)->toBe(implode(',', $headers));
     }
+});
+
+/** Grep first: `grep -rn "^function xphManagerFor" tests/`. */
+function xphManagerFor(string $slug, string $name): array
+{
+    app(TenantContext::class)->actSystemWide();
+
+    $shelf = Bookshelf::factory()->create(['slug' => $slug, 'name' => $name, 'settings' => []]);
+    $manager = User::factory()->create(['full_name' => 'Maria Tên Có Ký Tự Lạ']);
+    Membership::factory()->for($shelf)->create([
+        'user_id' => $manager->id, 'role' => 'manager', 'status' => 'active',
+    ]);
+
+    return compact('shelf', 'manager');
+}
+
+it('a shelf name with a slash or a backslash never 500s the export', function () {
+    // HeaderUtils::makeDisposition()'s UTF-8 `filename` argument throws
+    // InvalidArgumentException on a bare '/' or '\', and nothing at the
+    // database level stops a shelf name from carrying either — "Giáo xứ
+    // Thánh Tâm / Chi nhánh 2" is an ordinary Vietnamese parish name, not
+    // a crafted one.
+    foreach (['Tủ sách A/B' => 'slash-name-xph', 'Tu sach A\\B' => 'backslash-name-xph'] as $name => $slug) {
+        $f = xphManagerFor($slug, $name);
+
+        $response = $this->actingAs($f['manager'])
+            ->post("/shelves/{$f['shelf']->slug}/manage/exports/books");
+
+        $response->assertOk();
+        expect($response->headers->get('Content-Disposition'))->not->toBeNull();
+    }
+});
+
+it('a shelf slug with non-ASCII text or a percent never 500s the export', function () {
+    // makeDisposition()'s ASCII `filenameFallback` argument is stricter
+    // still: it throws on ANY non-ASCII byte and on a literal '%', on top
+    // of the same '/'/'\' ban — a shelf slug is equally unvalidated free
+    // text at the database level. rawurlencode() mirrors what a real
+    // browser sends for a slug containing either.
+    foreach (['probe-đông-xph', 'probe-100%-xph'] as $slug) {
+        $f = xphManagerFor($slug, 'Tủ sách Kiểm Tra Ký Tự Lạ');
+        $encodedSlug = rawurlencode($f['shelf']->slug);
+
+        $response = $this->actingAs($f['manager'])
+            ->post("/shelves/{$encodedSlug}/manage/exports/books");
+
+        $response->assertOk();
+        expect($response->headers->get('Content-Disposition'))->not->toBeNull();
+    }
+});
+
+it('shares a real, non-empty csrfToken prop — the token every audit-page form submits', function () {
+    // Deleting HandleInertiaRequests::share()'s 'csrfToken' => ... line
+    // leaves the FULL suite green (nothing else reads the prop from the
+    // server side), typecheck clean, and the build clean — TypeScript's
+    // SharedData.csrfToken: string is a compile-time claim about a
+    // runtime payload and cannot see the deletion. The consequence is
+    // silent in tests but not in a real browser: the three audit-page
+    // forms (resources/js/pages/manage/audit.tsx) submit an empty hidden
+    // `_token` field, tokensMatch() fails, and every real export becomes
+    // a 419 — with this exact test suite still fully green. Pinned by
+    // reading the prop straight off a real Inertia response and checking
+    // it is the live session token, not merely present.
+    $f = xphFix();
+
+    $response = $this->actingAs($f['manager'])
+        ->get("/shelves/{$f['shelf']->slug}/manage/audit");
+
+    $response->assertOk()->assertInertia(fn (Assert $page) => $page
+        ->where('csrfToken', session()->token()));
+
+    expect(session()->token())->not->toBeEmpty();
 });
