@@ -46,7 +46,32 @@ Plan written by Fable and committed at `49e6c93`:
 `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md`, **19 tasks**, 6,130 lines.
 Both of its open questions are ANSWERED (see rulings below) — Task 18 executes.
 
-Opus plan review is the gate before any code. No tasks dispatched yet.
+**Plan review 1 (Opus): CHANGES REQUESTED** — six Criticals, eleven Importants, every one
+found by RUNNING the plan's own code rather than reading it: a false no-deadlock claim
+contradicted by shipped code (`UpdateBook` X-locks `bookshelves` then the book row, closing
+a cycle with the plan's new book lock); the phase's notification census RED on the very
+commit introducing it (`AuditSentences` already carries `'membership_approved'` as a lang
+key, so it counted as a notification writer); `(string)` on an enum-cast attribute fataling
+every queue row; Task 10's "never observably available" assertion matching its own
+`... for update` SELECT; **14 of 41 literal PHP blocks failing Pint** (the seventh time on
+this project); `NotificationSentences` failing Larastan three ways; and — the 1d lesson
+again — the phase's headline guarantee (the notification lives inside the command's
+transaction) breakable with the whole suite green.
+
+**Fix round (Opus, `f68f8f8`).** It rejected the review's own default on the deadlock and
+changed the design: **`CreateBorrowRequest` takes no lock at all.** The duplicate rule
+becomes a partial unique index — `borrow_requests.live_request_key`, a STORED generated
+column `IF(deleted_at IS NULL AND status IN ('pending','approved'), CONCAT(book_id,':',
+member_id), NULL)` under UNIQUE, the shape `loans.active_copy_id` and `bookshelves.
+slug_active` already use; the friendly sentence stays a plain read, the losing racer's 1062
+goes through the shipped `UniqueViolation::translate`. Its reason for refusing the review's
+"serialise on `bookshelves`": that creates a NEW cycle with `UpdateReaderProfile`
+(X `memberships` → X `users` → audit insert → S `bookshelves`, against X `bookshelves` →
+audit insert → S `users`) — the family known-gaps already reproduced with `pcntl_fork`.
+DDL verified live against `laravel-mariadb-1`. No cycle-freedom claim survives in the plan.
+
+**Plan review 2 is running** — a fresh Opus, told to attack the new index design hardest.
+No tasks dispatched; no application code written yet.
 
 ## Phase 1d — closed
 
@@ -107,7 +132,9 @@ recorded; the audit log reads **all of it**, 25/page, filtered, never pruned.
 ## Standing instructions from Kien
 
 - Run to a PR with an agent review, then announce — do not merge.
-- Every plan: Fable writes it, Opus reviews it before any code.
+- **Every plan: Opus writes it, a DIFFERENT Opus reviews it** before any code. (Ruling
+  2026-08-29, mid-2a: Fable wrote the 2a plan and its review came back with six Criticals.
+  Only the author changed — the write → independent-review gate is unchanged.)
 - Keep this file current so a disrupted session can resume elsewhere.
 
 ## Owed by Kien, not by the agents
