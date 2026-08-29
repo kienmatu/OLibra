@@ -4,7 +4,7 @@ Committed on purpose: the per-task ledger under `.superpowers/sdd/` is gitignore
 dies with its plan, so this file is what lets a **different session** pick the work up.
 Update it as each task lands.
 
-**Last updated:** 2026-08-29, after Phase 1d Task 5 (Task 6 in flight).
+**Last updated:** 2026-08-29, after Phase 1d Task 6 (its review in flight).
 
 ## Where things stand
 
@@ -27,10 +27,10 @@ Branch `feat/phase-1d-oversight`, 10 tasks, plan committed at `541a017`.
 - **3 AuditLogQuery** — `97675c0`, `b4c0252` · approved
 - **4 Audit screen** — `6ee9b79` · approved
 - **5 Dashboard query** — `13f95ed` · approved
-- **6 Dashboard screen** — in flight
+- **6 Dashboard screen** — `7e9bd75` · review in flight
 - 7 `Csv` helper · 8 export queries · 9 export route · 10 wrap-up — not started
 
-Suite at 983 passing. All gates green (Pest, Pint, Larastan level 8, Biome, tsc, Vite build).
+Suite at 997 passing. All gates green (Pest, Pint, Larastan level 8, Biome, tsc, Vite build).
 
 ## How the loop runs
 
