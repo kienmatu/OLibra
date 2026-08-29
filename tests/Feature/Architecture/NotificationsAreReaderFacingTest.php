@@ -396,6 +396,22 @@ it('every notify() call sits inside its command\'s own DB::transaction closure',
     // Notification::query()->create under actSystemWide(), never through
     // Notifier, so the two census rows it will own contribute no `->notify`
     // call site for the walk to find — by design, not by omission.
+    //
+    // State the cost, because the exclusion has one. For that file this
+    // test is VACUOUS IN BOTH DIRECTIONS: the pre-filter above is
+    // str_contains($code, '->notify'), which SweepReminders does not
+    // contain, so the walk never opens it; and this floor exempts it, so
+    // its silence is never counted. Moving its
+    // Notification::query()->create outside DB::transaction would leave
+    // this test — and, measured, the whole suite — green. That is
+    // tolerable rather than invisible: the sweep's writes are idempotent
+    // per shelf/user/kind/due_on/title, so a run that dies half-committed
+    // self-heals on the next tick, which is exactly the property a command
+    // announcing a state change does NOT have. But the docblock above says
+    // "no silent pass is known", and this is one file that sentence
+    // structurally cannot speak about. A guard that inserted the sweep's
+    // create-call shape into the walk would close it; nothing has needed
+    // that yet.
     $sweep = 'app/Console/Commands/SweepReminders.php';
     $silent = [];
     foreach (OPS_SECTION_7 as $writers) {

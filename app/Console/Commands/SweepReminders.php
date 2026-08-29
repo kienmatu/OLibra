@@ -29,10 +29,27 @@ use Illuminate\Support\Facades\DB;
  * correct.
  *
  * Idempotent by existence, not by cursor: "already told" is the
- * notification itself (same user, kind, due_on, title) — there is no
- * last_swept_at to drift, roll back, or be reset by a restore. Per loan
+ * notification itself (same shelf, user, kind, due_on, title) — there is
+ * no last_swept_at to drift, roll back, or be reset by a restore. Per loan
  * AND per kind, so a due-soon warning does not eat the overdue notice:
  * two different things to say about one book.
+ *
+ * `bookshelf_id` in that key is a DELIBERATE DIVERGENCE from sweep.ts,
+ * whose `not exists` keys on user, kind, due_on and title only. The
+ * reference's predicate is safe under a `set local role` that still names
+ * one shelf; this probe runs with BookshelfScope switched off, so it sees
+ * every shelf's rows. A person can hold memberships on more than one
+ * shelf — that is a recorded design fact, not a hypothetical
+ * (docs/known-gaps.md, "User is deliberately global"), and a parish
+ * library lending the same popular title is the ordinary case rather than
+ * a contrived one. Without the shelf in the key, one reader with the same
+ * title due the same day on two shelves gets exactly ONE row, filed under
+ * whichever loan this happened to reach first; and because
+ * MyNotificationsQuery IS shelf-scoped, the other shelf's bell never shows
+ * it. The failure is a reader silently not told their book is due, which
+ * is worse than the duplicate row fidelity would have bought. Pinned by
+ * SweepIsHousekeepingTest's "the sweep crosses shelves…" block, which
+ * seeds one reader on two shelves.
  *
  * Cross-shelf under actSystemWide() — a nightly job serves every parish
  * and has no tenant to scope to, and a per-shelf loop would itself need a
@@ -55,10 +72,21 @@ use Illuminate\Support\Facades\DB;
  *
  * Eloquent per-row inserts rather than INSERT…SELECT (plan divergence 9):
  * ids are application-generated UUIDv7 and MariaDB 10.11 has no v7
- * function. Of the reads below, only the idempotence probe's plan has been
- * measured (it is the one that grows with the install rather than with a
- * parish — see known-gaps for the captured EXPLAIN); the candidate reads
- * over loans were not, because their volume is a shelf's active loans.
+ * function.
+ *
+ * Every read here is measured, and none of them is bounded by a parish.
+ * The two candidate reads over loans are FULL SCANS of every tenant's
+ * loans — `type: ALL, possible_keys: null, rows: 600` on a 600-active-loan
+ * fixture, both statements, EXPLAINed from the SQL this command actually
+ * emits. That is not an oversight to index away: `loans` carries
+ * loans_active_by_shelf (bookshelf_id, due_on) and loans_by_borrower
+ * (borrower_id, lent_at), and a cross-shelf sweep filters on the leading
+ * column of neither, so no existing index is even a candidate. It is
+ * accepted rather than fixed because the cost is two scans PER DAY, once,
+ * in a job nobody waits on — the opposite of the bell's unread count,
+ * which paid a scan on every page render and got an index in Task 16. The
+ * idempotence probe is the read that runs per candidate row, and it IS a
+ * seek (user_id ref). known-gaps carries all three plans.
  */
 final class SweepReminders extends Command
 {
@@ -141,12 +169,17 @@ final class SweepReminders extends Command
     /**
      * The last date this loan's own shelf still calls "due soon".
      *
-     * The coalesce is belt and braces, not a live branch: $limits is read
-     * from bookshelves inside the same transaction as the loans, and
-     * loans.bookshelf_id is a foreign key, so a loan whose shelf is absent
-     * from the map is not a state this snapshot can show. It falls back to
-     * the deployment default rather than to something that would skip the
-     * row, because a missing key must not silently mean "never warn".
+     * The coalesce is belt and braces rather than a live branch, but NOT
+     * for the reason the first draft of this docblock gave. That draft
+     * said loans.bookshelf_id is a foreign key, so the shelf must be in
+     * the map — which is wrong: Bookshelf uses SoftDeletes, the FK
+     * restricts hard deletes only, and Bookshelf::query()->get() above
+     * omits a soft-deleted shelf while its loans survive intact. The
+     * honest reason is weaker and worth keeping weak: nothing in app/
+     * soft-deletes a bookshelf today. The day something does, this branch
+     * goes live, which is why it falls back to the deployment default
+     * rather than to anything that would skip the row — a missing key must
+     * not silently mean "never warn".
      *
      * @param  Collection<string, string>  $limits
      */
@@ -175,6 +208,13 @@ final class SweepReminders extends Command
             $title = (string) $loan->getAttribute('title');
 
             $alreadyTold = Notification::query()
+                // The one hand-written tenant filter in this file, and the
+                // reason TenancyArchitectureTest's allow-list names it:
+                // under actSystemWide() BookshelfScope adds no WHERE of its
+                // own, so a cross-shelf probe must draw the boundary itself
+                // or answer for another parish. Same shape as
+                // AuditLogQuery's, for the same reason.
+                ->where('bookshelf_id', $loan->getAttribute('bookshelf_id'))
                 ->where('user_id', $loan->borrower_id)
                 ->where('kind', $kind->value)
                 ->where('payload->due_on', $dueOn)

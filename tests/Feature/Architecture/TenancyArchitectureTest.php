@@ -89,6 +89,17 @@ it('confines bookshelf_id filtering to the two named files', function () {
         // tests/Feature/Oversight/AuditLogQueryTest.php's two-shelf-plus-
         // global-row test, which proves it by identity, not by convention.
         'app/Queries/AuditLogQuery.php',
+        // Phase 2a Task 17: the reminder sweep is the one non-seeder caller
+        // of TenantContext::actSystemWide(), so BookshelfScope adds no WHERE
+        // to anything it reads. Its "has this reader already been told"
+        // probe therefore has to draw the shelf boundary itself — the same
+        // situation AuditLogQuery is in above, arrived at from the other
+        // direction (that model is unscoped; this CALLER is). Without the
+        // filter one reader with the same title due the same day on two
+        // shelves is told once, on one bell; the notification the sweep
+        // WRITES is scoped by the bookshelf_id it copies off each loan, and
+        // SweepIsHousekeepingTest pins both halves.
+        'app/Console/Commands/SweepReminders.php',
     ];
 
     // Filter-shaped patterns, not assignments: where('bookshelf_id'),

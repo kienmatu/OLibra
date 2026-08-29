@@ -2511,9 +2511,73 @@ Recorded per task as it lands, not at the end of the phase.
   shared by every tenant. One caveat worth stating: `rows: 6` is that
   fixture's per-reader notification count, so it is evidence about the
   ACCESS PATH, not a figure that transfers to a real install.
-  Two things the plan does not cover: the probe runs once per candidate
-  loan (N seeks per sweep, not one), and the two candidate reads
-  themselves — `loans` filtered on `status` and `due_on` — were not
-  EXPLAINed, because the sweep's candidate volume is a shelf's active
-  loans and nothing has suggested that read is the cost.
+  The probe runs once per candidate loan — N seeks per sweep, not one.
+
+- **The sweep's two candidate reads are full scans of every tenant's
+  loans, measured and accepted rather than indexed.** An earlier version of
+  the entry above said these were not EXPLAINed "because the sweep's
+  candidate volume is a shelf's active loans". Both halves of that were
+  wrong: the reads run under `actSystemWide()`, so the volume is EVERY
+  shelf's active loans, and they cannot be seeks — `loans` carries
+  `loans_active_by_shelf (bookshelf_id, due_on)` and `loans_by_borrower
+  (borrower_id, lent_at)`, and a cross-shelf sweep filters on the leading
+  column of neither. Measured with `DB::listen` during a real
+  `Artisan::call('reminders:sweep')` over 600 active loans spread across 10
+  shelves, then `EXPLAIN`ed with their own bindings:
+
+  ```
+  select `loans`.*, `books`.`title` from `loans`
+    inner join `books` on `books`.`id` = `loans`.`book_id`
+    where `status` = ? and `due_on` >= ? and `due_on` <= ?     -- due-soon
+  select `loans`.*, `books`.`title` from `loans`
+    inner join `books` on `books`.`id` = `loans`.`book_id`
+    where `status` = ? and `due_on` < ?                        -- overdue
+
+  loans → type: ALL  | possible_keys: NULL | key: NULL | rows: 600 | Extra: Using where
+  books → type: eq_ref | key: PRIMARY | key_len: 38 | ref: loans.book_id | rows: 1
+  ```
+
+  `possible_keys: NULL` is the sharp part: neither index is so much as a
+  candidate. **Not fixed, deliberately.** The cost is two scans per DAY, in
+  a job nobody waits on, whose whole design premise is that being hours
+  late is survivable — the opposite of the bell's unread count, which paid
+  a scan on every page render and correctly earned an index in Task 16. A
+  `(status, due_on)` index would turn both into range seeks and is the
+  obvious move if a real install ever makes the nightly run slow enough to
+  notice; nothing has measured that it does. `rows: 600` is the fixture's
+  whole loans table, so it is evidence about the ACCESS PATH — a scan whose
+  cost grows with the install rather than with a parish — not a figure that
+  transfers.
+
+- **The sweep's idempotence key includes `bookshelf_id`, and that is a
+  deliberate divergence from the reference.** `sweep.ts`'s `not exists`
+  keys on user, kind, `due_on` and title only, which is safe there because
+  its `set local role` still names one shelf. This probe runs with
+  `BookshelfScope` switched off. Since a person can hold memberships on
+  more than one shelf (see "`User` is deliberately global" above), the
+  reference's key applied cross-shelf means one reader with the same title
+  due the same day on two shelves is told **once**, filed under whichever
+  loan the sweep reached first — and `MyNotificationsQuery` being
+  shelf-scoped, the other shelf's bell never shows it at all. Measured by
+  removing the clause: `SweepIsHousekeepingTest`'s crossing block reports
+  `Sweep complete: 0 due-soon, 1 overdue notification(s).` where it must
+  report 2. Silent suppression of a real reminder is a worse trade than the
+  duplicate row fidelity would have bought, so the divergence ships. It
+  also puts a hand-written `bookshelf_id` filter in the file, which is why
+  `TenancyArchitectureTest`'s allow-list now names it — the same situation
+  `AuditLogQuery` is in, reached from the other direction (that model is
+  unscoped; this caller is).
+
+- **The transaction-placement guard is structurally vacuous for the sweep,
+  in both directions.** `NotificationsAreReaderFacingTest`'s walk
+  pre-filters on `str_contains($code, '->notify')`, which
+  `SweepReminders.php` does not contain, and the per-file call-site floor
+  exempts it by name. Moving its `Notification::query()->create` outside
+  `DB::transaction` leaves the whole suite green — the guard's own docblock
+  says "no silent pass is known", and this is one file that sentence cannot
+  speak about. Tolerated rather than plugged: the sweep's writes are
+  idempotent per shelf/user/kind/`due_on`/title, so a half-committed run
+  self-heals on the next tick, which is precisely the property a command
+  announcing a state change does not have. Noted at the exclusion itself so
+  the next reader of that guard meets it there.
 

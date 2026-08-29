@@ -18,15 +18,20 @@ afterEach(fn () => Carbon::setTestNow());
 /**
  * One shelf, one borrower, one active loan due on $dueOn.
  *
+ * Pass $borrower to put an EXISTING reader on this second shelf instead of
+ * making a new one — a person holding memberships on more than one shelf is
+ * a recorded design fact (docs/known-gaps.md, "User is deliberately
+ * global"), and the sweep's idempotence key has to survive it.
+ *
  * @return array{Bookshelf, User, Loan}
  */
-function swpFix(string $dueOn, array $settings = [], string $slug = 'dong-thap-swp'): array
+function swpFix(string $dueOn, array $settings = [], string $slug = 'dong-thap-swp', ?User $borrower = null): array
 {
     app(TenantContext::class)->actSystemWide();
     $shelf = Bookshelf::factory()->create(['slug' => $slug, 'settings' => $settings]);
     $manager = User::factory()->create(['full_name' => 'Maria Quản Lý Kho '.$slug]);
     Membership::factory()->for($shelf)->create(['user_id' => $manager->id, 'role' => 'manager', 'status' => 'active']);
-    $borrower = User::factory()->create(['full_name' => 'Giuse Người Mượn '.$slug]);
+    $borrower ??= User::factory()->create(['full_name' => 'Giuse Người Mượn '.$slug]);
     Membership::factory()->for($shelf)->create(['user_id' => $borrower->id, 'role' => 'reader', 'status' => 'active']);
     $book = Book::query()->create(['bookshelf_id' => $shelf->id, 'title' => 'Dế Mèn Phiêu Lưu Ký', 'slug' => 'de-men-'.$slug]);
     $copy = BookCopy::query()->create(['bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'code' => 'DT-0001', 'state' => 'on_loan']);
@@ -80,7 +85,11 @@ it('a book due in two days is due-soon, not overdue — and the window is in HCM
     // 23:00 UTC on the 24th is already the 25th in Asia/Ho_Chi_Minh;
     // due 2026-08-27 is two HCM days out — inside the default 3-day
     // window. A UTC "today" would compute three days and still pass, so
-    // the pin is the due-soon KIND plus the boundary test below.
+    // this block pins the due-soon KIND and NOT the timezone. The block
+    // that pins the timezone is "the civil date is Asia/Ho_Chi_Minh's…"
+    // below, which is the only one whose answer changes with it — measured
+    // by swapping Clock::today() for a UTC date and watching that block,
+    // and only that block, redden.
     Carbon::setTestNow(Carbon::parse('2026-08-24 23:00:00', 'UTC'));
     swpFix('2026-08-27', [], 'dong-thap-swp-soon');
 
@@ -115,6 +124,55 @@ it('a book warned as due-soon is still told when it goes overdue', function () {
         ->toBe(['loan_due_soon', 'loan_overdue']);
 });
 
+it('the civil date is Asia/Ho_Chi_Minh\'s, not the server\'s — a book late in HCM is late', function () {
+    // THE Clock CONSTRAINT, made falsifiable. 23:00 UTC on the 24th is
+    // already the 25th in Asia/Ho_Chi_Minh, so a loan due on the 24th is
+    // one day LAPSED here and merely due TODAY (inside the due-soon
+    // window) on a UTC reading. This is the only clock position in the
+    // file where the two answers differ: swap Clock::today() for a UTC
+    // date string and this block flips to loan_due_soon while every other
+    // block stays green.
+    Carbon::setTestNow(Carbon::parse('2026-08-24 23:00:00', 'UTC'));
+    swpFix('2026-08-24', [], 'dong-thap-swp-tz');
+
+    Artisan::call('reminders:sweep');
+
+    expect(Artisan::output())->toContain('Sweep complete: 0 due-soon, 1 overdue notification(s).');
+    expect(Notification::query()->sole()->kind)->toBe('loan_overdue');
+});
+
+it('a voided loan is never swept', function () {
+    // The brief asked only for `returned`. A loan that was voided is a
+    // lending that never truly happened (INV-11: voided, never deleted),
+    // and the status filter is one clause covering all three terminal
+    // states — but "covers all three" is a claim, so all three are seeded.
+    Carbon::setTestNow(Carbon::parse('2026-08-25 02:00:00', 'UTC'));
+    [, , $loan] = swpFix('2026-08-20', [], 'dong-thap-swp-void');
+    Loan::query()->whereKey($loan->id)->update([
+        'status' => 'voided', 'voided_at' => now(),
+        'voided_by' => $loan->lent_by, 'void_reason' => 'ghi nhầm bản sao',
+    ]);
+
+    Artisan::call('reminders:sweep');
+
+    expect(Notification::query()->count())->toBe(0);
+});
+
+it('a book reported lost is never told to be brought back', function () {
+    // The sharpest of the three: loan_overdue's Vietnamese asks the reader
+    // to "mang sách đến trả giúp nhé", which is the one sentence nobody
+    // wants sent nightly about a book already reported lost.
+    Carbon::setTestNow(Carbon::parse('2026-08-25 02:00:00', 'UTC'));
+    [, , $loan] = swpFix('2026-08-20', [], 'dong-thap-swp-lost');
+    Loan::query()->whereKey($loan->id)->update([
+        'status' => 'lost', 'lost_reported_at' => now(), 'lost_reported_by' => $loan->lent_by,
+    ]);
+
+    Artisan::call('reminders:sweep');
+
+    expect(Notification::query()->count())->toBe(0);
+});
+
 it('a returned book is never swept', function () {
     Carbon::setTestNow(Carbon::parse('2026-08-25 02:00:00', 'UTC'));
     [, , $loan] = swpFix('2026-08-20', [], 'dong-thap-swp-ret');
@@ -129,14 +187,39 @@ it('a returned book is never swept', function () {
 });
 
 it('the sweep crosses shelves, because a nightly job serves every parish', function () {
+    // ONE reader, on both shelves, with the same title due the same day —
+    // and that is the whole point of the fixture rather than a tidy reuse.
+    // The idempotence key is "has this person been told about this title
+    // for this date", and it runs with BookshelfScope switched off, so
+    // without bookshelf_id in the key the second shelf's loan reads as
+    // already-told and this reader is never warned about a book they
+    // actually hold. Measured: drop the bookshelf_id clause from the probe
+    // and this block reports 1 row where it must report 2.
     Carbon::setTestNow(Carbon::parse('2026-08-25 02:00:00', 'UTC'));
-    swpFix('2026-08-20', [], 'dong-thap-swp-a');
-    swpFix('2026-08-20', [], 'can-tho-swp-b');
+    [, $reader] = swpFix('2026-08-20', [], 'dong-thap-swp-a');
+    swpFix('2026-08-20', [], 'can-tho-swp-b', $reader);
 
     Artisan::call('reminders:sweep');
 
     expect(Artisan::output())->toContain('0 due-soon, 2 overdue')
         ->and(Notification::query()->count())->toBe(2);
+});
+
+it('and each of that one reader\'s two shelves gets its own row', function () {
+    // A separate it(): "it wrote two rows" and "the two rows are on
+    // different shelves" have to be able to fail independently, and the
+    // second is what proves the fix filed them where each bell will find
+    // them rather than writing a duplicate on one shelf.
+    Carbon::setTestNow(Carbon::parse('2026-08-25 02:00:00', 'UTC'));
+    [$a, $reader] = swpFix('2026-08-20', [], 'dong-thap-swp-two-a');
+    [$b] = swpFix('2026-08-20', [], 'can-tho-swp-two-b', $reader);
+
+    Artisan::call('reminders:sweep');
+
+    $shelves = Notification::query()->where('user_id', $reader->id)
+        ->get()->map(fn (Notification $n) => $n->bookshelf_id)->sort()->values()->all();
+
+    expect($shelves)->toBe(collect([$a->id, $b->id])->sort()->values()->all());
 });
 
 it('every row it writes lands on its own loan\'s shelf', function () {
