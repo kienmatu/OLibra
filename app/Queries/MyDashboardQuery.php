@@ -15,12 +15,15 @@ use App\Support\Clock;
 use App\Support\TenantContext;
 
 /**
- * The loans half of OPS §3.2's GetMyDashboard — BR §16.2's "My page".
- * renewBlockedBy is LoanRules::loanRenewable's answer, the ONE predicate
- * RenewLoan applies, so the disabled button and the command can never
- * disagree (my-dashboard.test.ts: "the renew refusal is the code renewLoan
- * throws — not a literal"). The requests half is Phase 2's; the page
- * renders an explicit empty state meanwhile (plan open question 5).
+ * OPS §3.2's GetMyDashboard — BR §16.2's "My page". renewBlockedBy is
+ * LoanRules::loanRenewable's answer, the ONE predicate RenewLoan applies,
+ * so the disabled button and the command can never disagree
+ * (my-dashboard.test.ts: "the renew refusal is the code renewLoan throws
+ * — not a literal"). The requests half landed in 2a — own pending|approved
+ * rows, queuePosition the identical derivation BookDetailQuery::run's
+ * myRequest uses, so the two surfaces cannot disagree about the same row;
+ * both diverge from the manager's own ROW_NUMBER the same documented way
+ * (see the comment beside `queuePosition` below).
  *
  * This is the screen where a second subtraction is most tempting — the
  * due date is right there. Both derived numbers come from LoanTerms.
@@ -32,7 +35,7 @@ final class MyDashboardQuery
         private TenantContext $tenant,
     ) {}
 
-    /** @return array{loans: list<array<string, mixed>>, recentlyReturned: list<array<string, mixed>>} */
+    /** @return array{loans: list<array<string, mixed>>, recentlyReturned: list<array<string, mixed>>, requests: list<array<string, mixed>>} */
     public function run(User $reader): array
     {
         $today = $this->clock->today();
@@ -104,6 +107,45 @@ final class MyDashboardQuery
                 ];
             })->values()->all());
 
-        return ['loans' => $loans, 'recentlyReturned' => $recentlyReturned];
+        $mine = BorrowRequest::query()
+            ->where('member_id', $reader->id)
+            ->whereIn('status', [RequestStatus::Pending, RequestStatus::Approved])
+            ->join('books', 'books.id', '=', 'borrow_requests.book_id')
+            ->orderBy('borrow_requests.requested_at')->orderBy('borrow_requests.id')
+            ->select('borrow_requests.*', 'books.title', 'books.slug')
+            ->get();
+
+        $requests = array_values($mine->map(function (BorrowRequest $r): array {
+            $ahead = $r->status === RequestStatus::Pending
+                ? BorrowRequest::query()
+                    ->where('book_id', $r->book_id)
+                    ->where('status', RequestStatus::Pending)
+                    ->where(function ($q) use ($r) {
+                        $q->where('requested_at', '<', $r->requested_at)
+                            ->orWhere(fn ($qq) => $qq->where('requested_at', $r->requested_at)->where('id', '<', $r->id));
+                    })
+                    ->count()
+                : null;
+
+            return [
+                'requestId' => $r->id,
+                'bookId' => $r->book_id,
+                'slug' => (string) $r->getAttribute('slug'),
+                'title' => (string) $r->getAttribute('title'),
+                'status' => $r->status->value,
+                // Derived on read, PENDING rows ahead only — the identical
+                // computation to BookDetailQuery::run's myRequest
+                // (BookDetailQuery.php:89-113), so this surface and that
+                // one agree on the same row. Both diverge from the
+                // manager's own ROW_NUMBER, which partitions over pending
+                // AND approved (BorrowRequestQueueQuery.php:173-184's twin
+                // comment) — recorded there and on BookDetailQuery, not
+                // restated a third way here.
+                'queuePosition' => $ahead === null ? null : $ahead + 1,
+                'holdExpiresAt' => $r->hold_expires_at?->toISOString(),
+            ];
+        })->all());
+
+        return ['loans' => $loans, 'recentlyReturned' => $recentlyReturned, 'requests' => $requests];
     }
 }

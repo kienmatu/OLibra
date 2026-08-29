@@ -17,10 +17,10 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * BR §16.2's "My page", the loans half (plan open question 5): current
- * loans with days remaining and Xin gia hạn, recently returned, and the
- * full history. The requests section is Phase 2's; the page renders its
- * named empty state meanwhile.
+ * BR §16.2's "My page": current loans with days remaining and Xin gia
+ * hạn, recently returned, the full history, and — since 2a — the reader's
+ * own pending/approved requests with a cancel per row
+ * (MyDashboardQuery::run's requests half).
  */
 class MyLoansController extends Controller
 {

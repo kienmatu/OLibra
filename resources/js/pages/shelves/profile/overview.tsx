@@ -3,7 +3,7 @@ import { route } from "ziggy-js";
 import { Button } from "@/components/ui/button";
 import AppLayout from "@/layouts/app-layout";
 import { copy, t } from "@/lib/copy";
-import { formatDate } from "@/lib/dates";
+import { formatDate, formatInstantParts } from "@/lib/dates";
 import type { SharedData } from "@/types";
 
 interface MyLoanRow {
@@ -18,6 +18,16 @@ interface MyLoanRow {
     renewBlockedBy: keyof typeof copy.circulation.rules | null;
 }
 
+interface MyRequestRow {
+    requestId: string;
+    bookId: string;
+    slug: string;
+    title: string;
+    status: "pending" | "approved";
+    queuePosition: number | null;
+    holdExpiresAt: string | null;
+}
+
 interface PageProps extends SharedData {
     dashboard: {
         loans: MyLoanRow[];
@@ -28,6 +38,7 @@ interface PageProps extends SharedData {
             returnedOn: string;
             returnCondition: string;
         }[];
+        requests: MyRequestRow[];
     };
 }
 
@@ -58,6 +69,33 @@ function RenewForm({ loan }: { loan: MyLoanRow }) {
         >
             <Button type="submit" variant="outline" size="sm" disabled={form.processing}>
                 {copy.circulation.myLoans.renewButton}
+            </Button>
+        </form>
+    );
+}
+
+function CancelRequestButton({ requestId }: { requestId: string }) {
+    const { shelf } = usePage<SharedData>().props;
+    const form = useForm({});
+    if (!shelf) return null;
+
+    return (
+        <form
+            onSubmit={(e) => {
+                e.preventDefault();
+                form.post(
+                    route("shelves.profile.requests.cancel", {
+                        shelf: shelf.slug,
+                        borrowRequest: requestId,
+                    }),
+                    {
+                        preserveScroll: true,
+                    },
+                );
+            }}
+        >
+            <Button type="submit" variant="outline" size="sm" disabled={form.processing}>
+                {copy.circulation.requests.cancelButton}
             </Button>
         </form>
     );
@@ -134,12 +172,39 @@ export default function ProfileOverview() {
                 </ul>
             )}
 
-            {/* Phase 2's requests half — the named empty state, plan open
-                question 5, so a reader is told rather than shown a hole. */}
             <h2 className="mb-2 text-lg font-medium">{copy.circulation.myLoans.requestsSection}</h2>
-            <p className="mb-6 text-sm text-muted-foreground">
-                {copy.circulation.myLoans.requestsComingSoon}
-            </p>
+            {dashboard.requests.length === 0 ? (
+                <p className="mb-6 text-sm text-muted-foreground">
+                    {copy.circulation.myLoans.requestsEmpty}
+                </p>
+            ) : (
+                <ul className="mb-6 divide-y border-y">
+                    {dashboard.requests.map((r) => (
+                        <li
+                            key={r.requestId}
+                            className="flex items-center justify-between gap-3 py-3"
+                        >
+                            <div className="min-w-0">
+                                <p className="truncate font-serif text-base">{r.title}</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {r.queuePosition !== null
+                                        ? t(copy.circulation.myLoans.requestPositionLine, {
+                                              position: r.queuePosition,
+                                          })
+                                        : r.holdExpiresAt
+                                          ? t(copy.circulation.myLoans.requestHeldLine, {
+                                                ...formatInstantParts(r.holdExpiresAt),
+                                            })
+                                          : copy.circulation.myLoans.requestHeldLineNoDate}
+                                </p>
+                            </div>
+                            <div className="shrink-0">
+                                <CancelRequestButton requestId={r.requestId} />
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
 
             <h2 className="mb-2 text-lg font-medium">{copy.circulation.myLoans.recentSection}</h2>
             {dashboard.recentlyReturned.length === 0 ? (
