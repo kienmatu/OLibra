@@ -21,6 +21,7 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     // Global Constraint names, so the absence stays true.
     foreach ([
         app_path('Actions/Circulation/ApproveBorrowRequest.php'),
+        app_path('Actions/Circulation/CancelOwnRequest.php'),
         app_path('Actions/Circulation/LendCopy.php'),
         app_path('Actions/Circulation/ReceiveReturn.php'),
         app_path('Actions/Circulation/RejectBorrowRequest.php'),

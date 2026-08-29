@@ -6,7 +6,7 @@ namespace App\Support\Audit;
 
 /**
  * BR §14's readable sentences, and the closed map of actions this build
- * can describe — 24 entries, one per audit action a shipped command
+ * can describe — 25 entries, one per audit action a shipped command
  * writes (AuditActionCensusTest holds the two sets equal in both
  * directions). Pure: the lang file is loaded by require, so nothing here
  * needs the framework, and the wording ships in lang/vi where server
@@ -47,6 +47,7 @@ final class AuditSentences
         'request.created' => 'loans',
         'request.approved' => 'loans',
         'request.rejected' => 'loans',
+        'request.cancelled' => 'loans',
         'membership.registered' => 'readers',
         'membership.approved' => 'readers',
         'membership.rejected' => 'readers',
@@ -151,6 +152,12 @@ final class AuditSentences
                 ':subject' => self::who($subject),
                 ':because' => self::because(self::str($after, 'reason')),
             ]),
+            // The one request sentence whose actor IS the subject — a
+            // reader withdrawing their own row. No :subject, therefore:
+            // naming them twice would read as though somebody withdrew
+            // somebody else's request. Mirrors request.created's arm,
+            // which is the other half of the same reader's pair.
+            'request.cancelled' => strtr(self::line('request_cancelled'), [':title' => self::which(self::str($after, 'title'))]),
             'membership.registered' => ($name = self::str($after, 'fullName')) !== null
                 ? strtr(self::line('membership_registered'), [':name' => $name])
                 : self::line('membership_registered_bare'),

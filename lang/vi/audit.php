@@ -42,6 +42,7 @@ return [
     'request_created' => 'gửi yêu cầu mượn :title',
     'request_approved' => 'giữ chỗ một cuốn sách cho bạn đọc đang chờ',
     'request_rejected' => 'từ chối yêu cầu mượn :title của :subject:because',
+    'request_cancelled' => 'rút lại yêu cầu mượn :title',
 
     // — bạn đọc —
     'membership_registered' => 'nhận đăng ký của :name',

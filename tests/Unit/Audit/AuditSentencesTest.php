@@ -110,6 +110,25 @@ it('request.rejected names the title, the reader, and the reason when there is o
         ->toBe('Maria Quản Lý Kho đã từ chối yêu cầu mượn một cuốn sách của một bạn đọc');
 });
 
+it('request.cancelled names the title, and never names the reader twice', function () {
+    // Same reason request.created, request.approved and request.rejected
+    // have their own case above: this file has no every-action sweep, so
+    // an action with no case here has a lang line nothing pins — deleting
+    // lang/vi/audit.php's request_cancelled line would otherwise leave
+    // the suite green.
+    //
+    // The actor IS the subject here (a reader withdrawing their own row),
+    // so the phrase takes no :subject and a subject in the facts must not
+    // reach the sentence — the second expectation is that, not scenery.
+    expect(AuditSentences::sentence('request.cancelled', audFacts(
+        actor: 'Têrêsa Bạn Đọc Nhỏ',
+        after: ['status' => 'cancelled', 'title' => 'Đất Rừng Phương Nam', 'released_copy_id' => 'c1'],
+    )))->toBe('Têrêsa Bạn Đọc Nhỏ đã rút lại yêu cầu mượn Đất Rừng Phương Nam')
+        ->and(AuditSentences::sentence('request.cancelled', audFacts(
+            actor: 'Têrêsa Bạn Đọc Nhỏ', subject: 'Têrêsa Bạn Đọc Nhỏ',
+        )))->toBe('Têrêsa Bạn Đọc Nhỏ đã rút lại yêu cầu mượn một cuốn sách');
+});
+
 it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', function () {
     // false alone cannot distinguish the type guard from a mutant that
     // replaces `is_string($bag[$key])` with a `(string)` cast: (string)
@@ -121,7 +140,7 @@ it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', fun
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
-it('groupOf answers the family for the 24 actions and null for a stranger', function () {
+it('groupOf answers the family for the 25 actions and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
@@ -134,7 +153,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(24);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(25);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {
