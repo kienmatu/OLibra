@@ -1991,3 +1991,19 @@ pages). Written by Task 14 after the full suite ran green.
   (an unnecessary apostrophe costs nothing) alone, not on a confirmed
   fact. `CsvTest`'s NBSP/ZWSP case pins the current, safer behaviour;
   nobody should read that test as proof of what Excel does.
+- **No test in this suite can exercise CSRF, for any POST route, ever.**
+  `vendor/laravel/framework/.../PreventRequestForgery.php`'s `handle()`
+  passes every request through untouched when
+  `$this->app->runningInConsole() && $this->app->runningUnitTests()` is
+  true — which is always true for a Pest run, independent of any token.
+  `tests/Feature/Oversight/ExportHttpTest.php` (Phase 1d Task 9) confirmed
+  this by reading the vendor source rather than trusting a green suite;
+  the export route's CSRF wiring (`HandleInertiaRequests`'s `csrfToken`
+  shared prop, the hidden `_token` field on each of the audit page's three
+  download forms) was checked by reading the code, not by a request that
+  ever fails without a token. If a future change moves any manage-area
+  route outside the default `web` middleware group, or edits
+  `bootstrap/app.php`'s `append()` to drop CSRF, nothing here would go
+  red. This is a suite-wide gap, not specific to Task 9's route — recorded
+  here because Task 9 is the first place a route's CSRF protection was
+  actually load-bearing enough to go looking for it.
