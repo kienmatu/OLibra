@@ -100,6 +100,18 @@ final class ApproveBorrowRequest
                 throw new RuleViolated('copy_not_found');
             }
 
+            // ONE instant for the whole decision. Clock::now hands back a
+            // fresh CarbonImmutable every time it is called, so reading it
+            // twice would let the expiry filter below and the hold
+            // arithmetic under it sit microseconds apart in production —
+            // invisible under setTestNow, which is exactly why the instant
+            // is read once, here, instead of being trusted to stay equal.
+            // (Spelled without the parentheses on purpose: this file is
+            // grepped for a bare wall-clock read by
+            // CirculationArchitectureTest, and its regex does not exempt
+            // comments — measured, it reddened on the first spelling.)
+            $now = $this->clock->now();
+
             // The live hold on this copy, if any — read AFTER the copy
             // lock, through the expiry filter, so a lapsed hold arrives
             // as absence (the convention copyHoldable is written against).
@@ -107,11 +119,18 @@ final class ApproveBorrowRequest
             // member_id holds, so the refusal cannot be dodged by a
             // surprising column value: member_id is NOT NULL in the
             // schema, and the cast keeps that true for the predicate.
+            //
+            // No ORDER BY, deliberately: copyHoldable asks only whether a
+            // live hold exists, so WHICH of several rows comes back cannot
+            // change the answer, and ordering by requested_at here would
+            // dress the read up as a queue rule ("the earliest holder
+            // wins") that the predicate does not implement. A caller that
+            // ever needs the holder's identity adds the ordering with the
+            // rule that needs it.
             $hold = BorrowRequest::query()
                 ->where('copy_id', $copy->id)
                 ->where('status', RequestStatus::Approved)
-                ->where('hold_expires_at', '>', $this->clock->now())
-                ->orderBy('requested_at')->orderBy('id')
+                ->where('hold_expires_at', '>', $now)
                 ->first(['member_id']);
             $heldForUserId = $hold === null ? null : (string) $hold->member_id;
 
@@ -123,11 +142,15 @@ final class ApproveBorrowRequest
             if ($shelf === null) {
                 throw new RuleViolated('shelf_not_found');
             }
-            $now = $this->clock->now();
             $holdExpiresAt = LoanTerms::holdExpiry($now, LendingSettings::fromShelf($shelf)->holdDays);
 
-            // The title, read inside the transaction so the audit entry
-            // and the notification STORE it (P1 §3.2a).
+            // The title, read inside the transaction and STORED in the
+            // notification payload (P1 §3.2a), so a child's bell keeps
+            // reading correctly whatever UpdateBook does to the row later.
+            // The audit entry does NOT store it — its after bag is status,
+            // copy_id, hold_expires_at and userId — because the reference's
+            // request.approved phrase names no title and neither does ours
+            // (AuditSentences' arm takes no facts).
             $title = (string) Book::query()->whereKey($request->book_id)->value('title');
 
             $request->update([

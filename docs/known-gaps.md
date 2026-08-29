@@ -2239,8 +2239,17 @@ Recorded per task as it lands, not at the end of the phase.
   from the column type — `BookCopy::query()->find('🙂')` against the live
   MariaDB 10.11 container returns exactly that. This is the same shape as
   the `ascii_bin` 500s Phase 1c chased six times, and it is deliberately
-  *not* fixed inside the Action: nothing routes to it yet (pinned by
-  `CirculationArchitectureTest`'s "the borrow-request commands have no
-  route" test), and Task 14's Form Request is where the `uuid` rule
-  belongs, so the emoji becomes a Vietnamese validation message on the way
-  in. If Task 14 ships without that rule, this becomes a live 500.
+  *not* fixed inside the Action: no route reaches it today, and Task 14's
+  Form Request is where the `uuid` rule belongs, so the emoji becomes a
+  Vietnamese validation message on the way in. If Task 14 ships without
+  that rule, this becomes a live 500.
+- **…and the test that looks like it guards that absence guards less than
+  its name suggests.** `CirculationArchitectureTest`'s "HandoverRequest and
+  the borrow-request commands have no route" asserts only that no
+  registered URI contains one of three literal fragments — `handover`,
+  `borrow-requests/{`, `requests/{` (read off the file, not remembered).
+  A queue route spelled `…/manage/queue/{request}/approve` contains none of
+  them and would ship green. So the absence of a route is currently a fact
+  about this branch, not something enforced; the entry above says "no route
+  reaches it today" for that reason. Widening the fragment list is cheap
+  and belongs to whichever task first adds a queue URL.
