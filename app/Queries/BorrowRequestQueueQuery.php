@@ -84,14 +84,27 @@ use RuntimeException;
  * a hand-written filter here — confirmed by running
  * TenancyArchitectureTest against this file.
  *
- * NO INLINE GATE, and that is the house shape, not an omission: every
- * shipped query in app/Queries/ relies on the route's role middleware
- * plus the controller's own Gate — OverdueLoansQuery::run(string $sort),
+ * NO INLINE GATE, and that is the house shape, not an omission: the
+ * shipped queries in app/Queries/ leave authorization to the route's role
+ * middleware — OverdueLoansQuery::run(string $sort),
  * ManagerDashboardQuery::run() and MyDashboardQuery::run(User) each carry
- * none (verified by opening all three, 2026-08-30). An inline
- * Gate::authorize here would also break the one legitimate non-HTTP
- * caller this plan creates, ManagerDashboardQuery's delegation to
- * countWaiting(). The manager routes that call run() carry role:manager
+ * none (verified by opening all three, 2026-08-30).
+ *
+ * CORRECTED (review fix round 1, item 3): this sentence used to read
+ * "the route's role middleware PLUS the controller's own Gate", and that
+ * overstates the layering by one. The controllers behind those three
+ * queries — OverdueController::index, DashboardController::index,
+ * MyLoansController::overview — are bare Inertia::render with a query and
+ * carry no Gate at all (opened, 2026-08-30), and so does this query's own
+ * caller, Manage\BorrowRequestController::index. A controller Gate is
+ * real on some manage READ screens (BookController, LostCopiesController,
+ * ReaderController, RegistrationQueueController all call
+ * Gate::authorize('viewAny', ...)) and simply absent on others; the
+ * middleware is the layer common to all of them.
+ *
+ * An inline Gate::authorize here would also break the one legitimate
+ * non-HTTP caller this plan creates, ManagerDashboardQuery's delegation
+ * to countWaiting(). The manager routes that call run() carry role:manager
  * and CirculationArchitectureTest asserts so; with that middleware
  * removed the GET was measured answering 200 to a reader (Task 14),
  * which is what the middleware, not this class, is there to prevent.

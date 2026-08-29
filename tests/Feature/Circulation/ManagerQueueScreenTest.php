@@ -176,24 +176,58 @@ it('the lapsed row is still on the screen, flagged — hiding it would hide the 
             ->where('queues.0.requests.0.copyCode', 'DT-0001'));
 });
 
-it('a reader 404s on the queue screen and on every POST', function () {
-    // All four surfaces, in one it() because the actor never changes —
-    // one actingAs, four requests, which SessionGuard is perfectly happy
-    // with. The name says "every POST", so every POST is here; the first
-    // draft asserted only the GET.
-    [$shelf, , , $copy, $request] = mqsFix('dong-thap-mqs-reader');
+/*
+ * TWO BLOCKS, NOT ONE, AND THE PLAN PRESCRIBED ONE (review fix round 1,
+ * item 1 — the brief specified a single block verbatim, comment included,
+ * and it is overridden).
+ *
+ * The single block asserted the GET's 404 first, and a failed assertion
+ * aborts the whole test METHOD — so a regression that reopened the GET to
+ * readers would also HIDE whether the three POSTs still refused. That is
+ * not hypothetical here: this task's own authorization measurement (drop
+ * role:manager from the manage group, see the report) could only be taken
+ * by editing the GET assertion out of the way, which is the structure
+ * defeating the person using it.
+ *
+ * The SessionGuard justification the original comment gave answers a
+ * different question. SessionGuard caches the acting user for a whole
+ * test method, so the rule it protects is "do not switch actors inside
+ * one it()". The actor is the SAME reader in both blocks below, so
+ * splitting costs nothing it was guarding — each block makes its own
+ * single actingAs call and never changes actor.
+ */
+it('a reader 404s on the queue screen', function () {
+    [$shelf] = mqsFix('dong-thap-mqs-reader-get');
+    $reader = User::query()->where('full_name', 'Têrêsa Bạn Đọc Nhỏ')->firstOrFail();
+
+    // 404, never 403 — spec §5.4: a reader must not learn the queue
+    // exists. EnsureShelfRole (role:manager) is what produces it; this
+    // GET carries no Form Request and no controller Gate, which is the
+    // house shape for a manage read (OverdueController and
+    // DashboardController are the same bare shape — opened, 2026-08-30).
+    test()->actingAs($reader)->get("/shelves/{$shelf->slug}/manage/borrow-requests")->assertNotFound();
+});
+
+it('a reader 404s on every POST, and nothing happens on the way past', function () {
+    // The name says "every POST", so every POST is here; the first draft
+    // asserted only the GET. All three in ONE block is deliberate and is
+    // not the mistake item 1 corrected: these three are the same fact
+    // about three sibling routes, and if the first one regresses the
+    // other two are not independent evidence — whereas the GET and the
+    // POSTs fail for genuinely different reasons (no Form Request vs. a
+    // Form Request's own abort_unless), which is why THAT split matters.
+    [$shelf, , , $copy, $request] = mqsFix('dong-thap-mqs-reader-post');
     $reader = User::query()->where('full_name', 'Têrêsa Bạn Đọc Nhỏ')->firstOrFail();
     $base = "/shelves/{$shelf->slug}/manage/borrow-requests";
 
-    test()->actingAs($reader)->get($base)->assertNotFound();
-    // 404, never 403 — spec §5.4: a reader must not learn the request
-    // exists. The Form Requests' authorize() aborts before validation, so
-    // a well-formed body is answered the same way as an empty one.
+    // A well-formed body is answered the same way as an empty one: the
+    // role middleware aborts before routing reaches a Form Request at
+    // all, and the Form Requests' own authorize() aborts before
+    // validation.
     test()->actingAs($reader)->post("{$base}/{$request->id}/approve", ['copy_id' => $copy->id])->assertNotFound();
     test()->actingAs($reader)->post("{$base}/{$request->id}/reject", ['reason' => 'thử'])->assertNotFound();
     test()->actingAs($reader)->post("{$base}/{$request->id}/handover")->assertNotFound();
 
-    // And nothing happened on the way past.
     expect($request->fresh()->status)->toBe(RequestStatus::Pending)
         ->and($copy->fresh()->state)->toBe(CopyState::Available)
         ->and(Loan::query()->count())->toBe(0);

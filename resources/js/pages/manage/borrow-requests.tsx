@@ -72,8 +72,26 @@ function initialOf(name: string): string {
  * when, and — once the clock has passed it — that the hold has lapsed.
  * The `Bare` variants exist because hold_expires_at is nullable: an
  * approved row whose expiry was cleared still has to say something.
+ *
+ * A LAPSED HOLD IS EMPHASISED, not merely worded differently (review fix
+ * round 1, item 2). The reference makes this note a coloured badge and
+ * flips it on holdExpired, and both its docblock and this page's own
+ * argument for keeping a lapsed row say the same thing: the row stays
+ * because it is the one thing on this page going wrong. Rendering it in
+ * the same muted grey as "Chỉ duyệt được khi tới lượt." gives up the
+ * reason for keeping it. text-destructive is this repo's shipped idiom
+ * for exactly that (manage/overdue.tsx's days-late line,
+ * profile/overview.tsx's overdue loan, returns/index.tsx's field error).
+ *
+ * WITHOUT THE REFERENCE'S ICON, deliberately: no page under
+ * resources/js/pages imports lucide-react at all (grepped — icons live
+ * only inside components/ui), and design rule 2's icon-word-colour triple
+ * is carried on this side by the Vietnamese word plus the colour, the
+ * same way manage/overdue.tsx carries it. Introducing the first
+ * page-level icon import as a side effect of a colour fix is a bigger
+ * decision than this fix round.
  */
-function holdNoteFor(entry: QueuedRequest): string {
+function HoldNote({ entry }: { entry: QueuedRequest }) {
     const parts = entry.holdExpiresAt ? formatInstantParts(entry.holdExpiresAt) : null;
     const head = entry.holdExpired
         ? parts
@@ -83,9 +101,15 @@ function holdNoteFor(entry: QueuedRequest): string {
           ? t(copy.manageRequests.holdNote, parts)
           : copy.manageRequests.holdNoteBare;
 
-    return entry.copyCode
+    const text = entry.copyCode
         ? [head, t(copy.manageRequests.copySuffix, { code: entry.copyCode })].join(" · ")
         : head;
+
+    return (
+        <span className={entry.holdExpired ? "font-medium text-destructive" : undefined}>
+            {text}
+        </span>
+    );
 }
 
 /**
@@ -238,7 +262,9 @@ function QueueRow({
     children,
 }: {
     entry: QueuedRequest;
-    note: string;
+    // ReactNode, not string: the hold note carries its own emphasis (see
+    // HoldNote), and this slot was already ReactNode-shaped.
+    note: ReactNode;
     children: ReactNode;
 }) {
     const requested = formatInstantParts(entry.requestedAt);
@@ -391,7 +417,7 @@ export default function ManageBorrowRequests() {
                                         <QueueRow
                                             key={entry.requestId}
                                             entry={entry}
-                                            note={holdNoteFor(entry)}
+                                            note={<HoldNote entry={entry} />}
                                         >
                                             <HandoverForm
                                                 shelfSlug={shelf.slug}
