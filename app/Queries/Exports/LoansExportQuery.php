@@ -51,13 +51,19 @@ use App\Models\Loan;
  * identical value made the exclusion arbitrary rather than principled.
  * Resolved by ReadersExportQuery's own stated bound — "a downloadable
  * file is a different distribution surface than a page rendered one
- * record at a time" — applied to its harder case: `condition_note` at
- * least reaches a per-record screen's TypeScript interface (even if
- * unread today; see BooksExportQuery's docblock) and a manager-gated
- * audit expansion (AssessCondition's `conditionNote` in the `after`
- * payload). `return_note` reaches NEITHER — no screen anywhere renders
- * it — so if the harder case is excluded, the easier one cannot be
- * included. `return_note` is dropped from both this select and the
+ * record at a time" — which excludes BOTH, because both are read one
+ * record at a time on a page and neither is read in bulk. ReceiveReturn
+ * writes that same trimmed string a THIRD time, into the
+ * `condition_assessments` row's `note` (ReceiveReturn.php:77), which
+ * ManagerBookDetailQuery maps through (`ManagerBookDetailQuery.php:144`)
+ * and `manage/books/show.tsx:369` renders unconditionally in a book's
+ * condition history. So this value reaches a screen MORE directly than
+ * `condition_note` does — do not repeat the earlier draft's claim that
+ * it "reaches no screen", which was false and is the exact shape of
+ * error this docblock exists to correct one file over. The bound is
+ * about the surface, not the reach: a page shows one child's remark to
+ * the manager reading that child; a CSV hands every remark to whoever
+ * opens the file. `return_note` is dropped from both this select and the
  * `note` map; only `void_reason` remains, which is not a comparable
  * free-text aside but the specific, required-by-BR-§11 explanation for
  * why a loan record exists with no lending in it — "why is there no
