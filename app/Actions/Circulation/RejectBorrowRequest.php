@@ -29,13 +29,17 @@ use Illuminate\Support\Facades\Gate;
  *
  * One lock, the request row (this command touches no copy — a pending
  * request names none), taken as the transaction's first statement.
- * "No such request" and "another shelf's" (scope) never reach
- * request_not_pending at all — lockForUpdate()->findOrFail() throws
- * ModelNotFoundException for both, before either input is told apart
- * from the other. "Already decided" is the one case that IS
- * request_not_pending. All three are one answer to the caller — a
- * 404 — so telling them apart would confirm the other shelf's request
- * exists either way.
+ * "No such request" and "another shelf's" (scope) are indistinguishable
+ * from EACH OTHER — lockForUpdate()->findOrFail() throws
+ * ModelNotFoundException for both, before either is told apart from the
+ * other — which is the anti-enumeration guarantee: a stranger cannot use
+ * this command to learn that another shelf's request exists.
+ * "Already decided" is a different kind of answer, not folded into that
+ * 404: it is request_not_pending, rendered by bootstrap/app.php's
+ * RuleViolated hook as a redirect back carrying the Vietnamese sentence
+ * (never a 404, never a 500 — OPS §2), and it leaks nothing because
+ * reaching it at all already means the request is the caller's own
+ * shelf's — findOrFail ran first and did not throw.
  */
 final class RejectBorrowRequest
 {
