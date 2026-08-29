@@ -362,7 +362,27 @@ Nothing merged; no PR open.
   never ran. The proof it mattered was in the implementer's own report — it had measured that block
   "with the GET assertion disabled" to see its own finding. After the split, re-running the mutation
   with **no test edited** surfaces both failures at once.
-- **15 the return screen's hold picker** — next.
+- **15 the return screen's hold picker** — `4dc42c9`, `d7ff719` · approved after 1 round. It finished
+  the screen work Task 10 deferred, and it **measured two of its own brief's claims false** — both
+  confirmed by the reviewer with the halves the implementer could not check itself. The brief's
+  `?loan=` tests omitted `q=`, which short-circuits the search to `[]` so the loan can never be
+  chosen: changing the tests was right, because the only `loan=`-bearing link in the whole frontend
+  also sends `q` and can only render when the list is non-empty. And the `prepareForValidation()`
+  `''→null` merge is **dead on the HTTP path** — Laravel's global `ConvertEmptyStringsToNull` already
+  does it (verified present in this app's stack, not assumed) — so the three lines are kept as a
+  local guarantee rather than a live one, with the comment corrected in both places.
+  **Its Important is the clearest argument in this phase for reading untested code.** A hold
+  selection outlived the loan it was made for: the loan-row link carries `preserveState`, so the
+  component is not remounted, and the radios were uncontrolled, so the DOM and the form data
+  diverged. Pick loan A, choose a waiter, click loan B — nothing appears checked, the form still
+  holds the first waiter, and confirming **does not apply the return**; it refuses with a sentence
+  the manager has no way to explain. If the second title had nobody waiting, the fieldset was not
+  rendered at all, so the refusal arrived with the feature invisible — and the field-error slot lived
+  inside that hidden fieldset. No test in this repo could have caught it; it was found by reading.
+  Fixed with controlled radios plus a reset effect, and the reviewer traced the fix against Inertia's
+  own source to confirm `setData`'s stability, so the effect's dependency omission is correct rather
+  than a suppressed bug.
+- **16 the notifications surface** — next.
 
 **Two rulings on this task's authorization surface, both no-change:** the queue GET's single
 middleware layer is the house idiom (`OverdueController` and `DashboardController` carry no
