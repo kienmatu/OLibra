@@ -63,6 +63,17 @@ it('str() semantics: a non-string payload value is treated as absent, never coer
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
+it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', function () {
+    // false alone cannot distinguish the type guard from a mutant that
+    // replaces `is_string($bag[$key])` with a `(string)` cast: (string)
+    // false === '' trims to the same "absent" result either way, so that
+    // mutation left all prior tests green. (string) true === '1' does not
+    // — a mutant renders "Maria Q đã thêm sách 1" here, where the real
+    // guard renders the fallback. This is the probe that tells them apart.
+    expect(AuditSentences::sentence('book.created', audFacts(actor: 'Maria Q', after: ['title' => true])))
+        ->toBe('Maria Q đã thêm sách một cuốn sách');
+});
+
 it('groupOf answers the family for the 21 actions and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
