@@ -190,13 +190,20 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Membership::class, MembershipPolicy::class);
         Gate::policy(Loan::class, LoanPolicy::class);
 
-        // Phase 2a. Laravel's convention-based discovery (App\Models\X ->
-        // App\Policies\XPolicy) already finds this one — verified by
-        // running BorrowRequestPolicyTest green with this line absent — so
-        // it is written for the reader of this file rather than for the
-        // container: the four lines above are the codebase's index of which
-        // models have a policy, and a model missing from it reads as a
-        // model with none.
+        // Phase 2a. Convention-based discovery (App\Models\X ->
+        // App\Policies\XPolicy) does find this one today, so deleting this
+        // line leaves the whole suite green (1071, measured). That is NOT
+        // the same as the line being decorative, and the first version of
+        // this comment said it was, which is an invitation to delete it:
+        // move BorrowRequestPolicy to App\Policies\Circulation and
+        // discovery finds nothing, at which point this line is the only
+        // thing wiring the model (18 green with it, 5 red without —
+        // measured both ways). Renaming the class is caught at once by
+        // Larastan; moving it is caught by
+        // tests/Feature/Architecture/PolicyRegistrationTest.php, which
+        // derives its census from app/Policies and from the calls below
+        // rather than transcribing either, and so covers all five of these
+        // and policy number six on the day it lands.
         Gate::policy(BorrowRequest::class, BorrowRequestPolicy::class);
     }
 }

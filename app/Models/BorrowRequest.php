@@ -39,6 +39,14 @@ class BorrowRequest extends Model
      * puts one aside, and survives on a cancelled row as the record of what
      * the reader gave up.
      *
+     * The explicit 'copy_id' is DOCUMENTATION, not a tested constraint:
+     * belongsTo() derives the same key from this method's own name, so
+     * deleting the argument changes nothing and no test can tell (measured:
+     * 18 green). What the test does discriminate is the key pointing at the
+     * WRONG column, which is the mutation that reddens
+     * "BorrowRequest::book() resolves, and copy() is null until a copy is
+     * put aside".
+     *
      * @return BelongsTo<BookCopy, $this>
      */
     public function copy(): BelongsTo
