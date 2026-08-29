@@ -1595,20 +1595,24 @@ pages). Written by Task 14 after the full suite ran green.
   reachable in 1c (nothing creates a `BorrowRequest` outside the seed
   data), so nothing tests it either — Phase 2 re-widens the signature
   to the reference's exact shape when holds exist, not before.
-- **`LendCopy`'s hold-collection branch is unported, and the predicate
-  it depends on is already live and waiting.** The reference closes a
-  collected hold inside the SAME transaction as the lend
-  (`request.fulfilled`, `old_next/src/domain/circulation/commands/
-  lend-copy.ts:220`); this port's `LendCopy::execute` always passes
-  `null` for `$heldForUserId` (`app/Actions/Circulation/LendCopy.php`'s
-  class docblock says so explicitly). `LoanRules::copyLendable`'s
-  held-for-me clause (`$state === CopyState::Held && $heldForUserId ===
-  $forUserId`, `app/Support/Circulation/LoanRules.php:54`) is already
-  unit-tested and correct — Phase 2 only has to wire the real holder
-  through and add the collected-hold close, not invent the predicate.
+- **~~`LendCopy`'s hold-collection branch is unported~~ — CLOSED by
+  Phase 2a Task 8 (`6985690`, `9cea723`).** This entry said
+  `LendCopy::execute` "always passes `null` for `$heldForUserId`" and
+  that the collected-hold close was unported. Both statements became
+  false the moment Task 8 landed: the real holder is wired through, and
+  the close is a guarded `UPDATE ... WHERE status = 'approved'` inside
+  the lend's own transaction, writing `request.fulfilled`. The entry is
+  struck here rather than left for the phase's wrap-up task because a
+  known-gap that has silently become false is worse than one that is
+  merely missing — this document's whole failure mode is claims nobody
+  re-ran. The port ended up STRICTER than the reference it names: the
+  reference's close (`old_next/src/domain/circulation/commands/lend-copy.ts:328-332`)
+  carries no status guard, so it can overwrite a request that lost a
+  race; this one cannot.
 - **INV-5's guarantee is a membership-row lock, not an index — stronger
   than the reference, but bypassable outside `LendCopy`.**
-  `app/Actions/Circulation/LendCopy.php:75` locks the reader's
+  `app/Actions/Circulation/LendCopy.php:81` (was `:75` before Phase 2a
+  Task 8 re-widened the file) locks the reader's
   `Membership` row as the SECOND statement in the transaction (copy
   first, per the lock-order entry below), so a rival lend for the same
   reader waits behind that lock before counting active loans — the

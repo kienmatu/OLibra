@@ -221,7 +221,37 @@ Nothing merged; no PR open.
   arrived when the implementer's own self-review NARROWED correct inherited prose into a false claim.
   Two guards that nothing pinned were also closed, both measured: the audit payload's null
   `released_copy_id`, and the pending path taking no copy lock at all.
-- **8 `LendCopy` hold close** — next.
+- **8 `LendCopy` re-widened** — `6985690`, `9cea723` · approved after 1 review round. The riskiest
+  task of the phase: it modifies a SHIPPED, MERGED Phase 1 command. **1c's `LendCopyTest` is
+  untouched and green (13/13), verified by the re-reviewer with `git diff`** — and it turned out to
+  be the thing that enforces "the hold probe reads after both locks", because the probe runs
+  unconditionally on the walk-up path too, so moving it up reddens the shipped file. A stronger
+  proof than a new assertion, needing no edit. The close is STRICTER than the reference: the
+  reference's `update borrow_requests … where id = …` has no status guard and can overwrite a
+  request that lost a race; this one is `where('status', Approved)` — Task 7's affected-row-count
+  idiom. One change beyond the brief, judged correct on all four questions: `loan.created`'s audit
+  `before` bag stored the literal `['copy_state' => 'available']`, which became a fabricated record
+  once a collected hold reaches the lend from `held`; it now stores the real prior state, matching
+  `lend-copy.ts:290`, byte-identical for walk-up lends (now pinned), and nothing downstream reads it.
+- **9 `HandoverRequest`** — next.
+
+**The one thing on this branch that is genuinely new risk, and Kien should see it.** Task 8 CREATED
+an AB–BA lock edge that did not exist before. `LendCopy` now holds the copy lock and then locks a
+`borrow_requests` row; `CancelOwnRequest`'s documented residual window is the mirror (request first,
+copy second, when the snapshot names no copy). Same (copy C, request R) pair, opposite order → an
+InnoDB **1213** deadlock, arriving as a `QueryException` that nothing translates (`UniqueViolation`
+handles 1062 only), rolling the whole transaction back — so the manager sees a server error, not a
+Vietnamese sentence. **Ruling: accepted, not fixed.** There is no better ordering inside one
+transaction without a retry loop, and this plan's house rule refuses cycle claims that two real OS
+processes have not earned. No frequency is claimed and none was measured. It is now written into the
+Action's comment and into the plan's divergence 1; Task 19 carries it into known-gaps. If Kien wants
+it designed away rather than recorded, that is a real decision and it is his.
+
+**Two `known-gaps.md` corrections landed here** rather than waiting for Task 19: the entry claiming
+`LendCopy`'s hold-collection branch is unported is now **false**, so it is struck with its reason
+(a known-gap that has silently become false is worse than one that is missing — this document's
+whole failure mode is claims nobody re-ran), and the INV-5 entry's line citation is updated
+(`LendCopy.php:75` → `:81`). Entries that are merely MISSING still wait for Task 19.
 
 **Two more source corrections landed at Task 7** (this commit):
 
