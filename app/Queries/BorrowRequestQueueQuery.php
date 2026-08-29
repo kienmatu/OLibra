@@ -198,7 +198,8 @@ final class BorrowRequestQueueQuery
             // recorded rather than reconciled (Task 12 review round 1,
             // item 5; MyDashboardQuery named alongside BookDetailQuery,
             // Task 13 fix round 1, item 4). This ROW_NUMBER partitions
-            // over the whole where-in set at :165 — pending AND approved —
+            // over the whole where-in set waiting() builds — pending AND
+            // approved —
             // while BookDetailQuery's myRequest counts PENDING rows ahead
             // only. For a title with one live hold, this screen shows
             // position 2 for the first pending row and the reader's own
@@ -295,10 +296,20 @@ final class BorrowRequestQueueQuery
                 // any more — both said FOUR and both were wrong by two
                 // tasks later.
                 //
-                // It is the only clock comparison made for a SCREEN:
-                // Task 12's reader book page renders holdExpiresAt as a
-                // deadline
-                // with no comparison at all, so a lapsed hold still reads
+                // WHAT IT BUYS, without an "only" in front of it — this
+                // comment claimed to be the app's one clock comparison and
+                // that was false in both directions (HandoverRequest and
+                // ReleaseExpiredHold compare to refuse; ReaderDetailQuery,
+                // SearchLoansForReturnQuery, ManagerBookDetailQuery,
+                // OverdueLoansQuery and BookDetailQuery all compare a
+                // loan's due_on for something a screen renders). What this
+                // one does is decide holdExpired per row, so a lapsed hold
+                // is visible to the manager AS lapsed. The gap it does not
+                // close is on the reader's side: no reader-facing surface
+                // compares hold_expires_at at all — BookDetailQuery's
+                // myRequest and MyDashboardQuery's requests list both pass
+                // the raw instant through — so Task 12's book page renders
+                // it as a deadline and a lapsed hold still reads
                 // "nhận trước ..." to the child while reading expired to
                 // the volunteer. This flag now has two consumers — Task
                 // 14's resources/js/pages/manage/borrow-requests.tsx picks

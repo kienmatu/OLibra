@@ -327,7 +327,8 @@ it('the CANCEL door feeds the book page\'s errors.rule too, not just the create 
     // so CancelOwnRequest:140-141 answers request_not_pending
     // (lang/vi/rules.php:77). Its sibling request_already_fulfilled
     // (:137-139, lang :84) is reachable the same way when a manager
-    // collects the hold in between — LendCopy:250 is what writes Fulfilled
+    // collects the hold in between — LendCopy's guarded collected-hold
+    // update is what writes Fulfilled
     // — and is left unpinned here rather than staged with a hand-set
     // status.
     [$shelf, $reader, $book] = rrsFix('dong-thap-rrs-cancel-banner');

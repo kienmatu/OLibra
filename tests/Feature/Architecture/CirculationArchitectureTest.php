@@ -25,7 +25,8 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     // lock position LendCopyTest already pins. Taking a borrow_requests
     // lock here before delegating would invert divergence 1's
     // copy-then-request order and manufacture an AB-BA cycle against
-    // LendCopy's own guarded request update (LendCopy.php:250). That
+    // LendCopy's own guarded request update (the ->update([...]) that
+    // closes the collected hold). That
     // inverse mistake is pinned executably, not by this comment:
     // HandoverRequestTest's two query-log braces assert the first FOR
     // UPDATE of the whole flow is on book_copies and that no locking read
@@ -35,7 +36,8 @@ it('every circulation write transaction opens with a FOR UPDATE — the grep pin
     // the place to imply otherwise: HandoverRequest's pre-flight reads
     // pick a sentence, and only some of what they read is re-established
     // afterwards. LendCopy re-reads the COPY and the MEMBERSHIP rows FOR
-    // UPDATE (LendCopy.php:79, :81) and takes its hold probe and loan
+    // UPDATE (its two opening lockForUpdate calls) and takes its hold
+    // probe and loan
     // count after both; it never reads borrow_requests by the id this
     // command was asked about — its probe is by copy_id and compares
     // member_id (:108-118, :142) — so that request's status, its copy_id

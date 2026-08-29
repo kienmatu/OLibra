@@ -51,7 +51,8 @@ use Illuminate\Support\Facades\Gate;
  * makes the argument hold is that each site does one of two things.
  * Most filter on status = approved before comparing the expiry (grepped,
  * not assumed): CountsCopies::borrowable's NOT EXISTS clause
- * (CountsCopies:45), ApproveBorrowRequest's live-hold probe, LendCopy's
+ * (in CountsCopies::borrowable itself), ApproveBorrowRequest's live-hold
+ * probe, LendCopy's
  * collected-hold probe, HandoverRequest's own expiry check and its
  * first-hold probe, ReleaseExpiredHold's guard. The exception is
  * BorrowRequestQueueQuery's per-row holdExpired flag, which instead

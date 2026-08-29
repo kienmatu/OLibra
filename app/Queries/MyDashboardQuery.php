@@ -138,8 +138,9 @@ final class MyDashboardQuery
                 // (BookDetailQuery.php:89-113), so this surface and that
                 // one agree on the same row. Both diverge from the
                 // manager's own ROW_NUMBER, which partitions over pending
-                // AND approved (BorrowRequestQueueQuery.php:197-213's twin
-                // comment) — recorded there and on BookDetailQuery, not
+                // AND approved (the twin comment above that query's own
+                // ROW_NUMBER selectRaw) — recorded there and on
+                // BookDetailQuery, not
                 // restated a third way here.
                 'queuePosition' => $ahead === null ? null : $ahead + 1,
                 'holdExpiresAt' => $r->hold_expires_at?->toISOString(),

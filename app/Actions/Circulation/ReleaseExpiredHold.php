@@ -61,9 +61,14 @@ use Illuminate\Support\Facades\Gate;
  * Lock order: copy first (an approved row always names one; the
  * snapshot's copy_id is an in-memory attribute, so reading it issues no
  * query), request second — Task 5's order exactly. ApproveBorrowRequest
- * (:94, :99) and LendCopy (its copy lock, then the guarded borrow_requests
- * update at :250) take the same two rows in the same order, so nothing in
- * that trio disagrees about direction, an AB-BA needing two orders.
+ * (the copy lockForUpdate that opens its transaction, then the request
+ * lockForUpdate below it) and LendCopy (its copy lock, then the guarded
+ * `->update([...])` that closes the collected hold inside its
+ * borrow_requests write) take the same two rows in the same order, so
+ * nothing in that trio disagrees about direction, an AB-BA needing two
+ * orders. NO LINE NUMBERS: this round's own edits moved the LendCopy
+ * statement three citations were pointing at, which is the counts problem
+ * one level down — cite the symbol, which grep finds and no edit invalidates.
  *
  * The one shipped counterparty that CAN take them the other way round is
  * CancelOwnRequest's documented residual window — request first, copy

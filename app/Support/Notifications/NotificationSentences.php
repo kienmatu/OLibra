@@ -127,7 +127,7 @@ final class NotificationSentences
         // `= null` is not decoration: a bare `static $lines;` makes the
         // variable a non-nullable `mixed` that always exists, and Larastan
         // level 8 rejects the `??=` beneath it as nullCoalesce.variable.
-        // AuditSentences::lines() (app/Support/Audit/AuditSentences.php:247)
+        // AuditSentences::lines() (app/Support/Audit/AuditSentences.php)
         // writes it this way for exactly this reason, and that is why it
         // passes today.
         /** @var array<string, string>|null $lines */

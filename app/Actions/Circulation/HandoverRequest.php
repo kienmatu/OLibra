@@ -33,7 +33,8 @@ use Illuminate\Support\Facades\Gate;
  * SOME of what they read is re-established one call later and some is
  * not, and the difference is the whole cost of this shape. Re-established:
  * the copy row and this reader's membership row, both re-read FOR UPDATE
- * as LendCopy's first two statements (LendCopy.php:79, :81), and the
+ * as LendCopy's first two statements (its copy and membership
+ * lockForUpdate calls, in that order), and the
  * copy's live-hold probe and the reader's active-loan count, plain reads
  * taken after both locks and serialised by them (that command's own
  * docblock makes the argument). NOT re-established: this request itself.
@@ -70,7 +71,8 @@ use Illuminate\Support\Facades\Gate;
  *
  * Taking a borrow_requests lock here first, to close that window, would
  * invert divergence 1's copy-then-request order and manufacture an AB-BA
- * cycle against LendCopy's own guarded request update (LendCopy.php:250).
+ * cycle against LendCopy's own guarded request update (the
+ * `->update([...])` that closes the collected hold).
  * That is why this file is absent from CirculationArchitectureTest's lock
  * grep-pin, and the absence is pinned executably rather than by comment:
  * HandoverRequestTest's two query-log braces assert the first FOR UPDATE
