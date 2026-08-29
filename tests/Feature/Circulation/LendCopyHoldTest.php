@@ -57,12 +57,14 @@ it('INV-3: a held copy is lendable to its holder, and the lend closes the hold',
 
     $loan = Loan::query()->findOrFail($result['loanId']);
     $request = $hold->fresh();
-    expect($loan->status)->toBe(LoanStatus::Active)
-        ->and($loan->request_id)->toBe($hold->id)                    // the rows point at each other
-        ->and($request->status)->toBe(RequestStatus::Fulfilled)
-        ->and($request->fulfilled_loan_id)->toBe($loan->id)
-        ->and($request->hold_expires_at)->not->toBeNull()            // the deadline they met, kept
-        ->and($copy->fresh()->state)->toBe(CopyState::OnLoan);
+    // One statement per fact, so a regression names itself rather than
+    // hiding behind whichever assertion Pest reaches first.
+    expect($loan->status)->toBe(LoanStatus::Active);
+    expect($loan->request_id)->toBe($hold->id);                      // the rows point at each other
+    expect($request->status)->toBe(RequestStatus::Fulfilled);
+    expect($request->fulfilled_loan_id)->toBe($loan->id);
+    expect($request->hold_expires_at)->not->toBeNull();              // the deadline they met, kept
+    expect($copy->fresh()->state)->toBe(CopyState::OnLoan);
 });
 
 it('INV-3: a held copy is refused to anyone but its holder, and nothing is written', function () {
@@ -70,8 +72,8 @@ it('INV-3: a held copy is refused to anyone but its holder, and nothing is writt
 
     expect(fn () => app(LendCopy::class)->execute($manager, $copy, $other))
         ->toThrow(RuleViolated::class, 'copy_not_available');
-    expect(Loan::query()->count())->toBe(0)
-        ->and($copy->fresh()->state)->toBe(CopyState::Held);
+    expect(Loan::query()->count())->toBe(0);
+    expect($copy->fresh()->state)->toBe(CopyState::Held);
 });
 
 it('INV-3: a lapsed hold makes the copy lendable to nobody, its own ex-holder included', function () {
@@ -85,28 +87,20 @@ it('INV-3: a lapsed hold makes the copy lendable to nobody, its own ex-holder in
     expect($hold->fresh()->status)->toBe(RequestStatus::Approved);   // nothing wrote 'expired'
 });
 
-it('an AVAILABLE copy under somebody else\'s live hold still lends — and never closes their request', function () {
-    // TWO things at once, and both are deliberate (plan divergence 13).
-    //
-    // (a) The lend SUCCEEDS. LoanRules::copyLendable's available branch
-    //     does not look at holds — the faithful port of the reference's
-    //     policy.ts:86-108, hole included. The row is reachable with
-    //     shipped 1a commands: approve onto this copy (held), ReportCopyLost
-    //     (lost, the request still approved with a live hold),
-    //     MarkCopyFound (available). ApproveBorrowRequest refuses that row
-    //     (Task 5 has the named test); LendCopy does not, and neither does
-    //     the reference. Task 19 records it in known-gaps.
-    //
-    // (b) The lend must NEVER close the other reader's request. That is
-    //     the second half of $collectedHoldId, and this row is the only
-    //     one that can exercise it — the fixture's own hold names DT-0001,
-    //     so a hold on a DIFFERENT copy leaves $hold null and the branch
-    //     untested.
-    //
-    // A third reader owns the foreign hold, not the fixture's holder:
-    // holder already has a live approved row for this title, and
-    // borrow_requests_one_live_per_title_member (Task 1) allows one.
-    [$shelf, $manager, , $other, , $hold] = lchFix('dong-thap-lch-foreign');
+/**
+ * The divergence-13 row, which takes two it() blocks to observe (see the
+ * first of them). lchFix's shelf, plus a SECOND copy that is `available`
+ * while carrying a live approved hold for a THIRD reader — Phêrô, not the
+ * fixture's holder, because the holder already has a live approved row for
+ * this title and borrow_requests_one_live_per_title_member (Task 1) allows
+ * one. Grep first: `grep -rn "^function lchForeignHoldFix" tests/` — top-level
+ * helpers are process-global (AGENTS.md).
+ *
+ * @return array{User, Membership, BookCopy, BorrowRequest, BorrowRequest}
+ */
+function lchForeignHoldFix(string $slug): array
+{
+    [$shelf, $manager, , $other, , $hold] = lchFix($slug);
     app(TenantContext::class)->actSystemWide();
     $free = BookCopy::query()->create([
         'bookshelf_id' => $shelf->id, 'book_id' => $hold->book_id, 'code' => 'DT-0044', 'state' => 'available',
@@ -121,13 +115,53 @@ it('an AVAILABLE copy under somebody else\'s live hold still lends — and never
     ]);
     app(TenantContext::class)->set($shelf->fresh(), Membership::query()->whereHas('user', fn ($q) => $q->where('full_name', 'Maria Quản Lý Kho'))->firstOrFail());
 
+    return [$manager, $other, $free, $foreignHold, $hold];
+}
+
+it('an AVAILABLE copy under somebody else\'s live hold still lends — plan divergence 13', function () {
+    // Half (a) of divergence 13, and the reason it gets its OWN it():
+    // dropping the ownership half of $collectedHoldId breaks this fact AND
+    // the two in the next test, but a failed expect() aborts the whole
+    // test METHOD — not just a ->and() chain — so facts sharing an it()
+    // can never be observed failing together. Measured, not assumed: with
+    // the four facts as four separate statements in one it(), the mutation
+    // still showed only the first. Two it() blocks is what makes both
+    // halves of the brief's mutation-2 prediction visible.
+    //
+    // The lend SUCCEEDS: LoanRules::copyLendable's available branch does
+    // not look at holds — the faithful port of the reference's
+    // policy.ts:86-108, hole included. The row is reachable with shipped
+    // 1a commands: approve onto this copy (held), ReportCopyLost (lost,
+    // the request still approved with a live hold), MarkCopyFound
+    // (available). ApproveBorrowRequest refuses that row (Task 5 has the
+    // named test); LendCopy does not, and neither does the reference.
+    // Task 19 records it in known-gaps.
+    [$manager, $other, $free] = lchForeignHoldFix('dong-thap-lch-foreign');
+
     $result = app(LendCopy::class)->execute($manager, $free, $other);
 
-    expect(Loan::query()->findOrFail($result['loanId'])->request_id)->toBeNull()
-        ->and($foreignHold->fresh()->status)->toBe(RequestStatus::Approved)
-        ->and($foreignHold->fresh()->fulfilled_loan_id)->toBeNull()
-        // The fixture's own hold, on the other copy, is untouched too.
-        ->and($hold->fresh()->status)->toBe(RequestStatus::Approved);
+    // The loan exists, and it came out of no queue.
+    expect(Loan::query()->findOrFail($result['loanId'])->request_id)->toBeNull();
+});
+
+it('...and that lend NEVER closes the other reader\'s request', function () {
+    // Half (b), the second half of $collectedHoldId. This row is the only
+    // one that can exercise it: the fixture's own hold names DT-0001, so a
+    // foreign hold on a DIFFERENT copy would leave $hold null and the
+    // branch untested. Here the foreign hold names the copy being lent.
+    //
+    // Both of Phêrô's columns in ONE assertion, deliberately: they are
+    // written by a single UPDATE, so a failure should show both rather
+    // than abort on whichever came first.
+    [$manager, $other, $free, $foreignHold, $hold] = lchForeignHoldFix('dong-thap-lch-foreign-b');
+
+    app(LendCopy::class)->execute($manager, $free, $other);
+
+    $row = $foreignHold->fresh();
+    expect(['status' => $row->status, 'fulfilled_loan_id' => $row->fulfilled_loan_id])
+        ->toBe(['status' => RequestStatus::Approved, 'fulfilled_loan_id' => null]);
+    // The fixture's own hold, on the other copy, is untouched too.
+    expect($hold->fresh()->status)->toBe(RequestStatus::Approved);
 });
 
 it('collecting a hold writes both facts, one audit row each, in one transaction', function () {
@@ -137,18 +171,20 @@ it('collecting a hold writes both facts, one audit row each, in one transaction'
 
     $created = AuditLog::query()->where('action', 'loan.created')->firstOrFail();
     $fulfilled = AuditLog::query()->where('action', 'request.fulfilled')->firstOrFail();
-    expect(((array) $created->after)['request_id'])->toBe($hold->id)     // no longer the walk-up null
-        // The state the copy was ACTUALLY in. 1c could write the literal
-        // 'available' safely because that was the only lendable state;
-        // this row reaches the lend from held, and an audit before-bag
-        // that said otherwise would be a false record, not a rounding.
-        ->and(((array) $created->before)['copy_state'])->toBe('held')
-        ->and($fulfilled->entity_id)->toBe($hold->id)
-        // actor_id is the ONLY column that pins the session: the fixture's
-        // single actingAs, not a value this test handed the command.
-        ->and($fulfilled->actor_id)->toBe($manager->id)
-        ->and((array) $fulfilled->before)->toMatchArray(['status' => 'approved', 'copy_id' => $copy->id, 'fulfilled_loan_id' => null])
-        ->and((array) $fulfilled->after)->toMatchArray(['status' => 'fulfilled', 'copy_id' => $copy->id, 'fulfilled_loan_id' => $result['loanId']]);
+    expect(((array) $created->after)['request_id'])->toBe($hold->id);    // no longer the walk-up null
+    // The state the copy was ACTUALLY in. 1c could write the literal
+    // 'available' safely because that was the only lendable state; this
+    // row reaches the lend from held, and an audit before-bag that said
+    // otherwise would be a false record, not a rounding. Paired with the
+    // walk-up test's 'available' pin below, which is what measures the
+    // claim that the change is a no-op off this path.
+    expect(((array) $created->before)['copy_state'])->toBe('held');
+    expect($fulfilled->entity_id)->toBe($hold->id);
+    // actor_id is the ONLY column that pins the session: the fixture's
+    // single actingAs, not a value this test handed the command.
+    expect($fulfilled->actor_id)->toBe($manager->id);
+    expect((array) $fulfilled->before)->toMatchArray(['status' => 'approved', 'copy_id' => $copy->id, 'fulfilled_loan_id' => null]);
+    expect((array) $fulfilled->after)->toMatchArray(['status' => 'fulfilled', 'copy_id' => $copy->id, 'fulfilled_loan_id' => $result['loanId']]);
 });
 
 it('a walk-up lend still audits request_id as null — 1c\'s test stays green beside this one', function () {
@@ -163,5 +199,11 @@ it('a walk-up lend still audits request_id as null — 1c\'s test stays green be
 
     app(LendCopy::class)->execute($manager, $free, $other);
 
-    expect(((array) AuditLog::query()->where('action', 'loan.created')->firstOrFail()->after)['request_id'])->toBeNull();
+    $entry = AuditLog::query()->where('action', 'loan.created')->firstOrFail();
+    expect(((array) $entry->after)['request_id'])->toBeNull();
+    // And the before-bag still reads 'available'. Phase 2a replaced the
+    // literal with the copy's actual state (a collected hold reaches the
+    // lend from held); this is the measurement, not the argument, that the
+    // replacement is a no-op on the walk-up path 1c shipped.
+    expect(((array) $entry->before)['copy_state'])->toBe('available');
 });

@@ -43,10 +43,12 @@ use Illuminate\Support\Facades\Gate;
  *
  * hold_expires_at and copy_id are LEFT WHERE THEY STAND — the record of
  * what the reader gave up. Blanking them would erase it, and they are not
- * stale: today's two readers of a hold — borrowable()'s NOT EXISTS clause
- * and ApproveBorrowRequest's live-hold probe — both filter on
- * status = approved (grepped, not assumed), so a cancelled row's hold is
- * inert.
+ * stale: today's THREE readers of a hold — CountsCopies::borrowable's NOT
+ * EXISTS clause (CountsCopies:45), ApproveBorrowRequest's live-hold probe
+ * (ApproveBorrowRequest:133) and LendCopy's collected-hold probe
+ * (LendCopy:111, added when Phase 2a re-widened that command) — every one
+ * of them filters on status = approved before it compares the expiry
+ * (grepped, not assumed), so a cancelled row's hold is inert.
  *
  * OWNERSHIP is the whole of the permission and both sides are users.id:
  * borrow_requests.member_id against $actor->id. member_id's name says

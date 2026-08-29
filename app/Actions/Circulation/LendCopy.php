@@ -111,11 +111,16 @@ final class LendCopy
                 ->where('hold_expires_at', '>', $this->clock->now())
                 ->orderBy('requested_at')->orderBy('id')
                 ->first();
+            // ApproveBorrowRequest:135's spelling, and for its documented
+            // reason: member_id is NOT NULL in the schema and the cast
+            // keeps that true for the predicate. One spelling of one
+            // guard, in both files.
+            $heldForUserId = $hold === null ? null : (string) $hold->member_id;
 
             // OPS §5's order: copy-side refusals first — "a manager who
             // searched for a book that's already gone needs to know that
             // immediately, not after they've also picked a reader."
-            if (($code = LoanRules::copyLendable($copy->state, $hold?->member_id, $membership->user_id)) !== null) {
+            if (($code = LoanRules::copyLendable($copy->state, $heldForUserId, $membership->user_id)) !== null) {
                 throw new RuleViolated($code);
             }
 
@@ -128,7 +133,13 @@ final class LendCopy
             // available branch does not look at holds, ported whole), and
             // this is the line that keeps such a lend from closing their
             // request.
-            $collectedHoldId = ($hold !== null && $hold->member_id === $membership->user_id)
+            // The cast is on BOTH sides because === is the comparison:
+            // copyLendable's string parameter coerces its argument at the
+            // call boundary above, this line has no such boundary, and a
+            // non-string on either side would silently never match —
+            // turning "a held copy is lendable to its holder" into "a held
+            // copy never collects its hold" with every pure test green.
+            $collectedHoldId = ($hold !== null && $heldForUserId === (string) $membership->user_id)
                 ? $hold->id
                 : null;
 
@@ -201,10 +212,32 @@ final class LendCopy
                 // CancelOwnRequest is the only shipped command that can
                 // move an approved row anywhere else (RejectBorrowRequest
                 // refuses anything but pending; nothing writes 'expired'
-                // at all — grepped), and its own docblock records the
-                // residual window where it takes the request lock before
-                // the copy's. No claim about which of the two wins is made
-                // here either way; the guard is what makes losing safe.
+                // at all — grepped), and it is also this statement's lock
+                // counterparty. THIS COMMIT CREATED THAT EDGE: before it,
+                // LendCopy touched no borrow_requests row at all.
+                //
+                // The cycle, for one (copy C, request R) pair: this
+                // command holds C's lock from its first statement and asks
+                // for R's here, while a CancelOwnRequest whose snapshot
+                // was bound BEFORE the approval (its documented residual
+                // window, CancelOwnRequest's docblock) takes no copy lock,
+                // holds R, and asks for C in its guarded release. Held C
+                // wanting R against held R wanting C is an AB-BA cycle,
+                // and InnoDB breaks it by rolling one transaction back.
+                //
+                // So there are two ways to lose, not one. Losing the
+                // ORDERED race is what the status guard makes safe: the
+                // WHERE stops matching and this becomes a no-op, the lend
+                // having already committed nothing it must take back.
+                // Losing the DEADLOCK is different and is not this guard's
+                // business — errno 1213 arrives as a QueryException, not a
+                // RuleViolated, so the whole transaction rolls back (loan,
+                // copy state and both audit rows together) and the
+                // manager sees a server error rather than a Vietnamese
+                // sentence. No frequency is claimed here: nothing in this
+                // build has measured one, and a two-connection race cannot
+                // run under RefreshDatabase (1a divergence 2). The plan's
+                // divergence 1 records the edge.
                 BorrowRequest::query()
                     ->whereKey($collectedHoldId)
                     ->where('status', RequestStatus::Approved)
