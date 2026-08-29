@@ -87,6 +87,15 @@ it('withdrawing never drags a copy that has moved on back to available', functio
     expect($copy->fresh()->state)->toBe(CopyState::Lost)
         ->and($result['releasedCopyId'])->toBeNull()
         ->and($request->fresh()->status)->toBe(RequestStatus::Cancelled);
+
+    // The AUDIT ROW's null, not just the return value's — and this is the
+    // only test that can pin it: the row still names copy_id while nothing
+    // was released, so a payload hard-coding $request->copy_id here is the
+    // one mutation the INV-8 test below cannot see. Measured: making that
+    // substitution reddens this block and nothing else.
+    $after = (array) AuditLog::query()->where('action', 'request.cancelled')->firstOrFail()->after;
+    expect($after)->toHaveKey('released_copy_id')
+        ->and($after['released_copy_id'])->toBeNull();
 });
 
 it('a reader cannot withdraw somebody else\'s request', function () {
@@ -99,7 +108,13 @@ it('a reader cannot withdraw somebody else\'s request', function () {
     $rival = User::factory()->create(['full_name' => 'Anna Người Khác']);
     $rivalMembership = Membership::factory()->for($shelf)->create(['user_id' => $rival->id, 'role' => 'reader', 'status' => 'active']);
     app(TenantContext::class)->set($shelf->fresh(), $rivalMembership);
-    test()->actingAs($rival);
+    // No second actingAs, deliberately — corFix already signed $reader in,
+    // and this path consults no session at all: the ability is checked with
+    // Gate::forUser($rival), the act-as-reader gate reads the TenantContext
+    // set on the line above plus the $user it is handed, and AuditRecorder
+    // (the one Auth::id() reader) is never reached because the refusal
+    // throws first. A sign-in here would read as load-bearing while
+    // guarding nothing.
 
     expect(fn () => app(CancelOwnRequest::class)->execute($rival, $request))
         ->toThrow(RuleViolated::class, 'not_own_request');
@@ -136,7 +151,28 @@ it('for a held request the copy lock is first, the request lock second', functio
         ->and(str_contains(strtolower($log[1]['query']), 'for update'))->toBeTrue($log[1]['query']);
 });
 
-it('INV-8: request.cancelled records which copy went back, and null when none did', function () {
+it('with no copy in the snapshot no copy is locked, and the request lock is first', function () {
+    // The other half of divergence 1's "the snapshot decides": a request
+    // bound while pending names no copy, so the if-guard skips the copy
+    // lock entirely rather than locking something. Without that guard
+    // find(null) issues a book_copies statement FIRST — measured, this is
+    // the block that reddens, and the lock-position test above stays green
+    // because its snapshot does name a copy.
+    [, $reader, $request] = corFix(slug: 'dong-thap-cor-lock-pending');
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    app(CancelOwnRequest::class)->execute($reader, $request);
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect(str_contains($log[0]['query'], 'borrow_requests'))->toBeTrue($log[0]['query'])
+        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue($log[0]['query'])
+        // Not merely "not first" — book_copies is not touched at all.
+        ->and(array_filter($log, fn (array $q) => str_contains($q['query'], 'book_copies')))->toBe([]);
+});
+
+it('INV-8: request.cancelled records which copy went back', function () {
     [, $reader, $request, $copy] = corFix(approved: true, slug: 'dong-thap-cor-audit');
 
     app(CancelOwnRequest::class)->execute($reader, $request);

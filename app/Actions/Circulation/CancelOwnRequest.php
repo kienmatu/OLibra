@@ -26,9 +26,14 @@ use Illuminate\Support\Facades\Gate;
  * state goes on saying held, with nobody left to hand it to.
  * CountsCopies::borrowable() wants state = available AND no live approved
  * hold, so the copy fails its FIRST clause: it stays out of the
- * catalogue's "còn sách" filter and out of every available_count
- * (CatalogueQuery is borrowable()'s only caller) until something else
- * puts it back.
+ * catalogue's "còn sách" filter (CatalogueQuery:32's whereHas) and out of
+ * the available_count aggregate, which CountsCopies::withCopyCounts()
+ * computes for six query classes — CatalogueQuery, BooksListQuery,
+ * BookDetailQuery, ManagerBookDetailQuery, SearchQuery and
+ * SearchBooksForLendingQuery — until something else puts it back.
+ * (borrowable() has exactly two call sites, CatalogueQuery:32 and
+ * CountsCopies:59; grepped. An earlier draft of this line said
+ * CatalogueQuery was the only one, which was false.)
  *
  * held → available is guarded ON THE STATE, in the WHERE itself: a copy
  * that has since moved on (lent, lost, retired) is left alone — zero
@@ -59,10 +64,18 @@ use Illuminate\Support\Facades\Gate;
  * query), then the request. A snapshot bound pre-approval names none; if
  * an approval commits in between, the guarded release runs after the
  * request lock and takes the copy's row lock second — the one place this
- * phase's order inverts. That residual window is recorded in the plan's
- * divergence 1 with its interleaving, and no deadlock-freedom claim is
- * made here either way; Task 19's wrap-up is the task that copies the
- * record into docs/known-gaps.md, which does not carry it yet. The
+ * phase's order inverts. That is the ONLY way the lock and the release can
+ * name different rows: the lock names the snapshot's copy_id, the release
+ * names the locked row's, and borrow_requests.copy_id has exactly one
+ * writer under app/ — ApproveBorrowRequest:158's pending → approved update
+ * (grepped; every other 'copy_id' write in app/Actions targets loans,
+ * condition_assessments or an audit payload). So the two can differ only
+ * by null → a copy id, never copy A → copy B.
+ *
+ * That residual window is recorded in the plan's divergence 1 with its
+ * interleaving, and no deadlock-freedom claim is made here either way;
+ * Task 19's wrap-up is the task that copies the record into
+ * docs/known-gaps.md, which does not carry it yet. The
  * alternative — request first, always — would invert the order against
  * ApproveBorrowRequest and LendCopy on every contested schedule rather
  * than on this vanishing one.
