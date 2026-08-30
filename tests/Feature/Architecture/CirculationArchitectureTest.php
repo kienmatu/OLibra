@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 
-// Grep first: `grep -rn "^function circulationTransactionCalls" tests/` —
+// Grep first: `grep -rn "^function actionTransactionCalls" tests/` —
 // top-level helpers are process-global (AGENTS.md). One walk, two `it()`
 // blocks: Pest short-circuits an expect()->and() chain and a failed
 // expect() aborts the whole method, so the rule and the guard's own
@@ -65,9 +65,15 @@ use Illuminate\Support\Facades\Route;
 // check); if one appears, the rule it must be held to is the same one, and
 // this walk has to learn that shape rather than be read as having covered
 // it.
+//
+// ROOT-PARAMETERISED (Phase 2b Task 1): $root defaults to
+// app/Actions/Circulation, unchanged — CommunityArchitectureTest (Task 2)
+// is the other caller, walking app/Actions/Community with the same rule.
 /** @return array{0: array<string, int>, 1: list<string>, 2: list<string>} */
-function circulationTransactionCalls(): array
+function actionTransactionCalls(?string $root = null): array
 {
+    $root ??= app_path('Actions/Circulation');
+
     $strip = static function (string $source): string {
         $out = '';
         foreach (token_get_all($source) as $token) {
@@ -96,7 +102,7 @@ function circulationTransactionCalls(): array
     $literals = [];
 
     $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator(app_path('Actions/Circulation'), FilesystemIterator::SKIP_DOTS)
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
     );
     foreach ($files as $file) {
         $path = $file->getPathname();
@@ -194,7 +200,7 @@ it('every circulation write transaction retries — the attempts argument, token
     // spelling would make a deliberate per-command count a test failure,
     // and the value is argued in ConcurrencyRetry's own docblock, which is
     // where it belongs.
-    [, $offenders] = circulationTransactionCalls();
+    [, $offenders] = actionTransactionCalls();
 
     expect($offenders)->toEqual([]);
 });
@@ -215,7 +221,7 @@ it('the attempts guard actually inspects the transactions it claims to guard', f
     // One-directional by design: the walk legitimately finds calls this
     // substring cannot (a `$connection->transaction(` spelling), so a file
     // in the tally but not in the substring set is not an offence.
-    [$callSites, , $literals] = circulationTransactionCalls();
+    [$callSites, , $literals] = actionTransactionCalls();
 
     $blind = [];
     foreach ($literals as $rel) {
@@ -231,6 +237,25 @@ it('the attempts guard actually inspects the transactions it claims to guard', f
     // walk did not miss any it found.
     expect($literals)->not->toBeEmpty()
         ->and($blind)->toEqual([]);
+});
+
+it('the no-argument call walks exactly app/Actions/Circulation — the rename pinned by identity, not by a mutation', function () {
+    // Phase 2b Task 1 edits this shipped guard to take a root, a
+    // deliberate exception to "a task satisfies a guard rather than
+    // editing it" — so the mutation that would normally prove a default's
+    // correctness has to prove the WALK'S EXTENT here instead. The plan's
+    // first draft proposed pointing the default at
+    // app_path('Actions/Members') and expecting the non-vacuity block
+    // above to redden; measured, it does not — every file under
+    // Actions/Members contains a literal DB::transaction(, and
+    // Actions/Catalogue would redden identically, so that mutation only
+    // proves the default is READ, never that it points at THIS directory.
+    // An identity check on the call-site keys is falsified by any default
+    // that is not app/Actions/Circulation, including a sibling one.
+    [$defaultCallSites] = actionTransactionCalls();
+    [$explicitCallSites] = actionTransactionCalls(app_path('Actions/Circulation'));
+
+    expect(array_keys($defaultCallSites))->toEqualCanonicalizing(array_keys($explicitCallSites));
 });
 
 it('every circulation write transaction opens with a FOR UPDATE — the grep pin', function () {

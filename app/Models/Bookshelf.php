@@ -175,4 +175,23 @@ class Bookshelf extends Model
     {
         return $this->hasMany(AuditLog::class);
     }
+
+    /**
+     * What scopeBindings() resolves the {comment} route parameter through
+     * — the borrowRequests() precedent, same two-layer shape: this
+     * relation's own FK filter and BookshelfScope on Comment
+     * (App\Models\Concerns\BelongsToBookshelf) are each an independent
+     * defence against a foreign shelf's comment id, and this task has NOT
+     * measured which of them, alone, would be sufficient for this
+     * particular relation — that measurement belongs to whichever task
+     * first has a route bound through {comment} to re-run against, the
+     * same way borrowRequests()'s docblock records its own measurement
+     * rather than assuming this one transfers.
+     *
+     * @return HasMany<Comment, $this>
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class);
+    }
 }

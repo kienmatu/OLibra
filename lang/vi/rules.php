@@ -104,4 +104,25 @@ return [
     // nothing about locks — the caller's only useful action is to send the
     // same tap again. OPS §6 is its second ledger.
     'busy_try_again' => 'Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại.',
+
+    // ── Community (Phase 2b) ──────────────────────────────────────────
+    // The reference's ERROR_MESSAGES
+    // (old_next/src/domain/kernel/errors.ts) verbatim for the codes this
+    // slice throws — the codes themselves come from
+    // old_next/src/domain/community/commands/comment-moderation.ts. NOT
+    // edited into RuleViolatedCodesHaveSentencesTest's census here:
+    // nothing throws these codes yet, and that census walks throwers, not
+    // sentences. Tasks 2–4 add their codes to that list in the commits
+    // that first throw them.
+    'comments_disabled' => 'Tủ sách hiện không nhận bình luận.',
+    'empty_body' => 'Vui lòng nhập nội dung bình luận.',
+    'comment_not_pending' => 'Bình luận này đã được xử lý.',
+    'comment_not_approved' => 'Chỉ có thể ẩn bình luận đang hiển thị.',
+    // Two flash lines, not one — the shelf's own comments_require_approval
+    // setting decides which is true, and a single "đã gửi" line on a
+    // moderating shelf would be silent about the pending state.
+    // reject_reason_required is not repeated here — 1b minted it, and
+    // OPS §4.4's RejectComment reuses that same sentence.
+    'comment_pending_flash' => 'Đã gửi. Bình luận của bạn sẽ hiển thị sau khi được duyệt.',
+    'comment_published_flash' => 'Đã gửi bình luận.',
 ];

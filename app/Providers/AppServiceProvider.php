@@ -7,12 +7,14 @@ use App\Enums\MembershipStatus;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\BorrowRequest;
+use App\Models\Comment;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
 use App\Policies\BookCopyPolicy;
 use App\Policies\BookPolicy;
 use App\Policies\BorrowRequestPolicy;
+use App\Policies\CommentPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
 use App\Support\DeadlockDetector;
@@ -218,5 +220,12 @@ class AppServiceProvider extends ServiceProvider
         // rather than transcribing either, and so covers all five of these
         // and policy number six on the day it lands.
         Gate::policy(BorrowRequest::class, BorrowRequestPolicy::class);
+
+        // Phase 2b. Same reasoning as the BorrowRequest line above:
+        // convention discovery finds this one too today, so this line's
+        // measured value is the same — PolicyRegistrationTest derives its
+        // census from app/Policies and from this file's own source, so it
+        // covers CommentPolicy without a test edit.
+        Gate::policy(Comment::class, CommentPolicy::class);
     }
 }
