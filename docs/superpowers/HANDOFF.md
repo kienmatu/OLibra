@@ -22,7 +22,7 @@ product-owner question waiting for him under "Owed by Kien" below.
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
 | 2a Requests & holds | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | #64 | merged (`main` = `fabfbd4`) |
-| **2b Community voice** | `plans/2026-08-30-laravel-phase-2b-community-voice.md` | — | **in flight — 20 tasks, 6 implemented, Task 6 in its fix-round re-review** |
+| **2b Community voice** | `plans/2026-08-30-laravel-phase-2b-community-voice.md` | — | **complete — 20 tasks, whole-branch reviewed, fixes applied; PR open, awaiting Kien's merge decision** |
 | 2c Statistics & labels | not written | — | — |
 
 Phase 1 (1a–1d) IS BR §1.4's core loop, and it is done. Next: Phase 2 (Community), then
@@ -43,73 +43,75 @@ over-wide shape Phase 1 was split for. The cut:
   site feedback and its inbox, donations.
 - **2c — statistics and QR labels.**
 
-## Phase 2b — current position
+## Phase 2b — complete
 
-Branch `feat/phase-2b-community-voice`, cut from `main` at `fabfbd4` (the #64 merge).
-**19 commits ahead.** Plan `plans/2026-08-30-laravel-phase-2b-community-voice.md`,
-**20 tasks in three slices**, written by Opus and reviewed by a different Opus
-(`636c29d` → `a3b18b6` three Criticals / nine Importants / six Minors → `a918810`
-the corrections re-measured → `3c93ba2`). **Site feedback was cut to Phase 3** during
-planning; the slices are A comments and moderation, B announcements, C donations.
+Branch `feat/phase-2b-community-voice`, cut from `main` at `fabfbd4`. **55 commits**,
+103 files, +19,513 / −107. Suite **1,569 passing / 9,384 assertions**. Pint 436 files,
+Larastan level 8 clean on 256, Biome at the inherited baseline (3 warnings, 1 info), tsc
+clean, Vite builds. `git diff origin/main...HEAD -- old_next/` is empty.
 
-### Landed
+Plan `plans/2026-08-30-laravel-phase-2b-community-voice.md`, **20 tasks in three slices**,
+written by Opus and reviewed by a different Opus. Site feedback was cut to Phase 3 during
+planning.
 
-| # | What | Commit | Suite after |
-|---|---|---|---|
-| 1 | Comment groundwork — the shelf's two settings, the policy, the relations, the refusal sentences | — | — |
-| 2 | `CreateComment` + its POST, `StoreCommentRequest`, `CommentController`, both flashes | — | — |
-| 3 | `ApproveComment` — the one status that makes a comment public, and the phase's one notification | — | — |
-| 4 | `RejectComment` and `HideComment` — and why only one needs a reason | — | — |
-| 5 | `BookCommentsQuery` + the INV-9 invariant suite | — | 1,340 / 8,327 |
-| 6 | `CommentModerationQuery` + `counts.pendingComments`, delegated | `9663e57` → fix `f865d80` → `89c1a58` | 1,361 / 8,379 |
+- **Slice A (1–8) — comments.** Model and policy, `CreateComment`, the three moderation
+  commands, `BookCommentsQuery` + the INV-9 invariant suite, `CommentModerationQuery`, the
+  reader's book-page comments, and `/manage/comments` with the dashboard's fourth card.
+- **Slice B (9–14) — announcements.** `CreateAnnouncement`, `UpdateAnnouncement`,
+  publish/hide/pin/unpin, `AnnouncementsQuery`, the reader's Bản tin, the manager's screen.
+- **Slice C (15–20) — donations.** `OfferDonation`, `ReceiveDonation`/`DeclineDonation`,
+  `MyDonationsQuery`/`DonationQueueQuery`, the reader's Tặng sách, the manager's queue with
+  its nav count badge, and the guarantee sweep.
 
-Task 6 is **in its scoped re-review** as of this line. Its round-1 review returned
-Needs fixes with no Critical and four Importants — two of them comment-versus-reality
-defects, which is now this phase's dominant finding class rather than a logic bug.
+Every task ran brief → implementer → independent review → fix round → often a scoped
+re-review. The per-task ledger is `.superpowers/sdd/2026-08-30-laravel-phase-2b-community-voice/progress.md`
+(gitignored, worktree only).
 
-### Task 7's brief is written and waiting
+### What this phase cost, and what it bought
 
-`.superpowers/sdd/…/task-7-brief.md`. Three plan-vs-code divergences were found by
-reading and resolved inside the brief before dispatch:
+**Fourteen false claims were found and corrected**, in six shapes. Recording the shapes
+because they are the reusable part:
 
-- **`Field` and `Textarea` do not exist.** The plan specifies both. There is no textarea
-  in `resources/js/components/ui/` and no `Field` anywhere in `resources/js`. The house
-  shape is `Label` + a raw `<textarea>` + `InputError` (`components/book-fields.tsx`).
-  The brief forbids creating two UI components for one form.
-- **A shipped comment goes false.** `pages/shelves/book.tsx`'s primary-action comment
-  says "this is the only Button on the page at all"; the comment form adds a second. The
-  brief requires the clause corrected, not the comment deleted — its bg-primary half
-  stays true.
-- **The empty body has two doors.** An empty body fails `StoreCommentRequest`'s
-  `required` → `errors.body`, a field error. **Three spaces passes `required`**, reaches
-  `CreateComment`'s `empty_body` → `RuleViolated` → the `errors.rule` banner. The plan's
-  test line covers only the first.
+1. a rationale **copied from a sibling file** where it was true;
+2. a rationale **copied across a language boundary** — true of the reference's raw SQL, false in Eloquent, which builds its UPDATE from the dirty set;
+3. a docblock **describing the file as it stood before a change in its own commit**;
+4. a **citation quoting a document that does not contain the quoted words** (four of the fourteen);
+5. a **measurement true when written and falsified by a later commit** — only re-running can see it;
+6. **a right instruction paired with a wrong reason** — mine, three times; the number matched so the reason went unexamined.
 
-Task 7 is also **smaller than the plan implies**: the route, Form Request, controller and
-both flash sentences all shipped in Task 2. It is `BookDetailQuery`'s two keys, the
-screen, and the test.
+Six of the fourteen were introduced by fix rounds sent to remove an earlier one. The
+countermeasure that worked is the **retraction shape**: name the retracted claim and say
+where it IS true. A deleted false sentence comes back — this branch measured a corrected
+misattribution reappearing in three new places one commit later.
 
-### Carries to the 2b whole-branch review
+### Method corrections this phase produced
 
-- The triplicated locked-read-plus-status-guard block (a 4th copy is the risk).
-- `CommunityArchitectureTest`'s hand-maintained `FOR UPDATE` list goes stale silently.
-- `VoidLoanRequest`'s 404 branch is untested in shipped Phase 1c code.
+- A **404-only block is vacuous when no route claims the URI** — it passes against a deleted route. Not vacuous where a sibling route holds the path: an unrouted method answers **405**.
+- **A block can redden on the wrong line.** A failed `expect()` aborts the whole METHOD, so a mutation reddening a block whose titled probe sits behind a chain proves only that something moved. And "titled assertion first" is **unachievable** where the failure mode is *the prop does not exist*.
+- **A mutation that silently fails to apply is indistinguishable from one that changed nothing.** Prove every restore.
+- **`toThrow($class, $message)` is a substring match** — 130 blocks, two latent prefix pairs.
+- **Measurements in comments have a shelf life.**
+
+### Carries to Phase 3 (none block the PR)
+
+**User-visible, and the two worth deciding first:**
+- `moderation_note` is written by `RejectComment` and `HideComment` and **read by nothing**, so the reject form's "Bạn đọc sẽ thấy lý do này." promises a manager something no surface delivers. Either surface it or drop the sentence.
+- The moderation archives are **capped at 10 under an uncapped chip** — chip reads 12, list shows 10, no paging. Reference-faithful and plan-mandated.
+
+**One-fix-each structural items:**
+- `CommentModerationQuery::counts()` restates its status predicate; `DonationQueueQuery` shows the stronger shape one file away (one private `pending()` feeding both `run()` and `countPending()`).
+- The moderation chip set derives from `copy.ts`, not `App\Enums\CommentStatus`.
+- The locked-read-plus-status-guard block is at its **sixth** copy.
 - Nothing prevents a future screen bypassing INV-9 via `Comment::query()`.
-- **Whether the query layer should refuse `actSystemWide()`.** `BorrowRequestQueueQuery`
-  added `boundShelf()` because `countWaiting()` and `run()` *disagreed* there.
-  `CommentModerationQuery` and `ManagerDashboardQuery` have no such disagreement — every
-  method goes system-wide together — so a one-off guard was declined in Task 6's fix
-  round. The pattern wants settling across every query at once, not per task.
+- `slug_key` is `binary(32)` on `announcements` and `books`, `$guarded` on both and `$hidden` on neither — any bare model handed to Inertia produces a prop bag `json_encode` cannot encode. Latent only because every query returns arrays. Fix once, across both.
+- `CommunityArchitectureTest`'s FOR-UPDATE list is hand-maintained; currently complete.
+- `RuleViolatedCodesHaveSentencesTest` cannot see a code reachable only through a `UniqueViolation` map, nor one thrown from a variable. Widen it or correct its docblock, which overclaims its name.
 
-### Standing ruling for this phase (see the ledger for its five precedents)
-
-Implementers must **not** write claims about what other code does or does not do.
-Allowed: a self-claim about the enclosing method; a positive fact about a named file
-actually opened; a claim scoped to the file it sits in. Banned: exhaustiveness over files
-not opened or work not yet done. The banned-shape grep runs **pre-commit, by the
-implementer**, with every hit cut or justified in one line in the report — it moved off
-the reviewer after five false enumeration claims shipped across four tasks, **three of
-them introduced by fix rounds written to remove an earlier one.**
+**Documentation defects, outside any task's scope — decisions for Kien:**
+- **AGENTS.md prescribes six components this repo does not have** — `Pill`, `StatusBadge`, `StatusPanel`, `StepIndicator`, `ReadOnlyValue`, `BookTitle` — and `BookTitle` is cited by its **numbered rule 1**, not merely its table. This misdirected three tasks, each of which needed its brief to override the house style guide. Build the six, or correct the guide.
+- **BR §16.1 line 510** sends the reader to "§12, below" for the announcement card. §12 is *Search*, and it is **above**.
+- **OPS §4.4 abbreviates seven refusal codes across five commands**, and the §3.3 table has a stale notifications row. Task 20 raised these as PR row-edits rather than editing a shipped command's OPS entry unannounced, per 2a's precedent.
+- **Seventeen audit sentences have no test behind them**, all inherited from Phases 1/2a — measured at the whole-branch review and recorded in `known-gaps.md`.
 
 ## Phase 2a — current position
 
