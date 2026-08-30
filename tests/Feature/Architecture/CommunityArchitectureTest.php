@@ -305,3 +305,37 @@ it('declares announcements/create before announcements/{announcement}', function
         ->and($posBound)->not->toBeFalse()
         ->and($posCreate)->toBeLessThan($posBound);
 });
+
+it('declares manage/donations before manage/donations/{donation}/…', function () {
+    // Spec §6's static-before-bound rule, on the block this task added,
+    // and beside Task 14's above rather than instead of it.
+    //
+    // HABITUAL HERE, NOT LOAD-BEARING, and the difference is stated
+    // because the block above it is the other case. Task 14's two URIs are
+    // both one segment past `announcements` and both reached by GET, so the
+    // wrong order really does bind "create" as an id. These three are not:
+    // the index is one segment and both bound URIs are three, so no request
+    // can match more than one of them however they are declared. What this
+    // pins is the habit — the day someone adds
+    // `manage/donations/received`, a one-segment-past sibling, the order
+    // will matter and the assertion will already be here.
+    //
+    // Positional, over the URI list in declaration order, which is what
+    // makes it independent of the blocks in
+    // tests/Feature/Community/ManagerDonationsScreenTest.php that fetch
+    // these addresses.
+    $uris = collect(Route::getRoutes()->getRoutes())
+        ->map(fn ($route) => $route->uri())
+        ->filter(fn (string $uri) => str_starts_with($uri, 'shelves/{shelf}/manage/donations'))
+        ->values();
+
+    $posIndex = $uris->search('shelves/{shelf}/manage/donations');
+    $posReceive = $uris->search('shelves/{shelf}/manage/donations/{donation}/receive');
+    $posDecline = $uris->search('shelves/{shelf}/manage/donations/{donation}/decline');
+
+    expect($posIndex)->not->toBeFalse()
+        ->and($posReceive)->not->toBeFalse()
+        ->and($posDecline)->not->toBeFalse()
+        ->and($posIndex)->toBeLessThan($posReceive)
+        ->and($posIndex)->toBeLessThan($posDecline);
+});

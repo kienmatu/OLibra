@@ -7,6 +7,7 @@ use App\Http\Controllers\Manage\BorrowRequestController as ManageBorrowRequestCo
 use App\Http\Controllers\Manage\CommentModerationController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
+use App\Http\Controllers\Manage\DonationController as ManageDonationController;
 use App\Http\Controllers\Manage\ExportController;
 use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
@@ -433,6 +434,50 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/announcements/{announcement}/hide', [ManageAnnouncementController::class, 'hide'])->name('announcements.hide');
         Route::post('/announcements/{announcement}/pin', [ManageAnnouncementController::class, 'pin'])->name('announcements.pin');
         Route::post('/announcements/{announcement}/unpin', [ManageAnnouncementController::class, 'unpin'])->name('announcements.unpin');
+        // BR §16.3's Donation queue, and the two decisions a manager
+        // makes on a row. These route names are NEW rather than a
+        // placeholder's kept name: `git grep -n "manage.donations"
+        // 2731bea -- resources/ routes/` exited 1 with no output, run
+        // before these three lines were written. The nav item added to
+        // resources/js/layouts/manage-layout.tsx in this same commit is
+        // the first Ziggy caller.
+        //
+        // STATIC BEFORE BOUND (spec §6's house habit), and HABITUAL here
+        // rather than load-bearing, which is the difference from the
+        // announcements pair above: the index is one segment past
+        // `donations` and both bound URIs are three, so no request can
+        // match more than one of them however they are declared.
+        // CommunityArchitectureTest's 'declares manage/donations before
+        // manage/donations/{donation}/…' pins the habit anyway, against
+        // the day a one-segment-past sibling is added.
+        //
+        // {donation} resolves two independent ways, divergence 3's two
+        // layers: through Bookshelf::donations() under the scopeBindings()
+        // on the OUTER shelves/{shelf} group — the `manage` group these
+        // lines sit in is declared prefix->name->middleware([...])->group(),
+        // so the directive reaches them by inheritance — and through
+        // BookshelfScope on BookDonation (App\Models\Concerns\
+        // BelongsToBookshelf) on every query Eloquent runs for the
+        // binding. ReceiveDonation's docblock recorded that the binding
+        // half of that divergence had nothing to bind while no route
+        // reached either command; these two POSTs are that address, and
+        // ManagerDonationsScreenTest's cross-shelf dataset is the
+        // measurement, over both of them, with shelf B's offer id under
+        // shelf A's URL.
+        //
+        // THE RECEIVE POST IS BODILESS and carries no Form Request, so
+        // `role:manager` on this group is the whole of its refusal — the
+        // shape the bodiless circulation and comment POSTs above already
+        // have. The decline POST carries a required reason and therefore a
+        // DeclineDonationRequest, whose authorize() abort_unless is a
+        // second door on that one route. What each of the three actually
+        // answers with the middleware dropped was MEASURED — 200, 403 and
+        // 404 respectively, three distinct numbers — and the run, with the
+        // 403 traced to the line that raises it, is in
+        // App\Http\Controllers\Manage\DonationController's docblock.
+        Route::get('/donations', [ManageDonationController::class, 'index'])->name('donations');
+        Route::post('/donations/{donation}/receive', [ManageDonationController::class, 'receive'])->name('donations.receive');
+        Route::post('/donations/{donation}/decline', [ManageDonationController::class, 'decline'])->name('donations.decline');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');

@@ -236,4 +236,43 @@ return [
     // — 1b minted it, and OPS §4.4 gives this command that same
     // sentence, "Vui lòng ghi lý do từ chối.", character for character.
     'donation_not_pending' => 'Đề nghị tặng sách này đã được xử lý.',
+
+    // ── The manager's donation queue (Phase 2b, Task 19) ──────────────
+    // Two success flashes, one per decision on
+    // App\Http\Controllers\Manage\DonationController. They sit here
+    // beside announcement_created_flash and its five siblings, which are
+    // flashes in this same ledger rather than RuleViolated codes.
+    //
+    // THE FIRST ONE CARRIES A NAME BECAUSE IT IS THE WHOLE HAND-OFF.
+    // BR §16.3's Donation queue paragraph (opened) describes *Duyệt* as
+    // opening "the add-book form with **Người tặng** pre-filled with that
+    // member", and OPS §4.4's ReceiveDonation (opened) says the same in
+    // its own words while insisting the command catalogues nothing: the
+    // manager "separately runs `CreateBook` or `AddCopies` (§4.1, above)
+    // with `donorMembershipId` set to this donor". That pre-fill needs a
+    // member picker docs/known-gaps.md (opened) defers for want of
+    // `GetReadersList`, so this phase ships the fallback instead — the
+    // donor's NAME, in the sentence a volunteer reads on their way to the
+    // add-book form, which is a shape that form already takes
+    // (resources/js/pages/manage/books/create.tsx carries a `donor_name`
+    // field; opened).
+    //
+    // :name TWICE, and deliberately: Laravel's makeReplacements is a
+    // str_replace, so both occurrences fill. The first says whose offer
+    // moved and the second is the value to type, in quotes, because the
+    // sentence is an instruction and an instruction that names the box
+    // without naming what goes in it sends the volunteer back to the
+    // queue to re-read it.
+    //
+    // What it promises is bounded to what the volunteer is about to do:
+    // it names the offer that moved and the value the next form wants,
+    // and says nothing about the reader being told — the same restraint
+    // comment_approved_flash's own comment argues for a few lines up.
+    'donation_received_flash' => 'Đã nhận lời tặng của :name. Khi thêm sách vào kho, hãy điền ":name" vào ô Người tặng.',
+    // The decline's twin, on comment_rejected_flash's pattern: the verb,
+    // then where the reason went. It names the reader's own screen
+    // because that is where it lands — App\Queries\MyDonationsQuery
+    // returns decisionNote and resources/js/pages/shelves/profile/
+    // donations.tsx renders it under the offer (both opened).
+    'donation_declined_flash' => 'Đã từ chối — bạn đọc sẽ thấy lý do trên trang Tặng sách của mình.',
 ];

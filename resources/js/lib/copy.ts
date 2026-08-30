@@ -41,6 +41,18 @@ export const copy = {
         // only the Vietnamese changed, and shelves/show.tsx is the one
         // place that renders it (grepped resources/js at this commit).
         announcements: "Bản tin",
+        // BR §16.1's shelf home, item 3 (opened): "two secondary cards,
+        // **Tặng sách** and **Góp ý**". Task 18 shipped the two reader
+        // donation screens and this word is what reaches them — measured
+        // at 2731bea, `grep -rn "shelves.donate" resources/js` returned
+        // exactly two hits, one in each of those two pages, cross-linking
+        // each other. shelves/show.tsx carries the same measurement beside
+        // the link this key labels, and what it does and does not prove.
+        // `Góp ý` is a second card the same paragraph asks for
+        // and it is NOT added here: `shelves.feedback` still renders the
+        // under-construction placeholder, and a link to that is a promise
+        // the page cannot keep.
+        donate: "Tặng sách",
         profile: "Hồ sơ",
         manage: "Quản lý",
     },
@@ -61,6 +73,10 @@ export const copy = {
         // "Bản tin" on both sides of the shelf, and the manager's screen
         // re-heads it in manageAnnouncements.title.
         announcements: "Bản tin",
+        // The NAV word, and the same Vietnamese the reader's own two
+        // screens use — a volunteer and a child call this one thing.
+        // The screen it opens re-heads it in manageDonations.title.
+        donations: "Tặng sách",
         settings: "Cài đặt",
         audit: "Nhật ký",
     },
@@ -516,6 +532,55 @@ export const copy = {
         save: "Lưu thông báo",
         saving: "Đang lưu…",
         backToList: "Về bản tin",
+    },
+    /**
+     * The donation queue from the deciding side. A separate namespace from
+     * `donations` (the reader's two screens) rather than extra keys on it,
+     * the split `manageComments` already draws against `comments`: that
+     * group is a child offering their books, and this one is a volunteer's
+     * words about somebody else's offer.
+     *
+     * Wording taken from the reference's own queue screen
+     * (old_next/src/app/tu-sach/[shelf]/quan-ly/tang-sach/page.tsx,
+     * opened) — its heading, its two subtitles, its pill word, its two
+     * field captions, its two button labels and its reason field's label
+     * and hint. The one sentence NOT taken from it is `subtitleCounted`:
+     * the reference's says "Duyệt sẽ mở form thêm sách với Người tặng đã
+     * điền sẵn", which describes a pre-fill this phase does not ship (see
+     * App\Http\Controllers\Manage\DonationController's docblock), so
+     * repeating it would be the screen promising what the button does not
+     * do.
+     */
+    manageDonations: {
+        title: "Tặng sách",
+        subtitle: "Không có lời đề nghị nào đang chờ.",
+        subtitleCounted:
+            "{count} lời đề nghị đang chờ · Duyệt xong, hãy thêm sách vào kho và ghi tên người tặng.",
+        // The status word beside every row — AGENTS.md's second
+        // non-negotiable, which asks for an icon, a word and a colour
+        // together and never colour alone. One word, not three: this
+        // list is pending-only.
+        statusPending: "Chờ duyệt",
+        donorLine: "Gửi ngày {date}",
+        descriptionCaption: "Mô tả từ bạn đọc",
+        countCaption: "Số lượng áng chừng",
+        countValue: "Khoảng {count} cuốn",
+        // `photoUrl` rides every row and is not rendered as an image:
+        // plan divergence 11 keeps the column read-only until an uploader
+        // exists to write it, so no row can carry one yet. The reference
+        // draws a placeholder tile in its place and this says the same
+        // thing in words.
+        noPhoto: "Không có ảnh đính kèm",
+        empty: "Chưa có lời đề nghị tặng sách nào.",
+        receiveButton: "Duyệt",
+        declineSummary: "Từ chối",
+        declineReasonLabel: "Lý do từ chối",
+        declineReasonHint: "Bạn đọc sẽ thấy lý do này trên trang Tặng sách của mình.",
+        // The word, never a bare asterisk (AGENTS.md rule 6). Its own key
+        // rather than a reach into manageComments.required, so rewording
+        // that screen cannot silently rewrite this one.
+        required: "Bắt buộc",
+        declineConfirm: "Xác nhận từ chối",
     },
     circulation: {
         rules: {

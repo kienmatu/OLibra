@@ -13,14 +13,28 @@ use Illuminate\Support\Facades\Gate;
  * controller body, so a 404 here never lets a malformed reason answer
  * first.
  *
- * NO ROUTE REACHES THIS CLASS AT THIS COMMIT — grepped in routes/web.php
- * rather than assumed: the file names no address onto either donation
- * decision. The manager's donation queue and its two buttons are Task
- * 19's; this ships now because DeclineDonation's reason has a submitted
- * shape and the shape belongs beside the command that consumes it.
- * tests/Feature/Community/FormRequestAuthorize404Test.php asks the class
- * directly, with nobody signed in, which is the same unit shape that
- * file's PublishAnnouncementRequest block was written under.
+ * A ROUTE REACHES THIS CLASS AS OF TASK 19, and the paragraph that stood
+ * here said the opposite. It read "NO ROUTE REACHES THIS CLASS AT THIS
+ * COMMIT — grepped in routes/web.php rather than assumed: the file names
+ * no address onto either donation decision", which was true when Task 16
+ * wrote it and is corrected rather than deleted, because the reason it
+ * gave still stands: this class shipped ahead of its route because
+ * DeclineDonation's reason has a submitted shape and the shape belongs
+ * beside the command that consumes it. The address is now
+ * `shelves.manage.donations.decline` (routes/web.php, opened), and
+ * App\Http\Controllers\Manage\DonationController::decline is the
+ * method that type-hints this class.
+ *
+ * WHAT THAT CHANGES ABOUT THE abort_unless BELOW was measured rather than
+ * guessed: with `role:manager` dropped from the manage group and a shelf
+ * reader acting, the decline POST answered 404 while its two siblings on
+ * that controller answered 200 and 403. App\Http\Controllers\Manage\
+ * DonationController's docblock carries the run, per route.
+ * tests/Feature/Community/FormRequestAuthorize404Test.php still asks the
+ * class directly, with nobody signed in, which is the same unit shape
+ * that file's PublishAnnouncementRequest block was written under, and
+ * tests/Feature/Community/ManagerDonationsScreenTest.php now asks it over
+ * HTTP as well.
  *
  * It is subject to the two sweeps that read every class under
  * app/Http/Requests: FreeTextEncodingGuardTest, which is why the

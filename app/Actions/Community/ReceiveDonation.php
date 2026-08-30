@@ -60,11 +60,18 @@ use Illuminate\Support\Facades\Gate;
  * binding and BookshelfScope instead — a 404 — and leaves only
  * wrong-status on the caller's own shelf for the RuleViolated below.
  *
- * THE SCOPE HALF OF THAT DIVERGENCE IS PINNED; THE BINDING HALF HAS
- * NOTHING TO BIND YET. routes/web.php was grepped for this and names no
- * address reaching either decision command — the queue screen is Task
- * 19's — so route-model binding cannot be exercised here. The scope half
- * can be, and is, without a route:
+ * BOTH HALVES OF THAT DIVERGENCE ARE NOW PINNED. This paragraph used to
+ * read "THE BINDING HALF HAS NOTHING TO BIND YET. routes/web.php was
+ * grepped for this and names no address reaching either decision command
+ * — the queue screen is Task 19's — so route-model binding cannot be
+ * exercised here." That was true when Task 16 wrote it and Task 19 is the
+ * arrival it named: routes/web.php (opened) now declares
+ * `shelves.manage.donations.receive` and its decline twin, and
+ * tests/Feature/Community/ManagerDonationsScreenTest.php's "another
+ * shelf's offer id 404s under this shelf's manage URL" runs both of them
+ * with shelf B's offer id under shelf A's URL and requires 404 with the
+ * row still pending. The scope half is pinned without a route, as it
+ * always was:
  * tests/Feature/Community/DonationDecisionsTest.php's "another shelf's
  * offer is not found rather than refused" hands this method and
  * DeclineDonation's a row seeded on a second shelf and requires

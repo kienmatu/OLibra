@@ -28,6 +28,20 @@ export default function ManageLayout({ children }: PropsWithChildren) {
             name: copy.manage.announcements,
             href: route("shelves.manage.announcements.index", { shelf: shelf.slug }),
         },
+        // BR §16.3's Donation queue opens "Reachable from the sidebar nav
+        // with a count badge". THE NAV ITEM SHIPS; THE BADGE DOES NOT, and
+        // the reason is this file: every item in the list is a name and an
+        // href, and this layout is handed nothing but `shelf`, so a number
+        // beside one of them would need a counts channel shared across every
+        // manage screen — a change to what this layout receives, not an
+        // addition to the list. App\Queries\DonationQueueQuery's docblock
+        // asks whoever builds this nav to add a countPending() beside the
+        // read; that stays unbuilt here rather than shipped as a method
+        // with no caller, and this task's report carries the judgement.
+        {
+            name: copy.manage.donations,
+            href: route("shelves.manage.donations", { shelf: shelf.slug }),
+        },
         {
             name: copy.manage.readers,
             href: route("shelves.manage.readers.index", { shelf: shelf.slug }),

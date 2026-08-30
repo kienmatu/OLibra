@@ -87,6 +87,17 @@ use App\Models\BookDonation;
  * read uses, the way CommentModerationQuery::countPending() and
  * BorrowRequestQueueQuery::countWaiting() already do for their screens
  * (both opened).
+ *
+ * TASK 19 BUILT THAT NAV AND STILL DID NOT ADD THE COUNT, which is an
+ * answer to the paragraph above rather than an oversight, so it is
+ * recorded here rather than left for the next reader to re-derive.
+ * resources/js/layouts/manage-layout.tsx (opened, and edited in that same
+ * commit) builds its sidebar from a list of name/href pairs and is handed
+ * one prop, `shelf` — so the badge is not a number this file is missing,
+ * it is a channel that layout does not have. Adding countPending() first
+ * would have shipped a method with no caller. The requirement stays open;
+ * whoever gives that layout a counts prop is the caller this method is
+ * waiting for.
  */
 final class DonationQueueQuery
 {

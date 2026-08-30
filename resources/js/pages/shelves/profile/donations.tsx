@@ -58,14 +58,17 @@ interface PageProps extends SharedData {
  * non-negotiable, which asks for all three and never colour alone.
  *
  * AGENTS.md's component table sends state pills to `Pill` ("icon and label
- * are both required"). THAT COMPONENT DOES NOT EXIST HERE. Measured at this
- * commit, AFTER this file was written: `grep -rlE "\bPill\b" resources/js`
- * returns this file alone and its one match is this sentence, and the same
- * is true of StatusBadge, StatusPanel and StepIndicator — four names the
- * table prescribes that nothing in resources/js declared or imported WHEN
- * THIS WAS MEASURED. (ReadOnlyValue and BookTitle are two more, the second
- * cited by AGENTS.md's numbered rule 1 rather than only its table.) The
- * scoping matters: this goes stale the day someone adds one of them.
+ * are both required"). THAT COMPONENT DOES NOT EXIST HERE. Measured when
+ * this file was written and RE-MEASURED at Task 19: `grep -rnE
+ * "\b(Pill|StatusBadge|StatusPanel|StepIndicator|ReadOnlyValue|BookTitle)\b"
+ * resources/js` finds no declaration and no import of any of the six —
+ * every hit is prose about their absence. The earlier wording said the
+ * hits were "this file alone", which Task 19 falsified in its own commit
+ * by writing the same note into pages/manage/donations.tsx; the property
+ * measured is unchanged, only the number of files carrying the note.
+ * (ReadOnlyValue and BookTitle are two of the six, the second cited by
+ * AGENTS.md's numbered rule 1 rather than only its table.) The scoping
+ * matters: this goes stale the day someone adds one of them.
  * Rather than invent a
  * component library on one screen, this uses `components/ui/badge.tsx`,
  * which does exist and which pages/manage/books/index.tsx and
