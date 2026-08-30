@@ -37,7 +37,9 @@ use App\Models\Membership;
  * DonationQueriesTest's first block pins the DIRECTION against three rows
  * at three instants. The id half needed a different kind of pin, and the
  * reason is measured rather than argued: deleting `->orderByDesc('id')`
- * below leaves all seven of that file's row-order blocks green, because
+ * below leaves all seven blocks that existed at that run green — of
+ * which only two assert row order at all; the measured fact is that the
+ * whole file stayed green, not that seven orderings were checked. Because
  * their fixtures use distinct instants and nothing in them ties. So it is
  * pinned in the compiled SQL instead — "my-donations' id tiebreak is in
  * the ORDER BY text" reads the statement's `order by` clause and reddens
@@ -48,7 +50,9 @@ use App\Models\Membership;
  * written here. That matters more than usual because the donor predicate
  * is not a tenant predicate — a membership id is unique across shelves,
  * so this WHERE, on its own, would answer correctly for a foreign
- * membership. DonationQueriesTest's last block reads
+ * membership. DonationQueriesTest's tenancy block — "another shelf's
+ * offers appear in neither", not its last, which is a later-appended
+ * ORDER BY pin — reads
  * with a foreign membership under this shelf's binding and gets an empty
  * list, which separates the two guards.
  *
@@ -93,10 +97,17 @@ final class MyDonationsQuery
                 // (string) on an enum OBJECT — a fatal on every row.
                 'status' => $donation->status->value,
                 // The whole reason a decline requires a reason: the
-                // reader reads it. BR §7.7's BookDonation line (opened)
-                // spells the requirement — "decision note (reason
+                // reader reads it. The requirement is BR §5.4's
+                // BookDonation entity line — "decision note (reason
                 // required on decline, matching every other rejection
-                // flow in this document)".
+                // flow in this document)". CITED AS §7.7 IN A FIRST
+                // DRAFT, and wrongly, with an "(opened)" beside it: §7.7
+                // is the pending → received/declined lifecycle diagram
+                // and its only wording is "manager declines, with a
+                // reason". Named rather than silently corrected, because
+                // the same wrong section reached two files in one
+                // commit. docs/OPERATIONS.md already cites it as
+                // "BR §5.4, BookDonation".
                 'decisionNote' => $donation->decision_note,
                 'offeredAt' => (string) $donation->created_at->toISOString(),
                 'decidedAt' => $donation->decided_at?->toISOString(),

@@ -141,9 +141,12 @@ it('a declined offer carries its reason back to the reader', function () {
 
     $rows = app(MyDonationsQuery::class)->run($anhMembership);
 
-    // The note is the whole reason a decline requires a reason: BR §7.7's
-    // BookDonation line (opened) says "decision note (reason required on
-    // decline, matching every other rejection flow in this document)", and
+    // The note is the whole reason a decline requires a reason: BR §5.4's
+    // BookDonation entity line says "decision note (reason required on
+    // decline, matching every other rejection flow in this document)".
+    // A first draft cited §7.7 for it — that section is the lifecycle
+    // diagram, whose only wording is "manager declines, with a reason".
+    // See MyDonationsQuery's row builder for the full retraction. And
     // OPS §3.2's GetMyDonations row (opened) lists its Returns as
     // "Donation rows: description, estimated count, status, decision note
     // if declined". The reader is who reads it.
