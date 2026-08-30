@@ -16,12 +16,15 @@ use Illuminate\Database\Eloquent\Builder;
  * injected Clock once into a local, and every comparison that method
  * makes binds that local (plan divergence 6). Two reads inside one
  * method would be two instants that differ in production by however
- * long the statement took and agree in every fixture, which is a defect
- * no test in this suite can see. MEASURED: with published() rewritten
- * to read the clock a second time for its expiry comparison,
- * AnnouncementsQueryTest stays wholly green. This paragraph is the
- * convention; there is no guard behind it, and saying so is worth more
- * than a contrived block.
+ * long the statement took and agree to the microsecond under any clock
+ * that does not move — so a fixture that wants to see the difference
+ * has to make the clock move, and one does. MEASURED: with published()
+ * rewritten to read the clock a second time for its per-row comparison,
+ * AnnouncementsQueryTest's "binds one instant even against a clock that
+ * advances mid-call" is the whole suite's single failure. The tool is
+ * Carbon::setTestNow(), which also accepts a Closure and re-evaluates
+ * it on every read; that block is where this paragraph stops being a
+ * convention.
  *
  * THE STATE IS DECIDED IN PHP, BY ONE HELPER, AND THAT HELPER IS THE
  * DESIGN. state() is called by managed() as a LABEL and by published()
@@ -52,10 +55,14 @@ use Illuminate\Database\Eloquent\Builder;
  * with published() rather than repeating it, so "the same filter" is
  * one expression rather than two.
  *
- * state() IS THE AUTHORITY. published() and detail() each require both
- * layers to pass, so whichever of the two hides a row wins; and state()
- * is also the function that labels the manager's chip, which is what
- * makes the two screens one comparison instead of two.
+ * state() DECIDES THE LABEL; EITHER LAYER CAN HIDE A ROW. published()
+ * and detail() each require both layers to pass, so whichever of the
+ * two hides a row wins — and the SQL half can hide a row state() would
+ * have called showing, which is the fractional-published_at case the
+ * precision paragraph below describes. What state() is sole authority
+ * over is the WORD: it labels the manager's chip and it is what the
+ * reader's filter consults, which is what makes the two screens one
+ * comparison instead of two.
  *
  * THE SQL HALF CHANGES NO ANSWER THIS SUITE CAN SEE, measured three
  * ways rather than argued: deleting the PHP filter alone leaves
@@ -82,6 +89,38 @@ use Illuminate\Database\Eloquent\Builder;
  * carrying '.u', or a backfill written in raw SQL, is the mechanism
  * that would break that and put the two layers a fraction of a second
  * apart.
+ *
+ * TIMEZONE, MEASURED — the larger sibling of the precision note above,
+ * and written in the same shape: the claim, where it holds, and the
+ * mechanism that breaks it. state() compares
+ * $announcement->published_at against Clock::now(). The left side is
+ * materialized by Model::asDateTime, which ends at
+ * Date::createFromFormat($format, $value) with NO timezone argument, so
+ * the stored string is read in PHP's default zone — the one Laravel
+ * sets from config('app.timezone'). The right side is hard-coded 'UTC'
+ * inside Clock. The SQL half takes neither: Connection::prepareBindings
+ * formats the bound instant with
+ * $value->format($grammar->getDateFormat()), i.e. in the value's OWN
+ * zone, and MariaDB then compares string to string.
+ *
+ * So the two layers agree because APP_TIMEZONE is UTC, not because they
+ * were built to agree. MEASURED in laravel-app-1: a raw published_at of
+ * '2026-09-01 03:00:00' hydrates as 2026-09-01T03:00:00+00:00 under a
+ * default zone of UTC and as 2026-09-01T03:00:00+07:00 under
+ * Asia/Ho_Chi_Minh, while Clock::now() stays UTC either way — seven
+ * hours of skew, on the PHP side of this class only.
+ *
+ * WHAT CATCHES IT, measured by forcing APP_TIMEZONE=Asia/Ho_Chi_Minh in
+ * phpunit.xml and running the suite rather than assumed: the guard is a
+ * CONFIGURATION assertion rather than a behavioural one —
+ * EnvironmentTest's "stores time as utc and speaks vietnamese" reads
+ * config('app.timezone') and fails on the value itself. Inside
+ * AnnouncementsQueryTest under that skew exactly one block fails, and
+ * it is the advancing-clock block, whose expires_at sits one second
+ * from the bound instant; the boundary pair stays green, because its
+ * fixtures are seeded and asserted through the same shifted zone. A row
+ * fixture written a month either side of its instant cannot see this,
+ * which is why the note is written here rather than as a block.
  *
  * NO SHELF FILTER IS WRITTEN HERE, and there must not be one:
  * BookshelfScope on the model confines all three reads, and SoftDeletes
@@ -124,14 +163,21 @@ final class AnnouncementsQuery
      *   type: ALL | key: NULL | rows: 400
      *   Extra: Using where; Using filesort
      *
-     * The table carries an index on the tenant column and on author_id,
-     * and none on is_pinned or published_at, so the ordering is a
+     * Neither is_pinned nor published_at is indexed on this table (read
+     * off `show create table announcements`), so the ordering is a
      * filesort's rather than an index's. With `->orderByDesc('id')`
      * deleted, AnnouncementsQueryTest's same-instant block is the run's
-     * single failure — the two tied rows come back in insertion order
-     * where id desc wants the reverse. managed() gets the same
-     * treatment on its own middle key, with its own tie block and the
-     * same measured result.
+     * single failure — the two tied rows come back id ASCENDING where
+     * id desc wants the reverse, which is what makes that block
+     * deterministically red rather than luckily red. managed() gets the
+     * same treatment on its own middle key, with its own tie block and
+     * the same measured result.
+     *
+     * array_values() around the collection is for PHPStan, not for the
+     * runtime: `values()->all()` is typed array<int, T>, which level 8
+     * rejects against this method's `list<…>`. MEASURED — with the call
+     * dropped here and in managed(), `make analyse` reports return.type
+     * on both.
      *
      * @return list<array{id: string, slug: string, title: string, body: string, excerpt: string, isPinned: bool, publishedAt: ?string, expiresAt: ?string}>
      */

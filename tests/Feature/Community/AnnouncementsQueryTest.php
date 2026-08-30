@@ -118,6 +118,28 @@ it('a live announcement is labelled showing', function () {
     expect(app(AnnouncementsQuery::class)->managed()[0]['state'])->toBe('showing');
 });
 
+it('managed() labels an announcement scheduled for next week draft', function () {
+    // THE FOURTH ROUTE INTO 'draft': published_at SET, but set ahead of
+    // the bound instant. MEASURED, with `|| $publishedAt->greaterThan($at)`
+    // deleted from state(): this block is the run's single failure, so the
+    // reader's shapes are unmoved by that branch — showing() keeps a future
+    // published_at out of the result set before state() is ever consulted.
+    // What the branch changes is the CHIP: a notice queued for next Sunday
+    // would render "Đang hiện" on the manager's screen while no reader
+    // could open it — the reader/manager disagreement the boundary pair
+    // rules out, in the direction that pair does not reach.
+    $manager = anqFix('dong-thap-anq-scheduled');
+    Carbon::setTestNow(CarbonImmutable::parse('2026-08-30 04:00:00', 'UTC'));
+
+    anqPost(
+        $manager,
+        'Tin Hẹn Chủ Nhật Tuần Sau',
+        publishedAt: CarbonImmutable::parse('2026-09-06 04:00:00', 'UTC'),
+    );
+
+    expect(app(AnnouncementsQuery::class)->managed()[0]['state'])->toBe('draft');
+});
+
 it('an announcement lapses on the clock alone, with no write and no job', function () {
     // G5, and the reason this query exists in the shape it does: expiry
     // is evaluated at READ time, so an announcement drops out of the
@@ -187,6 +209,55 @@ it('at expires_at exactly equal to the bound instant managed() labels the row ex
     );
 
     expect(app(AnnouncementsQuery::class)->managed()[0]['state'])->toBe('expired');
+});
+
+it('published() binds one instant even against a clock that advances mid-call', function () {
+    // THE CONVENTION IN AnnouncementsQuery's CLASS DOCBLOCK, with a guard
+    // behind it. published() reads Clock::now() once into a local and
+    // binds that local into both the WHERE and the per-row comparison. A
+    // second read inside the method would be two instants that differ in
+    // production by however long the statement took, and agree to the
+    // microsecond under any clock that does not move — which is what
+    // makes this fixture's clock move.
+    //
+    // THE TOOL, and it is the one place in this suite this shape is used:
+    // Carbon::setTestNow() also accepts a Closure and re-evaluates it on
+    // EVERY read, so the closure below hands out 04:00:00, then 04:00:01,
+    // then 04:00:02 … to successive reads in this process. It has to be a
+    // `use (&$ticks)` closure and not an arrow function: an arrow function
+    // captures $ticks by value, so `$ticks++` would increment a fresh copy
+    // each call and the clock would stand still (measured both ways).
+    //
+    // THE FIXTURE: expires_at is ONE SECOND past the first instant. As
+    // shipped, both layers bind 04:00:00 and the row is live. With the
+    // per-row comparison rewritten to read the clock again, the WHERE
+    // binds 04:00:00 and fetches the row while state() binds 04:00:01,
+    // where `expires_at <= at` holds — so the row is dropped and this
+    // block reddens.
+    //
+    // The frozen instant is put back BEFORE the expectation, so an
+    // advancing clock cannot outlive this block whichever way it goes.
+    $manager = anqFix('dong-thap-anq-one-instant');
+    $t0 = CarbonImmutable::parse('2026-08-30 04:00:00', 'UTC');
+    Carbon::setTestNow($t0);
+
+    $row = anqPost(
+        $manager,
+        'Tin Hết Hạn Sau Một Giây',
+        publishedAt: CarbonImmutable::parse('2026-08-01 03:00:00', 'UTC'),
+        expiresAt: $t0->addSecond(),
+    );
+
+    $ticks = 0;
+    Carbon::setTestNow(function () use ($t0, &$ticks): CarbonImmutable {
+        return $t0->addSeconds($ticks++);
+    });
+
+    $slugs = anqSlugs(app(AnnouncementsQuery::class)->published());
+
+    Carbon::setTestNow($t0);
+
+    expect($slugs)->toBe([$row->slug]);
 });
 
 it('published() puts pinned first, then most recent, and orders several pins among themselves', function () {
@@ -287,8 +358,9 @@ it("the reader's statement narrows in SQL as well — the wire, pinned in the te
     // WHY THIS IS ASSERTED ON THE SQL AND NOT ON THE ROWS. published()
     // applies the time rule twice: showing() puts it in the WHERE and
     // state() decides after the fetch. MEASURED three ways with this
-    // block absent, on the 19 that were here before it — deleting the
-    // PHP filter alone, deleting showing() from published() alone, and
+    // block absent, on the 19 CASES that were here before it (17 it()
+    // blocks, the tenancy dataset counting three) — deleting the PHP
+    // filter alone, deleting showing() from published() alone, and
     // deleting showing()'s expiry clause for both its callers each left
     // the file wholly green. So no row-order or row-membership
     // assertion here can see the SQL half, and a later edit could
