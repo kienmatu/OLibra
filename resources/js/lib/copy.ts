@@ -77,6 +77,13 @@ export const copy = {
         // screens use — a volunteer and a child call this one thing.
         // The screen it opens re-heads it in manageDonations.title.
         donations: "Tặng sách",
+        // BR §16.3's count badge, on notifications.bellWithCount's
+        // pattern — the count in the LABEL, in parentheses, rather than a
+        // superscript pill: this nav is a row of plain text links and a
+        // number a volunteer can read beats a dot they have to interpret.
+        // Zero renders the bare word above, never "(0)": an empty queue is
+        // still a place to go, but it is not news.
+        donationsWithCount: "Tặng sách ({count})",
         settings: "Cài đặt",
         audit: "Nhật ký",
     },

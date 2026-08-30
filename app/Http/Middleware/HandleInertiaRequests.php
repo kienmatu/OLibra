@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Notification;
 use App\Models\User;
+use App\Queries\DonationQueueQuery;
 use App\Support\TenantContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -97,6 +98,39 @@ class HandleInertiaRequests extends Middleware
                     ->where('user_id', $user->id)
                     ->whereNull('read_at')
                     ->count()
+                : null,
+            // BR §16.3's Donation queue badge — "Reachable from the
+            // sidebar nav with a count badge" is that paragraph's first
+            // sentence (opened), and OPS §3.3's GetDonationQueue row
+            // carries "Queue count for the badge" as derived on read.
+            // Built on the bell above, key for key: a CLOSURE, so a
+            // redirect or a CSV download resolves nothing (the POSTs on
+            // the donation queue itself are redirects, so pressing Duyệt
+            // costs no count); a role GATE, so the number only reaches
+            // somebody the manage routes would admit; and a `$shelf`
+            // clause, because BookshelfScope FAILS CLOSED on an unbound
+            // tenant and DonationQueueQuery reads through it — counting
+            // with no shelf bound would throw on every signed-in page
+            // outside a shelf, not merely answer wrong.
+            //
+            // act-as-manager, not act-as-reader: this is the manage
+            // sidebar's number. Gate::before in AppServiceProvider keeps
+            // the memberless super admin's badge exactly as it keeps
+            // their access to the screen.
+            //
+            // NULL is "render no badge", and it is the SERVER's decision,
+            // the way the bell's is: a reader gets null rather than a
+            // number they could compare against a screen they cannot
+            // open. 0 is a real answer — an empty queue for a manager.
+            //
+            // The count is DonationQueueQuery::countPending(), which
+            // shares its predicate with the list the badge links to (that
+            // class's docblock carries why that is structural). Resolved
+            // out of the container inside the closure so the middleware
+            // does not construct a query object on every non-Inertia
+            // request.
+            'pendingDonations' => fn (): ?int => ($user !== null && $shelf !== null && Gate::allows('act-as-manager'))
+                ? app(DonationQueueQuery::class)->countPending()
                 : null,
             // For the plain <form method="post"> downloads (an Inertia
             // router.post cannot receive a file): the token VerifyCsrfToken

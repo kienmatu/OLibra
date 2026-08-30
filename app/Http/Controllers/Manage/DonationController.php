@@ -62,8 +62,11 @@ use Inertia\Response;
  * USES. App\Queries\DonationQueueQuery's docblock records why it can be
  * null: App\Models\Membership and App\Models\User both use SoftDeletes,
  * so a trashed donor comes back as a null relation rather than dropping
- * the row. `?->` plus a cast is what turns that into an empty name in the
- * flash instead of a 500 on a row a manager was trying to clear.
+ * the row. `?->` plus a cast is what turns that into an empty name
+ * instead of a 500 on a row a manager was trying to clear — and receive()
+ * below then picks a DIFFERENT sentence for it (fix round 1, item 2)
+ * rather than interpolating the empty string into a flash that names the
+ * donor twice.
  *
  * A NAMED REDIRECT, NOT back(), and the reason is the opposite of
  * CommentModerationController's. That screen's list is chosen by
@@ -135,9 +138,22 @@ class DonationController extends Controller
 
         $receive->execute($user, $donation);
 
+        // TWO SENTENCES, PICKED ON THE NAME, not one template with a hole
+        // in it. The nullsafe chain above is right and the sentence was
+        // not conditioned on it: with a soft-deleted donor, this task's
+        // mutation 2a printed the production shape `Đã nhận lời tặng của .
+        // Khi thêm sách vào kho, hãy điền "" vào ô Người tặng.` — a
+        // sentence that names nobody and then asks the volunteer to type
+        // it. rules.donation_received_flash_no_donor is the same first
+        // clause with an honest second half; its comment in lang/vi/rules
+        // .php carries why the empty name happens at all.
+        $flash = $donorName === ''
+            ? __('rules.donation_received_flash_no_donor')
+            : __('rules.donation_received_flash', ['name' => $donorName]);
+
         return redirect()
             ->route('shelves.manage.donations', ['shelf' => $shelf->slug])
-            ->with('success', __('rules.donation_received_flash', ['name' => $donorName]));
+            ->with('success', $flash);
     }
 
     public function decline(DeclineDonationRequest $request, Bookshelf $shelf, BookDonation $donation, DeclineDonation $decline): RedirectResponse

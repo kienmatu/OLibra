@@ -298,3 +298,57 @@ it('the queue\'s id tiebreak is in the ORDER BY text, not merely in the row orde
         ->and(str_contains((string) $main['query'], 'order by `created_at` asc, `id` asc'))
         ->toBeTrue('no created_at/id tiebreak in the queue ORDER BY: '.($main['query'] ?? ''));
 });
+
+it('countPending() answers the length of the list it badges', function () {
+    // BR §16.3's badge, against the list it links to — and the fact this
+    // block defends is that the two cannot say different things. It is
+    // STRUCTURAL first: App\Queries\DonationQueueQuery::run and
+    // ::countPending both build on that class's private pending(), the one
+    // place the status predicate is written, so there is no second
+    // predicate in that file for a future edit to change by half. This
+    // block exists because a shared builder holds only as long as the next
+    // editor keeps sharing it: re-deriving the count from anything else —
+    // a count of all statuses, say — reddens here.
+    //
+    // Its own it(), and the decided rows seeded first: a count that
+    // ignored the status filter would answer 3 where the list answers 1,
+    // which a fixture of pending rows alone could not tell apart.
+    [, , $anhMembership] = dnqFix('dong-thap-dnq-count');
+
+    dnqOffer($anhMembership, 'Đã nhận rồi', status: 'received');
+    dnqOffer($anhMembership, 'Sách ướt', status: 'declined', note: 'Sách đã quá cũ');
+    dnqOffer($anhMembership, 'Em có 5 cuốn truyện tranh');
+    dnqOffer($anhMembership, 'Thêm hai cuốn nữa');
+
+    $query = app(DonationQueueQuery::class);
+
+    expect($query->countPending())->toBe(2, 'pending only — a decided offer has left the badge too');
+
+    expect($query->countPending())
+        ->toBe(count($query->run()), 'the badge and the list count the same rows');
+});
+
+it('countPending() is this shelf\'s count, through BookshelfScope', function () {
+    // The badge half of the tenancy block above. A cross-tenant number
+    // beside a per-tenant list is the exact disagreement
+    // BorrowRequestQueueQuery::countWaiting's own fix round was about
+    // (that file's docblock, opened), so this is measured here rather than
+    // assumed to follow from the list being scoped.
+    [$shelf, , $anhMembership] = dnqFix('dong-thap-dnq-count-tenancy');
+    dnqOffer($anhMembership, 'Em có 5 cuốn truyện tranh');
+
+    app(TenantContext::class)->actSystemWide();
+    $other = Bookshelf::factory()->create(['slug' => 'ha-noi-dnq-count', 'settings' => []]);
+    $binh = User::factory()->create(['full_name' => 'Phêrô Nguyễn Văn Bình']);
+    $binhMembership = Membership::factory()->for($other)->create([
+        'user_id' => $binh->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    app(TenantContext::class)->set($other, $binhMembership);
+    dnqOffer($binhMembership, 'Sách của kệ khác');
+    dnqOffer($binhMembership, 'Và một chồng nữa');
+
+    app(TenantContext::class)->set($shelf, $anhMembership);
+
+    expect(app(DonationQueueQuery::class)->countPending())
+        ->toBe(1, 'the other shelf\'s two pending offers are not in this shelf\'s badge');
+});

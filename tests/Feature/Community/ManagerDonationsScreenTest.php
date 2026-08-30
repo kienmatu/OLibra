@@ -313,3 +313,100 @@ it('a reader of the shelf 404s on the Từ chối POST', function () {
         ['reason' => 'Tự từ chối chính mình.'],
     )->assertNotFound();
 });
+
+/*
+ * BR §16.3's COUNT BADGE, which Task 19 deferred on a false premise and
+ * this fix round ships. The requirement is that paragraph's first
+ * sentence — "Reachable from the sidebar nav with a count badge" — and
+ * the badge is a SHARED prop, `pendingDonations`, because the nav that
+ * renders it is on every manage screen rather than on the queue's own
+ * page (App\Http\Middleware\HandleInertiaRequests::share, opened).
+ *
+ * TWO BLOCKS, NOT ONE, and the split is the Pest trap rather than tidiness:
+ * a failed expect() aborts the whole METHOD, so a badge that leaked to
+ * readers must be able to fail without the number's own block hiding it.
+ * The gate is half the requirement — a number is a fact about a screen,
+ * and a reader who cannot open that screen should not be told how many
+ * rows are on it.
+ *
+ * Neither block reads the markup — the file docblock above records what
+ * this repo's frontend runner situation was measured to be at this commit
+ * — so what is pinned here is the PROP the badge renders from.
+ * resources/js/layouts/manage-layout.tsx was opened: its *Tặng sách* item
+ * takes its name from `pendingDonations`, falling to the bare word when
+ * that is null or 0.
+ */
+it('the manage nav badge prop carries the pending count for a manager', function () {
+    [$shelf, $manager, , $readerMembership] = dmqFix('dong-thap-dmq-badge');
+
+    // A decided row beside the pending pair: a badge counting every offer
+    // ever made would answer 3 here, and a fixture of pending rows alone
+    // could not tell that apart from the right answer.
+    dmqOffer($readerMembership, 'Hai cuốn Dế Mèn');
+    dmqOffer($readerMembership, 'Năm cuốn truyện tranh');
+    $received = dmqOffer($readerMembership, 'Đã nhận rồi');
+    $received->update(['status' => 'received']);
+
+    $response = test()->actingAs($manager)->get("/shelves/{$shelf->slug}/manage/donations");
+
+    // THE NUMBER FIRST, through assertInertia so the assertion reads the
+    // shared bag Inertia actually built rather than the props array the
+    // controller returned — the badge rides share(), not the controller.
+    $response->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('pendingDonations', 2));
+
+    // AND THE LIST IT BADGES, in the same response: the badge and the rows
+    // beneath it are two reads of one predicate (App\Queries\
+    // DonationQueueQuery shares a private pending() between them), and this
+    // is the HTTP-level statement of that. DonationQueriesTest owns the
+    // structural half.
+    expect($response->viewData('page')['props']['pendingDonations'])
+        ->toBe(count($response->viewData('page')['props']['queue']), 'the badge counts the rows on the screen it opens');
+});
+
+it('a reader of the shelf gets no badge at all — null, not a number', function () {
+    // The gate half. This asserts on a page a READER may open (their own
+    // Tặng sách screen, role:reader), because the manage screen 404s them
+    // and a 404 carries no props to check. A pending offer is seeded
+    // FIRST, so `null` here is the gate refusing rather than an empty
+    // table answering zero — which is the whole difference between this
+    // block and one that would stay green with the gate deleted.
+    [$shelf, , $reader, $readerMembership] = dmqFix('dong-thap-dmq-badge-reader');
+    dmqOffer($readerMembership, 'Năm cuốn truyện tranh');
+
+    test()->actingAs($reader)->get("/shelves/{$shelf->slug}/profile/donations")
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('pendingDonations', null));
+});
+
+it('Duyệt on an offer whose donor has gone says so instead of naming nobody', function () {
+    // Fix round 1, item 2. The soft-deleted donor is the case
+    // App\Queries\DonationQueueQuery's docblock reasons about from the
+    // trait without measuring; this block measures it, on the flash rather
+    // than on the query. Before the fix this printed `Đã nhận lời tặng của
+    // . Khi thêm sách vào kho, hãy điền "" vào ô Người tặng.`
+    //
+    // Its own it(), apart from the named-donor flash above: a failed
+    // expect() aborts the METHOD, so these two sentences have to be able
+    // to fail independently.
+    [$shelf, $manager, $reader, $readerMembership] = dmqFix('dong-thap-dmq-flash-nodonor');
+    $offer = dmqOffer($readerMembership, 'Một túi sách thiếu nhi còn khá mới');
+
+    // The USER, which is what the name is read through
+    // (donor?->user?->full_name). Soft delete, not a hard one: the
+    // donations row's foreign key still points at a live memberships row.
+    $reader->delete();
+
+    test()->actingAs($manager)
+        ->post("/shelves/{$shelf->slug}/manage/donations/{$offer->id}/receive");
+
+    $flash = (string) session('success');
+
+    // No empty quotes and no dangling "của", asserted as the absence of
+    // the broken shape AND the presence of the replacement — either alone
+    // would stay green against a flash that had simply gone missing.
+    expect($flash)->toBe(
+        'Đã nhận lời tặng. Lời tặng này không còn tên người tặng, nên hãy để trống ô Người tặng khi thêm sách vào kho.',
+        'a donor-less offer gets its own sentence',
+    );
+});

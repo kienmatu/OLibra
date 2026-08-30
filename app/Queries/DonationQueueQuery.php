@@ -4,6 +4,7 @@ namespace App\Queries;
 
 use App\Enums\DonationStatus;
 use App\Models\BookDonation;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * OPS §3.3's GetDonationQueue — the manager's pending offers, oldest
@@ -75,32 +76,59 @@ use App\Models\BookDonation;
  * NO INLINE GATE, the house shape BorrowRequestQueueQuery's docblock
  * argues at length for its own file (opened).
  *
- * THERE IS NO COUNT METHOD HERE YET, and the reason is that nothing calls
- * one — not that nothing asks for one. Both documents ask: BR §16.3's
- * Donation queue paragraph opens "Reachable from the sidebar nav with a
- * count badge", and OPS §3.3's GetDonationQueue row gives "Queue count
- * for the badge" in its *Derived on read* column (both opened). What BR
- * §16.3 refuses in the same sentence is something else — "deliberately
- * **not** a fifth dashboard stat card". So the badge is a live
- * requirement waiting on the nav that renders it, and whoever builds that
- * nav should add the count here, delegating to the same predicate this
- * read uses, the way CommentModerationQuery::countPending() and
- * BorrowRequestQueueQuery::countWaiting() already do for their screens
- * (both opened).
+ * THE COUNT BADGE, AND A RETRACTION. Both documents ask for it: BR
+ * §16.3's Donation queue paragraph opens "Reachable from the sidebar nav
+ * with a count badge", and OPS §3.3's GetDonationQueue row gives "Queue
+ * count for the badge" in its *Derived on read* column (both opened).
+ * What BR §16.3 refuses in the same sentence is something else —
+ * "deliberately **not** a fifth dashboard stat card".
  *
- * TASK 19 BUILT THAT NAV AND STILL DID NOT ADD THE COUNT, which is an
- * answer to the paragraph above rather than an oversight, so it is
- * recorded here rather than left for the next reader to re-derive.
- * resources/js/layouts/manage-layout.tsx (opened, and edited in that same
- * commit) builds its sidebar from a list of name/href pairs and is handed
- * one prop, `shelf` — so the badge is not a number this file is missing,
- * it is a channel that layout does not have. Adding countPending() first
- * would have shipped a method with no caller. The requirement stays open;
- * whoever gives that layout a counts prop is the caller this method is
- * waiting for.
+ * Task 17's brief left countPending() out as "a counting method with no
+ * caller", and that was right when it was made: no nav rendered a number.
+ * Task 19 shipped the nav and STILL left the count out, and the paragraph
+ * it wrote here to justify that is RETRACTED. It read: manage-layout.tsx
+ * "builds its sidebar from a list of name/href pairs and is handed one
+ * prop, `shelf` — so the badge is not a number this file is missing, it
+ * is a channel that layout does not have." The second half is false.
+ * resources/js/layouts/manage-layout.tsx (opened) DESTRUCTURES `shelf`
+ * out of usePage<SharedData>().props — the whole shared bag is in its
+ * hand — and App\Http\Middleware\HandleInertiaRequests::share() (opened)
+ * was already sending a lazily-resolved, gate-scoped nav count of exactly
+ * this shape for the notification bell. The channel existed; the cost of
+ * one more count per manage render is what a deferral could honestly have
+ * been argued on, and it was not the argument made.
+ *
+ * So countPending() below now ships, with the caller Task 17 was waiting
+ * for: share()'s `pendingDonations`, gated on act-as-manager, rendered
+ * beside the *Tặng sách* nav item.
+ *
+ * THE BADGE AND THE LIST CANNOT DISAGREE, structurally rather than by
+ * happening to read alike: run() and countPending() both start from
+ * pending() below — ONE builder holding the one predicate — so there is
+ * no second `where('status', …)` in this file to drift from the first.
+ * That is BorrowRequestQueueQuery::countWaiting()'s shape (it shares
+ * waiting() with its own run(), and its docblock records the fix round
+ * that made it so) rather than CommentModerationQuery::countPending()'s,
+ * which restates its predicate and pins the agreement with a test
+ * instead (both opened). DonationQueriesTest pins the agreement here too,
+ * because a shared builder is only a guarantee for as long as the next
+ * editor keeps sharing it.
  */
 final class DonationQueueQuery
 {
+    /**
+     * The one place this class says what "in the queue" means — shared by
+     * run() and countPending() so the badge and the list cannot answer two
+     * different predicates. Tenancy is BookshelfScope's, on BookDonation;
+     * no bookshelf_id is written here.
+     *
+     * @return Builder<BookDonation>
+     */
+    private function pending(): Builder
+    {
+        return BookDonation::query()->where('status', DonationStatus::Pending);
+    }
+
     /**
      * Pending offers, oldest first, with the donor.
      *
@@ -111,9 +139,8 @@ final class DonationQueueQuery
         // array_values is a level-8 requirement rather than belt and
         // braces: ->values()->all() gives PHPStan array<int, ...>, not
         // list<...>.
-        return array_values(BookDonation::query()
+        return array_values($this->pending()
             ->with('donor.user')
-            ->where('status', DonationStatus::Pending)
             ->orderBy('created_at')
             ->orderBy('id')
             ->get()
@@ -140,5 +167,22 @@ final class DonationQueueQuery
             ])
             ->values()
             ->all());
+    }
+
+    /**
+     * The nav badge's number — counted from pending(), the same builder
+     * run() selects its rows through, never a shorter statement that
+     * happens to agree today.
+     *
+     * Its caller is App\Http\Middleware\HandleInertiaRequests::share()'s
+     * `pendingDonations` closure. No inline Gate here: that closure asks
+     * act-as-manager before it calls, and the route group's role:manager
+     * guards the screen — the house shape BorrowRequestQueueQuery's
+     * docblock argues for at length, and the reason countWaiting() can be
+     * called from ManagerDashboardQuery without an HTTP request behind it.
+     */
+    public function countPending(): int
+    {
+        return $this->pending()->count();
     }
 }

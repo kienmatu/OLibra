@@ -269,6 +269,27 @@ return [
     // and says nothing about the reader being told — the same restraint
     // comment_approved_flash's own comment argues for a few lines up.
     'donation_received_flash' => 'Đã nhận lời tặng của :name. Khi thêm sách vào kho, hãy điền ":name" vào ô Người tặng.',
+    // THE SAME SENTENCE WITH NO NAME IN IT, because there is a real case
+    // with no name to put there and the line above reads badly on it.
+    // App\Queries\DonationQueueQuery's docblock (opened) records why the
+    // name can be empty: App\Models\Membership and App\Models\User both
+    // use SoftDeletes, so a trashed donor comes back as a null relation
+    // and the row stays in the queue — exactly the offer a volunteer
+    // needs to clear. The nullsafe chain in
+    // App\Http\Controllers\Manage\DonationController::receive is what
+    // turns that into an empty string, and interpolating an empty string
+    // into the line above produced, measured in this task's mutation 2a:
+    //
+    //   Đã nhận lời tặng của . Khi thêm sách vào kho, hãy điền "" vào ô
+    //   Người tặng.
+    //
+    // So the no-name case gets its own sentence rather than a hole in
+    // that one. It does NOT diagnose the cause — a volunteer holding a
+    // bag of books does not need to be told about soft deletes — it says
+    // what they will find when they get to the form: no name to type.
+    // Same first clause as its twin, so the two read as one flash with a
+    // different second half rather than as two different outcomes.
+    'donation_received_flash_no_donor' => 'Đã nhận lời tặng. Lời tặng này không còn tên người tặng, nên hãy để trống ô Người tặng khi thêm sách vào kho.',
     // The decline's twin, on comment_rejected_flash's pattern: the verb,
     // then where the reason went. It names the reader's own screen
     // because that is where it lands — App\Queries\MyDonationsQuery
