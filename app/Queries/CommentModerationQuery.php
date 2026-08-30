@@ -59,8 +59,8 @@ use InvalidArgumentException;
  *
  * NO INLINE GATE, the house shape BorrowRequestQueueQuery's docblock
  * argues at length for its own file. The screen that calls this one is
- * Task 7's and its route group's role:manager middleware is where
- * authorization lands.
+ * Task 8's (/manage/comments) and its route group's role:manager
+ * middleware is where authorization lands.
  *
  * Tenancy is BookshelfScope's, on Comment itself — no bookshelf_id
  * appears here, and neither does deleted_at: SoftDeletes on Comment
