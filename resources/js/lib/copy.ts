@@ -607,6 +607,33 @@ export const copy = {
         // read a clock for.
         postedOn: "ngày {date}",
     },
+    // The shelf's bulletin, as its own two screens. The NAV word stays
+    // `shelf.announcements` = "Bản tin"; these are the words the pages
+    // themselves carry, and they are a separate namespace rather than
+    // extra keys under `shelf` because that group holds nav labels and
+    // this one holds a heading, an empty state and a badge.
+    //
+    // "Bản tin tủ sách", not the reference's "Thông báo của tủ sách": Task
+    // 16 renamed this bulletin so the personal bell could keep "Thông
+    // báo", and a heading that used the old word would put the renamed
+    // word in the nav and the old one at the top of the page it opens.
+    announcements: {
+        title: "Bản tin tủ sách",
+        empty: "Hiện chưa có bản tin nào.",
+        // Beside the pinned notice, and NOT colour alone (AGENTS.md's
+        // second non-negotiable) — the reference's own word for this
+        // marker, kept.
+        pinned: "Ghim",
+        // A DATE, not a timestamp. The server sends publishedAt as an ISO
+        // instant and formatInstantParts renders the NUMBER; the
+        // Vietnamese glue is here, the same split comments.postedOn uses.
+        // The hour is dropped deliberately: a parish bulletin is read as
+        // "what was posted this week", not as an event you check a clock
+        // for.
+        publishedOn: "Đăng ngày {date}",
+        backToList: "Về bản tin tủ sách",
+        backToShelf: "Về trang tủ sách",
+    },
     // "Thông báo" belongs HERE, to the personal bell, and the shelf's
     // bulletin is `shelf.announcements` = "Bản tin" — the reference's
     // split, adopted at Task 16 rather than reinvented. The first draft of

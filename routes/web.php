@@ -15,6 +15,7 @@ use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
+use App\Http\Controllers\Reader\AnnouncementController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
 use App\Http\Controllers\Reader\CatalogueController;
@@ -107,7 +108,44 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // bodiless request POST above where the middleware is the whole
         // of it.
         Route::post('/books/{book}/comments', [CommentController::class, 'store'])->name('books.comments.store');
-        Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
+        // BR §16.1's Bản tin. The list keeps the placeholder's route NAME,
+        // and what that continuity buys is the shelf home's nav link:
+        // `git grep -n shelves.announcements c913b78 -- resources/`, run
+        // before this line was written, returned two hits — the Ziggy call
+        // in resources/js/pages/shelves/show.tsx, and a mention of the name
+        // inside a comment in resources/js/lib/copy.ts.
+        //
+        // {slug} IS A STRING, NOT A MODEL BINDING — decided at plan review
+        // and kept deliberately, so a later reader does not "fix" it to
+        // {announcement:slug}. A binding would resolve a row the controller
+        // never reads and then re-query by slug, and its 404 (any live row
+        // on this shelf) asks a different question from
+        // AnnouncementsQuery::detail()'s (published, and not yet lapsed):
+        // the row deciding the status would not be the row deciding the
+        // content. MEASURED, with this route changed to
+        // {announcement:slug} and the controller rewritten to render the
+        // bound row: ReaderAnnouncementsTest's draft block and its lapsed
+        // block both answer 200 where they want 404. The measurement is
+        // written out in AnnouncementController::show, along with the
+        // third failure that run produced.
+        //
+        // {slug} names no model for the router to resolve, so the shelf
+        // confinement on this line is one layer rather than this file's
+        // usual two, and that layer is the global scope
+        // BelongsToBookshelf installs on Announcement (read off the trait,
+        // whose boot method calls addGlobalScope(new BookshelfScope)).
+        // MEASURED rather than argued, which is what this file's earlier
+        // scopeBindings note asks of a tenancy claim: with that
+        // addGlobalScope call commented out,
+        // ReaderAnnouncementsTest's cross-shelf block is the filtered
+        // run's single failure — shelf B's notice rendered 200 under shelf
+        // A's address. role:reader is untouched by any of this: it is the
+        // group's, and RouteOrderTest requires it on both lines below.
+        //
+        // Static before bound (spec §6's house habit), even though one
+        // segment and two cannot collide.
+        Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');
+        Route::get('/announcements/{slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
         Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
     });
