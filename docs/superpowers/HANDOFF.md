@@ -21,8 +21,8 @@ product-owner question waiting for him under "Owed by Kien" below.
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
-| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | **#64** | **complete and open — 19 tasks, whole-branch reviewed, fixes applied and re-reviewed; awaiting Kien's merge decision** |
-| 2b Community voice | not written | — | — |
+| 2a Requests & holds | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | #64 | merged (`main` = `fabfbd4`) |
+| **2b Community voice** | `plans/2026-08-30-laravel-phase-2b-community-voice.md` | — | **in flight — 20 tasks, 6 implemented, Task 6 in its fix-round re-review** |
 | 2c Statistics & labels | not written | — | — |
 
 Phase 1 (1a–1d) IS BR §1.4's core loop, and it is done. Next: Phase 2 (Community), then
@@ -42,6 +42,74 @@ over-wide shape Phase 1 was split for. The cut:
 - **2b — community voice.** Comments and moderation (INV-09 visibility), announcements,
   site feedback and its inbox, donations.
 - **2c — statistics and QR labels.**
+
+## Phase 2b — current position
+
+Branch `feat/phase-2b-community-voice`, cut from `main` at `fabfbd4` (the #64 merge).
+**19 commits ahead.** Plan `plans/2026-08-30-laravel-phase-2b-community-voice.md`,
+**20 tasks in three slices**, written by Opus and reviewed by a different Opus
+(`636c29d` → `a3b18b6` three Criticals / nine Importants / six Minors → `a918810`
+the corrections re-measured → `3c93ba2`). **Site feedback was cut to Phase 3** during
+planning; the slices are A comments and moderation, B announcements, C donations.
+
+### Landed
+
+| # | What | Commit | Suite after |
+|---|---|---|---|
+| 1 | Comment groundwork — the shelf's two settings, the policy, the relations, the refusal sentences | — | — |
+| 2 | `CreateComment` + its POST, `StoreCommentRequest`, `CommentController`, both flashes | — | — |
+| 3 | `ApproveComment` — the one status that makes a comment public, and the phase's one notification | — | — |
+| 4 | `RejectComment` and `HideComment` — and why only one needs a reason | — | — |
+| 5 | `BookCommentsQuery` + the INV-9 invariant suite | — | 1,340 / 8,327 |
+| 6 | `CommentModerationQuery` + `counts.pendingComments`, delegated | `9663e57` → fix `f865d80` → `89c1a58` | 1,361 / 8,379 |
+
+Task 6 is **in its scoped re-review** as of this line. Its round-1 review returned
+Needs fixes with no Critical and four Importants — two of them comment-versus-reality
+defects, which is now this phase's dominant finding class rather than a logic bug.
+
+### Task 7's brief is written and waiting
+
+`.superpowers/sdd/…/task-7-brief.md`. Three plan-vs-code divergences were found by
+reading and resolved inside the brief before dispatch:
+
+- **`Field` and `Textarea` do not exist.** The plan specifies both. There is no textarea
+  in `resources/js/components/ui/` and no `Field` anywhere in `resources/js`. The house
+  shape is `Label` + a raw `<textarea>` + `InputError` (`components/book-fields.tsx`).
+  The brief forbids creating two UI components for one form.
+- **A shipped comment goes false.** `pages/shelves/book.tsx`'s primary-action comment
+  says "this is the only Button on the page at all"; the comment form adds a second. The
+  brief requires the clause corrected, not the comment deleted — its bg-primary half
+  stays true.
+- **The empty body has two doors.** An empty body fails `StoreCommentRequest`'s
+  `required` → `errors.body`, a field error. **Three spaces passes `required`**, reaches
+  `CreateComment`'s `empty_body` → `RuleViolated` → the `errors.rule` banner. The plan's
+  test line covers only the first.
+
+Task 7 is also **smaller than the plan implies**: the route, Form Request, controller and
+both flash sentences all shipped in Task 2. It is `BookDetailQuery`'s two keys, the
+screen, and the test.
+
+### Carries to the 2b whole-branch review
+
+- The triplicated locked-read-plus-status-guard block (a 4th copy is the risk).
+- `CommunityArchitectureTest`'s hand-maintained `FOR UPDATE` list goes stale silently.
+- `VoidLoanRequest`'s 404 branch is untested in shipped Phase 1c code.
+- Nothing prevents a future screen bypassing INV-9 via `Comment::query()`.
+- **Whether the query layer should refuse `actSystemWide()`.** `BorrowRequestQueueQuery`
+  added `boundShelf()` because `countWaiting()` and `run()` *disagreed* there.
+  `CommentModerationQuery` and `ManagerDashboardQuery` have no such disagreement — every
+  method goes system-wide together — so a one-off guard was declined in Task 6's fix
+  round. The pattern wants settling across every query at once, not per task.
+
+### Standing ruling for this phase (see the ledger for its five precedents)
+
+Implementers must **not** write claims about what other code does or does not do.
+Allowed: a self-claim about the enclosing method; a positive fact about a named file
+actually opened; a claim scoped to the file it sits in. Banned: exhaustiveness over files
+not opened or work not yet done. The banned-shape grep runs **pre-commit, by the
+implementer**, with every hit cut or justified in one line in the report — it moved off
+the reviewer after five false enumeration claims shipped across four tasks, **three of
+them introduced by fix rounds written to remove an earlier one.**
 
 ## Phase 2a — current position
 
