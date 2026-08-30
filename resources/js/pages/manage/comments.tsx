@@ -72,6 +72,17 @@ const NUMBER = new Intl.NumberFormat("vi-VN");
  * erased — and the cast asserts of the value what `Status` already says
  * of the type. Key order is the literal's, which is the order the chips
  * render in: pending first, then the three archives.
+ *
+ * WHAT THIS DOES NOT CLOSE, written down rather than implied away
+ * (re-review of Task 8 fix round 1): the authoritative status set is
+ * App\Enums\CommentStatus on the server, and nothing ties this file to
+ * it. The drift is narrowed and relocated, not eliminated — a title added
+ * here with no matching enum case renders a fifth chip whose counts entry
+ * is undefined, and a fifth enum case still grows no chip here. What the
+ * derivation above DOES buy is that a key present in titles and missing
+ * from chips is now a type error rather than a silently absent chip.
+ * Tying the two sides to one source is a phase-level change; carried to
+ * the whole-branch review.
  */
 const STATUSES = Object.keys(copy.manageComments.titles) as Status[];
 
