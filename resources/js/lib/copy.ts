@@ -514,6 +514,27 @@ export const copy = {
             cancelButton: "Huỷ yêu cầu",
         },
     },
+    // The reader's comments on a book page. Its own namespace rather than
+    // a corner of `catalogue`: the moderation screen is a different
+    // surface with different words, and merging on the shared subject is
+    // exactly the "coincidental wording" this file's header refuses.
+    comments: {
+        heading: "Bình luận",
+        empty: "Chưa có bình luận nào. Bạn là người đầu tiên nhé.",
+        formLabel: "Viết bình luận",
+        placeholder: "Bạn thấy cuốn này thế nào?",
+        submit: "Gửi bình luận",
+        // The memberless viewer's sentence, in place of a box that would
+        // refuse them — the reference's own wording for the same case.
+        onlyReaders: "Chỉ bạn đọc của tủ sách này mới viết bình luận được.",
+        // A DATE, not a timestamp (AGENTS.md's language rule). The server
+        // sends createdAt as an ISO instant, so the number comes from
+        // formatInstantParts(...).date and the Vietnamese glue is here —
+        // the same split notifications.receivedAt uses, minus the hour,
+        // because "what a child wrote about a book" is not an event you
+        // read a clock for.
+        postedOn: "ngày {date}",
+    },
     // "Thông báo" belongs HERE, to the personal bell, and the shelf's
     // bulletin is `shelf.announcements` = "Bản tin" — the reference's
     // split, adopted at Task 16 rather than reinvented. The first draft of

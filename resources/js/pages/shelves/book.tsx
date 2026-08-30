@@ -1,7 +1,9 @@
 import { Head, useForm, usePage } from "@inertiajs/react";
 import { route } from "ziggy-js";
+import InputError from "@/components/input-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import AppLayout from "@/layouts/app-layout";
 import { copy, t } from "@/lib/copy";
 import { formatInstantParts } from "@/lib/dates";
@@ -74,6 +76,21 @@ interface PageProps extends SharedData {
             holdExpiresAt: string | null;
         } | null;
         currentLoan: { holderName: string | null; daysRemaining: number; dueOn: string } | null;
+        /**
+         * The APPROVED comments, newest first — BookDetailQuery hands this
+         * straight through from BookCommentsQuery, whose status predicate
+         * is INV-9 living in the access path. The four fields are that
+         * query's whole row shape; there is no `status` here, and a page
+         * that wanted one would be asking for a moderation record.
+         */
+        comments: { id: string; body: string; authorName: string; createdAt: string }[];
+        /**
+         * The shelf's comments_enabled setting. False means the shelf has
+         * decided it takes none, so the box is ABSENT rather than disabled
+         * — a form that would answer comments_disabled is the shape this
+         * page already refuses for the borrow button above.
+         */
+        commentsEnabled: boolean;
     };
     firstContact: { name: string; phone: string } | null;
 }
@@ -82,6 +99,7 @@ export default function ShelfBook() {
     const { detail, firstContact, shelf, role, errors, flash } = usePage<PageProps>().props;
     const requestForm = useForm({});
     const cancelForm = useForm({});
+    const commentForm = useForm({ body: "" });
     // Narrowed once, so the JSX below and the cancel POST read the same
     // non-null row rather than re-checking it inside a callback.
     const mine = detail.myRequest;
@@ -182,10 +200,12 @@ export default function ShelfBook() {
                         (UrlGenerator::previous), so a refusal from a form on
                         this page lands back on this page.
 
-                        TWO doors feed it, not one, and that is the thing to
-                        hold on to: the create POST below AND the cancel POST
+                        THREE doors feed it now, not one, and that is the thing
+                        to hold on to: the create POST below, the cancel POST
                         in the "mine" card, whose Action has its own set of
-                        refusals. Deliberately NOT enumerating which codes can
+                        refusals, and — from this task — the comment box at the
+                        foot of the page, whose Action has another.
+                        Deliberately NOT enumerating which codes can
                         arrive — three drafts of this comment tried, and all
                         three were wrong, first by naming a code that cannot
                         reach here and then by missing two that can. The
@@ -293,13 +313,21 @@ export default function ShelfBook() {
                             }}
                         >
                             {/* The page's one primary action (design rule 3):
-                                this is the only Button on the page at all, and
-                                the only other bg-primary element is the
-                                availability Badge, which is a status, not an
-                                action. h-14 px-8 text-base is the shipped
+                                within this file, this Button and the
+                                availability Badge are the two bg-primary
+                                elements, and the Badge is a status rather than
+                                an action. h-14 px-8 text-base is the shipped
                                 primary shape — lend/confirm.tsx:101 and
                                 returns/index.tsx:176 — and h-14 is the 56px
-                                that rule 4 asks of a primary button. */}
+                                that rule 4 asks of a primary button.
+
+                                CORRECTED WHEN THE COMMENT FORM LANDED. This
+                                said "this is the only Button on the page at
+                                all", which the comment form's submit made
+                                false the moment it was added; the bg-primary
+                                half is the load-bearing one and it still
+                                holds, because that submit is variant="outline"
+                                for exactly this rule. */}
                             <Button
                                 type="submit"
                                 className="h-14 px-8 text-base"
@@ -329,6 +357,138 @@ export default function ShelfBook() {
                                 {copy.catalogue.description}
                             </h2>
                             <p className="whitespace-pre-line text-sm">{detail.description}</p>
+                        </section>
+                    ) : null}
+
+                    {/* BR §7.5's comments. ABSENT ENTIRELY when the shelf has
+                        turned them off — not a disabled box, and not a heading
+                        over an explanation. That is what comments_enabled
+                        means, and the reference's own comments area is built
+                        the same way; OPS §4.4 gives the case its own refusal
+                        code precisely because it is the shelf's choice rather
+                        than anything the reader did.
+
+                        The list goes with it. A shelf that stops taking
+                        comments hides the ones it already has, which is the
+                        reference's behaviour and is recorded here because the
+                        rows are not deleted — turning the setting back on
+                        brings them back. */}
+                    {detail.commentsEnabled ? (
+                        <section className="mt-8">
+                            <h2 className="mb-2 text-lg font-medium">{copy.comments.heading}</h2>
+
+                            {detail.comments.length > 0 ? (
+                                <ul className="divide-y border-y">
+                                    {detail.comments.map((comment) => (
+                                        <li key={comment.id} className="py-4">
+                                            <p className="text-sm font-medium">
+                                                {comment.authorName}
+                                                <span className="ml-2 font-normal text-muted-foreground">
+                                                    {t(copy.comments.postedOn, {
+                                                        date: formatInstantParts(comment.createdAt)
+                                                            .date,
+                                                    })}
+                                                </span>
+                                            </p>
+                                            {/* Plain text, escaped by React (BR
+                                                §5.4) — BookCommentsQuery's own
+                                                docblock says it returns the body
+                                                RAW for this reason.
+                                                whitespace-pre-line keeps the line
+                                                breaks a child typed, and what they
+                                                wrote is otherwise rendered as
+                                                written. */}
+                                            <p className="mt-1 whitespace-pre-line text-sm">
+                                                {comment.body}
+                                            </p>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-sm text-muted-foreground">
+                                    {copy.comments.empty}
+                                </p>
+                            )}
+
+                            {/* NO MEMBERSHIP, NO BOX — the same guard the
+                                borrow button above carries, and for the same
+                                measured reason stated there: a memberless
+                                super admin reaches this page (Gate::before
+                                opens act-as-reader) but binds no membership,
+                                and CreateComment fails closed on that with
+                                not_permitted. A box guaranteed to refuse the
+                                person looking at it is the shape this run of
+                                work removes. `shelf === null` rides along
+                                because the POST's URL needs the slug. */}
+                            {shelf === null || role === null ? (
+                                <p className="mt-6 max-w-sm text-sm text-muted-foreground">
+                                    {copy.comments.onlyReaders}
+                                </p>
+                            ) : (
+                                <form
+                                    className="mt-6 max-w-sm"
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        commentForm.post(
+                                            route("shelves.books.comments.store", {
+                                                shelf: shelf.slug,
+                                                book: detail.slug,
+                                            }),
+                                            {
+                                                preserveScroll: true,
+                                                onSuccess: () => commentForm.reset("body"),
+                                            },
+                                        );
+                                    }}
+                                >
+                                    {/* The house textarea shape, not two new UI
+                                        components. The plan asked for
+                                        `Field` + `Textarea`; a grep over
+                                        resources/js at this commit for
+                                        \bField\b and \bTextarea\b returned
+                                        only this file's own comment, and
+                                        components/ui/ holds input.tsx and
+                                        label.tsx with no textarea beside them.
+                                        The Label + raw textarea + InputError
+                                        trio below is the shape
+                                        components/book-fields.tsx already
+                                        renders for its description field
+                                        (opened at this commit), down to the
+                                        className. */}
+                                    <div>
+                                        <Label htmlFor="body">{copy.comments.formLabel}</Label>
+                                        <textarea
+                                            id="body"
+                                            name="body"
+                                            rows={4}
+                                            className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                            placeholder={copy.comments.placeholder}
+                                            value={commentForm.data.body}
+                                            onChange={(event) =>
+                                                commentForm.setData("body", event.target.value)
+                                            }
+                                        />
+                                        <InputError message={commentForm.errors.body} />
+                                    </div>
+                                    {/* variant="outline", and it has to be
+                                        said: the default variant is
+                                        bg-primary, this page's one primary
+                                        action is Xin mượn above, and design
+                                        rule 3 puts solid terracotta on a
+                                        screen once. h-11 is the shape the
+                                        cancel button in the "mine" card
+                                        already uses for a secondary action on
+                                        this page. */}
+                                    <Button
+                                        type="submit"
+                                        variant="outline"
+                                        className="mt-4 h-11"
+                                        disabled={commentForm.processing}
+                                    >
+                                        {copy.comments.submit}
+                                    </Button>
+                                </form>
+                            )}
                         </section>
                     ) : null}
                 </div>
