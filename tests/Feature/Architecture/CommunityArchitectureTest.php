@@ -36,17 +36,27 @@ function wallClockOffenders(string $root): array
 }
 
 // NO is_dir() GUARD ANYWHERE IN THIS FILE, and that is the point of it
-// existing in Task 2's commit rather than Task 1's. Measured both ways,
-// and RE-measured after the fix round made the audit block recurse like
-// its two siblings: with app/Actions/Community absent entirely this file
-// is 4 failed (0 assertions) — all four blocks die on
-// UnexpectedValueException from RecursiveDirectoryIterator, where before
-// the recursion change three did and the fourth failed on an empty
-// glob(); with the directory present but EMPTY it is 2 failed, 2 passed,
-// because the retry block and the clock block have nothing to offend and
-// pass on absence. A block that passes on absence is exactly what these
-// guards exist to refuse, so the fix for a red run here is the Action,
-// never an is_dir().
+// existing in Task 2's commit rather than Task 1's.
+//
+// RE-MEASURED AT TASK 20, AND THE PREVIOUS NUMBERS HERE WERE STALE —
+// which is why this note now dates itself. It said "with the directory
+// absent this file is 4 failed (0 assertions) — all four blocks" and
+// "present but EMPTY it is 2 failed, 2 passed"; both were true of the
+// four blocks this file held when they were written, and later commits
+// added three more (the FOR UPDATE block and the two route-order
+// blocks), which no re-run had seen. The measurement is now:
+//   - `app/Actions/Community` MOVED AWAY entirely: 5 failed, 2 passed
+//     (8 assertions). The five directory-walking blocks die on
+//     UnexpectedValueException from RecursiveDirectoryIterator; the two
+//     that pass are the route-order blocks at the foot of this file,
+//     which read the router and never touch the directory.
+//   - the directory PRESENT BUT EMPTY: 4 failed, 3 passed (10
+//     assertions). The one directory-walking block that passes on an
+//     empty directory is the clock block — it has nothing to offend.
+// A block that passes on absence is exactly what these guards exist to
+// refuse, so the fix for a red run here is the Action, never an
+// is_dir(). And a total written down here has a shelf life: re-run it
+// rather than incrementing it.
 
 it('every community write transaction retries — the attempts argument, tokenised', function () {
     // The same property CirculationArchitectureTest states for its own

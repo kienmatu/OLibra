@@ -2,10 +2,13 @@
 
 namespace Database\Seeders;
 
+use App\Models\Announcement;
 use App\Models\Book;
 use App\Models\BookCopy;
+use App\Models\BookDonation;
 use App\Models\Bookshelf;
 use App\Models\BorrowRequest;
+use App\Models\Comment;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\Notification;
@@ -335,6 +338,115 @@ class DemoShelfSeeder extends Seeder
                 'bookshelf_id' => $shelf->id, 'user_id' => $teresa->id,
                 'kind' => 'request_approved',
                 'payload' => ['title' => 'Đất Rừng Phương Nam', 'hold_until' => $holdUntil->toDateString()],
+            ]);
+        }
+
+        // Task 20: a shelf with a voice — one book with comments on it,
+        // shelf news, and an offer waiting. Without these rows the four
+        // screens this phase shipped (the book page's comment area,
+        // /manage/comments, /manage/announcements and /manage/donations)
+        // demo as empty states on a shelf that visibly has books, loans,
+        // a queue and an audit trail.
+        //
+        // Rows are INSERTED, not produced by running the commands — the
+        // idiom of every block above, and the same reason: a seeder has no
+        // authenticated actor, and the audit block below is where this
+        // seeder puts its one deliberate exception to that.
+        //
+        // Each of the three tables gets its OWN doesntExist() guard rather
+        // than one shared guard, so a dev database seeded before this
+        // change picks up whichever of the three it is missing.
+        $commentBook = $shelf->books()->where('slug', 'de-men-phieu-luu-ky')->first()
+            ?? $shelf->books()->orderBy('slug')->first();
+
+        if ($commentBook !== null && $shelf->comments()->doesntExist()) {
+            // Two readers, not one, and neither is the manager: a comment
+            // whose author moderates it is not a shape the moderation
+            // screen can ever produce.
+            $lan = User::query()->where('full_name', 'Nguyễn Thị Lan')->firstOrFail();
+            $anh = User::query()->where('full_name', 'Lê Ngọc Ánh')->firstOrFail();
+
+            // PENDING: what /manage/comments is FOR. Carries no
+            // moderated_by and no moderated_at — App\Actions\Community\
+            // ApproveComment writes that pair together, and a pending row
+            // holding either would be a state no command mints.
+            Comment::query()->create([
+                'bookshelf_id' => $shelf->id, 'book_id' => $commentBook->id,
+                'author_id' => $lan->id, 'status' => 'pending',
+                'body' => 'Truyện hay lắm ạ, con đọc một buổi là hết.',
+            ]);
+
+            // APPROVED: the one status the reader's book page shows
+            // (INV-9), so the comment area on that page is not empty. The
+            // moderator pair is written because approval writes it.
+            Comment::query()->create([
+                'bookshelf_id' => $shelf->id, 'book_id' => $commentBook->id,
+                'author_id' => $anh->id, 'status' => 'approved',
+                'body' => 'Em thích nhất đoạn Dế Mèn gặp Dế Trũi.',
+                'moderated_by' => $manager->id,
+                'moderated_at' => Carbon::parse(app(Clock::class)->today())->subDay(),
+            ]);
+        }
+
+        if ($shelf->announcements()->doesntExist()) {
+            $newsDay = Carbon::parse(app(Clock::class)->today());
+
+            // body and body_text hold the SAME plain text, which is this
+            // phase's divergence 5: there is no rich editor, so the
+            // derivation and its source are one string. The excerpt still
+            // comes from body_text, so a later editor changes what is
+            // written here and nothing that reads it.
+            $notice = 'Tủ sách mở cửa sáng Chủ nhật, sau lễ, tại nhà xứ. Mời các bạn đến mượn sách.';
+
+            // PINNED and PUBLISHED — the row this seeder wants at the
+            // top of the reader's list, which orders is_pinned first and
+            // shows nothing whose published_at is null or in the future.
+            // No expires_at: a null expiry is "shows until somebody hides
+            // it", which is what a standing notice is.
+            Announcement::query()->create([
+                'bookshelf_id' => $shelf->id,
+                'title' => 'Giờ mở cửa tủ sách', 'slug' => 'gio-mo-cua-tu-sach',
+                'body' => $notice, 'body_text' => $notice,
+                'is_pinned' => true, 'published_at' => $newsDay->copy()->subDays(2),
+                'author_id' => $manager->id,
+            ]);
+
+            // DRAFT — published_at null, which is the whole of what a
+            // draft is on this table (App\Actions\Community\
+            // HideAnnouncement's own docblock says so of the reverse
+            // direction). It must NOT appear on the reader's list, which
+            // is the half of the manager's screen this row demos.
+            $draft = 'Danh sách sách mới sẽ được cập nhật sau khi kiểm kê xong.';
+            Announcement::query()->create([
+                'bookshelf_id' => $shelf->id,
+                'title' => 'Sách mới sắp về', 'slug' => 'sach-moi-sap-ve',
+                'body' => $draft, 'body_text' => $draft,
+                'is_pinned' => false, 'published_at' => null,
+                'author_id' => $manager->id,
+            ]);
+        }
+
+        if ($shelf->donations()->doesntExist()) {
+            // THE DONOR IS A MEMBERSHIP, NOT A USER — book_donations
+            // .donor_membership_id references memberships(id), the reverse
+            // of comments.author_id above, which is a users(id). Both hold
+            // 36-char uuid strings, so nothing but the lookup says which.
+            // Resolved through $shelf->memberships() — the hasMany
+            // relation, never a hand-written shelf-column filter, matching
+            // every block above.
+            $ha = User::query()->where('full_name', 'Phạm Thu Hà')->firstOrFail();
+            $haMembership = $shelf->memberships()->where('user_id', $ha->id)->firstOrFail();
+
+            // PENDING, and no decided_by/decided_at/decision_note: the two
+            // decisions App\Actions\Community\ReceiveDonation and
+            // DeclineDonation make write those, and the queue this row
+            // exists to fill is the pending one.
+            BookDonation::query()->create([
+                'bookshelf_id' => $shelf->id,
+                'donor_membership_id' => $haMembership->id,
+                'description' => 'Khoảng mười cuốn truyện tranh, còn khá mới.',
+                'estimated_count' => 10,
+                'status' => 'pending',
             ]);
         }
 

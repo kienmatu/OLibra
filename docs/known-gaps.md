@@ -576,6 +576,16 @@ the equivalent by hand, as above, is now how that gets checked, on demand.
   debt rather than a suspected bug; Phase 2, which is where the relation
   gets used for real, is the natural place to add the test alongside the
   first real caller.
+  **AMENDED at the Phase 2b wrap-up: the second half of that sentence has
+  expired.** Phase 2b does not use the relation either — it deferred the
+  whole feedback slice, form and inbox together, to Phase 3 (see the
+  Phase 2b section below for the four reasons). Measured at the wrap-up:
+  `grep -rn -- "->feedback()" app/ resources/ tests/` returns two hits,
+  both inside docblocks (`app/Models/Feedback.php`,
+  `app/Models/Bookshelf.php`) — no call site at all.
+  So the *first real caller* is Phase 3's, not Phase 2's,
+  and a reader sent looking for one in this phase's diff finds nothing.
+  The coverage-debt half stands unchanged.
 - **Factory `->create()` under a bound tenant now throws for any factory
   whose `definition()` names its own `bookshelf_id`.** `BelongsToBookshelf`'s
   `creating` hook validates an explicit `bookshelf_id` against the bound
@@ -599,6 +609,25 @@ the equivalent by hand, as above, is now how that gets checked, on demand.
   code path that feeds request input into `fill()`/`create()` on these models
   is writing authorization state, and closing it is Phase 1's job, not a
   dependency that already resolved itself.
+  **AMENDED at the Phase 2b wrap-up, and the two halves must not be
+  confused.** The STRUCTURAL half is *not* closed for `Comment`: opened at
+  the wrap-up, `app/Models/Comment.php` still declares `protected $guarded
+  = []`, so every column on that model — `moderated_by` included — remains
+  mass-assignable. What Phase 2b closed is the EXPOSURE half on the comment
+  surface, and only there. Every request-borne write reaching `Comment` now
+  passes a Form Request whose `rules()` names one field and nothing else —
+  `StoreCommentRequest` (`body`), `RejectCommentRequest` (`reason`,
+  required), `HideCommentRequest` (`reason`, nullable), all three opened —
+  and the controllers hand the Actions `validated()` output only
+  (`CommentController::store`, `CommentModerationController`'s two
+  decision methods, opened). `moderated_by` itself is written by exactly
+  three statements in this repository, and each writes `$actor->id` rather
+  than anything from the request: `grep -rn "moderated_by" app/` returns
+  `ApproveComment.php`, `RejectComment.php` and `HideComment.php`. So no
+  request input can reach that column today — but the model would still
+  take it if some future caller passed one, which is what closing the
+  structural half would prevent. The `Membership::role` and
+  `BorrowRequest`/`Loan` halves of this entry are untouched by Phase 2b.
 - **`phpstan.neon` analyses `app/`, `database/` and `routes/` only.** "Larastan
   clean" in any report on this branch never covered `tests/`.
 - **Archived-shelf routing is an open question, not a decision.** Nothing in
@@ -637,13 +666,41 @@ the equivalent by hand, as above, is now how that gets checked, on demand.
   such route exists yet to prove the fix against — a future author adding a
   nested route that happens to share a segment name with `manage` or
   `feedback` should re-check this filter's shape before trusting it.
-- **`donate` is a 308 redirect in the Next.js original, not a page.** This
-  Laravel branch renders it as an `under-construction` page like every
-  other reader-area route, and gating it behind `role:reader` produces the
-  same end state a gated redirect would (a non-member still can't reach
-  whatever `donate` points at), but Phase 1, which is where `donate`
+- **~~`donate` is a 308 redirect in the Next.js original, not a page.~~**
+  ~~This Laravel branch renders it as an `under-construction` page like
+  every other reader-area route … but Phase 1, which is where `donate`
   becomes a real screen, should model it as a redirect rather than
-  continuing to treat it as a page of its own.
+  continuing to treat it as a page of its own.~~
+  **STRUCK at the Phase 2b wrap-up. It was wrong twice over, and the
+  status code is the half nobody had checked.**
+  1. **The reference's redirect is TEMPORARY, not a 308.** Opened at the
+     wrap-up:
+     `old_next/src/app/tu-sach/[shelf]/(doc-gia)/tang-sach/page.tsx`
+     calls Next's `redirect()`, not `permanentRedirect()`, and its
+     docblock argues the choice in its own words — "`permanent: false`.
+     The path is a product decision rather than a fact about the
+     resource, and a 308 is cached by browsers indefinitely — a later
+     slice that wanted a public, non-reader-facing donation page would
+     have to fight every visitor's cache to get this URL back." So this
+     entry recorded, and this project then repeated, the exact status the
+     reference deliberately refused.
+  2. **That file contradicts itself, which is how the wrong number got
+     copied.** Its `metadata` export carries a comment reading "a route
+     that exists only to 308 elsewhere" — the same file, a few lines
+     above the `redirect()` call it describes. Recorded here so the
+     correction is not re-litigated from that comment. `old_next/` is
+     read-only; nothing there is edited.
+  3. **The advice has expired regardless.** Phase 2b's Task 18 turned
+     `shelves.donate` into a real offer form
+     (`App\Http\Controllers\Reader\DonationController::create`,
+     rendering `shelves/donate`), with the reader's own list of past
+     offers at `shelves.profile.donations`. That controller's docblock
+     states the resulting divergence in its own words and it is the
+     shape to carry forward: the reference has ONE screen holding both
+     the form and the list, this port has TWO pages because it kept both
+     placeholders' route names, and redirecting `donate` at
+     `profile/donations` here would send a reader who came to offer books
+     to a page that does not carry the form.
 
 ## Smaller deferred items, by task
 
@@ -958,16 +1015,47 @@ rather than accepting it on the strength of the code alone.
   return-photo uploaders per its own docblock, and this phase matched that
   scope rather than building an uploader the reference itself chose not to
   ship.
-- **The donor member picker is deferred to 1b.** `donor_membership_id` is
+- **The donor member picker is deferred.** `donor_membership_id` is
   accepted, validated, stored, audited and rendered back (the manager detail
   resolves the member's name) — but the create form offers only the
-  free-text donor until `GetReadersList` exists to search members. The OPS
-  §16.3 donation-queue pre-fill (Duyệt → form with Người tặng pre-filled) is
-  Phase 2's, and lands on this same field.
-- **The reader detail page ships without its "Xin mượn" button, comments, or
-  the manager's lend/return shortcuts** — `CreateBorrowRequest` and comments
-  are Phase 2, `LendCopy`/`ReceiveReturn` are 1c. The availability panel,
+  free-text donor until a member search exists.
+  **AMENDED at the Phase 2b wrap-up, three ways.**
+  1. **The citation was wrong.** This entry said "the **OPS** §16.3
+     donation-queue pre-fill". `docs/OPERATIONS.md` has no §16 —
+     `grep -cE "^#+ *16" docs/OPERATIONS.md` returns **0**, and that
+     document's headings end at §9. The pre-fill is **BR** §16.3's, which
+     is how every `§16` citation in this file spells it — grepped at the
+     wrap-up, and every one of them names BR.
+     (OPS does describe the same behaviour, but under `ReceiveDonation` in
+     §4.4, quoting BR: "§16.3 describes **Duyệt** as opening the add-book
+     form with **Người tặng** pre-filled with that member.")
+  2. **The gap is narrower than written.** Only the
+     MEMBERSHIP-LINKED pre-fill is missing. The free-text half already
+     ships end to end: `resources/js/pages/manage/books/create.tsx`
+     (opened) carries `donor_name` in its form type, its `useForm` seed,
+     its `transform` and its markup.
+  3. **Whoever builds the picker must CLEAR the name field, not sit
+     beside it.** `app/Http/Requests/Catalogue/StoreBookRequest.php`
+     (opened) validates `donor_membership_id` with `prohibits:donor_name`,
+     so the two are mutually exclusive by rule: a form that pre-filled the
+     membership while leaving a typed name in the box would be refused,
+     and the refusal would read as a validation bug rather than a design
+     one. What Phase 2b DID ship on this path is the courtesy half —
+     `app/Http/Controllers/Manage/DonationController` sends the donor's
+     name back in the success flash after *Duyệt*, so a volunteer can
+     retype it — not the pre-fill.
+- **~~The reader detail page ships without its "Xin mượn" button, comments,
+  or the manager's lend/return shortcuts~~** — the availability panel,
   queue length and contact line are live.
+  **AMENDED at the Phase 2b wrap-up: two of the three are now false.**
+  Opened at the wrap-up, `resources/js/pages/shelves/book.tsx` posts a
+  borrow request to `shelves.books.request` (2a) and renders the comments
+  area — the approved list and, for a member of a shelf that takes
+  comments, the form posting to `shelves.books.comments.store` (Phase 2b,
+  Task 7). What is still absent from that page is the third item only: the
+  manager's lend/return shortcuts. `LendCopy`/`ReceiveReturn` shipped in
+  1c with their own screens (`manage/lend`, `manage/returns`); no shortcut
+  to either sits on the reader's book page.
 - **`lang/vi/validation.php`'s `attributes` array only names this phase's
   fields; a field validated by a later phase without an entry there falls
   back to Laravel's default attribute display** — `getDisplayableAttribute()`
@@ -985,14 +1073,18 @@ rather than accepting it on the strength of the code alone.
   the per-row true on-loan count was deliberately not added to the list
   query for one label. The detail pages show the true count. Revisit if a
   manager reports the number as wrong rather than approximate.
-- **`GetShelfHome` (OPS §3.2) is deferred to Phase 2, whole.**
-  `ShellController::shelfHome()` still renders the propless `shelves/show`.
-  The page's centerpiece card is the pinned-or-latest announcement — a
-  Phase 2 entity — while its catalogue-count link and *Mới thêm* cover row
-  become computable with this phase's queries; building the page now would
-  mean rebuilding it in Phase 2 when the announcement card and the Tặng
-  sách/Góp ý cards land. Deferred so the shelf home is built once, against
-  its full OPS §3.2 shape.
+- **`GetShelfHome` (OPS §3.2) is deferred, and the reason has changed.**
+  `ShellController::shelfHome()` still renders `shelves/show`, which Task
+  18 gave a *Tặng sách* link but no props.
+  **AMENDED at the Phase 2b wrap-up: the stated reason has expired.** It
+  read "the page's centerpiece card is the pinned-or-latest announcement —
+  a Phase 2 entity". That card is now computable:
+  `app/Queries/AnnouncementsQuery.php` ships the reader-facing narrowing
+  and orders `is_pinned` first. What still blocks the page is the OTHER
+  secondary card BR §16.1 asks for — *Góp ý* — which belongs to the
+  feedback slice this phase deferred whole to Phase 3 (below). So the
+  shelf home waits on feedback, not on announcements, and whoever picks it
+  up should read the deferral below before re-deriving the reason.
 - **The catalogue queries pay ~8 correlated aggregate subqueries per row,
   and `books_public` goes unused** (the sort is on unindexed
   `title_folded`), where the reference did one grouped join. Honestly fine
@@ -2116,16 +2208,16 @@ text turned out wrong is called out rather than repeated.
 
   | Row | Disposition, verified |
   |---|---|
-  | `GetManagerDashboard` | shipped, narrowed to two of BR §16.3's four stat cards (`app/Queries/ManagerDashboardQuery.php`: `counts.overdue`, `counts.pendingRegistrations`; `totals` carries titles/copies/onLoan/readers) |
+  | `GetManagerDashboard` | shipped. ~~narrowed to two of BR §16.3's four stat cards~~ — **AMENDED at the Phase 2b wrap-up: it is now all four.** `app/Queries/ManagerDashboardQuery.php` (opened) returns `counts.overdue`, `counts.pendingRegistrations`, `counts.pendingRequests` (2a, delegating to `BorrowRequestQueueQuery::countWaiting()`) and `counts.pendingComments` (2b, delegating to `CommentModerationQuery::countPending()`); `totals` still carries titles/copies/onLoan/readers |
   | `GetAuditLog` (shelf-scoped) | shipped (`app/Queries/AuditLogQuery.php`), excludes null-`bookshelf_id` rows by its own `scoped()` filter |
   | `ExportBooksCSV` / `ExportReadersCSV` / `ExportLoansCSV` | shipped, one controller (`app/Http/Controllers/Manage/ExportController.php`), one `POST /shelves/{shelf}/manage/exports/{kind}` route (`routes/web.php:198`) |
   | `GetStatistics` | **Phase 2** — confirmed still absent from `app/Queries`; `/manage/statistics` route still resolves to `ShellController::underConstruction` |
-  | `GetBorrowRequestQueue`, `GetDonationQueue`, `GetCommentsList`, `GetAnnouncementsList` (manager) | **Phase 2** — no matching class under `app/Queries` |
+  | ~~`GetBorrowRequestQueue`, `GetDonationQueue`, `GetCommentsList`, `GetAnnouncementsList` (manager)~~ | **STRUCK at the Phase 2b wrap-up — the row has nothing left in it.** All four are answered, and the row's "no matching class under `app/Queries`" was already false for the first one before this branch was cut: `GetBorrowRequestQueue` → `BorrowRequestQueueQuery` (2a); `GetCommentsList` → `CommentModerationQuery` (2b Task 6); `GetAnnouncementsList` → `AnnouncementsQuery` (2b Task 12); `GetDonationQueue` → `DonationQueueQuery` (2b Task 17). Each named class was opened at the wrap-up |
   | `GetPendingProfileChanges` | **Phase 3** — the propose/approve queue does not exist; `UpdateReaderProfile`'s direct correction (1b) is the only reader-profile write path today |
   | `GetShelfSettings` (manager, read-only) | **Phase 3** — `/manage/settings` route still `under-construction` |
   | `ListTitlesForLabels`, `ListCopiesForLabels`, `ExportLabelSheetPDF`, `ResolveCopyById` | **Phase 2** — QR labels, per 1c's own census |
   | All of OPS §3.4 (`GetAdminOverview` … `DownloadSystemBackup`, 11 rows) | **Phase 3** — no `admin/`-prefixed manage query exists yet; `AuditLogQuery` deliberately excludes the null-`bookshelf_id` rows this cross-shelf browser will need |
-  | Notification commands, `GetMyNotifications`, the reminder sweep | **Phase 2** |
+  | ~~Notification commands, `GetMyNotifications`, the reminder sweep~~ | **STRUCK at the Phase 2b wrap-up — stale, and not named by the plan's own list of stale cells; found by the count-word sweep.** All three shipped in 2a and the 2a wrap-up table above already says so: `MyNotificationsQuery` under `app/Queries`, one `MarkNotificationRead` Action behind two routes, and `reminders:sweep` scheduled 07:00 `Asia/Ho_Chi_Minh` from `routes/console.php` (line re-read at this wrap-up) |
 
 - **The audit-action census as shipped, counted independently rather than
   trusted from the plan:** `grep -rn -- "->record(" app/` finds **23**
@@ -2139,19 +2231,22 @@ text turned out wrong is called out rather than repeated.
   masquerade as live), then holds the writer set and `AuditSentences`'s
   map set-equal in both directions — a sentence with no writer and a
   writer with no sentence are both failures, not just one direction.
-- **The dashboard narrowing:** `ManagerDashboardQuery::run()` (verified
-  by reading the file, not the plan's description) ships exactly two of
-  BR §16.3's four stat cards — `overdue` and `pendingRegistrations` —
-  and no substitute is promoted into the other two slots. *Yêu cầu
-  mượn* and *Bình luận chờ duyệt* return only with Phase 2's borrow and
-  comment-moderation queues, and per the plan's own instruction **must
-  be added to `ManagerDashboardQuery` + the dashboard page + its tests
-  in the same slice as those queues**, mirroring each queue's own
-  membership rule — the plan names one subtlety to carry forward: the
-  borrow queue's count includes rows in **both** `pending` and
-  `approved` status, not `pending` alone. There is no activity feed on
-  this dashboard; the audit browser (`GetAuditLog`) is the feed, which
-  is the reference's own final state, not a Phase-1d omission.
+- **~~The dashboard narrowing:~~ `ManagerDashboardQuery::run()` ~~ships
+  exactly two of BR §16.3's four stat cards~~.**
+  **CLOSED at the Phase 2b wrap-up, and this bullet is amended rather than
+  deleted because it is the second place the two-of-four claim was
+  written — the §3.3 table row above is the first, and correcting one and
+  not the other is how a struck claim reappears.** Opened at the wrap-up,
+  `ManagerDashboardQuery::run()`'s declared return type names four counts:
+  `overdue`, `pendingRegistrations`, `pendingRequests`, `pendingComments`.
+  The instruction this entry carried was followed: `pendingRequests`
+  delegates to `BorrowRequestQueueQuery::countWaiting()` and
+  `pendingComments` to `CommentModerationQuery::countPending()`, so
+  neither card can drift from the queue it counts. The subtlety it flagged
+  survives inside `countWaiting()` — the borrow count spans **both**
+  `pending` and `approved`, not `pending` alone. There is still no
+  activity feed on this dashboard; the audit browser (`GetAuditLog`) is
+  the feed, which is the reference's own final state.
 - **The three narrowed payloads, confirmed against the Action source
   each writes from:**
   - `credentials.set` stores no payload (`SetReaderCredentials.php`
@@ -3342,6 +3437,13 @@ named in it, not by reading it off the plan.
   demo shelf reaching production used to mean fixture rows, and now means a
   third account with a working password.
 
+## Phase 2b — Community voice
+
+Comments and their moderation, announcements, and donation offers. Branch
+`feat/phase-2b-community-voice`, cut from merged `main` = `fabfbd4`. The two
+entries immediately below were written by Task 2 and predate this heading,
+which the wrap-up added so that every entry from this phase sits under it.
+
 - **The no-wall-clock grep is written twice, once per Actions namespace,
   and that is a choice rather than an oversight (Phase 2b Task 2).**
   `CommunityArchitectureTest`'s `wallClockOffenders()` carries the same
@@ -3378,3 +3480,337 @@ named in it, not by reading it off the plan.
   references `users(id)`, and the write is refused as SQLSTATE 23000 /
   errno 1452. The database is the backstop; the two ids are still
   indistinguishable by shape, which is why the Action takes a `User`.
+
+### The Phase 2b wrap-up — the OPS §4.4 walk, and what this branch made false
+
+Written by Task 20 after the full suite ran green at **1,569 passed / 9,373
+assertions** on base `c6f423e`, and after `docs/OPERATIONS.md` §4.4 was walked
+command by command **with the shipped file open beside it**, which is the 1c
+and 2a precedent. Amendments to entries this branch falsified are recorded
+where those entries stand, not here — this section holds what is new.
+
+#### The OPS §4.4 walk — the disagreements, and the disposition
+
+**All of it is documentation lag, and none of it is fixed in this commit.**
+2a's precedent is that a wrap-up commit is the wrong place to edit a shipped
+command's OPS entry unannounced, and that precedent is followed: **these go to
+the PR as row edits**, not into `docs/OPERATIONS.md` here. Nothing about any
+command's behaviour would move — every code below is already thrown by the
+shipped Action, already has its Vietnamese sentence in `lang/vi/rules.php`,
+and is already censused by `RuleViolatedCodesHaveSentencesTest`.
+
+- **§4.4 abbreviates SEVEN failure-mode codes across five commands, one more
+  spelling than the plan predicted.** The plan named three (`not_pending` /
+  `not_approved` for comments, `not_pending` for donations, `validation_failed`
+  for the announcement pair). The walk found a fourth spelling it had not
+  named — `reason_required`, which §4.4 lists under **both** `RejectComment`
+  and `DeclineDonation`. Transcribed from `docs/OPERATIONS.md` §4.4 and from
+  the Actions, at the wrap-up:
+
+  | §4.4 command | §4.4 spells | the shipped Action throws |
+  |---|---|---|
+  | `ApproveComment` | `not_pending` | `comment_not_pending` |
+  | `RejectComment` | `reason_required`, `not_pending` | `reject_reason_required`, `comment_not_pending` |
+  | `HideComment` | `not_approved` | `comment_not_approved` |
+  | `CreateAnnouncement` / `UpdateAnnouncement` | `validation_failed` | `announcement_fields_required` |
+  | `ReceiveDonation` | `not_pending` | `donation_not_pending` |
+  | `DeclineDonation` | `reason_required`, `not_pending` | `reject_reason_required`, `donation_not_pending` |
+
+  The long spellings are the reference's, not this port's invention:
+  `old_next/src/domain/kernel/errors.ts` (opened) defines
+  `comment_not_pending`, `comment_not_approved`, `announcement_fields_required`
+  and `reject_reason_required` in its community block, and
+  `donation_not_pending` and `empty_description` in the donations block below
+  it — each with the Vietnamese sentence §4.4 gives the abbreviation. That is
+  the two-ledger rule 1c established with `title_has_no_copies`: the catalogue
+  abbreviates, `errors.ts` spells, and the command throws the spelling.
+
+- **Two guard codes §4.4 lists under no command at all.** `CreateComment`
+  throws `not_permitted` and `shelf_not_found`, and `OfferDonation` throws
+  `not_permitted`, before either reaches the refusal §4.4 does list. Both are
+  this port's fail-closed tenancy guards (divergence 4: the reference's
+  caller-supplied `membershipId` is dropped, and `TenantContext::membership()`
+  can legitimately be null for a memberless super admin admitted by
+  `Gate::before`). They are preconditions rather than business refusals, so
+  the PR edit should decide whether §4.4 wants them listed; this walk records
+  them rather than assuming.
+
+- **`OfferDonation`'s `photo?` input is absent, and §4.4 still lists it.**
+  Divergence 11. `App\Actions\Community\OfferDonation::execute` (opened) takes
+  `(User $actor, string $description, ?int $estimatedCount = null)` and no
+  photo. See the entry below for what a later uploader adds.
+
+- **`write_target_not_found`: there is no orphan, and the number the plan
+  carried is stale.** Divergence 3's consequence, re-measured at the wrap-up
+  rather than quoted: `require`ing `lang/vi/rules.php` in `laravel-app-1`
+  returns **92** flat keys, and `array_key_exists('write_target_not_found', …)`
+  is **false**. (The plan says 68, and a revision before it said 64; both were
+  measured before this phase's own codes landed. Two stale numbers in a
+  divergence about a claim nobody re-ran.) So nothing is added to `lang/`, and
+  what goes on the record is the **substitution**: where the reference's
+  announcement commands threw this code for a missing row, route-model binding
+  answers **404** here — `{comment}`, `{announcement}` and `{donation}` bind
+  through the shelf relation under `scopeBindings()` and through
+  `BookshelfScope` on the model, so a nonexistent id and a foreign shelf's id
+  are indistinguishable before the Action runs.
+
+- **§4.4's four feedback commands describe commands nothing implements, and
+  that is a deferral rather than a gap** — see the feedback entry below.
+
+- **§4.4's pin-cap open question is settled at "no cap", matching the
+  reference.** Divergence 8. `App\Actions\Community\PinAnnouncement::execute`
+  (opened) writes `is_pinned => true` on the one locked row and touches no
+  other; nothing anywhere unpins a sibling, and no partial unique index exists
+  on the column. `AnnouncementsQuery` orders `is_pinned` desc first, then by
+  recency, which is what BR §16.1's "pinned first, most recent next" asks of a
+  multi-pin list. A cap later is a partial unique index plus a refusal, not a
+  change to these commands.
+
+#### New entries
+
+- **The existence oracle holds ACROSS shelves and not WITHIN one, and that is
+  accepted rather than overlooked (divergence 3).** Spec §5.4 — the migration
+  design spec's "The TenantIsolation suite", not `BUSINESS-REQUIREMENTS.md`
+  §5.4, which is a field list — demands that a foreign shelf's row be
+  indistinguishable from a nonexistent one. It holds in both directions here,
+  and the 404 buys it. What it does not buy: a manager of *this* shelf can
+  tell "no such comment here" from "a comment here I already decided", because
+  the first answers 404 at binding and the second answers a `RuleViolated` 302
+  carrying a Vietnamese sentence. The caller is a manager of the shelf whose
+  row it is, so the leak is inside their own tenant. Named here so a later
+  reader meets it as a decision.
+
+- **BR §5.5 spells the comment setting `allow_comments`; every implementation
+  spells it `comments_enabled` (divergence 2).** The reference's reader
+  (`community/policy.ts`) and its writer (`admin/commands/bookshelves.ts`)
+  both use `comments_enabled`, and so does this port
+  (`App\Support\Community\CommentSettings::fromShelf`, opened). Re-measured at
+  the wrap-up over the whole repository excluding `vendor/`, `node_modules/`,
+  `.git/`, `old_next/.next/` and `.superpowers/`, and excluding the phase
+  plan: no EXECUTABLE source on either side spells it BR's way — every
+  occurrence is a comment or `docs/BUSINESS-REQUIREMENTS.md`'s settings table
+  itself. **The key `/manage/settings` must write is `comments_enabled`**, and
+  the same is true of `comments_require_approval`, which both documents
+  already spell alike. That screen is not built by this phase — its route
+  still resolves to `ShellController::underConstruction` — so this is the note
+  its author needs, and closing the lag is a one-cell edit to BR §5.5.
+
+- **Announcement bodies are plain text, and the reference's `bodyText`
+  parameter is dropped (divergence 5).** The reference accepts an optional
+  plain derivation beside a rich body, with a fallback when the caller
+  supplies none — a shape taken from the phase plan's divergence 5, not
+  re-read here. What IS opened is this side: the port has no rich-text
+  editor, so the create/update forms
+  post ONE plain field which is written to **both** `announcements.body` and
+  `announcements.body_text` (columns read off the migration: `text body` and
+  `text body_text`, the second commented "plain derivation, for excerpts").
+  Excerpts still come from `body_text`, so nothing downstream changes shape
+  when an editor lands. **What a rich editor restores, exactly:** a second
+  input on the two forms, a `bodyText` parameter on `CreateAnnouncement` and
+  `UpdateAnnouncement` carrying the derivation, and the fallback rule — when
+  the caller supplies no derivation, `body_text` takes the rich body. Nothing
+  that reads `body_text` moves. Shipping the parameter now with no caller
+  would be the "implemented, reachable from nowhere" shape 2a's divergence 3
+  refused.
+
+- **The manager comment queries ship without the reference's `bookId`
+  narrowing (divergence 9).** Both of the reference's manager-side comment
+  queries take an optional `bookId`, serving a comments panel on the manager's
+  own book page. This port does not build that panel, so the parameter would
+  be reachable from nowhere. `CommentModerationQuery` is by status only;
+  `BookCommentsQuery` — the reader's, INV-9's home — takes a book and
+  nothing else. **The shape to restore for whoever adds
+  the panel:** an optional book id on the moderation query, narrowing the same
+  status-ordered list, with the queue's own ordering untouched.
+
+- **`comment_approved` carries no notification payload, matching the
+  reference (divergence 10).** `ApproveComment` calls
+  `notify($locked->author_id, NotificationKind::CommentApproved)` with nothing
+  else, so the sentence names no book: a reader with two approved comments
+  reads the same line twice. Ported rather than improved — adding a title is a
+  product change, not a port. **The one-line shape an improvement takes:** a
+  `['title' => $locked->book?->title]` payload at the `notify()` call and a
+  `:title` slot in `NotificationSentences`' arm, with the existing titleless
+  line kept as the fallback for rows already written.
+
+- **`OfferDonation` ships without the reference's photo, and the input's name
+  is not the column's (divergence 11).** The reference's input is
+  `photo?: string | null`; the column it lands in is
+  `book_donations.photo_url`. `OfferDonation::execute` (opened) takes no
+  photo argument and writes no `photo_url`, so a row this port creates leaves
+  the column null — 1a dropped the cover uploader for the same reason,
+  recorded above, and the parameter is absent here rather than
+  present-and-uncallable. The column IS
+  still read and rendered where a row has one, so a later uploader adds a
+  writer and no reader.
+
+- **Comments and donations carry no rate limit and no duplicate rule, on
+  either side of the port, and a reader can post unboundedly.** Opened at the
+  wrap-up: the reference's `community/commands/comment-moderation.ts` (which
+  holds `createComment`) and `community/commands/donations.ts` throw no
+  `rate_limited` and run no recent-rows check; only `community/commands/
+  feedback.ts` does, with its own `DAILY_LIMIT`. This port matches — the only
+  `throttle:` middleware in `routes/web.php` is on `register.store`. The
+  refusal that *does* exist on both paths is membership, not frequency. If a
+  parish ever meets this, the fix is the shape `feedback.ts` already uses,
+  and BR §8's own rate-limit section is where the numbers would come from.
+
+- **The feedback slice is deferred WHOLE to Phase 3 — form and inbox
+  together — and that is a decision with four reasons.** OPS §4.4 lists
+  `SubmitFeedback`, `MarkFeedbackRead`, `ResolveFeedback` and
+  `ArchiveFeedback`; `find app/Actions -iname '*Feedback*'` returns **0**
+  files, and `grep -rn "Feedback" app/` reaches only four files — the model
+  (`app/Models/Feedback.php`), the enum (`app/Enums/FeedbackStatus.php`),
+  `Bookshelf::feedback()` with its two explanatory lines, and one comment in
+  `AppServiceProvider`. No Action and no controller; the three feedback
+  addresses in `php artisan route:list` — `shelves/{shelf}/feedback`,
+  `/contact` and `admin/feedback` — all resolve to
+  `ShellController::underConstruction`, which is where they stay. The reasons, from the phase plan:
+  (1) the read half is `super_admin` and cross-shelf and lives in the
+  reference's `src/domain/admin/`, and BR §1.4 assigns super-admin tooling to
+  Phase 3; (2) this port's whole `/admin` area is still
+  `ShellController::underConstruction`, so one super-admin screen means
+  building the area's layout and cross-shelf read conventions for a feature
+  Phase 3 rebuilds them for; (3) a site-wide message needs an audit row with a
+  NULL `bookshelf_id` and `AuditRecorder::record()` throws
+  `RuntimeException('AuditRecorder needs a bound tenant…')` on exactly that,
+  its own docblock assigning global rows to Phase 3; (4) the reference
+  records what half-shipping cost it — `submitFeedback` "has been writable
+  since B3 and unreadable ever since… a parish's children could send a note
+  to the people who keep their shelf and nobody could open it."
+  **OPS §4.4's own two feedback open questions are untouched by this phase**
+  (the fourth "archive" status BR §5.4 does not define, and whether a shelf's
+  manager reads feedback addressed to their shelf) and both go to Phase 3
+  with the slice. The phase plan's OQ1 recommends keeping it super-admin;
+  **no answer from the product owner arrived during this phase**, so the
+  recommendation stands as a recommendation.
+
+- **AGENTS.md prescribes six components this repository does not have, and it
+  has now misdirected three tasks.** Measured across `resources/js/**/*.tsx`
+  at the wrap-up: `Pill`, `StatusBadge`, `StatusPanel`, `StepIndicator`,
+  `ReadOnlyValue` and `BookTitle` have **zero implementations** — every hit
+  for any of the six is inside a comment recording this same measurement.
+  **`BookTitle` is cited by AGENTS.md's numbered rule 1, not merely by its
+  component table** ("Literata appears solely on the title of a book, and only
+  via the `BookTitle` component"), and `StatusBadge`/`StatusPanel` by numbered
+  rule 2 — so the guide's non-negotiables name components that do not exist.
+  Tasks 7, 18 and 19 each had to be told in their brief to use `badge.tsx` and
+  `Label` + a raw control instead. **This is a decision for the product
+  owner, not for a wrap-up: build the six, or correct the guide.** It is
+  recorded rather than acted on because either answer changes AGENTS.md or
+  `resources/js/components/`, and neither belongs in a commit that ships no
+  feature.
+
+- **`Announcement` is the model the tenancy isolation suite actually leans
+  on, and dropping its trait reddens two and a half times as much as the
+  other two.** Measured at the wrap-up, running
+  `TenancyArchitectureTest` + `TenantIsolationTest` together (24 passed
+  green) and removing `BelongsToBookshelf` from one model at a time:
+  `Comment` → **2 failed, 22 passed**; `BookDonation` → **2 failed, 22
+  passed**; `Announcement` → **5 failed, 19 passed**. The phase plan
+  predicted 2/22 for all three, which is wrong for `Announcement`: beyond
+  the two blocks the other models trip (the trait census, and "shows every
+  trait-carrying model only its own colliding rows"), `TenantIsolationTest`
+  uses `Announcement` as the subject of its stamping and cross-shelf
+  refusal blocks, so those fail too — one of them as a raw `QueryException`
+  and one as `MultipleRecordsFoundException`. That is the same fact this
+  file already records from the other side: `Announcement` is a top-level
+  scoped model with no scoped parent, so it has no composite-FK backstop
+  and the trait is the whole of its confinement.
+
+- **`DemoShelfSeeder` now seeds the community surface too, and `SeederTest`
+  grew with it.** `make fresh` writes one pending and one approved comment
+  on a seeded book, one pinned-and-published announcement and one draft, and
+  one pending donation offer — so `/manage/comments`,
+  `/manage/announcements`, `/manage/donations` and the book page's comment
+  area demo with rows instead of empty states. Each of the three tables has
+  its own `doesntExist()` guard, so a database seeded before this change
+  picks up whichever set it lacks. **The rows are named in `SeederTest`'s
+  production-gate block as well as its idempotency block**, which is the
+  half that matters: `deploy/post-deploy.sh` runs `db:seed --force`
+  unconditionally, and a reader's comment, a shelf notice or a donation
+  offer written into a real parish's database would each be visible on a
+  real screen.
+
+#### Method findings — how this repository verifies itself
+
+Not gaps in the product. Each was measured this phase, and each contradicts a
+habit that was in use before it.
+
+- **A 404-only test block is VACUOUS when no route claims the URI — and is
+  not vacuous when a sibling route holds the path.** A block asserting 404
+  passes just as well against a deleted route as against a guarded one. But
+  where a sibling route already claims the path with another verb, an unrouted
+  method answers **405**, not 404, so the block fails on deletion and the
+  worry does not apply. Both cases were measured this phase; `routes/web.php`
+  carries the measurement beside the `donate` GET/POST pair, where the GET
+  claiming the URI is what makes the POST's 404 block honest.
+
+- **A block can redden on the WRONG LINE, and that proves less than it
+  looks.** A failed `expect()` aborts the whole Pest method, so a mutation
+  that reddens a block whose *titled* probe sits behind an earlier assertion
+  chain proves only that something in that method moved. The remedy —
+  "titled assertion first" — is **unachievable** for a block whose failure
+  mode is *the prop does not exist*, since the read that names the prop is
+  what throws.
+
+- **`toThrow($class, $message)` is a SUBSTRING match**
+  (`assertStringContainsString`), not equality. Counted at the wrap-up:
+  `grep -rnoE "toThrow\([^)]*,[^)]*\)" tests/` returns **130** two-argument
+  uses. This schema has real refusal codes that are prefixes of longer ones,
+  so a block can pass on the wrong code. Latent today — checked — and worth
+  knowing before the next code is minted with a name that extends an existing
+  one. (The brief for this task carried 126; re-run, it is 130. A count in a
+  document is the same claim as a count in a comment.)
+
+- **A measurement recorded in a comment has a SHELF LIFE, and only re-running
+  can see it expire.** Two were caught this phase by the wrap-up's count-word
+  grep. `CommunityArchitectureTest`'s directory-absence note said "4 failed
+  … all four blocks" and "2 failed, 2 passed": true of the four blocks the
+  file held when it was written, and falsified by three blocks added later in
+  the same phase. Re-measured and corrected in that file — the numbers are now
+  5 failed / 2 passed with the directory moved away and 4 failed / 3 passed
+  with it present but empty. `App\Support\Community\CommentSettings`'s docblock
+  said the BR spelling "occurs in no source tree at all" while sitting in a
+  source tree and naming it; narrowed in place. **The general rule this
+  yields: a total written into a comment is a claim about a file that grows.
+  Re-run it or scope it to a date; never increment it.**
+
+- **`AuditSentences::line()` has no `??`, and a deleted lang key fails
+  differently depending on who is holding the error handler.** The method is
+  `return (string) self::lines()[$key];` (opened) — an undefined key is a PHP
+  warning, and Laravel's own
+  `Illuminate\Foundation\Bootstrap\HandleExceptions::handleError` (opened in
+  `vendor/`) converts any non-deprecation error inside `error_reporting()`
+  into a thrown `ErrorException`. **Measured at the wrap-up rather than
+  argued**, by deleting `comment_created` from `lang/vi/audit.php`:
+  - `AuditSentencesTest` alone: **1 warning, 28 passed** — the file is GREEN.
+    Its sweep block reports `Undefined array key "comment_created"` as a Pest
+    warning, which is not a failure, so the census that renders every mapped
+    action cannot fail on a missing sentence.
+  - the whole suite: **1 failed, 1 warning, 1,567 passed** — and the single
+    failure is not a census at all. It is
+    `tests/Feature/Community/CreateCommentTest`, an `ErrorException`, because
+    that test drives a real request through the audit renderer and meets
+    Laravel's handler.
+  So what actually protects a lang key today is an integration test that
+  happens to render it, not the unit census whose name suggests it. A key
+  used only by an action no feature test exercises would go out silently
+  and throw for a volunteer.
+
+- **`RuleViolatedCodesHaveSentencesTest` censuses LITERALS, and a code that
+  is never written as one is invisible to it.** Its regex is
+  `new RuleViolated\(\s*['"]([a-z0-9_-]+)['"]\s*[,)]` over `app/` — its own
+  docblock says so and excludes variable throws by name. `copy_not_available`
+  is minted by neither shape: `LendCopy` reaches it through
+  `UniqueViolation::translate($e, ['loans_one_active_per_copy' =>
+  'copy_not_available'])`, and its other producers (`LoanRules`,
+  `ChooseCopy`, `CopyStateMachine`) return it as a string that
+  `throw new RuleViolated($code)` then throws — a variable. `grep -rn
+  "RuleViolated('copy_not_available')" app/` returns nothing. What has been
+  keeping it honest for two phases is an unrelated file's hardcoded list:
+  `tests/Unit/Catalogue/CopyStateMachineTest.php`'s "every refusal code the
+  machine can produce has a Vietnamese sentence" block enumerates six codes
+  and this is one of them. Not a defect today; a hole in what that census can
+  promise, and the next map-only or variable-only code will have no such
+  accident to fall back on.

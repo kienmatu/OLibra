@@ -22,11 +22,22 @@ use App\Models\Bookshelf;
  * THE KEY IS comments_enabled, not BR §5.5's allow_comments — the phase
  * plan's divergence 2 (docs/superpowers/plans/2026-08-30-laravel-phase-2b-
  * community-voice.md). Both the reference's reader (community/policy.ts)
- * and its writer (admin/commands/bookshelves.ts) spell it this way, and
- * `allow_comments` occurs in no source tree at all — only in that one
- * requirements table. Whoever builds /manage/settings writes this
- * spelling; the plan's own closing step schedules the known-gaps.md entry
- * recording the lag, not yet landed as of this task.
+ * and its writer (admin/commands/bookshelves.ts) spell it this way.
+ *
+ * NARROWED AT TASK 20, because the sentence this replaces overreached.
+ * It said the other spelling "occurs in no source tree at all" — and
+ * this docblock is itself under app/ and names it, so the claim was
+ * false about its own file on the day it was written. A count is not
+ * written here for the same reason: this file's own comments move it,
+ * so any number would go stale inside its next edit.
+ *
+ * What Task 20 re-ran, and what survives the narrowing: no EXECUTABLE
+ * source spells the setting BR §5.5's way, on either side of the port.
+ * Every occurrence found outside the phase plan was a comment or the
+ * requirements table itself.
+ *
+ * Whoever builds /manage/settings writes comments_enabled;
+ * docs/known-gaps.md carries the entry recording the lag.
  */
 final readonly class CommentSettings
 {
