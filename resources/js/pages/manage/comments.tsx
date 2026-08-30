@@ -63,7 +63,17 @@ interface PageProps extends SharedData {
 
 const NUMBER = new Intl.NumberFormat("vi-VN");
 
-const STATUSES = ["pending", "approved", "rejected", "hidden"] as const;
+/**
+ * DERIVED, not written out again. `Status` is already
+ * `keyof typeof copy.manageComments.titles`, so a hand-kept array beside
+ * it duplicates that key set: a fifth title and chip added to copy.ts
+ * would typecheck everywhere and just never grow a fifth chip here.
+ * Object.keys is what carries the key set into runtime — the type is
+ * erased — and the cast asserts of the value what `Status` already says
+ * of the type. Key order is the literal's, which is the order the chips
+ * render in: pending first, then the three archives.
+ */
+const STATUSES = Object.keys(copy.manageComments.titles) as Status[];
 
 /** The Vietnamese initial is the LAST word of a name — the given name. */
 function initialOf(name: string): string {
@@ -94,8 +104,13 @@ function ApproveForm({ shelfSlug, commentId }: { shelfSlug: string; commentId: s
 
     return (
         <form onSubmit={submit}>
-            {/* The screen's one solid button (AGENTS.md rule 3), h-14 =
-                design rule 4's 56px. */}
+            {/* ONE SOLID ACTION PER ROW — AGENTS.md rule 3 ("one primary
+                action per screen") read the way this screen can actually
+                honour it. ManageComments below renders this form once per
+                pending card, so a queue of a dozen comments puts a dozen
+                solid buttons on the page; what holds inside a row is that
+                Duyệt is the solid one and Từ chối beside it is an outline
+                <summary> (RejectDisclosure). h-14 = design rule 4's 56px. */}
             <Button type="submit" className="h-14 px-6 text-base" disabled={form.processing}>
                 {copy.manageComments.approveButton}
             </Button>
@@ -252,11 +267,18 @@ export default function ManageComments() {
                 ))}
             </div>
 
+            {/* ONE CHAIN, not an empty-state beside a list. Rendered as two
+                sibling expressions, an empty archive drew the sentence AND
+                the <ul>, whose rounded border and divide-y made an empty
+                box under it. Testing the empty case first stops the chain
+                there. The reference chains the same three arms
+                (`pending ? cards : list.length === 0 ? empty : <ul>`) in
+                the other order, and its pending arm is a bare
+                `list.map(...)` that yields nothing on an empty queue —
+                this order shows the sentence on the queue as well. */}
             {comments.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{copy.manageComments.empty}</p>
-            ) : null}
-
-            {status === "pending" ? (
+            ) : status === "pending" ? (
                 <div className="space-y-4">
                     {comments.map((comment) => (
                         <article key={comment.id} className="space-y-5 rounded-lg border p-5">

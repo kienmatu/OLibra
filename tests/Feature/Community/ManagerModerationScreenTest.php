@@ -245,3 +245,38 @@ it('the decided list itself is capped at ten rows', function () {
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page->count('comments', 10));
 });
+
+it('the hide POST lands back on the archive it was posted from, filter intact', function () {
+    // THE BLOCK THAT NAMES THE URL. The three success POSTs above assert
+    // a bare assertRedirect(), which passes on any 302 — so the controller's
+    // back() and a redirect()->route('shelves.manage.comments') are
+    // indistinguishable to those three, and the second would drop a
+    // manager out of the archive they were working and back onto the
+    // queue after every tap. ->from() sets the previous URL that back()
+    // reads, which is what a browser's Referer supplies here.
+    [$shelf, $manager, $reader, $book] = mmsFix('dong-thap-mms-back');
+    $approved = mmsSeed($shelf, $book, $reader, CommentStatus::Approved, 'Đã hiển thị công khai');
+    $from = "/shelves/{$shelf->slug}/manage/comments?status=approved";
+
+    test()->actingAs($manager)->from($from)->post(
+        "/shelves/{$shelf->slug}/manage/comments/{$approved->id}/hide",
+    )->assertRedirect($from);
+});
+
+it('approving an already-decided comment answers 302 with errors.rule, not 404 and not 500', function () {
+    // THIS SCREEN'S WIRING TO THE SHARED REFUSAL PATH, which no block in
+    // this file reached before it: CommentDecisionsTest pins the codes
+    // at Action level and bootstrap/app.php registers the one render
+    // callback that turns them into back()->withErrors(['rule' => …]).
+    // What is unpinned is that a refusal raised from one of THESE four
+    // routes arrives at the page as a 302 carrying that bag — an
+    // uncaught RuleViolated would be a 500 here, and a 404 would mean the
+    // row never reached the command at all. ApproveComment refuses a row
+    // that is not pending; this one is already approved.
+    [$shelf, $manager, $reader, $book] = mmsFix('dong-thap-mms-refusal');
+    $approved = mmsSeed($shelf, $book, $reader, CommentStatus::Approved, 'Đã duyệt rồi');
+
+    test()->actingAs($manager)->post(
+        "/shelves/{$shelf->slug}/manage/comments/{$approved->id}/approve",
+    )->assertStatus(302)->assertSessionHasErrors(['rule']);
+});

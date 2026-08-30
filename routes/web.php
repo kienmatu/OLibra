@@ -261,8 +261,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // line was written.
         //
         // {comment} resolves two independent ways, divergence 3's two
-        // layers: through Bookshelf::comments() under this group's
-        // scopeBindings(), and through BookshelfScope on Comment
+        // layers: through Bookshelf::comments() under the scopeBindings()
+        // on the OUTER shelves/{shelf} group — the `manage` group these
+        // four lines sit in is declared prefix->name->middleware(['auth',
+        // 'role:manager'])->group(), so the directive reaches them by
+        // inheritance rather than locally — and through BookshelfScope on Comment
         // (App\Models\Concerns\BelongsToBookshelf) on every query
         // Eloquent runs for the binding. Bookshelf::comments()'s docblock
         // asked whichever task first routed through {comment} to measure
@@ -270,7 +273,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // borrowRequests()'s answer transfers. MEASURED HERE, on the
         // approve POST with shelf B's comment id under shelf A's URL:
         // with both layers it is 404 and the row is untouched, and with
-        // ->scopeBindings() removed from this group it is STILL 404 —
+        // ->scopeBindings() removed from that outer group it is STILL 404 —
         // BookshelfScope alone produces it, exactly as this file's own
         // {bookCopy} note records for that parameter. The reverse
         // direction (scopeBindings alone, with the global scope removed)
