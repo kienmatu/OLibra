@@ -176,13 +176,16 @@ final class BookDetailQuery
         // this branch with a throw and running the whole suite is how
         // that was checked — no block reached it, ReaderQueriesTest's
         // direct calls included, because that fixture binds a shelf too.
-        // And were run() ever reached with no tenant bound, the branch
-        // would not survive being alive: the return below reads Comment
-        // through BookCommentsQuery, and BookshelfScope::apply
-        // (opened at this commit) throws a RuntimeException for a
-        // shelf-scoped model with no bookshelf bound. The fallback is
-        // dead, and the fail-closed path would answer before its default
-        // could mean anything.
+        // And were run() ever reached with no tenant bound AND not
+        // system-wide, the branch would not survive being alive: the
+        // return below reads Comment through BookCommentsQuery, and
+        // BookshelfScope::apply (opened at this commit) throws a
+        // RuntimeException on a null bookshelfId. The both-conditions
+        // wording is load-bearing and a first draft dropped half of it —
+        // apply() RETURNS EARLY under TenantContext::isSystemWide(), which
+        // BookCommentsScreenTest's own fixture calls, so under that mode a
+        // null-shelf run() would not throw at all. The branch is dead over
+        // HTTP for the measured reason above, not for this one.
         $commentsEnabled = $shelf === null || CommentSettings::fromShelf($shelf)->commentsEnabled;
 
         return array_merge($this->catalogue->row($withCounts), [

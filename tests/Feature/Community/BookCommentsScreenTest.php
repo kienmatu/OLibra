@@ -72,14 +72,30 @@ it('the page carries the approved comment and neither the pending nor the reject
     // dropped the approved row and kept the pending one, which is the
     // exact defect INV-9 exists for; the id list says WHICH row survived.
     //
-    // The three are seeded pending, rejected, approved — the approved one
-    // LAST — so a page that simply took the first row it found cannot
-    // answer correctly by accident. What the block RESTS ON is the
-    // seeded created_at values, an hour apart and descending to the
-    // approved row, which is BookCommentsQuery's primary sort key. The
-    // ids are not relied on for ordering: these are UUID v7 keys, whose
-    // time component is milliseconds, so three inserts inside one
-    // millisecond carry no guaranteed order between them.
+    // WHAT THIS BLOCK RESTS ON is the status predicate in
+    // BookCommentsQuery. ORDERING PLAYS NO PART: the assertion is a
+    // SINGLE-ELEMENT id list, so deleting the predicate returns three ids
+    // and reddens on length before any question of order arises.
+    //
+    // Two earlier drafts of this paragraph claimed otherwise and both were
+    // wrong (re-review of fix round 1). The seeded created_at values
+    // ASCEND — 08:00 pending, 09:00 rejected, 10:00 approved — and
+    // BookCommentsQuery sorts created_at DESC, so the approved row sorts
+    // FIRST, not last. A hypothetical read that "took the first row it
+    // found" with no status predicate would therefore return the approved
+    // row and this block would pass. That draft had the direction
+    // backwards and drew the opposite conclusion from the sort key it
+    // named one sentence earlier.
+    //
+    // The v7 claim in that draft was measured false for this stack:
+    // HasUuids::newUniqueId() is Str::uuid7(), and Ramsey's
+    // UnixTimeGenerator increments the random field for values sharing a
+    // millisecond. Twelve consecutive ids generated in laravel-app-1,
+    // eleven of them inside ONE millisecond, came out strictly ascending.
+    // So v7 ids here DO rise monotonically with creation order — which is
+    // a reason an ordering fixture cannot distinguish an id-sorted read
+    // from a created_at-sorted one, and one more reason this block does
+    // not lean on order at all.
     [$shelf, $reader, $book] = bcsFix();
     bcsComment($book, $reader, 'pending', 'Đang chờ duyệt', '2026-08-01 08:00:00');
     bcsComment($book, $reader, 'rejected', 'Đã bị từ chối', '2026-08-01 09:00:00');

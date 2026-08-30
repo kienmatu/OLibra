@@ -466,15 +466,38 @@ export default function ShelfBook() {
                                         caused it.
 
                                         SAME PROP AS THE BANNER AT THE TOP,
-                                        DELIBERATELY: both read flash.success,
-                                        so a comment's sentence renders twice
-                                        on one page. That is accepted rather
-                                        than worked around — the two are far
-                                        enough apart that a reader cannot hold
-                                        both on screen, and splitting the
-                                        server's one flash key into two to
-                                        avoid it would rewrite a controller
-                                        this task does not own.
+                                        DELIBERATELY, and THE READ IS
+                                        UNFILTERED — which cuts both ways and
+                                        the second way is easy to miss. A
+                                        comment's own sentence renders twice on
+                                        one page; AND a borrow or cancel
+                                        sentence, which lands on this same page
+                                        through the request panel's forms,
+                                        renders here beside the comment box
+                                        too, where nothing the reader did
+                                        caused it.
+
+                                        Both are accepted for now rather than
+                                        worked around. Splitting the server's
+                                        one flash key into two would rewrite a
+                                        controller this task does not own, and
+                                        a client-side gate on the form's own
+                                        success state is the kind of thing that
+                                        goes silently false after a redirect
+                                        re-mount — in a repo with no frontend
+                                        test runner, that would restore the
+                                        invisible-submit defect this strip
+                                        exists to remove, undetectably. Carried
+                                        to the phase's whole-branch review as a
+                                        decision, because the manager screens
+                                        pose the identical question.
+
+                                        NOTE WHAT DOES NOT CARRY ACROSS from
+                                        the reference: its SavedNotice gates on
+                                        sent === "binh-luan", so the precedent
+                                        cited above IS filtered where this is
+                                        not. The placement ported; the
+                                        filtering did not.
 
                                         A plain <p> and NOT a second
                                         role="status": the banner above is
