@@ -31,18 +31,26 @@ use InvalidArgumentException;
  * is exactly the thing that makes each a queue or an archive, not
  * incidental duplication.
  *
- * `id` beside `created_at` in both orderings, for the reason this
- * codebase has now measured twice (BookCommentsQuery,
- * BorrowRequestQueueQuery): `created_at` carries no unique constraint,
- * so a key that cannot tie is what resolves one deterministically.
+ * `id` beside `created_at` in both orderings, for a reason that holds
+ * of this table: `created_at` carries no unique constraint, so a key
+ * that cannot tie is what resolves one deterministically. Two other
+ * files reached the same conclusion for their own queries and were
+ * opened to check — BookCommentsQueryTest and
+ * BorrowRequestQueueQueryTest — but this docblock does not claim to
+ * count every place the codebase has settled the question.
  *
  * WHAT PINS THOSE TWO LINES IS THE COMPILED SQL, not the row order —
  * and the fix round measured the two lines separately rather than
  * assuming one answer covered both, because they did not answer alike.
  * Deleting `orderBy('id')` from queue() leaves every row-order fixture
  * in CommentModerationQueryTest green, the same-instant pending pair
- * included: v7 ids rise with creation time and an ascending scan already
- * emits a tied group in ascending id order. Deleting
+ * included — because the sort's INPUT is already id-ascending (rows
+ * arrive through comments_book_fk plus the clustered PK) and MariaDB's
+ * in-memory filesort preserves input order for a tied group. NOT because
+ * of an ordered index scan: EXPLAIN shows both reads here filesort, and
+ * the one index carrying created_at needs a book_id this query does not
+ * supply. The test block beside the pin carries the measurement and its
+ * in-memory bound. Deleting
  * `orderByDesc('id')` from decided() DOES redden its same-instant pair
  * on today's engine. Flipping either line's direction reddens its pair
  * as well.
@@ -154,7 +162,6 @@ final class CommentModerationQuery
      * queue(), which is the pending read — and a screen whose ?status=
      * chip picks a list uniformly would render that under the pending
      * chip without anything failing.
-     *
      *
      * @return list<array{id: string, body: string, authorName: string, createdAt: string, bookId: string, title: string}>
      *

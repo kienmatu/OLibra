@@ -117,10 +117,35 @@ it('the queue\'s id tiebreak is in the ORDER BY text, not merely in the row orde
     // MEASURED IN THE FIX ROUND, and this block exists because of what
     // was measured: deleting `->orderBy('id')` from queue() leaves every
     // row-order fixture in this file GREEN, including the same-instant
-    // pair below. v7 ids rise with creation time and InnoDB appends the
-    // primary key to a secondary index, so an ascending scan already
-    // emits a tied group in ascending id order — the row order agrees
-    // with the intent whether or not the intent is stated.
+    // pair below.
+    //
+    // THE MECHANISM IS FILESORT INPUT ORDER, NOT AN INDEX SCAN, and the
+    // first draft of this comment said the wrong one (re-review of fix
+    // round 1). It claimed InnoDB appends the primary key to a secondary
+    // index so an ascending scan emits a tied group in ascending id
+    // order. That is BookCommentsQueryTest's mechanism, and it does not
+    // transfer: `comments` carries exactly one index containing
+    // created_at — comments_public (book_id, created_at) — and queue()
+    // places no predicate on book_id, so that index cannot serve as an
+    // ordered access path. EXPLAIN against olibra_testing: the
+    // book-narrowed read uses comments_public with no filesort, while
+    // queue() and decided() both use comments_book_fk with `Using
+    // filesort`. There is no ascending scan here to appeal to.
+    //
+    // What actually happens: rows arrive through comments_book_fk
+    // (bookshelf_id, book_id) plus the clustered PK, so within one shelf
+    // the INPUT to the sort is already id-ascending, and MariaDB's
+    // in-memory filesort preserves input order for a tied group — the
+    // same property BorrowRequestQueueQueryTest pinned and had to correct
+    // in ITS fix round 2, from this identical wrong framing. That
+    // predicts the asymmetry measured here: the ascending pair gets
+    // id-ascending for free, so deleting queue()'s tiebreak is invisible
+    // to it, while decided() wants id-DESCENDING out of the same
+    // ascending input, so deleting its tiebreak DOES redden.
+    //
+    // BOUNDED, not absolute: this holds while the filesort stays
+    // in-memory and order-preserving. A fixture large enough to spill the
+    // sort buffer into merge passes, or a plan change, is untested here.
     //
     // So the mechanism is pinned where a row-order test cannot reach it,
     // in the compiled SQL. The pattern is BookCommentsQueryTest's "the id
@@ -214,8 +239,12 @@ it('decided refuses the pending status — that list belongs to the queue', func
     [, , $reader, $book] = cmqFix('dong-thap-cmq-decided-refuses-pending');
     cmqSeed($book, $reader, 'pending', 'Đang chờ duyệt');
 
+    // The MESSAGE is asserted, not only the class: the whole value of
+    // this refusal to the next caller is that it names where the pending
+    // list actually lives, and a class-only assertion leaves that half
+    // free to be deleted.
     expect(fn () => app(CommentModerationQuery::class)->decided(CommentStatus::Pending))
-        ->toThrow(InvalidArgumentException::class);
+        ->toThrow(InvalidArgumentException::class, 'decided() reads an already-decided status; the pending list is queue()\'s, which is oldest-first and uncapped.');
 });
 
 it('decided for a status with no rows is an empty list, not an error', function () {
@@ -441,7 +470,7 @@ it('the dashboard\'s fourth card is the same number countPending() answers', fun
     // Non-pending rows are seeded too, and that is load-bearing: a
     // countPending() that quietly counted every comment (dropping its
     // own status filter) would still agree with a fixture holding only
-    // pending rows — see task-6-report.md's mutation (2). The approved
+    // pending rows. The approved
     // and rejected rows here are what make "5 total, 2 pending" able to
     // tell the two apart.
     [, , $reader, $book] = cmqFix('dong-thap-cmq-dashboard');
