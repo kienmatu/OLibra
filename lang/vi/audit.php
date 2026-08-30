@@ -86,6 +86,12 @@ return [
     // gets its own line rather than borrowing it.
     'announcement_created' => 'soạn thông báo :title',
     'announcement_created_bare' => 'soạn một thông báo',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // announcement.updated): `sửa thông báo ${which(str(f.after,
+    // "title"))}`. Its `which` fallback is a BOOK fallback here, the same
+    // way the created pair's is, so the no-title arm gets its own line.
+    'announcement_updated' => 'sửa thông báo :title',
+    'announcement_updated_bare' => 'sửa một thông báo',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

@@ -206,10 +206,19 @@ it('every community write transaction that re-reads an existing row opens with a
     // command relies on either way: the
     // announcements_bookshelf_id_slug_key unique, with the losing INSERT
     // translated rather than prevented.
+    //
+    // TASK 10 made it a third time, for UpdateAnnouncement, and that one
+    // falls on the OTHER side: it re-reads the announcement it is about
+    // to write, and the re-read is load-bearing twice over — the row it
+    // reads is what an absent `expiresAt` preserves and what INV-8's
+    // `before` title is taken from, so a stale snapshot there would both
+    // revert a concurrent edit and audit the wrong prior value. Listed
+    // below.
     foreach ([
         app_path('Actions/Community/ApproveComment.php'),
         app_path('Actions/Community/RejectComment.php'),
         app_path('Actions/Community/HideComment.php'),
+        app_path('Actions/Community/UpdateAnnouncement.php'),
     ] as $file) {
         expect(str_contains((string) file_get_contents($file), 'lockForUpdate'))
             ->toBeTrue(basename($file).' has no lockForUpdate');

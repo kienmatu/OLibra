@@ -76,6 +76,7 @@ final class AuditSentences
         // reference files every announcement.* action there
         // (audit-actions.ts).
         'announcement.created' => 'community',
+        'announcement.updated' => 'community',
     ];
 
     public const array GROUPS = ['loans', 'books', 'readers', 'community'];
@@ -229,6 +230,17 @@ final class AuditSentences
             'announcement.created' => ($title = self::str($after, 'title')) !== null
                 ? strtr(self::line('announcement_created'), [':title' => $title])
                 : self::line('announcement_created_bare'),
+            // Task 10. The created arm's shape and its reason: the
+            // reference's phrase runs the title through its own `which`,
+            // and this class's which() falls back to the some_book line
+            // ('một cuốn sách'), which would describe an announcement as
+            // a book. So a bare line of its own again. The title read is
+            // the AFTER one — an edit's sentence names what the
+            // announcement is called now; the before title is a payload
+            // row one tap away, which is where INV-8 puts it.
+            'announcement.updated' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_updated'), [':title' => $title])
+                : self::line('announcement_updated_bare'),
             default => self::line('unknown'),
         };
     }
