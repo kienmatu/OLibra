@@ -194,9 +194,8 @@ it('a reader cannot reject — this command\'s own gate call, with no route to h
     // FIX ROUND: ApproveCommentTest's own block ("this command's own gate
     // call, with no route to hide behind") documents that deleting its
     // Gate::forUser($actor)->authorize() line reddens only that one
-    // block. That guarantee was never ported to this file — every other
-    // block in this file acts as the manager, CommentPolicy's 'reject'
-    // and 'hide' abilities have no coverage anywhere else in the suite,
+    // block. That guarantee was never ported to this file before this
+    // fix round — every other block in this file acts as the manager,
     // CommunityArchitectureTest pins retry/clock/audit only, and there is
     // no route yet to exercise the gate over HTTP either. This block
     // closes that gap for RejectComment; the next one closes it for

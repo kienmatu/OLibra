@@ -5,17 +5,15 @@ use App\Http\Requests\Community\RejectCommentRequest;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * Task 4 fix round 1: the Members and Circulation equivalents
- * (tests/Feature/Members/FormRequestAuthorize404Test.php,
- * tests/Feature/Circulation/FormRequestAuthorize404Test.php) already
- * established this pattern for every other manage-area Form Request in
- * the codebase; these two were the ones a Community task shipped with
- * only a reading of abort_unless(..., 404) to stand on, the same
- * constraint Task 2 (StoreCommentRequest) got wrong once already before
- * this repo had a precedent to follow.
+ * Task 4 fix round 1, following the pattern
+ * tests/Feature/Members/FormRequestAuthorize404Test.php and
+ * tests/Feature/Circulation/FormRequestAuthorize404Test.php each use:
+ * these two Community Form Requests shipped with only a reading of
+ * abort_unless(..., 404) to stand on, the same constraint Task 2
+ * (StoreCommentRequest) got wrong once already.
  *
  * There is no route to either RejectComment or HideComment yet (a later
- * task's screen), so — exactly as the two precedent files argue — a
+ * task's screen), so — exactly as the two files above argue — a
  * FAILING authorize() here is unreachable over HTTP today; these are
  * unit tests of the FormRequest classes directly (no route, no
  * authenticated user, no route parameter bound), with nobody signed in,
