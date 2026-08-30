@@ -151,6 +151,21 @@ function RejectDisclosure({ shelfSlug, requestId }: { shelfSlug: string; request
                 <p className="text-sm text-muted-foreground">
                     {copy.manageRequests.rejectReasonHint}
                 </p>
+                {/* THIS form's errors, not the page's. `reason` is a field
+                    error — max:500 and the encoding guard are the two ways
+                    it fires — so it belongs beside the box that produced
+                    it. Rendered once at the top of the page (where it used
+                    to be) it can land a dozen rows offscreen from the
+                    <details> the volunteer has open, and every form here
+                    posts preserveScroll, so nothing carries them to it.
+                    useForm scopes these to this row's own visit; the
+                    page-level bag still carries `rule`, which is genuinely
+                    page-level. */}
+                {form.errors.reason ? (
+                    <p role="alert" className="text-sm text-destructive">
+                        {form.errors.reason}
+                    </p>
+                ) : null}
                 <Button type="submit" variant="outline" className="h-11" disabled={form.processing}>
                     {copy.manageRequests.rejectConfirm}
                 </Button>
@@ -224,6 +239,21 @@ function ApproveForm({
             >
                 {copy.manageRequests.approveButton}
             </Button>
+            {/* THIS form's copy_id error, beside the select that posts
+                it — w-full so the flex-wrap row breaks and the sentence
+                sits under the control rather than beside it. ONE CAVEAT this
+                page cannot avoid: the form above is keyed on the
+                free-copy list, so a refusal arriving in the same response
+                as a changed copy list remounts it and clears this error.
+                copy_id is required|uuid and the button is disabled when
+                the list is empty, so through this screen the refusal is
+                already unreachable; it exists for a hand-made POST, and
+                for that case the page-level `rule` banner still answers. */}
+            {form.errors.copy_id ? (
+                <p role="alert" className="w-full text-sm text-destructive">
+                    {form.errors.copy_id}
+                </p>
+            ) : null}
         </form>
     );
 }
@@ -393,22 +423,15 @@ export default function ManageBorrowRequests() {
                     {errors.rule}
                 </p>
             ) : null}
-            {errors.copy_id ? (
-                <p
-                    role="alert"
-                    className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
-                >
-                    {errors.copy_id}
-                </p>
-            ) : null}
-            {errors.reason ? (
-                <p
-                    role="alert"
-                    className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
-                >
-                    {errors.reason}
-                </p>
-            ) : null}
+            {/* NO FIELD ERRORS HERE. `rule` above is page-level by
+                construction — back()->withErrors() from any Action behind
+                any form on this page — but copy_id and reason are
+                row-scoped, and rendered up here they arrive detached from
+                the row that caused them: on a queue of a dozen titles,
+                with preserveScroll on every post, the sentence can land
+                entirely offscreen. They moved into ApproveForm and
+                RejectDisclosure, where useForm scopes each to its own
+                row's visit. */}
 
             {queues.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{copy.manageRequests.empty}</p>
