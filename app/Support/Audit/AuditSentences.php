@@ -6,9 +6,11 @@ namespace App\Support\Audit;
 
 /**
  * BR §14's readable sentences, and the closed map of actions this build
- * can describe — 27 entries, one per audit action a shipped command
- * writes (AuditActionCensusTest holds the two sets equal in both
- * directions). Pure: the lang file is loaded by require, so nothing here
+ * can describe — one entry per audit action a shipped command writes
+ * (AuditActionCensusTest holds the two sets equal in both directions,
+ * and AuditSentencesTest's partition block carries the count, which
+ * every task that adds an action bumps deliberately).
+ * Pure: the lang file is loaded by require, so nothing here
  * needs the framework, and the wording ships in lang/vi where server
  * copy lives (spec §7).
  *
@@ -25,7 +27,7 @@ namespace App\Support\Audit;
  */
 final class AuditSentences
 {
-    /** @var array<string, string> action => group ('loans'|'books'|'readers') */
+    /** @var array<string, string> action => group, one of GROUPS below */
     public const array ACTIONS = [
         'book.created' => 'books',
         'book.updated' => 'books',
@@ -62,9 +64,14 @@ final class AuditSentences
         'membership.left' => 'readers',
         'credentials.set' => 'readers',
         'profile.corrected' => 'readers',
+        // Phase 2b files every community action under its own group, the
+        // reference's cong-dong (audit-actions.ts's comment.* family).
+        // Folding comments into books would leave next task's shelf news
+        // with no home at all.
+        'comment.created' => 'community',
     ];
 
-    public const array GROUPS = ['loans', 'books', 'readers'];
+    public const array GROUPS = ['loans', 'books', 'readers', 'community'];
 
     /** @return list<string> */
     public static function actionsInGroup(string $group): array
@@ -188,6 +195,12 @@ final class AuditSentences
             'membership.left' => strtr(self::line('membership_left'), [':subject' => self::who($subject)]),
             'credentials.set' => strtr(self::line('credentials_set'), [':subject' => self::who($subject)]),
             'profile.corrected' => strtr(self::line('profile_corrected'), [':subject' => self::who($subject)]),
+            // No strtr at all — the copy_lost_reported shape. The
+            // reference's phrase names neither the title nor the author,
+            // and that stays deliberate: the payload holds book_id and no
+            // title, and the alternative is widening the payload to make
+            // a sentence prettier.
+            'comment.created' => self::line('comment_created'),
             default => self::line('unknown'),
         };
     }

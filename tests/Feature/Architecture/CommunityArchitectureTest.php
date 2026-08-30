@@ -1,0 +1,135 @@
+<?php
+
+// Grep first: `grep -rn "^function wallClockOffenders" tests/` —
+// top-level helpers are process-global (AGENTS.md).
+//
+// THE COMMUNITY HALF OF THE NO-WALL-CLOCK GREP. This is a second copy of
+// the four-token regex CirculationArchitectureTest's own clock block
+// carries, and the duplication is DELIBERATE and disclosed rather than
+// left to be discovered: sharing it would mean editing a shipped guard to
+// extract a helper, and this phase already made one such exception (Task
+// 1's root-parameterised transaction walk). docs/known-gaps.md carries
+// the same note.
+//
+// (?<![->]) excludes `$this->clock->now()` — the Clock's own method IS the
+// sanctioned door; what this bans is the bare now() helper and the static
+// Carbon reads. It reads RAW SOURCE, comments included, so the literal
+// `Clock::now()` written into a docblock reddens this too; that is the
+// bound, not a defect.
+/** @return list<string> basenames of the offending files */
+function wallClockOffenders(string $root): array
+{
+    $offenders = [];
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($files as $file) {
+        $src = (string) file_get_contents($file->getPathname());
+        if (preg_match('/(?<![->])\bnow\(\)|Carbon::now|CarbonImmutable::now/', $src) === 1) {
+            $offenders[] = basename($file->getPathname());
+        }
+    }
+
+    return $offenders;
+}
+
+// NO is_dir() GUARD ANYWHERE IN THIS FILE, and that is the point of it
+// existing in Task 2's commit rather than Task 1's. Measured both ways
+// while writing this file: with app/Actions/Community absent entirely,
+// this file is 4 failed — three UnexpectedValueException from
+// RecursiveDirectoryIterator plus the audit block's own empty-glob()
+// assertion; with the directory present but EMPTY, it is 2 failed, 2
+// passed, because the retry block and the clock block have nothing to
+// offend and pass on absence. A block that passes on absence is exactly
+// what these guards exist to refuse, so the fix for a red run here is the
+// Action, never an is_dir().
+
+it('every community write transaction retries — the attempts argument, tokenised', function () {
+    // The same property CirculationArchitectureTest states for its own
+    // directory, through the same token walk (renamed and
+    // root-parameterised in Task 1 for this caller): every Action under
+    // app/Actions/Community that opens a write transaction passes an
+    // attempts count, so a new one cannot become a silent non-retrying
+    // participant merely by being written.
+    //
+    // This asserts the argument is PRESENT, not that it is
+    // ConcurrencyRetry::ATTEMPTS or any particular number — pinning the
+    // spelling would make a deliberate per-command count a test failure,
+    // and the value is argued in ConcurrencyRetry's own docblock.
+    [, $offenders] = actionTransactionCalls(app_path('Actions/Community'));
+
+    expect($offenders)->toEqual([]);
+});
+
+it('the community attempts guard actually inspects the transactions it claims to guard', function () {
+    // The sibling file's derivation, and it has teeth from this commit
+    // because the directory now holds a file that really opens one: any
+    // file whose comment-stripped source contains the literal
+    // `DB::transaction(` must appear in the walk's own tally, and the
+    // tally must not be empty. Break the token walk and a file drops out
+    // of the tally while its call is still plainly there.
+    //
+    // One-directional by design: the walk legitimately finds calls this
+    // substring cannot (a `$connection->transaction(` spelling), so a
+    // file in the tally but not in the substring set is not an offence.
+    [$callSites, , $literals] = actionTransactionCalls(app_path('Actions/Community'));
+
+    $blind = [];
+    foreach ($literals as $rel) {
+        if (($callSites[$rel] ?? 0) === 0) {
+            $blind[] = $rel;
+        }
+    }
+
+    // Chained rather than split, and that is not the usual short-circuit
+    // trap: the two can never both fail, because $blind is built out of
+    // $literals and an empty $literals forces an empty $blind.
+    expect($literals)->not->toBeEmpty()
+        ->and($blind)->toEqual([]);
+});
+
+it('no Action under app/Actions/Community reads the wall clock', function () {
+    // The title names the directory this actually walks. A test whose
+    // name overclaims its body is how a rule gets believed without being
+    // enforced — the sibling file carries the same correction.
+    //
+    // Clock is the only place Carbon reads the wall clock. A community
+    // file calling now() bypasses setTestNow-driven derivations and BR
+    // §5.4's timezone rule at once.
+    expect(wallClockOffenders(app_path('Actions/Community')))->toBe([]);
+});
+
+it('no Action under app/Actions/Community skips the audit recorder', function () {
+    // CatalogueArchitectureTest's tripwire, ported by shape rather than
+    // by copy: each file must constructor-inject an AuditRecorder AND
+    // call ->record( on whatever the constructor named the property, so
+    // an Action pasted without audit fails the build rather than quietly
+    // shipping unaudited. Asserting the class name merely APPEARED in the
+    // source would pass on a file that imports AuditRecorder and never
+    // calls it.
+    //
+    // There is NO allow-list here, unlike the catalogue file's code
+    // allocator: every command in this directory audits. Adding an
+    // exemption means arguing for it in this comment, not adding a
+    // str_ends_with.
+    //
+    // INV-8 has a second, sharper reason to be pinned by a tripwire in
+    // THIS namespace: AuditSentences::phrase() ends in a default arm, so
+    // a community action shipped with no match arm renders the
+    // undescribed-action fallback to a volunteer instead of failing the
+    // build the way a missing NotificationSentences arm does.
+    // AuditActionCensusTest's set-equality is what catches the missing
+    // arm; this is what catches the missing CALL.
+    $files = glob(app_path('Actions/Community/*.php')) ?: [];
+    expect($files)->not->toBe([]);
+
+    foreach ($files as $file) {
+        $source = (string) file_get_contents($file);
+
+        expect(preg_match('/private\s+(?:readonly\s+)?AuditRecorder\s+\$(\w+)/', $source, $ctor))
+            ->toBe(1, basename($file).' does not constructor-inject an AuditRecorder');
+
+        expect(preg_match('/\$this->'.$ctor[1].'->record\s*\(/', $source))
+            ->toBe(1, basename($file).' never calls ->record() on its AuditRecorder');
+    }
+});

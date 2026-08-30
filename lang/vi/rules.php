@@ -110,10 +110,11 @@ return [
     // (old_next/src/domain/kernel/errors.ts) verbatim for the codes this
     // slice throws — the codes themselves come from
     // old_next/src/domain/community/commands/comment-moderation.ts. NOT
-    // edited into RuleViolatedCodesHaveSentencesTest's census here:
-    // nothing throws these codes yet, and that census walks throwers, not
-    // sentences. Tasks 2–4 add their codes to that list in the commits
-    // that first throw them.
+    // edited into RuleViolatedCodesHaveSentencesTest's census in Task 1:
+    // nothing threw these codes yet, and that census walks throwers, not
+    // sentences. Each task adds its codes to that list in the commit that
+    // first throws them — Task 2 (CreateComment) added comments_disabled
+    // and empty_body; the two moderation codes below still await theirs.
     'comments_disabled' => 'Tủ sách hiện không nhận bình luận.',
     'empty_body' => 'Vui lòng nhập nội dung bình luận.',
     'comment_not_pending' => 'Bình luận này đã được xử lý.',

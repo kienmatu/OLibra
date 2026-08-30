@@ -180,20 +180,21 @@ it('str() semantics: a TRUTHY non-string is also absent, not (string)-cast', fun
         ->toBe('Maria Q đã thêm sách một cuốn sách');
 });
 
-it('groupOf answers the family for the 27 actions and null for a stranger', function () {
+it('groupOf answers the family for a known action and null for a stranger', function () {
     expect(AuditSentences::groupOf('loan.renewed'))->toBe('loans')
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
+        ->and(AuditSentences::groupOf('comment.created'))->toBe('community')
         ->and(AuditSentences::groupOf('bookshelf.created'))->toBeNull();
 });
 
 it('actionsInGroup partitions the whole map with nothing left over', function () {
     $all = array_merge(...array_map(
         fn (string $g) => AuditSentences::actionsInGroup($g),
-        ['loans', 'books', 'readers'],
+        ['loans', 'books', 'readers', 'community'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(27);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(28);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

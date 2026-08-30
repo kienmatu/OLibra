@@ -188,6 +188,7 @@ return [
         'acquired_on' => 'ngày nhận',
         'condition' => 'tình trạng',
         'note' => 'ghi chú',
+        'body' => 'nội dung bình luận',
         'reason' => 'lý do',
         'q' => 'từ khoá',
         'username' => 'tên đăng nhập',

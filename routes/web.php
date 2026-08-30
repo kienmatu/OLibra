@@ -17,6 +17,7 @@ use App\Http\Controllers\Manage\ReturnController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
 use App\Http\Controllers\Reader\CatalogueController;
+use App\Http\Controllers\Reader\CommentController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
 use App\Http\Controllers\Reader\SearchController;
@@ -90,6 +91,21 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // the whole of it. CirculationArchitectureTest pins that the
         // middleware is still on the route.
         Route::post('/books/{book}/request', [ReaderBorrowRequestController::class, 'store'])->name('books.request');
+        // BR §7.5's "viết bình luận". Unlike the request POST above, this
+        // one DOES carry a field, so StoreCommentRequest holds an
+        // abort_unless(Gate::allows('act-as-reader'), 404) of its own and
+        // the 404 a non-member meets has TWO producers, not one — the
+        // group's role:reader first, that Form Request behind it. Both
+        // halves were measured rather than assumed: moving this POST out
+        // of the role:reader group leaves CreateCommentTest fully green —
+        // the non-member still meets 404, from the Form Request — and
+        // removing BOTH doors turns that same block red with 403, which
+        // is CreateComment's own Gate::authorize rendered as an
+        // AuthorizationException and the existence oracle spec §5.4
+        // forbids. So EITHER door alone is sufficient here, unlike the
+        // bodiless request POST above where the middleware is the whole
+        // of it.
+        Route::post('/books/{book}/comments', [CommentController::class, 'store'])->name('books.comments.store');
         Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
         Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');

@@ -57,6 +57,13 @@ return [
     'credentials_set' => 'đặt hoặc đổi tài khoản đăng nhập cho :subject',
     'profile_corrected' => 'sửa hồ sơ của :subject',
 
+    // — cộng đồng —
+    // The reference's phrase verbatim (audit-actions.ts's comment.created).
+    // It names neither the title nor the author, deliberately: the payload
+    // holds book_id and no title, and widening the payload to make a
+    // sentence prettier is the trade this refuses.
+    'comment_created' => 'viết một bình luận',
+
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.
     'conditions' => [

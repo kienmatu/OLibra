@@ -17,7 +17,7 @@ interface AuditRow {
     entityType: string;
     entityId: string | null;
     occurredAt: string;
-    group: "loans" | "books" | "readers" | null;
+    group: "loans" | "books" | "readers" | "community" | null;
     sentence: string;
     expansion: ExpansionRow[];
 }
@@ -28,7 +28,7 @@ interface PageProps extends SharedData {
     log: { rows: AuditRow[]; page: number; pageCount: number; total: number };
 }
 
-const GROUP_KEYS = ["loans", "books", "readers"] as const;
+const GROUP_KEYS = ["loans", "books", "readers", "community"] as const;
 
 export default function ManageAudit() {
     const { shelf, filters, actors, log, csrfToken } = usePage<PageProps>().props;

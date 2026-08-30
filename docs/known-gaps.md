@@ -3336,3 +3336,40 @@ named in it, not by reading it off the plan.
   suite reddens. It matters more since this commit than before it: a
   demo shelf reaching production used to mean fixture rows, and now means a
   third account with a working password.
+
+- **The no-wall-clock grep is written twice, once per Actions namespace,
+  and that is a choice rather than an oversight (Phase 2b Task 2).**
+  `CommunityArchitectureTest`'s `wallClockOffenders()` carries the same
+  four-token regex — `(?<![->])\bnow\(\)|Carbon::now|CarbonImmutable::now`
+  — as the clock block inside `CirculationArchitectureTest`, which walks
+  its own directory with a literal `RecursiveDirectoryIterator` rather
+  than through a helper. The alternative was editing a shipped guard a
+  second time this phase to extract a shared helper; Task 1 already made
+  that exception once (the transaction walk, renamed to
+  `actionTransactionCalls(?string $root = null)`), and a second edit to
+  the same file for a rule that is four tokens long buys less than it
+  risks. The cost is real and is stated here rather than left to be
+  discovered: a correction to the regex has to be applied in both places,
+  and nothing tells you so. Whichever task next needs a THIRD copy should
+  extract the helper instead of adding one — three copies is where the
+  duplication stops paying.
+- **`Comment::author()`'s explicit foreign key is not pinnable, and the
+  docblock that said otherwise has been corrected (Phase 2b Task 2).**
+  Task 1's review found that reverting `belongsTo(User::class,
+  'author_id')` to `belongsTo(User::class)` broke no test, and read that
+  as a missing pin. Measured in the container: `BelongsTo`'s default
+  foreign key is `Str::snake(<calling method name>).'_'.<owner key>`, so a
+  method named `author()` guesses `author_id` — both spellings resolve the
+  identical column and **no test can tell them apart**. The explicit key
+  is worth keeping (it stops the column depending on the method's name),
+  but it is documentation, not behaviour. What is pinnable is the
+  relation's target, and `CreateCommentTest` now pins that: `author()`
+  reaches the `users` row named by `author_id`, and the id written there
+  is a `users(id)` and not a `memberships(id)` — the trap this phase
+  carries end to end. **A second plan claim was corrected the same way in
+  the same commit:** `CreateComment`'s docblock, as the plan wrote it,
+  said a membership id in `author_id` "would insert a row referencing
+  nothing and no FK would stop it". Measured: `comments_author_id_foreign`
+  references `users(id)`, and the write is refused as SQLSTATE 23000 /
+  errno 1452. The database is the backstop; the two ids are still
+  indistinguishable by shape, which is why the Action takes a `User`.

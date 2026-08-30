@@ -32,10 +32,25 @@ class Comment extends Model
 
     /**
      * author_id is a users(id) — the borrower()/Loan.php precedent.
-     * Eloquent's convention would derive user_id from the method name;
-     * this column is not called that, so the foreign key is named
-     * explicitly. A silently wrong key here makes the reader's comment
-     * list render every author as blank.
+     *
+     * CORRECTED IN TASK 2, and the correction is the point: this docblock
+     * used to say "Eloquent's convention would derive user_id from the
+     * method name". It does not. BelongsTo's default foreign key is
+     * Str::snake(<the CALLING METHOD's name>).'_'.<owner key>, so a
+     * method named author() guesses author_id — the identical column.
+     * Measured in this container against a subclass declaring
+     * belongsTo(User::class) with no key: both spellings report
+     * author_id, which is also why Task 1's review found this line
+     * "pinned by nothing". It is not pinnable, because there is nothing
+     * to tell apart.
+     *
+     * What the explicit key IS worth is that the column stops depending
+     * on the method's name: rename this method and the implicit guess
+     * silently follows the new name. What IS pinnable, and is pinned, is
+     * the relation's TARGET — CreateCommentTest asserts author() reaches
+     * the users row named by author_id and that the id there is not a
+     * memberships id. A wrong key makes the reader's comment list render
+     * every author as blank.
      *
      * @return BelongsTo<User, $this>
      */

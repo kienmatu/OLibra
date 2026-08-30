@@ -309,6 +309,9 @@ export const copy = {
             loans: "Mượn và trả",
             books: "Sách",
             readers: "Bạn đọc",
+            // The reference's own label for cong-dong, and the ordinary
+            // word a volunteer uses.
+            community: "Cộng đồng",
         },
         actorLabel: "Người thực hiện",
         actorAll: "Mọi người",
