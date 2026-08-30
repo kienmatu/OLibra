@@ -2331,14 +2331,17 @@ Recorded per task as it lands, not at the end of the phase.
   `requests/{`. A queue route spelled `…/manage/queue/{request}/approve`
   contained none of them and would have shipped green. Task 12 removed
   `requests/{` and Task 14 removed the loop entirely, replacing it with a
-  PRESENCE pin that names the four routes by route NAME and asserts
-  `role:manager` on each — a check with no fragment-spelling hole in it,
+  PRESENCE pin that names each borrow-request route by route NAME and
+  asserts `role:manager` on each — naming rather than counting, which is
+  why Task 18 could add one to that list without falsifying anything (this
+  sentence read "the four routes" until the whole-branch review, by which
+  time there were five) — a check with no fragment-spelling hole in it,
   because a route registered under a different name simply is not the
   route the nav links and the controller redirect to. And the general
   case the old fragment loop could not reach IS covered, by a test in
   another file: `RouteOrderTest`'s "puts a role: middleware on every route
   under /manage" walks every route with a literal `manage` path segment
-  and requires a `role:` gate on each, so a fifth circulation route added
+  and requires a `role:` gate on each, so a FURTHER circulation route added
   under `/manage` with any spelling at all goes red without a gate. What
   remains uncovered is a manager-ish route declared OUTSIDE `/manage`;
   nothing sweeps for that.
@@ -2509,10 +2512,15 @@ Recorded per task as it lands, not at the end of the phase.
   ticking; the healthcheck is measuring the wrong thing.
 
 - **The sweep's idempotence key includes the book's TITLE, so a corrected
-  title re-tells the reader.** "Already told" is the existence of a
-  notification with the same `user_id`, `kind`, `payload.due_on` and
-  `payload.title` (`SweepReminders::tell`). That is the reference's own
-  predicate, ported deliberately — `sweep.ts`'s `not exists` keys on
+  title re-tells the reader.** "Already told" is whatever
+  `SweepReminders::tell`'s existence probe matches on — read that method's
+  `where` clauses for today's key rather than a copy of them here; the
+  clause this entry is about is `payload->title`. (An earlier draft did
+  restate the key as a list and left `bookshelf_id` out of it, so this
+  document described one probe two different ways: the shelf clause has
+  its own entry below, as this phase's deliberate divergence from the
+  reference.) The title clause is the reference's own predicate, ported
+  deliberately — `sweep.ts`'s `not exists` keys on
   `b.title` too — and it is what lets the notification itself be the
   cursor instead of a `last_swept_at` that can drift or be rolled back by
   a restore. The consequence is real and untested in either codebase: fix
@@ -2531,6 +2539,32 @@ Recorded per task as it lands, not at the end of the phase.
   `whereDoesntHave('loans')` refuses a title with loans otherwise — and in
   that state telling the borrower their book is overdue is arguably the
   right behaviour anyway, which is why it is a note and not a fix.
+
+- **`MyDashboardQuery` joins `books` with no `deleted_at` guard where the
+  manager's queue has one, so one soft-deleted title would be visible to
+  the reader and invisible to the manager. A deliberate note, not a
+  fix.** Every join in that query is a raw builder join — `->join('books',
+  …)` and `->join('book_copies', …)` — and a builder join does not apply
+  the joined model's `SoftDeletes` scope, the same mechanism the sweep
+  entry above records. `BorrowRequestQueueQuery::waiting()` writes the
+  guard by hand (`->whereNull('books.deleted_at')` inside the join
+  condition, and the same for `users`), so the two surfaces would disagree
+  about one row: a live request against a soft-deleted title drops out of
+  the manager's queue and stays on the reader's dashboard, where its title
+  links to a book page that 404s. **Unreachable today**, for the reason
+  recorded in the Phase 1c section: `DeleteBook` is reachable from no
+  screen, and its own `whereDoesntHave('loans')` refuses a title with
+  loans anyway. **Left as it is, on purpose.** Making the dashboard match
+  the queue would take the reader's own pending request off their screen
+  and with it the only button that withdraws it, leaving a row nobody but
+  a manager can clear; the reader keeping the ability to cancel is the
+  behaviour this phase would choose if it were choosing. What was wrong is
+  that it looked accidental — a hand-written guard on one side and silence
+  on the other, with nothing saying which was intended. This is that
+  statement. Whoever wires `DeleteBook` to a screen owns the decision
+  again, and the dead LINK is the part to fix then: either the join grows
+  the guard and the row goes with it, or the dashboard renders a deleted
+  title as plain text instead of a link.
 
 - **The idempotence probe's plan, measured on the statement the command
   actually emits, not on a probe shaped like it.** Captured with
@@ -2837,6 +2871,121 @@ named in it, not by reading it off the plan.
   here. If it should be designed away rather than recorded, that is a
   product decision, not a defect report.
 
+  **WHO ELSE IS ON THE COPY-FIRST SIDE, and which of those pairings a
+  shipped schedule can actually reach.** The paragraph above names
+  `LendCopy` because Task 8 is what created the edge; it is not the only
+  command that takes these two rows copy-first, and the whole-branch
+  review's derivation is reproduced here rather than left in four
+  docblocks. Re-derived for this entry by reading every `lockForUpdate`
+  call site and every guarded `UPDATE` against `book_copies` /
+  `borrow_requests` under `app/Actions`, file by file:
+  `ApproveBorrowRequest` (copy lock as the transaction's first statement,
+  request second), `LendCopy` (copy lock, then the guarded `->update()`
+  that closes the collected hold), `ReceiveReturn` (copy, loan, then the
+  hold's request row) and `ReleaseExpiredHold` (copy, then request) all
+  take them in that order. `ReceiveReturn`'s participation was already
+  recorded — in the Phase 1c `ReceiveReturn` entry far above, under "A
+  third lock the reference never took" — and `ReleaseExpiredHold`'s lived
+  only in its own docblock until this entry.
+
+  Everything below turns on ONE condition, because `CancelOwnRequest`
+  inverts only under it: it locks the copy first WHEN its route-bound
+  snapshot names one, so the request-then-copy order needs a snapshot
+  whose `copy_id` was null and a locked row whose `copy_id` is not. Every
+  writer of that column (`ApproveBorrowRequest`'s decision write and
+  `ReceiveReturn`'s hold branch — grepped for `'copy_id' =>` under
+  `app/Actions`, the rest of the matches being loans, condition
+  assessments and audit payloads) sets it in the same `->update()` that
+  moves a row it has already refused unless PENDING, and the only writer
+  of `status = pending` is `CreateBorrowRequest`'s insert, which omits the
+  column. So the flip is always null → an id, never copy A → copy B, and
+  it has to land inside the milliseconds between the cancel's route
+  binding and its first lock.
+
+  - **`LendCopy` ↔ `CancelOwnRequest` — REACHABLE.** The edge this entry
+    was written for, and nothing below changes it. `LendCopy` holds copy
+    C and waits on the request row its collected-hold `UPDATE` names; the
+    cancel holds that request and waits on C. It needs C `held` under a
+    live hold, and the cancel bound while the row was still pending —
+    a manager collecting the hold at the desk in the same seconds the
+    reader's own *Hủy* tap is in flight.
+  - **`ApproveBorrowRequest` ↔ `CancelOwnRequest` — REACHABLE, and the
+    review that produced this list concluded it was not.** Its argument
+    was that the cancel can only want a copy if the row it locked already
+    names one: before the approval commits the row still reads
+    `pending`/null, and once it has committed it has released the copy.
+    That is sound about *the* approval that wrote `copy_id` — and the
+    copy lock in the cycle need not be held by that transaction.
+    `ApproveBorrowRequest` takes its copy from a FORM FIELD, not from the
+    bound request, so a SECOND approve POST naming the same copy takes
+    C's lock while waiting on the request row, and nothing refuses it
+    before the transaction: `BorrowRequestPolicy::approve` reads no row
+    (deliberately — the anti-enumeration rule its own docblock argues)
+    and `ApproveBorrowRequestRequest` validates the field, not the
+    status. The schedule, three transactions with the 2-cycle between the
+    last two:
+
+    1. Two managers POST approve(R, C) while R is pending — a double
+       submit, or two volunteers on one queue page.
+    2. The reader's cancel POST binds R while it is still pending, so its
+       snapshot `copy_id` is null.
+    3. M1 locks C, locks R, writes `approved` + `copy_id = C`, flips C to
+       `held`, commits. M2, which has been waiting on C's lock, takes it
+       and waits for R's.
+    4. The cancel locks R, reads `copy_id = C` off the committed row, and
+       issues its guarded `UPDATE book_copies … WHERE state = 'held'` —
+       which now waits on M2.
+
+    M2 holds C and wants R; the cancel holds R and wants C. M2 would have
+    gone on to throw `request_not_pending`, but that check runs AFTER both
+    locks, so it is a full participant in the wait-for graph. Note that
+    the setup which makes the cancel want a copy at all — a committed
+    approval — is the same setup the `LendCopy` case needs; the only step
+    the review's argument skipped is that a THIRD transaction can hold the
+    copy afterwards. Same edge, same ruling (accepted, not fixed): a
+    second copy-first participant on an inversion already recorded, not a
+    new direction and not a new cycle.
+  - **`ReleaseExpiredHold` ↔ `CancelOwnRequest` — both orders exist over
+    the same two rows; through the shipped screens no schedule realises
+    them, and a crafted POST does.** Unlike the approve, this command
+    reads its copy from `$request->copy_id` on its OWN route-bound
+    snapshot, so its copy and its request always come from one row and it
+    cannot hold C while waiting on some other request. That leaves a
+    single shape: it holds C and waits on R while the cancel holds R and
+    waits on C. Its snapshot must therefore be bound AFTER the approval
+    committed (bound before, `copy_id` is null, it locks no copy at all —
+    its own null branch) while the cancel's must be bound BEFORE it. The
+    cancel's binding-to-first-lock gap is one HTTP request's worth of
+    milliseconds; the queue page offers *Trả về kệ* only on a row whose
+    `holdExpired` flag is set, which is the shelf's whole `hold_days`
+    after that approval. Through the screen, the cancel's transaction
+    would have to sit in that gap for days. What is NOT ruled out:
+    `ReleaseExpiredHold` takes both locks BEFORE its `hold_not_expired`
+    guard, so a release POST aimed by hand at a just-approved row joins
+    the wait-for graph exactly as `LendCopy` does. Nobody but a manager on
+    the shelf can send it, and the outcome is the same 1213 this entry
+    already accepts.
+  - **`ReceiveReturn` ↔ `CancelOwnRequest` — UNREACHABLE**, and the
+    reason is copy STATE rather than timing. For `ReceiveReturn` to hold
+    C's lock, C carries an ACTIVE loan (its bound loan's copy;
+    `loan_not_active` is checked after the lock). For the cancel to want
+    C, a pending-or-approved request must name C — and a pending row's
+    `copy_id` is null, so it must be approved. No shipped command produces
+    a copy that is on loan and named by an approved request at the same
+    time: `RequestRules::copyHoldable` returns non-null for every state
+    but `available`, so neither door onto a hold can name a copy that is
+    out; `LoanRules::copyLendable` lets a `held` copy go only to its own
+    holder and `LendCopy` closes that request to `fulfilled` in the same
+    transaction, a status the cancel refuses; and every writer of
+    `CopyState::Available` under `app/Actions` (the re-runnable check is
+    `grep -rn "CopyState::Available" app/Actions/`) either ends the
+    request in the same transaction as the release or cannot be reached
+    from a `held` copy at all — `MarkCopyFound` needs `lost`, and
+    `CopyStateMachine` answers `copy_not_on_loan` for held → lost. The
+    review reached the same verdict by a different route (that a hold and
+    a loan cannot coexist on one copy); the load-bearing refusal is the
+    STATE branch of `copyHoldable`, not anything about hold expiry.
+
 - **Divergence 15: `CancelOwnRequest` answers 404 for a missing-or-foreign
   request where the reference folded both into `not_own_request` — a
   within-shelf existence oracle the reference did not have.** `findOrFail`
@@ -2853,6 +3002,27 @@ named in it, not by reading it off the plan.
   list. What it discloses is bounded: that some request id belongs to
   somebody on the caller's own shelf. Ids are UUIDv7 and not enumerable
   from outside.
+
+- **The bell's *mark one read* route has divergence 15's shape too, and
+  it was not recorded until the whole-branch review found it.** Nothing on
+  the way to `POST …/profile/notifications/{notification}/read` scopes the
+  row by PERSON: it binds through `Bookshelf::notifications()` and
+  `BookshelfScope`, both of which scope by SHELF, and the refusal is one
+  layer down in `MarkNotificationRead::one`, whose `where('user_id', …)`
+  makes another reader's row a zero-row `UPDATE` — a silent success. So on
+  one shelf an id that does not exist is a 404 while another reader's id
+  is a 302 with nothing changed, which is exactly the within-shelf
+  existence oracle divergence 15 records for `CancelOwnRequest`, reached
+  from the other side (there, the ownership check has a sentence; here it
+  has no answer at all). The disclosure is the same bounded one — that
+  some notification id belongs to somebody on the caller's own shelf —
+  and ids are UUIDv7 and not enumerable from outside. **Not fixed**, for
+  divergence 15's reason: the alternative is a 404 for a foreign row,
+  which is the answer the reader already gets for a foreign SHELF, and
+  changing it is a behaviour change nobody asked for. Recorded so the two
+  routes are known to share a shape. The route's own comment in
+  `routes/web.php` already described the mechanism; what was missing is
+  that it is the same divergence.
 
 - **A suspended reader can reach neither `memberMayRequest` nor the cancel
   door, so their INV-4 branches are defence in depth, not live paths**

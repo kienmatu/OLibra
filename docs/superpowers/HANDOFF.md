@@ -18,7 +18,7 @@ whole-branch review.
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
-| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | not opened | **tasks 1–19 landed, awaiting PR + whole-branch review** |
+| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | not opened | **tasks 1–19 landed; whole-branch review done and its fix wave applied — awaiting the scoped re-review, then PR** |
 | 2b Community voice | not written | — | — |
 | 2c Statistics & labels | not written | — | — |
 
@@ -675,6 +675,37 @@ throughout the plan, `known-gaps.md` and a shipped docblock. `BUSINESS-REQUIREME
 "What is recorded about each thing" and `grep -in "enumerat"` over it returns nothing. The section
 number is right, the document was not — it is the **migration design spec's** §5.4, "The
 TenantIsolation suite". Fixed before it could propagate into the remaining sixteen tasks.
+
+### Whole-branch review — the one fix wave
+
+**No Critical, and no correctness, tenancy, authorization or anti-enumeration defect.** The
+reviewer derived the circulation lock graph independently and found no cycle beyond the one
+divergence 1 records. Everything it did find was documentation accuracy — this phase's
+standing weak point, and more claims in this branch's prose that nobody had re-run.
+
+Applied in one wave: `CancelOwnRequest`'s docblock said `known-gaps.md` "does not carry"
+the residual-window record that Task 19's own sweep had already added to it (and, found
+while fixing that, claimed `ApproveBorrowRequest` was the ONE writer of
+`borrow_requests.copy_id` — `ReceiveReturn`'s hold branch is a second, shipped at Task 10 —
+and cited a line number for it); divergence 1's entry named one copy-first command where
+four exist; `TenancyArchitectureTest`'s "the two named files" against a four-entry
+allow-list; the sweep's idempotence key described two different ways in one section; "the
+four routes" against a five-route presence pin; `ChooseCopy` still calling
+`HandoverRequest` a Phase 2 future; the bell's *mark one read* route recorded as a sibling
+of divergence 15; and `MyDashboardQuery`'s missing `deleted_at` guard recorded as a
+deliberate note. One code change, the only one in the wave:
+`manage/borrow-requests.tsx`'s `copy_id`/`reason` field errors moved from the page head
+into the rows whose forms produce them — **unverified by test, this repo having no
+frontend rendering tests at all** (the open item below).
+
+**One disagreement with the review, written up in `known-gaps.md`'s divergence 1.** It
+ruled `ApproveBorrowRequest` ↔ `CancelOwnRequest` unreachable because an approval that has
+committed has released the copy. Re-derived here: `ApproveBorrowRequest` takes its copy
+from a FORM FIELD rather than the bound request, so a SECOND approve POST naming the same
+copy can hold that copy's lock while waiting on the request row a stale-bound cancel
+already holds. Reachable, on the edge already recorded — a further participant, not a new
+cycle. The review's other three verdicts hold, one of them for a different reason than it
+gave.
 
 ## Phase 1d — closed
 

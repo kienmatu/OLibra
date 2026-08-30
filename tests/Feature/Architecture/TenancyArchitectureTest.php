@@ -77,7 +77,7 @@ it('puts BelongsToBookshelf on every model whose table carries bookshelf_id', fu
     }
 });
 
-it('confines bookshelf_id filtering to the two named files', function () {
+it('confines bookshelf_id filtering to the files this allow-list names', function () {
     $allowed = [
         'app/Models/Scopes/BookshelfScope.php',
         'app/Http/Middleware/ResolveTenant.php',   // the population step itself (Task 16)

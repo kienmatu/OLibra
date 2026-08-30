@@ -84,19 +84,28 @@ use Illuminate\Support\Facades\Gate;
  * request lock and takes the copy's row lock second — the one place this
  * phase's order inverts. That is the ONLY way the lock and the release can
  * name different rows: the lock names the snapshot's copy_id, the release
- * names the locked row's, and borrow_requests.copy_id has exactly one
- * writer under app/ — ApproveBorrowRequest:158's pending → approved update
- * (grepped; every other 'copy_id' write in app/Actions targets loans,
- * condition_assessments or an audit payload). So the two can differ only
- * by null → a copy id, never copy A → copy B.
+ * names the locked row's, and EVERY writer of borrow_requests.copy_id
+ * under app/ sets it in the same ->update() that moves a row it has
+ * already refused unless PENDING to approved: ApproveBorrowRequest's
+ * decision write and ReceiveReturn's hold branch, the two doors onto a
+ * hold. (Grepped for `'copy_id' =>`; every other match under app/Actions
+ * targets loans, condition_assessments or an audit payload. An earlier
+ * draft of this paragraph said ApproveBorrowRequest was the ONE writer
+ * and cited a line number for it — both wrong, the second door having
+ * shipped in Task 10, which is why the property is stated here and the
+ * symbols are named instead of coordinates.) A pending row's copy_id is
+ * null — the column is written by nothing else, and the only writer of
+ * status = pending is CreateBorrowRequest's insert, which omits it — so
+ * the two can differ only by null → a copy id, never copy A → copy B.
  *
  * That residual window is recorded in the plan's divergence 1 with its
  * interleaving, and no deadlock-freedom claim is made here either way;
- * Task 19's wrap-up is the task that copies the record into
- * docs/known-gaps.md, which does not carry it yet. The
- * alternative — request first, always — would invert the order against
- * ApproveBorrowRequest and LendCopy on every contested schedule rather
- * than on this vanishing one.
+ * docs/known-gaps.md carries it too, in the Phase 2a section's
+ * "Divergence 1" entry, which also names the other commands that take
+ * these two rows copy-first and which of those pairings a shipped
+ * schedule can actually reach. The alternative — request first, always —
+ * would invert the order against ApproveBorrowRequest and LendCopy on
+ * every contested schedule rather than on this vanishing one.
  *
  * No notification: BR §15's reader list carries no event for a reader's
  * own withdrawal (the reference's "the one of the five that may genuinely
