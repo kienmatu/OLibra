@@ -173,4 +173,23 @@ return [
     // points at the two doors out (edit it, or hide it first) rather than
     // at the rule.
     'already_published' => 'Thông báo này đang hiển thị. Hãy sửa nội dung, hoặc ẩn đi rồi đăng lại.',
+
+    // ── The manager's bulletin screen (Phase 2b, Task 14) ─────────────
+    // Six success flashes, one per write on
+    // App\Http\Controllers\Manage\AnnouncementController. They sit in
+    // this file beside the refusals, following comment_approved_flash and
+    // its two siblings a few lines up, which are flashes in this same
+    // ledger rather than RuleViolated codes.
+    //
+    // Each sentence names WHAT MOVED and WHO CAN NOW SEE IT, because the
+    // manager's list re-renders behind the flash and a bare "Đã lưu"
+    // would leave them reading chips to find out. The compose form writes
+    // a draft, so its sentence says so and points at the button that
+    // changes that.
+    'announcement_created_flash' => 'Đã lưu bản nháp. Bấm "Đăng ngay" khi muốn cả nhà cùng đọc.',
+    'announcement_updated_flash' => 'Đã lưu thay đổi cho thông báo.',
+    'announcement_published_flash' => 'Đã đăng — thông báo hiện trên bản tin tủ sách.',
+    'announcement_hidden_flash' => 'Đã ẩn — thông báo không còn trên bản tin tủ sách.',
+    'announcement_pinned_flash' => 'Đã ghim — thông báo hiện lên đầu bản tin.',
+    'announcement_unpinned_flash' => 'Đã bỏ ghim — thông báo trở về theo thứ tự ngày đăng.',
 ];

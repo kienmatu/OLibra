@@ -57,6 +57,10 @@ export const copy = {
         // the three archives re-head it — see manageComments.titles — so
         // the nav says the subject and the heading says the view.
         comments: "Bình luận",
+        // The NAV word, matching `shelf.announcements` — the bulletin is
+        // "Bản tin" on both sides of the shelf, and the manager's screen
+        // re-heads it in manageAnnouncements.title.
+        announcements: "Bản tin",
         settings: "Cài đặt",
         audit: "Nhật ký",
     },
@@ -455,6 +459,63 @@ export const copy = {
         // a rejected or hidden row anywhere, so a button there would post
         // to nothing.
         readOnlyNote: "Bình luận đã từ chối hoặc đã ẩn thì không đổi được nữa.",
+    },
+    // The bulletin from the writing side. A separate namespace from
+    // `announcements` (the reader's two screens) rather than extra keys on
+    // it: that group holds a heading, an empty state and a badge, and this
+    // one holds three state words, five button labels and a form.
+    //
+    // The three state words are the reference's own — "Đang hiện", "Nháp",
+    // "Hết hạn", read off
+    // old_next/src/app/tu-sach/[shelf]/quan-ly/thong-bao/page.tsx's
+    // STATE_STYLE — keyed by the exact strings
+    // AnnouncementsQuery::managed() puts on each row, so a state the server
+    // can send has a word here by construction.
+    manageAnnouncements: {
+        title: "Bản tin tủ sách",
+        subtitle: "Thông báo được ghim sẽ hiện lên đầu bản tin của tủ sách.",
+        empty: "Chưa có thông báo nào.",
+        compose: "Viết thông báo",
+        composeTitle: "Viết thông báo",
+        editTitle: "Sửa thông báo",
+        state: {
+            showing: "Đang hiện",
+            draft: "Nháp",
+            expired: "Hết hạn",
+        },
+        // Beside a pinned row, and NOT colour alone (AGENTS.md rule 2) —
+        // the reference's own word for this marker on this screen.
+        pinnedBadge: "Đang ghim",
+        notPublished: "Chưa đăng",
+        // A DATE, not a timestamp (AGENTS.md's language rule). The server
+        // sends both as ISO instants and formatInstantParts renders the
+        // NUMBER; the Vietnamese glue is here, the same split
+        // announcements.publishedOn uses.
+        publishedOn: "Đăng ngày {date}",
+        expiresOn: "Hết hạn ngày {date}",
+        publishNow: "Đăng ngay",
+        publishAgain: "Đăng lại",
+        hide: "Ẩn",
+        pin: "Ghim lên đầu",
+        unpin: "Bỏ ghim",
+        edit: "Sửa",
+        fields: {
+            title: "Tiêu đề",
+            body: "Nội dung",
+            expiresAt: "Hết hạn ngày",
+            pinned: "Ghim lên đầu bản tin",
+        },
+        // Why the box may be left empty, said once and reused by the edit
+        // form and by every row's republish box: an empty box is not "no
+        // answer", it is the answer "this notice does not expire".
+        expiresHint: "Để trống nếu thông báo không có ngày hết hạn.",
+        // The word, never a bare asterisk (AGENTS.md rule 6). Its own key
+        // rather than a reach into manageComments.required, so rewording
+        // that form cannot silently reword this one.
+        required: "Bắt buộc",
+        save: "Lưu thông báo",
+        saving: "Đang lưu…",
+        backToList: "Về bản tin",
     },
     circulation: {
         rules: {

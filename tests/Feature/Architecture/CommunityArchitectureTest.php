@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Facades\Route;
+
 // Grep first: `grep -rn "^function wallClockOffenders" tests/` —
 // top-level helpers are process-global (AGENTS.md).
 //
@@ -252,4 +254,30 @@ it('every community write transaction that re-reads an existing row opens with a
         expect(str_contains((string) file_get_contents($file), 'lockForUpdate'))
             ->toBeTrue(basename($file).' has no lockForUpdate');
     }
+});
+
+it('declares announcements/create before announcements/{announcement}', function () {
+    // Spec §6's static-before-bound rule, on the block Task 14 added. Here it
+    // is load-bearing rather than habitual: both URIs are one segment past
+    // `announcements` and both are reached by GET, so with the bound line
+    // first, /manage/announcements/create resolves "create" as an
+    // announcement id and the manager meets the binding's 404 instead of the
+    // compose form. RouteOrderTest's books block is the shape this follows;
+    // its sentences are its own.
+    //
+    // Positional, over the URI list in declaration order — which is what
+    // makes it independent of the two screen blocks in
+    // tests/Feature/Community/ManagerAnnouncementsScreenTest.php that
+    // actually fetch these two addresses.
+    $uris = collect(Route::getRoutes()->getRoutes())
+        ->map(fn ($route) => $route->uri())
+        ->filter(fn (string $uri) => str_starts_with($uri, 'shelves/{shelf}/manage/announcements'))
+        ->values();
+
+    $posCreate = $uris->search('shelves/{shelf}/manage/announcements/create');
+    $posBound = $uris->search('shelves/{shelf}/manage/announcements/{announcement}');
+
+    expect($posCreate)->not->toBeFalse()
+        ->and($posBound)->not->toBeFalse()
+        ->and($posCreate)->toBeLessThan($posBound);
 });

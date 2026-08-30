@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\BorrowRequestController as ManageBorrowRequestController;
@@ -323,6 +324,52 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/comments/{comment}/approve', [CommentModerationController::class, 'approve'])->name('comments.approve');
         Route::post('/comments/{comment}/reject', [CommentModerationController::class, 'reject'])->name('comments.reject');
         Route::post('/comments/{comment}/hide', [CommentModerationController::class, 'hide'])->name('comments.hide');
+        // BR §16.1's Bản tin, from the side that writes it. These route
+        // names are NEW rather than a placeholder's kept name: `git grep
+        // -n "manage.announcements" 228ca76 -- resources/`, run before
+        // this line was written, exited 1 with no output. The nav item
+        // added to resources/js/layouts/manage-layout.tsx in this same
+        // commit is the first Ziggy caller.
+        //
+        // ORDER IS LOAD-BEARING (spec §6): create BEFORE {announcement}.
+        // Both URIs are one segment past `announcements` and both are
+        // reached by GET, so with the bound line first Laravel resolves
+        // "create" as an announcement id and the compose form becomes the
+        // binding's 404. MEASURED by swapping the two lines and fetching
+        // /manage/announcements/create as a manager — the run and its
+        // answer are in this task's report. CommunityArchitectureTest's
+        // 'declares announcements/create before announcements/{announcement}'
+        // pins the declaration order itself.
+        //
+        // {announcement} binds BY ID, because Announcement declares no
+        // getRouteKeyName() (read off app/Models/Announcement.php). The
+        // reader's detail route above takes a plain {slug} instead, and
+        // the two are independent: that one answers "is this notice
+        // showing?" through AnnouncementsQuery::detail(), while these
+        // address a row a manager can see in every state, drafts and
+        // lapsed ones included.
+        //
+        // Shelf confinement here is this file's usual two layers:
+        // Bookshelf::announcements() under the outer group's
+        // scopeBindings(), and BookshelfScope on Announcement
+        // (App\Models\Concerns\BelongsToBookshelf) on every query
+        // Eloquent runs for the binding. Which of the two alone suffices
+        // was measured for {comment} a few lines up and is NOT re-derived
+        // here; what this task measured instead is the role gate, per
+        // route, and that is in the report.
+        Route::get('/announcements', [ManageAnnouncementController::class, 'index'])->name('announcements.index');
+        Route::get('/announcements/create', [ManageAnnouncementController::class, 'create'])->name('announcements.create');
+        Route::post('/announcements', [ManageAnnouncementController::class, 'store'])->name('announcements.store');
+        Route::get('/announcements/{announcement}', [ManageAnnouncementController::class, 'edit'])->name('announcements.edit');
+        Route::patch('/announcements/{announcement}', [ManageAnnouncementController::class, 'update'])->name('announcements.update');
+        // The publish POST carries a body (one optional expiry box) and
+        // therefore a Form Request; the three beneath it are bodiless, so
+        // `role:manager` on this group is the whole of their refusal, the
+        // way it is for the bodiless circulation POSTs above.
+        Route::post('/announcements/{announcement}/publish', [ManageAnnouncementController::class, 'publish'])->name('announcements.publish');
+        Route::post('/announcements/{announcement}/hide', [ManageAnnouncementController::class, 'hide'])->name('announcements.hide');
+        Route::post('/announcements/{announcement}/pin', [ManageAnnouncementController::class, 'pin'])->name('announcements.pin');
+        Route::post('/announcements/{announcement}/unpin', [ManageAnnouncementController::class, 'unpin'])->name('announcements.unpin');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
