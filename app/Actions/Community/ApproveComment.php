@@ -29,21 +29,17 @@ use Illuminate\Support\Facades\Gate;
  * conclude this Action is the sole gate to publication and reason about
  * INV-9 wrongly for half the shelves in the system.
  *
- * What this command IS alone in doing is moving an EXISTING comment into
- * approved. Checked rather than asserted: comment-moderation.ts exports
- * four commands (createComment, approveComment, rejectComment,
- * hideComment) and none of the other three writes that status, and no
- * task in this phase's plan adds an un-hide — BR §7.6's own diagram ends
- * at hidden.
+ * What this command does, and the whole of it: one UPDATE moving an
+ * existing row from pending to approved. It inserts nothing, and it
+ * writes no other status — a row that is not pending is refused rather
+ * than rewritten.
  *
  * INV-9 itself is not enforced here and must not be. "A comment is
  * publicly visible only when approved" belongs in the read path's status
- * predicate — BookCommentsQuery, this phase's Task 5, which does not
- * exist at this commit (nothing under app/Queries reads comments yet, so
- * no screen shows one either way). This command CHANGES the status, which
- * is a different thing from where the rule is kept. A moderation screen
- * that also filtered would be a second definition of visibility that a
- * book page could disagree with.
+ * predicate (this phase's Task 5, BookCommentsQuery). This command
+ * CHANGES the status, which is a different thing from where the rule is
+ * kept. A moderation screen that also filtered would be a second
+ * definition of visibility that a book page could disagree with.
  *
  * The AUTHOR is told, never the manager who approved it — BR §15's rule
  * that managers get none, and OPS §7's table names this command as the
@@ -55,11 +51,9 @@ use Illuminate\Support\Facades\Gate;
  *
  * moderation_note is cleared rather than left, so an approval cannot
  * leave a stale reason attached to a published comment. The reference
- * does the same. Nothing shipped today writes a note onto a PENDING row
- * — the two commands that write one, RejectComment and HideComment, are
- * this phase's later tasks and both leave a decided status behind — so
- * ApproveCommentTest builds that row by hand rather than pretend the
- * clearing has a witness it does not have.
+ * does the same. ApproveCommentTest's fixture seeds a note by hand so
+ * this line has a witness — its docblock carries the measurement showing
+ * the assertion is vacuous without one.
  *
  * One lock, the comment row, taken as the transaction's first statement.
  * A row that does not exist, or belongs to another shelf, never reaches

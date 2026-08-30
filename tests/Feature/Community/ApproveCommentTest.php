@@ -28,11 +28,9 @@ use Illuminate\Support\Facades\DB;
  * a command that never touched it. Measured — with the note seeded,
  * dropping `'moderation_note' => null` from the update reddens block 1;
  * with the column left null in the fixture, the same deletion leaves it
- * green. No shipped command writes a note onto a PENDING comment today
- * (RejectComment and HideComment are this phase's later tasks and both
- * leave a decided status behind), so this row is a hand-built state
- * rather than one the app can currently reach — which is exactly what
- * makes it the right probe for a clearing rule that has no other witness.
+ * green. The row is built by hand here rather than produced by another
+ * command, so the probe stands on its own and does not go stale when the
+ * rest of the phase lands.
  *
  * @return array{Bookshelf, User, User, Comment}
  */
@@ -118,9 +116,11 @@ it('a comment already decided cannot be approved again', function (string $statu
     //
     // ALL THREE non-pending statuses, not just `approved`. BR §7.6's
     // machine is `pending -> approved | rejected` and `approved ->
-    // hidden`, so every one of the three is reachable on a real shelf
-    // (Task 4 lands the two commands that write rejected and hidden),
-    // and the guard here is `!== Pending` rather than a list — a version
+    // hidden`, so every one of the three is reachable on a real shelf.
+    // The statuses are seeded directly rather than reached through
+    // another command, so this block owns its own setup.
+    //
+    // The guard here is `!== Pending` rather than a list — a version
     // that named statuses one at a time would let whichever it forgot
     // slip back into approved, and re-approving a HIDDEN comment is the
     // sharp case: a manager took it off the page, and this would put it
