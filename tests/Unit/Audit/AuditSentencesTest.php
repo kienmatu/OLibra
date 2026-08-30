@@ -219,7 +219,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers', 'community'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(29);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(31);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

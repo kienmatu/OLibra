@@ -68,6 +68,17 @@ return [
     // the payload carries the two statuses and no author, and the audit
     // row's subject join has no key to work from.
     'comment_approved' => 'duyệt một bình luận',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // comment.rejected), reusing the existing :because line — RejectComment
+    // always has a reason (it is required), so the "because" clause is
+    // present in practice; the helper line itself is shared rather than
+    // spelled a second time.
+    'comment_rejected' => 'từ chối một bình luận:because',
+    // The reference's phrase verbatim (audit-actions.ts's comment.hidden).
+    // HideComment's reason is optional, so :because renders empty when the
+    // payload carries none — the same helper copy_retired and loan_voided
+    // already use.
+    'comment_hidden' => 'ẩn một bình luận:because',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

@@ -70,6 +70,8 @@ final class AuditSentences
         // with no home at all.
         'comment.created' => 'community',
         'comment.approved' => 'community',
+        'comment.rejected' => 'community',
+        'comment.hidden' => 'community',
     ];
 
     public const array GROUPS = ['loans', 'books', 'readers', 'community'];
@@ -206,6 +208,15 @@ final class AuditSentences
             // phrase names neither the comment nor its author, and the
             // payload holds only the two statuses.
             'comment.approved' => self::line('comment_approved'),
+            // The reason travels through the existing :because helper —
+            // RejectComment's payload always carries one (the reason is
+            // required), so this arm's :because clause is never empty in
+            // practice, but the helper itself does not assume that.
+            'comment.rejected' => strtr(self::line('comment_rejected'), [':because' => self::because(self::str($after, 'reason'))]),
+            // HideComment's reason is optional, so :because renders empty
+            // when the payload carries no 'reason' key at all — the same
+            // helper as copy.retired and loan.voided.
+            'comment.hidden' => strtr(self::line('comment_hidden'), [':because' => self::because(self::str($after, 'reason'))]),
             default => self::line('unknown'),
         };
     }
