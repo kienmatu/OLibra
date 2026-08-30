@@ -196,4 +196,21 @@ class Bookshelf extends Model
     {
         return $this->hasMany(Comment::class);
     }
+
+    /**
+     * Shelf news (OPS §4.4). Beside comments() because both are Phase
+     * 2b's community tables and both are shelf-owned.
+     *
+     * The foreign key is guessed rather than spelled, matching comments()
+     * above: announcements.bookshelf_id is what Laravel's convention
+     * derives from this class, so the two agree by construction. What
+     * this relation is FOR is the same as comments()' — a shelf-rooted
+     * read that cannot be handed another shelf's id.
+     *
+     * @return HasMany<Announcement, $this>
+     */
+    public function announcements(): HasMany
+    {
+        return $this->hasMany(Announcement::class);
+    }
 }

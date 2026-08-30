@@ -2,6 +2,7 @@
 
 use App\Http\Requests\Community\HideCommentRequest;
 use App\Http\Requests\Community\RejectCommentRequest;
+use App\Http\Requests\Community\StoreAnnouncementRequest;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -37,6 +38,18 @@ it('RejectCommentRequest::authorize() 404s, not 403s, when denied', function () 
 
 it('HideCommentRequest::authorize() 404s, not 403s, when denied', function () {
     $request = new HideCommentRequest;
+
+    expect(fn () => $request->authorize())
+        ->toThrow(NotFoundHttpException::class);
+});
+
+it('StoreAnnouncementRequest::authorize() 404s, not 403s, when denied', function () {
+    // Task 9. Added the moment the class landed rather than the day it
+    // gets a route: with nobody signed in, act-as-manager denies, and
+    // what this pins is the STATUS that denial produces. The two blocks
+    // above shipped routeless too and this is the same unit shape — no
+    // route, no authenticated user, no route parameter bound.
+    $request = new StoreAnnouncementRequest;
 
     expect(fn () => $request->authorize())
         ->toThrow(NotFoundHttpException::class);

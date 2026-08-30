@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
+use App\Models\Announcement;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\BorrowRequest;
@@ -11,6 +12,7 @@ use App\Models\Comment;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
+use App\Policies\AnnouncementPolicy;
 use App\Policies\BookCopyPolicy;
 use App\Policies\BookPolicy;
 use App\Policies\BorrowRequestPolicy;
@@ -229,5 +231,14 @@ class AppServiceProvider extends ServiceProvider
         // from this file's own source, so it covers CommentPolicy without
         // a test edit either way.
         Gate::policy(Comment::class, CommentPolicy::class);
+
+        // Task 9's shelf news. Registered on the same terms as the line
+        // above and with the same disclosure: convention discovery finds
+        // App\Policies\AnnouncementPolicy for App\Models\Announcement
+        // today, and the move-the-class measurement that made
+        // BorrowRequest's line load-bearing has not been repeated here
+        // either. PolicyRegistrationTest reads this file's own source, so
+        // it covers this pair without a test edit.
+        Gate::policy(Announcement::class, AnnouncementPolicy::class);
     }
 }

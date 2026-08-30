@@ -79,6 +79,13 @@ return [
     // payload carries none — the same helper copy_retired and loan_voided
     // already use.
     'comment_hidden' => 'ẩn một bình luận:because',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // announcement.created): `soạn thông báo ${which(str(f.after,
+    // "title"))}`. Its `which` fallback is a BOOK fallback here — the
+    // some_book line above reads 'một cuốn sách' — so the no-title arm
+    // gets its own line rather than borrowing it.
+    'announcement_created' => 'soạn thông báo :title',
+    'announcement_created_bare' => 'soạn một thông báo',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

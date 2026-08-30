@@ -150,4 +150,19 @@ return [
     'comment_approved_flash' => 'Đã duyệt — bình luận đã hiển thị công khai.',
     'comment_rejected_flash' => 'Đã từ chối bình luận — lý do được lưu cùng bình luận.',
     'comment_hidden_flash' => 'Đã ẩn — bình luận không còn hiển thị công khai.',
+
+    // ── Announcements (Phase 2b, Slice B) ─────────────────────────────
+    // The reference's own code and sentence (errors.ts's
+    // announcement_fields_required), not OPS §4.4's abbreviated
+    // validation_failed: one code, one sentence, one form. Either blank
+    // field raises this.
+    'announcement_fields_required' => 'Vui lòng điền tiêu đề và nội dung.',
+    // The losing side of announcements_bookshelf_id_slug_key, reached
+    // from CreateAnnouncement's INSERT through UniqueViolation when a
+    // rival transaction committed the same slug between this one's read
+    // and its write. A manager who sees it has done nothing wrong and
+    // cannot see the rule that stopped them, so the sentence names what
+    // happened and what to do — change the headline — rather than the
+    // index.
+    'announcement_slug_taken' => 'Vừa có thông báo khác dùng tiêu đề gần giống. Xin đổi tiêu đề rồi đăng lại.',
 ];

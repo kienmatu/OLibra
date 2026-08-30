@@ -188,6 +188,34 @@ it('groupOf answers the family for a known action and null for a stranger', func
         ->and(AuditSentences::groupOf('bookshelf.created'))->toBeNull();
 });
 
+it('announcement.created names the title, and falls back to "một thông báo" when the payload has none', function () {
+    // Task 9. Its own block for the reason request.created's block
+    // states: the sweep below compares each action's sentence against
+    // the UNDESCRIBED-ACTION fallback, and line() on a deleted key
+    // evaluates to '' rather than to that fallback.
+    //
+    // MEASURED, and the measurement is narrower than the first draft of
+    // this comment claimed. Deleting announcement_created_bare from
+    // lang/vi/audit.php: this block FAILED; the sweep below PASSED,
+    // reported as `! ... → Undefined array key
+    // "announcement_created_bare"` — a PHP warning, not a failure, so it
+    // stays a passing test on a build where a volunteer would read an
+    // empty phrase. Run: 1 failed, 1 warning, 19 passed. So this block
+    // is what refuses the deletion; the sweep only notices it.
+    //
+    // The bare arm is also the one that must NOT read 'một cuốn sách':
+    // this class's which() helper falls back to the some_book line, and
+    // an announcement described as a book is the copy bug this arm's
+    // separate lang key exists to avoid.
+    expect(AuditSentences::sentence('announcement.created', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        after: ['title' => 'Tin Vui Tháng Năm', 'slug' => 'tin-vui-thang-nam', 'published' => false],
+    )))->toBe('Maria Quản Lý Kho đã soạn thông báo Tin Vui Tháng Năm');
+
+    expect(AuditSentences::sentence('announcement.created', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã soạn một thông báo');
+});
+
 it('every action in the map renders a real sentence, never the undescribed-action fallback', function () {
     // FIX ROUND, item 1. Until this block, NOTHING iterated ACTIONS
     // asserting each key renders something. AuditActionCensusTest looks
@@ -219,7 +247,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers', 'community'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(31);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(32);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

@@ -72,6 +72,10 @@ final class AuditSentences
         'comment.approved' => 'community',
         'comment.rejected' => 'community',
         'comment.hidden' => 'community',
+        // Slice B's shelf news, the same cong-dong family — the
+        // reference files every announcement.* action there
+        // (audit-actions.ts).
+        'announcement.created' => 'community',
     ];
 
     public const array GROUPS = ['loans', 'books', 'readers', 'community'];
@@ -217,6 +221,14 @@ final class AuditSentences
             // when the payload carries no 'reason' key at all — the same
             // helper as copy.retired and loan.voided.
             'comment.hidden' => strtr(self::line('comment_hidden'), [':because' => self::because(self::str($after, 'reason'))]),
+            // The title, with its own bare arm — copy.added's shape. NOT
+            // self::which(), although the reference's phrase uses its own
+            // `which`: this class's which() falls back to the some_book
+            // line ('một cuốn sách'), which would describe an
+            // announcement as a book.
+            'announcement.created' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_created'), [':title' => $title])
+                : self::line('announcement_created_bare'),
             default => self::line('unknown'),
         };
     }

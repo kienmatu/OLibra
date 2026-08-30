@@ -62,6 +62,7 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
     // list is a deliberate edit to this test, not a silent pass either way.
     expect(array_keys($codes))->toEqualCanonicalizing([
         'already_registered_here',
+        'announcement_fields_required',
         'audit_forbidden_field',
         'audit_nesting_too_deep',
         'busy_try_again',
