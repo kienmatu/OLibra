@@ -14,9 +14,7 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * A manager pulls a comment that was already public — BR §7.5's
- * approved -> hidden, the one transition in this state machine that
- * starts somewhere other than pending. Port of comment-moderation.ts's
- * hideComment.
+ * approved -> hidden. Port of comment-moderation.ts's hideComment.
  *
  * The reason is OPTIONAL here, where RejectComment's is required, and
  * OPS §4.4 draws the line: a rejection is a message to an author who is

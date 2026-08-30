@@ -6,12 +6,10 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * RejectComment's own gate, ahead of the rules — the ApproveComment
- * precedent (Task 3) has no Form Request of its own since it takes no
- * input, but StoreCommentRequest's docblock states the ordering rule this
- * one follows: authorize() and rules() both run during argument
- * resolution, BEFORE the controller body, so a 404 here never lets a
- * malformed reason answer first.
+ * RejectComment's own gate, ahead of the rules — StoreCommentRequest's
+ * docblock states the ordering rule this one follows: authorize() and
+ * rules() both run during argument resolution, BEFORE the controller
+ * body, so a 404 here never lets a malformed reason answer first.
  */
 class RejectCommentRequest extends FormRequest
 {

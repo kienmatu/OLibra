@@ -13,8 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * A manager turns away a pending comment — BR §7.6's pending -> rejected,
- * the state machine's other exit from pending besides ApproveComment's.
+ * A manager turns away a pending comment — BR §7.6's pending -> rejected.
  * Port of comment-moderation.ts's rejectComment.
  *
  * The REASON is required, and this is the asymmetry the sibling command,
@@ -22,8 +21,7 @@ use Illuminate\Support\Facades\Gate;
  * "Từ chối cần ghi lý do, bạn đọc sẽ thấy lý do này." A rejection is a
  * message to an author who is waiting to hear whether their comment will
  * ever be seen, and the reason IS the message — it lands in
- * moderation_note, which is the only place the author will ever read it,
- * since this command sends no notification of its own.
+ * moderation_note; this command sends no notification of its own.
  *
  * NO notification. OPS §7's table lists none for a rejected comment and
  * this command does not invent one — the reason on the row is the whole

@@ -163,3 +163,39 @@ it('no Action under app/Actions/Community skips the audit recorder', function ()
             ->toBe(1, basename($file).' never calls ->record() on its AuditRecorder');
     }
 });
+
+it('every community write transaction that re-reads an existing row opens with a FOR UPDATE — the grep pin', function () {
+    // Task 4 fix round 1. ApproveCommentTest carries its own query-log
+    // block proving lockForUpdate is that command's transaction's FIRST
+    // statement; RejectComment and HideComment's docblocks made the same
+    // claim ("FIRST statement — the only lock this command takes") with
+    // nothing in the suite pinning it. Rather than port ApproveCommentTest's
+    // query-log block twice more, this follows CirculationArchitectureTest's
+    // own precedent for the same shape ('every circulation write
+    // transaction opens with a FOR UPDATE — the grep pin'): a
+    // hand-maintained, presence-only grep, which covers every Action this
+    // phase's remaining tasks (5-19) add to this directory without a
+    // per-command block for each one.
+    //
+    // Presence only, like the Circulation precedent it is ported from —
+    // this does not re-derive POSITION (that stays ApproveCommentTest's
+    // query-log job); it only refuses a lock silently dropped from one of
+    // the commands that must keep theirs.
+    //
+    // Hand-maintained rather than a directory-wide walk, because not
+    // every community Action takes a lock: CreateComment INSERTS a fresh
+    // row and never re-reads an existing one, so it has no lockForUpdate
+    // to check for — a directory-wide "every file must contain
+    // lockForUpdate" would be false on that ground the day it was
+    // written. Adding a new community Action later means deciding, in
+    // this comment, which side of that line it falls on — CreateComment's
+    // absence from the list below is that decision already made, once.
+    foreach ([
+        app_path('Actions/Community/ApproveComment.php'),
+        app_path('Actions/Community/RejectComment.php'),
+        app_path('Actions/Community/HideComment.php'),
+    ] as $file) {
+        expect(str_contains((string) file_get_contents($file), 'lockForUpdate'))
+            ->toBeTrue(basename($file).' has no lockForUpdate');
+    }
+});
