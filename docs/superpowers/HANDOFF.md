@@ -781,7 +781,18 @@ recorded; the audit log reads **all of it**, 25/page, filtered, never pruned.
 
 ## Owed by Kien, not by the agents
 
-- **A product-owner question Phase 2a raised and no document frames as one.** Divergence 1's
+- **~~A product-owner question Phase 2a raised~~ — ANSWERED and FIXED, 2026-08-30.** Kien asked for
+  the deadlock to be fixed rather than accepted. Shipped as `9b14c2a`, `24ca5a3`, `4a699d6`: every
+  circulation write transaction retries (a property, not a list, pinned by an architecture test
+  whose falsification was measured), a narrowed `DeadlockDetector` bound over Laravel's contract so
+  a lock-wait timeout is neither retried nor translated, and an exhausted deadlock becomes
+  `RuleViolated('busy_try_again')` carrying the driver exception as `$previous` so the SQL survives
+  into the log. **The cycle still exists** — the retry makes it survivable, and `known-gaps.md` says
+  that rather than claiming a fix it did not make. The review round on that fix caught the first
+  version *retrying* lock-wait timeouts, which would have bound a wedged-row request at ~150 s where
+  the old behaviour was ~50 s and a diagnosable 500. The question below is kept for the record.
+
+- **The question as it stood.** Divergence 1's
   AB–BA deadlock edge was accepted when the reachable path was a manager collecting a hold in the
   same seconds as a reader's *Hủy* tap. The whole-branch review's adjudication established that the
   exposure is **wider than what was shown when that ruling was made**: two volunteers double-clicking
