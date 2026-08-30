@@ -208,12 +208,24 @@ it('every community write transaction that re-reads an existing row opens with a
     // translated rather than prevented.
     //
     // TASK 10 made it a third time, for UpdateAnnouncement, and that one
-    // falls on the OTHER side: it re-reads the announcement it is about
-    // to write, and the re-read is load-bearing twice over — the row it
-    // reads is what an absent `expiresAt` preserves and what INV-8's
-    // `before` title is taken from, so a stale snapshot there would both
-    // revert a concurrent edit and audit the wrong prior value. Listed
-    // below.
+    // falls on the OTHER side. It re-reads the announcement it is about
+    // to write, and the re-read earns its place on the AUDIT: INV-8's
+    // `before` title is taken off it, so without it the entry reports
+    // the title the caller's instance was carrying rather than the one
+    // the UPDATE lands on. Measured with the re-read removed and a
+    // deliberately stale instance — `before` and `after` both came out
+    // 'Tin A' while the row held 'Tin B'.
+    //
+    // An earlier version of this comment gave a second reason, that the
+    // re-read is what an absent `expiresAt` preserves. It was wrong, and
+    // it matters to say so HERE because this comment is where the next
+    // command decides which side of the line it is on: Eloquent builds
+    // the UPDATE from the dirty set, so a column the command never
+    // names stays out of the statement however stale the instance is —
+    // measured in that command's own docblock, against the shipped
+    // shape. A command that only needs "leave the untouched columns
+    // alone" therefore does NOT need this lock. Wanting a trustworthy
+    // audit `before` is what puts you in the list below.
     foreach ([
         app_path('Actions/Community/ApproveComment.php'),
         app_path('Actions/Community/RejectComment.php'),

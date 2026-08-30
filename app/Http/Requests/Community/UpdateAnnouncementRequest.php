@@ -38,6 +38,20 @@ use Illuminate\Support\Facades\Gate;
  * validated() through untouched — the same gap StoreAnnouncementRequest
  * leaves for its own published_at and expires_at.
  *
+ * THE RENAME IS A KNOWN LIMIT, AND THIS IS WHAT SKIPPING IT WOULD COST.
+ * validated() carries `expires_at`; App\Actions\Community\
+ * UpdateAnnouncement reads `expiresAt`. A controller that hands
+ * validated() straight to the command would therefore leave `expiresAt`
+ * permanently ABSENT from $changes — and absent is "I am not editing
+ * the expiry", so "this announcement no longer expires" becomes
+ * unreachable over HTTP while an edit naming title or body keeps
+ * working. That is
+ * the collapse the command exists to prevent, arriving one layer up:
+ * the third case lost to a key that is never present rather than to an
+ * isset(). Nothing pins the rename today because nothing binds this
+ * class to a route; the parse and the rename belong to the controller,
+ * which is a later task.
+ *
  * NO ROUTE POINTS AT THIS CLASS YET — the edit screen is a later task,
  * and StoreAnnouncementRequest shipped the same way in Task 9. What it
  * is subject to today is the two sweeps that read every class under

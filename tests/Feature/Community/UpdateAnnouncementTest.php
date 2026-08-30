@@ -10,6 +10,8 @@ use App\Models\Membership;
 use App\Models\User;
 use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 /**
  * Shelf, one active manager, and one announcement already written —
@@ -173,4 +175,69 @@ it('INV-8: announcement.updated records the title before and after', function ()
     // pass on a `before` that also carried the body.
     expect((array) $entry->before)->toBe(['title' => 'Tin Vui Tháng Năm']);
     expect((array) $entry->after)->toBe(['title' => 'Tin Vui Tháng Sáu']);
+});
+
+it('a reader cannot update — this command\'s own gate call, with no route to hide behind', function () {
+    // The Action opens with Gate::forUser($actor)->authorize('update',
+    // $announcement) and every block above this one acts as a manager,
+    // so until here nothing in the repository exercised that call:
+    // deleting the line, or making AnnouncementPolicy::update return
+    // true for everyone, left all eight green. ApproveCommentTest
+    // carries the same block for the same reason.
+    //
+    // The READER'S OWN membership is bound, and that is the point rather
+    // than tidiness: act-as-manager first checks that the membership
+    // TenantContext holds belongs to the $user the gate was handed, so
+    // leaving the manager's membership bound would deny on that identity
+    // guard and never reach the ROLE comparison — green even if the
+    // policy asked for act-as-reader. Binding the reader's own row is
+    // what puts the role check in the path.
+    [, $announcement] = anuFix('dong-thap-anu-reader');
+
+    app(TenantContext::class)->actSystemWide();
+    $shelf = Bookshelf::query()->where('slug', 'dong-thap-anu-reader')->sole();
+    $reader = User::factory()->create(['full_name' => 'Têrêsa Bạn Đọc Nhỏ']);
+    $rm = Membership::factory()->for($shelf)->create([
+        'user_id' => $reader->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    app(TenantContext::class)->set($shelf, $rm);
+
+    expect(fn () => app(UpdateAnnouncement::class)->execute($reader, $announcement, ['title' => 'Tin Vui Tháng Sáu']))
+        ->toThrow(AuthorizationException::class);
+
+    // Its own statement rather than an ->and() chain: a failed expect()
+    // aborts the whole METHOD, and the chain short-circuits.
+    expect(Announcement::query()->sole()->title)->toBe('Tin Vui Tháng Năm');
+});
+
+it('another shelf\'s announcement is not found rather than refused', function () {
+    // What confines the re-read is BookshelfScope on the model, and
+    // until here nothing pinned it: swapping the command's
+    // Announcement::query() for Announcement::withoutGlobalScopes()
+    // reddened no behavioural block. This command takes a
+    // caller-supplied row object, so a caller holding the wrong row is
+    // the shape the scope has to survive.
+    //
+    // The OTHER shelf is seeded first so that anuFix's second call
+    // leaves this shelf bound and its manager acting — no rebinding, and
+    // one actingAs per fixture rather than a guest assertion appended
+    // after one (docs/known-gaps.md's SessionGuard rule).
+    [, $theirs] = anuFix('can-tho-anu-tenancy-b');
+    [$mine] = anuFix('dong-thap-anu-tenancy-a');
+
+    // MEASURED shape, not a predicted one: findOrFail on a row the scope
+    // excludes raises ModelNotFoundException ("No query results for
+    // model [App\Models\Announcement] <id>"), which Laravel renders as
+    // 404 — the status §5.4 asks for, and never a 403 that would confirm
+    // the row exists. The reference raises
+    // RuleViolated("write_target_not_found") here instead; the command's
+    // docblock records that divergence.
+    expect(fn () => app(UpdateAnnouncement::class)->execute($mine, $theirs, ['title' => 'Chiếm Đoạt Tháng Sáu']))
+        ->toThrow(ModelNotFoundException::class);
+
+    // And the other shelf's row is where it was. Read system-wide,
+    // because the bound scope cannot see it — which is the refusal above
+    // restated from the reading side.
+    app(TenantContext::class)->actSystemWide();
+    expect(Announcement::query()->findOrFail($theirs->id)->title)->toBe('Tin Vui Tháng Năm');
 });
