@@ -26,7 +26,14 @@ use Illuminate\Support\Facades\Gate;
  * UNPINNING AN ALREADY-UNPINNED ROW is a no-op write that still records
  * the act, the reference's behaviour: `before` and `after` come out with
  * the same is_pinned, which is an honest description of what a manager
- * pressing an unpinned button did.
+ * pressing an unpinned button did. MEASURED on this method, both halves,
+ * the same pair PinAnnouncement's docblock names for its own direction:
+ * AnnouncementStateTest's "unpinning an already-unpinned row records the
+ * act with the same flag on both sides" pins the two bags, and
+ * "…issues no UPDATE while the audit row is still written" reads the
+ * query log of exactly this call — two statements, the locked select and
+ * the audit insert, with an update on the announcements table absent
+ * from the log.
  *
  * NO SHELF FILTER IS WRITTEN HERE, and there must not be one:
  * BookshelfScope on the model confines the re-read, so a row belonging

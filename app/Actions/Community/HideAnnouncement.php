@@ -50,6 +50,18 @@ use Illuminate\Support\Facades\Gate;
  * draft is a no-op write that still records that a manager asked for
  * one, and OPS §4.4 lists no failure mode for this command.
  *
+ * "NO-OP" IS LITERAL HERE, AND IT IS MEASURED ON THIS METHOD rather
+ * than reasoned from the reference's raw SQL — the assignment below
+ * writes null onto a column already holding null, and what reaches the
+ * database is answered here with a run rather than an argument.
+ * AnnouncementStateTest's "hiding a draft issues no UPDATE on the row
+ * while the audit row is still written" reads the query log of exactly
+ * this call: two statements, the locked select and the audit insert,
+ * with an update on the announcements table absent from the log. Its
+ * neighbour "hiding a draft records announcement.hidden with a null on
+ * both sides" pins the entry that is still written. So the row is left
+ * alone and the act is on the record — measured, both halves.
+ *
  * THE LOCK IS THE TRANSACTION'S FIRST STATEMENT, and it earns its place
  * on the audit — CommunityArchitectureTest's FOR-UPDATE record states
  * the rule and this command falls on the lock side of it. INV-8's

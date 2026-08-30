@@ -55,7 +55,13 @@ use Illuminate\Support\Facades\Gate;
  * PINNING AN ALREADY-PINNED ROW is a no-op write that still records the
  * act, the reference's behaviour: `before` and `after` come out with the
  * same is_pinned, which is an honest description of what a manager
- * pressing a pinned button did.
+ * pressing a pinned button did. MEASURED on this method, both halves:
+ * AnnouncementStateTest's "pinning an already-pinned row records the act
+ * with the same flag on both sides" pins the two bags, and its sibling
+ * "…issues no UPDATE while the audit row is still written" reads the
+ * query log of exactly this call — two statements, the locked select and
+ * the audit insert, with an update on the announcements table absent
+ * from the log. So "no-op" is literal: the row is not written.
  *
  * NO SHELF FILTER IS WRITTEN HERE, and there must not be one:
  * BookshelfScope on the model confines the re-read, so a row belonging

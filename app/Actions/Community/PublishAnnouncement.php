@@ -19,10 +19,11 @@ use Illuminate\Support\Facades\Gate;
  * old_next/src/domain/community/commands/announcements.ts's
  * publishAnnouncement.
  *
- * THE REFUSAL IS ABOUT A LIVE PUBLICATION, NOT A NON-NULL COLUMN. The
- * shipped screen has two buttons onto this command: "Đăng ngay" posts a
- * draft, and "Đăng lại" reposts something that has LAPSED. A lapsed
- * announcement is published (published_at is set) and gone from the
+ * THE REFUSAL FIRES ON A PUBLISHED ROW WHOSE CALLER NAMED NO EXPIRY,
+ * AND THE published_at COLUMN IS WHAT IT READS. The shipped screen has
+ * two buttons onto this command: "Đăng ngay" posts a draft, and "Đăng
+ * lại" reposts something that has LAPSED. A lapsed announcement is
+ * published (published_at is set) and gone from the
  * reader's page (expires_at is behind the clock, compared in the read
  * path rather than swept by a job), so the second button hands this
  * command a row whose published_at is already non-null. The guard below
@@ -31,8 +32,16 @@ use Illuminate\Support\Facades\Gate;
  *
  *     $locked->published_at !== null && ! array_key_exists('expiresAt', $changes)
  *
- * Narrowing that to `published_at !== null` is the simplification that
- * kills "Đăng lại", and it is the one a later reader will reach for.
+ * A LAPSED row reached with the key absent therefore refuses too: the
+ * guard compares published_at against null and asks whether a key was
+ * supplied, and it looks at expires_at nowhere.
+ * AnnouncementStateTest's "republishing a lapsed announcement with the
+ * expiresAt key ABSENT refuses with already_published" is exactly that
+ * case, pinned — so the heading above says "a published row", not "a
+ * live one".
+ *
+ * Narrowing the guard to `published_at !== null` is the simplification
+ * that kills "Đăng lại", and it is the one a later reader will reach for.
  * MEASURED on this method, with the second conjunct deleted:
  * AnnouncementStateTest's "republishing a lapsed announcement with a
  * fresh expiry succeeds — Đăng lại" and "…with expiresAt present and
@@ -100,6 +109,21 @@ use Illuminate\Support\Facades\Gate;
  * below is not a second presence test doing something subtle — it is the
  * absent case and the null case arriving at the same value, written out
  * because `??` is the spelling this file must not teach.
+ *
+ * That has a consequence worth stating plainly, since it looks like data
+ * loss to anyone reading the ternary cold: a DRAFT created with an
+ * expiry — CreateAnnouncement takes one — and then posted by "Đăng
+ * ngay", which sends no expires_at field, comes out with its expiry
+ * WIPED. Deliberate, and the reference's; AnnouncementStateTest's
+ * "publishing a draft that carries an expiry with the key absent WIPES
+ * the stored expiry" pins it, so the repair a later reader reaches for
+ * (keeping $locked->expires_at when the caller names nothing) reddens
+ * rather than passing quietly. MEASURED with that repair applied to the
+ * line below: that block fails on `expect($row->expires_at)->toBeNull()`
+ * with "Failed asserting that an instance of class
+ * Illuminate\Support\Carbon is null", and it is the run's single
+ * failure — 1 failed, 25 passed, under
+ * `make test FILTER=AnnouncementStateTest`.
  *
  * NO SHELF FILTER IS WRITTEN HERE, and there must not be one:
  * BookshelfScope on the model confines the re-read, so a row belonging
