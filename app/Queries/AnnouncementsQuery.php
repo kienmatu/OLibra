@@ -64,16 +64,26 @@ use Illuminate\Database\Eloquent\Builder;
  * reader's filter consults, which is what makes the two screens one
  * comparison instead of two.
  *
- * THE SQL HALF CHANGES NO ANSWER THIS SUITE CAN SEE, measured three
- * ways rather than argued: deleting the PHP filter alone leaves
- * AnnouncementsQueryTest green, deleting showing() from published()
- * alone leaves it green, and deleting showing()'s expiry clause for
- * both its callers leaves it green. It is kept for something that is
- * not an answer — a shelf accrues lapsed announcements forever while
- * its live set stays small, and the narrowing keeps that archive off
- * the wire on every reader page load. Since row assertions cannot see
- * it, it is pinned in the statement TEXT instead (that file's SQL
- * block), so deleting it fails the build rather than passing quietly.
+ * THE SQL HALF CHANGES NO ROW THIS SUITE CAN SEE, which is why it is
+ * pinned by its TEXT and not by its answers. Measured rather than
+ * argued: deleting the PHP filter alone leaves AnnouncementsQueryTest
+ * green — the SQL narrowing already removed every row it would have.
+ *
+ * The two SQL mutations are a different case and an earlier draft of
+ * this paragraph got them wrong, so the correction is stated rather
+ * than quietly applied: it claimed deleting showing() from published(),
+ * and deleting showing()'s expiry clause, each left the suite green,
+ * and then closed by saying deleting the narrowing fails the build.
+ * Both halves cannot hold. That draft described the file as it stood
+ * BEFORE the statement-text block landed in this same commit; with the
+ * block in place both mutations are RED, each as that block's single
+ * failure, because either edit changes the compiled where text.
+ *
+ * The narrowing is kept for something that is not an answer — a shelf
+ * accrues lapsed announcements forever while its live set stays small,
+ * and the narrowing keeps that archive off the wire on every reader
+ * page load. Row assertions cannot see that, which is the whole reason
+ * the pin is on the text.
  *
  * PRECISION, MEASURED, because it crosses a language boundary and that
  * is where this project's false claims have come from. state() compares
