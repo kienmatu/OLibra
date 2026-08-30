@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Requests\Community\DeclineDonationRequest;
 use App\Http\Requests\Community\HideCommentRequest;
 use App\Http\Requests\Community\OfferDonationRequest;
 use App\Http\Requests\Community\PublishAnnouncementRequest;
@@ -96,6 +97,19 @@ it('OfferDonationRequest::authorize() 404s, not 403s, when denied', function () 
     // answered while both are in place, and this one asks the class on
     // its own.
     $request = new OfferDonationRequest;
+
+    expect(fn () => $request->authorize())
+        ->toThrow(NotFoundHttpException::class);
+});
+
+it('DeclineDonationRequest::authorize() 404s, not 403s, when denied', function () {
+    // Task 16, on the five blocks above's ground and the same unit shape
+    // — no route, no authenticated user, no route parameter bound — so
+    // act-as-manager denies for the least contrived reason and what this
+    // pins is the STATUS. Its class shipped routeless — the manager's
+    // donation queue is Task 19's — which is the case the two blocks
+    // above it describe for themselves.
+    $request = new DeclineDonationRequest;
 
     expect(fn () => $request->authorize())
         ->toThrow(NotFoundHttpException::class);

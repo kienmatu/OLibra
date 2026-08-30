@@ -89,6 +89,12 @@ final class AuditSentences
         // (old_next/src/domain/kernel/audit-actions.ts, opened for this,
         // where its entry reads `group: "cong-dong"`).
         'donation.offered' => 'community',
+        // Slice C's two decisions, the same cong-dong family — the
+        // reference files donation.received and donation.declined there
+        // (old_next/src/domain/kernel/audit-actions.ts, opened for this,
+        // where both entries read `group: "cong-dong"`).
+        'donation.received' => 'community',
+        'donation.declined' => 'community',
     ];
 
     public const array GROUPS = ['loans', 'books', 'readers', 'community'];
@@ -283,6 +289,18 @@ final class AuditSentences
             // replace: INV-8's payload for this action is the status and
             // the rough count, and the description stays out of it.
             'donation.offered' => self::line('donation_offered'),
+            // The offered arm's shape and its reason: the reference's
+            // phrase takes no facts (`phrase: () => "nhận một đề nghị
+            // tặng sách"`), and INV-8's payload for this action is the
+            // two statuses, so there is nothing here for a fallback to
+            // replace.
+            'donation.received' => self::line('donation_received'),
+            // The reason travels through the existing :because helper,
+            // comment.rejected's arm exactly. DeclineDonation requires
+            // and trims its reason before it opens a transaction, so the
+            // clause is filled for every row that command writes; the
+            // helper renders an empty clause rather than assuming it.
+            'donation.declined' => strtr(self::line('donation_declined'), [':because' => self::because(self::str($after, 'reason'))]),
             default => self::line('unknown'),
         };
     }

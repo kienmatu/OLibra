@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Models\BookDonation;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 
@@ -13,6 +14,11 @@ use Illuminate\Support\Facades\Gate;
  * yet. OPS §4.4 gives OfferDonation the `reader` caller, which is the
  * one thing this method decides; the decisions on an offer are a
  * manager's and arrive with the commands that make them.
+ *
+ * TASK 16 IS THAT ARRIVAL. receive() and decline() below take the row
+ * because Gate::authorize('receive', $donation) hands it over, and OPS
+ * §4.4 gives both commands the `manager` caller. They still read nothing
+ * off it, for the reason the paragraph below states.
  *
  * WHOSE offer it is stays out of this class deliberately, following the
  * rule CommentPolicy states: a policy body that reads the row starts
@@ -28,5 +34,15 @@ final class BookDonationPolicy
     public function create(User $user): bool
     {
         return Gate::forUser($user)->allows('act-as-reader');
+    }
+
+    public function receive(User $user, BookDonation $donation): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
+    }
+
+    public function decline(User $user, BookDonation $donation): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
     }
 }

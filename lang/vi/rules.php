@@ -223,4 +223,17 @@ return [
     // there is one line here rather than the pair a shelf setting forces
     // on the comment flashes.
     'donation_offered_flash' => 'Đã gửi. Tủ sách sẽ xem và trả lời đề nghị tặng sách của bạn.',
+    // Task 16's one new code, and one sentence for both decisions: OPS
+    // §4.4 was opened for it, and lists `not_pending` — "Đề nghị tặng
+    // sách này đã được xử lý." — under ReceiveDonation and under
+    // DeclineDonation identically. Transcribed from the two of them
+    // agreeing, not authored. The name is prefixed where OPS's is bare,
+    // following the keys already in this file: comment_not_pending,
+    // request_not_pending and registration_not_pending each name their
+    // own table the same way.
+    //
+    // reject_reason_required is not repeated for DeclineDonation either
+    // — 1b minted it, and OPS §4.4 gives this command that same
+    // sentence, "Vui lòng ghi lý do từ chối.", character for character.
+    'donation_not_pending' => 'Đề nghị tặng sách này đã được xử lý.',
 ];

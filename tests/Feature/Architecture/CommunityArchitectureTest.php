@@ -241,6 +241,16 @@ it('every community write transaction that re-reads an existing row opens with a
     // one: its refusal reads published_at off the same locked row, so two
     // managers pressing the button at once cannot both find it
     // unpublished.
+    //
+    // TASK 16 made the decision twice more, and both land on the lock
+    // side — on PublishAnnouncement's SECOND reason rather than on the
+    // audit one. ReceiveDonation and DeclineDonation each build INV-8's
+    // `before` from the literal 'pending' they have just checked for
+    // rather than from a column read, so a stale instance could not
+    // corrupt the entry; what the lock buys is that the REFUSAL reads
+    // status off the same row the UPDATE lands on, so two managers
+    // deciding one offer at once cannot both find it pending and write
+    // received over declined.
     foreach ([
         app_path('Actions/Community/ApproveComment.php'),
         app_path('Actions/Community/RejectComment.php'),
@@ -250,6 +260,8 @@ it('every community write transaction that re-reads an existing row opens with a
         app_path('Actions/Community/HideAnnouncement.php'),
         app_path('Actions/Community/PinAnnouncement.php'),
         app_path('Actions/Community/UnpinAnnouncement.php'),
+        app_path('Actions/Community/ReceiveDonation.php'),
+        app_path('Actions/Community/DeclineDonation.php'),
     ] as $file) {
         expect(str_contains((string) file_get_contents($file), 'lockForUpdate'))
             ->toBeTrue(basename($file).' has no lockForUpdate');

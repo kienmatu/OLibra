@@ -121,6 +121,20 @@ return [
     // NOT interpolated — INV-8's payload does not carry it, for the
     // reason App\Actions\Community\OfferDonation's docblock gives.
     'donation_offered' => 'đề nghị tặng sách',
+    // Slice C's two decisions, both the reference's phrases verbatim
+    // (audit-actions.ts, opened for this: donation.received is `() =>
+    // "nhận một đề nghị tặng sách"` and donation.declined is `(f) =>
+    // `từ chối một đề nghị tặng sách${because(str(f.after, "reason"))}``).
+    //
+    // donation_received takes no facts there and takes none here, so its
+    // arm needs no strtr and no bare twin.
+    //
+    // donation_declined carries the :because slot this file already
+    // defines, filled from the payload's `reason` — comment_rejected's
+    // shape, spelled with no space before the token because the
+    // 'because' line above supplies its own leading space.
+    'donation_received' => 'nhận một đề nghị tặng sách',
+    'donation_declined' => 'từ chối một đề nghị tặng sách:because',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

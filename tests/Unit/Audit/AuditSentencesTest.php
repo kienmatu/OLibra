@@ -348,6 +348,40 @@ it('donation.offered reads as an offer of books, with nothing interpolated', fun
         ->toBe('Têrêsa Bạn Đọc Nhỏ đã đề nghị tặng sách');
 });
 
+it('donation.received reads as accepting an offer, with nothing interpolated', function () {
+    // Task 16, on the block above's ground: the sweep below compares each
+    // action's sentence against the UNDESCRIBED-ACTION fallback, and
+    // line() on a deleted key evaluates to '' rather than to that
+    // fallback, so an action with no case here has a lang line the sweep
+    // cannot pin.
+    //
+    // The second expectation is the arm's SHAPE: the phrase interpolates
+    // nothing, so a payload full of facts renders the identical string a
+    // thin one does, and the arm needs no bare twin to fall back to.
+    expect(AuditSentences::sentence('donation.received', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        after: ['status' => 'received'],
+    )))->toBe('Maria Quản Lý Kho đã nhận một đề nghị tặng sách');
+
+    expect(AuditSentences::sentence('donation.received', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã nhận một đề nghị tặng sách');
+});
+
+it('donation.declined carries the reason, and drops the clause when there is none', function () {
+    // Task 16. The :because half is the difference from the block above,
+    // and it is worth its own assertion: DeclineDonation requires and
+    // trims a reason, so the filled form is what every row it writes
+    // renders — and the empty form is what the shared helper does with a
+    // payload that carries no `reason` key.
+    expect(AuditSentences::sentence('donation.declined', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        after: ['status' => 'declined', 'reason' => 'Sách đã quá cũ'],
+    )))->toBe('Maria Quản Lý Kho đã từ chối một đề nghị tặng sách vì Sách đã quá cũ');
+
+    expect(AuditSentences::sentence('donation.declined', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã từ chối một đề nghị tặng sách');
+});
+
 it('every action in the map renders a real sentence, never the undescribed-action fallback', function () {
     // FIX ROUND, item 1. Until this block, NOTHING iterated ACTIONS
     // asserting each key renders something. AuditActionCensusTest looks
@@ -379,7 +413,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers', 'community'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(38);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(40);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {
