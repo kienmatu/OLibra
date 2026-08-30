@@ -704,8 +704,13 @@ committed has released the copy. Re-derived here: `ApproveBorrowRequest` takes i
 from a FORM FIELD rather than the bound request, so a SECOND approve POST naming the same
 copy can hold that copy's lock while waiting on the request row a stale-bound cancel
 already holds. Reachable, on the edge already recorded — a further participant, not a new
-cycle. The review's other three verdicts hold, one of them for a different reason than it
-gave.
+cycle. Of the review's other three verdicts, two hold — `LendCopy` reachable, and
+`ReceiveReturn` unreachable, though for a different reason than it gave (per-door: a
+predicate for one door, same-transaction atomicity for the other). The third is disputed
+too: `ReleaseExpiredHold` ↔ `CancelOwnRequest` is NOT real on `LendCopy`'s conditions,
+because the queue screen offers *Trả về kệ* only a hold period after the approval and the
+cancel's binding-to-lock gap is milliseconds — but it is not unreachable either, since both
+locks precede the `hold_not_expired` guard, so a hand-made POST reaches it.
 
 ## Phase 1d — closed
 

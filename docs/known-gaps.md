@@ -2969,22 +2969,45 @@ named in it, not by reading it off the plan.
     reason is copy STATE rather than timing. For `ReceiveReturn` to hold
     C's lock, C carries an ACTIVE loan (its bound loan's copy;
     `loan_not_active` is checked after the lock). For the cancel to want
-    C, a pending-or-approved request must name C — and a pending row's
-    `copy_id` is null, so it must be approved. No shipped command produces
-    a copy that is on loan and named by an approved request at the same
-    time: `RequestRules::copyHoldable` returns non-null for every state
-    but `available`, so neither door onto a hold can name a copy that is
-    out; `LoanRules::copyLendable` lets a `held` copy go only to its own
-    holder and `LendCopy` closes that request to `fulfilled` in the same
-    transaction, a status the cancel refuses; and every writer of
-    `CopyState::Available` under `app/Actions` (the re-runnable check is
-    `grep -rn "CopyState::Available" app/Actions/`) either ends the
-    request in the same transaction as the release or cannot be reached
-    from a `held` copy at all — `MarkCopyFound` needs `lost`, and
+    C, a pending-or-approved request must name C in a row it can read —
+    and a pending row's `copy_id` is null, so it must be a COMMITTED
+    approved row, since the cancel reads `copy_id` off the row it locked
+    and an uncommitted write is invisible to it. So the question is
+    whether any committed state has C on loan while an approved request
+    names it. It does not, and **the two doors onto a hold need separate
+    arguments — they do not share one**:
+
+    - **`ApproveBorrowRequest`** consults `RequestRules::copyHoldable`,
+      whose only allowing branch is `available` with no live holder, so
+      `on_loan` comes back `no_copy_available`. That door cannot name a
+      copy that is out.
+    - **`ReceiveReturn`'s hold branch names precisely a copy that IS out**
+      — the returning loan's, which is why it exists — and it never
+      consults that predicate at all (`grep -rn copyHoldable app/` returns
+      one call site, in `ApproveBorrowRequest`). Its guards are on the
+      REQUEST: `request_not_queued` unless the row is pending and for this
+      title. What rules it out is atomicity, not a predicate: the one
+      transaction closes the loan (`status => Returned`) and writes the
+      copy `held` alongside the request's approval, so the committed state
+      it produces is (C `held`, R approved) — never (C `on_loan`, R
+      approved). An earlier draft of this entry said `copyHoldable` covered
+      "neither door", which is false for this one; the verdict holds on
+      this argument instead.
+
+    That leaves getting from (C `held`, R approved) to (C `on_loan`, R
+    approved) afterwards, and nothing does: `LoanRules::copyLendable` lets
+    a `held` copy go only to its own holder, and `LendCopy` closes that
+    request to `fulfilled` in the same transaction — a status the cancel
+    refuses before it ever wants a copy. Nor back the other way: every
+    writer of `CopyState::Available` under `app/Actions` (the re-runnable
+    check is `grep -rn "CopyState::Available" app/Actions/`) either ends
+    the request in the same transaction as the release or cannot be
+    reached from a `held` copy at all — `MarkCopyFound` needs `lost`, and
     `CopyStateMachine` answers `copy_not_on_loan` for held → lost. The
     review reached the same verdict by a different route (that a hold and
-    a loan cannot coexist on one copy); the load-bearing refusal is the
-    STATE branch of `copyHoldable`, not anything about hold expiry.
+    a loan cannot coexist on one copy); what carries it is the STATE
+    branch of `copyHoldable` for one door and same-transaction atomicity
+    for the other, and nothing about hold expiry for either.
 
 - **Divergence 15: `CancelOwnRequest` answers 404 for a missing-or-foreign
   request where the reference folded both into `not_own_request` — a
