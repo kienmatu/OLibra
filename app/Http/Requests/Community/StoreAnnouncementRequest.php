@@ -53,8 +53,22 @@ class StoreAnnouncementRequest extends FormRequest
             // MEASURED against a scratch table carrying this column's
             // exact DDL, over a --default-character-set=utf8mb4
             // connection so the client could not confound it: 16,383
-            // U+1F600 characters store as 65,532 bytes, and 16,384 raise
-            // `ERROR 1406 (22001): Data too long for column 'body'`.
+            // U+1F600 characters store as 65,532 bytes, and 16,384 are
+            // refused.
+            //
+            // WHICH errno arrives depends on where the 65,535-byte cut
+            // lands, and a first draft of this comment named the wrong
+            // one. 65,535 is not a multiple of four, so a body made
+            // purely of four-byte characters can never be cut on a
+            // character boundary: it splits one, and MariaDB answers
+            // `ERROR 1366 (22007): Incorrect string value`. A one-byte
+            // overflow does land on a boundary and answers `ERROR 1406
+            // (22001): Data too long`. Re-measured here both ways:
+            // 16,384 U+1F600 gives 1366, 65,536 'a' gives 1406.
+            // Both are a 500 either way: UniqueViolation::translate
+            // matches errno 1062 and rethrows anything else, and neither
+            // 1366 nor 1406 is 1062. That is the part the ceiling rests
+            // on; which of the two arrives does not change it.
             // Break-even is 65,535 / 4 = 16,383. Through Laravel's own
             // validator: 20,000 U+1F600 characters (80,000 bytes) PASS
             // `max:20000` and fail `max:16000`; 16,000 of them (64,000
