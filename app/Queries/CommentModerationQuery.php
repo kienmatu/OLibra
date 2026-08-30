@@ -5,6 +5,7 @@ namespace App\Queries;
 use App\Enums\CommentStatus;
 use App\Models\Comment;
 use Illuminate\Database\Eloquent\Builder;
+use InvalidArgumentException;
 
 /**
  * The manager's three moderation lists and the four chips above them —
@@ -33,11 +34,28 @@ use Illuminate\Database\Eloquent\Builder;
  * `id` beside `created_at` in both orderings, for the reason this
  * codebase has now measured twice (BookCommentsQuery,
  * BorrowRequestQueueQuery): `created_at` carries no unique constraint,
- * and CommentModerationQueryTest's first block seeds three pending rows
- * OUT OF creation order — the middle-by-created_at row is inserted LAST,
- * so its v7 id is the highest of the three while its place in the queue
- * is the middle — so an id-only or an unordered read cannot pass by
- * accident of insertion order.
+ * so a key that cannot tie is what resolves one deterministically.
+ *
+ * WHAT PINS THOSE TWO LINES IS THE COMPILED SQL, not the row order —
+ * and the fix round measured the two lines separately rather than
+ * assuming one answer covered both, because they did not answer alike.
+ * Deleting `orderBy('id')` from queue() leaves every row-order fixture
+ * in CommentModerationQueryTest green, the same-instant pending pair
+ * included: v7 ids rise with creation time and an ascending scan already
+ * emits a tied group in ascending id order. Deleting
+ * `orderByDesc('id')` from decided() DOES redden its same-instant pair
+ * on today's engine. Flipping either line's direction reddens its pair
+ * as well.
+ *
+ * So both lines are pinned where row order cannot reach one of them:
+ * CommentModerationQueryTest compiles each statement and reads its ORDER
+ * BY text — `created_at` asc, `id` asc for queue(), `created_at` desc,
+ * `id` desc for decided() — and the same-instant pairs stay beside those
+ * two blocks to fix the direction.
+ *
+ * The out-of-order seeding in that file's two ordering fixtures buys
+ * something different and is worth keeping for its own sake: it refuses
+ * a read that dropped `created_at` and sorted by id alone.
  *
  * NO INLINE GATE, the house shape BorrowRequestQueueQuery's docblock
  * argues at length for its own file. The screen that calls this one is
@@ -59,11 +77,12 @@ use Illuminate\Database\Eloquent\Builder;
  * countPending() inside THIS class is a different kind of guarantee —
  * three genuinely separate statements (a filtered SELECT, a GROUP BY,
  * and a COUNT), each read the way its own list is selected, and pinned
- * by CommentModerationQueryTest's "counts and the queue agree" block
- * rather than by shared code. Mutating countPending() to drop its status
- * filter reddens that block and the dashboard-delegation block together
- * (task-6-report.md's mutation log) — which is the point: the fact is
- * tested, not merely assumed to hold because the class is small.
+ * by CommentModerationQueryTest's three agreement blocks — one per
+ * reading, each its own it() so that a drift in one cannot short-circuit
+ * the check on the other two — rather than by shared code. Mutating
+ * countPending() to drop its status filter reddens its agreement block
+ * and the dashboard-delegation block together, which is the point: the
+ * fact is tested, not merely assumed to hold because the class is small.
  */
 final class CommentModerationQuery
 {
@@ -126,10 +145,27 @@ final class CommentModerationQuery
      * docblock gives the reason: "a 'recently' list beside a queue, not
      * a browsable archive."
      *
+     * PENDING IS REFUSED AT RUNTIME BECAUSE THE TYPE CANNOT REFUSE IT.
+     * The reference types this parameter `"approved" | "rejected" |
+     * "hidden"`, so a pending read here is unwritable there; PHP's enum
+     * carries all four cases and cannot express the subset. Left
+     * unguarded, decided(Pending) would answer a capped, newest-first
+     * pending list — the opposite order and a different cardinality from
+     * queue(), which is the pending read — and a screen whose ?status=
+     * chip picks a list uniformly would render that under the pending
+     * chip without anything failing.
+     *
+     *
      * @return list<array{id: string, body: string, authorName: string, createdAt: string, bookId: string, title: string}>
+     *
+     * @throws InvalidArgumentException when $status is Pending
      */
     public function decided(CommentStatus $status, int $limit = 10): array
     {
+        if ($status === CommentStatus::Pending) {
+            throw new InvalidArgumentException('decided() reads an already-decided status; the pending list is queue()\'s, which is oldest-first and uncapped.');
+        }
+
         return array_values($this->base()
             ->where('status', $status)
             ->orderByDesc('created_at')

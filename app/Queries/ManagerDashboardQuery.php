@@ -12,11 +12,21 @@ use App\Models\Membership;
 use App\Support\Clock;
 
 /**
- * OPS §3.3's GetManagerDashboard — port of get-manager-dashboard.ts. All
- * four of BR §16.3's stat cards now have a queue behind them: overdue and
- * pendingRegistrations from the foundation, pendingRequests from Phase
- * 2a (plan divergence 6, partly discharged), and pendingComments from
- * this task, which discharges the rest of that divergence.
+ * OPS §3.3's GetManagerDashboard — port of get-manager-dashboard.ts.
+ * Four counts and four totals, and the four counts are the NUMBERS
+ * behind BR §16.3's four stat cards: overdue and pendingRegistrations
+ * from the foundation, pendingRequests from Phase 2a, and
+ * pendingComments from Phase 2b's CommentModerationQuery.
+ *
+ * A NUMBER IS NOT A CARD, and plan divergence 6 is about cards.
+ * resources/js/pages/manage/dashboard.tsx — opened while writing this
+ * paragraph — declares three counts in its page props and renders three
+ * StatCards; the fourth, Bình luận chờ duyệt, is not on the screen yet.
+ * It lands with the /manage/comments moderation screen it links to,
+ * because a card over an under-construction link is the "no comments
+ * waiting" lie the reference removed. Until that screen ships, that
+ * divergence stays open and dashboard.tsx's own comment saying so is
+ * correct.
  *
  * Every figure is a count() at query time over BelongsToBookshelf-scoped
  * models — never a stored counter (BR §8; OPS §3.3's own words: "a
@@ -31,8 +41,8 @@ use App\Support\Clock;
  *   to cannot drift apart the way two independent counts could.
  * - pendingComments DELEGATES to CommentModerationQuery::countPending(),
  *   the same rule pendingRequests already follows and for the same
- *   reason: the card and Task 7's moderation queue read one definition
- *   of "pending" rather than two that merely agree today.
+ *   reason: this number and the moderation screen's queue read one
+ *   definition of "pending" rather than two that merely agree today.
  * - pendingRegistrations mirrors PendingRegistrationsQuery (status
  *   pending, whereHas('user') — a soft-deleted identity is no applicant).
  * - readers counts every ACTIVE membership, managers included — the same
@@ -76,8 +86,9 @@ final class ManagerDashboardQuery
                 // links to cannot drift; the mirror rule the overdue
                 // card already follows.
                 'pendingRequests' => $this->queue->countWaiting(),
-                // Same delegation, same reason — Task 7's moderation
-                // queue and this card read one definition of "pending".
+                // Same delegation, same reason — the moderation
+                // screen's queue and this number read one definition of
+                // "pending".
                 'pendingComments' => $this->comments->countPending(),
             ],
             'totals' => [
