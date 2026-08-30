@@ -8,8 +8,8 @@ Update it as each task lands.
 **Phase 2a (requests and holds) is COMPLETE on `feat/phase-2-community`** — all 19 tasks landed
 and individually reviewed, plus a whole-branch review, its fix wave, and the scoped re-review
 that adjudicated the wave's one contested finding. 75 commits, suite **1,031 → 1,261 passing**
-(8,011 assertions), every gate green, `old_next/` untouched across the whole range. Nothing
-pushed, no PR open, nothing merged — **the merge decision is Kien's**, and there is one
+(8,011 assertions), every gate green, `old_next/` untouched across the whole range. Pushed and
+open as **PR #64**, nothing merged — **the merge decision is Kien's**, and there is one
 product-owner question waiting for him under "Owed by Kien" below.
 
 ## Where things stand
@@ -21,7 +21,7 @@ product-owner question waiting for him under "Owed by Kien" below.
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
-| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | not opened | **complete — 19 tasks, whole-branch reviewed, fixes applied and re-reviewed; awaiting Kien's merge decision** |
+| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | **#64** | **complete and open — 19 tasks, whole-branch reviewed, fixes applied and re-reviewed; awaiting Kien's merge decision** |
 | 2b Community voice | not written | — | — |
 | 2c Statistics & labels | not written | — | — |
 
