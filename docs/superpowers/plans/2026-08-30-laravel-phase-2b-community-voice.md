@@ -26,8 +26,27 @@ silent edit; the largest of them, `write_target_not_found` having **no sentence 
 19's donor pre-fill **cannot ship as first described** and now opens with the answer instead
 of a question.
 
-**Nothing in the review was disputed.** Every finding was checked against the file before its
-fix was written, and the four checkable here were reproduced directly:
+**A SECOND round then corrected the corrections**, which is the shape this project has had go
+wrong twice, so everything in it was re-measured against a running suite before it was
+written: the `CommunityArchitectureTest` failure count (it is **`4 failed`** with the
+directory removed and **`2 failed, 2 passed`** with only the file removed — two different
+measurements the first correction conflated, and its "3 failed" was neither); the tenancy pin
+Task 5 gave away, which the first correction handed to a Task 20 step that did not contain it
+(now measured: deleting `BelongsToBookshelf` from `Comment` gives **`2 failed, 22 passed`**
+across `TenancyArchitectureTest` and `TenantIsolationTest`); the mapping seam under C3, where
+`$request->date()` erases the absent-versus-empty distinction and
+`CarbonImmutable::parse(null)` **returns now** — both measured, both now named in Tasks 11 and
+14 with the assertion that catches them; and Task 20 Step 2, which still carried the
+`write_target_not_found` sentence divergence 3 had already retracted. Three measured minors
+went with them (the key count is **68**, not 64; Task 9 adds no route-order block; the stale
+numeral and the stale count live in two *different* `AuditSentencesTest` blocks). One further
+precision was found while measuring rather than reported: the shipped
+`CirculationArchitectureTest` has **two** `RecursiveDirectoryIterator(app_path('Actions/
+Circulation'))` sites, and a blind rename hits the wall-clock one too, where `$root` is
+undefined.
+
+**Nothing in either review was disputed.** Every finding was checked against the file — or run
+— before its fix was written, and the four checkable in round one were reproduced directly:
 `write_target_not_found` absent from `lang/`, `app/` and `tests/`; `TenantIsolationTest`'s
 dataset naming all three community models; `manage/books/create.tsx` carrying `donor_name`
 and no `donor_membership_id`; and `AuditSentences::phrase()`'s `default =>
@@ -234,8 +253,10 @@ Models, enums and casts exist too: `App\Models\{Comment,Announcement,BookDonatio
    **Consequence to state out loud, corrected against the file:** `write_target_not_found`,
    which the reference's announcement commands throw when a row is missing, is thrown by
    **nothing** in this port **and has no sentence here either** — the string appears nowhere
-   under `lang/`, `app/` or `tests/` (grepped; `lang/vi/rules.php` holds 64 keys and that is
-   not one of them). The plan's first draft claimed the sentence already existed and told
+   under `lang/`, `app/` or `tests/` (measured, not counted by eye: `require`ing
+   `lang/vi/rules.php` returns **68** keys and `array_key_exists` on this one is false. The
+   previous revision said 64 — a number nobody re-ran, in a divergence about a claim nobody
+   re-ran, which is precisely what Task 20's count-word grep exists to catch). The plan's first draft claimed the sentence already existed and told
    Task 20 to record an inert orphan, which would have written a **false entry** into the
    very document whose own step opens "a known-gap that has silently become false is worse
    than one that is missing". So: route-model binding answers 404 where the reference threw
@@ -659,7 +680,7 @@ tests/Feature/Community/…   tests/Unit/Community/…   docs/known-gaps.md
 
 ## Slice A — comments and moderation (INV-9)
 
-### Task 1: Comment groundwork — the shelf's two settings, the policy, the relations, the refusal sentences, and the architecture guards this phase must satisfy
+### Task 1: Comment groundwork — the shelf's two settings, the policy, the relations, the refusal sentences, and the shipped transaction walk widened by root
 
 Read first: `old_next/src/domain/community/policy.ts` (whole file — both settings and both
 defaults are specified there), `app/Support/Circulation/LendingSettings.php` (the shape
@@ -770,20 +791,33 @@ and needs no edit.
 this task, and this paragraph is the correction that makes the phase's first commit green.**
 The plan's first draft created it here and claimed its non-vacuity block "passes vacuously
 until Task 2 lands the first Action". The independent review **measured that and it is false
-in both directions**: `app/Actions/Community/` does not exist at this commit, so
-`RecursiveDirectoryIterator` throws `Failed to open directory` and the file is **3 failed**,
-not vacuously green; `glob()` in the audit-recorder block fails the same way; and `mkdir`
-does not rescue it, because git does not track an empty directory — and even locally the
-non-vacuity block then fails on its own derivation (`Expecting [] not to be empty`), which
-is that block working correctly. **Do not add an `is_dir()` guard**: a block that passes on
-absence is precisely what these guards exist to refuse. So the whole file moves into the
-commit that lands the first Action, where every one of its four blocks has something real to
-walk.
+in both directions**, and this paragraph's own first correction then got the number wrong,
+so both are now measured and written down:
+
+- **`app/Actions/Community/` does not exist at this commit** — git tracks no empty directory,
+  so `mkdir` does not rescue it either. Three of the four blocks construct a
+  `RecursiveDirectoryIterator` over that path and each throws
+  `UnexpectedValueException: RecursiveDirectoryIterator::__construct(/app/app/Actions/Community): Failed to open directory: No such file or directory`;
+  the fourth fails on `expect($files)->not->toBe([])` after an empty `glob()`. **Measured:
+  `4 failed`** — not the "3 failed" the first correction stated, which counted the throws and
+  forgot the `glob()` block.
+- The non-vacuity block failing on its own derivation (`Expecting [] not to be empty`) is
+  that block **working correctly**, which is the reason not to soften it.
+
+**Do not add an `is_dir()` guard**: a block that passes on absence is precisely what these
+guards exist to refuse. So the whole file moves into the commit that lands the first Action,
+where every one of its four blocks has something real to walk — measured there as `4 passed`
+(7 assertions).
 
 What this task does do is widen the shipped guard. In `CirculationArchitectureTest.php`, rename `circulationTransactionCalls()` to
 `actionTransactionCalls(?string $root = null)` and open its body with
 `$root ??= app_path('Actions/Circulation');`, replacing the hardcoded path in the
-`RecursiveDirectoryIterator` line. **A default parameter value cannot be a function call in
+`RecursiveDirectoryIterator` line **inside the helper — and ONLY that one.** The file
+contains **two** `RecursiveDirectoryIterator(app_path('Actions/Circulation'), …)` sites: the
+helper's, and a second inside the no-wall-clock `it()` block near the end, which keeps its
+literal. A blind find-and-replace hits both, and `$root` is undefined inside that closure —
+found by doing exactly that while measuring this task, so it is written down rather than left
+for the implementer. **A default parameter value cannot be a function call in
 PHP**, which is why the default is applied in the body rather than in the signature. Update
 the two existing `it()` blocks to call it with no argument — their behaviour is unchanged
 because the default is the path they walked. Add one sentence to the helper's docblock
@@ -854,7 +888,7 @@ Mutation checks, each restored afterwards with `git status --porcelain` clean:
 ```bash
 make lint && make analyse
 git add app/Support/Community app/Policies app/Models app/Providers lang/vi tests/
-git commit -m "feat: comment settings, policy and the community architecture guards"
+git commit -m "feat: comment settings, policy, and the transaction walk widened by root"
 ```
 
 ---
@@ -1057,8 +1091,9 @@ blocks:
    named the property, so an Action pasted without audit fails the build rather than quietly
    shipping unaudited. There is no allow-list; every command in this directory audits.
 
-Tasks 9, 14 and 19 each add one further block to this file (the announcement and donation
-route-order assertions); nothing else edits it.
+**Tasks 14 and 19** each add one further block to this file — the announcement and donation
+route-order assertions. Task 9 adds none (it ships no route), and the previous revision said
+it did; nothing else edits this file.
 
 
 `AuditSentences::ACTIONS` gains `'comment.created' => 'community',` and `GROUPS` gains
@@ -1075,9 +1110,13 @@ before writing it and reuse the house helpers; do not mint a second spelling of 
 `AuditSentencesTest`: add `'community'` to the partition test's hardcoded group list, and
 bump `toHaveCount(27)` to **28**. That count is the pin that makes an added action a
 deliberate edit; every task in this phase that adds actions bumps it, ending at **40**.
-**Also drop the numeral from that block's `it()` title in this commit** — it currently reads
-"…for the 27 actions…" and eight tasks in this plan bump the count in the assertion beside
-it without touching the title. This project already carries a standing correction for
+**Two different blocks in that file carry the staleness and both are edited here, because
+naming "that block" was ambiguous in the previous revision:** the numeral lives in the
+**`groupOf`** block's `it()` title ("…answers the family for the 27 actions and null for a
+stranger") while `toHaveCount(27)` lives in the **`actionsInGroup` partition** block's body.
+Drop the numeral from the title outright — the property is what the block tests — and bump
+the count in the assertion; eight tasks in this plan bump the latter, and none of them would
+have touched the former. This project already carries a standing correction for
 exactly that class of staleness ("drop the number and state the property"); a title naming a
 count nobody re-derives is the same defect one line higher.
 
@@ -1120,12 +1159,20 @@ Mutation checks:
    which is what the non-vacuity block asserts). This is the commit the guard is born in and
    the first at which it can discriminate at all — which is why it is born here and not in
    Task 1. Record both numbers.
-1b. **Delete `app/Actions/Community/CreateComment.php` itself** and run
-   `CommunityArchitectureTest` → **3 failed**, on a `RecursiveDirectoryIterator` that cannot
-   open a directory that no longer exists, plus the audit-recorder block's `glob()`. That is
-   the measurement behind moving this file out of Task 1, and it is worth performing once so
-   nobody later "fixes" the guard with an `is_dir()` check: a block that passes on absence is
-   what these guards exist to refuse.
+1b. **`rm -r app/Actions/Community` — the directory, not just the file** — and run
+   `CommunityArchitectureTest` → **`4 failed`**: three `UnexpectedValueException:
+   RecursiveDirectoryIterator::__construct(…/Actions/Community): Failed to open directory`
+   plus the audit-recorder block's `expect($files)->not->toBe([])` after an empty `glob()`.
+   Restore with `git checkout`.
+   **Deleting only the FILE is a different measurement and the first correction conflated
+   them.** With the directory left in place the walk opens fine and there is no iterator
+   error anywhere: **`2 failed, 2 passed`** — blocks 1 and 3 pass on an empty directory
+   (nothing to offend), and only the non-vacuity block and the `glob()` block discriminate.
+   Both numbers were measured; the directory-removal one is Task 1's real state and is the
+   reason this file is not created there. Perform it once so nobody later "fixes" the guard
+   with an `is_dir()` check: a block that passes on absence is what these guards exist to
+   refuse — and the file-only run is the demonstration that two of the four blocks already
+   do exactly that when the directory is empty.
 2. Delete the `comments_disabled` branch → block 3 reddens and nothing else does.
 3. Add `'body' => $trimmed` to the audit `after` bag → block 5's `array_key_exists`
    assertion reddens. If it does not, the assertion was written with a form that passes
@@ -1955,13 +2002,34 @@ who did not type an expiry. The resolution, and it is a decision this task makes
 leaves open:
 
 - `PublishAnnouncementRequest` carries `expires_at` as `['nullable', 'date']`, so the form
-  can send the key with an empty value.
+  can send the key with an empty value. Over real HTTP that arrives as `''`, Laravel's global
+  `ConvertEmptyStringsToNull` turns it into `null`, and `nullable` short-circuits `date` — so
+  **the key is present in `validated()` with a null value**, which is the shape the whole
+  distinction rests on.
 - The Action takes `array $changes` shaped `array{expiresAt?: ?CarbonImmutable}` and reads it
   with **`array_key_exists`, never `isset` and never `??`** — `isset` is false for an
   explicit null, which would collapse "clear the expiry, and republish" into "say nothing",
   and turn a successful republish into `already_published`. This is the identical trap Task
   10 spends a whole task on, and it bites harder here because the wrong answer is a refusal
   rather than a stale column.
+- **The controller's mapping from `validated()['expires_at']` to `$changes['expiresAt']` is
+  the seam where all three shapes collapse, and BOTH idiomatic spellings for it are traps.
+  Measured, both:**
+  - `$request->date('expires_at')` returns **null for an absent key AND for a present-empty
+    one** — it erases the very distinction this Critical is about, silently, with the Form
+    Request and the Action both correct. (`has()` still tells them apart — false vs true — and
+    so does `array_key_exists` on `validated()`; `filled()` does **not**: it is false for the
+    present-empty case.)
+  - `CarbonImmutable::parse(null)` returns **now** — measured against a frozen clock, the
+    parsed value compared equal to `CarbonImmutable::now()`. So a mapping that reaches for
+    `parse()` on the cleared expiry turns *Đăng lại* into "republish, expiring immediately":
+    the notice is posted and lapses in the same instant, and every assertion about status,
+    flash and `published_at` still passes.
+
+  So the mapping is: **`array_key_exists('expires_at', $validated)` for presence, then a
+  null-preserving cast** — `$validated['expires_at'] === null ? null :
+  CarbonImmutable::parse($validated['expires_at'])`. Never `date()`, never `filled()`, never a
+  bare `parse()`.
 - **An explicit null IS a supply.** Republishing a lapsed notice with no expiry at all is the
   ordinary case — a parish saying "the shelf is closed until further notice" — so *Đăng lại*
   sends `expires_at` present and empty, and that succeeds and clears the column.
@@ -2122,10 +2190,16 @@ refuses, and the button is dead for every manager who does not type a date. This
 button therefore posts `expires_at` **present and empty** (an explicit null, which Task 11
 treats as a supply and which clears the column), and the row offers an optional date field
 beside it for a manager who wants one. **Pin it**: a block that posts *Đăng lại* with no date
-and asserts a 302 with the success flash and a `published_at` that moved, and a second block
-that posts a date and asserts the column took it. Without those two, Task 11's guard and this
-screen can disagree with the whole suite green — which is exactly what the plan's first draft
-shipped and the review caught. The form is
+and asserts a 302 with the success flash, a `published_at` that moved, **and `expires_at`
+still null afterwards**, and a second block that posts a date and asserts the column took it.
+
+**That third assertion is not padding and the previous revision omitted it.** Status, flash
+and a moved `published_at` all pass under the `CarbonImmutable::parse(null)` trap Task 11
+records — the notice would be republished with an expiry equal to the publish instant, lapsing
+immediately, and the two blocks would be green. The column's value is the only thing that
+tells the two apart. Without all three, Task 11's guard and this screen can disagree with the
+whole suite green — which is exactly what the plan's first draft shipped and the review
+caught. The form is
 single-column with labels above inputs and required fields marked with the word *Bắt buộc*,
 never an asterisk (AGENTS.md rule 6), and one primary action.
 
@@ -2495,9 +2569,15 @@ predicts, so that finding them is confirmation rather than discovery:
   **This is a documentation lag, not a contract change** — decide whether it is fixed here as
   a §4.4 edit or raised at the PR as a one-row edit, and say which, following 2a's precedent
   that a wrap-up is the wrong place to edit a shipped command's OPS entry unannounced.
-- `write_target_not_found` is thrown by nothing in this port (divergence 3), while its
-  sentence stands in `lang/vi/rules.php`. Record it and record *why* the census is silent
-  about it (it walks throwers, not sentences).
+- `write_target_not_found` is thrown by nothing in this port (divergence 3) **and has no
+  sentence here either** — measured on the shipped file: `lang/vi/rules.php` returns **68**
+  keys and `array_key_exists('write_target_not_found', …)` is false. So there is no orphan to
+  record: what goes on the record is the **substitution** — route-model binding answers 404
+  where the reference threw this code — and nothing is added to `lang/`. **This bullet is the
+  correction of a correction**: divergence 3 was fixed in the previous round while this step
+  still carried "its sentence stands in `lang/vi/rules.php`. Record it", which would have
+  written a false entry into the document whose own Step 3 opens "a known-gap that has
+  silently become false is worse than one that is missing".
 - OPS §4.4's own two open questions about **feedback** are untouched by this phase, and the
   §4.4 entries for `SubmitFeedback`, `MarkFeedbackRead`, `ResolveFeedback` and
   `ArchiveFeedback` describe commands nothing implements. Record that as **deferred to Phase
@@ -2578,8 +2658,17 @@ test exists because `deploy/post-deploy.sh` runs `db:seed --force` unconditional
 3. **Delete the `status = approved` predicate from `BookCommentsQuery`** → the INV-9 suite
    reddens in more than one block. Paste the count. This is the phase's headline invariant
    and "it is enforced" is a claim, not a fact, until this number exists.
-4. **Add a hand-written `where('bookshelf_id', …)` to any new query** →
-   `TenancyArchitectureTest` reddens naming that file. This proves this phase added **no**
+4. **Delete `BelongsToBookshelf` from `Comment`** → **`2 failed, 22 passed`** across
+   `TenancyArchitectureTest` and `TenantIsolationTest`: the first's "puts BelongsToBookshelf
+   on every model whose table carries bookshelf_id" block, and the second's "shows every
+   trait-carrying model only its own colliding rows" block. **This bullet exists because Task
+   5 gave the pin away to this step and the first draft of this step did not have it** — a
+   pin handed to nobody is worse than one never claimed. Repeat it for `Announcement` and
+   `BookDonation`, both of which that dataset has named since Phase 0. Measured on the
+   revision of this plan, at the 1,272-passing baseline.
+4b. **Add a hand-written `where('bookshelf_id', …)` to any new query** →
+   `TenancyArchitectureTest`'s *allow-list* block reddens naming that file — a different
+   block from 4's, and the first draft ran the two together. This proves this phase added **no**
    entry to that whole-file allow-list, which is the thing the allow-list's own comment says
    is spent permanently once added.
 5. **Gut `OPS_SECTION_7` to `[]`** → its own second block reddens, so the census cannot be
