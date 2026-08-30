@@ -219,7 +219,7 @@ return [
     // The flash after a successful offer, on comment_pending_flash's
     // pattern: say what happened, then what the reader can expect next.
     // A donation always waits for a manager — the column default is
-    // 'pending' and nothing in OfferDonation can start it elsewhere — so
+    // 'pending' and this port writes no status at all, so the column default decides — so
     // there is one line here rather than the pair a shelf setting forces
     // on the comment flashes.
     'donation_offered_flash' => 'Đã gửi. Tủ sách sẽ xem và trả lời đề nghị tặng sách của bạn.',

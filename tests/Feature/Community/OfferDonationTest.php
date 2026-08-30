@@ -114,11 +114,12 @@ it('the estimated count is optional and stores null', function () {
 });
 
 it('INV-8: donation.offered records the status and the count, never the description', function () {
-    // BR §14 asks the log to record what CHANGED rather than to duplicate
-    // it. A description is free text a child wrote, on a row that
-    // survives, and a second copy is a second thing to redact if they
-    // ever ask for theirs to be removed. The reference's own payload is
-    // status and estimated_count.
+    // The reference's own payload is status and estimated_count, and a
+    // description is free text a child wrote on a row that survives — a
+    // second copy is a second thing to redact if they ever ask for theirs
+    // to be removed. NOT on BR §14's authority: an earlier draft cited it
+    // and §14 does not say this (it names only passwords and session
+    // tokens as never captured). See OfferDonation's docblock.
     [, $reader] = dofFix('dong-thap-dof-audit');
 
     app(OfferDonation::class)->execute($reader, 'Bộ Doraemon con đọc xong rồi', 8);

@@ -171,9 +171,13 @@ final class CreateAnnouncement
             }
 
             $this->audit->record('announcement.created', 'announcement', $announcement->id, null, [
-                // The reference's bag exactly. The BODY IS NOT IN IT —
-                // BR §14 asks the log to record what changed rather than
-                // duplicate it, and the row itself survives.
+                // The reference's bag exactly. The BODY IS NOT IN IT,
+                // because the reference's bag does not carry it and the
+                // row itself survives. An earlier draft cited BR §14 for
+                // this; §14 names only passwords and session tokens as
+                // never-captured and asks for previous/new values on every
+                // tracked record, so it does not support the exclusion.
+                // Retracted rather than deleted, so it is not copied on.
                 'title' => $title,
                 'slug' => $slug,
                 // Derived, not stored: an auditor reading six months

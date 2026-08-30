@@ -48,10 +48,19 @@ use Illuminate\Support\Facades\Gate;
  * way — it says approved comments are the visible ones, not that a
  * manager must have looked at them.
  *
- * The BODY IS NOT IN THE AUDIT PAYLOAD. It is the reader's own words on
- * a row that survives, and BR §14 asks the log to record what changed
- * rather than to duplicate it — a second copy is a second thing to
- * redact if a child ever asks for theirs to be removed.
+ * The BODY IS NOT IN THE AUDIT PAYLOAD, and the reason is the redaction
+ * one, NOT a requirement. An earlier draft of this comment cited BR §14
+ * for it; §14 does not say that and the citation is retracted here so it
+ * is not copied on. Opened: §14's only named exclusions are passwords and
+ * session tokens ("never captured"), it asks for "the previous-value /
+ * new-value record ... for every tracked record", and it puts the raw
+ * before/after values behind an expansion in the browser. If anything it
+ * leans the other way.
+ *
+ * What actually decides it: the reference's own payload for this command
+ * carries the status and not the text, and the body is the reader's own
+ * words on a row that survives — a second copy is a second thing to redact
+ * if a child ever asks for theirs to be removed.
  *
  * No lock: this command re-reads nothing and guards no uniqueness rule.
  * The transaction is here so the row and its audit entry commit

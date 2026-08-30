@@ -56,11 +56,19 @@ use Illuminate\Support\Facades\Gate;
  * the policy with a null membership and lands here. It fails closed and
  * OfferDonationTest posts that exact case over HTTP.
  *
- * THE DESCRIPTION IS NOT IN THE AUDIT PAYLOAD. It is free text a child
- * wrote, on a row that survives, and BR §14 asks the log to record what
- * changed rather than to duplicate it — a second copy is a second thing
- * to redact if they ever ask for theirs to be removed. The reference's
- * own payload is the status and the count.
+ * THE DESCRIPTION IS NOT IN THE AUDIT PAYLOAD, on the reference's
+ * authority and the redaction argument — NOT on BR §14's, which an
+ * earlier draft cited and which does not say it. Opened: §14 names only
+ * passwords and session tokens as never captured, asks for
+ * previous/new values "for every tracked record", and offers the raw
+ * before/after behind an expansion. Retracted here rather than deleted,
+ * because this sentence reached three files by being copied and a
+ * deletion would let it come back.
+ *
+ * What decides it: the reference's own payload is the status and the
+ * count, and the description is free text a child wrote on a row that
+ * survives — a second copy is a second thing to redact if they ever ask
+ * for theirs to be removed.
  *
  * No lock: this command re-reads nothing and guards no uniqueness rule.
  * A reader may offer twice, and the port stays at what OPS §4.4 lists.
