@@ -245,6 +245,82 @@ it('announcement.updated names the title, and falls back to "một thông báo" 
         ->toBe('Maria Quản Lý Kho đã sửa một thông báo');
 });
 
+it('announcement.published names the title, and falls back to "một thông báo" when the payload has none', function () {
+    // Task 11, and the first of this task's four. Each gets its own
+    // block for the reason the created and updated blocks above state:
+    // the sweep below compares each action's sentence against the
+    // UNDESCRIBED-ACTION fallback, and line() on a deleted key evaluates
+    // to '' rather than to that fallback.
+    //
+    // MEASURED for all four of this task's bare keys, one deletion at a
+    // time, rather than carried down from the created block's
+    // measurement: deleting announcement_published_bare,
+    // announcement_pinned_bare, announcement_unpinned_bare or
+    // announcement_hidden_bare from lang/vi/audit.php fails that key's
+    // own block below while the sweep stays GREEN, reporting `! ... →
+    // Undefined array key "<the key>"` — a PHP warning, not a failure.
+    // Every one of the four runs is 1 failed, 1 warning, 24 passed. So
+    // these four blocks are what refuse the deletion; the sweep only
+    // notices it.
+    //
+    // The bare arm must not read 'một cuốn sách' — this class's which()
+    // helper falls back to the some_book line, which is why
+    // announcement_published_bare is its own key rather than a which()
+    // call, and the same for the three below.
+    expect(AuditSentences::sentence('announcement.published', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        before: ['published_at' => null],
+        after: ['title' => 'Tin Vui Tháng Năm', 'published_at' => '2026-08-30T04:00:00+00:00'],
+    )))->toBe('Maria Quản Lý Kho đã đăng thông báo Tin Vui Tháng Năm');
+
+    expect(AuditSentences::sentence('announcement.published', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã đăng một thông báo');
+});
+
+it('announcement.pinned names the title, and falls back to "một thông báo" when the payload has none', function () {
+    expect(AuditSentences::sentence('announcement.pinned', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        before: ['is_pinned' => false],
+        after: ['title' => 'Tin Vui Tháng Năm', 'is_pinned' => true],
+    )))->toBe('Maria Quản Lý Kho đã ghim thông báo Tin Vui Tháng Năm');
+
+    expect(AuditSentences::sentence('announcement.pinned', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã ghim một thông báo');
+});
+
+it('announcement.unpinned names the title, and falls back to "một thông báo" when the payload has none', function () {
+    // The unpin phrase is the pin phrase with a prefix, and that is
+    // exactly why this block asserts the whole sentence rather than
+    // merely that it is not the undescribed-action fallback: a
+    // copy-paste that left this arm pointing at announcement_pinned
+    // would render "ghim" for an act that removed a pin, and "ghim thông
+    // báo …" is not the fallback either.
+    expect(AuditSentences::sentence('announcement.unpinned', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        before: ['is_pinned' => true],
+        after: ['title' => 'Tin Vui Tháng Năm', 'is_pinned' => false],
+    )))->toBe('Maria Quản Lý Kho đã bỏ ghim thông báo Tin Vui Tháng Năm');
+
+    expect(AuditSentences::sentence('announcement.unpinned', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã bỏ ghim một thông báo');
+});
+
+it('announcement.hidden reads about a thông báo, never about a bình luận', function () {
+    // comment.hidden already renders 'ẩn một bình luận:because'. This
+    // action takes its own key, and the second expectation is what
+    // refuses a shortcut that pointed this arm at comment_hidden: that
+    // line would render the wrong noun AND offer a :because slot
+    // HideAnnouncement records nothing to fill.
+    expect(AuditSentences::sentence('announcement.hidden', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        before: ['published_at' => '2026-08-01T03:00:00+00:00'],
+        after: ['title' => 'Tin Vui Tháng Năm'],
+    )))->toBe('Maria Quản Lý Kho đã ẩn thông báo Tin Vui Tháng Năm');
+
+    expect(AuditSentences::sentence('announcement.hidden', audFacts(actor: 'Maria Quản Lý Kho')))
+        ->toBe('Maria Quản Lý Kho đã ẩn một thông báo');
+});
+
 it('every action in the map renders a real sentence, never the undescribed-action fallback', function () {
     // FIX ROUND, item 1. Until this block, NOTHING iterated ACTIONS
     // asserting each key renders something. AuditActionCensusTest looks
@@ -276,7 +352,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers', 'community'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(33);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(37);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

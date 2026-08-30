@@ -92,6 +92,27 @@ return [
     // way the created pair's is, so the no-title arm gets its own line.
     'announcement_updated' => 'sửa thông báo :title',
     'announcement_updated_bare' => 'sửa một thông báo',
+    // Slice B's four state changes, each the reference's phrase verbatim
+    // (audit-actions.ts's announcement.published / .pinned / .unpinned /
+    // .hidden): `đăng thông báo ${which(...)}`, `ghim thông báo …`,
+    // `bỏ ghim thông báo …`, `ẩn thông báo …`. Every one of them runs the
+    // title through its own `which`, whose fallback here is a BOOK
+    // fallback — the some_book line above reads 'một cuốn sách' — so each
+    // gets its own bare arm rather than borrowing it, the same way the
+    // created and updated pairs do.
+    //
+    // announcement_hidden is spelled out beside comment_hidden rather
+    // than sharing it: the comment sentence carries a :because clause
+    // (HideComment takes an optional reason) and HideAnnouncement takes
+    // none, so one key for both would offer a slot nothing can fill.
+    'announcement_published' => 'đăng thông báo :title',
+    'announcement_published_bare' => 'đăng một thông báo',
+    'announcement_pinned' => 'ghim thông báo :title',
+    'announcement_pinned_bare' => 'ghim một thông báo',
+    'announcement_unpinned' => 'bỏ ghim thông báo :title',
+    'announcement_unpinned_bare' => 'bỏ ghim một thông báo',
+    'announcement_hidden' => 'ẩn thông báo :title',
+    'announcement_hidden_bare' => 'ẩn một thông báo',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

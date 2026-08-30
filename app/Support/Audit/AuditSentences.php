@@ -77,6 +77,13 @@ final class AuditSentences
         // (audit-actions.ts).
         'announcement.created' => 'community',
         'announcement.updated' => 'community',
+        // Slice B's four state changes, the same cong-dong family — the
+        // reference files every announcement.* action there
+        // (audit-actions.ts).
+        'announcement.published' => 'community',
+        'announcement.pinned' => 'community',
+        'announcement.unpinned' => 'community',
+        'announcement.hidden' => 'community',
     ];
 
     public const array GROUPS = ['loans', 'books', 'readers', 'community'];
@@ -241,6 +248,30 @@ final class AuditSentences
             'announcement.updated' => ($title = self::str($after, 'title')) !== null
                 ? strtr(self::line('announcement_updated'), [':title' => $title])
                 : self::line('announcement_updated_bare'),
+            // Task 11's four, all on the created arm's shape and for its
+            // reason: the reference's phrases each run the title through
+            // its own `which`, and this class's which() falls back to the
+            // some_book line ('một cuốn sách'), which would describe an
+            // announcement as a book. So a bare line each rather than a
+            // which() call. The title read is the AFTER one — the four
+            // commands that write these all put the row's title there,
+            // and it is what the announcement is called at the moment of
+            // the act.
+            'announcement.published' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_published'), [':title' => $title])
+                : self::line('announcement_published_bare'),
+            'announcement.pinned' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_pinned'), [':title' => $title])
+                : self::line('announcement_pinned_bare'),
+            'announcement.unpinned' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_unpinned'), [':title' => $title])
+                : self::line('announcement_unpinned_bare'),
+            // Its own key rather than comment_hidden's: that sentence
+            // carries a :because slot HideComment fills from an optional
+            // reason, and HideAnnouncement records none.
+            'announcement.hidden' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_hidden'), [':title' => $title])
+                : self::line('announcement_hidden_bare'),
             default => self::line('unknown'),
         };
     }

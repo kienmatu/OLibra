@@ -25,6 +25,30 @@ use Illuminate\Support\Facades\Gate;
  * UpdateAnnouncement (a blank title refuses there, with a Vietnamese
  * sentence); what it BELONGS to gets decided by that command's scoped
  * re-read, which turns a foreign shelf's announcement into a 404.
+ *
+ * TASK 11 ADDS FOUR ABILITIES RATHER THAN REUSING update(), and this is
+ * a judgement, not a rule the plan handed down. CommentPolicy (opened
+ * for this) is the precedent and it went the same way: approve(),
+ * reject() and hide() are three separate methods with three identical
+ * bodies, one per command, none reading the $comment. Following it costs
+ * four near-duplicate methods and buys two things a shared update()
+ * would not. First, the call site says what it is asking permission for
+ * — `authorize('publish', $announcement)` reads as the act it guards,
+ * where `authorize('update', …)` inside PublishAnnouncement would make a
+ * reader check whether publishing counts as an update. Second, the day
+ * one of these four needs a different answer — a shelf that lets an
+ * author hide their own notice, say — the ability to change already
+ * exists and only its own command moves; with one shared update() the
+ * split would have to be invented under time pressure, and the tempting
+ * shortcut would be a body that reads the row, which is exactly what
+ * the paragraph above forbids.
+ *
+ * These four take an Announcement and, like update(), do not read it.
+ * The row's own state is not a permission question: whether it is
+ * already published is PublishAnnouncement's refusal (already_published,
+ * with a Vietnamese sentence, rendered as a redirect), and answering it
+ * here would turn a denial into an existence oracle and a 403 into a
+ * status §5.4 does not want.
  */
 final class AnnouncementPolicy
 {
@@ -34,6 +58,26 @@ final class AnnouncementPolicy
     }
 
     public function update(User $user, Announcement $announcement): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
+    }
+
+    public function publish(User $user, Announcement $announcement): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
+    }
+
+    public function hide(User $user, Announcement $announcement): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
+    }
+
+    public function pin(User $user, Announcement $announcement): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
+    }
+
+    public function unpin(User $user, Announcement $announcement): bool
     {
         return Gate::forUser($user)->allows('act-as-manager');
     }

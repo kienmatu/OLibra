@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Requests\Community\HideCommentRequest;
+use App\Http\Requests\Community\PublishAnnouncementRequest;
 use App\Http\Requests\Community\RejectCommentRequest;
 use App\Http\Requests\Community\StoreAnnouncementRequest;
 use App\Http\Requests\Community\UpdateAnnouncementRequest;
@@ -62,6 +63,17 @@ it('UpdateAnnouncementRequest::authorize() 404s, not 403s, when denied', functio
     // route parameter bound — so act-as-manager denies for the least
     // contrived reason and what this pins is the STATUS.
     $request = new UpdateAnnouncementRequest;
+
+    expect(fn () => $request->authorize())
+        ->toThrow(NotFoundHttpException::class);
+});
+
+it('PublishAnnouncementRequest::authorize() 404s, not 403s, when denied', function () {
+    // Task 11, on the two blocks above's ground and shipped the same day
+    // the class did. Same unit shape — no route, no authenticated user,
+    // no route parameter bound — so act-as-manager denies for the least
+    // contrived reason and what this pins is the STATUS.
+    $request = new PublishAnnouncementRequest;
 
     expect(fn () => $request->authorize())
         ->toThrow(NotFoundHttpException::class);

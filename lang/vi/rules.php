@@ -165,4 +165,12 @@ return [
     // happened and what to do — change the headline — rather than the
     // index.
     'announcement_slug_taken' => 'Vừa có thông báo khác dùng tiêu đề gần giống. Xin đổi tiêu đề rồi đăng lại.',
+    // OPS §4.4's refusal for PublishAnnouncement, and the sentence has to
+    // survive being read by a manager who pressed "Đăng lại". That
+    // command refuses only a LIVE publication — a lapsed announcement
+    // republishes fine — so whoever reads this line is looking at
+    // something that IS showing right now. The sentence says that, and
+    // points at the two doors out (edit it, or hide it first) rather than
+    // at the rule.
+    'already_published' => 'Thông báo này đang hiển thị. Hãy sửa nội dung, hoặc ẩn đi rồi đăng lại.',
 ];

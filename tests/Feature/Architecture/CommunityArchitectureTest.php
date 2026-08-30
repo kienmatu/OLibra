@@ -226,11 +226,28 @@ it('every community write transaction that re-reads an existing row opens with a
     // shape. A command that only needs "leave the untouched columns
     // alone" therefore does NOT need this lock. Wanting a trustworthy
     // audit `before` is what puts you in the list below.
+    //
+    // TASK 11 made the decision four more times, and all four land on the
+    // lock side by that same rule. PublishAnnouncement, HideAnnouncement,
+    // PinAnnouncement and UnpinAnnouncement each build INV-8's `before`
+    // out of a column they are about to overwrite — published_at for the
+    // first two, is_pinned for the last two — so a `before` taken off the
+    // caller's instance would be a prior value that may never have been
+    // prior. Their one-column writes would survive a stale instance
+    // perfectly well on the dirty-set ground above; it is the audit that
+    // would not. PublishAnnouncement has a second reason on top of that
+    // one: its refusal reads published_at off the same locked row, so two
+    // managers pressing the button at once cannot both find it
+    // unpublished.
     foreach ([
         app_path('Actions/Community/ApproveComment.php'),
         app_path('Actions/Community/RejectComment.php'),
         app_path('Actions/Community/HideComment.php'),
         app_path('Actions/Community/UpdateAnnouncement.php'),
+        app_path('Actions/Community/PublishAnnouncement.php'),
+        app_path('Actions/Community/HideAnnouncement.php'),
+        app_path('Actions/Community/PinAnnouncement.php'),
+        app_path('Actions/Community/UnpinAnnouncement.php'),
     ] as $file) {
         expect(str_contains((string) file_get_contents($file), 'lockForUpdate'))
             ->toBeTrue(basename($file).' has no lockForUpdate');
