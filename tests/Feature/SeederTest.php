@@ -7,6 +7,7 @@ use App\Models\Category;
 use App\Models\Membership;
 use App\Models\User;
 use Database\Seeders\CategorySeeder;
+use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DemoShelfSeeder;
 use Illuminate\Support\Facades\DB;
 
@@ -158,4 +159,39 @@ it('seeds AGENTS.md\'s four titles by name, not by a random draw', function () {
     expect($titles)->toBe([
         'Dế Mèn Phiêu Lưu Ký', 'Hoàng Tử Bé', 'Totto-chan Bên Cửa Sổ', 'Đất Rừng Phương Nam',
     ]);
+});
+
+it('DatabaseSeeder runs DemoShelfSeeder only in local — the gate the deploy relies on', function () {
+    // `deploy/post-deploy.sh` runs `artisan db:seed --force` UNCONDITIONALLY
+    // on every deploy, and its own comment says that is safe because
+    // "DatabaseSeeder gates DemoShelfSeeder behind app()->environment('local')
+    // … production only ever gets CategorySeeder". That gate was asserted by
+    // nothing: deleting the `if` left the whole suite green while the next
+    // deploy would have written a demo shelf, demo readers, demo loans and —
+    // since Task 19 — a third account with a working password into the
+    // production database. A shipped script's stated safety premise deserves
+    // a test on this side of it.
+    //
+    // The environment is forced to production rather than left at `testing`,
+    // which already is not `local`: the point is the deploy's own case, and a
+    // test that passes because of the harness's default is testing the
+    // harness. The premise is asserted first for the same reason.
+    $this->app->detectEnvironment(fn () => 'production');
+
+    // `db:seed --force`, the deploy's own invocation, not $this->seed():
+    // db:seed is confirmable, so without --force it prompts in production and
+    // the test dies on a ConfirmationQuestion instead of exercising the gate
+    // (measured — that is exactly what the first version of this block did).
+    $this->artisan('db:seed', ['--class' => DatabaseSeeder::class, '--force' => true]);
+
+    expect(app()->environment())->toBe('production')
+        // CategorySeeder still runs — a production install with no categories
+        // cannot satisfy the required "Thể loại" field, which is why the
+        // deploy calls db:seed at all.
+        ->and(DB::table('categories')->count())->toBe(6)
+        // …and nothing DemoShelfSeeder writes exists. The shelf is its first
+        // row, so it is the one that cannot be reached without running.
+        ->and(DB::table('bookshelves')->count())->toBe(0)
+        ->and(DB::table('users')->count())->toBe(0)
+        ->and(DB::table('borrow_requests')->count())->toBe(0);
 });

@@ -226,7 +226,8 @@ class DemoShelfSeeder extends Seeder
         // decided_by, decided_at, and the copy flipped to held), because
         // ApproveBorrowRequest writes them together in one transaction and
         // a demo row missing any of them renders a queue card that cannot
-        // be handed over.
+        // be handed over. Shape means the column set, not every value —
+        // see the hold_expires_at note at that row.
         //
         // The books are looked up by TITLE, and created if the lookup
         // misses. On a fresh `migrate:fresh --seed` the lookup always hits,
@@ -303,7 +304,16 @@ class DemoShelfSeeder extends Seeder
 
             // Têrêsa Lê Ngọc Ánh has a book put aside — approved, the copy
             // held, three days to collect it (LendingSettings' own default
-            // hold_days; this shelf overrides nothing).
+            // hold_days; this shelf overrides nothing). "Full approval
+            // shape" above is a claim about WHICH COLUMNS are populated,
+            // not about the value: LoanTerms::holdExpiry is
+            // $now->addDays($holdDays), a timestamp at the hour of the
+            // approval, where this is midnight of day+3, because a seeder
+            // has no approval instant to inherit. Nothing on the queue or
+            // the bell reads the time of day — holdExpired compares against
+            // now, and the notification payload is a date string — so the
+            // demo is faithful where it is looked at and coarser where it
+            // is not.
             $teresa = User::query()->where('full_name', 'Lê Ngọc Ánh')->firstOrFail();
             $namCopy = $demoBook('Đất Rừng Phương Nam', 'dat-rung-phuong-nam', 'Đoàn Giỏi');
             $holdUntil = Carbon::parse($today)->addDays(3);

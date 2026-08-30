@@ -459,9 +459,12 @@ Nothing merged; no PR open.
   that OPS gives `HandoverRequest`'s failure modes as "the `/errors.ts` disjunction" — describes
   a document that does not exist (`grep -n "errors.ts" docs/OPERATIONS.md` returns nothing;
   the entry is a plain three-item list). The residual is smaller than divergence 12 said and
-  real: `HandoverRequest` throws a code its OPS entry does not list. **Not fixed** — this plan
-  permitted one OPS amendment and it was spent; adding a failure mode to a shipped contract is
-  Kien's call, and the sentence is already in `lang/vi/rules.php`.
+  real: `HandoverRequest` throws a code its OPS entry does not list. That is a **documentation
+  lag, not a contract change** — the command already throws it, `lang/vi/rules.php` already
+  carries the sentence, `RuleViolatedCodesHaveSentencesTest` already censuses it, so closing it
+  is **one added table row** and no behaviour moves. Not fixed in this commit because a wrap-up
+  is the wrong place to edit a shipped command's OPS entry unannounced; **raise it at the PR as
+  a one-row edit**, not as a product ruling and not against the one-amendment budget.
   A third, quieter one: `MarkNotificationRead` ships without OPS §4.6's `notification.read`
   audit action, with a good argument in its docblock and nothing on the durable record saying
   OPS had been diverged from. Now recorded.
@@ -475,6 +478,22 @@ Nothing merged; no PR open.
   `AuditSecretsTest`'s shape list refreshed with the `request.*` payloads and its writer
   COUNT dropped from the title; stale line citations into moving files converted to symbols; a
   `DemoShelfSeeder` that now seeds a living queue and a living bell, deterministically.
+  **The plan is struck at the source, per this branch's own precedent** (Tasks 4 and 5 already
+  carry "struck from the plan at the source" lines above). Both falsehoods were still stated as
+  the phase's DESIGN in the tracked plan file that this table's 2a row points a future session
+  at: divergence 13's reachability walk, divergence 12's both-halves claim, and three repeats of
+  them — Task 8's test-block comment and two of Task 19's own step instructions. All now carry
+  strikethrough plus the reason and a pointer to the `known-gaps.md` entries, so a reader landing
+  on either file lands on the truth.
+  **A gate the deploy script depends on was asserted by nothing, and now is.**
+  `deploy/post-deploy.sh` runs `artisan db:seed --force` unconditionally on every deploy; its own
+  comment says that is safe because `DatabaseSeeder` gates `DemoShelfSeeder` behind
+  `app()->environment('local')`. Deleting that `if` left the whole suite green. `SeederTest` now
+  forces the environment to `production`, runs the deploy's own `db:seed --force`, and asserts
+  CategorySeeder ran while nothing DemoShelfSeeder writes exists — measured, removing the gate
+  gives `1 failed, 1260 passed` and nothing else reddens. It matters more after this commit than
+  before it: a demo shelf reaching production used to mean fixture rows and now means a third
+  account with a working password.
   **Step 5's four mutation checks, all performed and restored** (`git status --porcelain` clean
   after each): deleting all three circulation `notify()` calls reddens both architecture blocks and
   every notification assertion in the three writers' own test files (measured: `7 failed,
@@ -630,7 +649,10 @@ green while carrying them. The whole-branch review inherits it. **Task 19 verifi
 have no diff against `origin/main` at all, and `book.tsx`'s `<img>` — the one warned file this
 branch did touch — is present on `main` too. The exact baseline (which rule, which file, and the
 `Found 3 warnings. Found 1 info.` tail) is now in `known-gaps.md`, so the next person can tell an
-inherited warning from one they added.
+inherited warning from one they added. The fix round corrected that entry's own first draft: the
+counted **info** is the `biome.json:2:16 deserialize` schema-skew diagnostic ("Expected 2.5.10,
+Found 2.5.8 … run `biome migrate`"), not the Cookie Store API note, and the skew is therefore
+**reported on every run** rather than silent as the draft claimed.
 
 **Struck from the plan at the source** (this commit): Task 4's Step 6 **mutation 2** was
 unsatisfiable and contradicted mutation 2b by construction — narrowing the duplicate read to

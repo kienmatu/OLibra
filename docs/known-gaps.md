@@ -2696,13 +2696,17 @@ disposition table buries them.
   `request_not_held` from several branches (`grep -n "request_not_held"
   app/Actions/Circulation/HandoverRequest.php`) and its OPS entry does not
   list it. That is an incomplete enumerated list, not a deliberate
-  disjunction — a smaller gap than divergence 12 described but a real one,
-  and **not fixed here**: this plan permitted exactly one OPS amendment
-  (Task 18's), and adding a failure mode to a shipped command's contract
-  is a decision to put to the product owner rather than to slip into a
-  wrap-up commit. The Vietnamese sentence already lives in
-  `lang/vi/rules.php` under this phase's block, so the edit, when someone
-  takes it, is one row in one table.
+  disjunction — a smaller gap than divergence 12 described but a real one.
+  **It is a documentation lag, not a contract change.** The shipped command
+  already throws the code, `lang/vi/rules.php` already carries its
+  Vietnamese sentence, and `RuleViolatedCodesHaveSentencesTest` already
+  censuses it: nothing about the command's behaviour would move. So closing
+  it is **one row added to one table in `docs/OPERATIONS.md`**, not an
+  amendment to a contract — which matters, because this plan's
+  one-amendment budget was written for contract changes and Task 18 spent
+  it on one. **Not fixed in this commit** only because a wrap-up commit is
+  the wrong place to edit a shipped command's OPS entry unannounced; it
+  belongs in the PR as a one-row edit.
 - **`MarkNotificationRead` ships without the audit action OPS §4.6 names,
   and that divergence was not on the durable record.** OPS §4.6 lists
   `notification.read` as the audit action for both doors. The shipped
@@ -2725,7 +2729,7 @@ named in it, not by reading it off the plan.
 | `ReceiveReturn` | RE-WIDENED to the reference's full shape (Task 10) — the 1c narrowing entry is struck above, with its own note |
 | `SkipRequest` | closed WITHOUT implementation: the product owner removed *Bỏ qua* from the reference (queue page comment block, 2026-08-09); *Từ chối* is the one manager decision on a pending row. No Action, controller method or route implements it; the sole occurrence of the name under `app/` is `BorrowRequestController`'s comment recording its removal, and `php artisan route:list | grep -i skip` is empty |
 | `ReleaseExpiredHold` | shipped (Task 18) on ruling 1, with its own OPS §4.2 entry written in that task's commit — the one amendment this plan permitted |
-| `request_not_held` in OPS §4.2 | **stated, not covered over** — see the correction above; it IS enumerated (under `ReleaseExpiredHold`) and is NOT enumerated under `HandoverRequest`, which throws it |
+| `request_not_held` in OPS §4.2 | **stated, not covered over** — see the correction above; it IS enumerated (under `ReleaseExpiredHold`) and is NOT enumerated under `HandoverRequest`, which throws it. A documentation lag against a contract that already ships the code — one added table row, not an amendment |
 | `ChooseCopy` vs `CountsCopies::borrowable()` | dispositioned (divergence 14) — the amended 1c entry above carries the resolution and the test that pins it |
 | `GetBorrowRequestQueue`, `GetMyNotifications`, `GetMyDashboard` (requests half), `MarkNotificationRead`/`MarkAllNotificationsRead` | shipped. One shape note: OPS §4.6 names two commands and the code ships **one** Action with `one()` and `all()`, reached by two routes and two controller methods — the contract is met, the file count is not what OPS implied |
 | the sweep | shipped as `reminders:sweep`, scheduled 07:00 `Asia/Ho_Chi_Minh` from `routes/console.php`; removing the `Schedule::command` line reddens exactly one test and nothing else (measured) |
@@ -2782,8 +2786,8 @@ named in it, not by reading it off the plan.
   Both outcomes resolve to the same Vietnamese sentence.
 
 - **Divergence 13: an `available` copy under somebody else's live hold is
-  lendable, ported faithfully — and the state is not reachable by any
-  command walk this task could find.** `LoanRules::copyLendable`'s
+  lendable, ported faithfully — and no command walk to that state has been
+  found, by this task or by its reviewer.** `LoanRules::copyLendable`'s
   `Available` branch returns `null` without looking at holds; the
   reference does the identical thing (`policy.ts:86-108`), so this is a
   ported hole, not an invented one. `ApproveBorrowRequest` refuses such a
@@ -2791,12 +2795,14 @@ named in it, not by reading it off the plan.
   not, and neither does the reference.
   **What changed at this task is the reachability half.** The claim that
   approve -> `ReportCopyLost` -> `MarkCopyFound` reaches it is false (see
-  the correction at the head of this section). What keeps the row out of
-  reach today is BR §7.1's transition table, and that is worth saying
+  the correction at the head of this section). What blocks **that** path is
+  BR §7.1's transition table — one path, demonstrably, and worth saying
   plainly because **nobody wrote that table as a guard for this**:
   `CopyStateMachine`'s own Q3 note calls widening the arrows into `lost`
-  "one line here plus one test", and that one line would open this hole
-  for real. The walk also read every command under `app/Actions` that
+  "one line here plus one test", and that one line would open that path for
+  real. Whether any OTHER path exists is a search result, not a theorem:
+  neither this task's walk nor its reviewer's independent one found one,
+  and both are searches. The walk also read every command under `app/Actions` that
   writes `CopyState::Available` (`grep -rn "CopyState::Available"
   app/Actions/` is the check, re-runnable): each of them either ends the
   request in the same transaction as the release, or cannot be reached
@@ -2918,14 +2924,21 @@ named in it, not by reading it off the plan.
   content as much as on this branch's: `noImgElement` on
   `resources/js/components/book-card.tsx` and
   `resources/js/pages/shelves/book.tsx`, `noDocumentCookie` on
-  `resources/js/components/ui/sidebar.tsx`, and one info line ("Consider
-  using the Cookie Store API"). Tail of the run:
-  `Checked 76 files … Found 3 warnings. Found 1 info.` Separately,
-  `biome.json` declares `$schema` `2.5.8` while the installed CLI is
-  `2.5.10` — a version skew that produces no diagnostic and so goes
-  unnoticed. All pre-existing and untouched by Phase 2a; **the gate was
-  reported green through the phase while carrying them**, which is the
-  part worth recording. Not fixed here (each is a real UI change, and one
+  `resources/js/components/ui/sidebar.tsx`. Tail of the run:
+  `Checked 76 files … Found 3 warnings. Found 1 info.`
+  **The one info is the schema skew, and the first draft of this entry got
+  that wrong twice** — it attributed the info to the "Consider using the
+  Cookie Store API" line (that is a note *inside* the `noDocumentCookie`
+  warning, not a diagnostic of its own) and said the skew "produces no
+  diagnostic and so goes unnoticed". It does produce one, and it is the
+  counted info: `biome.json:2:16 deserialize` — "The configuration schema
+  version does not match the CLI version 2.5.10 … Expected: 2.5.10, Found:
+  2.5.8 … Run the command `biome migrate` to migrate the configuration
+  file." Caught in this task's own fix round, by grepping the gate's output
+  for the word the entry claims rather than trusting the sentence — which
+  is the check this document keeps needing. All pre-existing and untouched
+  by Phase 2a; **the gate was reported green through the phase while
+  carrying them**, which is the part worth recording. Not fixed here (each is a real UI change, and one
   of them is Biome telling a Laravel app to use `next/image`); the
   baseline is written down so the next person can tell an inherited
   warning from one they added.
@@ -2957,5 +2970,25 @@ named in it, not by reading it off the plan.
   `users_credentials_paired` is both-or-neither), which meant no reader on
   the demo shelf could sign in and every reader-side screen this phase
   shipped was unreachable by hand. Têrêsa — the holder of the demo hold
-  and its notification — now gets username `bandoc`. Development only;
-  the seeder's own docblock says so and nothing runs it in production.
+  and its notification — now gets username `bandoc`.
+  **What actually keeps this out of production is one `if`, and until this
+  commit nothing asserted it.** `deploy/post-deploy.sh` runs
+  `artisan db:seed --force` **unconditionally on every deploy** — its own
+  comment says that is safe because "DatabaseSeeder gates DemoShelfSeeder
+  behind `app()->environment('local')` … production only ever gets
+  CategorySeeder", and the unconditional call exists because a fresh
+  install with no categories cannot satisfy the required *Thể loại* field.
+  So the deploy script's stated safety premise is a single conditional in
+  `DatabaseSeeder::run`, and **deleting it left the whole suite green**:
+  no test anywhere asserted that `DatabaseSeeder` skips the demo seeder
+  outside `local` (the two `environment('local')` hits under `tests/` are
+  comment lines in `InertiaDevtoolsTest`, about a different subject). This
+  commit adds `SeederTest`'s "DatabaseSeeder runs DemoShelfSeeder only in
+  local — the gate the deploy relies on", which forces the environment to
+  `production`, invokes the deploy's own `db:seed --force`, and asserts
+  CategorySeeder ran while nothing DemoShelfSeeder writes exists. Measured:
+  removing the `if` gives `1 failed, 1260 passed` — `Failed asserting that
+  1 is identical to 0` on the `bookshelves` count — and nothing else in the
+  suite reddens. It matters more since this commit than before it: a
+  demo shelf reaching production used to mean fixture rows, and now means a
+  third account with a working password.
