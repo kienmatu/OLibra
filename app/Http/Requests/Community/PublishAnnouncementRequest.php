@@ -70,21 +70,48 @@ use Illuminate\Support\Facades\Gate;
  *         : CarbonImmutable::parse($validated['expires_at'])
  *
  * and the key is renamed `expires_at` -> `expiresAt` on the way into the
- * command's $changes array. Nothing pins that today because nothing
- * binds this class to a route — the same gap StoreAnnouncementRequest
- * and UpdateAnnouncementRequest each leave for their own date fields.
+ * command's $changes array.
+ *
+ * THAT CAST AND THAT RENAME NOW EXIST, AND THEY ARE PINNED. Task 14 wrote
+ * them as App\Http\Controllers\Manage\AnnouncementController::changes()
+ * and its instant() / expiry() pair, and
+ * tests/Feature/Community/ManagerAnnouncementsScreenTest.php holds them
+ * by asserting the expires_at COLUMN: "POST Đăng lại with no date
+ * republishes a lapsed notice and leaves the expiry null" catches the
+ * parse, "POST Đăng lại with a date puts that date in the column" catches
+ * the rename, and "PATCH naming only the title leaves the expiry where it
+ * was" catches the presence reading. An earlier draft of this paragraph
+ * read "Nothing pins that today because nothing binds this class to a
+ * route" — true when this file shipped in Task 11, falsified by the
+ * commit that wrote that controller.
+ *
+ * ONE THING THAT CONTROLLER ADDED THAT THIS TABLE DOES NOT SHOW: a
+ * date-only value ("2026-09-30", which is all an `<input type="date">`
+ * can send) is read as the END of that day in Asia/Ho_Chi_Minh, not its
+ * first microsecond — AGENTS.md's rule that a date is a day. The
+ * measurement is in expiry()'s own docblock. The five shapes above are
+ * unaffected: the treatment is applied after these rules have run, and
+ * `nullable` still short-circuits `date` for the null row.
  *
  * expires_at is a `date`, so FreeTextEncodingGuardTest reads it as
  * provably-non-text and no `encoding:UTF-8` applies — this class has no
  * free-text field at all, which is why it carries no `bail`/max pair the
  * way its two siblings do.
  *
- * NO ROUTE POINTS AT THIS CLASS YET — the publish buttons are a later
- * task, and both sibling Announcement requests shipped the same way.
- * What it is subject to today is the two sweeps that read every class
- * under app/Http/Requests: the encoding guard above, and this
- * directory's FormRequestAuthorize404Test, which is why the denial below
- * is an abort() rather than `return false`.
+ * THE ROUTE IS `shelves.manage.announcements.publish`, reached in Task
+ * 14: routes/web.php binds that POST to that controller's publish(),
+ * whose signature type-hints this class, and "a reader of the shelf 404s
+ * on the publish POST" is the block behind the abort below. An earlier
+ * draft said "NO ROUTE POINTS AT THIS CLASS YET — the publish buttons are
+ * a later task"; the buttons exist now, in
+ * resources/js/pages/manage/announcements/index.tsx, and they are
+ * withheld from a SHOWING row precisely because this class's field is
+ * always posted — see that file, and
+ * ManagerAnnouncementsScreenTest's "POST publish to a showing row with no
+ * expiry key at all is refused". This class also remains subject to the
+ * two sweeps that read every class under app/Http/Requests: the encoding
+ * guard above, and this directory's FormRequestAuthorize404Test, which is
+ * why the denial below is an abort() rather than `return false`.
  */
 class PublishAnnouncementRequest extends FormRequest
 {

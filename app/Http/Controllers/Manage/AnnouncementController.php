@@ -23,11 +23,40 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * BR §16.1's Bản tin, as the manager meets it: the list of everything the
- * shelf has ever posted, the compose and edit forms, and the four decisions
- * a row carries. OPS §4.4's CreateAnnouncement, UpdateAnnouncement,
+ * The manager's side of the shelf bulletin: the list of everything the
+ * shelf has ever posted, the compose and edit forms, and the decisions a
+ * row carries. OPS §4.4's CreateAnnouncement, UpdateAnnouncement,
  * PublishAnnouncement, HideAnnouncement, PinAnnouncement and
  * UnpinAnnouncement, each behind one route.
+ *
+ * WHICH DOCUMENT AUTHORISES THIS SCREEN, written out rather than cited in
+ * shorthand because the shorthand was wrong once and a shorthand is what
+ * gets copied. An earlier draft of this docblock opened "BR §16.1's Bản
+ * tin"; resources/js/pages/shelves/announcements/index.tsx carries a
+ * correction of that same misattribution, made one commit earlier. All
+ * four passages below were opened while this paragraph was written:
+ *
+ *   - BR §16.1 is titled "Public pages". Its one sentence about
+ *     announcements is the shelf home's card — "The pinned announcement,
+ *     or the most recent published one … shown as a single card, absent
+ *     entirely when the shelf has published none." That is a reader's
+ *     screen, and it is not this one.
+ *   - BR §16.3 is titled "Manager pages" and enumerates the manager's
+ *     screens from the dashboard to statistics. It does not use the word
+ *     "announcement".
+ *   - So BR specifies no bulletin editor. What it does give is the ENTITY,
+ *     in §5.4's record list — "Announcement — bookshelf, title, slug, rich
+ *     body, plain-text derivation for excerpts and search, pinned flag,
+ *     publication time (absent means draft), expiry, author" — which is
+ *     where every column the forms below write comes from; and the
+ *     PERMISSION, "manage announcements", in §13.2's Community row, which
+ *     is what the manage group's gate stands for.
+ *   - The screen itself is OPS §4.4's, and that document says the gap
+ *     aloud under PublishAnnouncement: "§16.3 does not itself describe an
+ *     announcement-management screen; this command follows the built UI
+ *     (src/app/.../quan-ly/thong-bao/page.tsx), whose buttons read 'Đăng
+ *     ngay' and 'Đăng lại'." Those two button words are this class's
+ *     publish route, and that sentence is its authority.
  *
  * THIS CLASS IS THE RENAME THE THREE ANNOUNCEMENT FORM REQUESTS HAVE BEEN
  * WAITING FOR, and getting it wrong collapses three request shapes into two
@@ -61,12 +90,21 @@ use Inertia\Response;
  * parse, 'PATCH naming only the title' for the presence. Each was reddened
  * by mutation before this file shipped.
  *
+ * A THIRD SPELLING IS WRONG FOR A DIFFERENT REASON, and it shipped in this
+ * class's first commit: a date-only `expires_at` parsed bare becomes the
+ * FIRST microsecond of the day the manager typed, so the notice lapses at
+ * 07:00 that morning in Asia/Ho_Chi_Minh rather than at the end of that
+ * day. AGENTS.md's date rule is explicit — "A loan is due at the end of a
+ * day, not at 14:23 on that day" — and expiry(), below, is where this class
+ * honours it, with the measurement written out there.
+ *
  * NOTHING ABOUT WHAT A NOTICE IS IS DECIDED HERE. The three chips come from
  * AnnouncementsQuery::managed(), which labels each row through the one
  * helper Task 12 built for exactly this, and re-deriving `showing` from
  * publishedAt and expiresAt on this class or on the page would be the third
  * clock that query's docblock warns about. What this class owns is nine
- * route names, two page components, six flashes and the rename.
+ * route names, two page components, six flashes, the rename, and the day a
+ * date-only expiry means.
  *
  * THE GATE IS THE ROUTE'S, and it is doubled on the three routes carrying a
  * Form Request. routes/web.php's manage group is ['auth', 'role:manager'],
@@ -80,6 +118,12 @@ use Inertia\Response;
  */
 class AnnouncementController extends Controller
 {
+    /** `yyyy-mm-dd` and nothing after it — see expiry(). */
+    private const DATE_ONLY = '/^\d{4}-\d{2}-\d{2}$/';
+
+    /** The parish's civil timezone, the one App\Support\Clock::today() reads a day in. */
+    private const PARISH_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
     public function index(Bookshelf $shelf, AnnouncementsQuery $announcements): Response
     {
         return Inertia::render('manage/announcements/index', [
@@ -108,14 +152,34 @@ class AnnouncementController extends Controller
             $user,
             $validated['title'],
             $validated['body'],
+            // `??` here and nowhere else in this method: is_pinned is a
+            // bool with no third case — absent, present-null and
+            // present-false are one instruction, "not pinned" — so there is
+            // nothing for a presence test to keep apart. The two arguments
+            // below are a different question and get a different spelling.
             pinned: (bool) ($validated['is_pinned'] ?? false),
+            // ARRAY_KEY_EXISTS, matching changes() below, and the reason is
+            // the spelling rather than the behaviour: CreateAnnouncement
+            // takes ?CarbonImmutable for both, so an absent key and a
+            // present null are the same instruction here and `??` would
+            // pass the same value. changes()'s docblock nonetheless bans
+            // `isset()` and its `??` twin for exactly these two keys three
+            // methods down, and a call site in this same file asking the
+            // same question the banned way is how a ban stops being read as
+            // one. One spelling of "was this key supplied", everywhere in
+            // this class.
+            //
             // published_at is mapped even though the compose form sends no
             // such box: StoreAnnouncementRequest validates the key, so the
             // day a form grows one it reaches the command without an edit
             // here. What the shipped form does send is nothing, which is
             // why a new notice is a draft — see the flash sentence.
-            publishedAt: self::instant($validated['published_at'] ?? null),
-            expiresAt: self::instant($validated['expires_at'] ?? null),
+            publishedAt: array_key_exists('published_at', $validated)
+                ? self::instant($validated['published_at'])
+                : null,
+            expiresAt: array_key_exists('expires_at', $validated)
+                ? self::expiry($validated['expires_at'])
+                : null,
         );
 
         return redirect()
@@ -182,6 +246,18 @@ class AnnouncementController extends Controller
      * republish form always sends the expires_at key — empty by default —
      * and changes() renames a present null into a present `expiresAt`, which
      * the command reads as a supply and writes as a cleared column.
+     *
+     * THAT ALWAYS-PRESENT KEY IS WHY THE PAGE WITHHOLDS THIS FORM FROM A
+     * SHOWING ROW, and the first draft of this screen did not, which made
+     * *Đăng lại* on a live notice move its published_at AND wipe its expiry,
+     * under a success flash. The key being present is read as a supply, the
+     * guard therefore never fires, and an empty box is a cleared column —
+     * every step correct on its own. resources/js/pages/manage/
+     * announcements/index.tsx now renders the disclosure only for a draft or
+     * a lapsed row, matching the reference. The route still accepts the
+     * post, so the refusal is pinned by a block rather than left to the
+     * markup: ManagerAnnouncementsScreenTest's "POST publish to a showing
+     * row with no expiry key at all is refused".
      */
     public function publish(PublishAnnouncementRequest $request, Bookshelf $shelf, Announcement $announcement, PublishAnnouncement $publish): RedirectResponse
     {
@@ -259,7 +335,7 @@ class AnnouncementController extends Controller
         }
 
         if (array_key_exists('expires_at', $validated)) {
-            $changes['expiresAt'] = self::instant($validated['expires_at']);
+            $changes['expiresAt'] = self::expiry($validated['expires_at']);
         }
 
         return $changes;
@@ -282,5 +358,83 @@ class AnnouncementController extends Controller
     private static function instant(mixed $value): ?CarbonImmutable
     {
         return $value === null ? null : CarbonImmutable::parse((string) $value);
+    }
+
+    /**
+     * The expiry cast: instant(), plus AGENTS.md's date rule.
+     *
+     * AGENTS.md: "Dates read as dates … A loan is due at the END of a day,
+     * not at 14:23 on that day." An expiry is the same kind of thing. Both
+     * expiry boxes this screen ships are `<input type="date">`, whose wire
+     * value is the HTML spec's `yyyy-mm-dd` and carries no time at all, so
+     * a date-only value is what arrives here from every submission the
+     * screen makes — and instant() alone would read the manager's chosen
+     * day as its first microsecond.
+     *
+     * MEASURED, both spellings, for a manager who types 30/09. The times
+     * are Asia/Ho_Chi_Minh, which is the clock that manager is reading; the
+     * verdicts are AnnouncementsQuery::state()'s, reproduced against its
+     * `expires_at > $at` comparison over the value the column actually
+     * keeps:
+     *
+     *   stored by a bare parse      2026-09-30 00:00:00 UTC
+     *     07:30 on 30/09 -> expired · 23:00 on 30/09 -> expired
+     *     00:30 on 01/10 -> expired
+     *
+     *   stored by this method       2026-09-30 16:59:59 UTC
+     *     07:30 on 30/09 -> showing · 23:00 on 30/09 -> showing
+     *     00:30 on 01/10 -> expired
+     *
+     * The two rows that separate them are pinned end to end over HTTP, in
+     * tests/Feature/Community/ManagerAnnouncementsScreenTest.php: 'POST Đăng
+     * lại with a date puts that date in the column' asserts the stored
+     * instant, and 'a notice set to expire 30/09 is still showing at 23:00
+     * on 30/09 in the parish' plus 'the same notice has lapsed by 00:30 on
+     * 01/10 in the parish' walk the frozen clock across it and read the chip
+     * off the index. With the branch below deleted, the first two of those
+     * three are the file's only failures.
+     *
+     * So under the bare parse the notice was gone for the whole of the day
+     * the manager named — from 07:00 that morning — while
+     * resources/js/pages/manage/announcements/index.tsx rendered "Hết hạn
+     * ngày 30/09" on the same row whose chip already read Hết hạn. One row,
+     * two sentences, disagreeing.
+     *
+     * THE ZONE IS THE PARISH'S, FOR Clock::today()'s REASON, read off
+     * App\Support\Clock: "today" for a shelf is the parish's day, not the
+     * server's UTC day, and a date a manager types into a box on a screen
+     * in Đồng Tháp is a day on that same calendar. The zone is named here
+     * rather than taken from the clock because this is a parse of a
+     * submitted string, not a read of the current instant — Clock is the
+     * door for the latter and nothing in this class opens it.
+     *
+     * ONE SECOND AT THE END OF THE NAMED DAY IS LOST, recorded rather than
+     * hidden. endOfDay() is 23:59:59.999999, and the value that reaches the
+     * column is 23:59:59 — Announcement declares no getDateFormat()
+     * override (read off App\Models\Announcement), so Eloquent's default
+     * 'Y-m-d H:i:s' formats the binding and the fraction goes. state()'s
+     * live condition is `expires_at > $at`, so between 23:59:59 and
+     * midnight the notice reads expired. The alternative — storing the
+     * FIRST instant of 01/10, which is what old_next's expiryDate() does in
+     * UTC by adding 24 hours to midnight — is exact at that boundary but
+     * moves the stored instant onto 01/10, which both the list and the form
+     * would then each have to take a day back off to show the manager what
+     * they typed (old_next's own dateInputValue does exactly that, and says
+     * so). A second against two derivations is the trade this method makes.
+     *
+     * A VALUE CARRYING A TIME IS PARSED AS GIVEN. `date` in the three Form
+     * Requests accepts more than `yyyy-mm-dd`, and a submission that named
+     * an hour meant that hour; only the shape that named no time gets a
+     * time chosen for it.
+     */
+    private static function expiry(mixed $value): ?CarbonImmutable
+    {
+        if ($value !== null && preg_match(self::DATE_ONLY, (string) $value) === 1) {
+            return CarbonImmutable::parse((string) $value, self::PARISH_TIMEZONE)
+                ->endOfDay()
+                ->setTimezone('UTC');
+        }
+
+        return self::instant($value);
     }
 }

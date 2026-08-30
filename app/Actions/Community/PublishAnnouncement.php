@@ -84,11 +84,34 @@ use Illuminate\Support\Facades\Gate;
  *
  * The null-preserving cast is therefore
  * `$validated['expires_at'] === null ? null : CarbonImmutable::parse(...)`,
- * and whoever binds this command to a route writes it. Nothing pins that
- * mapping today because no route reaches here yet; the parse and the
- * rename from `expires_at` to `expiresAt` belong to the controller,
- * which is a later task. PublishAnnouncementRequest's docblock carries
- * the same warning at the layer that will do it.
+ * and whoever binds this command to a route writes it.
+ *
+ * IT IS WRITTEN, AND IT IS PINNED, AS OF TASK 14:
+ * App\Http\Controllers\Manage\AnnouncementController::changes() renames
+ * the key and its instant() casts null-preservingly, behind
+ * `shelves.manage.announcements.publish`. The blocks that hold it assert
+ * the expires_at COLUMN rather than a status —
+ * tests/Feature/Community/ManagerAnnouncementsScreenTest.php's "POST Đăng
+ * lại with no date republishes a lapsed notice and leaves the expiry null"
+ * and "POST Đăng lại with a date puts that date in the column". An earlier
+ * draft of this paragraph read "Nothing pins that mapping today because no
+ * route reaches here yet"; that was true when this file shipped in Task 11
+ * and the commit that wrote the controller falsified it.
+ *
+ * THAT CONTROLLER ALSO DECIDES WHAT A DATE MEANS, which this command does
+ * not and must not: a date-only expiry submitted by an `<input
+ * type="date">` is read as the END of that day in Asia/Ho_Chi_Minh before
+ * it reaches the $changes array here. This method takes whatever
+ * CarbonImmutable it is handed.
+ *
+ * THE REFUSAL IS REACHED BY NO BUTTON ON THAT SCREEN, deliberately, and
+ * that is a property of the screen rather than of this guard: the publish
+ * form always posts the expiry key, which this method reads as a supply,
+ * so the page withholds the form from a SHOWING row — otherwise *Đăng lại*
+ * on a live notice would move published_at and clear expires_at under a
+ * success flash. The guard is still exercised over HTTP, by that test
+ * file's "POST publish to a showing row with no expiry key at all is
+ * refused", which posts no body at all.
  *
  * THE INSTANT COMES FROM THE CLOCK AND FROM NOWHERE ELSE. The reference
  * accepts an optional publishedAt and falls back to its injected clock;

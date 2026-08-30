@@ -8,13 +8,27 @@ use Illuminate\Support\Facades\Gate;
 /**
  * The manager's compose form for OPS §4.4's CreateAnnouncement.
  *
- * NO ROUTE POINTS AT THIS CLASS YET — the compose screen is a later
- * task, and RejectCommentRequest / HideCommentRequest shipped the same
- * way in Task 4. What it is subject to today is the two sweeps that read
- * every class under app/Http/Requests: FreeTextEncodingGuardTest, which
- * is why both free-text fields lead with `bail` and carry
- * `encoding:UTF-8`, and this directory's FormRequestAuthorize404Test,
- * which is why the denial below is an abort() rather than `return false`.
+ * THE ROUTE IS `shelves.manage.announcements.store`, and this class
+ * reached it in Task 14. routes/web.php binds that POST to
+ * App\Http\Controllers\Manage\AnnouncementController::store, whose
+ * signature type-hints this class, so this is the request shape that
+ * method's $validated array is made of. An earlier draft of this
+ * paragraph read "NO ROUTE POINTS AT THIS CLASS YET — the compose screen
+ * is a later task", which was true when this file shipped in Task 9 and
+ * was falsified by the commit that wrote that controller.
+ *
+ * WHAT PINS IT NOW, in tests/Feature/Community/
+ * ManagerAnnouncementsScreenTest.php: "POST the compose form writes a
+ * draft and lands on the list with the created flash" for the happy path,
+ * "a blank compose submit is a field error, not a banner" for these rules
+ * rendering per-field rather than as a page banner, and "a reader of the
+ * shelf 404s on the compose POST" for the abort below.
+ *
+ * It remains subject to the two sweeps that read every class under
+ * app/Http/Requests: FreeTextEncodingGuardTest, which is why both
+ * free-text fields lead with `bail` and carry `encoding:UTF-8`, and this
+ * directory's FormRequestAuthorize404Test, which is why the denial below
+ * is an abort() rather than `return false`.
  */
 class StoreAnnouncementRequest extends FormRequest
 {
@@ -92,8 +106,12 @@ class StoreAnnouncementRequest extends FormRequest
             'body' => ['bail', 'required', 'string', 'max:16000', 'encoding:UTF-8'],
             'is_pinned' => ['nullable', 'boolean'],
             // Nullable because a draft has neither. The command takes
-            // CarbonImmutable, so whatever binds this route parses these
-            // rather than passing the strings through.
+            // CarbonImmutable, and AnnouncementController::store is where
+            // these two strings become one — through its instant() for
+            // published_at and its expiry() for expires_at, the latter
+            // reading a date-only value as the END of that day in
+            // Asia/Ho_Chi_Minh (AGENTS.md's date rule; the measurement is
+            // in that method's docblock).
             'published_at' => ['nullable', 'date'],
             'expires_at' => ['nullable', 'date'],
         ];

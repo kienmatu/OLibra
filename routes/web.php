@@ -324,8 +324,20 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/comments/{comment}/approve', [CommentModerationController::class, 'approve'])->name('comments.approve');
         Route::post('/comments/{comment}/reject', [CommentModerationController::class, 'reject'])->name('comments.reject');
         Route::post('/comments/{comment}/hide', [CommentModerationController::class, 'hide'])->name('comments.hide');
-        // BR §16.1's Bản tin, from the side that writes it. These route
-        // names are NEW rather than a placeholder's kept name: `git grep
+        // The bulletin, from the side that writes it — and BR specifies no
+        // such screen, which is stated here rather than papered over with a
+        // section number. An earlier draft of this comment read "BR §16.1's
+        // Bản tin"; §16.1 is titled *Public pages* and its only sentence
+        // about announcements is the shelf home's card, while §16.3,
+        // *Manager pages*, lists the manager's screens without using the
+        // word "announcement" at all. The authority for these nine lines is
+        // OPS §4.4, which says so itself under PublishAnnouncement — "§16.3
+        // does not itself describe an announcement-management screen; this
+        // command follows the built UI" — resting on BR §13.2's "manage
+        // announcements" permission and §5.4's Announcement record. Both
+        // documents were opened for this comment.
+        //
+        // These route names are NEW rather than a placeholder's kept name: `git grep
         // -n "manage.announcements" 228ca76 -- resources/`, run before
         // this line was written, exited 1 with no output. The nav item
         // added to resources/js/layouts/manage-layout.tsx in this same
@@ -353,10 +365,27 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // Bookshelf::announcements() under the outer group's
         // scopeBindings(), and BookshelfScope on Announcement
         // (App\Models\Concerns\BelongsToBookshelf) on every query
-        // Eloquent runs for the binding. Which of the two alone suffices
-        // was measured for {comment} a few lines up and is NOT re-derived
-        // here; what this task measured instead is the role gate, per
-        // route, and that is in the report.
+        // Eloquent runs for the binding.
+        //
+        // BOTH DIRECTIONS MEASURED FOR {announcement}, which is more than
+        // the {comment} note a few lines up could say: that one measured
+        // the global scope alone and left "scopeBindings alone" untried.
+        // The probe is ManagerAnnouncementsScreenTest's cross-shelf block,
+        // six dataset rows over the six routes below that take an id, with
+        // shelf B's announcement id under shelf A's URL:
+        //
+        //   both layers                    6 rows green (404 each)
+        //   addGlobalScope commented out   6 rows green — scopeBindings
+        //                                  alone produces the 404
+        //   ->scopeBindings() removed      6 rows green — the global scope
+        //                                  alone produces it
+        //   BOTH removed                   6 rows RED, and they are the
+        //                                  file's only failures: 200 on the
+        //                                  GET, 302 on the five writes
+        //
+        // So either layer alone suffices here and neither is redundant
+        // while the other stands. The role gate, per route, was measured
+        // separately and is in the task report.
         Route::get('/announcements', [ManageAnnouncementController::class, 'index'])->name('announcements.index');
         Route::get('/announcements/create', [ManageAnnouncementController::class, 'create'])->name('announcements.create');
         Route::post('/announcements', [ManageAnnouncementController::class, 'store'])->name('announcements.store');

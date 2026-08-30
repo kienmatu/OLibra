@@ -33,10 +33,10 @@ use Illuminate\Support\Facades\Gate;
  *
  * expires_at is a `date`, so the encoding sweep reads it as
  * provably-non-text and no `encoding:UTF-8` applies. The command takes
- * CarbonImmutable and the key it reads is `expiresAt`, so whatever binds
- * this route parses the string and renames the key rather than passing
- * validated() through untouched — the same gap StoreAnnouncementRequest
- * leaves for its own published_at and expires_at.
+ * CarbonImmutable and the key it reads is `expiresAt`, so the class that
+ * binds this route parses the string and renames the key rather than
+ * passing validated() through untouched — see below for which class that
+ * now is.
  *
  * THE RENAME IS A KNOWN LIMIT, AND THIS IS WHAT SKIPPING IT WOULD COST.
  * validated() carries `expires_at`; App\Actions\Community\
@@ -48,17 +48,29 @@ use Illuminate\Support\Facades\Gate;
  * working. That is
  * the collapse the command exists to prevent, arriving one layer up:
  * the third case lost to a key that is never present rather than to an
- * isset(). Nothing pins the rename today because nothing binds this
- * class to a route; the parse and the rename belong to the controller,
- * which is a later task.
+ * isset().
  *
- * NO ROUTE POINTS AT THIS CLASS YET — the edit screen is a later task,
- * and StoreAnnouncementRequest shipped the same way in Task 9. What it
- * is subject to today is the two sweeps that read every class under
- * app/Http/Requests: FreeTextEncodingGuardTest, which is why both
- * free-text fields lead with `bail` and carry `encoding:UTF-8`, and this
- * directory's FormRequestAuthorize404Test, which is why the denial below
- * is an abort() rather than `return false`.
+ * THE RENAME EXISTS AND IS PINNED, AS OF TASK 14. It is
+ * App\Http\Controllers\Manage\AnnouncementController::changes(), which
+ * reads presence with array_key_exists() over validated() and casts with
+ * a null-preserving ternary; ManagerAnnouncementsScreenTest's "PATCH with
+ * an empty expiry clears the column and lands with the updated flash" and
+ * "PATCH naming only the title leaves the expiry where it was" are the
+ * two blocks that hold it, and both assert the expires_at COLUMN rather
+ * than a status, because a status cannot see either collapse. An earlier
+ * draft of this paragraph said "Nothing pins the rename today because
+ * nothing binds this class to a route" — true when this file shipped in
+ * Task 10, falsified by the commit that wrote that controller.
+ *
+ * THE ROUTE IS `shelves.manage.announcements.update`. routes/web.php
+ * binds that PATCH to that controller's update(), whose signature
+ * type-hints this class; "a reader of the shelf 404s on the edit PATCH"
+ * is the block behind the abort below. This class also remains subject
+ * to the two sweeps that read every class under app/Http/Requests:
+ * FreeTextEncodingGuardTest, which is why both free-text fields lead with
+ * `bail` and carry `encoding:UTF-8`, and this directory's
+ * FormRequestAuthorize404Test, which is why the denial below is an
+ * abort() rather than `return false`.
  */
 class UpdateAnnouncementRequest extends FormRequest
 {

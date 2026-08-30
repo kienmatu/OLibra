@@ -12,7 +12,20 @@ import { formatInstantParts } from "@/lib/dates";
 import type { SharedData } from "@/types";
 
 /**
- * BR §16.1's bulletin, for the person who writes it.
+ * The shelf's bulletin, for the person who writes it.
+ *
+ * **BR does not specify this screen**, and saying so is the point of this
+ * line rather than an aside: an earlier draft of it read "BR §16.1's
+ * bulletin", and shelves/announcements/index.tsx — the reader's half of the
+ * same feature, one commit older — already carries a correction of that
+ * exact misattribution. §16.1 is titled *Public pages*, and all it says
+ * about announcements is the shelf home's single card. §16.3, *Manager
+ * pages*, lists the manager's screens and never uses the word
+ * "announcement". What BR gives is the entity (§5.4's record list) and the
+ * "manage announcements" permission (§13.2, Community); the screen is OPS
+ * §4.4's, which states the gap itself — "§16.3 does not itself describe an
+ * announcement-management screen; this command follows the built UI" — and
+ * names the two buttons below, *Đăng ngay* and *Đăng lại*.
  *
  * **The chip's word comes from the server.** `state` arrives on every row
  * from AnnouncementsQuery::managed(), which labels it through the one helper
@@ -38,6 +51,17 @@ import type { SharedData } from "@/types";
  * **Đăng ngay carries the same box.** The reference offers it bare on a
  * draft, but a draft that was scheduled forward still has a published_at,
  * and this way the one form covers every row the button appears on.
+ *
+ * **Neither button appears on a SHOWING row**, and that is what makes the
+ * always-posted key safe. Because the key is always present, the command
+ * reads every submission from this page as "an expiry was supplied" — which
+ * on a live notice means its refusal never fires and its expiry is
+ * overwritten with whatever the box held, empty included. So the row that
+ * would be damaged is the row the button is withheld from. A manager
+ * looking at a live notice has Sửa and Ẩn instead, which is the pair
+ * `rules.already_published` names. The refusal itself is still pinned, by a
+ * block in tests/Feature/Community/ManagerAnnouncementsScreenTest.php that
+ * posts publish to a showing row with no body at all.
  *
  * **KNOWN BLIND SPOT**, measured in this worktree rather than assumed:
  * `find resources/js \( -name '*.test.*' -o -name '*.spec.*' \)` printed
@@ -211,6 +235,15 @@ export default function ManageAnnouncements() {
                                           date: formatInstantParts(a.publishedAt).date,
                                       })
                                     : copy.manageAnnouncements.notPublished}
+                                {/* formatInstantParts renders in
+                                    Asia/Ho_Chi_Minh, and that is what makes
+                                    this number agree with the chip beside
+                                    it: AnnouncementController::expiry()
+                                    stores a typed day as the END of that day
+                                    in the same zone, so the day printed here
+                                    is the last day the notice is showing.
+                                    form.tsx's date box derives the same day
+                                    the same way. */}
                                 {a.expiresAt
                                     ? ` · ${t(copy.manageAnnouncements.expiresOn, {
                                           date: formatInstantParts(a.expiresAt).date,
@@ -219,7 +252,22 @@ export default function ManageAnnouncements() {
                             </p>
 
                             <div className="mt-4 flex flex-wrap items-start gap-3 border-t pt-4">
-                                <PublishDisclosure announcement={a} shelfSlug={shelf.slug} />
+                                {/* NOT ON A SHOWING ROW. This form always
+                                    posts expires_at, and on a row that is
+                                    already showing that key is what
+                                    PublishAnnouncement's guard reads as "an
+                                    expiry was supplied" — so the button
+                                    would republish a live notice AND clear
+                                    its expiry, with a success flash. What a
+                                    manager wants for a live notice is Sửa or
+                                    Ẩn, which is what rules.already_published
+                                    says in words. The reference makes the
+                                    same cut: Đăng ngay on a draft, Đăng lại
+                                    on an expired one, neither on a showing
+                                    one. */}
+                                {a.state === "showing" ? null : (
+                                    <PublishDisclosure announcement={a} shelfSlug={shelf.slug} />
+                                )}
 
                                 {/* Ẩn only where there is something showing to
                                     pull: HideAnnouncement nulls published_at,

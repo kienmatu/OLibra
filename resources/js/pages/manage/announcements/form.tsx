@@ -33,6 +33,13 @@ import type { SharedData } from "@/types";
  * a present `expiresAt` and the command writes as a cleared column — "this
  * notice no longer expires". That is why the hint says so in words.
  *
+ * **A date typed here is a DAY, and the day ends at midnight in Đồng Tháp.**
+ * The box submits `yyyy-mm-dd` with no time in it, and
+ * AnnouncementController::expiry() reads that as the end of that day in
+ * Asia/Ho_Chi_Minh — AGENTS.md's rule that a due date is the end of a day
+ * rather than an instant inside it. `dateInputValue` below turns the stored
+ * instant back into the same day, in the same zone.
+ *
  * **KNOWN BLIND SPOT**, measured in this worktree rather than assumed:
  * `find resources/js \( -name '*.test.*' -o -name '*.spec.*' \)` printed
  * nothing, `ls vitest.config.*` at the repo root matched nothing, and
@@ -63,20 +70,46 @@ interface AnnouncementForm {
 }
 
 /**
- * An ISO instant to what `<input type="date">` takes, which is `yyyy-mm-dd`
- * by the HTML spec — a wire value the browser renders in the reader's own
- * locale, not a formatted date, which is why this is a string slice and not
- * a call into lib/dates.ts (whose two exports both produce Vietnamese
- * display text).
+ * The stored expiry instant, back to the day the manager typed.
  *
- * A slice rather than a Date, so nothing here can shift a day across a
- * timezone. What it returns is the UTC calendar day of the stored instant,
- * and every expiry this screen writes is midnight UTC — the controller
- * parses the box's own `yyyy-mm-dd` — so for anything typed here the box
- * comes back holding exactly what was typed.
+ * `<input type="date">` takes `yyyy-mm-dd` by the HTML spec — a wire value
+ * the browser renders in its own locale — so this is not a call into
+ * lib/dates.ts, whose two exports both produce Vietnamese *display* text
+ * (`dd/mm/yyyy`).
+ *
+ * **The day is the PARISH's, not UTC's**, and that is the half of this
+ * function that matters. AnnouncementController::expiry() stores a typed
+ * `2026-09-30` as the end of 30/09 in Asia/Ho_Chi_Minh, i.e. 16:59:59Z, and
+ * the manager who reopens this form must see 30/09 in the box. Reading the
+ * calendar day in the same zone the controller wrote it in is what makes
+ * that true by construction — and it is the same zone
+ * manage/announcements/index.tsx's `formatInstantParts` prints the expiry
+ * in, so the list's "Hết hạn ngày …" and this box name one day rather than
+ * two that happen to agree.
+ *
+ * An earlier draft was `iso.slice(0, 10)`, the UTC calendar day, justified
+ * by "every expiry this screen writes is midnight UTC". That sentence was
+ * true of the controller as it then stood and is not true of it now.
+ *
+ * Assembled from `formatToParts` rather than read out of a formatted
+ * string: a locale is free to order or pad the pieces however it likes, and
+ * the parts are named.
  */
+const PARISH_DAY = new Intl.DateTimeFormat("vi-VN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Ho_Chi_Minh",
+});
+
 function dateInputValue(iso: string | null): string {
-    return iso === null ? "" : iso.slice(0, 10);
+    if (iso === null) return "";
+
+    const parts = PARISH_DAY.formatToParts(new Date(iso));
+    const part = (type: Intl.DateTimeFormatPartTypes): string =>
+        parts.find((p) => p.type === type)?.value ?? "";
+
+    return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 export default function ManageAnnouncementForm() {

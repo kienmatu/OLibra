@@ -37,6 +37,14 @@ use Inertia\Testing\AssertableInertia;
  * 'PATCH naming only the title' asserts the expiry column did not move. Both
  * are pinned by mutation in the task report.
  *
+ * A THIRD THING THE COLUMN ALONE CANNOT SAY, added in the fix round: what
+ * DAY a stored expiry falls on for the manager reading the screen. 'Đăng
+ * lại with a date' says the instant; the two blocks after it walk the clock
+ * to 23:00 on the day the manager typed and to 00:30 the next morning and
+ * ask the index which chip the row wears. Under the controller's first
+ * mapping — a bare parse of the date box — the evening block answers
+ * `expired`, the notice gone since 07:00 that morning.
+ *
  * WHAT THE NINE READER BLOCKS DO AND DO NOT PROVE, stated because it shaped
  * the file. 404 is what a route that does not exist also answers, so a
  * reader-404 block on its own would stay green against a deleted route.
@@ -56,6 +64,17 @@ use Inertia\Testing\AssertableInertia;
  * renders beside the required fields are unpinned by anything here and are
  * checked by READING resources/js/pages/manage/announcements/index.tsx and
  * form.tsx.
+ *
+ * ONE ITEM ON THAT UNPINNED LIST NOW CARRIES REAL WEIGHT, so it is named
+ * rather than left inside "which buttons a row carries": index.tsx renders
+ * the publish disclosure only for a draft or a lapsed row. That form always
+ * posts the expires_at key, and on a SHOWING row an always-present key
+ * turns *Đăng lại* into "republish this and clear its expiry", flashed as a
+ * success. Deleting the `a.state === "showing" ? null :` guard in that file
+ * leaves every block below green. What IS pinned here is the refusal the
+ * guard leans on — 'POST publish to a showing row with no expiry key at
+ * all is refused' — so the command half cannot rot even though the markup
+ * half is read rather than run.
  *
  * The fixture does NOT actingAs: SessionGuard caches the acting user for a
  * whole test method, and the blocks below choose between a manager and a
@@ -339,12 +358,118 @@ it('POST Đăng lại with a date puts that date in the column', function () {
         ['expires_at' => '2026-09-30'],
     )->assertRedirect()->assertSessionHas('success', __('rules.announcement_published_flash'));
 
-    // Midnight, because that is what a date-only string parses to and the
-    // controller parses exactly what the box sent. The reference's own
-    // action shifts a chosen day to its END before storing; this port does
-    // not, and the divergence is written up in the task report rather than
-    // smuggled in here.
-    expect($lapsed->fresh()->expires_at?->toIso8601String())->toBe('2026-09-30T00:00:00+00:00');
+    // 16:59:59Z, WHICH IS 23:59:59 ON 30/09 IN Asia/Ho_Chi_Minh. The box
+    // sends a bare `2026-09-30` — that is all `<input type="date">` can
+    // send — and AnnouncementController::expiry() reads a date-only value
+    // as the END of that day in the parish's zone, AGENTS.md's rule that a
+    // date is a day and not the first microsecond of one.
+    //
+    // An earlier draft of this block asserted `2026-09-30T00:00:00+00:00`,
+    // which is what a bare parse gives, and it pinned the wrong semantics:
+    // a manager who typed 30/09 lost the notice from 07:00 that morning
+    // while the list still printed "Hết hạn ngày 30/09" beside a chip that
+    // already read Hết hạn. The two blocks below walk the clock across this
+    // stored value and are what make the number here mean a day.
+    //
+    // The seconds survive the round trip and the microseconds do not:
+    // endOfDay() is 23:59:59.999999 and the column keeps 23:59:59, because
+    // Announcement declares no getDateFormat() override and Eloquent's
+    // default is 'Y-m-d H:i:s'. That one second is written up in expiry()'s
+    // docblock rather than hidden behind a looser assertion here.
+    expect($lapsed->fresh()->expires_at?->toIso8601String())->toBe('2026-09-30T16:59:59+00:00');
+});
+
+it('a notice set to expire 30/09 is still showing at 23:00 on 30/09 in the parish', function () {
+    // THE HALF OF THE EXPIRY RULE A COLUMN VALUE CANNOT SHOW. The block
+    // above says what is stored; this one walks the clock to the evening of
+    // the day the manager named and asks the screen. Under the bare parse
+    // this answered `expired` — the notice gone since 07:00 that morning.
+    [$shelf, $manager] = amsFix('dong-thap-ams-expiry-evening');
+    Carbon::setTestNow(amsNow());
+
+    $lapsed = amsSeed(
+        $manager,
+        'Tin Đã Hết Hạn',
+        publishedAt: CarbonImmutable::parse('2026-08-02 03:00:00', 'UTC'),
+        expiresAt: CarbonImmutable::parse('2026-08-20 03:00:00', 'UTC'),
+    );
+
+    test()->actingAs($manager)->post(
+        "/shelves/{$shelf->slug}/manage/announcements/{$lapsed->id}/publish",
+        ['expires_at' => '2026-09-30'],
+    )->assertRedirect();
+
+    // 23:00 on 30/09 as the manager's own clock reads it. The zone is named
+    // on the fixture rather than done as arithmetic on a UTC string, so the
+    // block says which evening it means.
+    Carbon::setTestNow(CarbonImmutable::parse('2026-09-30 23:00:00', 'Asia/Ho_Chi_Minh'));
+
+    $rows = test()->actingAs($manager)
+        ->get("/shelves/{$shelf->slug}/manage/announcements")
+        ->viewData('page')['props']['announcements'];
+
+    expect(array_column($rows, 'state'))->toBe(['showing']);
+});
+
+it('the same notice has lapsed by 00:30 on 01/10 in the parish', function () {
+    // The other side of the same boundary, in its own block because a
+    // failed expect() aborts the whole method and these two are the pair
+    // that means anything only together.
+    [$shelf, $manager] = amsFix('dong-thap-ams-expiry-morning');
+    Carbon::setTestNow(amsNow());
+
+    $lapsed = amsSeed(
+        $manager,
+        'Tin Đã Hết Hạn',
+        publishedAt: CarbonImmutable::parse('2026-08-02 03:00:00', 'UTC'),
+        expiresAt: CarbonImmutable::parse('2026-08-20 03:00:00', 'UTC'),
+    );
+
+    test()->actingAs($manager)->post(
+        "/shelves/{$shelf->slug}/manage/announcements/{$lapsed->id}/publish",
+        ['expires_at' => '2026-09-30'],
+    )->assertRedirect();
+
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-01 00:30:00', 'Asia/Ho_Chi_Minh'));
+
+    $rows = test()->actingAs($manager)
+        ->get("/shelves/{$shelf->slug}/manage/announcements")
+        ->viewData('page')['props']['announcements'];
+
+    expect(array_column($rows, 'state'))->toBe(['expired']);
+});
+
+it('POST publish to a showing row with no expiry key at all is refused', function () {
+    // THE GUARD, PINNED RATHER THAN LEFT UNREACHABLE-BY-MARKUP.
+    // resources/js/pages/manage/announcements/index.tsx renders the publish
+    // disclosure only for a draft or a lapsed row, so no button a manager
+    // can press reaches this — and the first draft of that page rendered it
+    // for every row, which made *Đăng lại* on a live notice move its
+    // published_at AND wipe its expiry under a success flash. The route
+    // still accepts the post, and this repository runs no frontend tests,
+    // so the refusal is asserted here rather than trusted to the markup.
+    //
+    // NO BODY AT ALL, deliberately: PublishAnnouncement's refusal turns on
+    // the expiry key being ABSENT. Posting it present-and-empty is what the
+    // withheld button did, and that is a SUCCESS, not this refusal.
+    [$shelf, $manager] = amsFix('dong-thap-ams-live-republish');
+    Carbon::setTestNow(amsNow());
+
+    $live = amsSeed(
+        $manager,
+        'Giờ Mở Cửa Mùa Hè',
+        publishedAt: CarbonImmutable::parse('2026-08-01 03:00:00', 'UTC'),
+        expiresAt: CarbonImmutable::parse('2026-09-30 16:59:59', 'UTC'),
+    );
+
+    test()->actingAs($manager)->post(
+        "/shelves/{$shelf->slug}/manage/announcements/{$live->id}/publish",
+    )->assertRedirect()->assertSessionHasErrors(['rule' => __('rules.already_published')]);
+
+    // The expiry first: it is the column the defect destroyed, and a failed
+    // expect() aborts the whole method.
+    expect($live->fresh()->expires_at?->toIso8601String())->toBe('2026-09-30T16:59:59+00:00');
+    expect($live->fresh()->published_at?->toIso8601String())->toBe('2026-08-01T03:00:00+00:00');
 });
 
 it('POST Ẩn pulls a showing notice and lands back with the hidden flash', function () {
@@ -398,6 +523,77 @@ it('POST Bỏ ghim unpins a notice and lands back with the unpinned flash', func
 
     expect($live->fresh()->is_pinned)->toBeFalse();
 });
+
+it("another shelf's announcement id 404s under this shelf's manage URL", function (string $verb, string $suffix) {
+    // THE SIX BOUND ROUTES, PARAMETERISED. Six and not nine: index, create
+    // and store carry no {announcement}, so there is no foreign id to put
+    // in their URLs. Task 11's fix round added exactly this block for its
+    // four commands, and ReaderAnnouncementsTest carries it for the reader's
+    // detail page; this is the manager's HTTP surface, which is where an id
+    // is typed into a URL rather than handed to a command.
+    //
+    // TWO LAYERS STAND BEHIND THE 404, AND THIS BLOCK MEASURED BOTH.
+    // Removing BookshelfScope from App\Models\Concerns\BelongsToBookshelf
+    // leaves all six rows green; removing ->scopeBindings() from the outer
+    // shelves/{shelf} group instead also leaves all six green; removing
+    // BOTH turns all six red and they are this file's only failures — 200
+    // on the GET, 302 on the five writes. Either layer alone confines this
+    // parameter. The runs are written out beside those routes in
+    // routes/web.php, whose {comment} note asked for exactly the direction
+    // it had not tried.
+    //
+    // Shelf B is seeded FIRST so that amsFix's second call leaves shelf A
+    // bound and its manager the one acting — one actingAs per method, per
+    // docs/known-gaps.md's SessionGuard rule.
+    [, $managerB] = amsFix('dong-thap-ams-x-elsewhere');
+    Carbon::setTestNow(amsNow());
+    $theirs = amsSeed(
+        $managerB,
+        'Chầu Thánh Thể Tối Thứ Sáu',
+        publishedAt: CarbonImmutable::parse('2026-08-01 03:00:00', 'UTC'),
+        pinned: true,
+    );
+
+    [$shelfA, $managerA] = amsFix('dong-thap-ams-x-here');
+
+    $url = "/shelves/{$shelfA->slug}/manage/announcements/{$theirs->id}{$suffix}";
+
+    // The POST bodies name an expiry deliberately, publish's above all:
+    // with the confinement gone, an empty body would take
+    // PublishAnnouncement's already_published refusal and this block would
+    // redden on the wrong outcome. Naming one makes the unconfined result a
+    // SUCCESSFUL cross-shelf write, which is the thing being ruled out.
+    $response = match ($verb) {
+        'get' => test()->actingAs($managerA)->get($url),
+        'patch' => test()->actingAs($managerA)->patch($url, ['title' => 'Sửa Thông Báo Tủ Khác']),
+        'post' => test()->actingAs($managerA)->post($url, ['expires_at' => '2026-12-24']),
+    };
+
+    $response->assertNotFound();
+
+    // And the neighbour's row is untouched in the two columns these six
+    // routes write. Read system-wide, because the bound shelf cannot see it
+    // — the refusal above restated from the reading side.
+    app(TenantContext::class)->actSystemWide();
+    $row = Announcement::query()->findOrFail($theirs->id);
+
+    // The row is seeded PUBLISHED and PINNED so that an unconfined run
+    // would have real work to do on it: a flag for unpin to turn off, a
+    // published_at for hide to clear, a title for the PATCH to change and a
+    // live row for publish to repost with the expiry its body names.
+    // is_pinned is asserted first because a failed expect() aborts the
+    // whole method.
+    expect($row->is_pinned)->toBeTrue();
+    expect($row->published_at?->toIso8601String())->toBe('2026-08-01T03:00:00+00:00');
+    expect($row->expires_at)->toBeNull();
+})->with([
+    'GET the edit form' => ['get', ''],
+    'PATCH the edit form' => ['patch', ''],
+    'POST publish' => ['post', '/publish'],
+    'POST hide' => ['post', '/hide'],
+    'POST pin' => ['post', '/pin'],
+    'POST unpin' => ['post', '/unpin'],
+]);
 
 /*
  * NINE BLOCKS FOR THE READER, NOT ONE. A failed expect() aborts the whole
