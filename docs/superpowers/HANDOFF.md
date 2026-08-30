@@ -5,9 +5,12 @@ dies with its plan, so this file is what lets a **different session** pick the w
 Update it as each task lands.
 
 **Last updated:** 2026-08-30. Phase 1 is COMPLETE — #63 merged, `main` = `317a3b3`.
-Phase 2a (requests and holds) is CODE-COMPLETE on `feat/phase-2-community`: all 19 tasks
-landed and approved, no PR open, nothing merged. Next: open the PR and run the
-whole-branch review.
+**Phase 2a (requests and holds) is COMPLETE on `feat/phase-2-community`** — all 19 tasks landed
+and individually reviewed, plus a whole-branch review, its fix wave, and the scoped re-review
+that adjudicated the wave's one contested finding. 75 commits, suite **1,031 → 1,261 passing**
+(8,011 assertions), every gate green, `old_next/` untouched across the whole range. Nothing
+pushed, no PR open, nothing merged — **the merge decision is Kien's**, and there is one
+product-owner question waiting for him under "Owed by Kien" below.
 
 ## Where things stand
 
@@ -18,7 +21,7 @@ whole-branch review.
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
-| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | not opened | **tasks 1–19 landed; whole-branch review done and its fix wave applied — awaiting the scoped re-review, then PR** |
+| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | not opened | **complete — 19 tasks, whole-branch reviewed, fixes applied and re-reviewed; awaiting Kien's merge decision** |
 | 2b Community voice | not written | — | — |
 | 2c Statistics & labels | not written | — | — |
 
@@ -777,6 +780,18 @@ recorded; the audit log reads **all of it**, 25/page, filtered, never pruned.
 - Keep this file current so a disrupted session can resume elsewhere.
 
 ## Owed by Kien, not by the agents
+
+- **A product-owner question Phase 2a raised and no document frames as one.** Divergence 1's
+  AB–BA deadlock edge was accepted when the reachable path was a manager collecting a hold in the
+  same seconds as a reader's *Hủy* tap. The whole-branch review's adjudication established that the
+  exposure is **wider than what was shown when that ruling was made**: two volunteers double-clicking
+  *Duyệt & giữ chỗ* on one queue row reach the same errno **1213** against a stale-bound cancel — and
+  because `ApproveForm` defaults to `free[0]`, both posts naming the same copy is the **ordinary**
+  case, not a contrivance. InnoDB's FIFO queueing makes the deadlock the *expected* outcome of that
+  interleaving rather than a knife-edge. The 1213 still arrives as an untranslated `QueryException`
+  (`UniqueViolation` handles 1062 only), so the manager sees a server error, not a Vietnamese
+  sentence. **Same edge, wider exposure.** Whether that stands, or whether the approve POST wants
+  idempotence, is Kien's call — the agents' ruling was to record it, not to design it away.
 
 - **`main` has no branch protection.** CI runs and passes but a red gate would not block a
   merge. Unchanged since Phase 1a.
