@@ -226,8 +226,20 @@ it('every community write transaction that re-reads an existing row opens with a
     // names stays out of the statement however stale the instance is —
     // measured in that command's own docblock, against the shipped
     // shape. A command that only needs "leave the untouched columns
-    // alone" therefore does NOT need this lock. Wanting a trustworthy
-    // audit `before` is what puts you in the list below.
+    // alone" therefore does NOT need this lock.
+    //
+    // TWO GROUNDS PUT A COMMAND IN THE LIST BELOW, and either one on its
+    // own is enough. (1) Wanting a trustworthy audit `before` — a value
+    // read off the row rather than off the caller's instance. (2) A
+    // REFUSAL that reads the same column the UPDATE is about to write:
+    // that is check-then-act, and without the lock two callers can both
+    // read the pre-decision value and both write, under the isolation
+    // the TASK 9 paragraph above records for this server (MEASURED as
+    // REPEATABLE-READ, global and session).
+    // Fix round 1 widened this sentence, which named only ground (1):
+    // Task 16's two entries land on ground (2) alone, and
+    // PublishAnnouncement's paragraph below already recorded ground (2)
+    // as its second reason.
     //
     // TASK 11 made the decision four more times, and all four land on the
     // lock side by that same rule. PublishAnnouncement, HideAnnouncement,

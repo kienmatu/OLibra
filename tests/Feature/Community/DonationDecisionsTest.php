@@ -16,6 +16,8 @@ use App\Support\TenantContext;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Shelf + manager + donor + one donation row in $status, bound as the
@@ -283,3 +285,110 @@ it('a reader cannot decline an offer — this command\'s own gate call', functio
         ->and($donation->fresh()->decision_note)->toBeNull()
         ->and(AuditLog::query()->where('action', 'donation.declined')->count())->toBe(0);
 });
+
+it('the decline leaves ONE update statement, carrying the status and the note together', function () {
+    // WHAT THE "declining stores the status and the reason together"
+    // BLOCK ABOVE CANNOT SAY, and this comment is here because that
+    // block's title promised it. Measured on this file at the parent
+    // commit, by splitting that command's update() into a NOTE write
+    // followed by a STATUS write: 10 passed, 47 assertions — the whole
+    // file green, that block included. It reads the row after execute()
+    // returns, and both orderings arrive at the same row. Of the two, it
+    // notices the status-first one, and what notices that is
+    // book_donations_declined_has_reason raising an uncaught
+    // QueryException out of execute() — a 500 doing an assertion's job,
+    // and the same run leaves that block's four assertions unexamined
+    // (47 - 4 - 8 = 35, the count that mutation reports).
+    //
+    // So this reads the STATEMENTS instead, in the shape
+    // ApproveCommentTest's "the comment lock is the transaction's first
+    // statement" and ApproveBorrowRequestTest's "the copy lock is first,
+    // the request lock second" both use.
+    [, $manager, , , $donation] = dddFix('pending', 'dong-thap-ddd-one-update');
+
+    // flushQueryLog before enableQueryLog: enabling does not clear a
+    // buffer, and dddFix above has just written five rows.
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    app(DeclineDonation::class)->execute($manager, $donation, 'Sách đã quá cũ');
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    $updates = collect($log)
+        ->pluck('query')
+        ->filter(fn (string $q) => str_starts_with(strtolower(trim($q)), 'update') && str_contains($q, 'book_donations'))
+        ->values();
+
+    // TITLED ASSERTION FIRST — a failed expect() aborts the whole Pest
+    // METHOD, so the count is the statement that has to fire. The
+    // failure message carries the statements, so a redden reads as the
+    // two writes it caught.
+    expect($updates)->toHaveCount(1, $updates->implode(' ||| '));
+
+    // And that one statement carries BOTH columns, so a pair of writes
+    // collapsed back into one update of the wrong half is caught here
+    // rather than passing the count above.
+    expect(str_contains($updates[0], 'status'))->toBeTrue($updates[0]);
+    expect(str_contains($updates[0], 'decision_note'))->toBeTrue($updates[0]);
+
+    // INCIDENTAL, and worth naming because DeclineDonation's own comment
+    // on that line says it: "FIRST statement — the only lock this command
+    // takes". These two statements are this method reading that sentence
+    // for DeclineDonation. They say nothing about ReceiveDonation's copy
+    // of the same comment, which no block in this file reads.
+    expect(str_contains($log[0]['query'], 'book_donations'))->toBeTrue($log[0]['query']);
+    expect(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue($log[0]['query']);
+});
+
+it('another shelf\'s offer is not found rather than refused', function (string $command) {
+    // DIVERGENCE 3, MEASURED. Both commands' docblocks say the "no such
+    // offer" case belongs to route-model binding and BookshelfScope — a
+    // 404 — rather than to the reference's donation_not_pending fold.
+    // Measured on this file at the parent commit: adding
+    // withoutGlobalScopes() to BOTH commands' re-read left the file at 10
+    // passed, 47 assertions, so nothing here read the scope half. It does
+    // NOT need a route to read it. Both commands take a caller-supplied
+    // row object, so a caller holding another shelf's row is the shape
+    // the scope has to survive, and asking the Action directly is what
+    // UpdateAnnouncementTest's "another shelf's announcement is not found
+    // rather than refused" and AnnouncementStateTest's four-command
+    // dataset already do, routeless, for the same divergence.
+    //
+    // PARAMETERISED over both commands, because both carry the same
+    // re-read and a fix round that pinned one would leave the other
+    // swappable.
+    //
+    // The OTHER shelf is seeded FIRST so that dddFix's second call leaves
+    // this shelf bound and its manager acting — no rebinding, and one
+    // actingAs per fixture rather than a guest assertion appended after
+    // one (docs/known-gaps.md's SessionGuard rule).
+    //
+    // Their row is seeded PENDING deliberately: an already-decided one
+    // would take the donation_not_pending refusal with the scope gone,
+    // and this block would then redden on the wrong exception — which is
+    // the very fold the divergence rejects.
+    [, , , , $theirs] = dddFix('pending', 'can-tho-ddd-tenancy-b');
+    [, $manager] = dddFix('pending', 'dong-thap-ddd-tenancy-a');
+
+    $attempt = match ($command) {
+        ReceiveDonation::class => fn () => app(ReceiveDonation::class)->execute($manager, $theirs),
+        DeclineDonation::class => fn () => app(DeclineDonation::class)->execute($manager, $theirs, 'Không nhận'),
+    };
+
+    // MEASURED shape, not a predicted one: findOrFail on a row
+    // BookshelfScope excludes raises ModelNotFoundException, which
+    // Laravel renders as 404 — the status §5.4 asks for, and never a 403
+    // that would confirm the row exists. The manager is a real manager on
+    // their OWN shelf, so the gate passes and it is the re-read that
+    // answers.
+    expect($attempt)->toThrow(ModelNotFoundException::class);
+
+    // And their row is untouched in the three columns these two commands
+    // write. Read system-wide, because the bound scope cannot see it —
+    // the refusal above restated from the reading side.
+    app(TenantContext::class)->actSystemWide();
+    $row = BookDonation::query()->findOrFail($theirs->id);
+    expect($row->status)->toBe(DonationStatus::Pending);
+    expect($row->decided_by)->toBeNull();
+    expect($row->decision_note)->toBeNull();
+})->with([ReceiveDonation::class, DeclineDonation::class]);

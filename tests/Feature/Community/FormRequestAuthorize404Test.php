@@ -103,12 +103,20 @@ it('OfferDonationRequest::authorize() 404s, not 403s, when denied', function () 
 });
 
 it('DeclineDonationRequest::authorize() 404s, not 403s, when denied', function () {
-    // Task 16, on the five blocks above's ground and the same unit shape
+    // Task 16, on the six blocks above's ground and the same unit shape
     // — no route, no authenticated user, no route parameter bound — so
     // act-as-manager denies for the least contrived reason and what this
     // pins is the STATUS. Its class shipped routeless — the manager's
-    // donation queue is Task 19's — which is the case the two blocks
-    // above it describe for themselves.
+    // donation queue is Task 19's — which is the case
+    // StoreAnnouncementRequest's block above states for itself: "Added
+    // the moment the class landed rather than the day it gets a route".
+    //
+    // FIX ROUND 1 corrected two counts in this comment. It said "five
+    // blocks above" where there are six, and it pointed the routeless
+    // case at "the two blocks above it" — which are
+    // PublishAnnouncementRequest's and OfferDonationRequest's, and
+    // OfferDonationRequest's says the opposite ("its abort IS reachable
+    // over HTTP").
     $request = new DeclineDonationRequest;
 
     expect(fn () => $request->authorize())

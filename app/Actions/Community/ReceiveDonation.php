@@ -45,9 +45,12 @@ use Illuminate\Support\Facades\Gate;
  *
  * decided_by IS A users(id) — `CONSTRAINT
  * book_donations_decided_by_foreign FOREIGN KEY (decided_by) REFERENCES
- * users (id)`, read off the live table — while donor_membership_id three
- * columns along is a memberships(id). Two uuid columns, two directions,
- * one table, and neither is inferable from a column name.
+ * users (id)`, read off the live table — while donor_membership_id five
+ * columns earlier is a memberships(id). (Fix round 1 corrected "three
+ * columns along": donor_membership_id is ordinal 3 and decided_by is
+ * ordinal 8, re-read off information_schema.columns for this schema.)
+ * Two uuid columns, two directions, one table, and neither is inferable
+ * from a column name.
  * DonationDecisionsTest asserts the stored value IS the manager's user id
  * and IS NOT their membership id, in two separate statements.
  *
@@ -57,16 +60,27 @@ use Illuminate\Support\Facades\Gate;
  * binding and BookshelfScope instead — a 404 — and leaves only
  * wrong-status on the caller's own shelf for the RuleViolated below.
  *
- * AT THIS COMMIT THAT IS A CONVENTION AND NOT A GUARD, and it is
- * MEASURED rather than supposed: routes/web.php was grepped for this and
- * names no address reaching either decision command (the queue screen is
- * Task 19's), so the binding half of the divergence has nothing to bind
- * yet. Folding the missing case back in here — findOrFail() replaced by
- * find() and a null lumped into donation_not_pending, applied to this
- * method and to DeclineDonation's together — leaves the suite at 1533
- * passed / 9192 assertions, identical to the unmutated run. So what
- * holds the divergence today is the shape of the code below; the
- * measurement above is what the suite has to say about it.
+ * THE SCOPE HALF OF THAT DIVERGENCE IS PINNED; THE BINDING HALF HAS
+ * NOTHING TO BIND YET. routes/web.php was grepped for this and names no
+ * address reaching either decision command — the queue screen is Task
+ * 19's — so route-model binding cannot be exercised here. The scope half
+ * can be, and is, without a route:
+ * tests/Feature/Community/DonationDecisionsTest.php's "another shelf's
+ * offer is not found rather than refused" hands this method and
+ * DeclineDonation's a row seeded on a second shelf and requires
+ * ModelNotFoundException, which Laravel renders 404. Folding the missing
+ * case back in — findOrFail() replaced by find() and a null lumped into
+ * donation_not_pending, applied to both commands together — reddens that
+ * block on both of its dataset rows, on the toThrow line.
+ *
+ * FIX ROUND 1 RETRACTED THE SENTENCE THAT STOOD HERE: "what holds the
+ * divergence today is the shape of the code below". It was wrong when
+ * written — that fold left the suite unchanged only because no block
+ * asked either command for another shelf's id — while
+ * tests/Feature/Community/AnnouncementStateTest.php's cross-shelf
+ * dataset, opened for this, was already requiring
+ * ModelNotFoundException of four announcement commands with no route
+ * either.
  *
  * The lock is the transaction's first statement, and
  * CommunityArchitectureTest's FOR-UPDATE record states which side of its

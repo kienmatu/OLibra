@@ -42,11 +42,9 @@ use Illuminate\Support\Facades\Gate;
  * so a write that moved the status first would be refused between the
  * steps and the sentence a volunteer read would be a database error
  * rather than OPS's. MEASURED on this method, by splitting the update()
- * below into a status write followed by a note write. Two blocks of
- * tests/Feature/Community/DonationDecisionsTest.php fail — "declining
- * stores the status and the reason together" and "INV-8:
- * donation.declined carries the reason into the payload and into the
- * sentence" — both on the STATUS write, both with:
+ * below into a STATUS write followed by a note write: blocks of
+ * tests/Feature/Community/DonationDecisionsTest.php fail on the status
+ * write, with
  *
  *     SQLSTATE[23000]: Integrity constraint violation: 4025 CONSTRAINT
  *     `book_donations_declined_has_reason` failed for
@@ -54,19 +52,30 @@ use Illuminate\Support\Facades\Gate;
  *     set `status` = declined, `decided_by` = …, `decided_at` = … where
  *     `id` = …)
  *
- * Run: 2 failed, 8 passed, 35 assertions. Two things in that run are
- * worth having written down. The whitespace block stays GREEN, because
- * its reason never reaches a transaction at all — so the count is 2 and
- * not 3. And neither failing block fails on an ASSERTION: the exception
- * comes out of the execute() call, so what the split costs is the whole
- * method, and the "together" the first block is titled for is never
- * examined. That is the constraint answering before the test can.
+ * and the exception exits execute() rather than reaching an assertion —
+ * what the split costs is the whole Pest method, so the "together" those
+ * blocks are titled for is never examined. That is the constraint
+ * answering before the test can. (Fix round 1 removed the pass/fail
+ * counts that were quoted here: they went stale the moment an eleventh
+ * block landed. They belong to the task's report, which carries them.)
+ *
+ * THE OTHER SPLIT — NOTE FIRST, THEN STATUS — IS NOT REFUSED BY THE
+ * DATABASE AT ALL. Both statements satisfy the CHECK on their way
+ * through, the committed row is identical, and measured at the parent
+ * commit it left every block in that file green. What refuses it is a
+ * test rather than the schema: fix round 1 added "the decline leaves ONE
+ * update statement, carrying the status and the note together", which
+ * reads the query log and requires exactly one update of book_donations
+ * carrying both columns. Under the note-first split it fails on that
+ * count line, with both statements in the failure message.
  *
  * decided_by IS A users(id) — `CONSTRAINT
  * book_donations_decided_by_foreign FOREIGN KEY (decided_by) REFERENCES
- * users (id)`, read off the live table — while donor_membership_id three
- * columns along is a memberships(id). Two uuid columns, two directions,
- * one table. ReceiveDonation's docblock carries the same reading, and
+ * users (id)`, read off the live table — while donor_membership_id five
+ * columns earlier is a memberships(id). (Fix round 1 corrected "three
+ * columns along": ordinal 3 against decided_by's ordinal 8, re-read off
+ * information_schema.columns.) Two uuid columns, two directions, one
+ * table. ReceiveDonation's docblock carries the same reading, and
  * DonationDecisionsTest asserts the direction against both ids there.
  *
  * ONE CODE FOR "no such offer" AND "already decided" IS NOT WHAT THIS
@@ -76,9 +85,13 @@ use Illuminate\Support\Facades\Gate;
  * The lock is the transaction's first statement, on the ground
  * CommunityArchitectureTest's FOR-UPDATE record states: the refusal reads
  * status off the same locked row, so two managers deciding at once cannot
- * both find the offer pending. The transaction retries because every
- * write transaction in this phase does (plan divergence 1), and the row
- * and its audit entry commit together.
+ * both find the offer pending. For THIS command that ordering is read
+ * rather than merely claimed — the query-log block named above also
+ * requires the log's first statement to be a FOR UPDATE select against
+ * book_donations, and a plain read placed in front of the lock reddens
+ * it. The transaction retries because every write transaction in this
+ * phase does (plan divergence 1), and the row and its audit entry commit
+ * together.
  */
 final class DeclineDonation
 {
