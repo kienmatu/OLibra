@@ -10,6 +10,7 @@ use App\Models\Loan;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -77,6 +78,6 @@ final class VoidLoan
             $this->audit->record('loan.voided', 'loan', $loan->id,
                 ['status' => 'active', 'copy_state' => 'on_loan'],
                 ['status' => 'voided', 'copy_state' => 'available', 'reason' => $reason]);
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

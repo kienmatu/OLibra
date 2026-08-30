@@ -77,7 +77,7 @@ it('puts BelongsToBookshelf on every model whose table carries bookshelf_id', fu
     }
 });
 
-it('confines bookshelf_id filtering to the two named files', function () {
+it('confines bookshelf_id filtering to the files this allow-list names', function () {
     $allowed = [
         'app/Models/Scopes/BookshelfScope.php',
         'app/Http/Middleware/ResolveTenant.php',   // the population step itself (Task 16)
@@ -89,6 +89,34 @@ it('confines bookshelf_id filtering to the two named files', function () {
         // tests/Feature/Oversight/AuditLogQueryTest.php's two-shelf-plus-
         // global-row test, which proves it by identity, not by convention.
         'app/Queries/AuditLogQuery.php',
+        // Phase 2a Task 17: the reminder sweep is the one non-seeder caller
+        // of TenantContext::actSystemWide(), so BookshelfScope adds no WHERE
+        // to anything it reads. Its "has this reader already been told"
+        // probe therefore has to draw the shelf boundary itself — the same
+        // situation AuditLogQuery is in above, arrived at from the other
+        // direction (that model is unscoped; this CALLER is). Without the
+        // filter one reader with the same title due the same day on two
+        // shelves is told once, on one bell; the notification the sweep
+        // WRITES is scoped by the bookshelf_id it copies off each loan, and
+        // SweepIsHousekeepingTest pins both halves.
+        //
+        // WHAT THIS COSTS, concretely, because an allow-list entry is
+        // whole-FILE and not per-clause: that file today holds exactly one
+        // hand-written bookshelf_id filter — the probe's — and any SECOND
+        // one a later edit adds is now silent, correct or mis-scoped alike,
+        // where before it would have failed the build and forced whoever
+        // wrote it to come here and justify it. That matters more in this
+        // file than it would in an ordinary shelf-scoped one: the sweep
+        // runs under actSystemWide(), so BookshelfScope adds nothing
+        // underneath to make a rogue where() redundant-but-harmless. This
+        // was one of the few automated backstops on manual-filter
+        // correctness in the file with the widest blast radius, and it is
+        // spent. Reviewing a change to SweepReminders.php means reading its
+        // filters by hand. Kept whole-file for consistency with
+        // AuditLogQuery above rather than because per-clause was weighed
+        // and rejected — a per-clause tripwire is the fix if a second
+        // filter ever lands.
+        'app/Console/Commands/SweepReminders.php',
     ];
 
     // Filter-shaped patterns, not assignments: where('bookshelf_id'),

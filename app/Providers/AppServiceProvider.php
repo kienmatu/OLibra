@@ -6,18 +6,22 @@ use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
 use App\Models\Book;
 use App\Models\BookCopy;
+use App\Models\BorrowRequest;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
 use App\Policies\BookCopyPolicy;
 use App\Policies\BookPolicy;
+use App\Policies\BorrowRequestPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
+use App\Support\DeadlockDetector;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\Members\Phone;
 use App\Support\QueryParam;
 use App\Support\TenantContext;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Database\ConcurrencyErrorDetector;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -36,6 +40,17 @@ class AppServiceProvider extends ServiceProvider
         // long-running test process (or Octane, ever) cannot leak one request's
         // shelf into the next.
         $this->app->scoped(TenantContext::class);
+
+        // Laravel's DetectsConcurrencyErrors trait — the thing
+        // Connection::transaction consults to decide whether to re-run a
+        // rolled-back callback — resolves this contract from the container
+        // and falls back to the framework's own detector only when nothing
+        // is bound. Binding here is therefore what makes the retry loop and
+        // App\Support\ConcurrencyRetry's translation ask ONE question
+        // rather than two, and it is what keeps a lock-wait timeout out of
+        // BOTH: see DeadlockDetector's docblock for why 1205 must stay a
+        // loud 500 while 1213 is retried.
+        $this->app->bind(ConcurrencyErrorDetector::class, DeadlockDetector::class);
     }
 
     /**
@@ -187,5 +202,21 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(BookCopy::class, BookCopyPolicy::class);
         Gate::policy(Membership::class, MembershipPolicy::class);
         Gate::policy(Loan::class, LoanPolicy::class);
+
+        // Phase 2a. Convention-based discovery (App\Models\X ->
+        // App\Policies\XPolicy) does find this one today, so deleting this
+        // line leaves the whole suite green (1071, measured). That is NOT
+        // the same as the line being decorative, and the first version of
+        // this comment said it was, which is an invitation to delete it:
+        // move BorrowRequestPolicy to App\Policies\Circulation and
+        // discovery finds nothing, at which point this line is the only
+        // thing wiring the model (18 green with it, 5 red without —
+        // measured both ways). Renaming the class is caught at once by
+        // Larastan; moving it is caught by
+        // tests/Feature/Architecture/PolicyRegistrationTest.php, which
+        // derives its census from app/Policies and from the calls below
+        // rather than transcribing either, and so covers all five of these
+        // and policy number six on the day it lands.
+        Gate::policy(BorrowRequest::class, BorrowRequestPolicy::class);
     }
 }

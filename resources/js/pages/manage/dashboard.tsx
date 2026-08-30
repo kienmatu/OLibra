@@ -7,7 +7,7 @@ import type { SharedData } from "@/types";
 
 interface PageProps extends SharedData {
     dashboard: {
-        counts: { overdue: number; pendingRegistrations: number };
+        counts: { overdue: number; pendingRegistrations: number; pendingRequests: number };
         totals: { titles: number; copies: number; onLoan: number; readers: number };
     };
     today: string;
@@ -53,9 +53,9 @@ export default function ManageDashboard() {
                 {[formatDate(today), shelf.name].join(" · ")}
             </p>
 
-            {/* Two of BR §16.3's four cards; the other two arrive with
-                Phase 2's queues, and no substitute is promoted (plan
-                divergence 6). */}
+            {/* Three of BR §16.3's four cards. Bình luận chờ duyệt is the
+                one still missing — Phase 2b's queue — and no substitute is
+                promoted into its slot (plan divergence 6). */}
             <div className="flex flex-wrap gap-4">
                 <StatCard
                     href={route("shelves.manage.overdue", { shelf: shelf.slug })}
@@ -66,6 +66,11 @@ export default function ManageDashboard() {
                     href={route("shelves.manage.registrations", { shelf: shelf.slug })}
                     label={copy.manageDashboard.registrationsCard}
                     value={dashboard.counts.pendingRegistrations}
+                />
+                <StatCard
+                    href={route("shelves.manage.borrow-requests", { shelf: shelf.slug })}
+                    label={copy.manageDashboard.requestsCard}
+                    value={dashboard.counts.pendingRequests}
                 />
             </div>
 

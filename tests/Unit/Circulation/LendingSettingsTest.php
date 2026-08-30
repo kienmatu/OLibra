@@ -22,3 +22,15 @@ it('a shelf overrides only what it stores', function () {
         ->and($s->maxRenewals)->toBe(2)
         ->and($s->renewalDays)->toBe(7);
 });
+
+it('hold_days and due_soon_days default to 3 and read from the blob', function () {
+    $bare = LendingSettings::fromShelf(new Bookshelf(['settings' => []]));
+    $set = LendingSettings::fromShelf(new Bookshelf([
+        'settings' => ['hold_days' => 5, 'due_soon_days' => 7],
+    ]));
+
+    expect($bare->holdDays)->toBe(3)
+        ->and($bare->dueSoonDays)->toBe(3)
+        ->and($set->holdDays)->toBe(5)
+        ->and($set->dueSoonDays)->toBe(7);
+});

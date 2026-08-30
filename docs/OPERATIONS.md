@@ -359,6 +359,17 @@ A reader withdraws their own pending or held request, from the dashboard §16.2 
   - `not_own_request` — "Bạn không thể huỷ yêu cầu của người khác." (should be structurally unreachable via UI, but the command must still check)
   - `request_already_fulfilled` — "Yêu cầu này đã được trao sách, không thể huỷ."
 
+#### `ReleaseExpiredHold`
+*Added 2026-08-29 (Laravel migration, phase 2a — product-owner ruling 1).* A manager records a lapsed hold's end: `approved → expired` (§7.2's arrow, previously written by nothing) and the copy `held → available`, one transaction. The guard is the clock's own verdict — a live hold cannot be released here. The reference has no such command: its lapsed hold leaves the copy in `held` until the reader cancels, which the owner overrode.
+
+- **Inputs:** `bookshelfId`, `requestId`
+- **Caller:** `manager`
+- **Invariants enforced:** INV-2, INV-8; §8 (expiry is decided by comparing `hold_expires_at` to now — this command records a lapse, it never creates one)
+- **Audit action:** `request.expired`
+- **Failure modes:**
+  - `request_not_held` — "Yêu cầu này không có bản sách nào đang được giữ chỗ."
+  - `hold_not_expired` — "Thời gian giữ chỗ chưa hết, không thể trả về kệ."
+
 ### 4.3 Members
 
 #### `RegisterMembership`
@@ -1106,6 +1117,14 @@ Concretely, whichever storage engine is chosen must offer *one* of:
 - an equivalent optimistic-concurrency scheme (a version/`updated_at` compare-and-swap on the copy row) that the second writer's update fails against, detected and translated to the same named error.
 
 Whichever mechanism is chosen, the requirement is the same: the guarantee lives in the datastore's transactional machinery, not in a `SELECT` the application trusts.
+
+**Lock-order cycles, and the one refusal this section adds.** *Added 2026-08-30 (Laravel migration, phase 2a — post-plan, at the product owner's request.)* Row locking closes the race above, and it opens a second one this document did not previously name. The circulation commands that assign or collect a hold lock the copy row first and the request row second; `CancelOwnRequest` locks the request first and takes the copy's lock second whenever the request it was handed named no copy at bind time and an approval committed in the gap. Two writers interleaved across that pair each wait on a row the other holds, and InnoDB resolves it by killing one of them — errno 1213. There is no ordering that removes the cycle inside a single transaction, so the system does not try to: a killed transaction has persisted nothing, and every circulation command re-runs its transaction a bounded number of times before giving up.
+
+- `busy_try_again` — "Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại." A refusal of the whole command, available to every command in §4, not only §4.2's. It is what the caller is told when the re-runs are spent; the instruction it gives ("send it again") is the only useful one, because the state the command wanted may well be reachable a second later. §2's "a command never fails with a bare 500" is what this closes — before it, a deadlock reached the volunteer as a server error.
+
+**What is deliberately NOT re-run, and why the distinction is operational rather than fussy.** A *deadlock* is detected and killed instantly, so re-running it is nearly free and the transaction that survived the cycle has already committed. A *lock-wait timeout* — a row held by a transaction that is not going anywhere — fails only after the engine's whole `innodb_lock_wait_timeout` has been burned; this deployment's MariaDB runs the 50-second default. Re-running that would hold one volunteer's request open for minutes on shared hosting, and would replace a loud failure naming the stuck statement with a friendly shrug. So a lock-wait timeout is neither re-run nor translated: it stays a server error, and the log keeps the statement, because the correct response to it is an operator looking at a wedged row rather than a volunteer tapping again. Anything the system *does* translate keeps the driver exception attached to it, so a refusal that reached the caller as a sentence is still fully diagnosable in the log.
+
+This is a refusal with no `errors.ts` spelling, authored here on the same footing as `hold_not_expired`: minted in `lang/vi/rules.php` and recorded in this document in one commit.
 
 ---
 

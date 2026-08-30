@@ -4,8 +4,10 @@ namespace App\Actions\Circulation;
 
 use App\Enums\CopyState;
 use App\Enums\LoanStatus;
+use App\Enums\RequestStatus;
 use App\Exceptions\RuleViolated;
 use App\Models\BookCopy;
+use App\Models\BorrowRequest;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
@@ -14,6 +16,7 @@ use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanRules;
 use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use App\Support\TenantContext;
 use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
@@ -47,11 +50,15 @@ use Illuminate\Support\Facades\Gate;
  * a Membership because that is what the screen has (OPS §4.2), and
  * $membership->user_id is resolved exactly once, below.
  *
- * The held-for-me clause (INV-3's second half) is live in LoanRules but
- * unreachable here until Phase 2: no hold can exist, so $heldForUserId is
- * passed as null. Phase 2's request commands wire the real holder through
- * the same predicate — and re-add the reference's collected-hold close
- * (request.fulfilled in this same transaction).
+ * The held-for-me clause (INV-3's second half) went live here in Phase 2a,
+ * which wired the real holder through the same LoanRules predicate that 1c
+ * could only ever hand a null: the live hold on the copy is read after both
+ * locks, through the expiry filter, so a lapsed hold arrives as absence.
+ * The same task re-added the reference's collected-hold close — when the
+ * hold is this reader's own, loans.request_id names it, the request moves
+ * approved → fulfilled with fulfilled_loan_id set, and request.fulfilled is
+ * audited: all in the SAME transaction as the loan, so the lend and the
+ * close commit together or neither does.
  *
  * @return array{loanId: string, dueOn: string}
  */
@@ -74,12 +81,68 @@ final class LendCopy
             // SECOND — serialises this reader's lends for the INV-5 count.
             $membership = Membership::query()->lockForUpdate()->findOrFail($membership->id);
 
+            // The live hold on this copy, if any — a query issued AFTER
+            // both locks, never before them, and through the expiry filter
+            // so a lapsed hold arrives as absence (the convention
+            // copyLendable is written against: expiry presents as a null
+            // holder, and no reader matches null).
+            //
+            // requested_at asc, id asc, and NOT the inert ordering Task 5
+            // dropped from ApproveBorrowRequest's probe: that one asks
+            // only whether a live hold exists, so which row answers cannot
+            // change it. This one's row decides two things — whether the
+            // predicate below lets the lend through, and what
+            // loans.request_id ends up naming — so limit 1 over an
+            // unordered set would be whatever the plan happened to produce
+            // (the reference's own note on its lateral join). Two live
+            // holds on one copy cannot arise through shipped commands
+            // (ApproveBorrowRequest refuses a copy that already carries
+            // one — its "an AVAILABLE copy under a live hold is refused"
+            // test), so this is determinism, not a queue rule.
+            //
+            // The instant comes from the injected Clock, never a bare
+            // wall-clock read — CirculationArchitectureTest greps this
+            // file's RAW source for one, comments included, so the
+            // sanctioned door is named without its parentheses in prose
+            // (measured: the first spelling of this very comment reddened
+            // that test).
+            $hold = BorrowRequest::query()
+                ->where('copy_id', $copy->id)
+                ->where('status', RequestStatus::Approved)
+                ->where('hold_expires_at', '>', $this->clock->now())
+                ->orderBy('requested_at')->orderBy('id')
+                ->first();
+            // ApproveBorrowRequest:135's spelling, and for its documented
+            // reason: member_id is NOT NULL in the schema and the cast
+            // keeps that true for the predicate. One spelling of one
+            // guard, in both files.
+            $heldForUserId = $hold === null ? null : (string) $hold->member_id;
+
             // OPS §5's order: copy-side refusals first — "a manager who
             // searched for a book that's already gone needs to know that
             // immediately, not after they've also picked a reader."
-            if (($code = LoanRules::copyLendable($copy->state, null, $membership->user_id)) !== null) {
+            if (($code = LoanRules::copyLendable($copy->state, $heldForUserId, $membership->user_id)) !== null) {
                 throw new RuleViolated($code);
             }
+
+            // The hold this lend collects, or null when the copy was
+            // simply available. BOTH halves are required: a live hold
+            // names this copy, AND it is this reader's — closing somebody
+            // else's would take a child's turn away, the one thing worse
+            // than leaving the row open. An available copy under another
+            // reader's live hold is still lendable (the predicate's
+            // available branch does not look at holds, ported whole), and
+            // this is the line that keeps such a lend from closing their
+            // request.
+            // The cast is on BOTH sides because === is the comparison:
+            // copyLendable's string parameter coerces its argument at the
+            // call boundary above, this line has no such boundary, and a
+            // non-string on either side would silently never match —
+            // turning "a held copy is lendable to its holder" into "a held
+            // copy never collects its hold" with every pure test green.
+            $collectedHoldId = ($hold !== null && $heldForUserId === (string) $membership->user_id)
+                ? $hold->id
+                : null;
 
             $shelf = $this->tenant->bookshelf();
             if ($shelf === null) {
@@ -110,6 +173,7 @@ final class LendCopy
                     'lent_at' => $this->clock->now(),
                     'due_on' => $dueOn,
                     'status' => LoanStatus::Active,
+                    'request_id' => $collectedHoldId,
                 ]);
             } catch (QueryException $e) {
                 // INV-1's loser. Matched by constraint name so an unrelated
@@ -118,10 +182,89 @@ final class LendCopy
                 UniqueViolation::translate($e, ['loans_one_active_per_copy' => 'copy_not_available']);
             }
 
+            $stateBefore = $copy->state->value;
             $copy->update(['state' => CopyState::OnLoan]);
 
+            if ($collectedHoldId !== null) {
+                // fulfilled, from BR §7.2's pending → approved → fulfilled
+                // — the only one of request_status's six that means the
+                // reader got the book (expired says the hold lapsed,
+                // cancelled that they withdrew; both describe a child who
+                // went home empty-handed).
+                //
+                // hold_expires_at is left where it stands: the record of a
+                // deadline this reader MET. NO COUNT IS GIVEN of the
+                // places that read it, deliberately — this comment said
+                // "exactly three", which was already wrong at Task 9 (two
+                // more in HandoverRequest) and wrong again at Task 18
+                // (grep `hold_expires_at` under app/ for today's set).
+                // What every one of them has in common is the property
+                // that matters: each either filters on
+                // status = approved before comparing the expiry (this
+                // command's probe above, ApproveBorrowRequest,
+                // CountsCopies::borrowable, HandoverRequest,
+                // ReleaseExpiredHold) or only ever evaluates a row that is
+                // pending or approved to begin with
+                // (BorrowRequestQueueQuery's own where-in) — so a
+                // fulfilled row's expiry is inert rather than stale, and
+                // blanking it would erase how long they had.
+                //
+                // Guarded on the status, in the WHERE itself
+                // (CancelOwnRequest's idiom): a request that is no longer
+                // approved when this statement runs is left alone rather
+                // than overwritten, and zero affected rows is a legitimate
+                // outcome, not an error. Unlike that command's release,
+                // nothing here derives an answer from the affected-row
+                // count — $collectedHoldId already came from a row read
+                // inside this transaction, under its copy lock.
+                //
+                // TWO shipped commands can move an approved row
+                // elsewhere (RejectBorrowRequest still refuses anything
+                // but pending): CancelOwnRequest, and — since Task 18 —
+                // ReleaseExpiredHold, which writes approved → expired.
+                // Only the first is this statement's lock counterparty.
+                // ReleaseExpiredHold takes the COPY lock first and the
+                // request lock second — the same direction this command
+                // takes them, so the pair does not invert; and once it has
+                // committed, the hold it ended is `expired` and the probe
+                // above no longer finds it. THIS COMMIT CREATED THE CancelOwnRequest EDGE:
+                // before it, LendCopy touched no borrow_requests row at
+                // all.
+                //
+                // The cycle, for one (copy C, request R) pair: this
+                // command holds C's lock from its first statement and asks
+                // for R's here, while a CancelOwnRequest whose snapshot
+                // was bound BEFORE the approval (its documented residual
+                // window, CancelOwnRequest's docblock) takes no copy lock,
+                // holds R, and asks for C in its guarded release. Held C
+                // wanting R against held R wanting C is an AB-BA cycle,
+                // and InnoDB breaks it by rolling one transaction back.
+                //
+                // So there are two ways to lose, not one. Losing the
+                // ORDERED race is what the status guard makes safe: the
+                // WHERE stops matching and this becomes a no-op, the lend
+                // having already committed nothing it must take back.
+                // Losing the DEADLOCK is different and is not this guard's
+                // business — errno 1213 arrives as a QueryException, not a
+                // RuleViolated, so the whole transaction rolls back (loan,
+                // copy state and both audit rows together) and the
+                // manager sees a server error rather than a Vietnamese
+                // sentence. No frequency is claimed here: nothing in this
+                // build has measured one, and a two-connection race cannot
+                // run under RefreshDatabase (1a divergence 2). The plan's
+                // divergence 1 records the edge.
+                BorrowRequest::query()
+                    ->whereKey($collectedHoldId)
+                    ->where('status', RequestStatus::Approved)
+                    ->update(['status' => RequestStatus::Fulfilled, 'fulfilled_loan_id' => $loan->id]);
+            }
+
             $this->audit->record('loan.created', 'loan', $loan->id,
-                ['copy_state' => 'available'],
+                // The state this copy was ACTUALLY in, read before the
+                // update above. Not the literal 'available' 1c could write
+                // safely: since the held-for-me clause went live, a
+                // collected hold reaches here from held.
+                ['copy_state' => $stateBefore],
                 [
                     'copy_state' => 'on_loan',
                     // Both ids — they answer different questions six months
@@ -135,12 +278,19 @@ final class LendCopy
                     // that re-read books.title would restate history the
                     // moment UpdateBook corrects a title.
                     'title' => $copy->book?->title,
-                    // Null = a walk-up lend, visibly. Phase 2's collected
-                    // hold writes the request id here.
-                    'request_id' => null,
+                    // Null = a walk-up lend; the collected hold's id when
+                    // this lend came out of a queue. An auditor can tell
+                    // the two apart without joining anything.
+                    'request_id' => $collectedHoldId,
                 ]);
 
+            if ($collectedHoldId !== null) {
+                $this->audit->record('request.fulfilled', 'request', $collectedHoldId,
+                    ['status' => 'approved', 'copy_id' => $copy->id, 'fulfilled_loan_id' => null],
+                    ['status' => 'fulfilled', 'copy_id' => $copy->id, 'fulfilled_loan_id' => $loan->id]);
+            }
+
             return ['loanId' => $loan->id, 'dueOn' => $dueOn];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

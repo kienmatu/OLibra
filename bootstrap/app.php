@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsureShelfRole;
 use App\Http\Middleware\EnsureSuperAdmin;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\ResolveTenant;
+use App\Support\ConcurrencyRetry;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -84,6 +85,39 @@ $app = Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions) {
+        // The residual of the circulation retry, in the same ONE place the
+        // rest of this system's refusals are shaped. Every Action under
+        // app/Actions/Circulation that OPENS a write transaction passes an
+        // attempts argument (pinned by CirculationArchitectureTest), so an
+        // InnoDB lock-order cycle is normally re-run and committed; when
+        // the attempts are spent, Laravel rethrows the ORIGINAL exception
+        // and the caller gets a 500 — a bare server error for a condition
+        // whose only meaningful instruction is "send that tap again".
+        //
+        // map(), not render(): a mapping is applied before the render
+        // callbacks, so the RuleViolated hook below is what turns this into
+        // the 302 with the Vietnamese sentence — one renderer for every
+        // refusal in the system, exactly as spec §7 asks. It is registered
+        // against PDOException rather than QueryException because Laravel
+        // raises a bare DeadlockException, not a QueryException, when the
+        // cycle is hit inside a NESTED transaction — which is every Feature
+        // test in this suite, RefreshDatabase holding the outer one. Both are
+        // PDOException subclasses; ConcurrencyRetry hands back the original
+        // exception, the same object, for everything the BOUND detector
+        // does not call a concurrency error, so an ordinary SQL fault stays
+        // a 500 with its statement in the log.
+        //
+        // Deliberately not scoped to circulation: this makes the answer a
+        // sentence wherever a concurrency error reaches the handler, so a
+        // command outside that directory cannot regress to a 500 on the
+        // same condition. What it does not do is retry anything — retrying
+        // is the Actions' own argument, made per callback. Nor does it
+        // cover every failure the FRAMEWORK would call a concurrency error:
+        // AppServiceProvider binds App\Support\DeadlockDetector over the
+        // contract, which leaves a lock-wait timeout out of both the retry
+        // and this translation, for the reason that class's docblock gives.
+        $exceptions->map(fn (PDOException $e) => ConcurrencyRetry::translate($e));
+
         // Spec §7: RuleViolated maps to "the right response" in ONE place.
         // For the Inertia forms this phase ships, the right response is a
         // redirect back carrying the Vietnamese sentence under the `rule`

@@ -39,6 +39,12 @@ return [
     'loan_renewed' => 'gia hạn một lượt mượn',
     'loan_voided' => 'huỷ một lượt mượn:because',
     'loan_lost' => 'kết thúc một lượt mượn vì sách bị mất',
+    'request_created' => 'gửi yêu cầu mượn :title',
+    'request_approved' => 'giữ chỗ một cuốn sách cho bạn đọc đang chờ',
+    'request_rejected' => 'từ chối yêu cầu mượn :title của :subject:because',
+    'request_cancelled' => 'rút lại yêu cầu mượn :title',
+    'request_fulfilled' => 'giao cuốn sách đã giữ chỗ cho bạn đọc',
+    'request_expired' => 'kết thúc giữ chỗ quá hạn của :subject và trả bản sách về kệ',
 
     // — bạn đọc —
     'membership_registered' => 'nhận đăng ký của :name',

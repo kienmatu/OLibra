@@ -31,7 +31,16 @@ export const copy = {
     shelf: {
         catalogue: "Danh mục",
         search: "Tìm kiếm",
-        announcements: "Thông báo",
+        // "Bản tin", not "Thông báo" — the reference's own name for the
+        // shelf bulletin (public-header.tsx:279), chosen there
+        // precisely so the personal bell below can keep "Thông báo".
+        // Renamed at Task 16, which added that bell: until then the two
+        // never appeared together, and afterwards the shelf home
+        // rendered two links a tap apart reading the same word to two
+        // different places. The ROUTE is still shelves.announcements;
+        // only the Vietnamese changed, and shelves/show.tsx is the one
+        // place that renders it (grepped resources/js at this commit).
+        announcements: "Bản tin",
         profile: "Hồ sơ",
         manage: "Quản lý",
     },
@@ -42,6 +51,7 @@ export const copy = {
         readers: "Người đọc",
         books: "Sách",
         overdue: "Quá hạn",
+        requests: "Yêu cầu mượn",
         settings: "Cài đặt",
         audit: "Nhật ký",
     },
@@ -333,6 +343,7 @@ export const copy = {
         title: "Tổng quan",
         overdueCard: "Quá hạn",
         registrationsCard: "Chờ duyệt tài khoản",
+        requestsCard: "Yêu cầu chờ xử lý",
         viewList: "Xem danh sách",
         lendAction: "Cho mượn",
         lendSub: "Tìm sách · chọn người đọc · xác nhận",
@@ -343,6 +354,39 @@ export const copy = {
         totalCopies: "Bản sách",
         totalOnLoan: "Đang cho mượn",
         totalReaders: "Bạn đọc",
+    },
+    /**
+     * The manager's borrow-request queue. Its own section rather than a
+     * branch of `circulation.requests`: that one is the READER's wording
+     * for their own row ("Bạn đang chờ cuốn này"), and these are a
+     * volunteer's words about somebody else's.
+     */
+    manageRequests: {
+        title: "Yêu cầu mượn",
+        subtitle: "Xếp theo thứ tự đăng ký.",
+        subtitleCounted: "{count} cuốn có người đang chờ · Xếp theo thứ tự đăng ký.",
+        empty: "Hiện không có bạn đọc nào đang chờ mượn sách.",
+        waitingCount: "{count} người đang chờ",
+        requestedLine: "Đăng ký {time} ngày {date}",
+        holdNote: "Đang giữ chỗ cho bạn này · hết hạn giữ {time} ngày {date}",
+        holdNoteBare: "Đang giữ chỗ cho bạn này",
+        holdExpiredNote: "Thời gian giữ chỗ đã hết lúc {time} ngày {date}",
+        holdExpiredBare: "Thời gian giữ chỗ đã hết",
+        copySuffix: "bản {code}",
+        firstPendingNote: "Giữ chỗ {days} ngày kể từ khi duyệt.",
+        notYourTurnNote: "Chỉ duyệt được khi tới lượt.",
+        approveButton: "Duyệt & giữ chỗ",
+        copyLabel: "Bản sách",
+        noFreeCopies: "Chưa có bản nào rảnh để giữ chỗ.",
+        rejectSummary: "Từ chối",
+        rejectReasonLabel: "Lý do từ chối",
+        // Ruling 2, settled: the reason is optional. The hint says so
+        // rather than leaving a volunteer to find out by submitting.
+        rejectReasonHint: "Không bắt buộc.",
+        rejectConfirm: "Xác nhận từ chối",
+        handoverButton: "Xác nhận trao sách",
+        releaseButton: "Trả về kệ",
+        nothingAutomatic: "Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.",
     },
     circulation: {
         rules: {
@@ -406,6 +450,11 @@ export const copy = {
             lostConfirmButton: "Xác nhận báo mất",
             noneFound: "Không tìm thấy lượt mượn nào đang mở.",
             chooseFirst: "Tìm và chọn lượt mượn cần xử lý.",
+            waitingLegend: "{count} bạn đọc đang chờ cuốn này",
+            noHoldOption: "Không giữ chỗ, trả về kệ",
+            holdForOption: "Giữ chỗ cho {name}",
+            holdForRequestedSuffix: "đăng ký {time} ngày {date}",
+            nothingAutomatic: "Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.",
         },
         overdue: {
             title: "Sách quá hạn",
@@ -431,7 +480,10 @@ export const copy = {
             historyTitle: "Lịch sử mượn sách",
             currentSection: "Sách đang mượn",
             requestsSection: "Đăng ký mượn",
-            requestsComingSoon: "Chức năng đăng ký mượn sẽ có trong đợt cập nhật sau.",
+            requestsEmpty: "Bạn chưa đăng ký chờ mượn cuốn nào.",
+            requestPositionLine: "Bạn ở vị trí {position}",
+            requestHeldLine: "Đã sẵn sàng, nhận trước {time} ngày {date}",
+            requestHeldLineNoDate: "Đã sẵn sàng để nhận",
             recentSection: "Vừa trả gần đây",
             daysRemaining: "Còn {days} ngày",
             dueToday: "Đến hạn hôm nay",
@@ -450,6 +502,41 @@ export const copy = {
             prev: "Trước",
             next: "Sau",
         },
+        requests: {
+            requestButton: "Xin mượn",
+            queueButton: "Đăng ký chờ mượn",
+            waitingLine: "Bạn đang chờ cuốn này · vị trí {position}",
+            heldLine: "Sách đã để dành cho bạn · nhận trước {time} ngày {date}",
+            heldLineNoDate: "Sách đã để dành cho bạn",
+            cancelButton: "Huỷ yêu cầu",
+        },
+    },
+    // "Thông báo" belongs HERE, to the personal bell, and the shelf's
+    // bulletin is `shelf.announcements` = "Bản tin" — the reference's
+    // split, adopted at Task 16 rather than reinvented. The first draft of
+    // this section noticed the two carried the identical word and argued
+    // only that the KEYS should not merge, which left the shelf home
+    // showing two links a tap apart both reading "Thông báo"; the reference
+    // had already paid for that mistake once and renamed the bulletin. One
+    // is what the shelf tells everybody, this is what the shelf told YOU.
+    // Every sentence a row shows comes from the server
+    // (NotificationSentences) — nothing here names a notification kind.
+    notifications: {
+        bell: "Thông báo",
+        bellWithCount: "Thông báo ({count})",
+        title: "Thông báo",
+        allRead: "Bạn đã đọc hết rồi.",
+        unreadCount: "Bạn có {count} thông báo chưa đọc.",
+        markAll: "Đánh dấu đã đọc hết",
+        markOne: "Đánh dấu đã đọc",
+        newBadge: "Mới",
+        empty: "Chưa có thông báo nào. Khi đơn đăng ký hoặc yêu cầu mượn của bạn được duyệt, bạn sẽ thấy ở đây.",
+        backToOverview: "Về trang của tôi",
+        // The same shape manageAudit.when uses, deliberately: a
+        // notification's arrival is an instant, and this is the one
+        // Vietnamese glue ("lúc", "ngày") the server does not supply,
+        // because formatInstantParts renders the two NUMBERS locally.
+        receivedAt: "lúc {time} ngày {date}",
     },
 } as const;
 

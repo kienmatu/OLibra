@@ -54,7 +54,7 @@ use App\Models\Loan;
  * record at a time" — which excludes BOTH, because both are read one
  * record at a time on a page and neither is read in bulk. ReceiveReturn
  * writes that same trimmed string a THIRD time, into the
- * `condition_assessments` row's `note` (ReceiveReturn.php:77), which
+ * `condition_assessments` row's `note` (ReceiveReturn.php:177), which
  * ManagerBookDetailQuery maps through (`ManagerBookDetailQuery.php:144`)
  * and `manage/books/show.tsx:369` renders unconditionally in a book's
  * condition history. So this value reaches a screen MORE directly than

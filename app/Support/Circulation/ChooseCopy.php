@@ -13,9 +13,14 @@ use Illuminate\Support\Collection;
  *
  * heldForUserId is passed as null and forUserId as '' — '' is never a
  * users.id, so the held branch always refuses here: this screen can lend
- * a held copy to nobody (collecting a hold is Phase 2's HandoverRequest),
- * which is the conservative answer the reference gives for the same
- * reason.
+ * a held copy to nobody, which is the conservative answer the reference
+ * gives for the same reason. Collecting a hold is HandoverRequest's job
+ * and it has its own door — the manager's queue screen, whose button
+ * names the request rather than searching for a title, and which reaches
+ * LendCopy with the real holder wired through. (This comment said
+ * "Phase 2's HandoverRequest" until the Phase 2a whole-branch review;
+ * that command shipped in Phase 2a and the quick-lend screen still does
+ * not reach it, which is the part that was worth keeping.)
  *
  * The no-copies case returns its own code, title_has_no_copies (settled
  * decision 4). The reference folded it into copy_not_available, whose

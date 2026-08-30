@@ -8,13 +8,14 @@ use App\Models\Book;
 use App\Models\Bookshelf;
 use App\Queries\BookDetailQuery;
 use App\Support\TenantContext;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class BookController extends Controller
 {
-    public function show(Bookshelf $shelf, Book $book, BookDetailQuery $detail, TenantContext $context): Response
+    public function show(Request $request, Bookshelf $shelf, Book $book, BookDetailQuery $detail, TenantContext $context): Response
     {
         Gate::authorize('view', $book);
 
@@ -40,8 +41,13 @@ class BookController extends Controller
             }
         }
 
+        // The viewer is passed explicitly (not read from Auth inside the
+        // query) so myRequest is scoped to whoever is reading. This route
+        // is in the `auth` group, so $request->user() is non-null here;
+        // the query's parameter is nullable for callers that have no
+        // viewer at all.
         return Inertia::render('shelves/book', [
-            'detail' => $detail->run($book),
+            'detail' => $detail->run($book, $request->user()),
             'firstContact' => $firstContact,
         ]);
     }

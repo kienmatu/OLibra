@@ -49,7 +49,7 @@ use Illuminate\Support\Facades\Gate;
  * was pinned but BEFORE this transaction reaches its own `deletable`
  * fetch is invisible to `whereDoesntHave('loans')` — the copy reads as
  * having no loans, and gets soft-deleted anyway, with a freshly-committed
- * ACTIVE loan now pointing at it. `ReceiveReturn.php:57` and
+ * ACTIVE loan now pointing at it. `ReceiveReturn.php:109` and
  * `VoidLoan.php:56` both resolve that copy with a plain
  * `BookCopy::query()->lockForUpdate()->findOrFail(...)` — no
  * `withTrashed()` — so once this race lands, that loan can never be

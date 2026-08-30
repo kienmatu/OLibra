@@ -2,8 +2,11 @@
 
 // CopyStateMachineTest's own census (tests/Unit/Catalogue/
 // CopyStateMachineTest.php:68-75) hardcodes only the six codes the state
-// machine itself can produce. It says nothing about the seven other codes
-// `new RuleViolated('...')` throws directly from app/Actions — a deleted
+// machine itself can produce. It says nothing about the codes
+// `new RuleViolated('...')` throws directly from app/Actions — far more
+// of them than the state machine's six, and one more with almost every
+// task (this line used to say "seven", written when there were; the
+// enumeration below is the count, and it is meant to be edited) — a deleted
 // sentence there leaves the whole suite green and a manager reading the
 // literal key "rules.copy_count_invalid" instead of a sentence, against BR
 // §2's "errors are named, not generic; a plain message, in Vietnamese."
@@ -34,7 +37,20 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         // that every code has a sentence was blind to this one. Confirmed
         // by deleting `thieu-so-dien-thoai`'s lang/vi/rules.php line: with
         // the old regex the suite stayed green; with this one it goes red.
-        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_-]+)[\'"]\s*\)/', $contents, $matches);
+        //
+        // WIDENED A SECOND TIME, the same way and with the same kind of
+        // measurement. The trailing atom was `\s*\)`, which requires the
+        // literal to be the ONLY argument — so the moment RuleViolated
+        // gained an optional $previous, `new RuleViolated('busy_try_again',
+        // $e)` (App\Support\ConcurrencyRetry, which passes the driver
+        // exception through so the log keeps the SQL and the throwing
+        // frames) stopped matching, and that code dropped silently out of
+        // the census. `\s*[,)]` admits both shapes. Confirmed the same way
+        // as the first widening: with `busy_try_again` deleted from
+        // lang/vi/rules.php this test goes red under the widened regex and
+        // stayed GREEN under the old one — the exact silent pass the
+        // widening removes.
+        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_-]+)[\'"]\s*[,)]/', $contents, $matches);
         foreach ($matches[1] as $code) {
             $codes[$code] = true;
         }
@@ -48,18 +64,24 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'already_registered_here',
         'audit_forbidden_field',
         'audit_nesting_too_deep',
+        'busy_try_again',
         'copy_count_invalid',
+        'copy_not_found',
         'donor_ambiguous',
         'donor_membership_invalid',
         'duplicate_isbn',
+        'duplicate_request',
         'empty_proposal',
         'has_active_loans',
+        'hold_expired',
+        'hold_not_expired',
         'loan_not_active',
         'loan_not_active_cannot_void',
         'member_has_active_loans',
         'membership_not_found',
         'no_renewals_remaining',
         'not_lost',
+        'not_own_request',
         'not_permitted',
         'not_suspended_cannot_reactivate',
         'password_too_short',
@@ -68,6 +90,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'reason_required',
         'registration_not_pending',
         'reject_reason_required',
+        'request_already_fulfilled',
+        'request_not_held',
+        'request_not_pending',
+        'request_not_queued',
         'required_fields_missing',
         'retire_reason_required',
         'shelf_not_found',

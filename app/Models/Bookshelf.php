@@ -93,6 +93,60 @@ class Bookshelf extends Model
     }
 
     /**
+     * What scopeBindings() resolves the {borrowRequest} route parameter
+     * through. Its existence is not optional: without this method the child
+     * binding has no relation to guess and the route throws instead of
+     * resolving, which BorrowRequestPolicyTest saw for real before it
+     * existed ("Call to undefined method
+     * App\Models\Bookshelf::borrowRequests()").
+     *
+     * What it does for TENANCY is redundant, and the review measured the
+     * redundancy rather than letting this comment guess at it. Two
+     * independent layers keep a foreign shelf's request out of a bound
+     * shelf's URL space — this relation's own FK filter, and BookshelfScope
+     * on BorrowRequest (App\Models\Concerns\BelongsToBookshelf) — and
+     * EITHER ALONE IS SUFFICIENT. Dropping scopeBindings() from the route
+     * leaves BorrowRequestPolicyTest's 18 green; dropping
+     * BelongsToBookshelf from BorrowRequest leaves the same 18 green (the
+     * full suite does kill it, 5 failures across TenancyArchitectureTest,
+     * ReaderQueriesTest and TenantIsolationTest); dropping BOTH is
+     * "Failed asserting that 200 is identical to 404" — a real cross-tenant
+     * read. So neither layer is pinned by the binding test, and saying so
+     * is the point: BookshelfScope's coverage lives in the tenancy suite,
+     * and this relation's own filter is pinned by
+     * "Bookshelf::borrowRequests() is shelf-local", which runs under
+     * actSystemWide() precisely so the global scope is switched off and the
+     * FK filter is the only thing left doing the work.
+     *
+     * @return HasMany<BorrowRequest, $this>
+     */
+    public function borrowRequests(): HasMany
+    {
+        return $this->hasMany(BorrowRequest::class);
+    }
+
+    /**
+     * The same shape for {notification} (Task 16's bell), with the same
+     * two-layer redundancy: Notification carries BelongsToBookshelf like
+     * every other scoped model.
+     *
+     * NAME COLLISION, flagged rather than renamed: notifications() is also
+     * the relation Laravel's own Illuminate\Notifications\Notifiable trait
+     * defines. Bookshelf does not use that trait and nothing here sends
+     * Laravel notifications (this app's notifications are its own table and
+     * its own Notifier), so there is no conflict today — but if Bookshelf
+     * ever gains Notifiable, one of the two silently wins and the loser is
+     * a shelf's bell reading from Laravel's notifications table, or the
+     * reverse. Adding the trait to this model means renaming one of them.
+     *
+     * @return HasMany<Notification, $this>
+     */
+    public function notifications(): HasMany
+    {
+        return $this->hasMany(Notification::class);
+    }
+
+    /**
      * Feedback.bookshelf_id is nullable and Feedback deliberately does not
      * carry BelongsToBookshelf (see its docblock), so a shelf-scoped read
      * cannot go through a global scope. Routing it through THIS relation

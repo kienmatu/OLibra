@@ -300,3 +300,41 @@ it('lists actors most-active first, for the filter control', function () {
         ['userId' => $anh->id, 'name' => 'Anna Ít Việc', 'entries' => 1],
     ]);
 });
+
+it('resolves a subject from the payload\'s userId when nothing earlier in the coalesce does', function () {
+    // Phase 2a's request.* payloads name the reader `userId`, not
+    // `borrower_id` (Task 1's fourth join). No request.* writer exists
+    // yet — Tasks 5-8 mint them — so the row here is a deliberate stand-in
+    // whose only job is to make the JOIN falsifiable now rather than
+    // leaving it dead until Task 6: entity_type is not `user` or
+    // `membership`, and the payload carries no borrower_id, so the three
+    // earlier joins all miss and only the userId join can name anybody.
+    // Break the join (its `$.userId` path, or drop it from the coalesce)
+    // and this test is the one that goes red.
+    $f = alogFix();
+    AuditLog::query()->create([
+        'bookshelf_id' => $f['shelf']->id, 'actor_id' => $f['maria']->id,
+        'action' => 'loan.created', 'entity_type' => 'request', 'entity_id' => null,
+        'before' => null,
+        'after' => ['title' => 'Hoàng Tử Bé', 'userId' => $f['child']->id],
+        'context' => [], 'occurred_at' => '2026-08-14 08:00:00',
+    ]);
+    // …and borrower_id still WINS when a row carries both, because it sits
+    // ahead of userId in the coalesce. A one-row fixture could not tell
+    // "userId resolves" from "userId resolves FIRST".
+    $other = User::factory()->create(['full_name' => 'Phêrô Người Mượn Thật']);
+    AuditLog::query()->create([
+        'bookshelf_id' => $f['shelf']->id, 'actor_id' => $f['maria']->id,
+        'action' => 'loan.created', 'entity_type' => 'request', 'entity_id' => null,
+        'before' => null,
+        'after' => ['title' => 'Totto-chan', 'borrower_id' => $other->id, 'userId' => $f['child']->id],
+        'context' => [], 'occurred_at' => '2026-08-15 08:00:00',
+    ]);
+
+    $rows = collect(app(AuditLogQuery::class)->run()['rows']);
+    $viaUserId = $rows->first(fn ($r) => str_starts_with($r['occurredAt'], '2026-08-14'));
+    $viaBorrower = $rows->first(fn ($r) => str_starts_with($r['occurredAt'], '2026-08-15'));
+
+    expect($viaUserId['sentence'])->toBe('Maria Quản Lý Nhật Ký đã cho Giuse Bé Đọc Sách mượn Hoàng Tử Bé')
+        ->and($viaBorrower['sentence'])->toBe('Maria Quản Lý Nhật Ký đã cho Phêrô Người Mượn Thật mượn Totto-chan');
+});

@@ -69,4 +69,39 @@ return [
     'lend_success_flash' => 'Đã cho :name mượn ":title" — hạn trả :due.',
     'return_success_flash' => 'Đã nhận trả bản :code — sách đã về kệ.',
     'renew_success_flash' => 'Đã gia hạn — hạn trả mới là :due.',
+
+    // ── Requests & holds (Phase 2a) ───────────────────────────────────
+    'copy_not_found' => 'Không tìm thấy bản sách này.',
+    'duplicate_request' => 'Bạn đã có một yêu cầu đang chờ cho cuốn này.',
+    'membership_not_active_cannot_request' => 'Tài khoản đang tạm khoá, không thể gửi yêu cầu mượn.',
+    'request_not_pending' => 'Yêu cầu này đã được xử lý.',
+    'request_not_queued' => 'Yêu cầu này không còn trong hàng chờ của sách này.',
+    'no_copy_available' => 'Không còn bản nào để giữ chỗ.',
+    'chosen_copy_lost_or_retired' => 'Bản sách đã chọn đã mất hoặc ngừng dùng.',
+    'hold_expired' => 'Thời gian giữ chỗ đã hết. Bạn đọc cần đăng ký lại.',
+    'request_not_held' => 'Yêu cầu này không có bản sách nào đang được giữ chỗ.',
+    'not_own_request' => 'Bạn không thể huỷ yêu cầu của người khác.',
+    'request_already_fulfilled' => 'Yêu cầu này đã được trao sách, không thể huỷ.',
+    // flash lines (the lend/return flash precedent, 1c)
+    'request_success_flash' => 'Đã gửi. Quản lý tủ sách sẽ xem và báo lại cho bạn.',
+    'request_cancel_flash' => 'Đã huỷ yêu cầu mượn.',
+    'return_hold_success_flash' => 'Đã nhận trả bản :code và giữ chỗ cho bạn đọc đang chờ.',
+    'approve_success_flash' => 'Đã giữ chỗ — bạn đọc sẽ được báo, hạn đến nhận :until.',
+    'reject_request_flash' => 'Đã từ chối yêu cầu — bạn đọc sẽ được báo.',
+    // The handover flash. 1c's lend_success_flash takes :name/:title, and
+    // the handover controller has neither at hand — it holds the request
+    // and LendCopy's dueOn. Minted HERE, in the one task that owns this
+    // block, rather than retroactively edited into it from Task 14.
+    'lend_success_flash_short' => 'Đã trao sách — hạn trả :due.',
+    'release_hold_flash' => 'Đã trả bản sách về kệ.',
+    // Authored on ruling 1 (no errors.ts spelling): a manager may not yank
+    // a live hold. OPS §4.2 gains its entry in Task 18's own commit — the
+    // title_has_no_copies two-ledger precedent.
+    'hold_not_expired' => 'Thời gian giữ chỗ chưa hết, không thể trả về kệ.',
+    // Authored for the deadlock retry (no errors.ts spelling, the
+    // hold_not_expired precedent): what a circulation write says when its
+    // retries are spent against a lock-order cycle. Deliberately says
+    // nothing about locks — the caller's only useful action is to send the
+    // same tap again. OPS §6 is its second ledger.
+    'busy_try_again' => 'Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại.',
 ];

@@ -17,6 +17,10 @@ export default function ManageLayout({ children }: PropsWithChildren) {
         { name: copy.manage.lend, href: route("shelves.manage.lend", { shelf: shelf.slug }) },
         { name: copy.manage.returns, href: route("shelves.manage.returns", { shelf: shelf.slug }) },
         {
+            name: copy.manage.requests,
+            href: route("shelves.manage.borrow-requests", { shelf: shelf.slug }),
+        },
+        {
             name: copy.manage.readers,
             href: route("shelves.manage.readers.index", { shelf: shelf.slug }),
         },

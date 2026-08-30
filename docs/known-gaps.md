@@ -1032,10 +1032,20 @@ the full suite ran green.
   escape hatch is the intended surface — and the plan-header's open
   question 1 (active vs pending) should be re-confirmed with the product
   owner before 1c wires it.
-- **`ApproveMembership`/`RejectMembership` write NO notification rows yet.**
-  The reference writes `membership_approved`/`membership_rejected` inside
-  the command transaction (OPS §7). Phase 2 must add both writes when the
-  notification system lands — the Actions carry the same note.
+- **`ApproveMembership`/`RejectMembership` now write their notification
+  rows; this entry records the shipped state, not a gap.** 1b left both
+  writes to Phase 2 and both Actions carried a "Phase 2 must add…"
+  docblock paragraph saying so. Phase 2a Task 2 added them and deleted
+  both paragraphs: each Action writes `membership_approved` /
+  `membership_rejected` through `App\Support\Notifications\Notifier`
+  inside the transaction that already writes the status change and the
+  audit row (OPS §7). The transactional half is not a comment — it is
+  pinned by `NotificationsAreReaderFacingTest`'s "every notify() call sits
+  inside its command's own DB::transaction closure", a token walk that
+  reddens when a call is moved after the transaction returns, and by
+  `NotificationWritePathTest`'s rollback test, which proves the row
+  present inside the transaction before failing it. Nothing here is
+  outstanding.
 - **`POST /register` is throttled on two keys, both numbers invented here**
   — 30/minute per IP (burst) and 20/day per SHA-256 of the submitted phone,
   falling back to the IP when the phone is blank. A decision taken on the
@@ -1359,7 +1369,7 @@ the full suite ran green.
   `FormRequest::failedAuthorization()` renders as a 403. Every route that
   reaches these is `role:manager`-gated, and `EnsureShelfRole` 404s a
   non-manager before any controller or Form Request runs — its own
-  docblock names the exact 403-vs-404 hazard BR §5.4's anti-enumeration
+  docblock names the exact 403-vs-404 hazard spec §5.4's anti-enumeration
   rule cares about — so today these branches are provably unreachable
   (`MembershipPolicy`'s methods are all literally `act-as-manager`, the
   identical check the middleware already made). Fixed anyway, as a
@@ -1493,7 +1503,7 @@ the full suite ran green.
   return the bare `bool` from `Gate::allows(...)`/`$model instanceof X &&
   Gate::allows(...)` in `authorize()`, which Laravel's default
   `failedAuthorization()` renders as a 403, not a 404 — the exact
-  BR §5.4 anti-enumeration hazard "PR #61 fix round, Task 4" (see above)
+  spec §5.4 anti-enumeration hazard "PR #61 fix round, Task 4" (see above)
   already fixed on the five Members Form Requests by switching to
   `abort_unless(..., 404)`. Every route reaching these five sits inside
   `['auth', 'role:manager']` (`routes/web.php`), so — identically to the
@@ -1551,16 +1561,16 @@ pages). Written by Task 14 after the full suite ran green.
   | Entry | Disposition |
   |---|---|
   | `LendCopy` | shipped (Task 3), both entry points (dashboard flow + book detail); §4.2's failure-mode list amended in Task 1 with `title_has_no_copies` |
-  | `HandoverRequest` | Phase 2 (holds); route absence pinned (`CirculationArchitectureTest`) |
-  | `ReceiveReturn` | shipped narrowed (Task 4); hold branch Phase 2 |
+  | `HandoverRequest` | ~~Phase 2 (holds); route absence pinned~~ — **shipped, Phase 2a Task 9**; the absence pin was replaced by a PRESENCE pin that names each borrow-request route by route NAME and requires `role:manager` on it (`CirculationArchitectureTest`, and it GREW at Task 18 — which is why it names rather than counts) |
+  | `ReceiveReturn` | shipped narrowed (Task 4); hold branch re-widened by Phase 2a Task 10 — see the struck entry below |
   | `RenewLoan` | shipped (Task 5); Q4 = renewal is status-gated, closed and pinned by name |
   | `VoidLoan` | shipped (Task 6) + a button OPS never specified |
-  | `CreateBorrowRequest` / `ApproveBorrowRequest` / `RejectBorrowRequest` / `CancelOwnRequest` | Phase 2 |
-  | `SkipRequest` | Phase 2 — and no reference implementation exists to port |
-  | `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans`, `GetMyDashboard` (loans half), `GetMyLoanHistory` | shipped |
-  | `GetBorrowRequestQueue` | Phase 2 |
+  | `CreateBorrowRequest` / `ApproveBorrowRequest` / `RejectBorrowRequest` / `CancelOwnRequest` | ~~Phase 2~~ — **all four shipped, Phase 2a Tasks 4–7** |
+  | `SkipRequest` | ~~Phase 2 — and no reference implementation exists to port~~ — **closed WITHOUT implementation, Phase 2a**: the product owner removed *Bỏ qua* from the reference (the queue page's own comment block, 2026-08-09), leaving *Từ chối* as the manager's one decision on a pending row. OPS §4.2's entry and its open question stand as the record of what was NOT built |
+  | `SearchBooksForLending`, `SearchReadersForLending`, `SearchLoansForReturn`, `GetOverdueLoans`, `GetMyDashboard` (loans half), `GetMyLoanHistory` | shipped — and `GetMyDashboard`'s **requests half** shipped in Phase 2a Task 13, so the parenthetical is history rather than a limit |
+  | `GetBorrowRequestQueue` | ~~Phase 2~~ — **shipped, Phase 2a Task 11** (`BorrowRequestQueueQuery`) |
   | `GetManagerDashboard`, `ExportLoansCSV` | 1d |
-  | `ResolveCopyById` | Phase 2 |
+  | `ResolveCopyById` | Phase 2 — **still open after 2a**, and now specifically 2c's: it is the scanner's query, and `CreateBorrowRequest`'s narrowed `copyId` (2a section below) waits on the same phase |
   | `ManagerRegisterReader` (§4.3) | Action shipped in 1b, surface shipped here — closes 1b's last "implemented, reachable from nowhere" entry (see below) |
 
   Every code path above was walked by opening the named file, not
@@ -1568,37 +1578,59 @@ pages). Written by Task 14 after the full suite ran green.
   `ReceiveReturn`'s narrowing are each their own entry below with the
   file and line evidence.
 
-- **`ReceiveReturn`'s contract is deliberately narrower than the
-  reference, and Phase 2 must restore four things in one pass.**
-  `app/Actions/Circulation/ReceiveReturn.php`'s own docblock names the
-  gap: no `holdForRequestId` parameter, no `queuedRequestId` return
-  value, no `request.approved` second audit row, no notification. The
-  reference (`old_next/src/domain/circulation/commands/
-  receive-return.ts`) does all four inside the SAME transaction as the
-  return itself: it resolves a hold via `holdForRequestId`, stamps
-  `hold_expires_at` from the injected clock (not a bare `now()`) when
-  approving one, writes a `request.approved` audit row alongside
-  `loan.returned`, and — separately — always computes `queuedRequestId`
-  by reading the pending-request queue in `requested_at asc, id asc`
-  order AFTER every write in the transaction has landed, so the answer
-  reflects the state the return itself just produced. None of this is
-  reachable in 1c (nothing creates a `BorrowRequest` outside the seed
-  data), so nothing tests it either — Phase 2 re-widens the signature
-  to the reference's exact shape when holds exist, not before.
-- **`LendCopy`'s hold-collection branch is unported, and the predicate
-  it depends on is already live and waiting.** The reference closes a
-  collected hold inside the SAME transaction as the lend
-  (`request.fulfilled`, `old_next/src/domain/circulation/commands/
-  lend-copy.ts:220`); this port's `LendCopy::execute` always passes
-  `null` for `$heldForUserId` (`app/Actions/Circulation/LendCopy.php`'s
-  class docblock says so explicitly). `LoanRules::copyLendable`'s
-  held-for-me clause (`$state === CopyState::Held && $heldForUserId ===
-  $forUserId`, `app/Support/Circulation/LoanRules.php:54`) is already
-  unit-tested and correct — Phase 2 only has to wire the real holder
-  through and add the collected-hold close, not invent the predicate.
+- **~~`ReceiveReturn`'s contract is deliberately narrower than the
+  reference, and Phase 2 must restore four things in one pass~~ —
+  CLOSED by Phase 2a Task 10.** All four are back, in one commit and one
+  transaction: the `$holdForRequestId` parameter, the `queuedRequestId`
+  return value (the signature changed from `void` to
+  `array{loanId: string, queuedRequestId: ?string}`), the
+  `request.approved` audit row beside `loan.returned`, and the
+  `request_approved` notification. The entry is struck here rather than
+  left for the phase's wrap-up task, for the reason the `LendCopy` entry
+  below gives: a known-gap that has silently become false is worse than
+  one that is merely missing. Two things about the port are worth
+  keeping, because they are NOT what the reference does:
+
+  - **A third lock the reference never took.** Its `resolveHold` was a
+    plain read; ours is `BorrowRequest::query()->lockForUpdate()`, third
+    in the order copy → loan → request, so a concurrent
+    `CancelOwnRequest` cannot invalidate the row between the resolve and
+    the hold write. That puts `ReceiveReturn` on the same side of
+    divergence 1's recorded AB–BA edge as `ApproveBorrowRequest` and
+    `LendCopy` (holding the copy, wanting the request), a third
+    participant on an edge already recorded rather than a new direction
+    — read off the `lockForUpdate` call sites under `app/Actions`, not
+    reproduced, and no cycle-freedom claim is made either way.
+  - **`request.approved`'s audit payload carries `userId` from this door
+    too** (plan divergence 6). The reference writes it only from
+    `ApproveBorrowRequest`, which leaves the second door's entry
+    subject-less in the audit browser.
+
+  The `queuedRequestId` read is still what the entry described: the
+  pending queue for this title in `requested_at asc, id asc` order, read
+  AFTER every write in the transaction, so a just-held request is no
+  longer pending and the answer is the next person along.
+  `tests/Feature/Circulation/ReceiveReturnHoldTest.php` pins all of it;
+  1c's `ReceiveReturnTest` was not touched and stayed green, which is
+  the evidence the plain-return path did not move.
+- **~~`LendCopy`'s hold-collection branch is unported~~ — CLOSED by
+  Phase 2a Task 8 (`6985690`, `9cea723`).** This entry said
+  `LendCopy::execute` "always passes `null` for `$heldForUserId`" and
+  that the collected-hold close was unported. Both statements became
+  false the moment Task 8 landed: the real holder is wired through, and
+  the close is a guarded `UPDATE ... WHERE status = 'approved'` inside
+  the lend's own transaction, writing `request.fulfilled`. The entry is
+  struck here rather than left for the phase's wrap-up task because a
+  known-gap that has silently become false is worse than one that is
+  merely missing — this document's whole failure mode is claims nobody
+  re-ran. The port ended up STRICTER than the reference it names: the
+  reference's close (`old_next/src/domain/circulation/commands/lend-copy.ts:328-332`)
+  carries no status guard, so it can overwrite a request that lost a
+  race; this one cannot.
 - **INV-5's guarantee is a membership-row lock, not an index — stronger
   than the reference, but bypassable outside `LendCopy`.**
-  `app/Actions/Circulation/LendCopy.php:75` locks the reader's
+  `app/Actions/Circulation/LendCopy.php:81` (was `:75` before Phase 2a
+  Task 8 re-widened the file) locks the reader's
   `Membership` row as the SECOND statement in the transaction (copy
   first, per the lock-order entry below), so a rival lend for the same
   reader waits behind that lock before counting active loans — the
@@ -1609,20 +1641,44 @@ pages). Written by Task 14 after the full suite ran green.
   that mutates `loans`/`memberships` without going through `LendCopy`
   bypasses INV-5 entirely, because nothing in the schema enforces it.
 - **`RenewLoan`'s queue check has no structural backstop.**
-  `app/Actions/Circulation/RenewLoan.php:70` takes exactly ONE lock (the
-  loan row) and then runs a plain, unlocked
+  `app/Actions/Circulation/RenewLoan.php` takes exactly ONE lock — the
+  loan row, its transaction's first statement, whose own comment says so —
+  and then runs a plain, unlocked
   `BorrowRequest::query()->where('book_id', ...)->where('status',
   Pending)->exists()` — a request for the same title committing between
   that read and the renewal's own commit is invisible to it. Unreachable
   in 1c (nothing creates a `BorrowRequest` outside seed data, so nothing
-  can race this check); Phase 2 decides whether the queue check needs a
-  lock once requests are live.
+  could race this check).
+  **DECIDED in Phase 2a (Task 19's walk, against the shipped file rather
+  than the plan): the plain read stays, and the check is now REACHABLE.**
+  `CreateBorrowRequest` ships, so a reader really can create a pending
+  request for a title while its borrower renews it. The lock was not
+  added, on divergence 8's indistinguishability argument, spelled out:
+  a lock would order the two writes, but it would not make the outcome
+  *observably* different from what the plain read already gives. "The
+  renewal read the queue and the request committed a moment later" and
+  "the request committed a moment earlier and the renewal read it" are two
+  orderings of two independent human actions seconds apart; nothing in the
+  system, and neither person, can tell which one happened. The reader sees
+  a queue position either way; the borrower sees a granted renewal or
+  `title_has_queue` either way. So the racing-request case is benign **by
+  argument, not by absence** — which is the whole change from the sentence
+  this replaces, whose safety came entirely from nothing being able to
+  reach the check.
+  Two bounds, because an argument that does not state them is the shape
+  this document keeps getting wrong: it holds because a renewal takes
+  nothing away from the queued reader (BR §6's renewal extends one loan;
+  it does not consume the copy the queue is waiting for), and it stops
+  holding the day anything gives the queue check a WRITE side — a command
+  that decremented a queue counter on renewal, say, would need the lock
+  this one does not.
 - **The `ReceiveReturn` / `ReportCopyLost` / `VoidLoan` lock order
   (copy, then loan) is a convention every command's source enforces by
   hand, not a database-level guarantee.** Verified by reading each
-  file's first two statements: `ReceiveReturn.php:57-59`,
+  file's first two statements: `ReceiveReturn.php:109-111` (was `:57-59`
+  before Phase 2a Task 10 re-widened the file),
   `VoidLoan.php:56-57` both lock `BookCopy` before `Loan`;
-  `LendCopy.php:73-75` locks `BookCopy` before `Membership` (a
+  `LendCopy.php:79-81` locks `BookCopy` before `Membership` (a
   different second party, same "copy first" rule). Nothing in the
   schema stops a future circulation command from taking the loan lock
   first — it would simply re-open the AB-BA deadlock this phase closed
@@ -1722,17 +1778,37 @@ pages). Written by Task 14 after the full suite ran green.
   turn this near-miss into a real collision with `LendCopy`'s lock,
   silently, with no test in this suite positioned to notice until it
   deadlocks under real concurrent load.
-- **Step 1's block flag is hold-aware; `ChooseCopy` is not — a Phase 2
-  landmine, not a bug today.** `SearchBooksForLendingQuery` derives its
-  `blocked` flag from `CountsCopies::borrowable()`, which excludes an
-  `available` copy carrying an unexpired approved hold from the
-  available count; `ChooseCopy::lowestLendable` picks the lowest-coded
-  copy by `book_copies.state` alone and knows nothing about holds. The
-  two agree today only because nothing in 1c can create a hold. The
-  moment `ApproveBorrowRequest` exists and flips a copy to `held`, step
-  1 (search) and step 3 (confirm) will disagree unless `ApproveBorrowRequest`
-  keeps them in sync or `ChooseCopy` is taught the same predicate —
-  exactly the failure mode plan divergence 9 exists to flag in advance.
+- **~~Step 1's block flag is hold-aware; `ChooseCopy` is not — a Phase 2
+  landmine~~ — DISPOSITIONED by Phase 2a (divergence 14), not left as a
+  landmine.** The description stands as written:
+  `SearchBooksForLendingQuery` derives its `blocked` flag from
+  `CountsCopies::borrowable()`, which excludes an `available` copy
+  carrying an unexpired approved hold; `ChooseCopy::lowestLendable` picks
+  the lowest-coded copy by `book_copies.state` alone and knows nothing
+  about holds. The entry offered two resolutions. **The one taken is the
+  first: `ApproveBorrowRequest` keeps them in sync** — it flips the copy to
+  `held` in the same transaction as the hold, so the state-only branch and
+  the state-plus-no-live-hold branch select the same copies, and step 1
+  and step 3 give the same answer about the same title.
+  **`ChooseCopy` was deliberately NOT taught the predicate.** It is pure
+  over a `Collection<BookCopy>` — no clock, no SQL — so learning "does a
+  live hold name this copy" would mean every caller handing it hold data,
+  or the function reaching for the database; the reference's own chooser
+  is pure for the same reason.
+  **The pin, so this row is not just a paragraph:**
+  `tests/Feature/Circulation/ApproveBorrowRequestTest.php`'s "before an
+  approval, step 1 and step 3 both offer the title's only copy" and "after
+  an approval, step 1's blocked flag and ChooseCopy agree the title has
+  nothing lendable". Proved by mutation rather than asserted: deleting the
+  `$copy->update(['state' => CopyState::Held])` line turns the second one
+  red on exactly the disagreement — the search says blocked because
+  `borrowable()` sees the live hold, while `ChooseCopy` still offers the
+  copy.
+  **The one residual is divergence 13's row** — `available` under a live
+  hold, where the two predicates DO still disagree and a walk-up lend
+  wins. Its own entry in the 2a section below carries what is now known
+  about reaching it, which is not what this branch believed for most of
+  the phase.
 - **The copyless-title refusal is a deliberate, ruled divergence from
   the reference — `title_has_no_copies` replaces `copy_not_available`
   for a title with zero recorded copies.** The reference folds a
@@ -1774,13 +1850,17 @@ pages). Written by Task 14 after the full suite ran green.
   sentence. Verified present in `lang/vi/rules.php:62-64` and referenced
   from `LendController::store`, `ReturnController::store` and
   `MyLoansController::renew` respectively.
-- **Due-soon/overdue notifications do not exist yet.** Nothing in this
-  phase writes a `notifications` row for an approaching or passed due
-  date — grepped `app/Actions/Circulation` and found no `Notification::`
-  reference anywhere in it. Phase 2's sweep; the overdue SCREEN itself
-  (`OverdueLoansQuery` + `OverdueController`) is live, correct, and
-  reachable from the manager nav today (BR §8) — only the proactive
-  notification is missing, not the read surface.
+- **~~Due-soon/overdue notifications do not exist yet~~ — CLOSED by
+  Phase 2a Task 17.** `app/Console/Commands/SweepReminders.php` writes both
+  kinds, scheduled at 07:00 `Asia/Ho_Chi_Minh` from `routes/console.php`.
+  Struck here rather than left for the phase's wrap-up, for the reason the
+  `ReceiveReturn` entry above gives: a known-gap that has silently become
+  false is worse than one that is merely missing. The half of the entry
+  that was never a gap still holds and is why the job is allowed to be
+  late: the overdue SCREEN (`OverdueLoansQuery` + `OverdueController`) and
+  the dashboard's overdue count are computed on read (BR §8), so they are
+  correct whether or not the sweep has ever run —
+  `SweepIsHousekeepingTest`'s first block is that assertion.
 
 - **Carry-over from Task 13's review, closed this task: no test proved
   the reader's own-loans READS exclude another reader's loan on the
@@ -1943,7 +2023,7 @@ pages). Written by Task 14 after the full suite ran green.
   copies after `DeleteBook`'s REPEATABLE READ snapshot was pinned, but
   before `DeleteBook`'s own `whereDoesntHave('loans')` fetch runs, is
   invisible to that snapshot — the copy gets soft-deleted anyway, with
-  an active loan now pointing at it that `ReceiveReturn.php:57` and
+  an active loan now pointing at it that `ReceiveReturn.php:109` and
   `VoidLoan.php:56` can never resolve (`findOrFail`, no
   `withTrashed()`). Not fixed in this round: `DeleteBook` is unrouted
   (zero live exposure today), and the honest fix is a real design
@@ -2210,3 +2290,1049 @@ text turned out wrong is called out rather than repeated.
     as a shelf approaches it** — `ExportHttpTest.php` exercises small
     fixtures only; the memory/time behaviour at scale is asserted in
     this document, not by any test that could go red.
+
+---
+
+## Phase 2a — Requests and holds
+
+Recorded per task as it lands, not at the end of the phase.
+
+- **`ApproveBorrowRequest` accepts an unvalidated `$copyId`, and a
+  malformed one is a 1267, not a refusal.** The Action takes the copy id
+  as a raw string because it comes from a form field, not a route
+  binding; `find()` on a well-formed id that names nothing — including
+  another shelf's copy and a soft-deleted one — is `copy_not_found`, as
+  intended. A *malformed* id is a different outcome: `book_copies.id` is
+  `ascii_bin`, so comparing it against a `utf8mb4` bind parameter raises
+  errno 1267, "Illegal mix of collations", and the caller gets a
+  `QueryException` rather than a named refusal. Measured, not inferred
+  from the column type — `BookCopy::query()->find('🙂')` against the live
+  MariaDB 10.11 container returns exactly that. This is the same shape as
+  the `ascii_bin` 500s Phase 1c chased six times, and it is deliberately
+  *not* fixed inside the Action: Task 14's Form Request is where the
+  `uuid` rule belongs, so the emoji becomes a Vietnamese validation
+  message on the way in. **CLOSED for the HTTP path by Task 14**, which
+  wired the only route that reaches this Action
+  (`POST .../manage/borrow-requests/{borrowRequest}/approve`) behind
+  `ApproveBorrowRequestRequest`'s
+  `copy_id => ['bail', 'required', 'string', 'uuid']`. Verified by
+  mutation rather than by reading: deleting the `uuid` token and nothing
+  else, then posting `copy_id='🙂'` over HTTP, produced exactly
+  `SQLSTATE[HY000] 1267` from the `lockForUpdate()->find()` — a red test
+  and a live 500 — and restoring it turned the same post into a
+  `copy_id` field error. The Action itself still does not validate its
+  argument, so **a future second caller must bring its own guard**; that
+  is what stays open here.
+- **…and the test that looked like it guarded that absence guarded less
+  than its name suggested — now moot, and replaced.**
+  `CirculationArchitectureTest`'s "HandoverRequest and the borrow-request
+  commands have no route" asserted only that no registered URI contained
+  one of three literal fragments — `handover`, `borrow-requests/{`,
+  `requests/{`. A queue route spelled `…/manage/queue/{request}/approve`
+  contained none of them and would have shipped green. Task 12 removed
+  `requests/{` and Task 14 removed the loop entirely, replacing it with a
+  PRESENCE pin that names each borrow-request route by route NAME and
+  asserts `role:manager` on each — naming rather than counting, which is
+  why Task 18 could add one to that list without falsifying anything (this
+  sentence read "the four routes" until the whole-branch review, by which
+  time there were five) — a check with no fragment-spelling hole in it,
+  because a route registered under a different name simply is not the
+  route the nav links and the controller redirect to. And the general
+  case the old fragment loop could not reach IS covered, by a test in
+  another file: `RouteOrderTest`'s "puts a role: middleware on every route
+  under /manage" walks every route with a literal `manage` path segment
+  and requires a `role:` gate on each, so a FURTHER circulation route added
+  under `/manage` with any spelling at all goes red without a gate. What
+  remains uncovered is a manager-ish route declared OUTSIDE `/manage`;
+  nothing sweeps for that.
+- **A same-instant tiebreak cannot be falsified by row order on MariaDB
+  for this query's shape, at the row counts any fixture in this
+  codebase currently uses — the mechanism is filesort behaviour, not
+  the clustered primary key, and the earlier "unordered scan already
+  returns creation order" entry above (Phase 1b) is necessary but not
+  sufficient here.** That earlier entry's house rule — seed a tiebreak
+  test in the WRONG order, force a genuine collision — is exactly what
+  `BorrowRequestQueueQueryTest`'s 28-row fixture does (ported verbatim
+  from the reference's `borrow-request-queue.test.ts:367-452`: four
+  titles folding to three values, seven requests per book, ids
+  decoupled from insertion order by construction). It still doesn't
+  work: dropping `orderBy('borrow_requests.id')` — or, independently,
+  `orderBy('books.id')`, the OTHER tiebreak, between two same-titled
+  books — from both the ROW_NUMBER() window and the outer order leaves
+  every assertion in that test green. The reference's own fixture is
+  discriminating on POSTGRES only because it deliberately pushes past
+  "the seven-tuple threshold below which Postgres sorts with a stable
+  insertion sort" into an UNSTABLE sort that actively reorders ties (its
+  own comment, `:370-390`); MariaDB's in-memory filesort does the
+  opposite at this row count — it PRESERVES input order for a tied
+  group — so a query with the tiebreak and the same query with it
+  silently deleted produce the identical sequence. (A first pass at this
+  explanation, in an earlier round of this task, blamed InnoDB's
+  clustered primary key instead — that's only half right: it describes
+  why a bare single-table scan's INPUT is already PK-ordered, not what a
+  five-table join under a window function does with that input once
+  MariaDB has to filesort it, which is the actual query under test.)
+  BOUNDED, not absolute: this holds only while the filesort stays
+  in-memory and order-preserving. Untested here: a row count large
+  enough to spill the sort buffer into merge passes (not guaranteed
+  stable), or a query-plan change that reorders the join before the sort
+  runs. What a same-instant tiebreak test should do instead of scaling
+  the fixture further to chase that: pin the tiebreak in the GENERATED
+  SQL, not in the output — `DB::enableQueryLog()`/`getQueryLog()`
+  (sound only for a statement that returns, per the entry above on that)
+  around the call, asserting the captured query string contains the
+  `ORDER BY … id ASC` clause verbatim.
+  `BorrowRequestQueueQueryTest`'s "pins the tiebreak in the SQL itself"
+  test is the worked example; `app/Queries/BorrowRequestQueueQuery.php`'s
+  own docblock carries the short version.
+- **`php artisan tinker` does not go through `phpunit.xml`'s
+  `force="true"` DB overrides, so a diagnostic run there hits the real
+  dev database (`olibra`), not `olibra_testing`.** Found running down
+  the entry above: two `tinker --execute=...` sessions (a five-row
+  single-table probe, then a query-log capture) both created and left
+  real rows in `olibra` — three bookshelves (`diag-shelf`, `diag-sql`,
+  `diag-sql2`) and their books/copies/memberships/borrow_requests/users
+  — because tinker boots the ordinary `.env`-configured connection, and
+  none of the `<env>`/`<server>` overrides this file's own `phpunit.xml`
+  section documents (the ones that keep `php artisan test` off the dev
+  database even when a stray `DB_DATABASE` sits in the shell) apply to
+  it. Cleaned up by hand afterward (`DB::table(...)->delete()` in FK
+  dependency order, verified gone with
+  `Bookshelf::withTrashed()->where('slug', ...)->exists()`), but nothing
+  stops the next agent from forgetting to, or from a tinker session that
+  crashes mid-diagnostic and leaves rows behind with no error to notice
+  by. `php artisan tinker --env=testing` does not fix it either — this
+  project's protection is the `<server>` block's unconditional
+  `$_SERVER` overwrite inside PHPUnit's own bootstrap, which tinker
+  never runs. Whoever needs to run an ad hoc query against the test
+  schema should migrate `olibra_testing` and point `DB_DATABASE` at it
+  for that one shell session, or write the probe as a real (throwaway)
+  Pest test instead of reaching for tinker.
+- **Task 12's book-page request block is unverified by every gate in this
+  repo, and the specific thing that ships green is the wrong Vietnamese
+  label on the "Xin mượn" button.** `resources/js/pages/shelves/book.tsx`
+  gained the request/cancel block, and nothing renders it: there is no
+  `*.test.tsx` anywhere under `resources/js` (`find resources/js -name
+  "*.test.ts*"` returns nothing), and `package.json`'s `test` /
+  `test:watch` scripts both `cd old_next` first, so the only vitest in
+  this repo runs against the frozen Next.js app. `assertInertia` in
+  `ReaderRequestSurfaceTest` reads the server-side props
+  (`detail.myRequest.*`, `errors.rule`) and stops there — it never sees
+  which string the button renders or which id the cancel form posts.
+  Measured rather than assumed, on this branch: swapping the two arms of
+  the availability ternary — so a title with copies free offers *Đăng ký
+  chờ mượn* and one with none offers *Xin mượn* — left **every gate this
+  repo has green**: `make test` fully passing with no test reddened by the
+  swap, `laravel:typecheck` clean, `laravel:lint` at its pre-existing
+  warning set and `laravel:build` successful. Restored. (Stated as "no
+  test reddened" rather than as a suite total on purpose: a count goes
+  stale the next time anyone adds a test, and this entry's claim must not
+  go stale with it — the point is that nothing in the suite can see the
+  swap at all.) This is the same shape as the dashboard stat-card entry
+  above, now with a second worked example; it is a gap in the toolchain,
+  not in this task, and closing it means a frontend rendering test setup
+  for `resources/js`, which no phase has scoped yet.
+- **Task 16's notifications page and header bell are unverified by every
+  gate in this repo, for the same toolchain reason as the two entries
+  above.** `resources/js/pages/shelves/profile/notifications.tsx` and the
+  bell link in `resources/js/layouts/app-layout.tsx` are structurally
+  untested: `MyNotificationsTest`'s `assertInertia` reads `mine.unread` and
+  `unreadNotifications` and stops there, so it never sees which string a
+  row renders, whether the unread tint and the word *Mới* both appear, or
+  which notification id a row's form posts. What IS pinned server-side —
+  and was chosen deliberately for that reason — is *who gets a bell at
+  all*: `unreadNotifications` is `null` for a guest, for a page with no
+  shelf bound and for a signed-in non-member, and the layout renders the
+  link on `!== null` rather than deciding membership itself. The first
+  draft of that layout condition (`shelf && auth.user`, as the brief
+  specified) put the link in front of a signed-in non-member on the
+  shelf's ungated `feedback` page and 404'd them; that is now two test
+  blocks, not a comment.
+- **`unreadNotifications` is lazy, and "lazy" here means per-render, not
+  per-session.** A callable shared prop is resolved by `Inertia\PropsResolver`
+  only while an `Inertia\Response` is built, so no non-Inertia response —
+  a `back()` redirect, a streamed CSV — runs the count. It DOES run one
+  `count(*)` on every Inertia page render, measured by `MyNotificationsTest`
+  in both directions (zero count statements on the mark-all POST; exactly
+  one on the profile overview, whose controller never asks for
+  notifications). Replacing the closure with its value reddens the first of
+  those two blocks — verified by making that exact mutation, not inferred
+  from the framework.
+  **That count needed an index, which this task shipped rather than
+  deferred — and the entry this replaces got the cost wrong in the
+  reader's favour.** `read_at` was in no index at all (the postgres
+  original's was partial, `where read_at is null`, and
+  `2026_08_26_000014_create_notifications_table.php` dropped the predicate
+  because MariaDB has no partial index), so EXPLAIN of the real statement
+  over 400 rows spread across two shelves returned `type: ALL, key: null,
+  rows: 400, Extra: Using where` — both existing indexes offered in
+  `possible_keys` and both rejected. The first version of this entry called
+  that "bounded by one shelf". **It was not, and that is the correction
+  that mattered:** a `type: ALL` scan reads every physical row in
+  `notifications` across every bookshelf sharing the database, and
+  `BookshelfScope` contributes an ordinary WHERE clause applied *after* the
+  scan, never a scan boundary. `rows: 400` is the whole table, not the
+  ~200 belonging to the shelf under test. On a deliberately multi-tenant
+  install (`docs/BUSINESS-REQUIREMENTS.md:57` and `docs/SDD.md:228`, both
+  of which describe Phase 1 as "one tenant among many" — the point of the
+  shared cPanel hosting target) that meant every shelf's readers paying for
+  every other shelf's notification volume, on every page render, growing
+  with the install rather than with the parish.
+  `2026_08_30_000001_add_notifications_unread_by_user_index.php` adds
+  `notifications_unread_by_user (user_id, read_at)`. Re-measured on the
+  same 400-row fixture: `type: index_merge, key:
+  notifications_unread_by_user,notifications_bookshelf_id_foreign, rows:
+  66, Extra: Using intersect(…); Using where; Using index` — covering (no
+  table rows read at all) and bounded by one user's unread rows, which does
+  not grow with other tenants. **No residual worth recording:** a
+  hypothetical three-column `(user_id, read_at, bookshelf_id)` was measured
+  side by side and plans as a single `type: ref … rows: 67` seek — the same
+  bound, for a wider index, so the two-column shape ships.
+  The list query was re-measured after the migration too, because a new
+  candidate index can move a plan nobody meant to move: unchanged at `type:
+  range, key: notifications_unread, rows: 200`, with the new index in
+  `possible_keys` and not chosen, and **still no `Using filesort`**.
+
+- **The sweep is registered and the scheduler ticks; nobody has watched it
+  fire at 07:00.** `php artisan schedule:list` in `laravel-app-1` prints
+  `0 0 * * *  php artisan reminders:sweep` — `0 7 * * *` in
+  `Asia/Ho_Chi_Minh` rendered in the app's own UTC — beside the per-minute
+  queue tick, and `docker compose logs scheduler` shows that tick running
+  each minute, so `schedule:work` is live and reading this file. What has
+  NOT been observed is a real 07:00 boundary crossing with the command
+  actually invoked: that was not waited for, and `schedule:test`
+  or a hand-run would have written notification rows into the development
+  database, which is not a thing to do casually. The reference's recorded
+  failure was exactly this shape — a sweep "written, tested, callable, and
+  never once invoked in any deployment" (OPS §7) — so it is written down
+  rather than assumed closed. Related and pre-existing, not introduced
+  here: `laravel-scheduler-1` reports `unhealthy` because it inherits the
+  php image's healthcheck (a curl against Caddy's admin port 2019) while
+  running `schedule:work` and no web server. The process is alive and
+  ticking; the healthcheck is measuring the wrong thing.
+
+- **The sweep's idempotence key includes the book's TITLE, so a corrected
+  title re-tells the reader.** "Already told" is whatever
+  `SweepReminders::tell`'s existence probe matches on — read that method's
+  `where` clauses for today's key rather than a copy of them here; the
+  clause this entry is about is `payload->title`. (An earlier draft did
+  restate the key as a list and left `bookshelf_id` out of it, so this
+  document described one probe two different ways: the shelf clause has
+  its own entry below, as this phase's deliberate divergence from the
+  reference.) The title clause is the reference's own predicate, ported
+  deliberately — `sweep.ts`'s `not exists` keys on
+  `b.title` too — and it is what lets the notification itself be the
+  cursor instead of a `last_swept_at` that can drift or be rolled back by
+  a restore. The consequence is real and untested in either codebase: fix
+  a typo in a title between two runs and the borrower gets a second row of
+  the same kind for the same loan. Not fixed here (changing the key is a
+  behaviour change from the reference, not a port), recorded so the next
+  person meets it as a known property rather than a bug report.
+
+- **The sweep joins `books` through the query builder, which does not
+  apply the model's soft-delete scope.** `SweepReminders` selects
+  `loans.* , books.title` with `->join('books', …)`, the same shape as the
+  reference's SQL, so a loan whose book row carries `deleted_at` is still
+  swept and its notification still carries that title. There is no test
+  for it. Reaching that state needs the already-recorded `DeleteBook`
+  race (Phase 1c section, PR #62 finding 4) — the command's own
+  `whereDoesntHave('loans')` refuses a title with loans otherwise — and in
+  that state telling the borrower their book is overdue is arguably the
+  right behaviour anyway, which is why it is a note and not a fix.
+
+- **`MyDashboardQuery` joins `books` with no `deleted_at` guard where the
+  manager's queue has one, so one soft-deleted title would be visible to
+  the reader and invisible to the manager. A deliberate note, not a
+  fix.** Every join in that query is a raw builder join — `->join('books',
+  …)` and `->join('book_copies', …)` — and a builder join does not apply
+  the joined model's `SoftDeletes` scope, the same mechanism the sweep
+  entry above records. `BorrowRequestQueueQuery::waiting()` writes the
+  guard by hand (`->whereNull('books.deleted_at')` inside the join
+  condition, and the same for `users`), so the two surfaces would disagree
+  about one row: a live request against a soft-deleted title drops out of
+  the manager's queue and stays on the reader's dashboard, where its title
+  links to a book page that 404s. **Unreachable today**, for the reason
+  recorded in the Phase 1c section: `DeleteBook` is reachable from no
+  screen, and its own `whereDoesntHave('loans')` refuses a title with
+  loans anyway. **Left as it is, on purpose.** Making the dashboard match
+  the queue would take the reader's own pending request off their screen
+  and with it the only button that withdraws it, leaving a row nobody but
+  a manager can clear; the reader keeping the ability to cancel is the
+  behaviour this phase would choose if it were choosing. What was wrong is
+  that it looked accidental — a hand-written guard on one side and silence
+  on the other, with nothing saying which was intended. This is that
+  statement. Whoever wires `DeleteBook` to a screen owns the decision
+  again, and the dead LINK is the part to fix then: either the join grows
+  the guard and the row goes with it, or the dashboard renders a deleted
+  title as plain text instead of a link.
+
+- **The idempotence probe's plan, measured on the statement the command
+  actually emits, not on a probe shaped like it.** Captured with
+  `DB::listen` during a real `Artisan::call('reminders:sweep')` over 2,401
+  seeded notification rows spread across 12 shelves and 480 readers, then
+  `EXPLAIN`ed with its own bindings:
+
+  ```
+  select exists(select * from `notifications` where `user_id` = ? and `kind` = ?
+    and json_value(`payload`, '$."due_on"') = ? and json_value(`payload`, '$."title"') = ?) as `exists`
+  → type: ref | key: notifications_unread | key_len: 38 | ref: const | rows: 6
+    Extra: Using index condition; Using where
+  ```
+
+  A `user_id` ref seek, not a scan: the two JSON predicates are residual
+  filters over one reader's own rows. `notifications_unread_by_user`
+  (Task 16's) appears in `possible_keys` and is not chosen — the older
+  `notifications_unread (user_id, created_at)` wins on the same leading
+  column. No new index is warranted, and no claim is made here that any of
+  this is bounded by one shelf: it is bounded by one USER, in a database
+  shared by every tenant. One caveat worth stating: `rows: 6` is that
+  fixture's per-reader notification count, so it is evidence about the
+  ACCESS PATH, not a figure that transfers to a real install.
+  The probe runs once per candidate loan — N seeks per sweep, not one.
+
+- **The sweep's two candidate reads are full scans of every tenant's
+  loans, measured and accepted rather than indexed.** An earlier version of
+  the entry above said these were not EXPLAINed "because the sweep's
+  candidate volume is a shelf's active loans". Both halves of that were
+  wrong: the reads run under `actSystemWide()`, so the volume is EVERY
+  shelf's active loans, and they cannot be seeks — `loans` carries
+  `loans_active_by_shelf (bookshelf_id, due_on)` and `loans_by_borrower
+  (borrower_id, lent_at)`, and a cross-shelf sweep filters on the leading
+  column of neither. Measured with `DB::listen` during a real
+  `Artisan::call('reminders:sweep')` over 600 active loans spread across 10
+  shelves, then `EXPLAIN`ed with their own bindings:
+
+  ```
+  select `loans`.*, `books`.`title` from `loans`
+    inner join `books` on `books`.`id` = `loans`.`book_id`
+    where `status` = ? and `due_on` >= ? and `due_on` <= ?     -- due-soon
+  select `loans`.*, `books`.`title` from `loans`
+    inner join `books` on `books`.`id` = `loans`.`book_id`
+    where `status` = ? and `due_on` < ?                        -- overdue
+
+  loans → type: ALL  | possible_keys: NULL | key: NULL | rows: 600 | Extra: Using where
+  books → type: eq_ref | key: PRIMARY | key_len: 38 | ref: loans.book_id | rows: 1
+  ```
+
+  `possible_keys: NULL` is the sharp part: neither index is so much as a
+  candidate. **Not fixed, deliberately.** The cost is two scans per DAY, in
+  a job nobody waits on, whose whole design premise is that being hours
+  late is survivable — the opposite of the bell's unread count, which paid
+  a scan on every page render and correctly earned an index in Task 16. A
+  `(status, due_on)` index would turn both into range seeks and is the
+  obvious move if a real install ever makes the nightly run slow enough to
+  notice; nothing has measured that it does. `rows: 600` is the fixture's
+  whole loans table, so it is evidence about the ACCESS PATH — a scan whose
+  cost grows with the install rather than with a parish — not a figure that
+  transfers.
+
+- **The sweep's idempotence key includes `bookshelf_id`, and that is a
+  deliberate divergence from the reference.** `sweep.ts`'s `not exists`
+  keys on user, kind, `due_on` and title only, which is safe there because
+  its `set local role` still names one shelf. This probe runs with
+  `BookshelfScope` switched off. Since a person can hold memberships on
+  more than one shelf (see "`User` is deliberately global" above), the
+  reference's key applied cross-shelf means one reader with the same title
+  due the same day on two shelves is told **once**, filed under whichever
+  loan the sweep reached first — and `MyNotificationsQuery` being
+  shelf-scoped, the other shelf's bell never shows it at all. Measured by
+  removing the clause: `SweepIsHousekeepingTest`'s crossing block reports
+  `Sweep complete: 0 due-soon, 1 overdue notification(s).` where it must
+  report 2. Silent suppression of a real reminder is a worse trade than the
+  duplicate row fidelity would have bought, so the divergence ships. It
+  also puts a hand-written `bookshelf_id` filter in the file, which is why
+  `TenancyArchitectureTest`'s allow-list now names it — the same situation
+  `AuditLogQuery` is in, reached from the other direction (that model is
+  unscoped; this caller is).
+
+  **That exemption has a cost, and it is whole-file, not per-clause.**
+  `SweepReminders.php` today holds exactly one hand-written `bookshelf_id`
+  filter. Any *second* one a later edit adds is now silent — correct or
+  mis-scoped alike — where before it would have failed the build and forced
+  an explicit justification in the allow-list. This matters more here than
+  it would in an ordinary shelf-scoped file: the sweep runs under
+  `actSystemWide()`, so there is no `BookshelfScope` underneath to make a
+  rogue `where()` redundant-but-harmless. It was one of the few automated
+  backstops on manual-filter correctness in the file with the widest blast
+  radius. Reviewing a change to that file now means reading its filters by
+  hand. The whole-file shape was kept for consistency with `AuditLogQuery`
+  rather than because a per-clause tripwire was weighed and rejected;
+  per-clause is the fix if a second filter ever lands. The cost is written
+  at the allow-list entry itself as well, so the next person to edit either
+  file meets it there.
+
+- **The sweep's fourth read, the per-shelf `due_soon_days` lookup, was
+  never measured.** `Bookshelf::query()->get()` in `SweepReminders::handle`
+  reads every shelf on every run — cross-tenant like the rest of the
+  command, so its cost grows with the install rather than with a parish —
+  and no `EXPLAIN` was captured for it. The judgement was that
+  `bookshelves` is small and this runs once per sweep, not once per row;
+  that is a judgement, not a measurement, and it is recorded rather than
+  folded into the "the reads are measured" sentence in the command's own
+  docblock (which an earlier draft of that docblock did do).
+
+- **The transaction-placement guard is structurally vacuous for the sweep,
+  in both directions.** `NotificationsAreReaderFacingTest`'s walk
+  pre-filters on `str_contains($code, '->notify')`, which
+  `SweepReminders.php` does not contain, and the per-file call-site floor
+  exempts it by name. Moving its `Notification::query()->create` outside
+  `DB::transaction` leaves the whole suite green — the guard's own docblock
+  says "no silent pass is known", and this is one file that sentence cannot
+  speak about. Tolerated rather than plugged: the sweep's writes are
+  idempotent per shelf/user/kind/`due_on`/title, so a half-committed run
+  self-heals on the next tick, which is precisely the property a command
+  announcing a state change does not have. Noted at the exclusion itself so
+  the next reader of that guard meets it there.
+
+### The Phase 2a wrap-up — the OPS walk and what it contradicted
+
+Written by Task 19 after the full suite ran green, and after the branch
+was walked by **opening each named file**, which is the 1c precedent. Two
+things the walk found are corrections to claims this branch was already
+shipping; they are stated first, because a wrap-up that leads with its
+disposition table buries them.
+
+- **The reachability walk for divergence 13 does not work, and the shipped
+  test comment that claimed it did is now corrected.**
+  `tests/Feature/Circulation/LendCopyHoldTest.php` said the
+  `available`-copy-under-a-live-hold row is "reachable with shipped 1a
+  commands: approve onto this copy (held), `ReportCopyLost` (lost, the
+  request still approved with a live hold), `MarkCopyFound` (available)".
+  **It is not.** `CopyStateMachine::ALLOWED` draws no `held -> lost` arrow
+  — BR §7.1 draws only `on_loan -> lost`, and Q3 is written into the class
+  docblock — so `ReportCopyLost` on a held copy throws `copy_not_on_loan`
+  and the walk stops at step two. RUN, not read: a throwaway Pest block
+  against the real MariaDB executed
+  `ApproveBorrowRequest` -> `ReportCopyLost` and printed
+  `PROBE: ReportCopyLost REFUSED with code: copy_not_on_loan`.
+  A neighbouring file had it right the whole time —
+  `ApproveBorrowRequestTest`'s two-clause block says "No shipped command
+  produces available+held-for … Constructed directly" — so the branch was
+  carrying **two comments that contradicted each other**, and the walk's
+  job was to find out which one had been run. See the divergence 13 entry
+  below for what this changes and what it does not.
+- **`request_not_held`'s OPS §4.2 status is not what the plan's divergence
+  12 says, in both directions.** Divergence 12 states that the code "has
+  **no** failure-mode entry under any OPS §4.2 command", and defends that
+  by saying OPS "states `HandoverRequest`'s failure modes as the
+  `/errors.ts` disjunction rather than enumerating them". Opening
+  `docs/OPERATIONS.md`: (a) `ReleaseExpiredHold`'s §4.2 entry — added by
+  Task 18's own permitted amendment, earlier on this same branch —
+  **enumerates `request_not_held` with its Vietnamese sentence**, so the
+  first half went false inside this phase; and (b) `HandoverRequest`'s
+  entry is a **plain enumerated list** — transcribed from the file:
+  `hold_expired`, `membership_not_active`, `loan_limit_reached`, with
+  `request_not_held` absent from it — and the string `errors.ts` does not
+  appear anywhere in `OPERATIONS.md`
+  (`grep -n "errors.ts" docs/OPERATIONS.md` returns nothing), so the
+  justification describes a document that does not exist.
+  **What is actually true, and what stays open:** `HandoverRequest` throws
+  `request_not_held` from several branches (`grep -n "request_not_held"
+  app/Actions/Circulation/HandoverRequest.php`) and its OPS entry does not
+  list it. That is an incomplete enumerated list, not a deliberate
+  disjunction — a smaller gap than divergence 12 described but a real one.
+  **It is a documentation lag, not a contract change.** The shipped command
+  already throws the code, `lang/vi/rules.php` already carries its
+  Vietnamese sentence, and `RuleViolatedCodesHaveSentencesTest` already
+  censuses it: nothing about the command's behaviour would move. So closing
+  it is **one row added to one table in `docs/OPERATIONS.md`**, not an
+  amendment to a contract — which matters, because this plan's
+  one-amendment budget was written for contract changes and Task 18 spent
+  it on one. **Not fixed in this commit** only because a wrap-up commit is
+  the wrong place to edit a shipped command's OPS entry unannounced; it
+  belongs in the PR as a one-row edit.
+- **`MarkNotificationRead` ships without the audit action OPS §4.6 names,
+  and that divergence was not on the durable record.** OPS §4.6 lists
+  `notification.read` as the audit action for both doors. The shipped
+  Action writes none, and its docblock argues the case (the audit map is
+  the type, so the action would need a Vietnamese sentence for something
+  that is not a business fact about the shelf; one row per bell tap buries
+  every real entry; `read_at` is recoverable from nothing and visible only
+  to its owner). The argument is the reference's own and it is a good one.
+  What was missing is that nothing outside that docblock said OPS had been
+  diverged from — `grep -rn "notification.read" docs/` found it only in
+  `OPERATIONS.md` and in plan files. Recorded here so the next OPS walk
+  meets it as a decision rather than as a discrepancy.
+
+**The disposition table.** Every row below was checked by opening the file
+named in it, not by reading it off the plan.
+
+| Entry | Disposition |
+|---|---|
+| `CreateBorrowRequest` / `ApproveBorrowRequest` / `RejectBorrowRequest` / `CancelOwnRequest` / `HandoverRequest` | shipped (Tasks 4–9); each opened, each under `app/Actions/Circulation/` |
+| `ReceiveReturn` | RE-WIDENED to the reference's full shape (Task 10) — the 1c narrowing entry is struck above, with its own note |
+| `SkipRequest` | closed WITHOUT implementation: the product owner removed *Bỏ qua* from the reference (queue page comment block, 2026-08-09); *Từ chối* is the one manager decision on a pending row. No Action, controller method or route implements it; the sole occurrence of the name under `app/` is `BorrowRequestController`'s comment recording its removal, and `php artisan route:list | grep -i skip` is empty |
+| `ReleaseExpiredHold` | shipped (Task 18) on ruling 1, with its own OPS §4.2 entry written in that task's commit — the one amendment this plan permitted |
+| `request_not_held` in OPS §4.2 | **stated, not covered over** — see the correction above; it IS enumerated (under `ReleaseExpiredHold`) and is NOT enumerated under `HandoverRequest`, which throws it. A documentation lag against a contract that already ships the code — one added table row, not an amendment |
+| `ChooseCopy` vs `CountsCopies::borrowable()` | dispositioned (divergence 14) — the amended 1c entry above carries the resolution and the test that pins it |
+| `GetBorrowRequestQueue`, `GetMyNotifications`, `GetMyDashboard` (requests half), `MarkNotificationRead`/`MarkAllNotificationsRead` | shipped. One shape note: OPS §4.6 names two commands and the code ships **one** Action with `one()` and `all()`, reached by two routes and two controller methods — the contract is met, the file count is not what OPS implied |
+| the sweep | shipped as `reminders:sweep`, scheduled 07:00 `Asia/Ho_Chi_Minh` from `routes/console.php`; removing the `Schedule::command` line reddens exactly one test and nothing else (measured) |
+| `CreateBorrowRequest`'s `copyId` | NARROWED — 2c restores it with the scan pages. The reference's exact behaviour to restore: a nullable copy of the same title, same shelf, not deleted; the `request.created` audit bag's `copy_id` fills instead of staying null |
+
+- **`CreateBorrowRequest` takes no lock at all, and the record of why is
+  worth more than the design.** The plan's first version had it take a
+  `books` `FOR UPDATE`. That was withdrawn (design change C1) because
+  `UpdateBook` exclusive-locks the shelf's `bookshelves` row as its
+  transaction's first statement and then writes the book row, while every
+  insert here wants a SHARED lock on that same `bookshelves` row through
+  `borrow_requests_bookshelf_id_foreign` — an AB–BA the review found by
+  reading `UpdateBook`'s transaction against the composite-FK migration,
+  not by running it:
+
+  ```
+  T1 UpdateBook:            X bookshelves  ->  ... -> writes books row
+  T2 CreateBorrowRequest:   X books (the withdrawn lock)  ->  insert
+                            -> wants S bookshelves (the FK)
+  ```
+
+  The rejected alternative was "serialise on `bookshelves` instead", and
+  it was rejected for ONE reason, stated so nobody re-proposes it: it
+  joins the users-actor cycle already recorded in the Phase 1c section
+  above (`UpdateReaderProfile`/`SetReaderCredentials` X `users` -> audit
+  insert -> S `bookshelves`, against X `bookshelves` -> audit insert ->
+  S `users`), which was **reproduced with two real OS processes** and a
+  genuine InnoDB 1213. What replaced the lock is a constraint:
+  `borrow_requests.live_request_key`, a STORED generated column under a
+  unique index, whose 1062 goes through the shipped
+  `UniqueViolation::translate` and comes out as the same
+  `duplicate_request` sentence the friendly pre-read produces.
+
+  **And the sentence that did NOT survive being run, recorded rather than
+  deleted.** The justification originally offered for refusing the
+  `bookshelves`-first design was "option 2 would serialise every *Xin
+  mượn* behind a bulk `AddCopies`". That is **false**:
+  `borrow_requests_bookshelf_id_foreign` makes the insert wait on that
+  shelf row either way, which the "implicit FK shared locks" entry in the
+  Phase 1c section above already records. Measured during the plan review
+  with two live transactions: ~3 s behind a held `FOR UPDATE`, with the
+  no-lock design in place. The design was right and one of its reasons was
+  wrong; this file has been factually wrong the same way often enough that
+  an entry naming which of its own sentences failed is worth more than one
+  that states only the survivor.
+
+  **No cycle-freedom claim is made anywhere on the 2a branch**, and the
+  lock claim is stated as exactly what it is: `CreateBorrowRequest`
+  contains no `lockForUpdate` (pinned by Task 4's source grep and its
+  query-log filter), which is NOT the same as taking no exclusive lock.
+  Its INSERT holds an implicit exclusive record lock on the unique index
+  entry; a racing insert blocks on it until commit and then receives 1062
+  — measured at Task 4, where the loser waited ~3 s before its verdict.
+  Both outcomes resolve to the same Vietnamese sentence.
+
+- **Divergence 13: an `available` copy under somebody else's live hold is
+  lendable, ported faithfully — and no command walk to that state has been
+  found, by this task or by its reviewer.** `LoanRules::copyLendable`'s
+  `Available` branch returns `null` without looking at holds; the
+  reference does the identical thing (`policy.ts:86-108`), so this is a
+  ported hole, not an invented one. `ApproveBorrowRequest` refuses such a
+  row (its own two-clause predicate, with a named test); `LendCopy` does
+  not, and neither does the reference.
+  **What changed at this task is the reachability half.** The claim that
+  approve -> `ReportCopyLost` -> `MarkCopyFound` reaches it is false (see
+  the correction at the head of this section). What blocks **that** path is
+  BR §7.1's transition table — one path, demonstrably, and worth saying
+  plainly because **nobody wrote that table as a guard for this**:
+  `CopyStateMachine`'s own Q3 note calls widening the arrows into `lost`
+  "one line here plus one test", and that one line would open that path for
+  real. Whether any OTHER path exists is a search result, not a theorem:
+  neither this task's walk nor its reviewer's independent one found one,
+  and both are searches. The walk also read every command under `app/Actions` that
+  writes `CopyState::Available` (`grep -rn "CopyState::Available"
+  app/Actions/` is the check, re-runnable): each of them either ends the
+  request in the same transaction as the release, or cannot be reached
+  from a `held` copy at all. That is a property statement about what was
+  read, not a proof that no path exists.
+  **What IS guarded, regardless:** such a lend never closes the other
+  reader's request. `LendCopyHoldTest`'s "…and that lend NEVER closes the
+  other reader's request" pins it, against a row the fixture constructs
+  directly — which is now the honest description of that fixture rather
+  than a workaround for one.
+
+- **Divergence 1: the cancel window's lock-order inversion is real,
+  admitted, and now on the durable record** (held since Task 7 so that two
+  writers would not produce two entries for one fact). Task 8 CREATED an
+  AB–BA edge that did not exist in Phase 1: `LendCopy` holds the copy lock
+  and then locks a `borrow_requests` row (the collected-hold close), while
+  `CancelOwnRequest` locks the request FIRST and takes the copy's row lock
+  second — its guarded release is an `UPDATE ... WHERE state = 'held'`,
+  and an UPDATE takes an exclusive row lock — whenever the route-bound
+  snapshot names no copy, because the pre-emptive `BookCopy` lock at the
+  top of its transaction is guarded on `$snapshotCopyId !== null`. Same
+  (copy C, request R) pair, opposite order.
+  **Original ruling: accepted, not fixed** — "there is no better ordering
+  inside one transaction without a retry loop", and the consequence if it
+  fired was an InnoDB 1213 arriving as a `QueryException` that nothing
+  translated (`UniqueViolation` handles 1062 only), rolling the whole
+  transaction back so the caller saw a server error rather than a
+  Vietnamese sentence. That last clause is what the owner asked to be
+  changed, and it has been.
+
+  **AMENDED 2026-08-30, post-plan, at the product owner's request — the
+  edge is NOT gone; what is gone is the crash.** This entry is amended
+  rather than deleted, because everything above it about the lock graph is
+  still exactly true: the inversion still exists, the pairings named below
+  are still the pairings, and nothing about the ordering changed. Two
+  things were added instead, and they are the retry loop the ruling above
+  named as the only alternative:
+
+  1. **Every Action under `app/Actions/Circulation/` that opens a write
+     transaction now passes an attempts argument** —
+     `ConcurrencyRetry::ATTEMPTS`, three. Laravel's
+     `Connection::transaction($callback, $attempts)` runs the callback in a
+     loop and its `handleTransactionException` *returns* instead of
+     rethrowing — after rolling the whole transaction back — exactly when
+     the framework's `ConcurrencyErrorDetector` matches and attempts
+     remain. A rolled-back transaction has persisted nothing, so the
+     re-run starts from the committed state, re-takes its locks and
+     re-reads its rows. **The rule is deliberately the whole directory, not
+     the four commands the analysis above names as cycle participants** —
+     the reachability argument for this edge has now been wrong twice (the
+     plan's, and the whole-branch review's, corrected in this very entry),
+     so the fix must not depend on a third being right, and a new Action
+     must not be able to become a silent non-retrying participant.
+     `CirculationArchitectureTest` pins the property by tokenising every
+     `transaction(` call site under the directory and requiring a second
+     argument; it was measured red by deleting one Action's argument, and
+     its own non-vacuity check was measured red by breaking the walk.
+  2. **A lock-wait timeout is deliberately NOT retried, and the narrowing
+     is by error class rather than by directory.** Laravel's
+     `ConcurrencyErrorDetector` matches `'Lock wait timeout exceeded; try
+     restarting transaction'` (errno 1205) alongside the deadlock strings,
+     and the retry loop consults that same detector — so passing an
+     attempts argument retried 1205 too, which is a REGRESSION on what it
+     replaced rather than an improvement. The two failures differ in the
+     only way that matters here: a deadlock fails instantly, a lock-wait
+     timeout fails only after the whole timeout is burned. This project's
+     own MariaDB was measured at `innodb_lock_wait_timeout = 50`
+     (`SELECT @@innodb_lock_wait_timeout` against the running 10.11.19
+     container), so three attempts would bind a wedged row at roughly 150
+     seconds of held request — on a shared-hosting target where the PHP or
+     proxy limit likely kills it first, and where the honest answer is a
+     loud 500 naming the statement so an operator can find the stuck row.
+     `AppServiceProvider` therefore binds `App\Support\DeadlockDetector`
+     over `Illuminate\Contracts\Database\ConcurrencyErrorDetector`;
+     because `DetectsConcurrencyErrors` resolves that CONTRACT from the
+     container, one binding narrows the retry loop and the translation
+     together. Narrowing by DIRECTORY was rejected for the same reason the
+     rule above is a property: it would scope the fix to the commands
+     currently believed to be on the cycle. Measured on the running
+     container: with the binding in place, a 1213 runs the callback three
+     times and a 1205 runs it once.
+  3. **The residual is a sentence.** When the attempts are spent Laravel
+     rethrows the original exception, which is a 500. `bootstrap/app.php`
+     now maps a `PDOException` through `App\Support\ConcurrencyRetry`,
+     which asks the same bound detector that decided whether to retry and —
+     only on a yes — hands back `RuleViolated('busy_try_again', $e)`, which
+     the existing `RuleViolated` render hook turns into the 302 carrying
+     "Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại." Everything
+     the detector rejects comes back as the same object, so an ordinary SQL
+     fault is still a server error with its statement in the log.
+     `PDOException` rather than `QueryException` because Laravel raises a
+     bare `DeadlockException` when the cycle is hit inside a NESTED
+     transaction, which is every Feature test in this suite. The driver
+     exception is passed as `$previous` because an exception captures its
+     trace where it is CONSTRUCTED — for a mapped translation, inside the
+     exception handler — so without the chain the log would lose the SQL
+     *and* the throwing Action's frames, leaving an exhausted deadlock
+     undiagnosable as to command. `RuleViolated` gained an optional
+     `$previous` for this one caller, and
+     `RuleViolatedCodesHaveSentencesTest`'s regex was widened from `\s*\)`
+     to `\s*[,)]` so a two-argument throw stays in the census; that
+     widening was measured both ways, the same way the file's first
+     widening was (deleting the `rules.php` line goes red under the widened
+     regex and stayed GREEN under the old one). The code is authored with
+     no `errors.ts` spelling on the `hold_not_expired` precedent — sentence
+     in `lang/vi/rules.php`, entry in OPS §6, literal in the census.
+
+  **Still true, and stated so it is not read away by the amendment:** no
+  frequency is claimed for this edge and none has been measured — three
+  attempts is chosen for the SHAPE of the failure (InnoDB kills exactly one
+  participant per cycle while the other commits, so a re-run loses again
+  only if a fresh contender arrives in the same milliseconds), not from a
+  rate. No cycle-freedom claim is made in either direction; this phase
+  still built no two-OS-process harness, and `ConcurrencyRetryTest` does
+  not pretend to be one — it exercises the retry loop, the detector's
+  decision and the translation against the exception shape the MariaDB
+  driver raises for errno 1213, not a real interleaving. **The retry makes
+  the edge survivable; it does not make it absent.** If it should be
+  designed away rather than survived, that is still a product decision.
+
+  **Two residual bounds, so neither is discovered later as a surprise.**
+  (a) `QueryException::formatMessage` inlines BINDINGS into the message it
+  builds, and the message half of the detector is a substring match over
+  that string — so a row whose own data spells one of the deadlock phrases
+  can make an unrelated failure on that row translate as
+  `busy_try_again`. Measured on the running container: a 1062 whose bound
+  value was the literal `deadlock detected` came back as a `RuleViolated`.
+  The SQLSTATE branch is immune, narrowing the phrase list shrinks the
+  surface, and closing it entirely would mean re-implementing the driver's
+  formatting; for this application's data it was judged not worth that.
+  (b) `CirculationArchitectureTest`'s guard pins the CLOSURE spelling only.
+  An Action written as `DB::beginTransaction(); … DB::commit();` opens a
+  write transaction with no callback for an attempts argument to be the
+  second argument of, so it would retry nothing and offend nothing.
+  Nothing under `app/` uses that spelling today (`grep -rn
+  "beginTransaction" app/` exits 1); if one appears, the walk has to learn
+  that shape rather than be read as having covered it.
+
+  **A third bound, and the one nobody would go looking for: the detector
+  binding is APPLICATION-WIDE, and the transaction retry loop is not its
+  only consumer.** `Illuminate\Cache\DatabaseLock` uses the same
+  `DetectsConcurrencyErrors` trait to decide whether a failure against the
+  `cache_locks` table is harmless — someone else already deleted the row —
+  or a real error to propagate. This is a live path, not a theoretical
+  one: `CACHE_STORE=database`, `DatabaseStore` is a `LockProvider`, and
+  `routes/console.php` puts `withoutOverlapping(2)` on the per-minute
+  `queue:work` tick. Read at the commit that records this:
+  `DatabaseLock::release()` returns TRUE — the lock counts as released —
+  when the detector matches and rethrows otherwise, and
+  `pruneExpiredLocks()` swallows a match and rethrows anything else. So
+  **a 1205 on `cache_locks` was swallowed before this binding and
+  propagates after it.** A 1213 there is still swallowed, since this
+  detector matches deadlocks; the flip is precisely and only about a
+  lock-wait timeout on that one table, which would itself mean something
+  held a `cache_locks` row for the whole 50 seconds while only short
+  single-row statements ever touch it.
+
+  Two precisions the obvious reading gets wrong, written down because the
+  wrong one is the one a reader will reach first. (a) The scheduler's
+  TEARDOWN does not go through `release()`: `Event::removeMutex` calls
+  `CacheEventMutex::forget`, which calls `forceRelease()`, and that method
+  has no try/catch and consults no detector — it propagated a 1205 before
+  this binding and still does, unchanged. What puts `release()` on the
+  per-minute path instead is the SKIP FILTER — `withoutOverlapping`
+  registers `skip(fn () => $this->mutex->exists($this))`, `exists()` calls
+  `$store->lock(...)->get(fn () => true)`, and `Lock::get` releases in a
+  `finally` after acquiring. Trace `forget()` and you would conclude this
+  binding cannot reach the scheduler at all; it reaches it through
+  `exists`. (b) `pruneExpiredLocks()` is not run on every acquire — it is
+  behind `acquire()`'s lottery, `[2, 100]` for this store.
+
+  **What it costs.** A scheduled run can now fail where it used to
+  continue. The failure lands after `acquire()` has already written the
+  mutex row, so the row survives with its `withoutOverlapping(2)` expiry
+  and the following ticks are SKIPPED until it lapses — roughly two
+  minutes of queue left undrained, then self-healing. (That two-minute
+  expiry is this project's own deliberate choice over the framework's
+  24-hour default, and `routes/console.php` carries the reasoning.) The
+  binding is not being reverted: a lock-wait timeout on `cache_locks`
+  should be loud, and the blast radius is bounded and self-clearing.
+  **No test exercises this path in either direction**, because
+  `phpunit.xml` forces `CACHE_STORE=array` and the array store's lock
+  never touches a database — so this entry, and `DeadlockDetector`'s
+  docblock, are the only record that the behaviour changed.
+
+  **WHO ELSE IS ON THE COPY-FIRST SIDE, and which of those pairings a
+  shipped schedule can actually reach.** The paragraph above names
+  `LendCopy` because Task 8 is what created the edge; it is not the only
+  command that takes these two rows copy-first, and the whole-branch
+  review's derivation is reproduced here rather than left in four
+  docblocks. Re-derived for this entry by reading every `lockForUpdate`
+  call site and every guarded `UPDATE` against `book_copies` /
+  `borrow_requests` under `app/Actions`, file by file:
+  `ApproveBorrowRequest` (copy lock as the transaction's first statement,
+  request second), `LendCopy` (copy lock, then the guarded `->update()`
+  that closes the collected hold), `ReceiveReturn` (copy, loan, then the
+  hold's request row) and `ReleaseExpiredHold` (copy, then request) all
+  take them in that order. `ReceiveReturn`'s participation was already
+  recorded — in the Phase 1c `ReceiveReturn` entry far above, under "A
+  third lock the reference never took" — and `ReleaseExpiredHold`'s lived
+  only in its own docblock until this entry.
+
+  Everything below turns on ONE condition, because `CancelOwnRequest`
+  inverts only under it: it locks the copy first WHEN its route-bound
+  snapshot names one, so the request-then-copy order needs a snapshot
+  whose `copy_id` was null and a locked row whose `copy_id` is not. Every
+  writer of that column (`ApproveBorrowRequest`'s decision write and
+  `ReceiveReturn`'s hold branch — grepped for `'copy_id' =>` under
+  `app/Actions`, the rest of the matches being loans, condition
+  assessments and audit payloads) sets it in the same `->update()` that
+  moves a row it has already refused unless PENDING, and the only writer
+  of `status = pending` is `CreateBorrowRequest`'s insert, which omits the
+  column. So the flip is always null → an id, never copy A → copy B, and
+  it has to land inside the milliseconds between the cancel's route
+  binding and its first lock.
+
+  - **`LendCopy` ↔ `CancelOwnRequest` — REACHABLE.** The edge this entry
+    was written for, and nothing below changes it. `LendCopy` holds copy
+    C and waits on the request row its collected-hold `UPDATE` names; the
+    cancel holds that request and waits on C. It needs C `held` under a
+    live hold, and the cancel bound while the row was still pending —
+    a manager collecting the hold at the desk in the same seconds the
+    reader's own *Hủy* tap is in flight.
+  - **`ApproveBorrowRequest` ↔ `CancelOwnRequest` — REACHABLE, and the
+    review that produced this list concluded it was not.** Its argument
+    was that the cancel can only want a copy if the row it locked already
+    names one: before the approval commits the row still reads
+    `pending`/null, and once it has committed it has released the copy.
+    That is sound about *the* approval that wrote `copy_id` — and the
+    copy lock in the cycle need not be held by that transaction.
+    `ApproveBorrowRequest` takes its copy from a FORM FIELD, not from the
+    bound request, so a SECOND approve POST naming the same copy takes
+    C's lock while waiting on the request row, and nothing refuses it
+    before the transaction: `BorrowRequestPolicy::approve` reads no row
+    (deliberately — the anti-enumeration rule its own docblock argues)
+    and `ApproveBorrowRequestRequest` validates the field, not the
+    status. The schedule, three transactions with the 2-cycle between the
+    last two:
+
+    1. Two managers POST approve(R, C) while R is pending — a double
+       submit, or two volunteers on one queue page.
+    2. The reader's cancel POST binds R while it is still pending, so its
+       snapshot `copy_id` is null.
+    3. M1 locks C, locks R, writes `approved` + `copy_id = C`, flips C to
+       `held`, commits. M2, which has been waiting on C's lock, takes it
+       and waits for R's.
+    4. The cancel locks R, reads `copy_id = C` off the committed row, and
+       issues its guarded `UPDATE book_copies … WHERE state = 'held'` —
+       which now waits on M2.
+
+    M2 holds C and wants R; the cancel holds R and wants C. M2 would have
+    gone on to throw `request_not_pending`, but that check runs AFTER both
+    locks, so it is a full participant in the wait-for graph. Note that
+    the setup which makes the cancel want a copy at all — a committed
+    approval — is the same setup the `LendCopy` case needs; the only step
+    the review's argument skipped is that a THIRD transaction can hold the
+    copy afterwards. Same edge, same ruling (accepted, not fixed): a
+    second copy-first participant on an inversion already recorded, not a
+    new direction and not a new cycle.
+  - **`ReleaseExpiredHold` ↔ `CancelOwnRequest` — both orders exist over
+    the same two rows; through the shipped screens no schedule realises
+    them, and a crafted POST does.** Unlike the approve, this command
+    reads its copy from `$request->copy_id` on its OWN route-bound
+    snapshot, so its copy and its request always come from one row and it
+    cannot hold C while waiting on some other request. That leaves a
+    single shape: it holds C and waits on R while the cancel holds R and
+    waits on C. Its snapshot must therefore be bound AFTER the approval
+    committed (bound before, `copy_id` is null, it locks no copy at all —
+    its own null branch) while the cancel's must be bound BEFORE it. The
+    cancel's binding-to-first-lock gap is one HTTP request's worth of
+    milliseconds; the queue page offers *Trả về kệ* only on a row whose
+    `holdExpired` flag is set, which is the shelf's whole `hold_days`
+    after that approval. Through the screen, the cancel's transaction
+    would have to sit in that gap for days. What is NOT ruled out:
+    `ReleaseExpiredHold` takes both locks BEFORE its `hold_not_expired`
+    guard, so a release POST aimed by hand at a just-approved row joins
+    the wait-for graph exactly as `LendCopy` does. Nobody but a manager on
+    the shelf can send it, and the outcome is the same 1213 this entry
+    already accepts.
+  - **`ReceiveReturn` ↔ `CancelOwnRequest` — UNREACHABLE**, and the
+    reason is copy STATE rather than timing. For `ReceiveReturn` to hold
+    C's lock, C carries an ACTIVE loan (its bound loan's copy;
+    `loan_not_active` is checked after the lock). For the cancel to want
+    C, a pending-or-approved request must name C in a row it can read —
+    and a pending row's `copy_id` is null, so it must be a COMMITTED
+    approved row, since the cancel reads `copy_id` off the row it locked
+    and an uncommitted write is invisible to it. So the question is
+    whether any committed state has C on loan while an approved request
+    names it. It does not, and **the two doors onto a hold need separate
+    arguments — they do not share one**:
+
+    - **`ApproveBorrowRequest`** consults `RequestRules::copyHoldable`,
+      whose only allowing branch is `available` with no live holder, so
+      `on_loan` comes back `no_copy_available`. That door cannot name a
+      copy that is out.
+    - **`ReceiveReturn`'s hold branch names precisely a copy that IS out**
+      — the returning loan's, which is why it exists — and it never
+      consults that predicate at all (`grep -rn copyHoldable app/` returns
+      one call site, in `ApproveBorrowRequest`). Its guards are on the
+      REQUEST: `request_not_queued` unless the row is pending and for this
+      title. What rules it out is atomicity, not a predicate: the one
+      transaction closes the loan (`status => Returned`) and writes the
+      copy `held` alongside the request's approval, so the committed state
+      it produces is (C `held`, R approved) — never (C `on_loan`, R
+      approved). An earlier draft of this entry said `copyHoldable` covered
+      "neither door", which is false for this one; the verdict holds on
+      this argument instead.
+
+    That leaves getting from (C `held`, R approved) to (C `on_loan`, R
+    approved) afterwards, and nothing does: `LoanRules::copyLendable` lets
+    a `held` copy go only to its own holder, and `LendCopy` closes that
+    request to `fulfilled` in the same transaction — a status the cancel
+    refuses before it ever wants a copy. Nor back the other way: every
+    writer of `CopyState::Available` under `app/Actions` (the re-runnable
+    check is `grep -rn "CopyState::Available" app/Actions/`) either ends
+    the request in the same transaction as the release or cannot be
+    reached from a `held` copy at all — `MarkCopyFound` needs `lost`, and
+    `CopyStateMachine` answers `copy_not_on_loan` for held → lost. The
+    review reached the same verdict by a different route (that a hold and
+    a loan cannot coexist on one copy); what carries it is the STATE
+    branch of `copyHoldable` for one door and same-transaction atomicity
+    for the other, and nothing about hold expiry for either.
+
+- **Divergence 15: `CancelOwnRequest` answers 404 for a missing-or-foreign
+  request where the reference folded both into `not_own_request` — a
+  within-shelf existence oracle the reference did not have.** `findOrFail`
+  runs before the ownership check, so "no such request" and "another
+  shelf's request" are one 404 (that IS the anti-enumeration guarantee
+  spec §5.4 asks for), while "exists, and belongs to someone else on YOUR
+  shelf" is a 302 carrying the Vietnamese sentence. A reader holding a
+  well-formed id can therefore distinguish *exists on my shelf* from *does
+  not exist*. **The split is correct** — OPS §4.2 lists `not_own_request`
+  and the not-found case as different failure modes, and spec §5.4 demands
+  only that a foreign SHELF's request be indistinguishable from a
+  nonexistent one, which it is — but the leak is real, it was shipping as
+  an inline comment only, and the phase records divergences as a numbered
+  list. What it discloses is bounded: that some request id belongs to
+  somebody on the caller's own shelf. Ids are UUIDv7 and not enumerable
+  from outside.
+
+- **The bell's *mark one read* route has divergence 15's shape too, and
+  it was not recorded until the whole-branch review found it.** Nothing on
+  the way to `POST …/profile/notifications/{notification}/read` scopes the
+  row by PERSON: it binds through `Bookshelf::notifications()` and
+  `BookshelfScope`, both of which scope by SHELF, and the refusal is one
+  layer down in `MarkNotificationRead::one`, whose `where('user_id', …)`
+  makes another reader's row a zero-row `UPDATE` — a silent success. So on
+  one shelf an id that does not exist is a 404 while another reader's id
+  is a 302 with nothing changed, which is exactly the within-shelf
+  existence oracle divergence 15 records for `CancelOwnRequest`, reached
+  from the other side (there, the ownership check has a sentence; here it
+  has no answer at all). The disclosure is the same bounded one — that
+  some notification id belongs to somebody on the caller's own shelf —
+  and ids are UUIDv7 and not enumerable from outside. **Not fixed**, for
+  divergence 15's reason: the alternative is a 404 for a foreign row,
+  which is the answer the reader already gets for a foreign SHELF, and
+  changing it is a behaviour change nobody asked for. Recorded so the two
+  routes are known to share a shape. The route's own comment in
+  `routes/web.php` already described the mechanism; what was missing is
+  that it is the same divergence.
+
+- **A suspended reader can reach neither `memberMayRequest` nor the cancel
+  door, so their INV-4 branches are defence in depth, not live paths**
+  (ported reading 1). `ResolveTenant`'s membership query filters on
+  `status = Active`, so a suspended reader binds a NULL membership; the
+  `act-as-reader` gate returns false for anyone who is not a super admin;
+  `EnsureShelfRole` 404s them before any Action runs. The reference's own
+  comment claims the opposite — that a suspended membership surfaces
+  `membership_not_active_cannot_request` on the book page — and under this
+  app's gating it cannot. Pinned by `ReaderRequestSurfaceTest`'s "an
+  ordinary reader whose membership is suspended meets a 404, not a
+  sentence". The one door that DOES reach `not_permitted` is a super
+  admin's, because `Gate::before` returns true for any `act-as-*` when
+  `is_super_admin`, which lets a null membership through.
+
+- **Two notification kinds BR §15 names are deliberately absent, and each
+  has an owner.** `comment_approved` arrives in **2b** with
+  `ApproveComment` — the kind, its sentence, its writer and its census row
+  land in one commit, which is the rule
+  `NotificationsAreReaderFacingTest`'s table enforces. The profile-change
+  pair BR §15 describes has **no reference implementation to port at all**
+  and is **Phase 3's to decide** (divergence 7); it is not an omission
+  this phase made. Both are stated in the census table's own docblock so a
+  future author meets them where they would add the row.
+
+- **`BorrowRequestQueueQuery`'s free-copy list filters on
+  `state = available` alone, and that equals `borrowable()` only because
+  every hold-creating command flips the copy in the same transaction.**
+  The list a manager picks a copy from is not derived from
+  `CountsCopies::borrowable()`; it is a plain state filter. It agrees with
+  the command's own predicate because `ApproveBorrowRequest` and
+  `ReceiveReturn` both write `held` inside the transaction that writes the
+  hold — the same premise divergence 14 rests on, reached from the other
+  side. And in the direction that matters for a child,
+  `ApproveBorrowRequest`'s two-clause predicate still refuses the
+  theoretical divergent row, so the screen cannot cause a copy to be
+  promised twice. Recorded durably here because until now it lived only in
+  a comment inside the query.
+
+- **Ruling 1's gap is closed, and here is what closed it.** The reference
+  strands a copy in `held` forever when a hold lapses and the reader never
+  cancels: BR §7.2 draws an `approved -> expired` arrow that nothing in
+  the reference ever writes. `ReleaseExpiredHold` (Task 18) writes it,
+  together with `held -> available`, in one transaction, guarded on the
+  clock's verdict against the LOCKED row — a manager may not yank a live
+  hold. It carries audit action `request.expired` and its own OPS §4.2
+  entry, written in the same commit. Its clock guard is exactly
+  complementary to `HandoverRequest`'s boundary, so at
+  `hold_expires_at == now` the handover refuses and the release succeeds:
+  no hold with an expiry is both un-handoverable and un-releasable.
+
+- **The frontend blind spot extends to every screen this phase shipped,
+  and that is HANDOFF's open item restated rather than a new one.** This
+  repo has no frontend rendering tests — the only vitest scripts point at
+  `old_next`, and `find resources/js -name "*.test.ts*"` returns nothing —
+  so `assertInertia` checking server-side props is the whole of the
+  coverage on `shelves/book`, `manage/borrow-requests`,
+  `shelves/profile/overview` and `shelves/profile/notifications`. Two
+  worked examples are already recorded above (Task 12's swapped
+  availability ternary, and Phase 1d Task 6's swapped dashboard stat
+  cards, both of which left every gate green). The property those examples
+  share is the whole finding: nothing renders these pages under test, so
+  no test in this codebase can catch a mis-wired label/value pair on any
+  of the new ones. Adopting component-level tests is a real
+  decision and no phase has scoped it.
+
+- **`make lint` is NOT pristine on this branch, and has not been for the
+  whole phase.** `bun x biome check --write .` reports, on `main`'s
+  content as much as on this branch's: `noImgElement` on
+  `resources/js/components/book-card.tsx` and
+  `resources/js/pages/shelves/book.tsx`, `noDocumentCookie` on
+  `resources/js/components/ui/sidebar.tsx`. Tail of the run:
+  `Checked 76 files … Found 3 warnings. Found 1 info.`
+  **The one info is the schema skew, and the first draft of this entry got
+  that wrong twice** — it attributed the info to the "Consider using the
+  Cookie Store API" line (that is a note *inside* the `noDocumentCookie`
+  warning, not a diagnostic of its own) and said the skew "produces no
+  diagnostic and so goes unnoticed". It does produce one, and it is the
+  counted info: `biome.json:2:16 deserialize` — "The configuration schema
+  version does not match the CLI version 2.5.10 … Expected: 2.5.10, Found:
+  2.5.8 … Run the command `biome migrate` to migrate the configuration
+  file." Caught in this task's own fix round, by grepping the gate's output
+  for the word the entry claims rather than trusting the sentence — which
+  is the check this document keeps needing. All pre-existing and untouched
+  by Phase 2a; **the gate was reported green through the phase while
+  carrying them**, which is the part worth recording. Not fixed here (each is a real UI change, and one
+  of them is Biome telling a Laravel app to use `next/image`); the
+  baseline is written down so the next person can tell an inherited
+  warning from one they added.
+
+- **`AuditSecretsTest`'s payload-shape list had drifted out of the phase
+  entirely, and its title was counting.** The block "every payload shape
+  the 21 shipped writers produce passes" carried **no `request.*` shape at
+  all** — pre-existing drift since Task 4 — so the guard that must never
+  brick a shipped command was being re-proved against a catalogue that
+  predated the phase's writers. Refreshed at this task with the after bags
+  of `request.created`, `.approved`, `.rejected`, `.cancelled`, `.expired`
+  and `.fulfilled` — the before bags need no row of their own, each being a
+  subset of an after bag already listed and the guard judging keys rather
+  than values — and the writer
+  COUNT dropped from the test's own name, per this branch's ruling that a
+  complete enumeration in a title is the thing that goes stale silently.
+
+- **`DemoShelfSeeder` is now deterministic, and one demo reader can sign
+  in.** `BookFactory` picked among AGENTS.md's four titles randomly WITH
+  replacement and `BookCopyFactory` drew codes from a faker `unique()`
+  pool, so `migrate:fresh --seed` produced a different shelf every run —
+  a title seeded twice and another missing. That was awkward for design
+  work and became load-bearing the moment the demo request block named two
+  titles; `SeederTest`'s exact counts could only be asserted at all
+  because of it, and the intermittency showed up as that assertion failing
+  on some runs. The catalogue block now writes the four titles and eight
+  codes. Separately and deliberately: `UserFactory` gives readers no
+  credentials (most readers are children who never sign in, and
+  `users_credentials_paired` is both-or-neither), which meant no reader on
+  the demo shelf could sign in and every reader-side screen this phase
+  shipped was unreachable by hand. Têrêsa — the holder of the demo hold
+  and its notification — now gets username `bandoc`.
+  **What actually keeps this out of production is one `if`, and until this
+  commit nothing asserted it.** `deploy/post-deploy.sh` runs
+  `artisan db:seed --force` **unconditionally on every deploy** — its own
+  comment says that is safe because "DatabaseSeeder gates DemoShelfSeeder
+  behind `app()->environment('local')` … production only ever gets
+  CategorySeeder", and the unconditional call exists because a fresh
+  install with no categories cannot satisfy the required *Thể loại* field.
+  So the deploy script's stated safety premise is a single conditional in
+  `DatabaseSeeder::run`, and **deleting it left the whole suite green**:
+  no test anywhere asserted that `DatabaseSeeder` skips the demo seeder
+  outside `local` (the two `environment('local')` hits under `tests/` are
+  comment lines in `InertiaDevtoolsTest`, about a different subject). This
+  commit adds `SeederTest`'s "DatabaseSeeder runs DemoShelfSeeder only in
+  local — the gate the deploy relies on", which forces the environment to
+  `production`, invokes the deploy's own `db:seed --force`, and asserts
+  CategorySeeder ran while nothing DemoShelfSeeder writes exists. Measured:
+  removing the `if` gives `1 failed, 1260 passed` — `Failed asserting that
+  1 is identical to 0` on the `bookshelves` count — and nothing else in the
+  suite reddens. It matters more since this commit than before it: a
+  demo shelf reaching production used to mean fixture rows, and now means a
+  third account with a working password.

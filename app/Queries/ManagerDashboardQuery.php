@@ -24,6 +24,10 @@ use App\Support\Clock;
  * - overdue mirrors OverdueLoansQuery (status active AND due_on <
  *   Clock::today() — LoanTerms::isOverdue's comparison, the one home of
  *   overdue); ManagerDashboardQueryTest pins the agreement.
+ * - pendingRequests DELEGATES to BorrowRequestQueueQuery::countWaiting()
+ *   rather than restating its where-clauses — the mirror rule the
+ *   overdue card already follows, so the card and the screen it links
+ *   to cannot drift apart the way two independent counts could.
  * - pendingRegistrations mirrors PendingRegistrationsQuery (status
  *   pending, whereHas('user') — a soft-deleted identity is no applicant).
  * - readers counts every ACTIVE membership, managers included — the same
@@ -42,9 +46,9 @@ use App\Support\Clock;
  */
 final class ManagerDashboardQuery
 {
-    public function __construct(private Clock $clock) {}
+    public function __construct(private Clock $clock, private BorrowRequestQueueQuery $queue) {}
 
-    /** @return array{counts: array{overdue: int, pendingRegistrations: int}, totals: array{titles: int, copies: int, onLoan: int, readers: int}} */
+    /** @return array{counts: array{overdue: int, pendingRegistrations: int, pendingRequests: int}, totals: array{titles: int, copies: int, onLoan: int, readers: int}} */
     public function run(): array
     {
         $today = $this->clock->today();
@@ -59,6 +63,10 @@ final class ManagerDashboardQuery
                     ->where('status', MembershipStatus::Pending)
                     ->whereHas('user')
                     ->count(),
+                // Delegated, not restated — the card and the screen it
+                // links to cannot drift; the mirror rule the overdue
+                // card already follows.
+                'pendingRequests' => $this->queue->countWaiting(),
             ],
             'totals' => [
                 'titles' => Book::query()->count(),

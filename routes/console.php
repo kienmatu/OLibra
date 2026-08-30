@@ -23,9 +23,11 @@ Schedule::command('queue:work --stop-when-empty --max-time=50')
     ->everyMinute()
     ->withoutOverlapping(2);
 
-// The 07:00 Asia/Ho_Chi_Minh reminder sweep is Phase 2's — it slots in here as
-// a second Schedule:: line once the sweep command exists. Scheduling a
-// command that does not exist yet would fail every tick, so it is not added
-// now:
-//
-// Schedule::command('reminders:sweep')->dailyAt('07:00')->timezone('Asia/Ho_Chi_Minh');
+// The second Schedule:: line Phase 0 reserved, now live: BR §15's nhắc trả
+// sách — before a loan falls due (each shelf's own due_soon_days, default
+// 3) and again once it has lapsed. 07:00 Asia/Ho_Chi_Minh, the hour the
+// reference's compose sweep service ran (OPS §7). Housekeeping, bounded:
+// if it misses a day nothing a user sees is wrong — overdue is computed
+// on read — only late to be told, and the command is idempotent, so
+// tomorrow's run catches up rather than double-telling.
+Schedule::command('reminders:sweep')->dailyAt('07:00')->timezone('Asia/Ho_Chi_Minh');

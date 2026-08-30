@@ -7,6 +7,7 @@ use App\Models\Category;
 use App\Models\Membership;
 use App\Models\User;
 use Database\Seeders\CategorySeeder;
+use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DemoShelfSeeder;
 use Illuminate\Support\Facades\DB;
 
@@ -117,6 +118,16 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
     // above, the seeder's own name-reuse trap) each with their own active
     // reader membership, plus one active and one overdue loan against two
     // of the eight seeded copies. +2 users, +2 memberships, +2 loans.
+    //
+    // Task 19 added a living queue and a living bell: one pending request,
+    // one approved hold (its copy flipped to held) and the notification
+    // that announces it. No new user or membership — both requesters are
+    // demo readers already seeded above. The copies stay at eight because
+    // the catalogue block now writes AGENTS.md's four titles and eight
+    // codes explicitly instead of rolling them: before that, a title the
+    // request block names could be absent from a given run and the block
+    // would mint a ninth copy for it, which is what made this assertion
+    // fail intermittently rather than never.
     expect(DB::table('bookshelves')->count())->toBe(1)
         ->and(DB::table('users')->count())->toBe(7)
         ->and(DB::table('memberships')->count())->toBe(7)
@@ -124,5 +135,63 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
         ->and(DB::table('books')->count())->toBe(4)
         ->and(DB::table('book_copies')->count())->toBe(8)
         ->and(DB::table('loans')->count())->toBe(2)
-        ->and(DB::table('book_copies')->where('state', 'on_loan')->count())->toBe(2);
+        ->and(DB::table('book_copies')->where('state', 'on_loan')->count())->toBe(2)
+        ->and(DB::table('borrow_requests')->count())->toBe(2)
+        ->and(DB::table('borrow_requests')->where('status', 'approved')->count())->toBe(1)
+        ->and(DB::table('book_copies')->where('state', 'held')->count())->toBe(1)
+        ->and(DB::table('notifications')->count())->toBe(1);
+});
+
+it('seeds AGENTS.md\'s four titles by name, not by a random draw', function () {
+    // The demo request block names two of them (Totto-chan, Đất Rừng
+    // Phương Nam) and BookFactory used to pick among the four randomly WITH
+    // replacement, so a run could seed the same title twice and leave one
+    // out. This is the assertion that stops that regressing — without it
+    // the block above only notices through a count that happens to move.
+    $this->seed(DemoShelfSeeder::class);
+
+    // Sorted in PHP, byte order, not by the database: MariaDB's own
+    // collation puts 'Đất' before 'Hoàng', which is correct Vietnamese and
+    // has nothing to do with what this test is asking.
+    $titles = DB::table('books')->pluck('title')->all();
+    sort($titles);
+
+    expect($titles)->toBe([
+        'Dế Mèn Phiêu Lưu Ký', 'Hoàng Tử Bé', 'Totto-chan Bên Cửa Sổ', 'Đất Rừng Phương Nam',
+    ]);
+});
+
+it('DatabaseSeeder runs DemoShelfSeeder only in local — the gate the deploy relies on', function () {
+    // `deploy/post-deploy.sh` runs `artisan db:seed --force` UNCONDITIONALLY
+    // on every deploy, and its own comment says that is safe because
+    // "DatabaseSeeder gates DemoShelfSeeder behind app()->environment('local')
+    // … production only ever gets CategorySeeder". That gate was asserted by
+    // nothing: deleting the `if` left the whole suite green while the next
+    // deploy would have written a demo shelf, demo readers, demo loans and —
+    // since Task 19 — a third account with a working password into the
+    // production database. A shipped script's stated safety premise deserves
+    // a test on this side of it.
+    //
+    // The environment is forced to production rather than left at `testing`,
+    // which already is not `local`: the point is the deploy's own case, and a
+    // test that passes because of the harness's default is testing the
+    // harness. The premise is asserted first for the same reason.
+    $this->app->detectEnvironment(fn () => 'production');
+
+    // `db:seed --force`, the deploy's own invocation, not $this->seed():
+    // db:seed is confirmable, so without --force it prompts in production and
+    // the test dies on a ConfirmationQuestion instead of exercising the gate
+    // (measured — that is exactly what the first version of this block did).
+    $this->artisan('db:seed', ['--class' => DatabaseSeeder::class, '--force' => true]);
+
+    expect(app()->environment())->toBe('production')
+        // CategorySeeder still runs — a production install with no categories
+        // cannot satisfy the required "Thể loại" field, which is why the
+        // deploy calls db:seed at all.
+        ->and(DB::table('categories')->count())->toBe(6)
+        // …and nothing DemoShelfSeeder writes exists. The shelf is its first
+        // row, so it is the one that cannot be reached without running.
+        ->and(DB::table('bookshelves')->count())->toBe(0)
+        ->and(DB::table('users')->count())->toBe(0)
+        ->and(DB::table('borrow_requests')->count())->toBe(0);
 });

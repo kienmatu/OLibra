@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
+use App\Http\Controllers\Manage\BorrowRequestController as ManageBorrowRequestController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
 use App\Http\Controllers\Manage\ExportController;
@@ -14,8 +15,10 @@ use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
+use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\MyLoansController;
+use App\Http\Controllers\Reader\NotificationController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
@@ -80,6 +83,13 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/catalogue', [CatalogueController::class, 'index'])->name('catalogue');
         Route::get('/search', [SearchController::class, 'index'])->name('search');
         Route::get('/books/{book}', [ReaderBookController::class, 'show'])->name('books.show');
+        // BR §16.1's "Xin mượn". The 404 a non-member gets here is
+        // EnsureShelfRole's (this group's role:reader), not a Form
+        // Request's — this POST has no fields and therefore no Form
+        // Request to hold an abort_unless(..., 404), so the middleware is
+        // the whole of it. CirculationArchitectureTest pins that the
+        // middleware is still on the route.
+        Route::post('/books/{book}/request', [ReaderBorrowRequestController::class, 'store'])->name('books.request');
         Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
         Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
@@ -106,10 +116,35 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     Route::prefix('profile')->name('profile.')->middleware(['auth', 'role:reader'])->group(function () {
         Route::get('/', [ShellController::class, 'underConstruction'])->name('show');
         Route::get('/history', [MyLoansController::class, 'history'])->name('history');
-        Route::get('/notifications', [ShellController::class, 'underConstruction'])->name('notifications');
+        // The bell. read-all is declared BEFORE the bound route — the
+        // house habit (spec §6's static-before-bound discipline), even
+        // though these two cannot collide: read-all is one segment after
+        // /notifications and the other is two.
+        Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications');
+        Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+        // {notification} resolves through Bookshelf::notifications() under
+        // scopeBindings(), and through BookshelfScope on the model
+        // independently — this file's own documented double layer. Neither
+        // layer scopes by PERSON: a notification belonging to another
+        // reader OF THIS SHELF binds fine and is refused one layer down,
+        // by MarkNotificationRead's user_id key, as a silent no-op.
+        Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
         Route::get('/donations', [ShellController::class, 'underConstruction'])->name('donations');
         Route::get('/overview', [MyLoansController::class, 'overview'])->name('overview');
         Route::post('/loans/{loan}/renew', [MyLoansController::class, 'renew'])->name('loans.renew');
+        // One route, two doors. The reference defines exactly one
+        // cancelRequestAction, and it lives in the PROFILE area
+        // (ho-so/reader-actions.ts:148) while being posted from both
+        // ho-so/tong-quan (:255) and the book page (sach/[slug]:570) —
+        // grepped, all three call sites. So the withdrawal sits here with
+        // the reader's other own-row actions, and the book page names
+        // this route rather than growing a second.
+        // {borrowRequest} resolves through
+        // Bookshelf::borrowRequests() under scopeBindings(), and through
+        // BookshelfScope on the model independently — this file's own
+        // documented double layer, either half sufficient (measured; see
+        // that relation's docblock).
+        Route::post('/requests/{borrowRequest}/cancel', [ReaderBorrowRequestController::class, 'cancel'])->name('requests.cancel');
     });
 
     // ── The manager area: role:manager = act-as-manager or 404 ──────────
@@ -181,7 +216,21 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/copies/{bookCopy}/report-lost', [CopyController::class, 'reportLost'])->name('copies.report-lost');
         Route::post('/copies/{bookCopy}/mark-found', [CopyController::class, 'markFound'])->name('copies.mark-found');
 
-        Route::get('/borrow-requests', [ShellController::class, 'underConstruction'])->name('borrow-requests');
+        // The queue and the decisions a manager makes on it — four
+        // POSTs since Task 18's release. The GET keeps the
+        // placeholder's route NAME — nothing linked to it at HEAD
+        // (grepped resources/ at 48e9c0d: no hits), so the continuity
+        // this buys is for the nav item and the dashboard card added in
+        // the same commit, and for whatever Ziggy-named link comes next.
+        Route::get('/borrow-requests', [ManageBorrowRequestController::class, 'index'])->name('borrow-requests');
+        Route::post('/borrow-requests/{borrowRequest}/approve', [ManageBorrowRequestController::class, 'approve'])->name('borrow-requests.approve');
+        Route::post('/borrow-requests/{borrowRequest}/reject', [ManageBorrowRequestController::class, 'reject'])->name('borrow-requests.reject');
+        Route::post('/borrow-requests/{borrowRequest}/handover', [ManageBorrowRequestController::class, 'handover'])->name('borrow-requests.handover');
+        // Ruling 1's exit from a lapsed hold. Bodiless, like the handover
+        // beside it: nothing is chosen, so there is no field to validate
+        // and no Form Request — role:manager is what produces the 404
+        // (CirculationArchitectureTest pins the gate on all four names).
+        Route::post('/borrow-requests/{borrowRequest}/release', [ManageBorrowRequestController::class, 'release'])->name('borrow-requests.release');
         Route::get('/overdue', [OverdueController::class, 'index'])->name('overdue');
         Route::post('/loans/{loan}/void', [LoanController::class, 'void'])->name('loans.void');
         Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');
