@@ -21,6 +21,10 @@ export default function ManageLayout({ children }: PropsWithChildren) {
             href: route("shelves.manage.borrow-requests", { shelf: shelf.slug }),
         },
         {
+            name: copy.manage.comments,
+            href: route("shelves.manage.comments", { shelf: shelf.slug }),
+        },
+        {
             name: copy.manage.readers,
             href: route("shelves.manage.readers.index", { shelf: shelf.slug }),
         },

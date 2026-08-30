@@ -3,6 +3,7 @@
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\BorrowRequestController as ManageBorrowRequestController;
+use App\Http\Controllers\Manage\CommentModerationController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
 use App\Http\Controllers\Manage\ExportController;
@@ -252,7 +253,35 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');
         Route::post('/registrations/{reader}/approve', [RegistrationQueueController::class, 'approve'])->name('registrations.approve');
         Route::post('/registrations/{reader}/reject', [RegistrationQueueController::class, 'reject'])->name('registrations.reject');
-        Route::get('/comments', [ShellController::class, 'underConstruction'])->name('comments');
+        // The moderation screen and the three decisions a manager makes
+        // on a comment. The GET keeps the placeholder's route NAME, and
+        // what that continuity buys is the nav item and the dashboard
+        // card added in this same commit: `git grep manage.comments
+        // 972f7ca -- resources/` returned no call sites, run before this
+        // line was written.
+        //
+        // {comment} resolves two independent ways, divergence 3's two
+        // layers: through Bookshelf::comments() under this group's
+        // scopeBindings(), and through BookshelfScope on Comment
+        // (App\Models\Concerns\BelongsToBookshelf) on every query
+        // Eloquent runs for the binding. Bookshelf::comments()'s docblock
+        // asked whichever task first routed through {comment} to measure
+        // which of the two, alone, suffices, rather than assume
+        // borrowRequests()'s answer transfers. MEASURED HERE, on the
+        // approve POST with shelf B's comment id under shelf A's URL:
+        // with both layers it is 404 and the row is untouched, and with
+        // ->scopeBindings() removed from this group it is STILL 404 —
+        // BookshelfScope alone produces it, exactly as this file's own
+        // {bookCopy} note records for that parameter. The reverse
+        // direction (scopeBindings alone, with the global scope removed)
+        // was not measured. The second layer stays for the reason that
+        // note gives: a rename that breaks the relation guess becomes a
+        // loud RelationNotFoundException rather than a silent unscoped
+        // query.
+        Route::get('/comments', [CommentModerationController::class, 'index'])->name('comments');
+        Route::post('/comments/{comment}/approve', [CommentModerationController::class, 'approve'])->name('comments.approve');
+        Route::post('/comments/{comment}/reject', [CommentModerationController::class, 'reject'])->name('comments.reject');
+        Route::post('/comments/{comment}/hide', [CommentModerationController::class, 'hide'])->name('comments.hide');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');

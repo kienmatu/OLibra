@@ -181,12 +181,14 @@ class Bookshelf extends Model
      * — the borrowRequests() precedent, same two-layer shape: this
      * relation's own FK filter and BookshelfScope on Comment
      * (App\Models\Concerns\BelongsToBookshelf) are each an independent
-     * defence against a foreign shelf's comment id, and this task has NOT
-     * measured which of them, alone, would be sufficient for this
-     * particular relation — that measurement belongs to whichever task
-     * first has a route bound through {comment} to re-run against, the
-     * same way borrowRequests()'s docblock records its own measurement
-     * rather than assuming this one transfers.
+     * defence against a foreign shelf's comment id. The task that wrote
+     * this had no route bound through {comment} to measure against and
+     * said so; TASK 8 ADDED THREE and took the measurement it asked for,
+     * on the approve POST with shelf B's comment id under shelf A's URL:
+     * 404 with both layers in place, and still 404 with ->scopeBindings()
+     * removed from the shelf group, so the global scope alone answers it.
+     * The reverse direction was not measured. routes/web.php's {comment}
+     * note carries the same result beside the routes it was taken on.
      *
      * @return HasMany<Comment, $this>
      */

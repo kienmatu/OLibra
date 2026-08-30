@@ -172,8 +172,14 @@ it('a reader cannot approve — this command\'s own gate call, with no route to 
         ->toThrow(AuthorizationException::class);
 
     // Nothing moved, and nobody was told. Over HTTP this refusal becomes
-    // a 404 rather than a 403 (spec §5.4) — there is no route to this
-    // command yet, so that half belongs to Task 8's screen, not here.
+    // a 404 rather than a 403 (spec §5.4). This comment used to add
+    // "there is no route to this command yet"; Task 8's screen added
+    // one (POST /manage/comments/{comment}/approve) and pins that half
+    // in ManagerModerationScreenTest. The 404 comes from the manage
+    // group's role:manager, not from the AuthorizationException below —
+    // that Action-level refusal is what a 403 would be made of, and
+    // Task 8's controller docblock carries the measurement showing it is
+    // unreachable while the middleware stands.
     expect($comment->fresh()->status)->toBe(CommentStatus::Pending)
         ->and(Notification::query()->count())->toBe(0)
         ->and(AuditLog::query()->where('action', 'comment.approved')->count())->toBe(0);

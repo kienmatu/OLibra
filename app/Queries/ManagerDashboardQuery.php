@@ -18,15 +18,17 @@ use App\Support\Clock;
  * from the foundation, pendingRequests from Phase 2a, and
  * pendingComments from Phase 2b's CommentModerationQuery.
  *
- * A NUMBER IS NOT A CARD, and plan divergence 6 is about cards.
- * resources/js/pages/manage/dashboard.tsx — opened while writing this
- * paragraph — declares three counts in its page props and renders three
- * StatCards; the fourth, Bình luận chờ duyệt, is not on the screen yet.
- * It lands with the /manage/comments moderation screen it links to,
- * because a card over an under-construction link is the "no comments
- * waiting" lie the reference removed. Until that screen ships, that
- * divergence stays open and dashboard.tsx's own comment saying so is
- * correct.
+ * A NUMBER IS NOT A CARD, and plan divergence 6 was about cards. That
+ * divergence is DISCHARGED as of Task 8, the commit that ships
+ * /manage/comments: resources/js/pages/manage/dashboard.tsx — opened
+ * while rewriting this paragraph — now declares four counts in its page
+ * props and renders four StatCards, the fourth being Bình luận chờ duyệt
+ * linked to that screen. The reason the card waited is worth keeping,
+ * because it is the reason it could not have shipped earlier: a card over
+ * an under-construction link is the "no comments waiting" lie the
+ * reference removed. This paragraph used to say the card "is not on the
+ * screen yet" and that the divergence "stays open"; both sentences went
+ * false in the same commit that made this one true.
  *
  * Every figure is a count() at query time over BelongsToBookshelf-scoped
  * models — never a stored counter (BR §8; OPS §3.3's own words: "a

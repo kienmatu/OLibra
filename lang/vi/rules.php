@@ -114,7 +114,12 @@ return [
     // nothing threw these codes yet, and that census walks throwers, not
     // sentences. Each task adds its codes to that list in the commit that
     // first throws them — Task 2 (CreateComment) added comments_disabled
-    // and empty_body; the two moderation codes below still await theirs.
+    // and empty_body. CORRECTED IN TASK 8, which re-read that census
+    // while wiring the moderation screen: this line used to say the two
+    // moderation codes below "still await theirs", and they do not —
+    // comment_not_pending and comment_not_approved are both in
+    // RuleViolatedCodesHaveSentencesTest's list today, added by the
+    // commands that throw them.
     'comments_disabled' => 'Tủ sách hiện không nhận bình luận.',
     'empty_body' => 'Vui lòng nhập nội dung bình luận.',
     'comment_not_pending' => 'Bình luận này đã được xử lý.',
@@ -126,4 +131,23 @@ return [
     // OPS §4.4's RejectComment reuses that same sentence.
     'comment_pending_flash' => 'Đã gửi. Bình luận của bạn sẽ hiển thị sau khi được duyệt.',
     'comment_published_flash' => 'Đã gửi bình luận.',
+    // The MANAGER's three, minted by Task 8's moderation screen — the two
+    // above are the reader's, said to whoever just wrote a comment, and
+    // these are said to whoever just decided one. Named on
+    // reject_request_flash / release_hold_flash's pattern (the verb, then
+    // what the volunteer can now expect), and no key is shared between
+    // the two audiences: a sentence written for a child reads wrong to a
+    // volunteer, and one key for both drifts the moment either side is
+    // reworded.
+    //
+    // The rejection line says nothing about the author being told,
+    // deliberately: RejectComment sends no notification — its own
+    // docblock gives OPS §7's table as the reason — so the reason stored
+    // on the row is the whole of what is written down.
+    // reject_request_flash further up CAN promise "bạn đọc sẽ được báo"
+    // because RejectBorrowRequest notifies; copying that half-sentence
+    // down here would have been false.
+    'comment_approved_flash' => 'Đã duyệt — bình luận đã hiển thị công khai.',
+    'comment_rejected_flash' => 'Đã từ chối bình luận — lý do được lưu cùng bình luận.',
+    'comment_hidden_flash' => 'Đã ẩn — bình luận không còn hiển thị công khai.',
 ];

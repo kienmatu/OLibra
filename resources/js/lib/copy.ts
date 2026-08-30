@@ -52,6 +52,11 @@ export const copy = {
         books: "Sách",
         overdue: "Quá hạn",
         requests: "Yêu cầu mượn",
+        // The NAV word, one of two spellings of the same subject in this
+        // file. The screen it opens is headed "Bình luận chờ duyệt" and
+        // the three archives re-head it — see manageComments.titles — so
+        // the nav says the subject and the heading says the view.
+        comments: "Bình luận",
         settings: "Cài đặt",
         audit: "Nhật ký",
     },
@@ -347,6 +352,7 @@ export const copy = {
         overdueCard: "Quá hạn",
         registrationsCard: "Chờ duyệt tài khoản",
         requestsCard: "Yêu cầu chờ xử lý",
+        commentsCard: "Bình luận chờ duyệt",
         viewList: "Xem danh sách",
         lendAction: "Cho mượn",
         lendSub: "Tìm sách · chọn người đọc · xác nhận",
@@ -390,6 +396,65 @@ export const copy = {
         handoverButton: "Xác nhận trao sách",
         releaseButton: "Trả về kệ",
         nothingAutomatic: "Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.",
+    },
+    /**
+     * The manager's moderation screen. Its own section rather than a
+     * branch of `comments`: that one is the READER's wording on a book
+     * page ("Bạn thấy cuốn này thế nào?"), and these are a volunteer's
+     * words about somebody else's comment — the same split
+     * manageRequests already draws against `circulation.requests`.
+     */
+    manageComments: {
+        // The heading names the VIEW, and the ?status= chip chooses it.
+        // The reference re-heads the page per tab for the same reason
+        // and this ports that; the browser tab title stays the screen's
+        // one name (`tab` below), because a tab names a screen rather
+        // than the filter currently applied to it.
+        tab: "Bình luận",
+        titles: {
+            pending: "Bình luận chờ duyệt",
+            approved: "Bình luận đã duyệt",
+            rejected: "Bình luận đã từ chối",
+            hidden: "Bình luận đã ẩn",
+        },
+        chips: {
+            pending: "Chờ duyệt",
+            approved: "Đã duyệt",
+            rejected: "Đã từ chối",
+            hidden: "Đã ẩn",
+        },
+        // The chip's own number, beside its word.
+        chipCount: "{label} ({count})",
+        subtitle: "Bình luận chỉ hiển thị công khai sau khi được duyệt.",
+        subtitleCounted:
+            "{count} bình luận đang chờ · Bình luận chỉ hiển thị công khai sau khi được duyệt.",
+        empty: "Chưa có bình luận nào.",
+        aboutBook: "Bình luận về",
+        // A DATE and an hour: a queue is worked in order and how long a
+        // child has been waiting is the thing a volunteer reads off a
+        // row, unlike the book page's list where the date alone does.
+        postedAt: "gửi {time} ngày {date}",
+        // What a row shows when the person who wrote it, or the book it
+        // is about, has since been soft-deleted: the query returns an
+        // empty string there, and an empty string renders as a gap that
+        // reads like a bug rather than like a fact.
+        deletedAuthor: "Bạn đọc đã rời tủ sách",
+        deletedBook: "Sách đã gỡ khỏi tủ",
+        approveButton: "Duyệt bình luận",
+        rejectSummary: "Từ chối",
+        rejectReasonLabel: "Lý do từ chối",
+        rejectReasonHint: "Bạn đọc sẽ thấy lý do này.",
+        // The word, never a bare asterisk (AGENTS.md rule 6). A second
+        // key rather than a reach into `register.required` or
+        // `comments.required`, so rewording a form elsewhere cannot
+        // silently rewrite this one.
+        required: "Bắt buộc",
+        rejectConfirm: "Xác nhận từ chối",
+        hideButton: "Ẩn bình luận",
+        // Why the two read-only archives offer nothing: no command moves
+        // a rejected or hidden row anywhere, so a button there would post
+        // to nothing.
+        readOnlyNote: "Bình luận đã từ chối hoặc đã ẩn thì không đổi được nữa.",
     },
     circulation: {
         rules: {
