@@ -12,10 +12,11 @@ use App\Models\Membership;
 use App\Support\Clock;
 
 /**
- * OPS §3.3's GetManagerDashboard — port of get-manager-dashboard.ts,
- * narrowed to the two of BR §16.3's four stat cards whose queues exist
- * (plan divergence 6: Yêu cầu mượn and Bình luận chờ duyệt are Phase
- * 2's, and no substitute card is promoted into their slots).
+ * OPS §3.3's GetManagerDashboard — port of get-manager-dashboard.ts. All
+ * four of BR §16.3's stat cards now have a queue behind them: overdue and
+ * pendingRegistrations from the foundation, pendingRequests from Phase
+ * 2a (plan divergence 6, partly discharged), and pendingComments from
+ * this task, which discharges the rest of that divergence.
  *
  * Every figure is a count() at query time over BelongsToBookshelf-scoped
  * models — never a stored counter (BR §8; OPS §3.3's own words: "a
@@ -28,6 +29,10 @@ use App\Support\Clock;
  *   rather than restating its where-clauses — the mirror rule the
  *   overdue card already follows, so the card and the screen it links
  *   to cannot drift apart the way two independent counts could.
+ * - pendingComments DELEGATES to CommentModerationQuery::countPending(),
+ *   the same rule pendingRequests already follows and for the same
+ *   reason: the card and Task 7's moderation queue read one definition
+ *   of "pending" rather than two that merely agree today.
  * - pendingRegistrations mirrors PendingRegistrationsQuery (status
  *   pending, whereHas('user') — a soft-deleted identity is no applicant).
  * - readers counts every ACTIVE membership, managers included — the same
@@ -46,9 +51,13 @@ use App\Support\Clock;
  */
 final class ManagerDashboardQuery
 {
-    public function __construct(private Clock $clock, private BorrowRequestQueueQuery $queue) {}
+    public function __construct(
+        private Clock $clock,
+        private BorrowRequestQueueQuery $queue,
+        private CommentModerationQuery $comments,
+    ) {}
 
-    /** @return array{counts: array{overdue: int, pendingRegistrations: int, pendingRequests: int}, totals: array{titles: int, copies: int, onLoan: int, readers: int}} */
+    /** @return array{counts: array{overdue: int, pendingRegistrations: int, pendingRequests: int, pendingComments: int}, totals: array{titles: int, copies: int, onLoan: int, readers: int}} */
     public function run(): array
     {
         $today = $this->clock->today();
@@ -67,6 +76,9 @@ final class ManagerDashboardQuery
                 // links to cannot drift; the mirror rule the overdue
                 // card already follows.
                 'pendingRequests' => $this->queue->countWaiting(),
+                // Same delegation, same reason — Task 7's moderation
+                // queue and this card read one definition of "pending".
+                'pendingComments' => $this->comments->countPending(),
             ],
             'totals' => [
                 'titles' => Book::query()->count(),
