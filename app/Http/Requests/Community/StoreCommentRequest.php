@@ -50,9 +50,27 @@ class StoreCommentRequest extends FormRequest
             // rule — FreeTextEncodingGuardTest sweeps every Form Request
             // for exactly that, and the class of bug it exists for is an
             // unmapped MariaDB errno 1366 turning a legitimate POST into
-            // a 500. max:2000 is the length ceiling on a TEXT column
-            // nothing else bounds; the empty case is CreateComment's own
-            // empty_body, because a body of three spaces passes required.
+            // a 500. max:2000 is the length ceiling a comment is held
+            // to; the column behind it is TEXT, which stops at 65,535
+            // bytes.
+            //
+            // CORRECTED IN TASK 7'S FIX ROUND 1, on a measurement Task
+            // 7 itself made. This sentence used to say the empty case
+            // was CreateComment's own empty_body "because a body of
+            // three spaces passes required". It does not pass:
+            // Illuminate\Validation\Concerns\ValidatesAttributes::
+            // validateRequired (opened and read at that commit) returns
+            // false for
+            // `is_string($value) && trim($value) === ''`, so `required`
+            // on this line refuses a whitespace-only body and the reader
+            // gets errors.body beside the textarea rather than the
+            // errors.rule banner. BookCommentsScreenTest pins both
+            // shapes over HTTP — empty and three spaces — key by key.
+            //
+            // CreateComment::execute's own trim is NOT made redundant by
+            // that. It guards the direct execute() call
+            // CreateCommentTest makes, where no Form Request runs at
+            // all; this route is simply not the door that reaches it.
             'body' => ['bail', 'required', 'string', 'max:2000', 'encoding:UTF-8'],
         ];
     }

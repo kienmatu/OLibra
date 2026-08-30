@@ -522,6 +522,13 @@ export const copy = {
         heading: "Bình luận",
         empty: "Chưa có bình luận nào. Bạn là người đầu tiên nhé.",
         formLabel: "Viết bình luận",
+        // The word, not an asterisk, beside the label — the reference's
+        // Field renders exactly this for a `required` textarea. The same
+        // string sits under register.required for the registration form;
+        // this is a second key rather than a reach across that namespace,
+        // so a change to the registration wording cannot silently rewrite
+        // what a book page says.
+        required: "Bắt buộc",
         placeholder: "Bạn thấy cuốn này thế nào?",
         submit: "Gửi bình luận",
         // The memberless viewer's sentence, in place of a box that would

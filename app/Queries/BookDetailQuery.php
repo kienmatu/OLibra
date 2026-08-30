@@ -176,6 +176,13 @@ final class BookDetailQuery
         // this branch with a throw and running the whole suite is how
         // that was checked — no block reached it, ReaderQueriesTest's
         // direct calls included, because that fixture binds a shelf too.
+        // And were run() ever reached with no tenant bound, the branch
+        // would not survive being alive: the return below reads Comment
+        // through BookCommentsQuery, and BookshelfScope::apply
+        // (opened at this commit) throws a RuntimeException for a
+        // shelf-scoped model with no bookshelf bound. The fallback is
+        // dead, and the fail-closed path would answer before its default
+        // could mean anything.
         $commentsEnabled = $shelf === null || CommentSettings::fromShelf($shelf)->commentsEnabled;
 
         return array_merge($this->catalogue->row($withCounts), [
@@ -194,7 +201,18 @@ final class BookDetailQuery
             // page that re-spelled `status = approved` would be a second
             // place for it to drift — the same structural rule
             // counts.pendingComments was held to.
-            'comments' => $this->comments->run($book),
+            //
+            // GATED ON THE SETTING, because resources/js/pages/shelves/
+            // book.tsx (opened at this commit) hides the whole comments
+            // section when commentsEnabled is false: an unconditional
+            // read would ship every approved body to a page that has
+            // already hidden the list, and run a SELECT to do it. Not a
+            // confidentiality fix — the recipient is the same signed-in
+            // reader of the same shelf, and the rows were on their screen
+            // before the shelf turned comments off — but props a page
+            // cannot use should not be built. BookCommentsScreenTest pins
+            // the empty array on a comments-off shelf.
+            'comments' => $commentsEnabled ? $this->comments->run($book) : [],
             'commentsEnabled' => $commentsEnabled,
         ]);
     }

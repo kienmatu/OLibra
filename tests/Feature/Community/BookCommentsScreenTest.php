@@ -22,10 +22,14 @@ use Inertia\Testing\AssertableInertia;
  * jest config at its root (package.json's `test` script cd's into
  * old_next). Phase 1d measured what that costs — swapping two stat cards'
  * values left the whole suite, Pint, Larastan, Biome, tsc and the build
- * green. So every block here pins a PROP or a REDIRECT. That the list is
- * rendered under the comments heading, that the form posts to
- * shelves.books.comments.store, and that its button is the non-primary
- * variant are checked by READING resources/js/pages/shelves/book.tsx.
+ * green. So what a block here can pin is a SERVER-SIDE fact — a prop, a
+ * redirect, a session error bag, a row count — and never a pixel. That
+ * the list is rendered under the comments heading, that the form posts to
+ * shelves.books.comments.store, that its textarea carries `required`, that
+ * its button is the non-primary variant, and that the comment
+ * confirmation renders beside the form as well as in the banner at the
+ * top of the page are checked by READING
+ * resources/js/pages/shelves/book.tsx.
  *
  * Grep first: `grep -rn "^function bcsFix" tests/` — top-level helpers
  * are process-global (AGENTS.md).
@@ -69,10 +73,13 @@ it('the page carries the approved comment and neither the pending nor the reject
     // exact defect INV-9 exists for; the id list says WHICH row survived.
     //
     // The three are seeded pending, rejected, approved — the approved one
-    // LAST — so a page that simply took the first row it found, or that
-    // ordered by the primary key, cannot answer correctly by accident:
-    // UUID v7 keys are chronologically monotonic, so insertion order and
-    // id order agree here and the approved row is the newest id.
+    // LAST — so a page that simply took the first row it found cannot
+    // answer correctly by accident. What the block RESTS ON is the
+    // seeded created_at values, an hour apart and descending to the
+    // approved row, which is BookCommentsQuery's primary sort key. The
+    // ids are not relied on for ordering: these are UUID v7 keys, whose
+    // time component is milliseconds, so three inserts inside one
+    // millisecond carry no guaranteed order between them.
     [$shelf, $reader, $book] = bcsFix();
     bcsComment($book, $reader, 'pending', 'Đang chờ duyệt', '2026-08-01 08:00:00');
     bcsComment($book, $reader, 'rejected', 'Đã bị từ chối', '2026-08-01 09:00:00');
@@ -114,6 +121,22 @@ it('a shelf that has turned comments off sends commentsEnabled false', function 
         ->assertInertia(fn (AssertableInertia $p) => $p
             ->component('shelves/book')
             ->where('detail.commentsEnabled', false));
+});
+
+it('a shelf that has turned comments off sends no comment rows at all', function () {
+    // THE ROWS, not the flag — its own block because the flag's block
+    // above would go green on a page that sent commentsEnabled false and
+    // every approved body beside it. The section is hidden on the flag,
+    // so those rows would be props nothing draws; BookDetailQuery skips
+    // the read rather than shipping them. Seeded with an APPROVED
+    // comment — the status BookCommentsQuery's predicate keeps — so
+    // an empty array here cannot be that filter doing the work.
+    [$shelf, $reader, $book] = bcsFix(['comments_enabled' => false], 'dong-thap-bcs-off-rows');
+    bcsComment($book, $reader, 'approved', 'Con thích chú Dế Mèn', '2026-08-01 10:00:00');
+
+    $response = test()->actingAs($reader)->get("/shelves/{$shelf->slug}/books/{$book->slug}");
+
+    expect($response->viewData('page')['props']['detail']['comments'])->toBe([]);
 });
 
 it('a shelf that never opened its settings screen sends commentsEnabled true', function () {
@@ -208,10 +231,22 @@ it('an empty body is a field error on body, the Form Request\'s own required', f
     // errors.body, which the form renders beside the textarea.
     [$shelf, $reader, $book] = bcsFix([], 'dong-thap-bcs-empty');
 
-    $response = test()->actingAs($reader)
+    test()->actingAs($reader)
+        ->post("/shelves/{$shelf->slug}/books/{$book->slug}/comments", ['body' => ''])
+        ->assertSessionHasErrors(['body']);
+});
+
+it('and the empty body writes no row', function () {
+    // Its own block. A failed assertSessionHasErrors aborts the whole
+    // METHOD, so a row count sitting under it could never go red on its
+    // own — the refusal would have to hold for the count to be reached
+    // at all. The two facts are independent: a route could answer with
+    // the field error AND still have written the row.
+    [$shelf, $reader, $book] = bcsFix([], 'dong-thap-bcs-empty-norow');
+
+    test()->actingAs($reader)
         ->post("/shelves/{$shelf->slug}/books/{$book->slug}/comments", ['body' => '']);
 
-    $response->assertSessionHasErrors(['body']);
     expect(Comment::query()->count())->toBe(0);
 });
 
@@ -260,10 +295,21 @@ it('a body of three spaces is the SAME field error — over HTTP it never reache
     // Request runs at all.
     [$shelf, $reader, $book] = bcsFix([], 'dong-thap-bcs-spaces');
 
-    $response = test()->actingAs($reader)
+    test()->actingAs($reader)
+        ->post("/shelves/{$shelf->slug}/books/{$book->slug}/comments", ['body' => '   '])
+        ->assertSessionHasErrors(['body']);
+});
+
+it('and the whitespace body writes no row either', function () {
+    // Split from the block above for the reason its twin was: the
+    // aborted-method rule makes a row count under an assertion
+    // unfalsifiable on its own. This is the half that would catch a
+    // route which refused the reader and wrote the row anyway.
+    [$shelf, $reader, $book] = bcsFix([], 'dong-thap-bcs-spaces-norow');
+
+    test()->actingAs($reader)
         ->post("/shelves/{$shelf->slug}/books/{$book->slug}/comments", ['body' => '   ']);
 
-    $response->assertSessionHasErrors(['body']);
     expect(Comment::query()->count())->toBe(0);
 });
 

@@ -190,7 +190,20 @@ export default function ShelfBook() {
 
                     {/* The answer to a tap belongs ABOVE the control that
                         caused it (the reference's placement). flash.success
-                        carries the two success flashes; errors.rule renders
+                        carries FOUR success sentences now, not two — the
+                        three doors named below produce them, and the comment
+                        box counts twice because its controller picks between
+                        comment_pending_flash and comment_published_flash on
+                        the status its Action returned
+                        (App\Http\Controllers\Reader\CommentController::store,
+                        opened at this commit; the request pair comes from
+                        BorrowRequestController's store and cancel, opened
+                        too). The count is written down because it has already
+                        gone stale once: Task 7 added the comment box and
+                        updated the door count further down this same block
+                        while leaving this number at two.
+
+                        errors.rule renders
                         whatever `rule` code the last RuleViolated produced,
                         already translated — bootstrap/app.php's
                         withExceptions render arm turns EVERY RuleViolated
@@ -425,52 +438,128 @@ export default function ShelfBook() {
                                     {copy.comments.onlyReaders}
                                 </p>
                             ) : (
-                                <form
-                                    className="mt-6 max-w-sm"
-                                    onSubmit={(e) => {
-                                        e.preventDefault();
-                                        commentForm.post(
-                                            route("shelves.books.comments.store", {
-                                                shelf: shelf.slug,
-                                                book: detail.slug,
-                                            }),
-                                            {
-                                                preserveScroll: true,
-                                                onSuccess: () => commentForm.reset("body"),
-                                            },
-                                        );
-                                    }}
-                                >
-                                    {/* The house textarea shape, not two new UI
-                                        components. The plan asked for
-                                        `Field` + `Textarea`; a grep over
-                                        resources/js at this commit for
-                                        \bField\b and \bTextarea\b returned
-                                        only this file's own comment, and
-                                        components/ui/ holds input.tsx and
-                                        label.tsx with no textarea beside them.
-                                        The Label + raw textarea + InputError
-                                        trio below is the shape
-                                        components/book-fields.tsx already
-                                        renders for its description field
-                                        (opened at this commit), down to the
-                                        className. */}
-                                    <div>
-                                        <Label htmlFor="body">{copy.comments.formLabel}</Label>
-                                        <textarea
-                                            id="body"
-                                            name="body"
-                                            rows={4}
-                                            className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                                            placeholder={copy.comments.placeholder}
-                                            value={commentForm.data.body}
-                                            onChange={(event) =>
-                                                commentForm.setData("body", event.target.value)
-                                            }
-                                        />
-                                        <InputError message={commentForm.errors.body} />
-                                    </div>
-                                    {/* variant="outline", and it has to be
+                                <>
+                                    {/* THE ANSWER TO THIS TAP, BESIDE THIS
+                                        TAP. On a shelf that moderates — the
+                                        default, since CommentSettings::
+                                        fromShelf reads comments_require_
+                                        approval as true when the settings
+                                        blob does not say otherwise — a new
+                                        comment is written pending, and
+                                        BookCommentsQuery returns approved
+                                        rows only, so the list above does not
+                                        change. The post keeps
+                                        preserveScroll, so the reader is still
+                                        down here at the form. Without this
+                                        strip the whole visible result of
+                                        pressing the button is a page that
+                                        looks identical, which is the defect
+                                        the reference's own SavedNotice was
+                                        added for (its comment: "a child who
+                                        presses this button and is met with an
+                                        unchanged page would have no way to
+                                        tell it worked"), and it is this
+                                        file's own stated rule, written on the
+                                        flash banner block near the top of
+                                        this same component — the answer to a
+                                        tap belongs above the control that
+                                        caused it.
+
+                                        SAME PROP AS THE BANNER AT THE TOP,
+                                        DELIBERATELY: both read flash.success,
+                                        so a comment's sentence renders twice
+                                        on one page. That is accepted rather
+                                        than worked around — the two are far
+                                        enough apart that a reader cannot hold
+                                        both on screen, and splitting the
+                                        server's one flash key into two to
+                                        avoid it would rewrite a controller
+                                        this task does not own.
+
+                                        A plain <p> and NOT a second
+                                        role="status": the banner above is
+                                        already a live region carrying this
+                                        exact string, and two of them would
+                                        announce one sentence twice. */}
+                                    {flash.success ? (
+                                        <p className="mt-6 max-w-sm rounded-md border border-green-700/30 bg-green-700/10 px-3 py-2 text-sm">
+                                            {flash.success}
+                                        </p>
+                                    ) : null}
+                                    <form
+                                        className="mt-6 max-w-sm"
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            commentForm.post(
+                                                route("shelves.books.comments.store", {
+                                                    shelf: shelf.slug,
+                                                    book: detail.slug,
+                                                }),
+                                                {
+                                                    preserveScroll: true,
+                                                    onSuccess: () => commentForm.reset("body"),
+                                                },
+                                            );
+                                        }}
+                                    >
+                                        {/* The house textarea shape, not two
+                                            new UI components. The plan asked
+                                            for `Field` + `Textarea`; a grep
+                                            over resources/js at this commit
+                                            for \bField\b and \bTextarea\b
+                                            returned only this file's own
+                                            comment, and components/ui/ holds
+                                            input.tsx and label.tsx with no
+                                            textarea beside them. The Label +
+                                            raw textarea + InputError trio
+                                            below is the shape
+                                            components/book-fields.tsx already
+                                            renders for its description field
+                                            (opened at this commit), down to
+                                            the className. */}
+                                        <div>
+                                            {/* `required` AND the word beside
+                                                the label, both ported from
+                                                the reference's own field,
+                                                whose comment says the server
+                                                refuses an empty body anyway
+                                                and that marking it here "is
+                                                what saves a child a round
+                                                trip to be told so".
+                                                StoreCommentRequest::rules is
+                                                that server half, and it stays
+                                                the one that decides — this
+                                                attribute only stops the trip.
+                                                The word rather than an
+                                                asterisk, in the shape
+                                                components/registration-person-
+                                                fields.tsx's FieldBlock already
+                                                renders (opened at this
+                                                commit): a muted span after the
+                                                label text, off its own copy
+                                                key rather than the register
+                                                namespace's. */}
+                                            <Label htmlFor="body">
+                                                {copy.comments.formLabel}
+                                                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                                    {copy.comments.required}
+                                                </span>
+                                            </Label>
+                                            <textarea
+                                                id="body"
+                                                name="body"
+                                                rows={4}
+                                                required
+                                                className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                                placeholder={copy.comments.placeholder}
+                                                value={commentForm.data.body}
+                                                onChange={(event) =>
+                                                    commentForm.setData("body", event.target.value)
+                                                }
+                                            />
+                                            <InputError message={commentForm.errors.body} />
+                                        </div>
+                                        {/* variant="outline", and it has to be
                                         said: the default variant is
                                         bg-primary, this page's one primary
                                         action is Xin mượn above, and design
@@ -479,15 +568,16 @@ export default function ShelfBook() {
                                         cancel button in the "mine" card
                                         already uses for a secondary action on
                                         this page. */}
-                                    <Button
-                                        type="submit"
-                                        variant="outline"
-                                        className="mt-4 h-11"
-                                        disabled={commentForm.processing}
-                                    >
-                                        {copy.comments.submit}
-                                    </Button>
-                                </form>
+                                        <Button
+                                            type="submit"
+                                            variant="outline"
+                                            className="mt-4 h-11"
+                                            disabled={commentForm.processing}
+                                        >
+                                            {copy.comments.submit}
+                                        </Button>
+                                    </form>
+                                </>
                             )}
                         </section>
                     ) : null}
