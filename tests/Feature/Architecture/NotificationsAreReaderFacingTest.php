@@ -16,7 +16,8 @@ use App\Support\Notifications\NotificationKind;
  * invisible to this test. It currently holds SEVEN of §7's eight table
  * rows — the seven whose writers exist — and each was checked against the
  * document by hand in the commit that added it. (Six until 2b's Task 3,
- * which added the eighth row's writer and so the seventh entry here. The
+ * which added the writer for §7's last row ("Bình luận được duyệt") and
+ * so the seventh entry here. The
  * count is re-derived from the document, not incremented on trust: §7's
  * table is the eight rows under its "| Notification | Written by |"
  * header. A line range used to be cited here and had gone stale by
@@ -26,7 +27,8 @@ use App\Support\Notifications\NotificationKind;
  * added "Sắp đến hạn trả" and "Quá hạn", the two rows whose Written-by
  * cell says "Not written by any command in §4 — see below" and whose
  * "below" is §7's sweep paragraph. §7's own "Sách đã sẵn sàng để nhận"
- * row is NOT one of the six: the document itself calls it the same
+ * row is NOT one of the seven — it is the one row of the eight with no
+ * entry of its own below: the document itself calls it the same
  * trigger as "Yêu cầu mượn được duyệt", which is why request_approved is
  * one KIND — not two — however many commands write it. Task 10 made that
  * distinction load-bearing: the table's request_approved row names TWO

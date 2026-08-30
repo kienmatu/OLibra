@@ -3212,16 +3212,20 @@ named in it, not by reading it off the plan.
   admin's, because `Gate::before` returns true for any `act-as-*` when
   `is_super_admin`, which lets a null membership through.
 
-- **One notification kind BR §15 names is still deliberately absent, and
-  it has an owner.** This entry used to name two. `comment_approved` has
-  since ARRIVED — 2b's Task 3 landed the kind, its sentence, its writer
+- **Two notification kinds BR §15 names are still deliberately absent,
+  and they have an owner.** This entry used to describe THREE, and the
+  count it carried was of entries rather than of kinds — the wording is
+  corrected here in both directions. `comment_approved` has since
+  ARRIVED: 2b's Task 3 landed the kind, its sentence, its writer
   (`ApproveComment`) and its census row in one commit, which is the rule
   `NotificationsAreReaderFacingTest`'s table enforces, so it is no longer
-  a gap. What remains is the profile-change pair BR §15 describes, which
-  has **no reference implementation to port at all** and is **Phase 3's to
+  a gap. What remains is BR §15's profile-change PAIR — "profile change
+  approved" and "profile change rejected (carrying the manager's
+  reason)", two kinds, listed as two in §15's own reader list — which has
+  **no reference implementation to port at all** and is **Phase 3's to
   decide** (divergence 7); it is not an omission this phase made. It is
   stated in the census table's own docblock so a future author meets it
-  where they would add the row.
+  where they would add the rows.
 
 - **`BorrowRequestQueueQuery`'s free-copy list filters on
   `state = available` alone, and that equals `borrowable()` only because

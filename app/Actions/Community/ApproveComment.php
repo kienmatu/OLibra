@@ -15,9 +15,26 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * A manager publishes a comment — BR §7.6's pending -> approved, and the
- * ONLY transition that makes one publicly visible (INV-9). Port of
+ * A manager publishes a comment — BR §7.6's pending -> approved, the
+ * transition that makes a MODERATED comment visible (INV-9). Port of
  * comment-moderation.ts's approveComment.
+ *
+ * NOT the only door onto a public comment, and this qualifier is
+ * load-bearing rather than pedantic. CreateComment, landed two commits
+ * before this one, inserts a comment as approved OUTRIGHT when the
+ * shelf's comments_require_approval is off (OPS §4.4, and the reference's
+ * createComment does the same) — so on a non-moderating shelf nothing
+ * ever passes through this command at all, and that shelf is one
+ * settings toggle away. A reader who took "only" at face value would
+ * conclude this Action is the sole gate to publication and reason about
+ * INV-9 wrongly for half the shelves in the system.
+ *
+ * What this command IS alone in doing is moving an EXISTING comment into
+ * approved. Checked rather than asserted: comment-moderation.ts exports
+ * four commands (createComment, approveComment, rejectComment,
+ * hideComment) and none of the other three writes that status, and no
+ * task in this phase's plan adds an un-hide — BR §7.6's own diagram ends
+ * at hidden.
  *
  * INV-9 itself is not enforced here and must not be. "A comment is
  * publicly visible only when approved" belongs in the read path's status

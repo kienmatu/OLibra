@@ -12,6 +12,7 @@ use App\Models\Notification;
 use App\Models\User;
 use App\Queries\AuditLogQuery;
 use App\Support\TenantContext;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -111,15 +112,71 @@ it('approving notifies the AUTHOR, and nobody else', function () {
     expect(Notification::query()->where('user_id', $manager->id)->count())->toBe(0);
 });
 
-it('a comment already decided cannot be approved again', function () {
+it('a comment already decided cannot be approved again', function (string $status) {
     // Its own it(): the throw aborts the whole test METHOD, so a second
     // fact asserted after it could never be shown failing.
-    [, $manager, , $comment] = cmaFix('approved', 'dong-thap-cma-decided');
+    //
+    // ALL THREE non-pending statuses, not just `approved`. BR §7.6's
+    // machine is `pending -> approved | rejected` and `approved ->
+    // hidden`, so every one of the three is reachable on a real shelf
+    // (Task 4 lands the two commands that write rejected and hidden),
+    // and the guard here is `!== Pending` rather than a list — a version
+    // that named statuses one at a time would let whichever it forgot
+    // slip back into approved, and re-approving a HIDDEN comment is the
+    // sharp case: a manager took it off the page, and this would put it
+    // back with the author told it is showing again.
+    [, $manager, , $comment] = cmaFix($status, 'dong-thap-cma-'.$status);
 
     expect(fn () => app(ApproveComment::class)->execute($manager, $comment))
         ->toThrow(RuleViolated::class, 'comment_not_pending');
 
     expect(Notification::query()->count())->toBe(0);
+})->with(['approved', 'rejected', 'hidden']);
+
+it('a reader cannot approve — this command\'s own gate call, with no route to hide behind', function () {
+    // The Action calls Gate::forUser($actor)->authorize('approve', ...)
+    // and nothing else in this file exercised it: every other block acts
+    // as a manager. CommentPolicy::approve delegates to act-as-manager,
+    // and Task 1 covers the POLICY — what is untested until here is that
+    // THIS command asks. Delete the authorize() line and only this block
+    // reddens.
+    //
+    // Its own inline fixture rather than cmaFix, and the reason is the
+    // gate's shape, not tidiness: act-as-manager reads the membership
+    // TenantContext holds and first checks it belongs to the $user it was
+    // handed. Calling cmaFix (which binds the MANAGER's membership) and
+    // passing the author would therefore fail on that identity guard and
+    // never reach the ROLE comparison — green for the wrong reason, and
+    // still green if the policy asked for act-as-reader. Binding the
+    // reader's OWN membership is what puts the role check in the path.
+    // One actingAs in this method either way, per the SessionGuard rule
+    // in docs/known-gaps.md.
+    app(TenantContext::class)->actSystemWide();
+    $shelf = Bookshelf::factory()->create(['slug' => 'dong-thap-cma-reader', 'settings' => []]);
+    $author = User::factory()->create(['full_name' => 'Têrêsa Bạn Đọc Nhỏ']);
+    $rm = Membership::factory()->for($shelf)->create([
+        'user_id' => $author->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    $book = Book::query()->create([
+        'bookshelf_id' => $shelf->id, 'title' => 'Hoàng Tử Bé', 'slug' => 'hoang-tu-be',
+        'is_published' => true,
+    ]);
+    $comment = Comment::query()->create([
+        'bookshelf_id' => $shelf->id, 'book_id' => $book->id, 'author_id' => $author->id,
+        'body' => 'Con tự duyệt bình luận của con', 'status' => 'pending',
+    ]);
+    app(TenantContext::class)->set($shelf, $rm);
+    test()->actingAs($author);
+
+    expect(fn () => app(ApproveComment::class)->execute($author, $comment))
+        ->toThrow(AuthorizationException::class);
+
+    // Nothing moved, and nobody was told. Over HTTP this refusal becomes
+    // a 404 rather than a 403 (spec §5.4) — there is no route to this
+    // command yet, so that half belongs to Task 8's screen, not here.
+    expect($comment->fresh()->status)->toBe(CommentStatus::Pending)
+        ->and(Notification::query()->count())->toBe(0)
+        ->and(AuditLog::query()->where('action', 'comment.approved')->count())->toBe(0);
 });
 
 it('the comment lock is the transaction\'s first statement', function () {
