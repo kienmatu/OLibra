@@ -10,7 +10,7 @@ use Inertia\Response;
 
 /**
  * BR §16.1's Bản tin, as the reader meets it: the shelf's live notices,
- * and one of them on its own page. OPS §3.2's GetAnnouncements and
+ * and one of them on its own page. OPS §3.2's GetAnnouncementsList and
  * GetAnnouncementDetail, both answered by AnnouncementsQuery.
  *
  * NOTHING IS DECIDED HERE. Both methods hand a shape straight to Inertia:

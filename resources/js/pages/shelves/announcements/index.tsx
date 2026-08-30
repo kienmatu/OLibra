@@ -7,7 +7,12 @@ import { formatInstantParts } from "@/lib/dates";
 import type { SharedData } from "@/types";
 
 /**
- * The shelf's Bản tin — BR §16.1's "pinned first, most recent next".
+ * The shelf's Bản tin. The ordering is "pinned first, most recent next",
+ * which is the PHASE PLAN's phrasing, not a quote from the requirements —
+ * an earlier draft attributed it to BR §16.1 and the words are not there.
+ * What §16.1 actually says is "The pinned announcement, or the most
+ * recent published one" (its shelf-home card). The ordering itself is
+ * AnnouncementsQuery::published()'s and is pinned by its own test.
  *
  * **This page sorts nothing and decides nothing.** `announcements` arrives
  * from AnnouncementsQuery::published() already ordered and already

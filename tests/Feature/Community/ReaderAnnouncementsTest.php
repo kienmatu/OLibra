@@ -74,7 +74,12 @@ function arsFix(string $slug = 'dong-thap-ars'): array
 
 /**
  * One announcement on whatever shelf is bound, through the command Task 9
- * built onto this table — there is no AnnouncementFactory in
+ * built onto this table. This helper writes its rows through the shipped
+ * command rather than a factory, which is what keeps the fixture honest
+ * about slug derivation and audit; whether a factory exists is beside the
+ * point and an earlier draft of this sentence made a claim about
+ * database/factories/ that the standing ruling does not allow. What
+ * follows is scoped to this helper:
  * database/factories (looked, at this commit), and the command is the door
  * AnnouncementsQueryTest's own seed goes through.
  *
@@ -131,6 +136,14 @@ it('the list carries the published unlapsed notices, pinned first', function () 
     );
 
     $response = test()->actingAs($reader)->get("/shelves/{$shelf->slug}/announcements");
+
+    // Through assertInertia, not viewData alone. AssertableInertia does a
+    // json_decode(json_encode($page)) round-trip and fails with "Not a
+    // valid Inertia response." if it cannot encode — which is the guard
+    // that caught the slug_key trap on the detail side. Reading the prop
+    // bag directly skips it, and skips pinning the component name too, so
+    // a typo'd component would leave this block green.
+    $response->assertInertia(fn ($page) => $page->component('shelves/announcements/index'));
 
     $rows = $response->viewData('page')['props']['announcements'];
     expect(array_column($rows, 'slug'))->toBe([$pinned->slug, $recent->slug]);
