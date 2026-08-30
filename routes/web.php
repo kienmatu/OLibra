@@ -148,12 +148,12 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // segment and two cannot collide.
         Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');
         Route::get('/announcements/{slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
-        Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
-        // BR §16.2's Tặng sách. The GET above is still the placeholder —
-        // Task 18 turns it into the offer form and keeps its route name —
-        // and this POST lands ahead of it because Task 15 owes the
-        // over-HTTP pin for a memberless super admin, which needs an
-        // address.
+        // BR §16.2's Tặng sách, the offer form. Task 18 turned the
+        // placeholder GET into a real page and kept the route NAME, which
+        // is the continuity the POST below already depended on.
+        Route::get('/donate', [DonationController::class, 'create'])->name('donate');
+        // The POST lands beside it because Task 15 owed the over-HTTP pin
+        // for a memberless super admin, which needs an address.
         //
         // The 404 a non-member meets here has TWO producers, the shape
         // the comments POST above records: this group's role:reader
@@ -216,7 +216,10 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // reader OF THIS SHELF binds fine and is refused one layer down,
         // by MarkNotificationRead's user_id key, as a silent no-op.
         Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
-        Route::get('/donations', [ShellController::class, 'underConstruction'])->name('donations');
+        // The other half of BR §16.2's Tặng sách: what happened to each
+        // offer. Same controller as the form in the reader group above,
+        // and the route NAME is the placeholder's, kept.
+        Route::get('/donations', [DonationController::class, 'mine'])->name('donations');
         Route::get('/overview', [MyLoansController::class, 'overview'])->name('overview');
         Route::post('/loans/{loan}/renew', [MyLoansController::class, 'renew'])->name('loans.renew');
         // One route, two doors. The reference defines exactly one

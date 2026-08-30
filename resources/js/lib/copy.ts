@@ -722,6 +722,63 @@ export const copy = {
         // because formatInstantParts renders the two NUMBERS locally.
         receivedAt: "lúc {time} ngày {date}",
     },
+    // Tặng sách, across the reader's TWO screens — the offer form in the
+    // shelf area and their own offers under the profile. One namespace
+    // rather than two because a reader reads them as one act; the manager's
+    // queue is a different surface with different words and will not share
+    // this group.
+    //
+    // Wording taken from the reference's own single screen
+    // (old_next/src/app/tu-sach/[shelf]/(doc-gia)/ho-so/tang-sach/page.tsx,
+    // opened) — its heading, its subtitle, its two field labels, its
+    // placeholder, its button, its section heading, and its three status
+    // words.
+    donations: {
+        formTitle: "Tặng sách cho tủ sách",
+        formSubtitle: "Bạn có cuốn nào đọc xong rồi, muốn tặng lại cho các bạn khác không?",
+        descriptionLabel: "Bạn muốn tặng sách gì?",
+        // The word, not an asterisk — AGENTS.md's rule 6. Its own key
+        // rather than a reach into `comments.required` or
+        // `register.required`, so rewording a form elsewhere cannot
+        // silently rewrite what this one asks for.
+        required: "Bắt buộc",
+        descriptionPlaceholder: "Ví dụ: khoảng mười cuốn truyện tranh, còn khá mới",
+        // No `required` twin, and that is the field's whole point: OPS §4.4
+        // asks for free text and a ROUGH count, and a reader who does not
+        // know how many books are in the bag leaves it blank.
+        countLabel: "Khoảng bao nhiêu cuốn?",
+        submit: "Gửi lời tặng sách",
+        // Shown in place of the box when ResolveTenant resolved no active
+        // membership for the caller. The reference renders its
+        // NotAReaderNotice on the same branch and its comment gives the
+        // reason: it would be "a form the app should not have offered".
+        onlyReaders: "Chỉ bạn đọc của tủ sách này mới tặng sách được.",
+        listTitle: "Những lần bạn đã tặng",
+        empty: "Bạn chưa gửi lời tặng sách nào.",
+        // A DATE, not a timestamp (AGENTS.md's language rule). The server
+        // sends offeredAt as an ISO instant, so the number comes from
+        // formatInstantParts(...).date and the Vietnamese glue is here —
+        // the same split comments.postedOn and announcements.publishedOn
+        // use, minus the hour, because "when I offered my books" is not an
+        // event you read a clock for.
+        offeredOn: "Gửi ngày {date}",
+        countLine: "khoảng {count} cuốn",
+        // The status WORD beside every offer — AGENTS.md's second
+        // non-negotiable, status is never colour alone. Three words for the
+        // three cases App\Enums\DonationStatus carries.
+        statusPending: "Đang chờ",
+        statusReceived: "Đã nhận",
+        statusDeclined: "Chưa nhận",
+        // DIVERGENCE from the reference, which prints the decline note as a
+        // bare paragraph under the row. Labelled here, in the shape
+        // readerDetail.rejectionReasonLine above already uses, because this page
+        // shows the description, the date and the count as prose too and an
+        // unlabelled fourth line does not say whose sentence it is.
+        declineReasonLine: "Lý do từ chối: {reason}",
+        toList: "Những lần bạn đã tặng",
+        toForm: "Tặng sách cho tủ sách",
+        backToOverview: "Về trang của tôi",
+    },
 } as const;
 
 /**
