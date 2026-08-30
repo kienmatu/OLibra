@@ -68,7 +68,8 @@ use Illuminate\Support\Facades\Route;
 //
 // ROOT-PARAMETERISED (Phase 2b Task 1): $root defaults to
 // app/Actions/Circulation, unchanged — CommunityArchitectureTest (Task 2)
-// is the other caller, walking app/Actions/Community with the same rule.
+// will be the other caller, walking app/Actions/Community with the same
+// rule, once that task lands the directory it walks.
 /** @return array{0: array<string, int>, 1: list<string>, 2: list<string>} */
 function actionTransactionCalls(?string $root = null): array
 {
@@ -255,7 +256,14 @@ it('the no-argument call walks exactly app/Actions/Circulation — the rename pi
     [$defaultCallSites] = actionTransactionCalls();
     [$explicitCallSites] = actionTransactionCalls(app_path('Actions/Circulation'));
 
-    expect(array_keys($defaultCallSites))->toEqualCanonicalizing(array_keys($explicitCallSites));
+    // Self-sufficient rather than leaning on the sibling non-vacuity
+    // block above, this file's own house style (see the literals/$blind
+    // chain there): an empty $defaultCallSites would make the identity
+    // check below pass vacuously against an equally-empty
+    // $explicitCallSites, which is not evidence the rename walks
+    // anywhere real.
+    expect($defaultCallSites)->not->toBeEmpty()
+        ->and(array_keys($defaultCallSites))->toEqualCanonicalizing(array_keys($explicitCallSites));
 });
 
 it('every circulation write transaction opens with a FOR UPDATE — the grep pin', function () {

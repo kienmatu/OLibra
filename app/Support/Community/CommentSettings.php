@@ -19,12 +19,14 @@ use App\Models\Bookshelf;
  * who has decided their parish does not need it, and it is the only way
  * a comment starts life approved (OPS §4.4).
  *
- * THE KEY IS comments_enabled, not BR §5.5's allow_comments (plan
- * divergence 2). Both the reference's reader (community/policy.ts) and
- * its writer (admin/commands/bookshelves.ts) spell it this way, and
+ * THE KEY IS comments_enabled, not BR §5.5's allow_comments — the phase
+ * plan's divergence 2 (docs/superpowers/plans/2026-08-30-laravel-phase-2b-
+ * community-voice.md). Both the reference's reader (community/policy.ts)
+ * and its writer (admin/commands/bookshelves.ts) spell it this way, and
  * `allow_comments` occurs in no source tree at all — only in that one
  * requirements table. Whoever builds /manage/settings writes this
- * spelling; docs/known-gaps.md records the lag.
+ * spelling; the plan's own closing step schedules the known-gaps.md entry
+ * recording the lag, not yet landed as of this task.
  */
 final readonly class CommentSettings
 {

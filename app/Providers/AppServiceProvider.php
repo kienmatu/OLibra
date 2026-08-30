@@ -221,11 +221,13 @@ class AppServiceProvider extends ServiceProvider
         // and policy number six on the day it lands.
         Gate::policy(BorrowRequest::class, BorrowRequestPolicy::class);
 
-        // Phase 2b. Same reasoning as the BorrowRequest line above:
-        // convention discovery finds this one too today, so this line's
-        // measured value is the same — PolicyRegistrationTest derives its
-        // census from app/Policies and from this file's own source, so it
-        // covers CommentPolicy without a test edit.
+        // Phase 2b. Convention discovery finds this one too today, the
+        // same as BorrowRequest above, but that line's own measurement
+        // (moving the class, re-running the suite) has not been repeated
+        // for this policy — the reasoning transfers, not the number.
+        // PolicyRegistrationTest derives its census from app/Policies and
+        // from this file's own source, so it covers CommentPolicy without
+        // a test edit either way.
         Gate::policy(Comment::class, CommentPolicy::class);
     }
 }
