@@ -206,6 +206,7 @@ return [
         'parish_unit_l2_id' => 'đơn vị bậc 2',
         'copy_id' => 'bản sách',
         'membership_id' => 'bạn đọc',
+        'estimated_count' => 'số lượng ước tính',
     ],
 
 ];

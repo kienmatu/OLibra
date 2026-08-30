@@ -207,4 +207,20 @@ return [
     'announcement_hidden_flash' => 'Đã ẩn — thông báo không còn trên bản tin tủ sách.',
     'announcement_pinned_flash' => 'Đã ghim — thông báo hiện lên đầu bản tin.',
     'announcement_unpinned_flash' => 'Đã bỏ ghim — thông báo trở về theo thứ tự ngày đăng.',
+
+    // ── Donations (Phase 2b, Slice C) ─────────────────────────────────
+    // OPS §4.4's OfferDonation lists one failure mode, `empty_description`
+    // — "Vui lòng mô tả sách bạn muốn tặng." — and the reference's
+    // ERROR_MESSAGES (old_next/src/domain/kernel/errors.ts's
+    // empty_description) carries the identical sentence. Both were opened
+    // for this line; it is a transcription of the two of them agreeing,
+    // not an authored sentence.
+    'empty_description' => 'Vui lòng mô tả sách bạn muốn tặng.',
+    // The flash after a successful offer, on comment_pending_flash's
+    // pattern: say what happened, then what the reader can expect next.
+    // A donation always waits for a manager — the column default is
+    // 'pending' and nothing in OfferDonation can start it elsewhere — so
+    // there is one line here rather than the pair a shelf setting forces
+    // on the comment flashes.
+    'donation_offered_flash' => 'Đã gửi. Tủ sách sẽ xem và trả lời đề nghị tặng sách của bạn.',
 ];

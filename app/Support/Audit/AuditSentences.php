@@ -84,6 +84,11 @@ final class AuditSentences
         'announcement.pinned' => 'community',
         'announcement.unpinned' => 'community',
         'announcement.hidden' => 'community',
+        // Slice C's donation offer, the same cong-dong family — the
+        // reference files donation.offered there
+        // (old_next/src/domain/kernel/audit-actions.ts, opened for this,
+        // where its entry reads `group: "cong-dong"`).
+        'donation.offered' => 'community',
     ];
 
     public const array GROUPS = ['loans', 'books', 'readers', 'community'];
@@ -272,6 +277,12 @@ final class AuditSentences
             'announcement.hidden' => ($title = self::str($after, 'title')) !== null
                 ? strtr(self::line('announcement_hidden'), [':title' => $title])
                 : self::line('announcement_hidden_bare'),
+            // No strtr and no bare twin — the request.approved shape. The
+            // reference's phrase takes no facts (`phrase: () => "đề nghị
+            // tặng sách"`), and there is nothing here for a fallback to
+            // replace: INV-8's payload for this action is the status and
+            // the rough count, and the description stays out of it.
+            'donation.offered' => self::line('donation_offered'),
             default => self::line('unknown'),
         };
     }

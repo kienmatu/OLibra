@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Requests\Community\HideCommentRequest;
+use App\Http\Requests\Community\OfferDonationRequest;
 use App\Http\Requests\Community\PublishAnnouncementRequest;
 use App\Http\Requests\Community\RejectCommentRequest;
 use App\Http\Requests\Community\StoreAnnouncementRequest;
@@ -74,6 +75,27 @@ it('PublishAnnouncementRequest::authorize() 404s, not 403s, when denied', functi
     // no route parameter bound — so act-as-manager denies for the least
     // contrived reason and what this pins is the STATUS.
     $request = new PublishAnnouncementRequest;
+
+    expect(fn () => $request->authorize())
+        ->toThrow(NotFoundHttpException::class);
+});
+
+it('OfferDonationRequest::authorize() 404s, not 403s, when denied', function () {
+    // Task 15, on the four blocks above's ground and the same unit shape
+    // — no route, no authenticated user, no route parameter bound — so
+    // act-as-reader denies for the least contrived reason and what this
+    // pins is the STATUS.
+    //
+    // WHAT THIS ONE ADDS, said rather than left to be inferred: its
+    // abort IS reachable over HTTP. Measured in the
+    // commit that added it, on OfferDonationTest's "a signed-in
+    // non-member gets 404 on the donate POST" block — with
+    // shelves.donate.store moved out of the role:reader group, that file
+    // stays green at 10 passed, which is this line answering. It is
+    // still worth a unit block: the HTTP block cannot say WHICH door
+    // answered while both are in place, and this one asks the class on
+    // its own.
+    $request = new OfferDonationRequest;
 
     expect(fn () => $request->authorize())
         ->toThrow(NotFoundHttpException::class);

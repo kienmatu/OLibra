@@ -213,4 +213,29 @@ class Bookshelf extends Model
     {
         return $this->hasMany(Announcement::class);
     }
+
+    /**
+     * Slice C's donation offers (OPS §4.4), beside announcements() for
+     * the same reason that one sits beside comments(): all three are
+     * Phase 2b's community tables and all three are shelf-owned.
+     *
+     * The foreign key is guessed rather than spelled, matching
+     * comments() and announcements() above: book_donations.bookshelf_id
+     * is what Laravel's convention derives from this class, so the two
+     * agree by construction. Note that the DONOR column on that table is
+     * not guessable the same way and is spelled out where it is declared
+     * (App\Models\BookDonation::donor).
+     *
+     * What this relation is FOR is those two relations' purpose as well
+     * — a shelf-rooted read that cannot be handed another shelf's id —
+     * and OfferDonationTest's "Bookshelf::donations() is shelf-local"
+     * runs it under actSystemWide(), so BookshelfScope is switched off
+     * and this relation's own FK filter is left to do the separating.
+     *
+     * @return HasMany<BookDonation, $this>
+     */
+    public function donations(): HasMany
+    {
+        return $this->hasMany(BookDonation::class);
+    }
 }

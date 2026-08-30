@@ -321,6 +321,33 @@ it('announcement.hidden reads about a thông báo, never about a bình luận', 
         ->toBe('Maria Quản Lý Kho đã ẩn một thông báo');
 });
 
+it('donation.offered reads as an offer of books, with nothing interpolated', function () {
+    // Task 15, and its own block for the reason the announcement blocks
+    // above state: the sweep below compares each action's sentence
+    // against the UNDESCRIBED-ACTION fallback, and line() on a deleted
+    // key evaluates to '' rather than to that fallback.
+    //
+    // MEASURED for THIS key rather than carried down: deleting
+    // donation_offered from lang/vi/audit.php failed this block
+    // ("Failed asserting that two strings are identical") while the sweep
+    // below stayed green, reporting `!  ... → Undefined array key
+    // "donation_offered"` — a PHP warning, not a failure. Run: 1 failed,
+    // 1 warning, 25 passed.
+    //
+    // The second expectation is the arm's SHAPE, not scenery: the phrase
+    // interpolates nothing, so a payload full of facts must render the
+    // identical string a thin one does, and the arm needs no bare twin to
+    // fall back to. An arm that grew a :title (or a :description) would
+    // redden here.
+    expect(AuditSentences::sentence('donation.offered', audFacts(
+        actor: 'Têrêsa Bạn Đọc Nhỏ',
+        after: ['status' => 'pending', 'estimated_count' => 8],
+    )))->toBe('Têrêsa Bạn Đọc Nhỏ đã đề nghị tặng sách');
+
+    expect(AuditSentences::sentence('donation.offered', audFacts(actor: 'Têrêsa Bạn Đọc Nhỏ')))
+        ->toBe('Têrêsa Bạn Đọc Nhỏ đã đề nghị tặng sách');
+});
+
 it('every action in the map renders a real sentence, never the undescribed-action fallback', function () {
     // FIX ROUND, item 1. Until this block, NOTHING iterated ACTIONS
     // asserting each key renders something. AuditActionCensusTest looks
@@ -352,7 +379,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers', 'community'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(37);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(38);
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

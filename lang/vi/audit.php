@@ -113,6 +113,14 @@ return [
     'announcement_unpinned_bare' => 'bỏ ghim một thông báo',
     'announcement_hidden' => 'ẩn thông báo :title',
     'announcement_hidden_bare' => 'ẩn một thông báo',
+    // Slice C's offer, the reference's phrase verbatim
+    // (audit-actions.ts's donation.offered, whose phrase is `() => "đề
+    // nghị tặng sách"`). It takes no facts there and takes none here, so
+    // its arm needs no strtr and no bare twin: there is no :title to lose
+    // and therefore no fallback to write. The description is deliberately
+    // NOT interpolated — INV-8's payload does not carry it, for the
+    // reason App\Actions\Community\OfferDonation's docblock gives.
+    'donation_offered' => 'đề nghị tặng sách',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

@@ -21,6 +21,7 @@ use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\CommentController;
+use App\Http\Controllers\Reader\DonationController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
 use App\Http\Controllers\Reader\SearchController;
@@ -148,6 +149,36 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');
         Route::get('/announcements/{slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
         Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
+        // BR §16.2's Tặng sách. The GET above is still the placeholder —
+        // Task 18 turns it into the offer form and keeps its route name —
+        // and this POST lands ahead of it because Task 15 owes the
+        // over-HTTP pin for a memberless super admin, which needs an
+        // address.
+        //
+        // The 404 a non-member meets here has TWO producers, the shape
+        // the comments POST above records: this group's role:reader
+        // (EnsureShelfRole abort(404)s on act-as-reader) and
+        // OfferDonationRequest::authorize's own abort_unless on the same
+        // ability. MEASURED three ways in this task, on the "a signed-in
+        // non-member gets 404 on the donate POST" block: with this line
+        // moved out of the role:reader group the whole file stays green
+        // at 10 passed (the Form Request answers), with the abort_unless
+        // deleted instead it also stays green at 10 (the middleware
+        // answers), and with BOTH doors removed that block turns red —
+        // "Expected response status code [404] but received 403", which
+        // is OfferDonation's own Gate::authorize rendered as an
+        // AuthorizationException and the existence oracle spec §5.4
+        // forbids. So either door alone is sufficient, and the third run
+        // is what shows the pair is doing the work at all.
+        //
+        // A THIRD status is what an ABSENT route answers on this URI, and
+        // it is not 404: the GET above already claims `donate`, so the
+        // router raises 405 for an unrouted POST to it. Measured at RED,
+        // before this line existed — the non-member block reported
+        // "Expected response status code [404] but received 405". That
+        // makes this file's usual worry (a 404 block passing against a
+        // deleted route) not apply to this particular pair of lines.
+        Route::post('/donate', [DonationController::class, 'store'])->name('donate.store');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
     });
 
