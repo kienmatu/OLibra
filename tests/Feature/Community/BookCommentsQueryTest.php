@@ -7,6 +7,7 @@ use App\Models\Membership;
 use App\Models\User;
 use App\Queries\BookCommentsQuery;
 use App\Support\TenantContext;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Shelf + one reader + one book, tenant bound — the cmaFix shape
@@ -154,6 +155,43 @@ it('two comments written in the same instant come back id desc', function () {
 
     expect($second->id)->toBeGreaterThan($first->id)
         ->and($ids)->toBe([$second->id, $first->id]);
+});
+
+it('the id tiebreak is in the ORDER BY text, not merely in the row order', function () {
+    // The block above can only ever falsify ONE direction of that line:
+    // flipping it to ascending reddens it (measured), but DELETING it
+    // leaves the whole file green, because InnoDB appends the primary key
+    // to a secondary index and the descending scan already emits
+    // descending id within a created_at tie. So the mechanism is pinned
+    // where a row-order test cannot reach it — in the compiled SQL.
+    //
+    // The pattern is OverdueLoansQueryTest's "equally late loans are
+    // ordered by a key that cannot tie — the ORDER BY is pinned", which
+    // does exactly this with str_contains over the query log, and
+    // BorrowRequestQueueQueryTest's "pins the tiebreak in the SQL itself"
+    // does the same for a much heavier statement. This query is
+    // single-table, so the log holds the statement plainly.
+    //
+    // ->with('author') issues its own second statement with no ORDER BY,
+    // which is why the assertion picks the logged statement that HAS one
+    // rather than the first entry.
+    [, $reader, $book] = bcqFix('dong-thap-bcq-sql-pin');
+    Comment::query()->create([
+        'bookshelf_id' => $book->bookshelf_id, 'book_id' => $book->id, 'author_id' => $reader->id,
+        'body' => 'Một bình luận để câu lệnh có dòng lệnh sắp xếp', 'status' => 'approved',
+    ]);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    app(BookCommentsQuery::class)->run($book);
+    $log = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    $main = collect($log)->first(fn (array $q): bool => str_contains($q['query'], 'order by'));
+
+    expect($main)->not->toBeNull()
+        ->and(str_contains((string) $main['query'], 'order by `created_at` desc, `id` desc'))
+        ->toBeTrue('no created_at/id tiebreak in the ORDER BY: '.($main['query'] ?? ''));
 });
 
 it('a sibling book\'s comments never appear on this book\'s page', function () {

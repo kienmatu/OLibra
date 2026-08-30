@@ -36,6 +36,18 @@ use Illuminate\Support\Facades\DB;
  * is non-empty, a control row rides along so a query that returned nothing
  * at all cannot pass.
  *
+ * ONE CONTROL OF THE REFERENCE'S IS NOT PORTED, and its absence is
+ * recorded rather than left to be noticed: its blocks 1, 2 and 6 each
+ * also read getPendingComments — the manager-side queue — so that "a
+ * pending comment is absent" cannot pass by the comment simply never
+ * having been written. That query is Task 6's (GetPendingComments) and
+ * does not exist yet, so the substitute here is a direct read of the row
+ * from the database in the blocks that need it: block 1 asserts the
+ * pending row's stored status, the nothing-approved block counts its
+ * three unapproved rows, and the soft-delete blocks read deleted_at back
+ * out of the table. When Task 6 lands, the queue-side half of those
+ * controls can be added on top; nothing here is waiting on it.
+ *
  * This file must survive BookCommentsQueryTest being deleted: it shares no
  * fixture with it (inv9Fix here, bcqFix there) and repeats the rows it
  * needs rather than reaching for that file's.
@@ -110,12 +122,20 @@ it('approving is what makes a pending comment visible — absent before, present
     // the approval and present after it.
     //
     // Seeded OUT OF ORDER on purpose: the PENDING comment is written
-    // first and the APPROVED one second, so the v7 ids ascend in the
-    // opposite direction to the answer this block wants. created_at says
-    // the same — the pending row is the older one — so after approval it
-    // must appear SECOND in a newest-first list. A query that returned
-    // rows in insertion order, or one that read the ids' monotonicity as
-    // an ordering, gives a different sequence.
+    // FIRST and the already-approved one second, so the newly approved
+    // row must appear SECOND in a newest-first list — the reverse of the
+    // order the two rows were created in. A query that returned rows in
+    // insertion order gives a different sequence and reddens this block.
+    //
+    // NARROWED (fix round, item 2): the previous wording also claimed a
+    // query "that read the ids' monotonicity as an ordering" would give a
+    // different sequence. It would not. created_at ascends WITH the v7
+    // ids here (10:00 written before 11:00), so a descending-id read
+    // gives exactly the expected answer and this fixture cannot tell the
+    // two apart. Only the ASCENDING direction is falsifiable from here,
+    // and it is: this block reddens under the created_at-desc-to-asc
+    // mutation (measured). What pins the tiebreak line itself is
+    // BookCommentsQueryTest's ORDER BY text block, not row order.
     $f = inv9Fix('dong-thap-inv9-approve');
     $pending = inv9Comment($f['book'], $f['author'], 'pending', 'Em thích chú Dế Mèn', '2026-08-01 10:00:00');
     $approved = inv9Comment($f['book'], $f['author'], 'approved', 'Bình luận đã được duyệt từ trước', '2026-08-01 11:00:00');
@@ -173,6 +193,14 @@ it('hiding pulls a comment that was already public', function () {
     // after the hide is a list that still has something in it — the row
     // that vanished is named, rather than the whole answer collapsing to
     // empty and proving only that something broke.
+    //
+    // The $before SEQUENCE here discriminates one thing and not another
+    // (fix round, item 2): the two rows' created_at ascends with their v7
+    // ids, so descending-created_at and descending-id read alike and this
+    // block cannot separate them. It does redden if the ordering runs
+    // ascending (measured under the created_at asc mutation). The
+    // sequence is asserted because it is free, not because it pins the
+    // tiebreak.
     $f = inv9Fix('dong-thap-inv9-hide');
     $stays = inv9Comment($f['book'], $f['author'], 'approved', 'Bình luận vẫn ở lại', '2026-08-01 10:00:00');
     $hidden = inv9Comment($f['book'], $f['author'], 'approved', 'Bình luận này sẽ bị ẩn', '2026-08-01 11:00:00');

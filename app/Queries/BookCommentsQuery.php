@@ -31,6 +31,17 @@ use App\Models\Comment;
  * which is why deleted_at appears nowhere either; the invariant suite
  * pins both, so removing a trait cannot leave the suite green.
  *
+ * NO GATE HERE, where the reference's getBookComments opens with
+ * requireReader(ctx). That is this codebase's house shape rather than a
+ * dropped line: app/Queries/BorrowRequestQueueQuery.php's docblock argues
+ * it at length for its own file ("NO INLINE GATE, and that is the house
+ * shape, not an omission: the shipped queries in app/Queries/ leave
+ * authorization to the route's role middleware"), naming three queries it
+ * opened to check. The screen that calls this one is Task 7's and the
+ * authorization lands there, in its controller and route group; a comment
+ * on a book page is readable by whoever may read the book page, which is
+ * a question about that route, not about this statement.
+ *
  * The reference JOINS users for the author's name; this eager-loads the
  * relation instead. tests/Feature/Architecture/TenancyArchitectureTest.php
  * records a join() condition naming bookshelf_id as one of two gaps its
@@ -50,6 +61,12 @@ final class BookCommentsQuery
     /** @return list<array{id: string, body: string, authorName: string, createdAt: string}> */
     public function run(Book $book): array
     {
+        // array_values around the whole thing is a level-8 REQUIREMENT,
+        // not belt and braces, and MyNotificationsQuery::run carries the
+        // same wrap for the same reason: ->values()->all() gives PHPStan
+        // array<int, ...>, not list<...>, so the return shape declared
+        // above fails without it. Deleting the visibly-redundant wrap
+        // reddens `make analyse`, never the suite.
         return array_values(Comment::query()
             ->with('author')
             ->where('book_id', $book->id)
