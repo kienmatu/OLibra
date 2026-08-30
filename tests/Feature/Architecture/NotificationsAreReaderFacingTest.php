@@ -13,9 +13,15 @@ use App\Support\Notifications\NotificationKind;
  *
  * The bound, stated rather than implied: nothing mechanically ties the
  * constant below to docs/OPERATIONS.md §7, so a wrong transcription is
- * invisible to this test. It currently holds six of §7's eight table rows
- * (docs/OPERATIONS.md:1120-1127) — the six whose writers exist — and each
- * was checked against the document by hand in the commit that added it.
+ * invisible to this test. It currently holds SEVEN of §7's eight table
+ * rows — the seven whose writers exist — and each was checked against the
+ * document by hand in the commit that added it. (Six until 2b's Task 3,
+ * which added the eighth row's writer and so the seventh entry here. The
+ * count is re-derived from the document, not incremented on trust: §7's
+ * table is the eight rows under its "| Notification | Written by |"
+ * header. A line range used to be cited here and had gone stale by
+ * nineteen lines — the document moves, so the section and its header are
+ * the citation now.)
  * Task 6 added "Yêu cầu mượn bị từ chối" | `RejectBorrowRequest`; Task 17
  * added "Sắp đến hạn trả" and "Quá hạn", the two rows whose Written-by
  * cell says "Not written by any command in §4 — see below" and whose
@@ -30,9 +36,12 @@ use App\Support\Notifications\NotificationKind;
  * is the only thing keeping this honest.
  *
  * Grown per task: each task that adds a kind adds its writer AND its row
- * here in the same commit (plan divergence 7). comment_approved arrives
- * in 2b with ApproveComment; the profile-change pair BR §15 names has no
- * reference implementation and is Phase 3's to decide (known-gaps).
+ * here in the same commit (plan divergence 7). comment_approved HAS now
+ * arrived — 2b's Task 3 landed the kind, its sentence, its writer
+ * (ApproveComment) and §7's "Bình luận được duyệt" row together, which is
+ * the rule this table enforces rather than a courtesy. The profile-change
+ * pair BR §15 names has no reference implementation and is Phase 3's to
+ * decide (known-gaps).
  */
 const OPS_SECTION_7 = [
     'membership_approved' => ['app/Actions/Members/ApproveMembership.php'],
@@ -51,6 +60,10 @@ const OPS_SECTION_7 = [
     // 17), those two rows.
     'loan_due_soon' => ['app/Console/Commands/SweepReminders.php'],
     'loan_overdue' => ['app/Console/Commands/SweepReminders.php'],
+    // Re-transcribed from docs/OPERATIONS.md by hand at this commit (2b,
+    // Task 3), that one row: "| Bình luận được duyệt | `ApproveComment`
+    // |" — the last row of §7's table, and the only one this phase adds.
+    'comment_approved' => ['app/Actions/Community/ApproveComment.php'],
 ];
 
 it('every notification is written where OPERATIONS §7 says it is', function () {

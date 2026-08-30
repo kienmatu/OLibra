@@ -63,6 +63,11 @@ return [
     // holds book_id and no title, and widening the payload to make a
     // sentence prettier is the trade this refuses.
     'comment_created' => 'viết một bình luận',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // comment.approved). Deliberately not "duyệt bình luận của :subject":
+    // the payload carries the two statuses and no author, and the audit
+    // row's subject join has no key to work from.
+    'comment_approved' => 'duyệt một bình luận',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

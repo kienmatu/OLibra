@@ -58,6 +58,20 @@ it('loan_overdue names the book and asks for it back', function () {
         ->toBe('cuốn sách đã quá hạn trả. Bạn mang sách đến trả giúp nhé.');
 });
 
+it('comment_approved renders its fixed sentence from an empty payload', function () {
+    // 2b's one kind, and the only one whose payload is empty by design
+    // (divergence 10) — so the sentence has to be complete with nothing
+    // in hand, the MembershipApproved shape. The Vietnamese is
+    // kinds.ts's comment_approved verbatim, second clause included: it
+    // is what tells a child their words are on the page now.
+    expect(NotificationSentences::sentence('comment_approved', []))
+        ->toBe('Bình luận của bạn đã được duyệt và hiện đã hiển thị.')
+        // A stray payload key changes nothing — there is no strtr to
+        // reach it.
+        ->and(NotificationSentences::sentence('comment_approved', ['title' => 'Dế Mèn Phiêu Lưu Ký']))
+        ->toBe('Bình luận của bạn đã được duyệt và hiện đã hiển thị.');
+});
+
 it('an unknown stored kind renders the neutral line, never the raw token', function () {
     // Rows written by an older or newer build survive a deploy; a kind
     // this build does not know is a real state, not a programming error

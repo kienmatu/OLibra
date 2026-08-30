@@ -69,6 +69,7 @@ final class AuditSentences
         // Folding comments into books would leave next task's shelf news
         // with no home at all.
         'comment.created' => 'community',
+        'comment.approved' => 'community',
     ];
 
     public const array GROUPS = ['loans', 'books', 'readers', 'community'];
@@ -201,6 +202,10 @@ final class AuditSentences
             // title, and the alternative is widening the payload to make
             // a sentence prettier.
             'comment.created' => self::line('comment_created'),
+            // Same no-strtr shape and the same reason: the reference's
+            // phrase names neither the comment nor its author, and the
+            // payload holds only the two statuses.
+            'comment.approved' => self::line('comment_approved'),
             default => self::line('unknown'),
         };
     }
