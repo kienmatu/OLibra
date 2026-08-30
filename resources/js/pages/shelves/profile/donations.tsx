@@ -62,7 +62,11 @@ interface PageProps extends SharedData {
  * commit, AFTER this file was written: `grep -rlE "\bPill\b" resources/js`
  * returns this file alone and its one match is this sentence, and the same
  * is true of StatusBadge, StatusPanel and StepIndicator — four names the
- * table prescribes and no file declares or imports. Rather than invent a
+ * table prescribes that nothing in resources/js declared or imported WHEN
+ * THIS WAS MEASURED. (ReadOnlyValue and BookTitle are two more, the second
+ * cited by AGENTS.md's numbered rule 1 rather than only its table.) The
+ * scoping matters: this goes stale the day someone adds one of them.
+ * Rather than invent a
  * component library on one screen, this uses `components/ui/badge.tsx`,
  * which does exist and which pages/manage/books/index.tsx and
  * pages/shelves/announcements/index.tsx already render state words through
@@ -141,9 +145,28 @@ export default function ProfileDonations() {
                             </p>
                             {/*
                              * The reason a decline required one. Guarded on
-                             * the NOTE rather than on the status, so a
-                             * received offer that somehow carries a note
-                             * never shows it as a refusal — and labelled,
+                             * the NOTE, and an earlier draft of this comment
+                             * had the consequence exactly backwards: it said
+                             * guarding on the note means a received offer
+                             * carrying one "never shows it as a refusal".
+                             * The opposite is true — the label reads
+                             * "Lý do từ chối", so such a row WOULD be shown
+                             * as a refusal. Guarding on the STATUS is what
+                             * would produce the stated outcome.
+                             *
+                             * The state is unreachable today, which is why
+                             * the guard is left as it is: ReceiveDonation::
+                             * execute writes status, decided_by and
+                             * decided_at and never touches decision_note;
+                             * DeclineDonation::execute is what writes
+                             * book_donations.decision_note. (Grepped: a
+                             * second command, RejectBorrowRequest, writes a
+                             * decision_note too — on borrow_requests, a
+                             * different table. Narrowed after a first draft
+                             * said "the only writer of that column", which
+                             * reads as tree-wide and is not.) If a third writer
+                             * ever appears, gate on the status as the
+                             * reference does — and labelled,
                              * which is this page's one divergence from the
                              * reference's bare paragraph: three lines of
                              * prose already sit above it and an unlabelled

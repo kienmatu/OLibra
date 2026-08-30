@@ -158,7 +158,10 @@ it('a declined offer carries the manager\'s reason to the reader', function () {
     // would pass on a page that shipped one row's note under another row's
     // id, which on this screen is a manager's refusal shown beside the
     // wrong bag of books.
-    expect($row['decisionNote'])->toBe(
+    // ?? null so a missing row fails as a value comparison rather than as
+    // a null-offset notice — the mutation that drops the key should read as
+    // a wrong answer, not as a broken test.
+    expect($row['decisionNote'] ?? null)->toBe(
         'Sách đã quá cũ và ướt, tủ sách chưa nhận được.',
         'the reason reaches the donor, keyed to their own offer',
     );
@@ -239,6 +242,24 @@ it('the offer form opens for a reader of the shelf', function () {
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->component('shelves/donate')
             ->where('isMember', true));
+});
+
+it('a signed-in non-member is 404 on the offer form, not 403', function () {
+    // ADDED AFTER REVIEW. Mutation 3 (dropping role:reader from the group)
+    // reddened eighteen blocks across the branch and NONE in this file,
+    // because no block here holds GET /donate against a non-member. The
+    // gate is real but structural — RouteOrderTest sweeps every
+    // shelves/{shelf} route for a role: middleware, by construction rather
+    // than by name — and ShellTest pins profile/donations by name. This
+    // URI had neither.
+    //
+    // 404 and not 403 is spec §5.4: a refusal must not tell a stranger
+    // which shelf URLs are real.
+    [$shelf] = rdsFix('dong-thap-rds-stranger');
+    $stranger = User::factory()->create(['full_name' => 'Anna Người Lạ']);
+
+    test()->actingAs($stranger)->get("/shelves/{$shelf->slug}/donate")
+        ->assertNotFound();
 });
 
 it('a memberless super admin gets the form without the form, and an empty list', function () {
