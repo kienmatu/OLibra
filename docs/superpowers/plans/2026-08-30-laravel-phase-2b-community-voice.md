@@ -1330,7 +1330,7 @@ final class ApproveComment
 `NotificationKind` gains `case CommentApproved = 'comment_approved';`, and its class
 docblock's line reserving the kind for 2b is **replaced** by nothing — delete the
 reservation rather than leaving a promise that has been kept. `lang/vi/notifications.php`
-gains `'comment_approved' => 'Bình luận của bạn đã được duyệt.',`.
+gains `'comment_approved' => 'Bình luận của bạn đã được duyệt và hiện đã hiển thị.',`.
 `NotificationSentences`' match gains
 `NotificationKind::CommentApproved => self::line('comment_approved'),` — no `strtr`, the
 `MembershipApproved` shape, because the payload is empty. **The match is exhaustive and
