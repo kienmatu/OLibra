@@ -2975,6 +2975,53 @@ named in it, not by reading it off the plan.
   "beginTransaction" app/` exits 1); if one appears, the walk has to learn
   that shape rather than be read as having covered it.
 
+  **A third bound, and the one nobody would go looking for: the detector
+  binding is APPLICATION-WIDE, and the transaction retry loop is not its
+  only consumer.** `Illuminate\Cache\DatabaseLock` uses the same
+  `DetectsConcurrencyErrors` trait to decide whether a failure against the
+  `cache_locks` table is harmless — someone else already deleted the row —
+  or a real error to propagate. This is a live path, not a theoretical
+  one: `CACHE_STORE=database`, `DatabaseStore` is a `LockProvider`, and
+  `routes/console.php` puts `withoutOverlapping(2)` on the per-minute
+  `queue:work` tick. Read at the commit that records this:
+  `DatabaseLock::release()` returns TRUE — the lock counts as released —
+  when the detector matches and rethrows otherwise, and
+  `pruneExpiredLocks()` swallows a match and rethrows anything else. So
+  **a 1205 on `cache_locks` was swallowed before this binding and
+  propagates after it.** A 1213 there is still swallowed, since this
+  detector matches deadlocks; the flip is precisely and only about a
+  lock-wait timeout on that one table, which would itself mean something
+  held a `cache_locks` row for the whole 50 seconds while only short
+  single-row statements ever touch it.
+
+  Two precisions the obvious reading gets wrong, written down because the
+  wrong one is the one a reader will reach first. (a) The scheduler's
+  TEARDOWN does not go through `release()`: `Event::removeMutex` calls
+  `CacheEventMutex::forget`, which calls `forceRelease()`, and that method
+  has no try/catch and consults no detector — it propagated a 1205 before
+  this binding and still does, unchanged. What puts `release()` on the
+  per-minute path instead is the SKIP FILTER — `withoutOverlapping`
+  registers `skip(fn () => $this->mutex->exists($this))`, `exists()` calls
+  `$store->lock(...)->get(fn () => true)`, and `Lock::get` releases in a
+  `finally` after acquiring. Trace `forget()` and you would conclude this
+  binding cannot reach the scheduler at all; it reaches it through
+  `exists`. (b) `pruneExpiredLocks()` is not run on every acquire — it is
+  behind `acquire()`'s lottery, `[2, 100]` for this store.
+
+  **What it costs.** A scheduled run can now fail where it used to
+  continue. The failure lands after `acquire()` has already written the
+  mutex row, so the row survives with its `withoutOverlapping(2)` expiry
+  and the following ticks are SKIPPED until it lapses — roughly two
+  minutes of queue left undrained, then self-healing. (That two-minute
+  expiry is this project's own deliberate choice over the framework's
+  24-hour default, and `routes/console.php` carries the reasoning.) The
+  binding is not being reverted: a lock-wait timeout on `cache_locks`
+  should be loud, and the blast radius is bounded and self-clearing.
+  **No test exercises this path in either direction**, because
+  `phpunit.xml` forces `CACHE_STORE=array` and the array store's lock
+  never touches a database — so this entry, and `DeadlockDetector`'s
+  docblock, are the only record that the behaviour changed.
+
   **WHO ELSE IS ON THE COPY-FIRST SIDE, and which of those pairings a
   shipped schedule can actually reach.** The paragraph above names
   `LendCopy` because Task 8 is what created the edge; it is not the only

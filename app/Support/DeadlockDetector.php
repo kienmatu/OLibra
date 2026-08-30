@@ -52,6 +52,55 @@ use Throwable;
  * MariaDB, and a matcher that claims engines it never runs against is a
  * matcher nobody can check.
  *
+ * WHAT ELSE THIS BINDING REACHES, because it is bound APPLICATION-WIDE and
+ * the transaction retry loop is not its only consumer.
+ * `Illuminate\Cache\DatabaseLock` uses the same
+ * `DetectsConcurrencyErrors` trait to decide whether a failure against the
+ * `cache_locks` table is HARMLESS — someone else already deleted the row —
+ * or a real error to propagate. `CACHE_STORE=database` here and
+ * `DatabaseStore` is a `LockProvider`, so that is the live path, and
+ * `routes/console.php` puts `withoutOverlapping(2)` on the per-minute
+ * `queue:work` tick. Read at this commit, the two consumption sites and
+ * the direction of the change:
+ *
+ *   - `DatabaseLock::release()` catches everything and RETURNS TRUE — the
+ *     lock counts as released — when the detector matches, otherwise
+ *     rethrows. Before this binding a 1205 there was swallowed; now it
+ *     propagates.
+ *   - `DatabaseLock::pruneExpiredLocks()` swallows a match and rethrows
+ *     anything else. Same flip, but it runs only under `acquire()`'s
+ *     lottery (`[2, 100]` for this store), not on every acquire.
+ *
+ * A DEADLOCK on `cache_locks` is still swallowed at both sites — this
+ * detector matches 1213 — so the flip is precisely and only about a
+ * lock-wait timeout on that one table, which would itself mean something
+ * held a `cache_locks` row for the whole timeout while only short
+ * single-row statements ever touch it.
+ *
+ * PRECISION the obvious reading misses, and the reason this paragraph is
+ * longer than "release() is affected": the scheduler's TEARDOWN does not
+ * go through `release()` at all — `Event::removeMutex` calls
+ * `CacheEventMutex::forget`, which calls `forceRelease()`, and that method
+ * has no try/catch and consults no detector, so it propagated a 1205
+ * before this binding and still does. What puts `release()` on the
+ * per-minute path is the SKIP FILTER: `withoutOverlapping` registers
+ * `skip(fn () => $this->mutex->exists($this))`, `exists()` calls
+ * `$store->lock(...)->get(fn () => true)`, and `Lock::get` releases in a
+ * `finally` after acquiring. Someone tracing `forget()` would conclude
+ * this binding cannot reach the scheduler; it reaches it through `exists`.
+ *
+ * WHAT IT COSTS. A scheduled run can now fail where it used to continue.
+ * The failure lands after `acquire()` has already written the mutex row,
+ * so the row survives with its `withoutOverlapping(2)` expiry and the next
+ * ticks are SKIPPED until it lapses — about two minutes of queue left
+ * undrained, then self-healing (that two-minute expiry is this project's
+ * own deliberate choice over the framework's 24-hour default; see
+ * `routes/console.php`). Judged the right trade: a lock-wait timeout on
+ * `cache_locks` should be loud. Stated plainly rather than left latent —
+ * **no test exercises this path in either direction**, because
+ * `phpunit.xml` forces `CACHE_STORE=array` and the array store's lock
+ * never touches a database.
+ *
  * KNOWN BOUND, because "never" is the word this docblock must not use.
  * `QueryException::formatMessage` inlines BINDINGS into the message it
  * builds, and the message half of this test is a substring match over that
