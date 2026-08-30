@@ -2,7 +2,36 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Written 2026-08-30, not yet reviewed. Two open questions are recorded below; **neither blocks execution** — each states the behaviour that ships if it goes unanswered, and no task is conditional on an answer.
+**Status:** Written 2026-08-30; **reviewed by an independent Opus and fixed** (this revision). Two open questions are recorded below; **neither blocks execution** — each states the behaviour that ships if it goes unanswered, and no task is conditional on an answer.
+
+**What the review found, and where the fixes live.** It built two throwaway worktrees, staged
+this plan's code at real paths and ran it against real MariaDB, finishing at 1,295 passing —
+so almost everything below is measured rather than argued. What **held**: the scope cut,
+ground by ground, and its judgement that 2b is coherent without feedback; Task 3's
+notification mutation, reproduced exactly (`1 failed, 1284 passed`, the guard naming the file
+and the line, nothing else in 1,285 tests reddening); the retry guard having teeth from Task
+2; `ApproveComment`'s `for update` genuinely being the first logged statement; divergence 4's
+memberless super admin, built and confirmed failing closed; and every DB-level claim,
+including errnos 4025, 1452 and 1062 with the right constraint names.
+
+Three **Criticals**, all fixed at the source rather than annotated: the new
+`CommunityArchitectureTest` **cannot be green at Task 1's commit** (it walks a directory that
+does not exist yet) and has moved into Task 2 — see Task 1 Step 3 and Task 2 Step 4; Task 5's
+`BelongsToBookshelf` mutation was **false in both halves** and is struck with the measurement;
+and Tasks 11 and 14 **did not compose**, leaving *Đăng lại* dead for any manager who did not
+type an expiry — see the absent-versus-explicit-null paragraphs in both. Nine Importants and
+six Minors are fixed in place, each carrying the correction and its reason rather than a
+silent edit; the largest of them, `write_target_not_found` having **no sentence in this port**
+(divergence 3), would otherwise have written a false entry into `docs/known-gaps.md`, and Task
+19's donor pre-fill **cannot ship as first described** and now opens with the answer instead
+of a question.
+
+**Nothing in the review was disputed.** Every finding was checked against the file before its
+fix was written, and the four checkable here were reproduced directly:
+`write_target_not_found` absent from `lang/`, `app/` and `tests/`; `TenantIsolationTest`'s
+dataset naming all three community models; `manage/books/create.tsx` carrying `donor_name`
+and no `donor_membership_id`; and `AuditSentences::phrase()`'s `default =>
+self::line('unknown')` arm.
 
 ## Context — what this is, and what problem it solves
 
@@ -31,11 +60,15 @@ The brief for this phase named four things: comments and moderation, announcemen
 guest-facing form *and* the inbox together — and the reason is structural rather than a
 preference about size.
 
-1. **The inbox is `super_admin`, cross-shelf, and it lives in `src/domain/admin/`.**
-   `getFeedbackInbox`'s own docblock says so in as many words: "Cross-shelf by nature,
-   which is why this lives under `src/domain/admin/` … No shelf-scoped read can express
-   it." `markFeedbackRead` and `resolveFeedback` both open with `requireSuperAdmin(ctx)`.
-   BR §1.4 assigns "super-admin tooling" to **Phase 3 — the network**.
+1. **The read half is `super_admin` and cross-shelf, and it lives in `src/domain/admin/`;
+   the two handling commands are `super_admin` too.** `getFeedbackInbox`
+   (`src/domain/admin/queries/get-feedback-inbox.ts`) says so in as many words:
+   "Cross-shelf by nature, which is why this lives under `src/domain/admin/` … No
+   shelf-scoped read can express it." `markFeedbackRead` and `resolveFeedback` each open
+   with `requireSuperAdmin(ctx)` — **they live in `community/commands/feedback.ts`, not
+   under `domain/admin/`**, a correction the review made to this paragraph's first draft;
+   the role claim was right and the location was not. BR §1.4 assigns "super-admin tooling"
+   to **Phase 3 — the network**.
 2. **The `/admin` area of this Laravel port has no real screen yet.** Every route under
    `admin/` renders `ShellController::underConstruction`, and `resources/js/layouts/
    admin-layout.tsx` exists but is imported by nothing (`grep -rn "admin-layout"
@@ -169,9 +202,12 @@ Models, enums and casts exist too: `App\Models\{Comment,Announcement,BookDonatio
    the setting `allow_comments`; every implementation spells it `comments_enabled` — the
    reference's reader (`community/policy.ts`) and its writer
    (`admin/commands/bookshelves.ts`) alike. Verified by grep across the whole repository
-   (excluding `vendor/`, `node_modules/` and `.git/`): the string `allow_comments` occurs on
-   exactly **one** line anywhere — `docs/BUSINESS-REQUIREMENTS.md`'s settings table — and in
-   no source, test, migration, language file or reference file at all. One key, one spelling,
+   (excluding `vendor/`, `node_modules/` and `.git/`) **at `fabfbd4`, before this plan file
+   existed**: the string `allow_comments` occurred on exactly one line anywhere —
+   `docs/BUSINESS-REQUIREMENTS.md`'s settings table — and in no source, test, migration,
+   language file or reference file at all. This plan is itself now a second occurrence, which
+   is why the measurement is dated rather than stated as a standing fact; re-run it excluding
+   `docs/superpowers/plans/` if you want the original number. One key, one spelling,
    and it is the one with an implementation on both sides. `comments_require_approval` is
    spelled the same in both documents and needs no decision. Task 20 records the BR §5.5
    row as a documentation lag, and records that whoever builds `/manage/settings` (not this
@@ -195,12 +231,16 @@ Models, enums and casts exist too: `App\Models\{Comment,Announcement,BookDonatio
    caller is a manager of the shelf whose row it is; the leak is within their own tenant.
    Accepted, named, and carried to Task 20's known-gaps entry.
 
-   **Consequence to state out loud:** `write_target_not_found`, which the reference's five
-   announcement commands throw, is thrown by **nothing** in this port. Its sentence already
-   exists in `lang/vi/rules.php`; the literal-code census
-   (`RuleViolatedCodesHaveSentencesTest`) walks codes → sentences and not the reverse, so an
-   unthrown sentence is inert to it rather than red. Task 20 records that the sentence has
-   no thrower and why.
+   **Consequence to state out loud, corrected against the file:** `write_target_not_found`,
+   which the reference's announcement commands throw when a row is missing, is thrown by
+   **nothing** in this port **and has no sentence here either** — the string appears nowhere
+   under `lang/`, `app/` or `tests/` (grepped; `lang/vi/rules.php` holds 64 keys and that is
+   not one of them). The plan's first draft claimed the sentence already existed and told
+   Task 20 to record an inert orphan, which would have written a **false entry** into the
+   very document whose own step opens "a known-gap that has silently become false is worse
+   than one that is missing". So: route-model binding answers 404 where the reference threw
+   this code, the code is never minted here, no `lang` key is added, and there is nothing for
+   the census to be silent about. Task 20 records the substitution itself, not an orphan.
 
 4. **The `membershipId` input is dropped; the session is the scope.** The reference's
    `createComment` and `offerDonation` each take a caller-supplied `membershipId` and
@@ -260,11 +300,13 @@ Models, enums and casts exist too: `App\Models\{Comment,Announcement,BookDonatio
     Ported rather than improved — adding a title is a product change, not a port — and
     recorded in known-gaps as a candidate improvement with the one-line shape it would take.
 
-11. **`OfferDonation` ships without the reference's `photo` parameter.** The reference
-    accepts `photo?: string | null`; this port has no uploader (1a dropped the cover
-    uploader for the same reason, recorded in known-gaps), so the column stays null and the
-    parameter is absent rather than present-and-uncallable. The column is read and rendered
-    where it exists, so a later uploader adds a writer and no reader.
+11. **`OfferDonation` ships without the reference's photo parameter.** The reference's input
+    is `photo?: string | null` and **the column it lands in is `book_donations.photo_url`** —
+    the two names differ and the first draft of this list used the input's name for the
+    column, which the review corrected. This port has no uploader (1a dropped the cover
+    uploader for the same reason, recorded in known-gaps), so `photo_url` stays null and the
+    parameter is absent rather than present-and-uncallable. The column is still read and
+    rendered where a row has one, so a later uploader adds a writer and no reader.
 
 12. **The moderation and donation queues are unpaged, and the decided lists are capped.**
     The reference argues both: a queue is worked rather than browsed (oldest first,
@@ -371,8 +413,11 @@ task in lowercase `type: sentence` style. Additionally, for this plan:
   `csgFix` (1) · `cmcFix` (2) · `cmaFix` (3) · `cmdFix` (4) · `bcqFix` and `inv9Fix` (5) ·
   `cmqFix` (6) · `bcsFix` (7) · `mmsFix` (8) · `anwFix` (9) · `anuFix` (10) · `anpFix` (11) ·
   `anqFix` (12) · `arsFix` (13) · `amsFix` (14) · `dofFix` (15) · `dddFix` (16) · `dnqFix`
-  (17) · `drsFix` (18) · `dmqFix` (19) — **twenty functions**, plus two more Task 1 mints or
-  renames: `actionTransactionCalls` (the renamed circulation walk) and `wallClockOffenders`.
+  (17) · `drsFix` (18) · `dmqFix` (19) — **twenty functions**, plus two more:
+  `actionTransactionCalls` — Task 1's **rename** of the shipped circulation walk, so
+  `circulationTransactionCalls` ceases to exist in the same commit (`grep -rn
+  "circulationTransactionCalls" tests/` returns nothing afterwards, which is the check) — and
+  `wallClockOffenders`, minted by **Task 2** with `CommunityArchitectureTest` itself.
   **No new top-level `const`.** `OPS_SECTION_7` already exists and Task 3 adds a row to it
   rather than redeclaring it. Before adding any helper, run the grep.
 
@@ -441,6 +486,14 @@ argued in Context above).
   **half**, which is the shape reason 4 of the cut argues against. It also widens a
   permission the reference deliberately narrowed, and widening later is one predicate where
   narrowing later is a removed screen.
+
+**Timing matters as much as the answer, and it changes what the answer means.** "Shelf
+managers too" does not merely add two tasks: arriving **mid-flight** it reopens the cut's
+fourth ground, because the site-wide half still cannot ship without Phase 3's global audit
+row — so feedback would go out **half**, which is the shape the cut exists to refuse. So:
+an answer arriving **before Task 1 starts** can widen 2b; an answer arriving **after** is a
+Phase-3 decision either way, and is recorded as one rather than reopening a branch in
+progress.
 
 **Answerable in a sentence:** *"Shelf managers should / should not read their own shelf's
 feedback."*
@@ -568,6 +621,8 @@ app/Http/Controllers/Reader/
   CommentController.php        store (from the book page)
   AnnouncementController.php   index / show (by slug)
   DonationController.php       create / store / index (own offers)
+app/Providers/AppServiceProvider.php   (+ Gate::policy for the three new policies)
+lang/vi/validation.php      (+ attributes for every new field, or a message reads "body")
 app/Models/
   Bookshelf.php      (+ comments(), announcements(), donations() relations for scoped bindings)
   Comment.php        (+ book(), author() relations)
@@ -590,7 +645,7 @@ resources/js/pages/manage/announcements/{index,form}.tsx
 resources/js/pages/manage/donations.tsx
 resources/js/pages/manage/dashboard.tsx         (modified: the fourth stat card)
 resources/js/pages/manage/audit.tsx             (modified: the fourth group chip)
-resources/js/layouts/manage-layout.tsx          (modified: two nav items)
+resources/js/layouts/manage-layout.tsx          (modified: a nav item per new manager screen)
 resources/js/lib/copy.ts                        (extended)
 database/seeders/DemoShelfSeeder.php            (extended: a living comment queue and a notice)
 docs/OPERATIONS.md                              (Task 20's §4.4 walk, if it finds a lag)
@@ -615,7 +670,6 @@ mirror, including why the model parameter goes unread), and
 **Files:**
 - Create: `app/Support/Community/CommentSettings.php`
 - Create: `app/Policies/CommentPolicy.php`
-- Create: `tests/Feature/Architecture/CommunityArchitectureTest.php`
 - Create: `tests/Unit/Community/CommentSettingsTest.php`
 - Modify: `app/Providers/AppServiceProvider.php` (+ `Gate::policy(Comment::class, …)`)
 - Modify: `app/Models/Bookshelf.php` (+ `comments()`), `app/Models/Comment.php` (+ `book()`, `author()`)
@@ -710,9 +764,23 @@ the five existing `Gate::policy` calls; `PolicyRegistrationTest` derives its cen
 `app/Policies` and from the provider's source, so it covers the new policy the day it lands
 and needs no edit.
 
-- [ ] **Step 3: the architecture guards — widen by root, and mint the community file**
+- [ ] **Step 3: the shipped guard is widened by root — and the community guard is NOT created here**
 
-In `CirculationArchitectureTest.php`, rename `circulationTransactionCalls()` to
+**`tests/Feature/Architecture/CommunityArchitectureTest.php` is created by TASK 2, not by
+this task, and this paragraph is the correction that makes the phase's first commit green.**
+The plan's first draft created it here and claimed its non-vacuity block "passes vacuously
+until Task 2 lands the first Action". The independent review **measured that and it is false
+in both directions**: `app/Actions/Community/` does not exist at this commit, so
+`RecursiveDirectoryIterator` throws `Failed to open directory` and the file is **3 failed**,
+not vacuously green; `glob()` in the audit-recorder block fails the same way; and `mkdir`
+does not rescue it, because git does not track an empty directory — and even locally the
+non-vacuity block then fails on its own derivation (`Expecting [] not to be empty`), which
+is that block working correctly. **Do not add an `is_dir()` guard**: a block that passes on
+absence is precisely what these guards exist to refuse. So the whole file moves into the
+commit that lands the first Action, where every one of its four blocks has something real to
+walk.
+
+What this task does do is widen the shipped guard. In `CirculationArchitectureTest.php`, rename `circulationTransactionCalls()` to
 `actionTransactionCalls(?string $root = null)` and open its body with
 `$root ??= app_path('Actions/Circulation');`, replacing the hardcoded path in the
 `RecursiveDirectoryIterator` line. **A default parameter value cannot be a function call in
@@ -722,30 +790,8 @@ because the default is the path they walked. Add one sentence to the helper's do
 recording that it is now root-parameterised and who else calls it, and change the second
 `it()`'s title only if it names the directory (read it before editing).
 
-Then create `tests/Feature/Architecture/CommunityArchitectureTest.php` with four `it()`
-blocks:
-
-1. **the retry rule** — `[, $offenders] = actionTransactionCalls(app_path('Actions/Community'));`
-   `expect($offenders)->toEqual([]);`
-2. **the guard is not vacuous** — the same derivation the circulation file uses: every file
-   whose comment-stripped source contains the literal `DB::transaction(` must appear in the
-   walk's own tally, and the tally must not be empty. **This block passes vacuously until
-   Task 2 lands the first Action**, and it must say so in a comment rather than being
-   silently satisfied by an empty directory — Task 2's step 5 is where the non-emptiness
-   first has teeth.
-3. **no Action under `app/Actions/Community` reads the wall clock** — a fresh helper,
-   `wallClockOffenders(string $root): array`, running the same regex the circulation grep
-   uses, called here with the community root. **Two copies of a four-token regex is the
-   deliberate choice**: the alternative is editing a shipped guard to share a helper, and
-   the duplication is disclosed here and in `docs/known-gaps.md` rather than left to be
-   discovered. The title names the directory it actually walks — a test whose name
-   overclaims its body is how a rule gets believed without being enforced.
-4. **no Action under `app/Actions/Community` skips the audit recorder** — the
-   `CatalogueArchitectureTest` tripwire, ported by shape rather than by copy: each file must
-   constructor-inject an `AuditRecorder` **and** call `->record(` on whatever the
-   constructor named the property, so an Action pasted without audit fails the build rather
-   than quietly shipping unaudited. There is no allow-list; every command in this directory
-   audits.
+The specification for `CommunityArchitectureTest`'s four blocks lives in **Task 2, Step 4**,
+where the file is written. Do not write it here.
 
 - [ ] **Step 4: the sentences**
 
@@ -781,7 +827,7 @@ so a reviewer does not read the omission as a miss.
 
 - [ ] **Step 5: run, mutation-check, commit**
 
-Run: `make test FILTER=CommentSettingsTest && make test FILTER=CommunityArchitectureTest && make test FILTER=CirculationArchitectureTest && make test FILTER=PolicyRegistrationTest` — PASS.
+Run: `make test FILTER=CommentSettingsTest && make test FILTER=CirculationArchitectureTest && make test FILTER=PolicyRegistrationTest` — PASS. `CommunityArchitectureTest` does not exist at this commit and must not (see Step 3).
 
 Mutation checks, each restored afterwards with `git status --porcelain` clean:
 1. Change `CommentSettings`' `comments_enabled` default to `false` → the empty-blob block
@@ -793,9 +839,17 @@ Mutation checks, each restored afterwards with `git status --porcelain` clean:
 3. Delete the `?? true` from `commentsRequireApproval` → PHP raises on the missing key under
    the empty blob; the block reddens. (Restore; the point is that the default is not
    supplied by the caller.)
-4. Point `actionTransactionCalls`' new default at `app_path('Actions/Members')` →
-   `CirculationArchitectureTest`'s non-vacuity block reddens, proving the rename did not
-   silently widen or narrow what the circulation guard walks.
+4. **The rename's extent, pinned by identity rather than by a mutation.** The plan's first
+   draft said "point the default at `app_path('Actions/Members')` → the non-vacuity block
+   reddens". The review measured it: the **retry** block reddens, not the non-vacuity one,
+   which stays green because every file under `Actions/Members` contains a literal
+   `DB::transaction(` — and worse, `Actions/Catalogue` would redden identically, so the
+   mutation only proves the default is *read*, never that it points anywhere in particular.
+   Since this task **edits a shipped guard** rather than satisfying it, the proof has to pin
+   the walk's extent directly: add a block asserting that the no-argument call and an
+   explicit `actionTransactionCalls(app_path('Actions/Circulation'))` return **identical
+   call-site keys** — `expect(array_keys($a))->toEqualCanonicalizing(array_keys($b))`. That
+   is falsified by any default that is not that directory, including a sibling one.
 
 ```bash
 make lint && make analyse
@@ -818,6 +872,7 @@ phase carries end to end.
 - Create: `app/Http/Requests/Community/StoreCommentRequest.php`
 - Create: `app/Http/Controllers/Reader/CommentController.php`
 - Create: `tests/Feature/Community/CreateCommentTest.php`
+- Create: `tests/Feature/Architecture/CommunityArchitectureTest.php` (moved here from Task 1 — see Step 4)
 - Modify: `routes/web.php` (the reader's comment POST)
 - Modify: `app/Support/Audit/AuditSentences.php` (+ the `community` group, + `comment.created`)
 - Modify: `lang/vi/audit.php` (+ `comment_created`, + the group label)
@@ -826,7 +881,8 @@ phase carries end to end.
 - Modify: `tests/Unit/Catalogue/RuleViolatedCodesHaveSentencesTest.php` (+ this task's codes)
 
 **Interfaces:**
-- Produces: `CreateComment::execute(User $actor, Book $book, string $body): array{commentId: string}` — throws `not_permitted`, `comments_disabled`, `empty_body`, `shelf_not_found`; audit `comment.created`; no notification (a manager is not told, BR §15).
+- Produces: `CreateComment::execute(User $actor, Book $book, string $body): array{commentId: string, status: CommentStatus}` — throws `not_permitted`, `comments_disabled`, `empty_body`, `shelf_not_found`; audit `comment.created`; no notification (a manager is not told, BR §15). **The `status` key is in the signature deliberately**, and Step 3's code block returns it — the controller picks between two flash sentences and must take that fact from the Action's own result rather than re-reading the shelf setting, because two readings of one setting is how a screen and a command start disagreeing.
+- Produces: `wallClockOffenders(string $root): array` — the community half of the no-wall-clock grep (Step 4).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -916,7 +972,7 @@ final class CreateComment
         private AuditRecorder $audit,
     ) {}
 
-    /** @return array{commentId: string} */
+    /** @return array{commentId: string, status: CommentStatus} */
     public function execute(User $actor, Book $book, string $body): array
     {
         Gate::forUser($actor)->authorize('create', Comment::class);
@@ -960,7 +1016,11 @@ final class CreateComment
                 'book_id' => $book->id,
             ]);
 
-            return ['commentId' => $comment->id];
+            // status is returned, not re-derived by the controller: it
+            // picks between two flash sentences and a second reading of
+            // the shelf setting is how a screen and a command start
+            // disagreeing about one shelf.
+            return ['commentId' => $comment->id, 'status' => $status];
         }, ConcurrencyRetry::ATTEMPTS);
     }
 }
@@ -970,7 +1030,36 @@ final class CreateComment
 creating hook stamps it from the bound tenant, and naming it would be the hand-written
 scope this project bans.
 
-- [ ] **Step 4: the audit group, the sentence, the route, the surface**
+- [ ] **Step 4: the community architecture guard, the audit group, the sentence, the route, the surface**
+
+**Create `tests/Feature/Architecture/CommunityArchitectureTest.php` HERE** — moved out of
+Task 1, where the review measured its three directory-walking blocks failing on a directory
+that does not exist yet. In this commit `app/Actions/Community/CreateComment.php` exists, so
+every block has something real to walk and none of them can pass on absence. Four `it()`
+blocks:
+
+1. **the retry rule** — `[, $offenders] = actionTransactionCalls(app_path('Actions/Community'));`
+   then `expect($offenders)->toEqual([]);`
+2. **the guard is not vacuous** — the same derivation the circulation file uses, and it has
+   teeth from this commit: every file whose comment-stripped source contains the literal
+   `DB::transaction(` must appear in the walk's own tally, and the tally must not be empty.
+   Step 5's mutation 1 is where both blocks are shown to discriminate.
+3. **no Action under `app/Actions/Community` reads the wall clock** — a fresh helper,
+   `wallClockOffenders(string $root): array`, running the same regex the circulation grep
+   uses, called here with the community root. **Two copies of a four-token regex is the
+   deliberate choice**: the alternative is editing a shipped guard to share a helper, and
+   the duplication is disclosed here and in `docs/known-gaps.md` rather than left to be
+   discovered. The title names the directory it actually walks — a test whose name
+   overclaims its body is how a rule gets believed without being enforced.
+4. **no Action under `app/Actions/Community` skips the audit recorder** — the
+   `CatalogueArchitectureTest` tripwire, ported by shape rather than by copy: each file must
+   constructor-inject an `AuditRecorder` **and** call `->record(` on whatever the constructor
+   named the property, so an Action pasted without audit fails the build rather than quietly
+   shipping unaudited. There is no allow-list; every command in this directory audits.
+
+Tasks 9, 14 and 19 each add one further block to this file (the announcement and donation
+route-order assertions); nothing else edits it.
+
 
 `AuditSentences::ACTIONS` gains `'comment.created' => 'community',` and `GROUPS` gains
 `'community'` — the reference files every community action under its own group
@@ -986,6 +1075,18 @@ before writing it and reuse the house helpers; do not mint a second spelling of 
 `AuditSentencesTest`: add `'community'` to the partition test's hardcoded group list, and
 bump `toHaveCount(27)` to **28**. That count is the pin that makes an added action a
 deliberate edit; every task in this phase that adds actions bumps it, ending at **40**.
+**Also drop the numeral from that block's `it()` title in this commit** — it currently reads
+"…for the 27 actions…" and eight tasks in this plan bump the count in the assertion beside
+it without touching the title. This project already carries a standing correction for
+exactly that class of staleness ("drop the number and state the property"); a title naming a
+count nobody re-derives is the same defect one line higher.
+
+**One mechanism worth knowing before adding any audit arm, and it is the opposite of the
+notification one:** `AuditSentences::phrase()` ends in `default => self::line('unknown')`,
+so a missing match arm is **not** a build error the way a missing `NotificationSentences`
+arm is — it renders the undescribed-action fallback to a volunteer. What catches it is
+`AuditActionCensusTest`'s two-directional set-equality, not Larastan. Every task in this
+phase adds arms to both files; only one of the two fails at compile time.
 
 `resources/js/pages/manage/audit.tsx`: widen the row's `group` union with `"community"`,
 add it to `GROUP_KEYS`, and add `copy.manageAudit.groups.community = "Cộng đồng"` —
@@ -1006,12 +1107,8 @@ free text leads with `bail` and carries the encoding rule, which
 
 The controller redirects back to the book page with the flash the shelf's own setting
 chooses — `comment_pending_flash` when the created comment is `pending`,
-`comment_published_flash` when it is `approved`. Derive that from the **Action's own
-result** rather than re-reading the setting in the controller: two readings of one setting
-is how a screen and a command start disagreeing. (This is the one place the Action's return
-shape earns more than `commentId`; widen it to
-`array{commentId: string, status: CommentStatus}` if the controller needs it, and say so in
-the docblock rather than re-querying the row.)
+`comment_published_flash` when it is `approved` — taken from the **`status` key Step 3's
+Action already returns**, never by re-reading the setting in the controller.
 
 - [ ] **Step 5: Run, mutation-check, commit**
 
@@ -1019,8 +1116,16 @@ Run: `make test FILTER=CreateCommentTest && make test FILTER=AuditActionCensusTe
 
 Mutation checks:
 1. Drop `ConcurrencyRetry::ATTEMPTS` from the transaction → `CommunityArchitectureTest`'s
-   retry block reddens, **and its non-vacuity block stays green** (the file is now in the
-   tally). This is the first commit where that guard has teeth; record the numbers.
+   retry block reddens, **and its non-vacuity block stays green** (this file is in the tally,
+   which is what the non-vacuity block asserts). This is the commit the guard is born in and
+   the first at which it can discriminate at all — which is why it is born here and not in
+   Task 1. Record both numbers.
+1b. **Delete `app/Actions/Community/CreateComment.php` itself** and run
+   `CommunityArchitectureTest` → **3 failed**, on a `RecursiveDirectoryIterator` that cannot
+   open a directory that no longer exists, plus the audit-recorder block's `glob()`. That is
+   the measurement behind moving this file out of Task 1, and it is worth performing once so
+   nobody later "fixes" the guard with an `is_dir()` check: a block that passes on absence is
+   what these guards exist to refuse.
 2. Delete the `comments_disabled` branch → block 3 reddens and nothing else does.
 3. Add `'body' => $trimmed` to the audit `after` bag → block 5's `array_key_exists`
    assertion reddens. If it does not, the assertion was written with a form that passes
@@ -1339,9 +1444,14 @@ decision and one class with a conditional rule hides it.
 - [ ] **Step 5: Run, mutation-check, commit**
 
 Mutation checks: (1) make hiding's reason required → block 4 reddens and block 5 stays
-green; (2) write `'reason' => null` instead of omitting the key on a reasonless hide → the
-payload-rows assertion in block 8 reddens on the em-dash-versus-"null" distinction, which is
-the whole reason that distinction exists; (3) add a `notify` call to `RejectComment` → block
+green; (2) write `'reason' => null` instead of omitting the key on a reasonless hide → block 8's
+assertion reddens **on the PRESENCE of a `reason` row**, not on an em dash. The first draft
+said the em dash is the observable difference and the review corrected it: `payloadRows`
+takes the union of the two bags' keys, so an omitted key produces **no row at all**, while a
+stored null produces a row whose *before* column is an em dash (the key is absent from
+`before` either way) and whose *after* column is the string `"null"`. An implementer
+asserting an em-dash row in the unmutated case would be writing a failing test against a
+correct command. Assert row presence instead — no `reason` row unmutated, one mutated; (3) add a `notify` call to `RejectComment` → block
 2 reddens **and** `NotificationsAreReaderFacingTest`'s census reddens (a writer with no row),
 which is the guard proving it covers new writers automatically.
 
@@ -1487,8 +1597,20 @@ redden:
 2. Change the predicate to `!= rejected` → block 1 reddens (pending becomes visible) and
    block 4 reddens (hidden becomes visible), while block 3 stays green — which is the
    measurement that the predicate is `= approved` rather than "not the bad ones".
-3. Delete `BelongsToBookshelf` from `Comment` → block 6 reddens. (Restore; the model-level
-   scope is the tenancy layer and this is its only behavioural pin in this phase.)
+3. **STRUCK — the first draft's mutation here was false in both halves, and the review
+   measured it.** It said "delete `BelongsToBookshelf` from `Comment` → block 6 reddens" and
+   called that block the trait's "only behavioural pin in this phase". Block 6 stays
+   **green**, and structurally must: this query narrows by `book_id`, and
+   `comments_book_fk (bookshelf_id, book_id)` means a foreign shelf's comment hangs off a
+   foreign shelf's book, so the book predicate has already excluded it. No fixture can make
+   this block sensitive to the trait. The sentence was false too — that mutation reddens
+   five tests, among them `TenancyArchitectureTest` (whose first block requires the trait on
+   every model whose table carries `bookshelf_id`) and `TenantIsolationTest` (whose dataset
+   has named `Comment`, `Announcement` and `BookDonation` since Phase 0, verified by opening
+   it). **What block 6 actually pins is the BOOK narrowing**, which is worth pinning and is
+   what its comment should say; `Comment`'s model-level tenancy is held by two shipped guards
+   this phase does not edit, and Task 20 step 5 re-runs both and pastes the numbers rather
+   than this task claiming them.
 4. Delete `SoftDeletes` from `Comment` → block 7 reddens.
 5. Flip `orderByDesc('created_at')` to ascending → the query test's ordering block reddens.
    Deleting `orderByDesc('id')` alone leaves it **green** on today's engine, for the reason
@@ -1561,10 +1683,16 @@ will want the fill typed; build it as
 and overwrite from the grouped rows.
 
 `ManagerDashboardQuery` gains `pendingComments` inside `counts`, constructor-injecting
-`CommentModerationQuery` beside the existing `BorrowRequestQueueQuery`, and its docblock's
-line saying the fourth card is Phase 2's is **replaced** rather than left standing — a
-comment that says a thing is future, on the commit that ships it, is this project's most
-repeated defect.
+`CommentModerationQuery` beside the existing `BorrowRequestQueueQuery`. **Its docblock is
+stale in two places, not one, and the whole opening sentence is replaced** — the first draft
+of this task named a single line and the review found the second: the opening sentence says
+the query is "narrowed to the two of BR §16.3's four stat cards whose queues exist", which
+became three at 2a and becomes **four of four** here, and the parenthesis after it —
+"(plan divergence 6: Yêu cầu mượn and Bình luận chờ duyệt are Phase 2's, and no substitute
+card is promoted into their slots)" — is a citation into a plan whose divergence 6 this
+commit discharges, and is deleted rather than reworded. A comment that says a thing is future,
+on the commit that ships it, is this project's most repeated defect; a comment that says it
+twice is the same defect surviving a partial fix.
 
 - [ ] **Step 4: Run, mutation-check, commit**
 
@@ -1819,6 +1947,30 @@ and lapsed, and re-publishing it is the whole point of the second button. Port t
 condition exactly; it is the kind of guard a later reader "simplifies" into
 `published_at !== null` and thereby kills the button.
 
+**And "was an expiry supplied" is Task 10's absent-versus-explicit-null distinction again,
+which the first draft of this task did not mention at all.** The review found the two tasks
+did not compose: as originally written, Task 11 pinned only the *with a date* success and
+Task 14 rendered *Đăng lại* as a plain row button, so the button was **dead** for any manager
+who did not type an expiry. The resolution, and it is a decision this task makes rather than
+leaves open:
+
+- `PublishAnnouncementRequest` carries `expires_at` as `['nullable', 'date']`, so the form
+  can send the key with an empty value.
+- The Action takes `array $changes` shaped `array{expiresAt?: ?CarbonImmutable}` and reads it
+  with **`array_key_exists`, never `isset` and never `??`** — `isset` is false for an
+  explicit null, which would collapse "clear the expiry, and republish" into "say nothing",
+  and turn a successful republish into `already_published`. This is the identical trap Task
+  10 spends a whole task on, and it bites harder here because the wrong answer is a refusal
+  rather than a stale column.
+- **An explicit null IS a supply.** Republishing a lapsed notice with no expiry at all is the
+  ordinary case — a parish saying "the shelf is closed until further notice" — so *Đăng lại*
+  sends `expires_at` present and empty, and that succeeds and clears the column.
+
+Two blocks beyond the ones below pin it: **publishing a lapsed announcement with `expiresAt`
+present and explicitly null succeeds and leaves `expires_at` null**, and **publishing a
+lapsed announcement with the key ABSENT refuses with `already_published`**. Task 14 then
+states which of the two shapes its *Đăng lại* button posts, and pins that.
+
 `HideAnnouncement` clears `published_at`, which is what "not public" *means* for this table —
 there is no separate flag the way comments have a status — and is also what makes *Đăng lại*
 work afterwards. Say so in its docblock; a future reader will otherwise add a column.
@@ -1831,9 +1983,12 @@ flag and audit; and **more than one may be pinned at once** (divergence 8 / the 
 reading), which is a block rather than a comment because "no cap" is a claim a later partial
 index would falsify.
 
-Mutations: (1) narrow the publish guard to `published_at !== null` → the *Đăng lại* block
-reddens and the already-published block stays green; (2) have `HideAnnouncement` write a new
-column or a status instead of clearing `published_at` → the post-again block reddens;
+Mutations: (1) narrow the publish guard to `published_at !== null` → both *Đăng lại* blocks
+redden and the already-published block stays green; (1b) read the expiry with `isset` instead
+of `array_key_exists` → the explicit-null *Đăng lại* block reddens with `already_published`
+while the with-a-date block stays green, which is the asymmetry that makes this bug silent
+and is the same measurement Task 10 owes; (2) have `HideAnnouncement` write a new column or a
+status instead of clearing `published_at` → the post-again block reddens;
 (3) assemble any of the four action names from a variable → `AuditActionCensusTest`'s
 per-file literal block reddens, which is the mechanical version of the reference's argument.
 
@@ -1919,14 +2074,19 @@ name** (`shelves.announcements`) — the header already links to it under the na
 which 2a renamed deliberately so the personal bell could keep *Thông báo*. Do not rename
 either.
 
-Detail binds by slug — `Route::get('/announcements/{announcement:slug}', …)`, resolved
-through `Bookshelf::announcements()` under the group's `scopeBindings()`. **Binding by slug
-here and by id on the manager routes is deliberate and needs no `getRouteKeyName()`
-override**, which is what would otherwise force one key on both surfaces. The published/
-unexpired filter is **not** the binding's job and cannot be: the controller asks
-`AnnouncementsQuery::detail($slug)` and `abort_unless` on null, the same shape the reader
-book page uses for an unpublished book — which 2a proved matters, when a draft book became an
-existence oracle through a sibling POST.
+Detail takes **`string $slug`, not a bound model** — `Route::get('/announcements/{slug}', …)`
+— and that is a decision the review forced the first draft to make. It had written
+`{announcement:slug}` and then had the controller re-query by slug, leaving the bound model
+unread: two lookups, one of them dead, and a binding whose 404 semantics (any live row on
+this shelf) silently differ from the query's (published and unlapsed only). One lookup, one
+rule: the controller asks `AnnouncementsQuery::detail($slug)` and `abort_unless` on null, the
+same shape the reader book page uses for an unpublished book — which 2a proved matters, when
+a draft book became an existence oracle through a sibling POST. The **manager** routes bind
+`{announcement}` by id as usual, so no `getRouteKeyName()` override exists on the model and
+neither surface forces a key on the other. `RouteOrderTest` requires `role:` on every reader
+route regardless, and a `{slug}` parameter is not a model binding, so nothing in the tenancy
+layer is skipped: `AnnouncementsQuery` is `BookshelfScope`-scoped like every other query
+here, which is what keeps another shelf's slug a 404.
 
 Tests (`arsFix`), separate blocks: the list carries published, unlapsed notices with the
 pinned one first; a draft's slug 404s; a lapsed one's slug 404s; a non-member is 404 by the
@@ -1953,7 +2113,19 @@ block in `CommunityArchitectureTest` rather than trusting the habit.
 
 The index shows all three states with their chips (`showing` / `draft` / `expired`), each row
 carrying only the buttons a command exists for: *Đăng ngay* or *Đăng lại* depending on the
-state, *Ẩn* on a showing one, *Ghim* / *Bỏ ghim* on any, *Sửa* always. The form is
+state, *Ẩn* on a showing one, *Ghim* / *Bỏ ghim* on any, *Sửa* always.
+
+**What *Đăng lại* posts is load-bearing and is settled by Task 11, not left to the markup.**
+`PublishAnnouncement` refuses an already-published row unless an expiry was **supplied**, and
+a lapsed announcement is still published — so a *Đăng lại* button that posts an empty body
+refuses, and the button is dead for every manager who does not type a date. This task's
+button therefore posts `expires_at` **present and empty** (an explicit null, which Task 11
+treats as a supply and which clears the column), and the row offers an optional date field
+beside it for a manager who wants one. **Pin it**: a block that posts *Đăng lại* with no date
+and asserts a 302 with the success flash and a `published_at` that moved, and a second block
+that posts a date and asserts the column took it. Without those two, Task 11's guard and this
+screen can disagree with the whole suite green — which is exactly what the plan's first draft
+shipped and the review caught. The form is
 single-column with labels above inputs and required fields marked with the word *Bắt buộc*,
 never an asterisk (AGENTS.md rule 6), and one primary action.
 
@@ -2176,7 +2348,13 @@ anything* rather than as an error."
 **Interfaces:**
 - `MyDonationsQuery::run(Membership $membership): list<…>` — the caller's own offers, newest first, carrying the status and, for a declined one, its `decision_note`, **because that note is the whole reason a decline requires a reason: the reader reads it.** The parameter is a `Membership`, not a `User`, and the type is the guard: passing the wrong id becomes impossible at the call site rather than silent at the predicate.
 - `DonationQueueQuery::run(): list<…>` — `pending` only, **oldest first**, with the donor's name and their membership id, because BR §16.3 makes *Duyệt* open the add-book form with **Người tặng** pre-filled: the screen needs the name to show and the id to pass on.
-- `DonationQueueQuery::countPending(): int` — reserved for a dashboard card. **Do not add the card in this phase**: `ManagerDashboardQuery`'s docblock names BR §16.3's four cards and all four are now accounted for. Shipping a fifth with no requirement behind it, or a counting method with no caller, is the reachable-from-nowhere shape — so **either wire it or do not write it**, and the recommendation is not to write it.
+**There is deliberately no `countPending()` on the donation queue**, and it is absent from
+the list above rather than declared-and-then-forbidden (the first draft declared it in
+Interfaces and told the implementer not to write it, which is a contradiction a reader
+resolves by writing it). `ManagerDashboardQuery`'s docblock names BR §16.3's four cards and
+all four are accounted for after Task 6; a fifth with no requirement behind it, or a counting
+method with no caller, is the reachable-from-nowhere shape divergences 9 and 11 already
+refuse.
 
 Tests (`dnqFix`), each its own block:
 
@@ -2254,25 +2432,31 @@ The queue lists pending offers oldest first with the donor's name, the descripti
 count and the date. Two actions per row: **Duyệt** and **Từ chối** (the reason inline in the
 row's own form).
 
-**The handoff is the interesting half, and it is a link, not a foreign key.** BR §16.3
-describes *Duyệt* as opening the add-book form with **Người tặng** pre-filled. In this port
-the POST performs `ReceiveDonation` and then redirects to the shipped add-book form carrying
-the donor's membership id as a query parameter, which that form already accepts as a
-donor field — **verify that against `app/Http/Requests/Catalogue/StoreBookRequest.php` and
-`resources/js/pages/manage/books/create.tsx` before writing the redirect, and if the field is
-not pre-fillable from the URL today, say so and ship the plain redirect back to the queue
-with the donor's name in the flash instead.** `docs/known-gaps.md` already records that the
-donor member picker was deferred and that "the OPS §16.3 donation-queue pre-fill is Phase
-2's, and lands on this same field" — this task is where that lands, and Task 20 amends the
-entry with what actually shipped rather than what was hoped.
+**The handoff is the interesting half, and the answer is already known: the pre-fill does
+NOT ship in this phase.** The plan's first draft wrote it as a question to answer with the
+files open, and the review answered it by opening them: `StoreBookRequest` does validate
+`donor_membership_id` (`bail, nullable, uuid, prohibits:donor_name`, with an existence check
+through `Membership::query()`), but `resources/js/pages/manage/books/create.tsx` has **no
+such field** — not in its form type, not in its `useForm` seed, not in its transform, and the
+controller passes no donor prop. BR §16.3's *Duyệt* → "add-book form with **Người tặng**
+pre-filled" therefore needs a member picker on that form, which `docs/known-gaps.md` records
+as deferred out of 1a for want of `GetReadersList`.
+
+So this task ships the **fallback**, deliberately and up front: *Duyệt* performs
+`ReceiveDonation` and redirects back to the queue with the donor's name in the success flash,
+so the volunteer knows whose bag they are holding when they walk to the add-book form. Task
+20 amends the known-gaps entry that says the pre-fill "is Phase 2's, and lands on this same
+field" to say what actually shipped and what is still owed — one field on one form, plus the
+query-parameter seed — rather than leaving a note that reads as done.
 
 Whatever the outcome, the docblock states the rule the reference states: **receiving writes
 no book**, and the pre-fill is a convenience on a separate command that a manager runs with
 the books in their hands.
 
 Tests (`dmqFix`), separate blocks: the index renders the queue; *Duyệt* receives and
-redirects (asserting the redirect target and, if the pre-fill shipped, the parameter); *Từ
-chối* declines with its reason and refuses without one as a field error; a reader is 404 on
+redirects to the queue with the donor's name in the flash (assert the name, since that flash
+is the whole of the handoff this phase ships); *Từ chối* declines with its reason and refuses
+without one as a field error; a reader is 404 on
 the index and on each POST, each in its own block; and the route-order assertion.
 
 ```bash
@@ -2349,8 +2533,17 @@ them standing is the failure mode:
   centrepiece is a Phase-2 announcement card. That card is now computable; the entry must say
   what still blocks the page (its *Góp ý* card, from the deferred slice) rather than a reason
   that has expired.
-- **the Phase-2 query-census row** naming `GetCommentsList` and `GetAnnouncementsList` as
-  having "no matching class under `app/Queries`" — struck, with the classes that answer them.
+- **the OPS §3.3 walk table, which is stale in FOUR cells and one whole row** — the first
+  draft of this step named two of them, and the review found the rest, which is exactly what
+  this step's own count-word grep exists to catch. Its `GetBorrowRequestQueue,
+  GetDonationQueue, GetCommentsList, GetAnnouncementsList (manager)` row says "**Phase 2** —
+  no matching class under `app/Queries`" for all four: `GetBorrowRequestQueue` was answered
+  by 2a's `BorrowRequestQueueQuery` and the row was already stale before this branch;
+  `GetCommentsList` and `GetAnnouncementsList` are answered by Tasks 6 and 12;
+  `GetDonationQueue` by Task 17. **The row has nothing left in it** — name all four classes
+  and strike it. And the neighbouring `GetManagerDashboard` row still reads "narrowed to two
+  of BR §16.3's four stat cards" and lists the two: it became three at 2a and four here, and
+  it appears in no list the first draft wrote.
 - **the reader-detail entry** saying the page ships "without its Xin mượn button, comments,
   or the manager's lend/return shortcuts" — two of those three are now false.
 - **`$guarded = []` leaves `Comment::moderated_by` mass-assignable** — this phase ships the
@@ -2433,7 +2626,10 @@ community entries, and OPS §4.4 whole.
   `CommentApproved` case and `Comment`'s `book()`/`author()` relations. Everything staged was
   then removed and the tree returned to `git status --porcelain` clean, with Larastan green on
   the untouched repo.
-  **The run found two real defects in this plan's own drafts, both now fixed in the text:**
+  **Re-run unchanged after this revision's edits** (the `CreateComment` block was widened to
+  return its `status`): Pint **PASS, 5 files**; Larastan level 8 **[OK] No errors**; tree
+  returned clean.
+  **The first run found two real defects in this plan's own drafts, both fixed in the text:**
   `created_at?->toISOString()` is a level-8 `nullsafe.neverNull` error (the shipped
   `MyNotificationsQuery` spells it without the nullsafe and the reason is the property's
   non-nullable type), and `Comment::author()` needs its foreign key named explicitly or
@@ -2449,13 +2645,20 @@ community entries, and OPS §4.4 whole.
   `Match expression does not handle remaining value: …NotificationKind::CommentApproved`
   (`match.unhandled`) during the staging run above. Task 3 states that mechanism and it is
   true.
-- **`ManagerBookDetailQuery`, `StoreBookRequest` and `manage/books/create.tsx` were not
-  opened.** Task 19's donor pre-fill is written as a question to answer with those files
-  open, not as an instruction, for that reason.
+- **`ManagerBookDetailQuery` was not opened.** `StoreBookRequest` and
+  `manage/books/create.tsx` **were** opened by the review, which is why Task 19 now states
+  the answer (no pre-fill this phase) instead of posing the question — one of three places
+  the review landed exactly where this section aimed it.
 - **`resources/js/pages/shelves/book.tsx` was not read in full** (its line count and its 2a
   request panel were). Task 7 says to read it whole first.
 - **`lang/vi/validation.php` was not opened**; the instruction to add attribute names comes
   from the known-gaps entry describing that file's shape, not from the file.
+- **`AuditSentences::phrase()` fails SOFT where `NotificationSentences::sentence()` fails
+  hard**, and the first draft stated the Larastan mechanism for notifications and said nothing
+  for audit — right by omission, wrong by silence, since every task here adds arms to both.
+  The `default => self::line('unknown')` arm is now stated in Task 2, where the first audit
+  arm lands: a missing audit arm renders the undescribed-action fallback to a volunteer and is
+  caught by `AuditActionCensusTest`'s set-equality, never by the compiler.
 - **No lock-order claim in this plan has been measured with two OS processes**, and none is
   made. Divergence 1 argues for the retry from the shape of the shipped FK edges and
   explicitly claims neither reachability nor unreachability nor frequency.
