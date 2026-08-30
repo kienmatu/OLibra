@@ -166,12 +166,27 @@ return [
     // index.
     'announcement_slug_taken' => 'Vừa có thông báo khác dùng tiêu đề gần giống. Xin đổi tiêu đề rồi đăng lại.',
     // OPS §4.4's refusal for PublishAnnouncement, and the sentence has to
-    // survive being read by a manager who pressed "Đăng lại". That
-    // command refuses only a LIVE publication — a lapsed announcement
-    // republishes fine — so whoever reads this line is looking at
-    // something that IS showing right now. The sentence says that, and
-    // points at the two doors out (edit it, or hide it first) rather than
-    // at the rule.
+    // survive being read by a manager who pressed "Đăng lại".
+    //
+    // AN EARLIER DRAFT OF THIS COMMENT JUSTIFIED THE SENTENCE WRONGLY,
+    // and the correction is stated rather than quietly applied. It said
+    // the command "refuses only a LIVE publication — a lapsed
+    // announcement republishes fine — so whoever reads this line is
+    // looking at something that IS showing right now." The guard is
+    // `published_at !== null && ! $supplied` (PublishAnnouncement::
+    // execute), and `published_at !== null` covers showing AND EXPIRED
+    // alike. A lapsed announcement reached with the expiry key ABSENT
+    // refuses too, and would read this sentence saying it is showing.
+    //
+    // The sentence still holds for every path the screen can produce,
+    // and that is a fact about the SCREEN rather than about the command:
+    // PublishDisclosure's form always posts expires_at, so a lapsed row
+    // always arrives with the key present and republishes, and after
+    // Task 14's fix round the button is not rendered on a showing row at
+    // all. So the refusal is unreachable from the shipped UI, and a
+    // manager meets this sentence only through a hand-made request.
+    // If a caller is ever added that omits the key, this sentence needs
+    // to stop naming a state it cannot know.
     'already_published' => 'Thông báo này đang hiển thị. Hãy sửa nội dung, hoặc ẩn đi rồi đăng lại.',
 
     // ── The manager's bulletin screen (Phase 2b, Task 14) ─────────────
