@@ -15,11 +15,13 @@ use App\Policies\BookPolicy;
 use App\Policies\BorrowRequestPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
+use App\Support\DeadlockDetector;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\Members\Phone;
 use App\Support\QueryParam;
 use App\Support\TenantContext;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Database\ConcurrencyErrorDetector;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -38,6 +40,17 @@ class AppServiceProvider extends ServiceProvider
         // long-running test process (or Octane, ever) cannot leak one request's
         // shelf into the next.
         $this->app->scoped(TenantContext::class);
+
+        // Laravel's DetectsConcurrencyErrors trait — the thing
+        // Connection::transaction consults to decide whether to re-run a
+        // rolled-back callback — resolves this contract from the container
+        // and falls back to the framework's own detector only when nothing
+        // is bound. Binding here is therefore what makes the retry loop and
+        // App\Support\ConcurrencyRetry's translation ask ONE question
+        // rather than two, and it is what keeps a lock-wait timeout out of
+        // BOTH: see DeadlockDetector's docblock for why 1205 must stay a
+        // loud 500 while 1213 is retried.
+        $this->app->bind(ConcurrencyErrorDetector::class, DeadlockDetector::class);
     }
 
     /**

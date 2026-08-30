@@ -103,15 +103,19 @@ $app = Application::configure(basePath: dirname(__DIR__))
         // cycle is hit inside a NESTED transaction — which is every Feature
         // test in this suite, RefreshDatabase holding the outer one. Both are
         // PDOException subclasses; ConcurrencyRetry hands back the original
-        // exception untouched for everything the framework's own detector
-        // does not call a concurrency error, so an ordinary SQL fault is
-        // never dressed up as "try again".
+        // exception, the same object, for everything the BOUND detector
+        // does not call a concurrency error, so an ordinary SQL fault stays
+        // a 500 with its statement in the log.
         //
         // Deliberately not scoped to circulation: this makes the answer a
         // sentence wherever a concurrency error reaches the handler, so a
         // command outside that directory cannot regress to a 500 on the
         // same condition. What it does not do is retry anything — retrying
-        // is the Actions' own argument, made per callback.
+        // is the Actions' own argument, made per callback. Nor does it
+        // cover every failure the FRAMEWORK would call a concurrency error:
+        // AppServiceProvider binds App\Support\DeadlockDetector over the
+        // contract, which leaves a lock-wait timeout out of both the retry
+        // and this translation, for the reason that class's docblock gives.
         $exceptions->map(fn (PDOException $e) => ConcurrencyRetry::translate($e));
 
         // Spec §7: RuleViolated maps to "the right response" in ONE place.

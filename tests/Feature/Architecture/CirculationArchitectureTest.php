@@ -48,12 +48,23 @@ use Illuminate\Support\Facades\Route;
 //      guard that names a line holding unrelated code is a guard whose
 //      next reader concludes it is broken.
 //
-// Known bound, stated rather than implied: the walk keys on the METHOD
+// Known bounds, stated rather than implied. The walk keys on the METHOD
 // NAME, not on the DB facade, so `$connection->transaction(...)` anywhere
 // under the directory is held to the same rule. That is the intent — the
 // rule is about write transactions, not about one spelling of them — but
 // it means a same-named method on some unrelated object would be judged by
 // it too. Nothing under the directory has one today.
+//
+// The other direction is the real bound, and it is the one a reader should
+// know before trusting this guard: it pins the CLOSURE spelling only. An
+// Action written as `DB::beginTransaction(); … DB::commit();` opens a write
+// transaction that this walk cannot see at all — there is no callback for
+// an attempts argument to be the second argument OF, so such a command
+// would retry nothing and offend nothing. Nothing under app/ uses that
+// spelling today (`grep -rn "beginTransaction" app/` is the re-runnable
+// check); if one appears, the rule it must be held to is the same one, and
+// this walk has to learn that shape rather than be read as having covered
+// it.
 /** @return array{0: array<string, int>, 1: list<string>, 2: list<string>} */
 function circulationTransactionCalls(): array
 {

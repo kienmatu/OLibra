@@ -2,6 +2,8 @@
 
 use App\Exceptions\RuleViolated;
 use App\Support\ConcurrencyRetry;
+use App\Support\DeadlockDetector;
+use Illuminate\Contracts\Database\ConcurrencyErrorDetector;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +46,11 @@ function crDeadlock(): QueryException
 function crDuplicate(): QueryException
 {
     return crBuild('23000', 1062, "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'lan' for key 'users_username_key'");
+}
+
+function crLockWait(): QueryException
+{
+    return crBuild('HY000', 1205, 'SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction');
 }
 
 /**
@@ -124,12 +131,19 @@ it('turns a spent deadlock into the Vietnamese refusal rather than a 500', funct
     $response->assertSessionHasErrors(['rule' => 'Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại.']);
 });
 
-it('leaves an ordinary SQL failure alone — no refusal is manufactured from a real fault', function () {
+it('leaves an ordinary SQL failure as a 500 — the detector is what decides', function () {
     // The mapping is registered against PDOException, so EVERY driver
     // error passes through it. This is the pin that it passes them through
     // rather than swallowing them: a 1062 that no UniqueViolation map
-    // claimed is still a server error, not a friendly "try again" hiding a
-    // broken constraint.
+    // claimed is still a server error with its statement in the log.
+    //
+    // The title says what is measured and not more. An earlier version
+    // claimed "no refusal is manufactured from a real fault", which is
+    // falsifiable: QueryException::formatMessage inlines BINDINGS into the
+    // message, and the detector's message half is a substring match over
+    // it, so a row whose own data spells a deadlock phrase can still be
+    // translated. DeadlockDetector's docblock carries that bound and the
+    // measurement behind it.
     Route::middleware('web')->post('/_test/duplicate', function () {
         throw crDuplicate();
     });
@@ -139,12 +153,71 @@ it('leaves an ordinary SQL failure alone — no refusal is manufactured from a r
     $response->assertStatus(500);
 });
 
-it('translates only what the detector calls a concurrency error', function () {
-    expect(ConcurrencyRetry::translate(crDeadlock()))->toBeInstanceOf(RuleViolated::class);
+it('translates a deadlock, and carries the driver exception with it', function () {
+    // The chain is the whole point of passing $previous. A mapped exception
+    // captures its trace where it is CONSTRUCTED — inside the exception
+    // handler — so without this the log would name the RuleViolated code
+    // and nothing else: not the SQL, and not the Action whose transaction
+    // lost. Monolog's LineFormatter walks getPrevious(), so both come back.
+    $original = crDeadlock();
+    $translated = ConcurrencyRetry::translate($original);
+
+    expect($translated)->toBeInstanceOf(RuleViolated::class)
+        ->and($translated->getPrevious())->toBe($original);
 });
 
 it('hands back the original exception, the same object, for anything else', function () {
     $original = crDuplicate();
 
     expect(ConcurrencyRetry::translate($original))->toBe($original);
+});
+
+it('does not retry a lock-wait timeout — a burned 50-second wait is not worth three of', function () {
+    // 1205, not 1213. Laravel's own ConcurrencyErrorDetector matches
+    // 'Lock wait timeout exceeded; try restarting transaction' alongside
+    // the deadlock strings, and Connection::transaction consults the same
+    // detector — so leaving the framework's detector in place would have
+    // meant retrying a failure that only arrives after the whole timeout is
+    // spent. This project's MariaDB was measured at
+    // innodb_lock_wait_timeout = 50, so three attempts would bind a wedged
+    // row at roughly 150 seconds of held request. AppServiceProvider binds
+    // App\Support\DeadlockDetector over the contract to prevent exactly
+    // that; this is the pin that the binding reaches the RETRY LOOP and not
+    // merely the translation.
+    $runs = 0;
+    $caught = null;
+
+    try {
+        crProbe()->transaction(function () use (&$runs): void {
+            $runs++;
+            throw crLockWait();
+        }, ConcurrencyRetry::ATTEMPTS);
+    } catch (Throwable $e) {
+        $caught = $e;
+    }
+
+    expect($runs)->toBe(1)
+        ->and($caught)->toBeInstanceOf(QueryException::class);
+});
+
+it('does not translate a lock-wait timeout either — it stays a loud 500', function () {
+    // The other half of the same binding, and it must be able to fail
+    // separately: a lock-wait timeout that was left un-retried but still
+    // dressed as "vui lòng thử lại" would be the worst of both — no retry
+    // for the caller, no SQL for the operator.
+    Route::middleware('web')->post('/_test/lock-wait', function () {
+        throw crLockWait();
+    });
+
+    expect($this->from('/shelves')->post('/_test/lock-wait')->status())->toBe(500);
+});
+
+it('binds this application\'s own detector over the framework\'s', function () {
+    // The resolution path the two tests above depend on, asserted directly
+    // rather than inferred from their behaviour: Laravel's
+    // DetectsConcurrencyErrors trait resolves this CONTRACT from the
+    // container and falls back to its own class only when nothing is
+    // bound, so this binding is what makes the retry loop and the
+    // translation ask one question instead of two.
+    expect(app(ConcurrencyErrorDetector::class))->toBeInstanceOf(DeadlockDetector::class);
 });

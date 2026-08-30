@@ -44,23 +44,31 @@ use Throwable;
  * exception, which is a 500. `translate()` turns it into the same shape
  * every other refusal in this system has — a RuleViolated whose code is a
  * `lang/vi/rules.php` key, which `bootstrap/app.php` renders as a redirect
- * back carrying the Vietnamese sentence. It is the `UniqueViolation`
- * pattern with a different decision function: that class matches errno
- * 1062 by constraint name, this one delegates to the framework's own
- * `ConcurrencyErrorDetector` — the SAME object that decided whether to
- * retry — so a non-concurrency failure can never be dressed up as
- * "try again". The detector decides; there is no bare catch anywhere in
- * this path.
+ * back carrying the Vietnamese sentence.
  *
- * Resolved through the container the way Laravel's own
- * `DetectsConcurrencyErrors` trait resolves it, so an application that
- * binds its own detector gets one decision function, not two.
+ * The DECISION FUNCTION is borrowed from `UniqueViolation`, and only that:
+ * where that class matches errno 1062 by constraint name, this one asks
+ * the container for the `ConcurrencyErrorDetector` contract — the SAME
+ * object `Connection::transaction` consulted when it decided whether to
+ * re-run — so the retry and the translation cannot disagree about what a
+ * concurrency error is. `App\Support\DeadlockDetector` is what
+ * AppServiceProvider binds there, and its docblock carries both the reason
+ * a lock-wait timeout is excluded and the bound on what message matching
+ * can be fooled by. What is NOT shared with `UniqueViolation` is
+ * PLACEMENT: that class is called at the throw site, inside the Action's
+ * own catch, and rethrows what it does not recognise; this one runs in the
+ * global exception handler, is handed every driver exception in the
+ * application, and RETURNS what it does not recognise for the handler to
+ * go on with. There is no bare catch on either path — the detector decides.
  *
  * WHAT THIS COSTS, said out loud: the map that calls this runs inside the
  * exception handler, which maps before it reports as well as before it
- * renders — so the log line for an exhausted deadlock names the
- * RuleViolated code rather than the SQL. The code is distinctive enough to
- * count occurrences by; the failing statement is not recoverable from it.
+ * renders, so the log line names this RuleViolated rather than the driver
+ * exception. That is why the original is passed as `$previous` — an
+ * exception captures its trace where it is CONSTRUCTED, so without the
+ * chain the log would lose not only the SQL but the throwing Action's
+ * frames, the trace beginning here inside the handler. Monolog's
+ * LineFormatter walks the chain, so both come back.
  */
 final class ConcurrencyRetry
 {
@@ -74,7 +82,7 @@ final class ConcurrencyRetry
     public static function translate(Throwable $e): Throwable
     {
         return self::causedByConcurrencyError($e)
-            ? new RuleViolated('busy_try_again')
+            ? new RuleViolated('busy_try_again', $e)
             : $e;
     }
 

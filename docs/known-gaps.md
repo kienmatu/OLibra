@@ -2882,8 +2882,7 @@ named in it, not by reading it off the plan.
      loop and its `handleTransactionException` *returns* instead of
      rethrowing — after rolling the whole transaction back — exactly when
      the framework's `ConcurrencyErrorDetector` matches and attempts
-     remain; that detector's match list carries "Deadlock found when trying
-     to get lock". A rolled-back transaction has persisted nothing, so the
+     remain. A rolled-back transaction has persisted nothing, so the
      re-run starts from the committed state, re-takes its locks and
      re-reads its rows. **The rule is deliberately the whole directory, not
      the four commands the analysis above names as cycle participants** —
@@ -2895,21 +2894,55 @@ named in it, not by reading it off the plan.
      `transaction(` call site under the directory and requiring a second
      argument; it was measured red by deleting one Action's argument, and
      its own non-vacuity check was measured red by breaking the walk.
-  2. **The residual is a sentence.** When the attempts are spent Laravel
+  2. **A lock-wait timeout is deliberately NOT retried, and the narrowing
+     is by error class rather than by directory.** Laravel's
+     `ConcurrencyErrorDetector` matches `'Lock wait timeout exceeded; try
+     restarting transaction'` (errno 1205) alongside the deadlock strings,
+     and the retry loop consults that same detector — so passing an
+     attempts argument retried 1205 too, which is a REGRESSION on what it
+     replaced rather than an improvement. The two failures differ in the
+     only way that matters here: a deadlock fails instantly, a lock-wait
+     timeout fails only after the whole timeout is burned. This project's
+     own MariaDB was measured at `innodb_lock_wait_timeout = 50`
+     (`SELECT @@innodb_lock_wait_timeout` against the running 10.11.19
+     container), so three attempts would bind a wedged row at roughly 150
+     seconds of held request — on a shared-hosting target where the PHP or
+     proxy limit likely kills it first, and where the honest answer is a
+     loud 500 naming the statement so an operator can find the stuck row.
+     `AppServiceProvider` therefore binds `App\Support\DeadlockDetector`
+     over `Illuminate\Contracts\Database\ConcurrencyErrorDetector`;
+     because `DetectsConcurrencyErrors` resolves that CONTRACT from the
+     container, one binding narrows the retry loop and the translation
+     together. Narrowing by DIRECTORY was rejected for the same reason the
+     rule above is a property: it would scope the fix to the commands
+     currently believed to be on the cycle. Measured on the running
+     container: with the binding in place, a 1213 runs the callback three
+     times and a 1205 runs it once.
+  3. **The residual is a sentence.** When the attempts are spent Laravel
      rethrows the original exception, which is a 500. `bootstrap/app.php`
      now maps a `PDOException` through `App\Support\ConcurrencyRetry`,
-     which asks the same framework detector that decided whether to retry
-     and — only on a yes — hands back `RuleViolated('busy_try_again')`,
-     which the existing `RuleViolated` render hook turns into the 302
-     carrying "Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại."
-     Everything the detector rejects comes back untouched, so an ordinary
-     SQL fault is still a server error and not a friendly lie.
+     which asks the same bound detector that decided whether to retry and —
+     only on a yes — hands back `RuleViolated('busy_try_again', $e)`, which
+     the existing `RuleViolated` render hook turns into the 302 carrying
+     "Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại." Everything
+     the detector rejects comes back as the same object, so an ordinary SQL
+     fault is still a server error with its statement in the log.
      `PDOException` rather than `QueryException` because Laravel raises a
      bare `DeadlockException` when the cycle is hit inside a NESTED
-     transaction, which is every test in this suite. The code is authored
-     with no `errors.ts` spelling on the `hold_not_expired` precedent —
-     sentence in `lang/vi/rules.php`, entry in OPS §6, literal in
-     `RuleViolatedCodesHaveSentencesTest`'s census.
+     transaction, which is every Feature test in this suite. The driver
+     exception is passed as `$previous` because an exception captures its
+     trace where it is CONSTRUCTED — for a mapped translation, inside the
+     exception handler — so without the chain the log would lose the SQL
+     *and* the throwing Action's frames, leaving an exhausted deadlock
+     undiagnosable as to command. `RuleViolated` gained an optional
+     `$previous` for this one caller, and
+     `RuleViolatedCodesHaveSentencesTest`'s regex was widened from `\s*\)`
+     to `\s*[,)]` so a two-argument throw stays in the census; that
+     widening was measured both ways, the same way the file's first
+     widening was (deleting the `rules.php` line goes red under the widened
+     regex and stayed GREEN under the old one). The code is authored with
+     no `errors.ts` spelling on the `hold_not_expired` precedent — sentence
+     in `lang/vi/rules.php`, entry in OPS §6, literal in the census.
 
   **Still true, and stated so it is not read away by the amendment:** no
   frequency is claimed for this edge and none has been measured — three
@@ -2923,10 +2956,24 @@ named in it, not by reading it off the plan.
   driver raises for errno 1213, not a real interleaving. **The retry makes
   the edge survivable; it does not make it absent.** If it should be
   designed away rather than survived, that is still a product decision.
-  One further cost, said out loud: Laravel's exception map is applied
-  before it reports as well as before it renders, so the log line for an
-  exhausted deadlock names the `RuleViolated` code rather than the SQL —
-  countable, but the failing statement is not recoverable from it.
+
+  **Two residual bounds, so neither is discovered later as a surprise.**
+  (a) `QueryException::formatMessage` inlines BINDINGS into the message it
+  builds, and the message half of the detector is a substring match over
+  that string — so a row whose own data spells one of the deadlock phrases
+  can make an unrelated failure on that row translate as
+  `busy_try_again`. Measured on the running container: a 1062 whose bound
+  value was the literal `deadlock detected` came back as a `RuleViolated`.
+  The SQLSTATE branch is immune, narrowing the phrase list shrinks the
+  surface, and closing it entirely would mean re-implementing the driver's
+  formatting; for this application's data it was judged not worth that.
+  (b) `CirculationArchitectureTest`'s guard pins the CLOSURE spelling only.
+  An Action written as `DB::beginTransaction(); … DB::commit();` opens a
+  write transaction with no callback for an attempts argument to be the
+  second argument of, so it would retry nothing and offend nothing.
+  Nothing under `app/` uses that spelling today (`grep -rn
+  "beginTransaction" app/` exits 1); if one appears, the walk has to learn
+  that shape rather than be read as having covered it.
 
   **WHO ELSE IS ON THE COPY-FIRST SIDE, and which of those pairings a
   shipped schedule can actually reach.** The paragraph above names

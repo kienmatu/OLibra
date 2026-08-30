@@ -37,7 +37,20 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         // that every code has a sentence was blind to this one. Confirmed
         // by deleting `thieu-so-dien-thoai`'s lang/vi/rules.php line: with
         // the old regex the suite stayed green; with this one it goes red.
-        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_-]+)[\'"]\s*\)/', $contents, $matches);
+        //
+        // WIDENED A SECOND TIME, the same way and with the same kind of
+        // measurement. The trailing atom was `\s*\)`, which requires the
+        // literal to be the ONLY argument — so the moment RuleViolated
+        // gained an optional $previous, `new RuleViolated('busy_try_again',
+        // $e)` (App\Support\ConcurrencyRetry, which passes the driver
+        // exception through so the log keeps the SQL and the throwing
+        // frames) stopped matching, and that code dropped silently out of
+        // the census. `\s*[,)]` admits both shapes. Confirmed the same way
+        // as the first widening: with `busy_try_again` deleted from
+        // lang/vi/rules.php this test goes red under the widened regex and
+        // stayed GREEN under the old one — the exact silent pass the
+        // widening removes.
+        preg_match_all('/new RuleViolated\(\s*[\'"]([a-z0-9_-]+)[\'"]\s*[,)]/', $contents, $matches);
         foreach ($matches[1] as $code) {
             $codes[$code] = true;
         }
