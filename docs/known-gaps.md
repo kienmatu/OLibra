@@ -3814,3 +3814,50 @@ habit that was in use before it.
   and this is one of them. Not a defect today; a hole in what that census can
   promise, and the next map-only or variable-only code will have no such
   accident to fall back on.
+
+### Added at the whole-branch review, after Task 20
+
+- **Seventeen audit sentences have no test behind them, and they are all
+  inherited.** `AuditSentences::line()` is `return (string) self::lines()[$key];`
+  with no `??`, so a missing or wrong lang value renders whatever is there. The
+  census (`AuditSentencesTest`) checks that every action HAS a sentence, not that
+  the sentence is right, and it is an **integration** test that catches a bad one —
+  `CreateCommentTest` raises the `ErrorException` when `comment_created` is deleted,
+  while `AuditSentencesTest` alone stays green (1 warning, 28 passed).
+
+  **Measured at the whole-branch review**, by mutating each value to a sentinel:
+  seventeen keys change nothing. `make test` stayed **1569 passed / 9384
+  assertions**, byte-identical to green:
+
+  `book_updated`, `book_deleted`, `copy_added`, `copy_added_bare`,
+  `copy_condition_assessed`, `copy_condition_assessed_bare`, `copy_retired`,
+  `copy_found`, `loan_renewed`, `loan_lost`, `membership_registered`,
+  `membership_registered_bare`, `membership_rejected`, `membership_suspended`,
+  `membership_reactivated`, `membership_left`, `profile_corrected`.
+
+  A volunteer would read "Maria Q đã ZMUTZ" in the audit log and CI would not
+  notice. **Non-vacuity proven by the converse:** the same mutation over the
+  nineteen community keys gives **15 failed / 1554 passed** across
+  `AuditSentencesTest` and four Feature files. So the net is real, Phase 2b built
+  it correctly for its own actions, and the hole is entirely Phases 1/2a's.
+
+- **Five community POSTs answer 403 rather than 404 if `role:manager` is ever
+  removed**, where spec §5.4 requires 404 so a refusal does not confirm which
+  shelf URLs exist. Recorded once here with the right number rather than
+  re-derived per task — Task 8 found one, Task 14 recorded four, and Slice C added
+  a fifth that nobody re-counted.
+
+  Measured with `EnsureShelfRole` removed and a reader acting:
+
+  | 403 (the command's own `Gate::authorize`) | 404 (a Form Request's `abort_unless`) |
+  |---|---|
+  | `comments.approve`, `announcements.hide`, `announcements.pin`, `announcements.unpin`, `donations.receive` | `comments.reject`, `comments.hide`, `announcements.store`, `announcements.update`, `announcements.publish`, `donations.decline` |
+
+  All five are **bodiless POSTs**, and that is the whole of the pattern: this
+  project ruled in Phase 2a that a bodiless POST does not acquire a Form Request
+  solely to hold an `abort_unless`, so the five with nothing to validate have no
+  second door. **Unreachable while the middleware is in place** — `EnsureShelfRole`
+  aborts 404 on the same ability the policies delegate to — so this is
+  defence-in-depth, not a live oracle. If it is ever closed, close it at the
+  command layer for every caller rather than by minting five Form Requests that
+  validate nothing.

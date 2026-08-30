@@ -180,7 +180,7 @@ function PublishDisclosure({
 }
 
 export default function ManageAnnouncements() {
-    const { shelf, announcements, errors: pageErrors } = usePage<PageProps>().props;
+    const { shelf, announcements, errors: pageErrors, flash } = usePage<PageProps>().props;
     if (!shelf) return null;
 
     return (
@@ -199,6 +199,29 @@ export default function ManageAnnouncements() {
             <p className="mt-2 text-sm text-muted-foreground">
                 {copy.manageAnnouncements.subtitle}
             </p>
+
+            {/* SIX SUCCESS FLASHES LAND HERE and until the whole-branch
+                review none of them were rendered. AnnouncementController
+                sets announcement_created/_updated/_published/_hidden/_pinned/
+                _unpinned and every one of them redirects to this list;
+                seven blocks in ManagerAnnouncementsScreenTest assert
+                assertSessionHas('success', ...) and were green throughout,
+                because a session assertion cannot see a page that never
+                reads the prop.
+                
+                It was not a decision: the refusal below WAS rendered, so a
+                manager saw every "no" and no "yes". The controller was one
+                task's and this screen another's, and each was correct
+                against its own brief — which is the shape a per-task review
+                cannot see. Same markup as manage/comments.tsx. */}
+            {flash.success ? (
+                <p
+                    role="status"
+                    className="mt-6 rounded-md border border-green-700/30 bg-green-700/10 px-3 py-2 text-sm"
+                >
+                    {flash.success}
+                </p>
+            ) : null}
 
             {/* A business refusal (already_published) arrives through the
                 shared errors prop under `rule`, not as a field error. */}

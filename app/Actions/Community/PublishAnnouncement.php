@@ -48,7 +48,7 @@ use Illuminate\Support\Facades\Gate;
  * null succeeds and leaves expires_at null" both fail with
  * `App\Exceptions\RuleViolated: already_published`, while "publishing an
  * already-live announcement with no expiry supplied refuses with
- * already_published" stays green — the run is 2 failed, 13 passed under
+ * already_published" stays green — the run was 2 failed, 13 passed at the 15-block revision of that file (26 blocks now; re-measured at the whole-branch review as 2 failed, 24 passed — same blocks, same green one) under
  * `make test FILTER=AnnouncementStateTest`. The green one is half of the
  * finding: the mutation removes the button and leaves the refusal it was
  * supposed to be about working perfectly.
@@ -63,7 +63,7 @@ use Illuminate\Support\Facades\Gate;
  * with the guard's second conjunct rewritten `! isset($changes['expiresAt'])`:
  * the "present and null" block fails, caught as
  * `RuleViolated: already_published`, while the "fresh expiry" block
- * stays green — 1 failed, 14 passed. That asymmetry is what makes the
+ * stays green — 1 failed, 14 passed at that same revision (1 failed, 25 passed now). That asymmetry is what makes the
  * bug silent: the case a developer tries by hand is the one that works.
  *
  * TWO SPELLINGS OF THE SAME COLLAPSE LIVE ONE LAYER UP, and both are
