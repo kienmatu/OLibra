@@ -34,15 +34,17 @@ function wallClockOffenders(string $root): array
 }
 
 // NO is_dir() GUARD ANYWHERE IN THIS FILE, and that is the point of it
-// existing in Task 2's commit rather than Task 1's. Measured both ways
-// while writing this file: with app/Actions/Community absent entirely,
-// this file is 4 failed — three UnexpectedValueException from
-// RecursiveDirectoryIterator plus the audit block's own empty-glob()
-// assertion; with the directory present but EMPTY, it is 2 failed, 2
-// passed, because the retry block and the clock block have nothing to
-// offend and pass on absence. A block that passes on absence is exactly
-// what these guards exist to refuse, so the fix for a red run here is the
-// Action, never an is_dir().
+// existing in Task 2's commit rather than Task 1's. Measured both ways,
+// and RE-measured after the fix round made the audit block recurse like
+// its two siblings: with app/Actions/Community absent entirely this file
+// is 4 failed (0 assertions) — all four blocks die on
+// UnexpectedValueException from RecursiveDirectoryIterator, where before
+// the recursion change three did and the fourth failed on an empty
+// glob(); with the directory present but EMPTY it is 2 failed, 2 passed,
+// because the retry block and the clock block have nothing to offend and
+// pass on absence. A block that passes on absence is exactly what these
+// guards exist to refuse, so the fix for a red run here is the Action,
+// never an is_dir().
 
 it('every community write transaction retries — the attempts argument, tokenised', function () {
     // The same property CirculationArchitectureTest states for its own
@@ -113,14 +115,42 @@ it('no Action under app/Actions/Community skips the audit recorder', function ()
     // exemption means arguing for it in this comment, not adding a
     // str_ends_with.
     //
+    // RECURSIVE, deliberately diverging from the catalogue file this is
+    // ported from: that one globs a single level, and this file's other
+    // two directory walks both recurse, so a shallow glob under a title
+    // saying "under app/Actions/Community" would give an Action at
+    // Community/Moderation/Foo.php the retry and clock rules while
+    // silently exempting it from this one. This file elsewhere makes a
+    // point of titles not overclaiming their bodies.
+    //
     // INV-8 has a second, sharper reason to be pinned by a tripwire in
     // THIS namespace: AuditSentences::phrase() ends in a default arm, so
     // a community action shipped with no match arm renders the
     // undescribed-action fallback to a volunteer instead of failing the
     // build the way a missing NotificationSentences arm does.
-    // AuditActionCensusTest's set-equality is what catches the missing
-    // arm; this is what catches the missing CALL.
-    $files = glob(app_path('Actions/Community/*.php')) ?: [];
+    //
+    // CORRECTED IN THE FIX ROUND, and the correction is measured: this
+    // comment used to say AuditActionCensusTest's set-equality catches
+    // the missing ARM. It does not — both of that file's blocks compare
+    // ->record('x.y') string literals against array_keys(ACTIONS) and
+    // neither ever calls phrase() or sentence(), so deleting an arm
+    // leaves it green (measured, twice: in the original commit and
+    // again in this one). What catches a missing arm is
+    // AuditSentencesTest's "every action in the map renders a real
+    // sentence" sweep, added in this fix round for exactly that gap.
+    // What THIS block catches is the missing CALL.
+    $files = [];
+    $found = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(app_path('Actions/Community'), FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($found as $file) {
+        if (str_ends_with($file->getPathname(), '.php')) {
+            $files[] = $file->getPathname();
+        }
+    }
+    // Non-vacuity, the same job the glob's own empty check did: with the
+    // directory present but empty this block still fails rather than
+    // passing on absence.
     expect($files)->not->toBe([]);
 
     foreach ($files as $file) {

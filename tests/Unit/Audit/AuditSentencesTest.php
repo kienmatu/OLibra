@@ -188,6 +188,31 @@ it('groupOf answers the family for a known action and null for a stranger', func
         ->and(AuditSentences::groupOf('bookshelf.created'))->toBeNull();
 });
 
+it('every action in the map renders a real sentence, never the undescribed-action fallback', function () {
+    // FIX ROUND, item 1. Until this block, NOTHING iterated ACTIONS
+    // asserting each key renders something. AuditActionCensusTest looks
+    // like it covers this and does not: both of its blocks compare
+    // ->record('x.y') string literals against array_keys(ACTIONS) and
+    // neither ever calls phrase() or sentence(). Measured — deleting
+    // comment.created's match arm left that file at 2 passed while the
+    // undescribed-action fallback rendered to a volunteer, and the only
+    // thing that reddened was one Feature test that happened to assert
+    // that one sentence. Per-action cases in this file cover the arms
+    // somebody thought to write a case for; this covers all of them, and
+    // every action a later task adds, for free.
+    //
+    // The facts bag is all-nulls on purpose: AuditLogQuery resolves actor
+    // and subject through LEFT joins, so an arm has to render with
+    // nothing in hand, and that is also the shape that reaches the
+    // default arm if one is missing.
+    $fallback = AuditSentences::sentence('bookshelf.created', audFacts(actor: 'Maria Q'));
+
+    foreach (array_keys(AuditSentences::ACTIONS) as $action) {
+        expect(AuditSentences::sentence($action, audFacts(actor: 'Maria Q')))
+            ->not->toBe($fallback, $action.' renders the undescribed-action fallback — its phrase() arm is missing');
+    }
+});
+
 it('actionsInGroup partitions the whole map with nothing left over', function () {
     $all = array_merge(...array_map(
         fn (string $g) => AuditSentences::actionsInGroup($g),

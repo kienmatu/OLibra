@@ -125,8 +125,14 @@ it('INV-8: comment.created records the status and the book, never the body', fun
     expect($entry->entity_type)->toBe('comment')
         ->and($entry->actor_id)->toBe($reader->id)
         ->and((array) $entry->before)->toBe([])
-        ->and($after)->toMatchArray(['status' => 'pending', 'book_id' => $book->id]);
+        ->and($after)->toBe(['status' => 'pending', 'book_id' => $book->id]);
 
+    // THE WHOLE BAG, not a subset. toMatchArray above would pass on a bag
+    // that also carried body_preview or author_id, inside a block titled
+    // "never the body" — so the exact array is asserted, and the
+    // key-by-key line below stays as the named probe for the one key the
+    // title is about.
+    //
     // KEY-BY-KEY. The plan asked for this form on the grounds that
     // `not->toHaveKey` "passes unconditionally"; PROBED on this Pest
     // version and that did not reproduce — a bare expect(), a chained
@@ -197,8 +203,19 @@ it('a signed-in non-member gets 404 on the comment POST, never 403', function ()
     // ability. Step 5's mutation 4 removed the middleware and measured
     // which of them answers; the answer is recorded in routes/web.php
     // beside this route.
-    [$shelf, , $book] = cmcFix([], 'dong-thap-cmc-stranger');
+    // ONE actingAs in this method, and cmcFix is deliberately not called:
+    // it ends in actingAs($reader), and docs/known-gaps.md's SessionGuard
+    // entry concludes that non-member coverage gets its own it() with its
+    // own fixture rather than a second identity over the first. It is
+    // behaviourally safe here either way — a stale reader identity would
+    // write a row and redden the count below — but the shape is the rule,
+    // and the super-admin block above already follows it.
     app(TenantContext::class)->actSystemWide();
+    $shelf = Bookshelf::factory()->create(['slug' => 'dong-thap-cmc-stranger', 'settings' => []]);
+    $book = Book::query()->create([
+        'bookshelf_id' => $shelf->id, 'title' => 'Totto-chan Bên Cửa Sổ', 'slug' => 'totto-chan',
+        'is_published' => true,
+    ]);
     $stranger = User::factory()->create(['full_name' => 'Phêrô Người Lạ']);
 
     test()->actingAs($stranger)
@@ -258,6 +275,26 @@ it('a draft book takes no comment — 404, the same answer an unknown slug gets'
     test()->actingAs($reader)
         ->post("/shelves/{$shelf->slug}/books/{$book->slug}/comments", ['body' => 'Bí mật'])
         ->assertNotFound();
+
+    expect(Comment::query()->withoutGlobalScopes()->count())->toBe(0);
+});
+
+it('a draft book takes no comment even when the body is invalid — the guard runs ahead of the rules', function () {
+    // FIX ROUND, item 2. The draft guard used to sit in the controller
+    // body, which runs AFTER the Form Request: a draft slug with an empty
+    // body answered 302 with a field error while a nonexistent slug
+    // answered 404, so the oracle was closed for a well-formed body and
+    // open for a malformed one. Moving the guard into
+    // StoreCommentRequest::authorize(), ahead of rules(), is what makes
+    // both shapes 404, and this block is the pin for the ORDERING rather
+    // than for the guard — the sibling draft block above passes either
+    // way, because its body is valid.
+    [$shelf, $reader, $book] = cmcFix([], 'dong-thap-cmc-draft-invalid');
+    app(TenantContext::class)->actSystemWide();
+    $book->update(['is_published' => false]);
+    $url = "/shelves/{$shelf->slug}/books/{$book->slug}/comments";
+
+    test()->actingAs($reader)->post($url, ['body' => ''])->assertNotFound();
 
     expect(Comment::query()->withoutGlobalScopes()->count())->toBe(0);
 });

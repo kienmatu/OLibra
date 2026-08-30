@@ -23,16 +23,12 @@ class CommentController extends Controller
 {
     public function store(StoreCommentRequest $request, Bookshelf $shelf, Book $book, CreateComment $create): RedirectResponse
     {
-        // The sibling POST's guard, for the same reason its own docblock
-        // records (App\Http\Controllers\Reader\BorrowRequestController::
-        // store): the binding resolves drafts — the manager route shares
-        // the model — and neither CreateComment nor CommentPolicy reads
-        // is_published. Without it a draft answers 302 where an unknown
-        // slug answers 404, an existence oracle over unpublished titles.
-        // MEASURED on this route rather than inherited from the sibling's
-        // measurement: removing this line turns CreateCommentTest's draft
-        // block red with "expected 404, received 302".
-        abort_unless($book->is_published, 404);
+        // The draft-book guard is NOT here. It lives in
+        // StoreCommentRequest::authorize(), ahead of the rules, because a
+        // Form Request runs before this body and a guard here is one
+        // layer too late — a draft slug with an invalid body would answer
+        // 302 with a field error while a nonexistent slug answered 404.
+        // CreateCommentTest pins both shapes at 404.
 
         /** @var User $user */
         $user = $request->user();
