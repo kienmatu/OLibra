@@ -43,12 +43,39 @@ class StoreAnnouncementRequest extends FormRequest
             // string and so does a utf8mb4 varchar, so the two agree on
             // Vietnamese input rather than only on ASCII.
             'title' => ['bail', 'required', 'string', 'max:255', 'encoding:UTF-8'],
-            // The column is TEXT, which stops at 65,535 BYTES — about
-            // 21,800 Vietnamese characters at three bytes each. 20000 is
-            // a character ceiling comfortably inside that on the
-            // worst-case encoding, chosen so a long notice is accepted
-            // and a paste of a whole book is not.
-            'body' => ['bail', 'required', 'string', 'max:20000', 'encoding:UTF-8'],
+            // `body` is `text NOT NULL` on a utf8mb4 table, so its
+            // ceiling is 65,535 BYTES, and utf8mb4's worst case is FOUR
+            // bytes a character. Laravel's max counts CHARACTERS, so the
+            // two units do not line up here the way they do on the
+            // varchar(255) line above, and this number is derived from
+            // the byte ceiling rather than read off a column width.
+            //
+            // MEASURED against a scratch table carrying this column's
+            // exact DDL, over a --default-character-set=utf8mb4
+            // connection so the client could not confound it: 16,383
+            // U+1F600 characters store as 65,532 bytes, and 16,384 raise
+            // `ERROR 1406 (22001): Data too long for column 'body'`.
+            // Break-even is 65,535 / 4 = 16,383. Through Laravel's own
+            // validator: 20,000 U+1F600 characters (80,000 bytes) PASS
+            // `max:20000` and fail `max:16000`; 16,000 of them (64,000
+            // bytes) pass `max:16000`. 16,000 characters cannot exceed
+            // 64,000 bytes at four bytes each, which is inside 65,535
+            // with room to spare, and a long notice still fits while a
+            // pasted book does not.
+            //
+            // This replaces a `max:20000` justified by "about three bytes
+            // a Vietnamese character". Three bytes is the common case,
+            // not the worst one, and the byte reasoning had been carried
+            // down from the varchar line above — where counting
+            // characters is right, because a utf8mb4 varchar(255) counts
+            // characters too. The rationale was true one line up and
+            // false here: the copied-rationale shape this project keeps
+            // hitting.
+            //
+            // App\Actions\Community\CreateAnnouncement writes body_text
+            // from the same trimmed string, so an overflow would land in
+            // two columns at once.
+            'body' => ['bail', 'required', 'string', 'max:16000', 'encoding:UTF-8'],
             'is_pinned' => ['nullable', 'boolean'],
             // Nullable because a draft has neither. The command takes
             // CarbonImmutable, so whatever binds this route parses these

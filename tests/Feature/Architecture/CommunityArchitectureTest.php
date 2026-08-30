@@ -195,10 +195,17 @@ it('every community write transaction that re-reads an existing row opens with a
     // absent, on CreateComment's ground. It INSERTs a fresh row and
     // re-reads no existing one; the slug read inside its transaction is
     // a read of OTHER rows to pick a free name, not a re-read of the row
-    // being written, and locking it would serialise every compose on the
-    // shelf without closing the window its docblock names — the
-    // announcements_bookshelf_id_slug_key unique is what closes that,
-    // and the losing INSERT is translated rather than prevented.
+    // being written, and a lock on it would serialise every compose on
+    // the shelf. That cost is the reason recorded here. What the lock
+    // would or would not do to the window the command's docblock names
+    // is NOT recorded here, because it was not measured. (An earlier
+    // draft asserted the lock would leave that window open. Answering it
+    // needs a two-connection experiment under the isolation this server
+    // actually runs — MEASURED as REPEATABLE-READ, global and session —
+    // and that experiment was not run.) The refusal path is what the
+    // command relies on either way: the
+    // announcements_bookshelf_id_slug_key unique, with the losing INSERT
+    // translated rather than prevented.
     foreach ([
         app_path('Actions/Community/ApproveComment.php'),
         app_path('Actions/Community/RejectComment.php'),

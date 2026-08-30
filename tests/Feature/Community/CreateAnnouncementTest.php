@@ -8,9 +8,7 @@ use App\Models\Bookshelf;
 use App\Models\Membership;
 use App\Models\User;
 use App\Support\TenantContext;
-use App\Support\UniqueViolation;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -45,24 +43,28 @@ it('a draft is created with published_at null, and its slug reads off the title'
 
     $result = app(CreateAnnouncement::class)->execute($manager, 'Tin Vui Tháng Năm', 'Tủ sách mở cửa lại từ thứ Hai.');
 
+    // One statement per fact rather than a nine-link expect()->and()
+    // chain. Fix round 1: the chain form is what this file's own blocks 3
+    // and 4 avoid on purpose, and block 8's array_key_exists check
+    // already stands alone.
     $row = Announcement::query()->sole();
-    expect($result['slug'])->toBe('tin-vui-thang-nam')
-        ->and($result['announcementId'])->toBe($row->id)
-        ->and($row->slug)->toBe('tin-vui-thang-nam')
-        ->and($row->title)->toBe('Tin Vui Tháng Năm')
-        ->and($row->body)->toBe('Tủ sách mở cửa lại từ thứ Hai.')
-        // A draft. OPS §4.4 makes publishing its own command precisely
-        // because this column being null is what "draft" means.
-        ->and($row->published_at)->toBeNull()
-        ->and($row->expires_at)->toBeNull()
-        ->and($row->is_pinned)->toBeFalse()
-        // announcements.author_id is a users(id) — the FK in the live
-        // table names users, and this phase writes one column two tables
-        // along (book_donations.donor_membership_id) that points the
-        // other way, so the manager's membership id is named and
-        // excluded rather than merely "not asserted".
-        ->and($row->author_id)->toBe($manager->id)
-        ->and($row->author_id)->not->toBe(app(TenantContext::class)->membership()?->id);
+    expect($result['slug'])->toBe('tin-vui-thang-nam');
+    expect($result['announcementId'])->toBe($row->id);
+    expect($row->slug)->toBe('tin-vui-thang-nam');
+    expect($row->title)->toBe('Tin Vui Tháng Năm');
+    expect($row->body)->toBe('Tủ sách mở cửa lại từ thứ Hai.');
+    // A draft. OPS §4.4 makes publishing its own command precisely
+    // because this column being null is what "draft" means.
+    expect($row->published_at)->toBeNull();
+    expect($row->expires_at)->toBeNull();
+    expect($row->is_pinned)->toBeFalse();
+    // announcements.author_id is a users(id) — the FK in the live
+    // table names users, and this phase writes one column two tables
+    // along (book_donations.donor_membership_id) that points the
+    // other way, so the manager's membership id is named and
+    // excluded rather than merely "not asserted".
+    expect($row->author_id)->toBe($manager->id);
+    expect($row->author_id)->not->toBe(app(TenantContext::class)->membership()?->id);
 });
 
 it('a published announcement carries the instant it was given', function () {
@@ -159,44 +161,77 @@ it('INV-8: announcement.created records the title, the slug and whether it went 
 
     $entry = AuditLog::query()->where('action', 'announcement.created')->sole();
     $after = (array) $entry->after;
-    expect($entry->entity_type)->toBe('announcement')
-        ->and($entry->entity_id)->toBe($result['announcementId'])
-        ->and($entry->actor_id)->toBe($manager->id)
-        ->and((array) $entry->before)->toBe([])
-        // THE WHOLE BAG, not a subset: toMatchArray would pass on a bag
-        // that also carried the body.
-        ->and($after)->toBe(['title' => 'Tin Vui Tháng Năm', 'slug' => 'tin-vui-thang-nam', 'published' => false]);
+    expect($entry->entity_type)->toBe('announcement');
+    expect($entry->entity_id)->toBe($result['announcementId']);
+    expect($entry->actor_id)->toBe($manager->id);
+    expect((array) $entry->before)->toBe([]);
+    // THE WHOLE BAG, not a subset: toMatchArray would pass on a bag
+    // that also carried the body.
+    expect($after)->toBe(['title' => 'Tin Vui Tháng Năm', 'slug' => 'tin-vui-thang-nam', 'published' => false]);
 
     // Key by key, and not by count: a bag of three keys that happened to
     // hold 'body' in place of 'published' has the same count.
     expect(array_key_exists('body', $after))->toBeFalse();
 });
 
-it('a real collision on announcements_bookshelf_id_slug_key becomes announcement_slug_taken', function () {
-    // tests/Feature/Members/UniqueViolationRealCollisionTest.php's shape,
-    // and its reason: the Unit test proves the parser matches its own
-    // hand-built fixture, not a real driver message.
+it('a collision raised inside the command comes out as announcement_slug_taken', function () {
+    // Fix round 1. The block this replaces caught a real QueryException
+    // and fed it to a map literal BUILT IN THIS FILE — so it asserted
+    // what the test's own literal did, and renaming the map value inside
+    // CreateAnnouncement reddened nothing while a manager would read
+    // `rules.<typo>`. This drives the collision through the command and
+    // asserts the code that comes OUT of it, so the map that is under
+    // test is App\Actions\Community\CreateAnnouncement's.
     //
-    // The command's own read hands a second identical headline a `-2`,
-    // so this raises the collision the way the losing side of a race
-    // would — two rows written straight at the table with the same
-    // (bookshelf_id, slug) pair, no command involved.
+    // Reaching that catch takes an interleave: the command's own read
+    // hands a second identical headline a `-2`, so the conflicting row
+    // has to appear AFTER that read and BEFORE the INSERT — which is the
+    // window the catch exists for. An Announcement `creating` listener
+    // writes it straight at the table at exactly that instant.
+    //
+    // SAME CONNECTION, so this is not a two-connection race and none is
+    // claimed; what it reproduces is the interleaving. The errno the
+    // command's INSERT then meets is the real driver's rather than a
+    // hand-built fixture — MEASURED in this fix round by deleting the
+    // command's try/catch, which turns this block's result into a raw
+    // `UniqueConstraintViolationException: SQLSTATE[23000] … 1062
+    // Duplicate entry … for key 'announcements_bookshelf_id_slug_key'`
+    // and reddens this block alone.
     [$shelf, $manager] = anwFix('dong-thap-anw-1062');
-    $row = fn () => [
-        'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf->id,
-        'title' => 'Tin Vui Tháng Năm', 'slug' => 'tin-vui-thang-nam',
-        'body' => 'x', 'body_text' => 'x', 'author_id' => $manager->id,
-    ];
 
-    DB::table('announcements')->insert($row());
+    $planted = false;
+    Announcement::creating(function (Announcement $a) use ($shelf, $manager, &$planted): void {
+        if ($planted) {
+            return;
+        }
+        $planted = true;
+        DB::table('announcements')->insert([
+            'id' => (string) Str::uuid7(), 'bookshelf_id' => $shelf->id,
+            'title' => 'Tin Vui Tháng Năm', 'slug' => (string) $a->slug,
+            'body' => 'x', 'body_text' => 'x', 'author_id' => $manager->id,
+        ]);
+    });
 
+    // Caught and compared EXACTLY rather than through
+    // toThrow(RuleViolated::class, 'announcement_slug_taken'), because
+    // toThrow's message check is a SUBSTRING match. MEASURED in this fix
+    // round: with the command's map value renamed to
+    // 'announcement_slug_taken_MUT', the toThrow form stayed green
+    // (11 passed) — the very rename this block exists to catch. ->toBe
+    // on the code reddens it.
     try {
-        DB::table('announcements')->insert($row());
-        test()->fail('expected a real errno 1062 from announcements_bookshelf_id_slug_key, the second insert succeeded');
-    } catch (QueryException $e) {
-        expect(fn () => UniqueViolation::translate($e, ['announcements_bookshelf_id_slug_key' => 'announcement_slug_taken']))
-            ->toThrow(RuleViolated::class, 'announcement_slug_taken');
+        app(CreateAnnouncement::class)->execute($manager, 'Tin Vui Tháng Năm', 'Lần một.');
+        test()->fail('expected the planted row to collide and CreateAnnouncement to refuse; the create succeeded');
+    } catch (RuleViolated $e) {
+        expect($e->code)->toBe('announcement_slug_taken');
     }
+
+    // Guards the guard: if the listener never fired, the block above
+    // would be asserting a throw that came from somewhere else.
+    expect($planted)->toBeTrue();
+
+    // The refusal rolls its transaction back, the planted row with it.
+    expect(Announcement::query()->count())->toBe(0);
 });
 
 it('announcement_slug_taken has a Vietnamese sentence', function () {

@@ -65,6 +65,20 @@ use Illuminate\Support\Facades\Gate;
  * widening that helper is a phase-level decision rather than this
  * command's.
  *
+ * DIVERGENCE FROM THE REFERENCE — A SOFT-DELETED SLUG IS REUSED HERE,
+ * NOT SUFFIXED. Recorded in fix round 1; the first draft of this
+ * docblock presented it as a property of the port rather than as a
+ * difference. announcements.ts's pickSlug reads
+ * `select slug from announcements where bookshelf_id = … and slug like
+ * base%` with nothing about deleted_at, so a headline re-posted after a
+ * delete takes `-2` there. The read below goes through
+ * Announcement::query() and its SoftDeletes scope, so the base slug is
+ * free again — pinned by CreateAnnouncementTest's "a soft-deleted
+ * announcement frees its slug for the next one". This is what the brief
+ * asked for (its behaviour 6) and what the index already does: slug_key
+ * is NULL while deleted_at is set, so a trashed row is outside the
+ * unique entirely. Deliberate, not incidental.
+ *
  * body_text is written from the same trimmed plain body as body
  * (divergence 5). The column is NOT NULL and would take '' happily; an
  * empty one would make a published announcement unfindable by the
@@ -106,10 +120,11 @@ final class CreateAnnouncement
         return DB::transaction(function () use ($actor, $title, $body, $pinned, $publishedAt, $expiresAt): array {
             // CreateBook's shape, and its reasons: live slugs only —
             // SoftDeletes' scope drops trashed rows, which is what makes
-            // a deleted announcement's slug available again — and the
-            // base plus its numbered variants rather than the whole
-            // shelf. Slugs::fromTitle emits [a-z0-9-] only, so the
-            // interpolation into REGEXP is literal-safe by construction.
+            // a deleted announcement's slug available again, and is the
+            // divergence the class docblock records — and the base plus
+            // its numbered variants rather than the whole shelf.
+            // Slugs::fromTitle emits [a-z0-9-] only, so the interpolation
+            // into REGEXP is literal-safe by construction.
             //
             // NO HAND-WRITTEN SHELF FILTER, and there must not be one:
             // BookshelfScope on the model is what confines this read to
