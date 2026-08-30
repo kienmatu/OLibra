@@ -11,6 +11,7 @@ use App\Models\BorrowRequest;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -107,6 +108,18 @@ use Illuminate\Support\Facades\Gate;
  * would invert the order against ApproveBorrowRequest and LendCopy on
  * every contested schedule rather than on this vanishing one.
  *
+ * The inversion is not removed — it is SURVIVED, and that is a later
+ * decision than the paragraph above. InnoDB answers the cycle by rolling
+ * one participant's whole transaction back, which persists nothing, so
+ * this transaction is opened with ConcurrencyRetry::ATTEMPTS and the
+ * framework re-runs the callback from the committed state; it re-takes its
+ * locks and re-reads its row, and the snapshot the retry reads is the
+ * closure's own captured value, unchanged by the run that lost. Every
+ * Action in this directory that opens a write transaction does the same —
+ * a property CirculationArchitectureTest pins, not a list this sentence
+ * keeps. If every attempt loses, the reader is told busy_try_again rather
+ * than being handed a server error.
+ *
  * No notification: BR §15's reader list carries no event for a reader's
  * own withdrawal (the reference's "the one of the five that may genuinely
  * need none"), so this command writes none.
@@ -194,6 +207,6 @@ final class CancelOwnRequest
                 'requestId' => $request->id,
                 'releasedCopyId' => $releasedCopyId,
             ];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

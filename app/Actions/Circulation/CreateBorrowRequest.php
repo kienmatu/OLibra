@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Circulation\RequestRules;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use App\Support\TenantContext;
 use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
@@ -172,6 +173,6 @@ final class CreateBorrowRequest
                 ]);
 
             return ['requestId' => $request->id];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

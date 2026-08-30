@@ -16,6 +16,7 @@ use App\Support\AuditRecorder;
 use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use App\Support\Notifications\NotificationKind;
 use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
@@ -291,6 +292,6 @@ final class ReceiveReturn
                 ->value('id');
 
             return ['loanId' => $loan->id, 'queuedRequestId' => $queuedRequestId];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

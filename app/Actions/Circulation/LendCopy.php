@@ -16,6 +16,7 @@ use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanRules;
 use App\Support\Circulation\LoanTerms;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use App\Support\TenantContext;
 use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
@@ -290,6 +291,6 @@ final class LendCopy
             }
 
             return ['loanId' => $loan->id, 'dueOn' => $dueOn];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

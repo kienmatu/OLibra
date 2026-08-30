@@ -98,4 +98,10 @@ return [
     // a live hold. OPS §4.2 gains its entry in Task 18's own commit — the
     // title_has_no_copies two-ledger precedent.
     'hold_not_expired' => 'Thời gian giữ chỗ chưa hết, không thể trả về kệ.',
+    // Authored for the deadlock retry (no errors.ts spelling, the
+    // hold_not_expired precedent): what a circulation write says when its
+    // retries are spent against a lock-order cycle. Deliberately says
+    // nothing about locks — the caller's only useful action is to send the
+    // same tap again. OPS §6 is its second ledger.
+    'busy_try_again' => 'Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại.',
 ];

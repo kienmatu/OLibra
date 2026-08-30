@@ -12,6 +12,7 @@ use App\Support\AuditRecorder;
 use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanRules;
 use App\Support\Circulation\LoanTerms;
+use App\Support\ConcurrencyRetry;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -106,6 +107,6 @@ final class RenewLoan
                 ['due_on' => $dueOn, 'renewals_used' => $loan->renewals_used]);
 
             return ['dueOn' => $dueOn, 'renewalsUsed' => $loan->renewals_used];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

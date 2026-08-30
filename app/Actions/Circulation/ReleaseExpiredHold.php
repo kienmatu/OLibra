@@ -11,6 +11,7 @@ use App\Models\BorrowRequest;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -184,6 +185,6 @@ final class ReleaseExpiredHold
                 ]);
 
             return ['requestId' => $request->id, 'copyId' => $copy->id];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

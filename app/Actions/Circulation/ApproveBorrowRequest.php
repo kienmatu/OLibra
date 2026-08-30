@@ -14,6 +14,7 @@ use App\Support\Circulation\LendingSettings;
 use App\Support\Circulation\LoanTerms;
 use App\Support\Circulation\RequestRules;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use App\Support\Notifications\NotificationKind;
 use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
@@ -192,6 +193,6 @@ final class ApproveBorrowRequest
             ]);
 
             return ['requestId' => $request->id, 'copyId' => $copy->id, 'holdExpiresAt' => $holdExpiresAt];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

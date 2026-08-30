@@ -9,6 +9,7 @@ use App\Models\BorrowRequest;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
+use App\Support\ConcurrencyRetry;
 use App\Support\Notifications\NotificationKind;
 use App\Support\Notifications\Notifier;
 use Illuminate\Support\Facades\DB;
@@ -94,6 +95,6 @@ final class RejectBorrowRequest
             );
 
             return ['requestId' => $request->id];
-        });
+        }, ConcurrencyRetry::ATTEMPTS);
     }
 }

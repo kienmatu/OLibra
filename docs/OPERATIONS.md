@@ -1118,6 +1118,12 @@ Concretely, whichever storage engine is chosen must offer *one* of:
 
 Whichever mechanism is chosen, the requirement is the same: the guarantee lives in the datastore's transactional machinery, not in a `SELECT` the application trusts.
 
+**Lock-order cycles, and the one refusal this section adds.** *Added 2026-08-30 (Laravel migration, phase 2a — post-plan, at the product owner's request.)* Row locking closes the race above, and it opens a second one this document did not previously name. The circulation commands that assign or collect a hold lock the copy row first and the request row second; `CancelOwnRequest` locks the request first and takes the copy's lock second whenever the request it was handed named no copy at bind time and an approval committed in the gap. Two writers interleaved across that pair each wait on a row the other holds, and InnoDB resolves it by killing one of them — errno 1213. There is no ordering that removes the cycle inside a single transaction, so the system does not try to: a killed transaction has persisted nothing, and every circulation command re-runs its transaction a bounded number of times before giving up.
+
+- `busy_try_again` — "Có thao tác khác đang xử lý cùng lúc, vui lòng thử lại." A refusal of the whole command, available to every command in §4, not only §4.2's. It is what the caller is told when the re-runs are spent; the instruction it gives ("send it again") is the only useful one, because the state the command wanted may well be reachable a second later. §2's "a command never fails with a bare 500" is what this closes — before it, a 1213 reached the volunteer as a server error.
+
+This is a refusal with no `errors.ts` spelling, authored here on the same footing as `hold_not_expired`: minted in `lang/vi/rules.php` and recorded in this document in one commit.
+
 ---
 
 ## 7. Notifications

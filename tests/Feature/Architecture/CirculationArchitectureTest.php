@@ -2,6 +2,226 @@
 
 use Illuminate\Support\Facades\Route;
 
+// Grep first: `grep -rn "^function circulationTransactionCalls" tests/` —
+// top-level helpers are process-global (AGENTS.md). One walk, two `it()`
+// blocks: Pest short-circuits an expect()->and() chain and a failed
+// expect() aborts the whole method, so the rule and the guard's own
+// non-vacuity check have to be able to fail independently.
+//
+// Returns [$callSites, $offenders, $literals]:
+//   $callSites  relative path => transaction() call sites the walk saw
+//   $offenders  'path (line N)' for each call given no attempts argument
+//   $literals   relative paths whose comment-stripped source contains the
+//               literal `DB::transaction(` — the walk's own non-vacuity
+//               check, derived from the same read rather than a second one
+//
+// A TOKEN walk, not a regex, for the same reason the notify guard is one:
+// "does this call have a second argument" is a nesting question, and
+// nesting is not a regular language. The first argument is a multi-line
+// closure full of commas — inside `use (...)`, inside array literals,
+// inside nested calls — and only a comma at the argument list's OWN depth
+// separates arguments.
+//
+// Three things in the walk are not decoration, and two of them are the
+// notify guard's hard-won corrections re-applied here rather than
+// rediscovered:
+//
+//   1. Interpolation braces are COUNTED. `"bản {$code}"` emits its opening
+//      brace as the ARRAY token T_CURLY_OPEN (a bare `$t === '{'` never
+//      sees it) while its closing brace arrives as a plain `}` character.
+//      Uncounted, one ordinary Vietnamese line inside a closure unbalances
+//      the ledger, the scan believes the argument list closed early, and a
+//      compliant call reports as an offender — or worse, a later comma
+//      lands at the wrong depth and an offender reports as compliant.
+//      T_ATTRIBUTE (`#[`) is counted for the same reason: its opener is a
+//      token, its closer a plain `]`.
+//
+//   2. Arming requires a CALL to something named `transaction`: the token
+//      before is `::`, `->` or `?->` (so `public function transaction()`
+//      does not arm) and the token after is `(` (so `$this->transaction`
+//      as a property read does not). T_NULLSAFE_OBJECT_OPERATOR is
+//      accepted beside T_OBJECT_OPERATOR so `$db?->transaction(...)` is
+//      not invisible.
+//
+//   3. Comments are stripped LINE-PRESERVINGLY, not deleted outright, so
+//      the line this reports is the line of the call in the real file. A
+//      guard that names a line holding unrelated code is a guard whose
+//      next reader concludes it is broken.
+//
+// Known bound, stated rather than implied: the walk keys on the METHOD
+// NAME, not on the DB facade, so `$connection->transaction(...)` anywhere
+// under the directory is held to the same rule. That is the intent — the
+// rule is about write transactions, not about one spelling of them — but
+// it means a same-named method on some unrelated object would be judged by
+// it too. Nothing under the directory has one today.
+/** @return array{0: array<string, int>, 1: list<string>, 2: list<string>} */
+function circulationTransactionCalls(): array
+{
+    $strip = static function (string $source): string {
+        $out = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                [$id, $text] = $token;
+                if ($id === T_COMMENT || $id === T_DOC_COMMENT) {
+                    $out .= str_repeat("\n", substr_count($text, "\n"));
+
+                    continue;
+                }
+                $out .= $text;
+
+                continue;
+            }
+            $out .= $token;
+        }
+
+        return $out;
+    };
+
+    /** @var array<string, int> $callSites */
+    $callSites = [];
+    /** @var list<string> $offenders */
+    $offenders = [];
+    /** @var list<string> $literals */
+    $literals = [];
+
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(app_path('Actions/Circulation'), FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($files as $file) {
+        $path = $file->getPathname();
+        if (! str_ends_with($path, '.php')) {
+            continue;
+        }
+        $rel = str_replace(base_path().'/', '', $path);
+        $code = $strip((string) file_get_contents($path));
+        if (str_contains($code, 'DB::transaction(')) {
+            $literals[] = $rel;
+        }
+
+        $tokens = array_values(array_filter(
+            token_get_all($code),
+            static fn (array|string $t): bool => ! is_array($t) || $t[0] !== T_WHITESPACE,
+        ));
+        $count = count($tokens);
+
+        foreach ($tokens as $i => $token) {
+            if (! is_array($token) || $token[0] !== T_STRING || $token[1] !== 'transaction') {
+                continue;
+            }
+            $previous = $tokens[$i - 1] ?? null;
+            if (! is_array($previous) || ! in_array($previous[0], [T_DOUBLE_COLON, T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)) {
+                continue;
+            }
+            if (($tokens[$i + 1] ?? null) !== '(') {
+                continue;
+            }
+
+            $callSites[$rel] = ($callSites[$rel] ?? 0) + 1;
+
+            // Walk the argument list from its opening paren. Depth 1 is the
+            // list itself; a comma there is an argument separator, and the
+            // second argument of Connection::transaction is $attempts.
+            $depth = 0;
+            $hasAttempts = false;
+            for ($j = $i + 1; $j < $count; $j++) {
+                $t = $tokens[$j];
+                if (is_array($t)) {
+                    if (in_array($t[0], [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES, T_ATTRIBUTE], true)) {
+                        $depth++;
+                    }
+
+                    continue;
+                }
+                if ($t === '(' || $t === '[' || $t === '{') {
+                    $depth++;
+
+                    continue;
+                }
+                if ($t === ')' || $t === ']' || $t === '}') {
+                    $depth--;
+                    if ($depth === 0) {
+                        break;
+                    }
+
+                    continue;
+                }
+                if ($t === ',' && $depth === 1) {
+                    $hasAttempts = true;
+                }
+            }
+
+            if (! $hasAttempts) {
+                $offenders[] = $rel.' (line '.$token[2].')';
+            }
+        }
+    }
+
+    return [$callSites, $offenders, $literals];
+}
+
+it('every circulation write transaction retries — the attempts argument, tokenised', function () {
+    // THE PROPERTY, not a list of the commands that happen to be in the
+    // cycle today. Phase 2a's divergence 1 records an AB–BA edge over a
+    // copy row and a request row that no ordering inside one transaction
+    // removes, and the reachability argument about WHICH commands sit on
+    // which side of it has now been wrong twice — the plan's version and
+    // the whole-branch review's. A rule that only covered the commands
+    // named by the latest correct-so-far argument would go stale on the
+    // third. So: every Action under app/Actions/Circulation that opens a
+    // write transaction passes an attempts count, and a new one cannot
+    // become a silent non-retrying participant merely by being written.
+    //
+    // Connection::transaction's second parameter IS the retry: it runs the
+    // callback in a loop and its handleTransactionException returns
+    // instead of rethrowing — after rolling the whole transaction back —
+    // exactly when the framework's concurrency detector matches and
+    // attempts remain. With the implicit $attempts = 1 the loop runs once
+    // and an InnoDB 1213 leaves the transaction as a raw QueryException.
+    //
+    // This asserts the argument is PRESENT, not that it is
+    // ConcurrencyRetry::ATTEMPTS or any particular number — pinning the
+    // spelling would make a deliberate per-command count a test failure,
+    // and the value is argued in ConcurrencyRetry's own docblock, which is
+    // where it belongs.
+    [, $offenders] = circulationTransactionCalls();
+
+    expect($offenders)->toEqual([]);
+});
+
+it('the attempts guard actually inspects the transactions it claims to guard', function () {
+    // A guard that inspected nothing would pass silently, so the walk has
+    // to prove it SAW the calls. NOT a frozen floor and not a hardcoded
+    // list of files — NotificationsAreReaderFacingTest records what a
+    // magic `>= 2` costs: it stayed green while a writer went quiet. The
+    // expectation is DERIVED instead, from the raw source of the same
+    // files: any file whose comment-stripped text contains the literal
+    // `DB::transaction(` must appear in the walk's own tally. Break the
+    // token walk — mis-handle an interpolation brace, drop the nullsafe
+    // operator, arm on the wrong token — and the file drops out of the
+    // tally while its call is still plainly there, which is exactly the
+    // failure this names.
+    //
+    // One-directional by design: the walk legitimately finds calls this
+    // substring cannot (a `$connection->transaction(` spelling), so a file
+    // in the tally but not in the substring set is not an offence.
+    [$callSites, , $literals] = circulationTransactionCalls();
+
+    $blind = [];
+    foreach ($literals as $rel) {
+        if (($callSites[$rel] ?? 0) === 0) {
+            $blind[] = $rel;
+        }
+    }
+
+    // Chained rather than split into two it() blocks, and that is not the
+    // usual short-circuit trap: the two can never both fail. $blind is
+    // built out of $literals, so an empty $literals forces an empty
+    // $blind. One asserts the read found the calls; the other asserts the
+    // walk did not miss any it found.
+    expect($literals)->not->toBeEmpty()
+        ->and($blind)->toEqual([]);
+});
+
 it('every circulation write transaction opens with a FOR UPDATE — the grep pin', function () {
     // Belt to the per-command query-log braces: each Action file named
     // below must contain lockForUpdate. Position is pinned per command in
