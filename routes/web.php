@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Admin\ShelfController as AdminShelfController;
 use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
@@ -525,7 +526,9 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // Anything needing attention is flagged." OPS §3.4's GetAdminOverview.
     // The one route in Phase 3 that is new rather than a placeholder.
     Route::get('/', [AdminDashboardController::class, 'index'])->name('dashboard');
-    Route::get('/shelves', [ShellController::class, 'underConstruction'])->name('shelves');
+    // BR §16.4's Bookshelves screen. Phase 3b-i Task 3 makes the list
+    // real; the placeholder it replaces held the name from Phase 0.
+    Route::get('/shelves', [AdminShelfController::class, 'index'])->name('shelves');
     Route::get('/managers', [ShellController::class, 'underConstruction'])->name('managers');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
     Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');

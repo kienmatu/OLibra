@@ -117,6 +117,16 @@ export const copy = {
         statusArchived: "Đã lưu trữ",
         contactsMissing: "Thiếu đầu mối liên hệ",
     },
+    adminShelves: {
+        title: "Danh sách tủ sách",
+        empty: "Chưa có tủ sách nào.",
+        slugHeading: "Đường dẫn",
+        statusHeading: "Tình trạng",
+        statusActive: "Đang hoạt động",
+        statusArchived: "Đã lưu trữ",
+        contactsMissing: "Thiếu đầu mối liên hệ",
+        managersMissing: "Chưa có người quản lý",
+    },
     auth: {
         title: "Đăng nhập",
         username: "Tên đăng nhập",
