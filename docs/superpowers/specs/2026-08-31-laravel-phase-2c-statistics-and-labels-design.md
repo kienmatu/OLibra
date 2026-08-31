@@ -284,6 +284,22 @@ selection that is non-empty but scopes down to zero rows — every id belonging 
 another shelf — records a count of zero and succeeds. The reported count is what
 moved, not what was asked for.
 
+**Retracted 2026-08-31 for the HTTP path, after the whole-branch review measured
+it.** The paragraph above is correct about the COMMAND and wrong about the
+ROUTE, and the sentence being retracted is this one: *"A selection that is
+non-empty but scopes down to zero rows — every id belonging to another shelf —
+records a count of zero and succeeds."* That is true of `MarkCopiesPrinted`
+called directly, and `MarkCopiesPrintedTest` pins it. It is **not** what
+`POST /shelves/{shelf}/manage/exports/qr-labels` does. `LabelController::export`
+passes `MarkCopiesPrinted` the **expanded** ids, not the submitted ones:
+`CopiesForLabelsQuery` is tenancy-scoped, so a body naming only a foreign
+`bookId` expands to `[]`, `array_column([], 'copyId')` is `[]`, and the command
+sees an EMPTY INPUT — the case it does refuse. Measured: **302, refusal
+`copy_selection_empty`**, not a zero-count success. The branch is unreachable
+over HTTP; it survives as the command's contract for any future caller that
+hands it ids it has not already scoped. `LabelController`'s docblock says the
+same, and this is the version that ships.
+
 ## Slice A — Statistics
 
 `GetStatistics` returns, per OPS §3.3 and matching the reference's shape:

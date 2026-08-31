@@ -85,10 +85,18 @@ copy and is refused across shelves by tenancy.
   row. This schema carries `book_copies.lost_reported_at`, written by `ReportCopyLost`,
   so the honest predicate — `state = 'lost' and lost_reported_at >= :since` — was
   available and is used (`StatisticsQuery.php:146-147`).
-- **D7 — the zero-row rule.** `copy_selection_empty` refuses an empty INPUT array and
-  nothing else. A non-empty selection that scopes down to zero rows — every id belonging
-  to another shelf — succeeds with a count of zero, because it is a fact about a PDF that
-  already exists rather than a target that was missed.
+- **D7 — the zero-row rule, TRUE OF THE COMMAND AND NOT OF THE ROUTE.**
+  `MarkCopiesPrinted`'s `copy_selection_empty` refuses an empty INPUT array and nothing
+  else; a non-empty selection that scopes down to zero rows succeeds with a count of
+  zero, because it is a fact about a PDF that already exists rather than a target that
+  was missed (`MarkCopiesPrintedTest.php:99`). **The sentence this entry used to carry —
+  that a POST naming only another shelf's ids "succeeds with a count of zero" — is
+  retracted; it was never what shipped.** `LabelController::export` hands the command the
+  ids `CopiesForLabelsQuery` **expanded**, and that query is tenancy-scoped, so a foreign
+  selection arrives as `[]` — an empty input, the case the command does refuse. Measured
+  on the shipped route: **302 with `copy_selection_empty`.** The zero-count branch is
+  unreachable over HTTP and remains the command's contract for a future caller that
+  hands it unscoped ids. Spec §D7 carries the same retraction.
 - **The PHP-not-SQL boundary refinement.** The design proposed rebuilding Postgres's
   `date_trunc` as MariaDB expressions and had verified they run; Task 1 computes the
   period boundary in PHP instead, which removes the problem rather than porting it.
