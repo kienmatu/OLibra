@@ -4,9 +4,9 @@
 
 **Goal:** Port the manager's statistics screen and the QR label system (printable sheet plus manager scanning) from `old_next/` onto Laravel + Inertia, closing Phase 2.
 
-**Architecture:** Two slices in one branch. Slice A adds one query and one screen, with period boundaries rebuilt in MariaDB because Postgres `date_trunc` has no equivalent. Slice B adds four queries, one command, a pure payload codec, a server-side PDF writer built on `bacon/bacon-qr-code` + FPDF, one selection screen, and a camera scanner wired into the two shipped circulation flows. No migrations: Phase 0 already wrote every column this phase needs.
+**Architecture:** Two slices in one branch. Slice A adds one query and one screen, with period boundaries computed in PHP from an injected clock — Postgres `date_trunc` has no MariaDB equivalent, and computing them in the application removes the problem instead of porting it. Slice B adds four queries, one command, a pure payload codec, a server-side PDF writer built on `bacon/bacon-qr-code` + TCPDF, one selection screen, and a camera scanner wired into the two shipped circulation flows. **No migrations and no new routes**: Phase 0 already wrote every column this phase needs, and four of its five routes already exist as named placeholders to be replaced in place.
 
-**Tech Stack:** PHP 8.4, Laravel 13, MariaDB 10.11.19, Inertia v3, React, TypeScript, Pest, Larastan level 8, Pint, Biome. New composer dependencies: `bacon/bacon-qr-code`, `setasign/fpdf`. New JS dependencies: none — `zxing-wasm` and `jsqr` are already in `package.json`.
+**Tech Stack:** PHP 8.4, Laravel 13, MariaDB 10.11.19, Inertia v3, React, TypeScript, Pest, Larastan level 8, Pint, Biome. New composer dependencies: `bacon/bacon-qr-code`, `tecnickcom/tcpdf` ^6.11 (**amended** — the first version of this plan said `setasign/fpdf`; see the amended D4). New JS dependencies: none, if the scanner uses `zxing-wasm` (already in `dependencies`). **`jsqr` is in `devDependencies`** and would have to be moved to be usable in production.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-laravel-phase-2c-statistics-and-labels-design.md`
 
@@ -18,6 +18,8 @@ Every task's requirements implicitly include this section.
 - **Do not run `vendor/bin/pint` on the host** — the host PHP is broken. Run it inside the container: `docker compose -f docker-compose.laravel.yml exec -T app ./vendor/bin/pint`.
 - **Gates:** `make lint` (Pint + Biome + `bun run laravel:typecheck`), `make analyse` (Larastan level 8), `make test` (`make test FILTER=<File>` for one file). `make lint` carries **3 Biome warnings and 1 info** — that is the inherited baseline, not a regression.
 - **Baseline at branch point:** suite **1,569 passing / 9,384 assertions**, Larastan `[OK]` on 256 files, Pint PASS on 436 files. Re-take the suite number at the start of your task rather than trusting this line — it is true at `7151a91` and every task moves it.
+- **URLs are `/shelves/{slug}/manage/…`.** `routes/web.php:63` is `Route::prefix('shelves/{shelf}')->name('shelves.')`. **The first version of this plan used `/tu-sach/{shelf}/quan-ly/…` throughout — that is `old_next`'s path and appears in this repo only inside docblocks.** It made every 404 assertion vacuous, since an unclaimed URI 404s from the router. `tests/Feature/Oversight/ExportHttpTest.php:41` is a real example to copy.
+- **Four of this phase's routes already exist as named placeholders** pointing at `ShellController::underConstruction`, whose docblock says "The route NAMES are final today": `routes/web.php:490` `/statistics` (name `statistics`), `:492` `/qr-labels` (`qr-labels`), `:493` `/exports/qr-labels` (`exports.qr-labels`), and `:189` reader `/scan` (`scan`). **Replace them in place. Do not add new paths or names** — a second `->name('statistics')` in the same group silently wins or loses depending on registration order.
 - **Storage is UTC. The civil timezone is `Asia/Ho_Chi_Minh`, named once** on `App\Support\Clock` (Task 1). No new string literal `'Asia/Ho_Chi_Minh'` may be added anywhere else in this phase.
 - **Tenancy is `BookshelfScope`'s, never a hand-written `where('bookshelf_id', …)`** in a query or command. A foreign row must be *not found* (404), never *refused* (403).
 - **Every write transaction retries:** `DB::transaction(fn () => …, ConcurrencyRetry::ATTEMPTS)`. Pinned by `tests/Feature/Architecture/CommunityArchitectureTest.php`.
@@ -271,11 +273,21 @@ git commit -m "feat: one named civil timezone, and the period boundary in PHP ra
 - Produces: `StatisticsQuery::run(StatsPeriod $period): array` shaped exactly:
   `array{period: string, loans: int, borrowers: int, booksAdded: int, copiesLost: int, daily: list<array{day: string, count: int}>, byCategory: list<array{label: string, count: int}>, topBooks: list<array{bookId: string, slug: string, title: string, count: int}>, topReaders: list<array{name: string, count: int}>}`
 
+**READ THIS BEFORE WRITING A FIXTURE — the first version of this plan got all of it wrong.**
+
+- **There is no `LoanFactory`.** `database/factories/` holds Book, BookCopy, Bookshelf, Category, Membership, ParishUnit and User only, and `App\Models\Loan` does not use `HasFactory`. Build loans with `Loan::query()->create([...])`, the way `tests/support/TenantHarness.php:67` does.
+- **The borrower column is `borrower_id` and it references `users`,** not `borrower_membership_id` and not memberships: `CONSTRAINT loans_borrower_id_foreign FOREIGN KEY (borrower_id) REFERENCES users (id)`, read off the live table. The reference agrees — `get-statistics.ts` counts `count(distinct borrower_id)` and joins `users`.
+- **`copy_id`, `book_id`, `borrower_id`, `lent_by` and `due_on` are NOT NULL with no default.** Set all five on every loan.
+- **`loans_one_active_per_copy` is a UNIQUE on a generated column** — `active_copy_id` is `IF(status = 'active', copy_id, NULL)`. **Two `active` loans on one copy is a duplicate-key error**, so every active loan in a fixture needs its own copy.
+- **A `retired` copy needs a `retired_reason`** — `CHECK (state <> 'retired' or retired_reason is not null)`.
+
 **Two things this query does differently from the reference, both deliberate.**
 
-**Divergence: lost copies are counted by `lost_reported_at`.** The reference (`old_next/src/domain/shelf/queries/get-statistics.ts`, opened) uses `where state = 'lost' and updated_at >= since`. `updated_at` moves on any write, so a copy reported lost years ago re-enters the period when someone edits its condition note. This schema carries `book_copies.lost_reported_at` and `App\Actions\Catalogue\ReportCopyLost` line 70 writes it (opened), so the honest predicate is available. Ruled by the product owner on 2026-08-31: correctness over parity. Design doc D2.
+**Divergence: lost copies are counted by `lost_reported_at`.** The reference (`old_next/src/domain/shelf/queries/get-statistics.ts`, opened) uses `where state = 'lost' and deleted_at is null and updated_at >= since`. `updated_at` moves on any write, so a copy reported lost years ago re-enters the period when someone edits its condition note. This schema carries `book_copies.lost_reported_at` and `App\Actions\Catalogue\ReportCopyLost` line 70 writes it (opened), so the honest predicate is available. Ruled by the product owner on 2026-08-31: correctness over parity. Design doc D2.
 
-**Civil-day grouping uses the numeric offset `'+07:00'`, not the zone name.** `CONVERT_TZ(t, 'UTC', 'Asia/Ho_Chi_Minh')` requires MariaDB's `mysql.time_zone_name` table to be populated. It **is** populated on this development container — measured, `SELECT COUNT(*) FROM mysql.time_zone_name` returns 1793 — but the production cPanel host is unverified (`docs/HOSTING.md` records its survey as unrun), and a shared host with empty timezone tables answers `NULL` rather than erroring, which would silently empty the chart. `Asia/Ho_Chi_Minh` has been a fixed UTC+7 with no DST since 1975, so the numeric offset is exact and depends on nothing. Measured on 10.11.19: `DATE(CONVERT_TZ('2026-08-31 18:30:00','+00:00','+07:00'))` returns `2026-09-01` — the late-evening-UTC case that is the only one where the two calendars disagree.
+**Civil-day grouping uses the numeric offset `'+07:00'`, not the zone name.** `CONVERT_TZ(t, 'UTC', 'Asia/Ho_Chi_Minh')` requires MariaDB's `mysql.time_zone_name` table to be populated. It **is** populated on this development container — measured, `SELECT COUNT(*)` returns 1793 — but the production cPanel host is unverified, and a host with empty timezone tables answers `NULL` rather than erroring, which would silently empty the chart. `Asia/Ho_Chi_Minh` has been a fixed UTC+7 with no DST since 1975, so the numeric offset is exact and depends on nothing. Measured on 10.11.19: `DATE(CONVERT_TZ('2026-08-31 18:30:00','+00:00','+07:00'))` returns `2026-09-01`.
+
+**Divergence: the period parameter is `?period=`, not the reference's `?ky=`.** `get-statistics.ts`'s docblock and `thong-ke/page.tsx` read `ky`. This port's route paths are English throughout (`/manage/statistics`, not `/quan-ly/thong-ke`), so an English query parameter is the consistent choice. Numbered here because this project numbers divergences; it is cosmetic and reversible.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -288,6 +300,7 @@ use App\Enums\StatsPeriod;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Bookshelf;
+use App\Models\Category;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
@@ -296,12 +309,17 @@ use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
 
 /**
- * One shelf, one manager bound as the tenant, two readers.
+ * One shelf, one manager bound as the tenant, one reader.
+ *
+ * The reader is returned as a USER, not a membership: loans.borrower_id is a
+ * users(id) (`loans_borrower_id_foreign`, read off the live table), and both
+ * columns hold 36-char uuids, so passing the wrong one fails on the foreign
+ * key rather than on anything readable.
  *
  * Grep first: `grep -rn "^function statFix" tests/` — top-level helpers are
  * process-global (AGENTS.md).
  *
- * @return array{Bookshelf, User, Membership, Membership}
+ * @return array{Bookshelf, User, User}
  */
 function statFix(string $slug = 'dong-thap-stat'): array
 {
@@ -314,53 +332,85 @@ function statFix(string $slug = 'dong-thap-stat'): array
     ]);
 
     $anh = User::factory()->create(['full_name' => 'Têrêsa Lê Ngọc Ánh']);
-    $anhMembership = Membership::factory()->for($shelf)->create([
+    Membership::factory()->for($shelf)->create([
         'user_id' => $anh->id, 'role' => 'reader', 'status' => 'active',
     ]);
 
     app(TenantContext::class)->set($shelf, $managerMembership);
     test()->actingAs($manager);
 
-    return [$shelf, $manager, $managerMembership, $anhMembership];
+    return [$shelf, $manager, $anh];
+}
+
+/**
+ * One ACTIVE loan on its own copy.
+ *
+ * Its own copy, always: `loans_one_active_per_copy` is a UNIQUE over
+ * `active_copy_id`, a generated column equal to `copy_id` while the status is
+ * 'active'. Two active loans on one copy is errno 1062, not a fixture.
+ *
+ * Grep first: `grep -rn "^function statLoan" tests/`.
+ */
+function statLoan(Bookshelf $shelf, Book $book, User $borrower, User $lender, string $lentAt, string $code): Loan
+{
+    $copy = BookCopy::factory()->for($shelf)->for($book)->create(['code' => $code]);
+
+    return Loan::query()->create([
+        'bookshelf_id' => $shelf->id,
+        'copy_id' => $copy->id,
+        'book_id' => $book->id,
+        'borrower_id' => $borrower->id,
+        'lent_by' => $lender->id,
+        'due_on' => CarbonImmutable::parse($lentAt)->addDays(14)->toDateString(),
+        'lent_at' => CarbonImmutable::parse($lentAt),
+        'status' => 'active',
+    ]);
 }
 
 it('counts a loan inside the period and ignores one before it', function () {
-    [$shelf, , , $reader] = statFix();
+    [$shelf, $manager, $anh] = statFix();
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
 
     $book = Book::factory()->for($shelf)->create();
-    $copy = BookCopy::factory()->for($shelf)->for($book)->create();
 
     // Inside: Tuesday of the current civil week.
-    Loan::factory()->for($shelf)->for($copy)->create([
-        'borrower_membership_id' => $reader->id,
-        'lent_at' => CarbonImmutable::parse('2026-09-01 03:00:00', 'UTC'),
-        'status' => 'active',
-    ]);
+    statLoan($shelf, $book, $anh, $manager, '2026-09-01 03:00:00', 'DT-0001');
     // Outside: the Friday before, well clear of Monday 00:00 +07:00.
-    Loan::factory()->for($shelf)->for($copy)->create([
-        'borrower_membership_id' => $reader->id,
-        'lent_at' => CarbonImmutable::parse('2026-08-28 03:00:00', 'UTC'),
-        'status' => 'active',
-    ]);
+    statLoan($shelf, $book, $anh, $manager, '2026-08-28 03:00:00', 'DT-0002');
 
     expect(app(StatisticsQuery::class)->run(StatsPeriod::Week)['loans'])->toBe(1);
 });
 
 it('a voided loan is not a loan', function () {
-    [$shelf, , , $reader] = statFix();
+    [$shelf, $manager, $anh] = statFix();
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
 
     $book = Book::factory()->for($shelf)->create();
-    $copy = BookCopy::factory()->for($shelf)->for($book)->create();
-
-    Loan::factory()->for($shelf)->for($copy)->create([
-        'borrower_membership_id' => $reader->id,
-        'lent_at' => CarbonImmutable::parse('2026-09-01 03:00:00', 'UTC'),
-        'status' => 'voided',
-    ]);
+    $loan = statLoan($shelf, $book, $anh, $manager, '2026-09-01 03:00:00', 'DT-0001');
+    $loan->update(['status' => 'voided', 'voided_at' => now(), 'voided_by' => $manager->id, 'void_reason' => 'nhập nhầm']);
 
     expect(app(StatisticsQuery::class)->run(StatsPeriod::Week)['loans'])->toBe(0);
+});
+
+it('distinct borrowers counts people, not loans', function () {
+    // TITLED ASSERTION FIRST. `expect()->and()` short-circuits and a failed
+    // expect() aborts the whole METHOD, so putting `loans` first would make a
+    // wrong `borrowers` invisible behind a wrong `loans`.
+    [$shelf, $manager, $anh] = statFix();
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
+
+    $book = Book::factory()->for($shelf)->create();
+    // Three loans, three copies, all inside the week and all BEFORE "now" —
+    // the predicate has no upper bound, so a future-dated fixture would make
+    // the count a coincidence rather than a measurement.
+    statLoan($shelf, $book, $anh, $manager, '2026-08-31 03:00:00', 'DT-0001');
+    statLoan($shelf, $book, $anh, $manager, '2026-09-01 03:00:00', 'DT-0002');
+    statLoan($shelf, $book, $anh, $manager, '2026-09-01 09:00:00', 'DT-0003');
+
+    $stats = app(StatisticsQuery::class)->run(StatsPeriod::Week);
+
+    expect($stats['borrowers'])->toBe(1);
+    expect($stats['loans'])->toBe(3);
 });
 
 it('counts lost copies by lost_reported_at, not by updated_at — divergence D2', function () {
@@ -369,17 +419,18 @@ it('counts lost copies by lost_reported_at, not by updated_at — divergence D2'
 
     $book = Book::factory()->for($shelf)->create();
 
-    // Reported lost LONG before the period, and touched inside it. Under
-    // the reference's `updated_at >= since` this copy counts; under
+    // Reported lost LONG before the period, and touched inside it. Under the
+    // reference's `updated_at >= since` this copy counts; under
     // lost_reported_at it does not. That difference IS this block.
     $old = BookCopy::factory()->for($shelf)->for($book)->create([
+        'code' => 'DT-0001',
         'state' => 'lost',
         'lost_reported_at' => CarbonImmutable::parse('2025-01-05 03:00:00', 'UTC'),
     ]);
     $old->update(['condition_note' => 'tìm lại lần nữa']);
 
-    // Reported lost inside the period.
     BookCopy::factory()->for($shelf)->for($book)->create([
+        'code' => 'DT-0002',
         'state' => 'lost',
         'lost_reported_at' => CarbonImmutable::parse('2026-09-01 03:00:00', 'UTC'),
     ]);
@@ -388,76 +439,99 @@ it('counts lost copies by lost_reported_at, not by updated_at — divergence D2'
 });
 
 it('groups the daily chart by the PARISH day, not the UTC day', function () {
-    [$shelf, , , $reader] = statFix();
+    [$shelf, $manager, $anh] = statFix();
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-03 02:00:00', 'UTC'));
 
     $book = Book::factory()->for($shelf)->create();
-    $copy = BookCopy::factory()->for($shelf)->for($book)->create();
 
-    // 18:30 UTC on 31 Aug is 01:30 on 1 Sep in Hồ Chí Minh. Grouped by the
-    // UTC day this lands on 2026-08-31; grouped correctly it lands on
-    // 2026-09-01. Measured on MariaDB 10.11.19:
+    // 18:30 UTC on 31 Aug is 01:30 on 1 Sep in Hồ Chí Minh. Grouped by the UTC
+    // day this lands on 2026-08-31; grouped correctly it lands on 2026-09-01.
+    // Measured on MariaDB 10.11.19:
     //   DATE(CONVERT_TZ('2026-08-31 18:30:00','+00:00','+07:00')) → 2026-09-01
-    Loan::factory()->for($shelf)->for($copy)->create([
-        'borrower_membership_id' => $reader->id,
-        'lent_at' => CarbonImmutable::parse('2026-08-31 18:30:00', 'UTC'),
-        'status' => 'active',
-    ]);
+    statLoan($shelf, $book, $anh, $manager, '2026-08-31 18:30:00', 'DT-0001');
 
-    $daily = app(StatisticsQuery::class)->run(StatsPeriod::Week)['daily'];
+    $days = collect(app(StatisticsQuery::class)->run(StatsPeriod::Week)['daily'])->pluck('day')->all();
 
-    expect(collect($daily)->pluck('day')->all())->toContain('2026-09-01')
-        ->and(collect($daily)->pluck('day')->all())->not->toContain('2026-08-31');
+    expect($days)->toContain('2026-09-01');
+    expect($days)->not->toContain('2026-08-31');
 });
 
-it('distinct borrowers counts people, not loans', function () {
-    [$shelf, , , $reader] = statFix();
+it('counts books added in the period', function () {
+    [$shelf] = statFix();
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
+
+    Book::factory()->for($shelf)->create(['created_at' => CarbonImmutable::parse('2026-09-01 03:00:00', 'UTC')]);
+    Book::factory()->for($shelf)->create(['created_at' => CarbonImmutable::parse('2026-08-01 03:00:00', 'UTC')]);
+
+    expect(app(StatisticsQuery::class)->run(StatsPeriod::Week)['booksAdded'])->toBe(1);
+});
+
+it('groups loans by the book\'s category, and names the uncategorised', function () {
+    [$shelf, $manager, $anh] = statFix();
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
+
+    $category = Category::factory()->for($shelf)->create(['name' => 'Thiếu nhi']);
+    $withCat = Book::factory()->for($shelf)->create(['category_id' => $category->id]);
+    $without = Book::factory()->for($shelf)->create(['category_id' => null]);
+
+    statLoan($shelf, $withCat, $anh, $manager, '2026-09-01 03:00:00', 'DT-0001');
+    statLoan($shelf, $without, $anh, $manager, '2026-09-01 04:00:00', 'DT-0002');
+
+    $labels = collect(app(StatisticsQuery::class)->run(StatsPeriod::Week)['byCategory'])->pluck('label')->all();
+
+    // A book with no category must appear under a NAMED bucket rather than
+    // vanish from the chart or appear as an empty label.
+    expect($labels)->toContain('Thiếu nhi');
+    expect($labels)->toContain('Chưa phân loại');
+});
+
+it('ranks top books by loan count within the period', function () {
+    [$shelf, $manager, $anh] = statFix();
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
+
+    $popular = Book::factory()->for($shelf)->create(['title' => 'Dế Mèn Phiêu Lưu Ký']);
+    $quiet = Book::factory()->for($shelf)->create(['title' => 'Aó Dài']);
+
+    statLoan($shelf, $popular, $anh, $manager, '2026-09-01 03:00:00', 'DT-0001');
+    statLoan($shelf, $popular, $anh, $manager, '2026-09-01 04:00:00', 'DT-0002');
+    statLoan($shelf, $quiet, $anh, $manager, '2026-09-01 05:00:00', 'DT-0003');
+
+    $top = app(StatisticsQuery::class)->run(StatsPeriod::Week)['topBooks'];
+
+    expect($top[0]['title'])->toBe('Dế Mèn Phiêu Lưu Ký');
+    expect($top[0]['count'])->toBe(2);
+});
+
+it('ranks top readers by loan count, naming the borrower', function () {
+    [$shelf, $manager, $anh] = statFix();
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
 
     $book = Book::factory()->for($shelf)->create();
-    $copy = BookCopy::factory()->for($shelf)->for($book)->create();
+    statLoan($shelf, $book, $anh, $manager, '2026-09-01 03:00:00', 'DT-0001');
+    statLoan($shelf, $book, $anh, $manager, '2026-09-01 04:00:00', 'DT-0002');
 
-    foreach ([1, 2, 3] as $n) {
-        Loan::factory()->for($shelf)->for($copy)->create([
-            'borrower_membership_id' => $reader->id,
-            'lent_at' => CarbonImmutable::parse("2026-09-0{$n} 03:00:00", 'UTC'),
-            'status' => 'active',
-        ]);
-    }
+    $top = app(StatisticsQuery::class)->run(StatsPeriod::Week)['topReaders'];
 
-    $stats = app(StatisticsQuery::class)->run(StatsPeriod::Week);
-
-    expect($stats['loans'])->toBe(3)->and($stats['borrowers'])->toBe(1);
+    expect($top[0]['name'])->toBe('Têrêsa Lê Ngọc Ánh');
+    expect($top[0]['count'])->toBe(2);
 });
 
 it('another shelf\'s loans are invisible — tenancy, not a hand-written predicate', function () {
-    [$shelf, , , $reader] = statFix();
+    [$shelf, $manager, $anh] = statFix();
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
 
     $book = Book::factory()->for($shelf)->create();
-    $copy = BookCopy::factory()->for($shelf)->for($book)->create();
-    Loan::factory()->for($shelf)->for($copy)->create([
-        'borrower_membership_id' => $reader->id,
-        'lent_at' => CarbonImmutable::parse('2026-09-01 03:00:00', 'UTC'),
-        'status' => 'active',
-    ]);
+    statLoan($shelf, $book, $anh, $manager, '2026-09-01 03:00:00', 'DT-0001');
 
-    // A whole second shelf with its own loan, seeded system-wide.
     app(TenantContext::class)->actSystemWide();
     $other = Bookshelf::factory()->create(['slug' => 'other-stat', 'settings' => []]);
     $otherUser = User::factory()->create();
-    $otherMembership = Membership::factory()->for($other)->create([
+    Membership::factory()->for($other)->create([
         'user_id' => $otherUser->id, 'role' => 'reader', 'status' => 'active',
     ]);
     $otherBook = Book::factory()->for($other)->create();
-    $otherCopy = BookCopy::factory()->for($other)->for($otherBook)->create();
-    Loan::factory()->for($other)->for($otherCopy)->create([
-        'borrower_membership_id' => $otherMembership->id,
-        'lent_at' => CarbonImmutable::parse('2026-09-01 03:00:00', 'UTC'),
-        'status' => 'active',
-    ]);
+    statLoan($other, $otherBook, $otherUser, $otherUser, '2026-09-01 03:00:00', 'ZZ-0001');
 
-    // Re-bind to the first shelf and read.
     app(TenantContext::class)->set($shelf, Membership::query()
         ->where('bookshelf_id', $shelf->id)->where('role', 'manager')->firstOrFail());
 
@@ -470,28 +544,28 @@ it('another shelf\'s loans are invisible — tenancy, not a hand-written predica
 Run: `make test FILTER=StatisticsQueryTest`
 Expected: FAIL — `App\Queries\StatisticsQuery` does not exist.
 
-**Before writing the implementation, check the factories.** `Loan::factory()` and `BookCopy::factory()` already exist (Phase 1c and 1a). Open `database/factories/LoanFactory.php` and `database/factories/BookCopyFactory.php` and confirm the attribute names used above (`borrower_membership_id`, `lent_at`, `status`, `state`, `lost_reported_at`). If a factory requires an attribute these blocks do not set, add it to the block rather than changing the factory — a factory default that other phases rely on is not this task's to move.
+**Then check the factories before implementing.** Open `database/factories/BookFactory.php`, `BookCopyFactory.php`, `CategoryFactory.php` and `MembershipFactory.php` and confirm the attributes these blocks set exist and that nothing else is required. If a factory demands an attribute a block does not set, add it to the block — a factory default other phases rely on is not this task's to move.
 
 - [ ] **Step 3: Write the query**
 
-Create `app/Queries/StatisticsQuery.php`. Structure it as one private `since()` plus one public `run()` that assembles the eight figures. Tenancy comes from `BookshelfScope` on each model — **write no `bookshelf_id` predicate**. Group the daily chart with:
+Create `app/Queries/StatisticsQuery.php`: one private `since()` plus one public `run()` assembling the nine figures. Tenancy comes from `BookshelfScope` on each model — **write no `bookshelf_id` predicate**. Group the daily chart with:
 
 ```php
 ->selectRaw("DATE(CONVERT_TZ(lent_at, '+00:00', '+07:00')) as day, COUNT(*) as n")
 ```
 
-Give the class a docblock carrying: the OPS §3.3 citation, divergence D2 with the reference's own predicate quoted, and the numeric-offset reasoning with the measured `2026-09-01` result. Do not write "measured" for anything you have not run.
+`byCategory` needs a left join to `categories` with `coalesce(name, 'Chưa phân loại')`; `topReaders` joins `users` through `borrower_id`. Both `topBooks` and `topReaders` need a deterministic tie-break beside the count — add `id` — or their order is whatever the engine returns.
+
+Give the class a docblock carrying the OPS §3.3 citation, divergence D2 with the reference's own predicate quoted **in full including `deleted_at is null`**, and the numeric-offset reasoning with the measured `2026-09-01` result. Do not write "measured" for anything you have not run.
 
 Cast every count with `(int)` and return `list<...>` shapes through `array_values(...)` — Larastan level 8 rejects `array<int, ...>` where `list<...>` is declared. `DonationQueueQuery::run()` is the pattern to copy.
 
 - [ ] **Step 4: Run the tests and make sure they pass**
 
 Run: `make test FILTER=StatisticsQueryTest`
-Expected: PASS, 6 blocks.
+Expected: PASS, 10 blocks.
 
 - [ ] **Step 5: Prove the divergence block is not vacuous**
-
-The D2 block is the one most easily written so that it passes either way. Prove it discriminates by temporarily reverting the predicate to the reference's:
 
 ```
 change `lost_reported_at >= :since` to `updated_at >= :since`
@@ -511,17 +585,19 @@ git commit -m "feat: the statistics query — and lost copies counted by the col
 ```
 
 ---
+
 ### Task 3: The *Thống kê* screen
 
 **Files:**
 - Create: `app/Http/Controllers/Manage/StatisticsController.php`
 - Create: `resources/js/pages/manage/statistics.tsx`
-- Modify: `routes/web.php` (the `manage` group), `resources/js/lib/copy.ts`, `resources/js/layouts/manage-layout.tsx`
+- Modify: `routes/web.php:490` (**replace the placeholder in place**), `resources/js/lib/copy.ts`, `resources/js/layouts/manage-layout.tsx`
 - Test: `tests/Feature/Statistics/ManagerStatisticsScreenTest.php`
 
 **Interfaces:**
 - Consumes: `StatisticsQuery::run(StatsPeriod)` (Task 2), `App\Enums\StatsPeriod` (Task 1).
-- Produces: route name `shelves.manage.statistics`; Inertia page `manage/statistics` with props `{ stats }` shaped as `StatisticsQuery::run()` returns; `copy.manageStatistics`.
+- Produces: Inertia page `manage/statistics` with props `{ stats }` shaped as `StatisticsQuery::run()` returns; `copy.manageStatistics`.
+- **The route already exists.** `routes/web.php:490` is `Route::get('/statistics', [ShellController::class, 'underConstruction'])->name('statistics')`. Point it at the new controller; **do not add a second route and do not rename it.** `ShellController::underConstruction`'s docblock says "The route NAMES are final today", and a duplicate `->name('statistics')` in one group resolves to whichever registered last, silently. The URL is therefore `/shelves/{slug}/manage/statistics`.
 
 **Charts are hand-rolled `<svg>`.** No chart library is added. The reference's own statistics page draws its charts as inline SVG (verified: its only chart-related import is the `<svg>` element itself). This satisfies AGENTS.md rule 8 — bar and line only, no pie charts, and **a plain-text summary above every chart** — by construction. The text summary is not decoration: it is the requirement, and it is also the only part of a chart this repo can test, since `assertInertia` sees props and never pixels.
 
@@ -561,7 +637,7 @@ it('renders the statistics page with the four totals and the two charts', functi
     [$shelf, $manager] = statScreenFix();
 
     $this->actingAs($manager)
-        ->get("/tu-sach/{$shelf->slug}/quan-ly/thong-ke")
+        ->get("/shelves/{$shelf->slug}/manage/statistics")
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->component('manage/statistics')
             ->has('stats.loans')
@@ -579,7 +655,7 @@ it('an unknown period falls back to the default rather than erroring', function 
     [$shelf, $manager] = statScreenFix();
 
     $this->actingAs($manager)
-        ->get("/tu-sach/{$shelf->slug}/quan-ly/thong-ke?period=fortnight")
+        ->get("/shelves/{$shelf->slug}/manage/statistics?period=fortnight")
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page->where('stats.period', 'month'));
 });
@@ -588,7 +664,7 @@ it('a named period reaches the query', function () {
     [$shelf, $manager] = statScreenFix();
 
     $this->actingAs($manager)
-        ->get("/tu-sach/{$shelf->slug}/quan-ly/thong-ke?period=year")
+        ->get("/shelves/{$shelf->slug}/manage/statistics?period=year")
         ->assertInertia(fn (AssertableInertia $page) => $page->where('stats.period', 'year'));
 });
 
@@ -602,38 +678,40 @@ it('a reader cannot reach the statistics screen, and meets 404 rather than 403',
     // 404, not 403: spec §5.4 forbids a refusal that confirms which shelf
     // URLs exist. EnsureShelfRole aborts 404 on the ability check.
     $this->actingAs($reader)
-        ->get("/tu-sach/{$shelf->slug}/quan-ly/thong-ke")
+        ->get("/shelves/{$shelf->slug}/manage/statistics")
         ->assertNotFound();
 });
 
 it('a guest is redirected to login rather than 404d', function () {
     [$shelf] = statScreenFix();
 
-    $this->get("/tu-sach/{$shelf->slug}/quan-ly/thong-ke")->assertRedirect();
+    $this->get("/shelves/{$shelf->slug}/manage/statistics")->assertRedirect();
 });
 ```
 
 - [ ] **Step 2: Run it to make sure it fails**
 
 Run: `make test FILTER=ManagerStatisticsScreenTest`
-Expected: FAIL — 404 on every block, because no route claims the URI.
+Expected: FAIL on the three positive blocks — the placeholder renders `ShellController`'s under-construction page, not `manage/statistics`. **The reader 404 block and the guest redirect block should already pass**, because the placeholder route claims the URI today.
 
-**Note the trap this sits on.** A 404-only assertion is **vacuous when no route claims the URI** — it passes against a route that was never written, and against one later deleted. The reader block above is *not* vacuous only once the manager route exists, because then the path is claimed and the 404 is `EnsureShelfRole`'s rather than the router's. Run the reader block again after Step 4 and confirm it still passes for the right reason.
+**That is the point, and it is why the first version of this plan was wrong.** A 404-only assertion is **vacuous when no route claims the URI** — it passes against a route never written. The first draft asserted `/tu-sach/{shelf}/quan-ly/thong-ke`, which is `old_next`'s path and is claimed by nothing here, so its reader block would have passed forever against the router's absence. Against the real URI the block is meaningful from the start, because the placeholder already sits behind `['auth', 'role:manager']`.
 
-- [ ] **Step 3: Add the route**
+- [ ] **Step 3: Point the existing route at the new controller**
 
-Modify `routes/web.php`, inside the existing `Route::prefix('manage')->name('manage.')->middleware(['auth', 'role:manager'])` group. Place it beside the other single-GET manager screens:
+Modify `routes/web.php:490` **in place** — same path, same name, new destination:
 
 ```php
         // BR §16.3's Statistics paragraph, opened: "Period selector (week,
         // month, year, since the shelf began), showing loans, distinct
         // borrowers, books added, and books lost, with charts over time and
         // ranked lists of top books and top readers." OPS §3.3's
-        // GetStatistics is the query behind it.
-        Route::get('/thong-ke', [StatisticsController::class, 'index'])->name('statistics');
+        // GetStatistics is the query behind it. The placeholder this replaces
+        // held the name from Phase 0; ShellController::underConstruction's
+        // docblock records that the route NAMES were final from that day.
+        Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics');
 ```
 
-Add the `use App\Http\Controllers\Manage\StatisticsController;` import at the top of the file.
+Add the `use App\Http\Controllers\Manage\StatisticsController;` import at the top of the file. Check afterwards that `ShellController` is still imported and still used by the remaining placeholders — do not remove an import another route needs.
 
 - [ ] **Step 4: Write the controller**
 
@@ -716,7 +794,7 @@ git commit -m "feat: the statistics screen — four totals, two charts, and a se
 ### Task 4: The payload codec, and the two new dependencies
 
 **Files:**
-- Modify: `composer.json` (add `bacon/bacon-qr-code`, `setasign/fpdf`)
+- Modify: `composer.json` (add `bacon/bacon-qr-code`, `tecnickcom/tcpdf`)
 - Create: `app/Support/Qr/LabelPayload.php`
 - Test: `tests/Unit/Qr/LabelPayloadTest.php`
 
@@ -730,16 +808,36 @@ git commit -m "feat: the statistics screen — four totals, two charts, and a se
 - [ ] **Step 1: Add the dependencies**
 
 ```bash
-docker compose -f docker-compose.laravel.yml exec -T app composer require bacon/bacon-qr-code setasign/fpdf
+docker compose -f docker-compose.laravel.yml exec -T app composer require bacon/bacon-qr-code "tecnickcom/tcpdf:^6.11"
 ```
 
 Then confirm what actually landed, because the plan must not assert a version it did not see:
 
 ```bash
-docker compose -f docker-compose.laravel.yml exec -T app composer show bacon/bacon-qr-code setasign/fpdf | grep -E "^name|^versions"
+docker compose -f docker-compose.laravel.yml exec -T app composer show bacon/bacon-qr-code tecnickcom/tcpdf | grep -E "^name|^versions"
 ```
 
-**Check the extension question rather than assuming it.** `bacon/bacon-qr-code`'s PNG renderer needs `gd` or `imagick`; the module matrix needs neither, and this phase uses only the matrix. Confirm nothing in the install added a `ext-gd` requirement to `composer.json`'s `require` block. If it did, that is a finding for the review, not something to paper over — the production host is unverified and D4 chose this route specifically for extension-independence.
+**`setasign/fpdf` is NOT the dependency**, though the first version of this plan and the first version of D4 both said so. Measured from packagist metadata:
+
+| Package | Declared `require` |
+|---|---|
+| `setasign/fpdf` 1.9.0 | `ext-zlib`, **`ext-gd`** |
+| `tecnickcom/tcpdf` 6.11.4 | `php >=7.1.0`, **`ext-curl`** |
+| `bacon/bacon-qr-code` | `php ^8.1`, `ext-iconv`, `dasprid/enum` |
+
+FPDF requires the very extension D4 chose it to avoid, and it cannot load a TTF at runtime at all. See the amended D4 for the full retraction. **Pin TCPDF to `^6.11`**: version 8.x is a rewrite depending on `tecnickcom/tc-lib-pdf` with a different API, and this phase wants 6.x's direct-drawing surface.
+
+**Verify the extension claim yourself rather than inheriting it**, and note that `gd` IS loaded in this container — so a successful install proves nothing about the production host:
+
+```bash
+docker compose -f docker-compose.laravel.yml exec -T app php -r '
+$j = json_decode(file_get_contents("https://repo.packagist.org/p2/tecnickcom/tcpdf.json"), true);
+foreach ($j["packages"]["tecnickcom/tcpdf"] as $v) {
+  if ($v["version"] === "6.11.4") { echo json_encode($v["require"]), "\n"; }
+}'
+```
+
+If TCPDF's requirements have changed since this plan was written, that is a finding for the review, not something to work around.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -925,7 +1023,14 @@ it('a retired copy is still selectable — a retired book is still a physical ob
     [$shelf] = lblFix();
 
     $book = Book::factory()->for($shelf)->create(['title' => 'Aó Dài']);
-    BookCopy::factory()->for($shelf)->for($book)->create(['code' => 'DT-0001', 'state' => 'retired']);
+    // retired_reason is REQUIRED: book_copies carries
+    //   CHECK (state <> 'retired' or retired_reason is not null)
+    // read off the live table. Omitting it is a constraint violation, not a
+    // retired copy — tests/Feature/Schema/CatalogueSchemaTest.php exists to
+    // assert exactly that refusal.
+    BookCopy::factory()->for($shelf)->for($book)->create([
+        'code' => 'DT-0001', 'state' => 'retired', 'retired_reason' => 'rách nhiều',
+    ]);
 
     expect(app(TitlesForLabelsQuery::class)->run()[0]['copies'])->toHaveCount(1);
 });
@@ -969,7 +1074,16 @@ Expected: FAIL — `App\Queries\Labels\TitlesForLabelsQuery` does not exist.
 
 - [ ] **Step 3: Implement, then run**
 
-Create the query. One `BookCopy::query()->with('book')` read ordered by the book's title then `code`, grouped in PHP, with empty titles dropped when `$onlyUnprinted` is true. Order **by the same collation the database uses** — do not re-sort in PHP on `strcmp`, which would put `Aó` and `Dế` in a different order than MariaDB's `utf8mb4_unicode_ci` does and make the first block's expectation depend on which layer sorted.
+Create the query: one `BookCopy::query()->with('book')` read, grouped in PHP, with empty titles dropped when `$onlyUnprinted` is true.
+
+**Ordering needs care, and the obvious approach is not available.** You cannot `orderBy` a column of an eager-loaded relation — `with('book')` issues a second SELECT, so `books.title` is not in scope for the parent query's ORDER BY. And you must not reach for `join('books', …)`: `TenancyArchitectureTest` (lines 145 and 182) documents a **join-condition blind spot** in its tenancy grep, which `DonationQueueQuery`'s docblock (lines 28–31) records deliberately staying out of. Use a correlated subquery instead:
+
+```php
+->orderBy(Book::query()->select('title')->whereColumn('books.id', 'book_copies.book_id'))
+->orderBy('code')
+```
+
+That keeps the sort in the database, which matters: MariaDB's `utf8mb4_unicode_ci` orders `Aó` before `Dế`, and PHP's `strcmp` on raw bytes does not. Re-sorting in PHP would make the first block's expectation depend on which layer sorted.
 
 Run: `make test FILTER=LabelQueriesTest`
 Expected: PASS, 6 blocks.
@@ -1271,6 +1385,9 @@ it('writes ONE audit entry for the batch, naming the count', function () {
 });
 
 it('another shelf\'s copy is not printed and not counted', function () {
+    // TITLED ASSERTIONS FIRST: the tenancy facts, then the count. expect()->and()
+    // short-circuits, so leading with $result['count'] would hide a foreign
+    // copy that WAS stamped behind a count that happened to read 1.
     [, $manager, $book] = mcpFix();
     $mine = BookCopy::factory()->for($book->bookshelf)->for($book)->create(['code' => 'DT-0001']);
 
@@ -1284,16 +1401,24 @@ it('another shelf\'s copy is not printed and not counted', function () {
 
     $result = app(MarkCopiesPrinted::class)->execute($manager, [$mine->id, $otherCopy->id]);
 
-    expect($result['count'])->toBe(1)
-        ->and($otherCopy->fresh()->qr_print_count)->toBe(0)
-        ->and($mine->fresh()->qr_print_count)->toBe(1);
+    expect($otherCopy->fresh()->qr_print_count)->toBe(0);
+    expect($mine->fresh()->qr_print_count)->toBe(1);
+    expect($result['count'])->toBe(1);
 });
 
-it('a selection of only foreign ids is refused as empty rather than silently succeeding', function () {
-    // The interesting consequence of the block above: after scoping, the
-    // set can be empty even though the caller named ids. Refusing is right —
-    // a sheet was not printed, so nothing should be stamped, and the manager
-    // should be told rather than shown a success flash for zero labels.
+it('a selection that scopes down to nothing SUCCEEDS with a count of zero', function () {
+    // DESIGN DOC D7, and the first version of this plan asserted the exact
+    // opposite. OPS §4.1's MarkCopiesPrinted entry, opened and quoted:
+    //
+    //   "A zero-row update is not a failure here, and this is the one command
+    //    in this document for which that is true. It is set-valued bookkeeping
+    //    about a document that already exists — the route builds the PDF bytes
+    //    BEFORE calling this — so an empty result is a fact to record, not a
+    //    target that was missed. The reported count is what actually moved,
+    //    not what was asked for."
+    //
+    // So copy_selection_empty refuses an EMPTY INPUT and nothing else. A
+    // non-empty input that scopes to zero rows records zero and succeeds.
     [, $manager, $book] = mcpFix();
 
     app(TenantContext::class)->actSystemWide();
@@ -1304,8 +1429,10 @@ it('a selection of only foreign ids is refused as empty rather than silently suc
     app(TenantContext::class)->set($book->bookshelf, Membership::query()
         ->where('bookshelf_id', $book->bookshelf->id)->firstOrFail());
 
-    expect(fn () => app(MarkCopiesPrinted::class)->execute($manager, [$otherCopy->id]))
-        ->toThrow(RuleViolated::class, 'copy_selection_empty');
+    $result = app(MarkCopiesPrinted::class)->execute($manager, [$otherCopy->id]);
+
+    expect($result['count'])->toBe(0);
+    expect($otherCopy->fresh()->qr_print_count)->toBe(0);
 });
 ```
 
@@ -1327,7 +1454,9 @@ In `lang/vi/audit.php`, beside the other `copy_*` keys:
 In `lang/vi/rules.php`:
 
 ```php
-    // OPS §4.4's copy_selection_empty, quoted from that entry.
+    // OPS §4.1's MarkCopiesPrinted entry (docs/OPERATIONS.md:181), quoted
+    // from its Failure modes list. NOT §4.4 — that is Community, and an
+    // earlier draft of this plan cited it here.
     'copy_selection_empty' => 'Bạn chưa chọn bản sách nào để in nhãn.',
 ```
 
@@ -1335,7 +1464,9 @@ In `lang/vi/rules.php`:
 
 - [ ] **Step 4: Write the Action, then run**
 
-`DB::transaction(..., ConcurrencyRetry::ATTEMPTS)`, Gate authorization against the existing copy/catalogue policy, scoped `BookCopy::query()->whereIn('id', $copyIds)` (tenancy from the scope, **no `bookshelf_id` predicate**), refuse `copy_selection_empty` when the input is empty **or** when scoping leaves it empty, increment with `->increment('qr_print_count')` or an explicit `qr_print_count + 1` update, stamp `qr_printed_at` from the injected `Clock`, and record one audit entry.
+`DB::transaction(..., ConcurrencyRetry::ATTEMPTS)`, Gate authorization against the existing copy/catalogue policy, scoped `BookCopy::query()->whereIn('id', $copyIds)` (tenancy from the scope, **no `bookshelf_id` predicate**), increment with `->increment('qr_print_count')` or an explicit `qr_print_count + 1` update, stamp `qr_printed_at` from the injected `Clock`, and record one audit entry naming the count that actually moved.
+
+**Refuse `copy_selection_empty` when the INPUT is empty, and only then.** Per D7 and OPS §4.1, a non-empty selection that scopes down to zero rows succeeds with a count of zero — it is bookkeeping about a PDF that already exists. An earlier draft of this plan instructed the opposite and had a test asserting it.
 
 Run: `make test FILTER=MarkCopiesPrintedTest`
 Expected: PASS, 6 blocks.
@@ -1369,9 +1500,17 @@ git commit -m "feat: MarkCopiesPrinted — one audit row for the batch, and a co
 - Consumes: `LabelPayload::encode()` (Task 4).
 - Produces: `LabelSheet::render(array $rows): string` returning raw PDF bytes, where each row is `array{copyId: string, code: string, title: string}` — the shape `CopiesForLabelsQuery::run()` returns, minus `printCount`.
 
-**Geometry is inherited verbatim and is not a free parameter.** 186 × 255.4mm safe area, 3 columns × 7 rows, 21 per page, 58 × 34mm labels. A4 is 210 × 297mm; US Letter is 215.9 × 279.4mm — **wider but 17.6mm shorter**. A sheet that must print correctly on either has 210 × 279.4mm to work with, and 12mm of margin leaves the box above. Portability costs a row: 21 per page rather than the 24 a Letter-blind layout would fit, so a 400-copy shelf is 20 pages instead of 17. That is the whole trade, and it is already made. The 2026-08-13 design also records that Avery L7159 pre-cut stock was measured and rejected, because its perforations sit outside the shared box and perforations do not move.
+**THE LIBRARY CHANGED. Read the amended D4 before starting.** The first version of this plan and the first version of D4 both specified FPDF. That was wrong on the facts, and an independent review measured it:
 
-**The QR is drawn as vectors, from the module matrix.** Not as an embedded raster. `bacon/bacon-qr-code` gives the matrix without needing `gd` or `imagick`; only its PNG renderer needs those, and the production host is unverified. Use ECC **Q** — the payload is 27 bytes, which fits QR version 3 at Q's 32-byte ceiling, and Q means a quarter of the symbol may be scuffed, torn or jam-smeared and still decode. That is the correct budget for a label on a book a seven-year-old carries home in the rain.
+- **FPDF requires `ext-gd`** (`setasign/fpdf` 1.9.0 declares `ext-zlib`, `ext-gd`) — the exact extension D4 said it avoided. TCPDF 6.11.4 declares `php >=7.1.0`, `ext-curl`.
+- **FPDF cannot load a TTF at runtime.** `AddFont()` rejects any name containing a path separator and loads a pre-generated `.json` font-definition file; `Cell()` takes single-byte text through one of the `makefont/*.map` encodings. Vietnamese would mean running MakeFont against cp1258, committing generated `.json`/`.z` artefacts, and `iconv`-ing every string — a worse version of the "font-conversion build step" TCPDF was rejected for.
+- **cp1258 encodes Vietnamese decomposed**, so an FPDF sheet's text layer is NFD (`ê` + U+0301) while every title in this database is NFC. The diacritic test below would have failed against a *correct* implementation.
+
+TCPDF embeds a TTF subset directly and takes UTF-8, so none of that applies. **Do not reintroduce FPDF.**
+
+**Geometry is inherited verbatim and is not a free parameter.** 186 × 255.4mm safe area, 3 columns × 7 rows, 21 per page, 58 × 34mm labels. A4 is 210 × 297mm; US Letter is 215.9 × 279.4mm — **wider but 17.6mm shorter**. A sheet that must print correctly on either has 210 × 279.4mm to work with, and 12mm of margin leaves the box above. Portability costs a row: 21 per page rather than the 24 a Letter-blind layout would fit, so a 400-copy shelf is 20 pages instead of 17. The 2026-08-13 design also records that Avery L7159 pre-cut stock was measured and rejected, because its perforations sit outside the shared box and perforations do not move.
+
+**The QR is drawn as vectors, from the module matrix.** Not as an embedded raster. `bacon/bacon-qr-code` gives the matrix without needing `gd` or `imagick`; only its PNG renderer needs those. Use ECC **Q** — the payload is 27 bytes, which fits QR version 3 at Q's 32-byte ceiling, and Q means a quarter of the symbol may be scuffed, torn or jam-smeared and still decode. That is the correct budget for a label on a book a seven-year-old carries home in the rain.
 
 **The human-readable code prints under every QR and is never decorative.** A cracked lens, a denied camera permission, a flat battery and a borrowed phone are all ordinary.
 
@@ -1384,7 +1523,26 @@ cp old_next/src/lib/fonts/Lexend-SemiBold.ttf resources/fonts/
 git status --porcelain old_next/   # MUST be empty — old_next is read-only
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 2: Prove TCPDF can embed Lexend with Vietnamese diacritics, BEFORE building the sheet**
+
+This is the phase's one genuinely unknown engineering fact, and it is cheap to settle. Do it as a throwaway script, not as a test:
+
+```bash
+docker compose -f docker-compose.laravel.yml exec -T app php -r '
+require "vendor/autoload.php";
+$f = TCPDF_FONTS::addTTFfont("resources/fonts/Lexend-Regular.ttf", "TrueTypeUnicode", "", 96);
+var_dump($f);
+$pdf = new TCPDF("P", "mm", "A4", true, "UTF-8");
+$pdf->setPrintHeader(false); $pdf->setPrintFooter(false);
+$pdf->AddPage(); $pdf->SetFont($f, "", 9);
+$pdf->Text(10, 20, "Dế Mèn Phiêu Lưu Ký · DT-0142");
+file_put_contents("/tmp/probe.pdf", $pdf->Output("", "S"));
+echo filesize("/tmp/probe.pdf"), " bytes\n";'
+```
+
+`addTTFfont` returns the generated font name or `false`. **If it returns `false`, stop and report it** — that is a D4-level finding, not something to work around by falling back to a core font, which would silently drop every diacritic.
+
+- [ ] **Step 3: Write the failing test**
 
 Create `tests/Feature/Labels/LabelSheetTest.php`:
 
@@ -1393,7 +1551,12 @@ Create `tests/Feature/Labels/LabelSheetTest.php`:
 
 use App\Support\Qr\LabelSheet;
 
-/** Three rows with a title that exercises stacked Vietnamese diacritics. */
+/**
+ * Three rows with a title that exercises stacked Vietnamese diacritics.
+ *
+ * Grep first: `grep -rn "^function sheetRows" tests/` — top-level helpers are
+ * process-global (AGENTS.md).
+ */
 function sheetRows(int $n = 3): array
 {
     return collect(range(1, $n))->map(fn (int $i) => [
@@ -1403,59 +1566,74 @@ function sheetRows(int $n = 3): array
     ])->all();
 }
 
+/**
+ * Pages in a PDF, counted from the raw bytes.
+ *
+ * The negative lookahead is load-bearing: `/Type /Pages` is the page TREE
+ * node and also matches a naive `/Type /Page` substring count, so a
+ * one-page document counts as two without it. Measured on real output.
+ *
+ * Grep first: `grep -rn "^function pdfPageCount" tests/`.
+ */
+function pdfPageCount(string $pdf): int
+{
+    return preg_match_all('#/Type\s*/Page(?![s])#', $pdf);
+}
+
 it('produces bytes that are a PDF', function () {
     expect(app(LabelSheet::class)->render(sheetRows()))->toStartWith('%PDF-');
 });
 
 it('THE DIACRITIC TEST — the title survives into the document text', function () {
-    // The failure this exists for is not a crash. A font subset that drops
-    // the stacked marks in "Dế Mèn Phiêu Lưu Ký" still produces a
-    // structurally valid PDF; the defect is discovered on paper already
-    // glued to books. So assert on extracted text, not on validity.
+    // The failure this exists for is not a crash. A font subset that drops the
+    // stacked marks in "Dế Mèn Phiêu Lưu Ký" still produces a structurally
+    // valid PDF; the defect is discovered on paper already glued to books.
     //
-    // If no text extractor is available in the container, the fallback is
-    // to assert the glyphs appear in the embedded font subset — but say so
-    // in the docblock rather than silently weakening the block.
+    // NORMALISE BEFORE COMPARING. A PDF text layer may be NFD even when it
+    // renders perfectly — "ế" as "ê" + U+0301 — and a raw toContain() against
+    // this file's NFC literal would then fail against a CORRECT sheet and send
+    // an implementer hunting a font bug that is not there. ext-intl is loaded
+    // in this container (verified: class_exists('Normalizer') is true).
     $pdf = app(LabelSheet::class)->render(sheetRows(1));
 
-    expect(extractedText($pdf))->toContain('Dế Mèn Phiêu Lưu Ký')
-        ->and(extractedText($pdf))->toContain('DT-0001');
+    $text = Normalizer::normalize(extractedText($pdf), Normalizer::FORM_C);
+
+    expect($text)->toContain('Dế Mèn Phiêu Lưu Ký');
+    expect($text)->toContain('DT-0001');
 });
 
 it('lays 21 labels to a page and starts a 22nd on page two', function () {
-    $one = app(LabelSheet::class)->render(sheetRows(21));
-    $two = app(LabelSheet::class)->render(sheetRows(22));
-
-    expect(pageCount($one))->toBe(1)->and(pageCount($two))->toBe(2);
+    expect(pdfPageCount(app(LabelSheet::class)->render(sheetRows(21))))->toBe(1);
+    expect(pdfPageCount(app(LabelSheet::class)->render(sheetRows(22))))->toBe(2);
 });
 
-it('an empty set still produces a valid single-page document rather than throwing', function () {
+it('an empty set still produces a valid document rather than throwing', function () {
     // LabelSheet is a renderer, not a guard. The refusal for an empty
-    // selection is MarkCopiesPrinted's (copy_selection_empty); a renderer
-    // that also refuses would give the same rule two homes.
+    // selection is MarkCopiesPrinted's (copy_selection_empty); a renderer that
+    // also refused would give one rule two homes.
     expect(app(LabelSheet::class)->render([]))->toStartWith('%PDF-');
 });
 ```
 
-**Write `extractedText()` and `pageCount()` as helpers in this file** (grep first: `grep -rn "^function extractedText" tests/`). For page count, counting `/Type /Page` occurrences in the raw bytes is adequate and dependency-free. For text extraction, try `smalot/pdfparser` as a **dev** dependency:
+**Write `extractedText()` in this file too** (grep first). Add `smalot/pdfparser` as a **dev** dependency:
 
 ```bash
 docker compose -f docker-compose.laravel.yml exec -T app composer require --dev smalot/pdfparser
 ```
 
-If it cannot extract text from FPDF's output, **say so in the block's docblock and fall back** to asserting the diacritic glyphs are present in the embedded subset — do not delete the block, and do not claim it tests something it does not.
+If it cannot extract text from TCPDF's output, **say so in the block's docblock and fall back** to asserting the diacritic glyphs are present in the embedded subset — do not delete the block, and do not claim it tests something it does not. Task 13 requires recording which of the two actually shipped.
 
-- [ ] **Step 3: Run it to make sure it fails, implement, run again**
+- [ ] **Step 4: Run it red, implement, run green**
 
 Run: `make test FILTER=LabelSheetTest` — expect red, implement `LabelSheet`, re-run and expect 4 blocks green.
 
-The implementation: extend or wrap FPDF with `mm` units and A4 pages; add the Lexend TTF via FPDF's Unicode font support; for each row compute its cell from the grid; draw the QR modules as filled `Rect`s; print the code beneath in the regular face; truncate the title to the label width rather than letting it overflow into its neighbour.
+The implementation: `new TCPDF('P', 'mm', 'A4', true, 'UTF-8')` with header, footer and auto page-break all off — auto page-break would silently reflow the grid. Register the font once via `TCPDF_FONTS::addTTFfont()` and cache the generated name; for each row compute its cell from the grid; draw the QR modules as filled `Rect`s; print the code beneath in the regular face; truncate the title to the label width rather than letting it overflow into its neighbour. Return `$pdf->Output('', 'S')`.
 
-- [ ] **Step 4: Print one real sheet before the phase closes**
+- [ ] **Step 5: Print one real sheet before the phase closes**
 
-Not a test step and not automatable — a note carried to the wrap-up task. The geometry claim is about physical paper, and nobody has put this file through a printer.
+Not a test step and not automatable — a note carried to Task 13. The geometry claim is about physical paper, and nobody has put this file through a printer.
 
-- [ ] **Step 5: Gates, then commit**
+- [ ] **Step 6: Gates, then commit**
 
 ```bash
 make analyse && make lint
@@ -1464,16 +1642,19 @@ git commit -m "feat: the label sheet — 21 to a page inside the box A4 and Lett
 ```
 
 ---
+
 ### Task 10: The label routes and the export
 
 **Files:**
 - Create: `app/Http/Controllers/Manage/LabelController.php`, `app/Http/Requests/Labels/ExportLabelSheetRequest.php`
-- Modify: `routes/web.php`
+- Modify: `routes/web.php:492-493` (**replace both placeholders in place**)
 - Test: `tests/Feature/Labels/LabelExportTest.php`
 
 **Interfaces:**
 - Consumes: `TitlesForLabelsQuery` (5), `CopiesForLabelsQuery` (6), `MarkCopiesPrinted` (8), `LabelSheet` (9).
-- Produces: routes `shelves.manage.labels` (GET) and `shelves.manage.labels.export` (POST); Inertia page `manage/labels` with props `{ titles, onlyUnprinted }`.
+- Produces: Inertia page `manage/labels` with props `{ titles, onlyUnprinted }`.
+- **Both routes already exist as placeholders and keep their settled names.** `routes/web.php:492` is `Route::get('/qr-labels', …)->name('qr-labels')` and `:493` is `Route::get('/exports/qr-labels', …)->name('exports.qr-labels')`. URLs are `/shelves/{slug}/manage/qr-labels` and `/shelves/{slug}/manage/exports/qr-labels`.
+- **The export becomes a POST, and its DECLARATION ORDER is load-bearing.** `routes/web.php:494` is `Route::post('/exports/{kind}', [ExportController::class, 'store'])->name('exports.run')`. A `POST /exports/qr-labels` declared *after* it matches `{kind} = 'qr-labels'` and reaches `ExportController` instead. Declare the literal first — which is where the placeholder already sits. POST rather than GET matches this repo's export convention: `tests/Feature/Oversight/ExportHttpTest.php:41` posts to `/manage/exports/books`.
 
 **The bytes come first, and the stamp second.** OPS §3.3, opened: `ExportLabelSheetPDF` *"Writes `MarkCopiesPrinted` (§4.1) only once the bytes exist."* So the order in the controller is: expand the selection → render the PDF → `MarkCopiesPrinted` → return the download. Rendering first means a renderer that throws leaves no copy stamped as printed, which is the right way round: a manager who sees an error and retries must not have their second sheet counted as a reprint of a sheet that never existed.
 
@@ -1517,7 +1698,7 @@ it('renders the selection screen with its titles', function () {
     [$shelf, $manager] = lblExpFix();
 
     $this->actingAs($manager)
-        ->get("/tu-sach/{$shelf->slug}/quan-ly/ma-qr")
+        ->get("/shelves/{$shelf->slug}/manage/qr-labels")
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->component('manage/labels')
             ->has('titles', 1)
@@ -1528,7 +1709,7 @@ it('exporting returns a PDF and stamps the copies', function () {
     [$shelf, $manager, , $copy] = lblExpFix();
 
     $response = $this->actingAs($manager)
-        ->post("/tu-sach/{$shelf->slug}/quan-ly/ma-qr/xuat", ['copyIds' => [$copy->id]]);
+        ->post("/shelves/{$shelf->slug}/manage/exports/qr-labels", ['copyIds' => [$copy->id]]);
 
     $response->assertOk();
     expect($response->headers->get('content-type'))->toContain('application/pdf')
@@ -1540,7 +1721,7 @@ it('an empty selection is refused as a rule, not a 500', function () {
     [$shelf, $manager] = lblExpFix();
 
     $this->actingAs($manager)
-        ->post("/tu-sach/{$shelf->slug}/quan-ly/ma-qr/xuat", ['copyIds' => [], 'bookIds' => []])
+        ->post("/shelves/{$shelf->slug}/manage/exports/qr-labels", ['copyIds' => [], 'bookIds' => []])
         ->assertRedirect();
 
     // bootstrap/app.php renders RuleViolated as back()->withErrors(['rule' => …]).
@@ -1556,7 +1737,7 @@ it('another shelf\'s copy id stamps nothing', function () {
     $otherCopy = BookCopy::factory()->for($other)->for($otherBook)->create(['code' => 'ZZ-0001']);
 
     $this->actingAs($manager)
-        ->post("/tu-sach/{$shelf->slug}/quan-ly/ma-qr/xuat", ['copyIds' => [$otherCopy->id]]);
+        ->post("/shelves/{$shelf->slug}/manage/exports/qr-labels", ['copyIds' => [$otherCopy->id]]);
 
     expect($otherCopy->fresh()->qr_print_count)->toBe(0);
 });
@@ -1568,12 +1749,17 @@ it('a reader meets 404 on both the screen and the export', function () {
         'user_id' => $reader->id, 'role' => 'reader', 'status' => 'active',
     ]);
 
-    // NOT a vacuous 404 pair: both URIs are claimed by the routes added in
-    // this task, so these assert EnsureShelfRole's refusal rather than the
-    // router's absence. Re-check after the routes land.
-    $this->actingAs($reader)->get("/tu-sach/{$shelf->slug}/quan-ly/ma-qr")->assertNotFound();
+    // NOT a vacuous 404 pair, and here is the proof rather than the claim:
+    // /qr-labels is ALREADY claimed by the placeholder at routes/web.php:492,
+    // inside ['auth','role:manager'], so the GET block is meaningful before
+    // this task changes anything. The POST is the one to watch — until the
+    // verb changes at :493 the path is claimed by a GET, and an unrouted
+    // METHOD on a claimed path answers 405, not 404. If this block passes with
+    // 404 before the route lands, it is passing on the router's absence; check
+    // it again afterwards.
+    $this->actingAs($reader)->get("/shelves/{$shelf->slug}/manage/qr-labels")->assertNotFound();
     $this->actingAs($reader)
-        ->post("/tu-sach/{$shelf->slug}/quan-ly/ma-qr/xuat", ['copyIds' => [$copy->id]])
+        ->post("/shelves/{$shelf->slug}/manage/exports/qr-labels", ['copyIds' => [$copy->id]])
         ->assertNotFound();
 });
 ```
@@ -1583,16 +1769,28 @@ it('a reader meets 404 on both the screen and the export', function () {
 Run: `make test FILTER=LabelExportTest`
 Expected: FAIL — no route claims either URI.
 
-- [ ] **Step 3: Add the routes**
+- [ ] **Step 3: Replace the two placeholders in place**
 
-In `routes/web.php`'s `manage` group, **declare the literal segment before any parameterised sibling** — `CommunityArchitectureTest` pins that habit for two other route families and it is the same trap here:
+In `routes/web.php`, change lines 492–493 — same paths, same names, new destinations, and the export's verb changed to POST. **It must stay above `Route::post('/exports/{kind}', …)` at :494**, or `{kind}` swallows it:
 
 ```php
         // BR §19's "QR labels per copy", shipped in the reference on
         // 2026-08-13 and specified at docs/superpowers/specs/2026-08-13-qr-labels-design.md.
         // OPS §3.3's ListTitlesForLabels and ExportLabelSheetPDF.
-        Route::get('/ma-qr', [LabelController::class, 'index'])->name('labels');
-        Route::post('/ma-qr/xuat', [LabelController::class, 'export'])->name('labels.export');
+        Route::get('/qr-labels', [LabelController::class, 'index'])->name('qr-labels');
+        // POST, matching this repo's export convention, and DECLARED BEFORE
+        // exports/{kind} on the next line — otherwise a POST to this path
+        // matches {kind} = 'qr-labels' and reaches ExportController instead.
+        Route::post('/exports/qr-labels', [LabelController::class, 'export'])->name('exports.qr-labels');
+        Route::post('/exports/{kind}', [ExportController::class, 'store'])->name('exports.run');
+```
+
+**Then prove the ordering matters**, because a route-order claim nobody falsified is a claim nobody tested:
+
+```
+move the exports/qr-labels line BELOW exports/{kind}
+make test FILTER=LabelExportTest   → expect the export block RED
+restore; git status --porcelain    → empty
 ```
 
 - [ ] **Step 4: Write the Form Request and the controller**
@@ -1600,6 +1798,8 @@ In `routes/web.php`'s `manage` group, **declare the literal segment before any p
 `ExportLabelSheetRequest`: `authorize()` holds `abort_unless(Gate::allows('act-as-manager'), 404)`; rules allow `bookIds` and `copyIds` as optional arrays of uuid strings. Neither is `required` — the union may come from either, and the empty case is `MarkCopiesPrinted`'s refusal, not a field error.
 
 `LabelController::index()` renders `manage/labels` with `titles` and the `onlyUnprinted` flag read from the query string. `LabelController::export()` expands via `CopiesForLabelsQuery`, renders via `LabelSheet`, calls `MarkCopiesPrinted` with the **expanded** copy ids, and returns the bytes as a download. Do not catch `RuleViolated` — `bootstrap/app.php` renders it once for the whole app.
+
+**The response is a binary download, which constrains the SCREEN.** An Inertia visit cannot consume one: `router.post()` expects an Inertia response and will not hand the user a file. Task 11 must therefore submit this with a **plain HTML `<form method="post">`**, not `useForm().post()`. That also means there is no flash and no redirect on success — the browser simply receives a file — so do not write a success flash that nothing renders. Phase 2b shipped six of those and the whole-branch review is what found them.
 
 - [ ] **Step 5: Run, gates, commit**
 
@@ -1622,12 +1822,14 @@ git commit -m "feat: the label export — bytes first, then the stamp"
 **Interfaces:**
 - Consumes: props `{ titles, onlyUnprinted }` from Task 10.
 
-An accordion of titles, each expanding to its copies with a checkbox per copy and a "select the whole title" control; a *chưa in nhãn* filter toggling `?onlyUnprinted=1`; a print count shown per copy so a reprint is visible as one; and a submit that posts the union to `labels.export`.
+An accordion of titles, each expanding to its copies with a checkbox per copy and a "select the whole title" control; a *chưa in nhãn* filter toggling `?onlyUnprinted=1`; a print count shown per copy so a reprint is visible as one; and a submit that posts the union to `shelves.manage.exports.qr-labels`.
+
+**Submit with a plain HTML `<form method="post">`, not `useForm().post()`.** The export returns binary PDF bytes, and an Inertia visit cannot consume a binary response — the user would get nothing. Include the CSRF token as a hidden field. There is consequently **no success flash and no redirect**: the browser receives a file. Do not write a flash that no screen shows.
 
 **Remember what this repo cannot check.** There are no frontend tests, so the *only* verifiable part is the props. Assert those; then read the component yourself for the label/value pairing and the flash, because nothing else will. In particular: the success path here is a **file download**, not a redirect with a flash — so do not write a flash the screen never shows. Phase 2b shipped six such flashes and the whole-branch review found them.
 
 - [ ] **Step 1:** Add a `manageLabels` namespace to `copy.ts` (its own keys — no reach into `copy.manage`).
-- [ ] **Step 2:** Build the screen. Use `Label` + raw `<input type="checkbox">` + `InputError`, and `components/ui/badge.tsx` for the print count. **Do not** reach for `Pill`, `StatusBadge`, `Field`, `CopyScanField` or `QrScanner` — AGENTS.md names them and this repo does not have them.
+- [ ] **Step 2:** Build the screen. `resources/js/components/ui/checkbox.tsx` **does exist** — use it. So do `label.tsx`, `input-error.tsx` and `badge.tsx` (the last for the print count). **Do not** reach for `Pill`, `StatusBadge`, `Field`, `CopyScanField` or `QrScanner` — AGENTS.md names those and this repo does not have them.
 - [ ] **Step 3:** Add the nav item with `route("shelves.manage.labels", { shelf: shelf.slug })`.
 - [ ] **Step 4:** `make test && make analyse && make lint`, then commit.
 
@@ -1638,14 +1840,17 @@ An accordion of titles, each expanding to its copies with a checkbox per copy an
 **Files:**
 - Create: `resources/js/components/copy-scanner.tsx`
 - Create: `app/Http/Controllers/Manage/ScanController.php`
-- Modify: `routes/web.php`, the lend and return screens, `resources/js/lib/copy.ts`
+- Modify: `routes/web.php:189` (**replace the reader `/scan` placeholder in place**), the lend and return screens, `resources/js/lib/copy.ts`, `package.json`
 - Test: `tests/Feature/Labels/ScanResolveTest.php`
 
 **Interfaces:**
 - Consumes: `CopyByIdQuery` (7), `LabelPayload::uuidFrom()` (4).
-- Produces: route `shelves.manage.scan` returning the resolved copy as JSON or a 404-shaped null.
+- Produces: the resolved copy as JSON, or a 404-shaped null, from the **existing** route.
+- **The route already exists, and it is in the READER group, not the manager group.** `routes/web.php:189` is `Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan')`, inside the `role:reader` group — which is exactly where OPS §3.3 puts `ResolveCopyById` ("Deliberately **not** manager-only"). **Do not invent `shelves.manage.scan`**; an earlier draft of this plan did. Replace the placeholder in place, keeping path and name.
 
-**Decoding happens in the browser; resolution happens on the server.** The component reads the camera with `zxing-wasm` or `jsqr` — **both are already in `package.json`**, so no dependency is added — hands the decoded string to `LabelPayload::uuidFrom()` server-side, and resolves through `CopyByIdQuery`. A payload that is not `OLB1:` comes back null and the component says so by name rather than searching for a copy that cannot exist.
+**Decoding happens in the browser; resolution happens on the server.** The component reads the camera, hands the decoded string to `LabelPayload::uuidFrom()` server-side, and resolves through `CopyByIdQuery`. A payload that is not `OLB1:` comes back null and the component says so by name rather than searching for a copy that cannot exist.
+
+**Check the decoder dependency rather than assuming it.** `zxing-wasm` is in `dependencies` (`package.json:49`), but **`jsqr` is in `devDependencies` (`package.json:63`)** — an earlier draft of this plan claimed both were production dependencies and that no dependency was added. If you use `jsqr`, move it to `dependencies`, or it is absent from a production install and the scanner breaks only in production. Prefer `zxing-wasm`, which is already in the right section.
 
 **Typing the code stays a complete path.** This is the mitigation for the whole untestable surface, and it is a requirement rather than a nicety: every flow the scanner appears in must remain fully operable by typing `DT-0142`. A cracked lens, a denied camera permission, a flat battery and a borrowed phone are all ordinary. Wire the scanner as an **additional** control beside the existing copy-selection input, never as a replacement for it.
 
@@ -1673,7 +1878,9 @@ An accordion of titles, each expanding to its copies with a checkbox per copy an
 Add blocks that pin what this phase's prose claims:
 - **No new `'Asia/Ho_Chi_Minh'` literal.** Grep `app/` and fail on any occurrence outside `Clock::ZONE`'s declaration, allow-listing `MyLoanHistoryQuery`'s two known ones by name. **Measure the falsification**: add a literal somewhere and confirm the block reddens, then remove it and prove the tree clean.
 - **Every Slice B write transaction retries and opens with its lock**, matching `CommunityArchitectureTest`'s existing shape.
-- **The label routes declare `/ma-qr` before `/ma-qr/xuat`**, matching the two route-ordering blocks already in `CommunityArchitectureTest`.
+- **`POST /exports/qr-labels` is declared before `POST /exports/{kind}`.** This one is real and worth pinning: the literal and the parameter share a path prefix **and a verb**, so registering them the other way round sends every label export to `ExportController` with `{kind} = 'qr-labels'`. Falsify it by swapping the two lines and confirming `LabelExportTest` reddens, then restore and prove the tree clean.
+
+  **An earlier draft of this plan pinned something else and was wrong about it**: it claimed `/ma-qr` before `/ma-qr/xuat` was "the same trap" as `CommunityArchitectureTest`'s two existing blocks. It is not — those pin a literal before a *parameter* (`announcements/create` before `announcements/{announcement}`), while those two were distinct literals on different verbs, where declaration order is irrelevant. The pin above is the version of that claim which is actually true.
 
 - [ ] **Step 2: Re-take every number this phase asserts**
 
@@ -1686,7 +1893,8 @@ At minimum:
 - The per-shelf `bookshelves.timezone` column, deliberately not read (D3) — Phase 3.
 - **The label sheet has never been through a printer.** The geometry claim is about physical paper; nothing in CI can check it.
 - The scanner component is unverified by any test, and why (no frontend runner).
-- Whether `smalot/pdfparser` actually extracted text from FPDF output, or whether the diacritic block fell back to a subset assertion. **State which**, because the two are different guarantees.
+- Whether `smalot/pdfparser` actually extracted text from TCPDF's output, or whether the diacritic block fell back to a subset assertion. **State which**, because the two are different guarantees.
+- **That D4 was amended mid-plan**, from FPDF to TCPDF, and why — FPDF requires `ext-gd` (the extension it was chosen to avoid) and cannot load a TTF at runtime. Record it as a retraction naming the original claim, not as a quiet correction.
 
 - [ ] **Step 4: Update `docs/superpowers/HANDOFF.md`**
 
@@ -1700,12 +1908,31 @@ Push, open the PR, then run a **whole-branch review** with a fresh agent — it 
 
 ## Self-Review
 
-**Spec coverage.** Every section of the design maps to a task: D1 → Task 4; D2 → Task 2 (with its own discriminating mutation); D3 → Task 1; D4 → Tasks 4 and 9; D5 → Task 9; D6 → Task 3. Slice A's `GetStatistics` and screen → Tasks 2–3. Slice B's five operations → Tasks 5–10, its screen → Task 11, its scanner → Task 12. Testing section → distributed, plus Task 13. Out-of-scope items are restated as carries in Task 13 rather than silently dropped.
+**This plan was rejected once and reworked.** An independent Opus review returned **NEEDS REWORK** with ten Criticals and eleven Importants against the first version. That review is why the rule exists — it caught, among others, a fixture written against a `LoanFactory` that does not exist, a borrower column that is not called what the plan called it, every HTTP URI in the phase pointing at `old_next`'s path scheme, four routes invented that already existed as named placeholders, a PDF library that cannot do the one thing it was chosen for, and a test asserting the exact behaviour OPS singles out as wrong. What follows is the review of the reworked version.
 
-**One spec refinement, recorded rather than hidden.** The spec proposed rebuilding `date_trunc` as MariaDB expressions and verified they run; Task 1 computes the boundary in PHP instead, which removes the problem rather than porting it. Both work; the plan takes the cheaper one and says so in Task 1 and in its commit message, so spec and plan do not appear to disagree.
+**Corrections applied, and what each was.** Recorded rather than silently fixed, because a deleted false sentence has been measured coming back in this repo:
 
-**Placeholder scan.** No "TBD", no "similar to Task N", no "add appropriate error handling". Task 11 and Task 12 carry prose steps rather than full component code — deliberate, because this repo has no frontend tests and code written blind into a plan would be a false promise of verification; both name the exact files, props, components permitted, and the specific traps.
+| Was | Is |
+|---|---|
+| `Loan::factory()` "already exists" | No `LoanFactory` exists; loans are built with `Loan::query()->create()`, as `TenantHarness.php:67` does |
+| `borrower_membership_id`, passed a membership id | `borrower_id`, referencing `users` |
+| Loan fixtures setting three columns | Five NOT NULL columns set; one copy per active loan, because `loans_one_active_per_copy` is a UNIQUE over a generated column |
+| `/tu-sach/{shelf}/quan-ly/…` | `/shelves/{slug}/manage/…` |
+| Four new routes | Four existing placeholders replaced in place, names unchanged |
+| `setasign/fpdf` | `tecnickcom/tcpdf` ^6.11 — FPDF requires `ext-gd` and cannot load a TTF at runtime |
+| A retired copy with no `retired_reason` | `retired_reason` set, per `book_copies_retired_has_reason` |
+| "Refuse when scoping leaves it empty" | Succeeds with a count of zero, per OPS §4.1 and the new D7 |
+| `OPS §4.4's copy_selection_empty` | OPS **§4.1** — §4.4 is Community |
+| A route-order pin that guarded nothing | `POST /exports/qr-labels` before `POST /exports/{kind}`, which genuinely collides |
 
-**Type consistency.** `StatsPeriod` (Task 1) is consumed by Tasks 2 and 3 under that name. `LabelPayload::encode`/`uuidFrom` (Task 4) are consumed by Tasks 9 and 12. `CopiesForLabelsQuery::run(array, array, bool)` (Task 6) is called by Task 10 with that arity. `LabelSheet::render()` takes the row shape Task 6 produces minus `printCount`, stated in both places. `MarkCopiesPrinted::execute(User, array): array{count: int}` (Task 8) is called by Task 10.
+**Spec coverage.** Every section of the design maps to a task: D1 → Task 4; D2 → Task 2; D3 → Task 1; D4 (amended) → Tasks 4 and 9; D5 → Task 9; D6 → Task 3; D7 → Task 8. Slice A → Tasks 1–3; Slice B's five operations → Tasks 5–10; its screen → Task 11; its scanner → Task 12. **The four statistics figures the first version left untested — `booksAdded`, `byCategory`, `topBooks`, `topReaders` — now have blocks**, which the first self-review claimed coverage of without checking.
 
-**Known risk carried into execution:** Task 9 is the only task whose central claim cannot be fully settled in CI, because it is about ink on paper. Task 13 Step 3 requires that to be written down rather than assumed away.
+**Two spec refinements, both recorded rather than hidden.** The spec proposed rebuilding `date_trunc` as MariaDB expressions and verified they run; Task 1 computes the boundary in PHP instead, which removes the problem. And the period parameter is `?period=` where the reference uses `?ky=` — numbered in Task 2, since this project numbers divergences.
+
+**Placeholder scan.** No "TBD", no "similar to Task N", no "add appropriate error handling". Tasks 11 and 12 carry prose steps rather than component code — deliberate, because this repo has no frontend test runner and code written blind into a plan would be a false promise of verification. Both name exact files, props, permitted components and the specific traps.
+
+**Type consistency.** `StatsPeriod` (1) → 2, 3. `LabelPayload::encode`/`uuidFrom` (4) → 9, 12. `CopiesForLabelsQuery::run(array, array, bool)` (6) → 10 at that arity. `LabelSheet::render()` takes Task 6's row shape minus `printCount`, stated in both places. `MarkCopiesPrinted::execute(User, array): array{count: int}` (8) → 10.
+
+**`->and()` ordering.** A failed `expect()` aborts the whole Pest method and `->and()` short-circuits, so every block whose title names a specific fact now asserts that fact **first**, in separate `expect()` statements rather than one chain. Fixed in Task 2's borrowers block, Task 8's tenancy block and Task 10's export block.
+
+**Known risks carried into execution.** Task 9 remains the only task whose central claim cannot be settled in CI, because it is about ink on paper — Task 13 Step 3 requires that written down rather than assumed away. And TCPDF's `addTTFfont()` returning `false` on Lexend would be a D4-level finding; Task 9 Step 2 settles it with a throwaway probe **before** any sheet code is written, rather than discovering it at the end.

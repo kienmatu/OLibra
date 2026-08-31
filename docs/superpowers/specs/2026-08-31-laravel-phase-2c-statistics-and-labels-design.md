@@ -148,10 +148,16 @@ which is why this is settled in the spec instead of left to an implementer.
 calls. That is shipped Phase 1 code and changing it is scope creep into a merged
 phase. It is recorded in `known-gaps.md` instead.
 
-### D4. The label sheet is generated server-side in PHP
+### D4. The label sheet is generated server-side in PHP — with TCPDF
 
-`bacon/bacon-qr-code` for the symbol and **FPDF** for the page, with the QR drawn
-as filled rectangles straight from the module matrix:
+**AMENDED 2026-08-31, after independent plan review. The original ruling chose
+FPDF, and every reason it gave has since been measured false.** The amendment is
+written as a retraction rather than an edit, because this project has measured a
+deleted false sentence reappearing three commits later.
+
+**What ships:** `bacon/bacon-qr-code` for the symbol and **`tecnickcom/tcpdf`
+6.x** for the page, with the QR drawn as filled rectangles straight from the
+module matrix:
 
 ```php
 foreach ($matrix as $y => $row) {
@@ -161,24 +167,54 @@ foreach ($matrix as $y => $row) {
 }
 ```
 
-Three reasons, in order of weight:
+**RETRACTED — the original D4 and its three reasons.** It read: *"`bacon/bacon-qr-code`
+for the symbol and **FPDF** for the page"*, justified by (1) "No PHP extension
+dependency … On a shared host nobody has yet logged into, depending on zero
+extensions is worth more than convenience", (2) millimetres being native, and
+(3) vector output. It rejected TCPDF for costing "a large vendor tree and a
+font-conversion build step Lexend must survive with its diacritics intact."
 
-1. **No PHP extension dependency.** Only bacon's PNG renderer needs `gd` or
-   `imagick`; the module matrix needs neither. On a shared host nobody has yet
-   logged into, depending on zero extensions is worth more than convenience.
-2. **Millimetres are native to FPDF**, and the sheet geometry is specified in
-   millimetres for a physical reason (below).
-3. **Vector output**, matching the reference's own "the QR is drawn as vectors".
+Measured from packagist metadata, which is the authority the original decision
+should have consulted and did not:
 
-**Rejected: client-side generation** reusing `pdf-lib` and `qrcode`, which are
-already in `package.json`. OPS §3.3 specifies that `ExportLabelSheetPDF` "Writes
-`MarkCopiesPrinted` only once the bytes exist", and OPS §4.1 gives
-`MarkCopiesPrinted` a single `copy.qr_printed` audit entry for the batch.
-Generating in the browser makes both depend on the browser reporting back, so a
-closed laptop mid-print silently drifts the very count that exists to distinguish
-a reprint from a first print. Rejected: **TCPDF**, which is more mature and
-imports SVG natively, but costs a large vendor tree and a font-conversion build
-step Lexend must survive with its diacritics intact.
+| Package | Declared `require` |
+|---|---|
+| `setasign/fpdf` 1.9.0 | `ext-zlib`, **`ext-gd`** |
+| `tecnickcom/tcpdf` 6.11.4 | `php >=7.1.0`, **`ext-curl`** |
+| `bacon/bacon-qr-code` | `php ^8.1`, `ext-iconv`, `dasprid/enum` |
+
+So reason (1) was not merely weak, it was **backwards**: FPDF requires `ext-gd`,
+the exact extension the original text said it avoided, while TCPDF requires only
+`ext-curl`. `composer install --no-dev` on a gd-less host would refuse FPDF's
+platform requirement outright.
+
+The rejection of TCPDF inverts too. **FPDF cannot load a TTF at runtime at all** —
+its `AddFont()` rejects any name containing a path separator and loads a
+pre-generated `.json` font-definition file, and its `Cell()` takes single-byte
+text through one of the `makefont/*.map` encodings. Producing Vietnamese with it
+means running MakeFont against cp1258, committing the generated `.json` and `.z`
+artefacts, and `iconv`-ing every string at call time. That is precisely the
+"font-conversion build step" TCPDF was rejected for — **FPDF needs a worse one**.
+Reasons (2) and (3) survive but do not discriminate: TCPDF takes `mm` as its page
+unit and draws vectors just as happily.
+
+One further consequence, and it is why this matters beyond tidiness. cp1258
+encodes Vietnamese **decomposed**, so an FPDF sheet's text layer comes back as
+NFD — `ê` + U+0301 rather than `ế` — while every title in this database is NFC.
+The phase's highest-risk test, the diacritic assertion, would have failed against
+a *correct* implementation and sent someone hunting a font bug that was not
+there. TCPDF's native TTF embedding takes UTF-8 directly and removes the whole
+class.
+
+**Rejected, unchanged:** client-side generation reusing `pdf-lib` and `qrcode`.
+OPS §3.3 specifies that `ExportLabelSheetPDF` "Writes `MarkCopiesPrinted` only
+once the bytes exist", and OPS §4.1 gives `MarkCopiesPrinted` a single
+`copy.qr_printed` audit entry for the batch. Generating in the browser makes both
+depend on the browser reporting back, so a closed laptop mid-print silently
+drifts the very count that exists to distinguish a reprint from a first print.
+
+**What would reopen this:** a production host measured to lack `ext-curl`, or a
+TCPDF release that drops the 6.x direct-drawing API. Neither is true today.
 
 ### D5. Sheet geometry is inherited verbatim
 
@@ -198,6 +234,24 @@ port does the same. This adds no dependency, no bundle weight, and satisfies
 AGENTS.md rule 8 — bar and line only, no pie charts, a text summary above every
 chart — by construction rather than by configuring a library away from its
 defaults.
+
+### D7. A zero-row `MarkCopiesPrinted` is not a failure
+
+**Added 2026-08-31, after independent plan review**, because the first
+implementation plan asserted the opposite and would have shipped it.
+
+OPS §4.1's `MarkCopiesPrinted` entry, opened and quoted in full:
+
+> **A zero-row update is not a failure here**, and this is the one command in
+> this document for which that is true. It is set-valued bookkeeping about a
+> document that already exists — the route builds the PDF bytes *before* calling
+> this — so an empty result is a fact to record, not a target that was missed.
+> The reported count is what actually moved, not what was asked for.
+
+So `copy_selection_empty` refuses an **empty input**, and nothing else. A
+selection that is non-empty but scopes down to zero rows — every id belonging to
+another shelf — records a count of zero and succeeds. The reported count is what
+moved, not what was asked for.
 
 ## Slice A — Statistics
 
@@ -302,10 +356,15 @@ appears, the untestable surface is never the only route to anything.
    risk in the phase, because it is invisible until it is on paper. Mitigated by
    the extraction test above, and by printing one real sheet before the phase
    closes.
-2. **FPDF is a smaller, less-maintained library than TCPDF.** Accepted for the
-   extension-independence in D4. If it proves unable to embed Lexend with correct
-   diacritics, D4 falls back to TCPDF and that is a spec amendment, not an
-   implementer's improvisation.
+2. **~~FPDF is a smaller, less-maintained library than TCPDF.~~ RETRACTED and
+   inverted.** This risk read "Accepted for the extension-independence in D4. If
+   it proves unable to embed Lexend with correct diacritics, D4 falls back to
+   TCPDF and that is a spec amendment, not an implementer's improvisation." The
+   independent plan review established that FPDF cannot embed a TTF at runtime at
+   all and requires `ext-gd` besides, so the fallback the sentence described is
+   now the ruling — see the amended D4. The residual risk is smaller and different:
+   **TCPDF requires `ext-curl`**, and the production host is unverified, so that
+   is one extension to confirm rather than a font capability to hope for.
 3. **The cPanel host is still unverified**, so "no Node, no extensions" is a
    constraint taken from `docs/HOSTING.md`'s unrun survey rather than from a
    machine anyone has logged into. D4's choices are the conservative ones under
