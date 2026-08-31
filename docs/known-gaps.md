@@ -3985,3 +3985,37 @@ Manager statistics screen and QR labels. Branch
   read by `Clock::ZONE` or `periodStart()` — there is one parish today, and a
   network of shelves with independently meaningful timezones is Phase 3's
   problem, not this one's.
+
+- **No label sheet has ever been through a printer (Phase 2c Task 9).**
+  `App\Support\Qr\LabelSheet` is verified as bytes — the diacritics survive
+  into the text layer, the grid is 21 to a page, the symbol is vectors — and
+  the geometry (186 × 255.4mm safe area inside the box A4 and US Letter
+  share) is inherited verbatim from `old_next/src/lib/qr-labels.ts`, which was
+  itself designed against measurements rather than a printed proof. Nobody has
+  put a page on paper, cut a label out and scanned it with a phone. That is
+  the one claim in this class no test can make.
+
+  The related uncertainty is the symbol's quiet zone. Each module is
+  25 ÷ 29 = 0.862mm, so the four-module quiet zone the QR specification asks
+  for is 3.4mm; the label gives the symbol 3mm of padding on its left and 3mm
+  of gap to the code on its right, both marginally under. The reference sheet
+  used the same 3mm and the same 25mm square, so this is inherited rather than
+  introduced, and 2–3 modules is normally read without trouble — but it is
+  unverified against a real scan, and widening it would mean re-deriving
+  geometry that Task 9 was told not to touch.
+
+- **The TCPDF font definitions under `resources/fonts/tcpdf/` are generated
+  artefacts that are committed, and `pint.json` now exists to keep Pint's
+  hands off them (Phase 2c Task 9).** `TCPDF_FONTS::addTTFfont()` emits a
+  `.php`, a `.z` and a `.ctg.z` per face. They live under `resources/` rather
+  than `storage/app/fonts` as the task brief proposed, because
+  `storage/app/.gitignore` is `*` — anything there is untracked, and
+  `composer install --no-dev` on the host would ship without it. The
+  regeneration command is in `LabelSheet`'s `FONT_REGULAR` docblock; its
+  `$outpath` must be absolute, because TCPDF opens it through
+  `TCPDF_STATIC::fopenLocal()`, which prefixes `file://`.
+
+  Before `pint.json`, Pint reformatted the two generated `.php` files, so
+  regenerating them produced a diff on the next lint. `pint.json` pins the
+  preset Pint was already using by default (`laravel`) and excludes only
+  `resources/fonts/tcpdf`, so no other file's formatting changes.
