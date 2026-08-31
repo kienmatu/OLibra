@@ -134,13 +134,17 @@ has been measured, so do not re-derive colours.
 
 - `it defines every semantic variable in both modes` — 33 in `:root`, 32 in
   `.dark`. **Scope the match to the literal `:root { … }` and `.dark { … }` blocks
-  in the source file.** Step 4 adds eleven `--color-*` entries to `@theme`, which
+  in the source file, by brace-matching rather than regex** — a lazy
+  `/:root\s*\{(.*?)\}/s` stops at the first nested `}`. Step 4 adds eleven `--color-*` entries to `@theme`, which
   Tailwind also emits at `:root`; a semantic or built-CSS count would see 44.
 - `it retains no stock starter colours` — assert **no `hsl(`** remains in either
   block. Do not assert only the three obvious starter values; a leftover
   `--muted-foreground: hsl(0, 0%, 45.1%)` would sail past that.
 - `it leaves no cold grey on pseudo-element borders` — assert `app.css` contains
-  no `var(--color-gray-200`.
+  no `var(--color-gray-200`. **Do not quote the old declaration verbatim in a
+  comment explaining the fix** — the test scans the whole file, so the
+  documentation would fail a correct implementation. Describe the old value in
+  prose.
 
 **Falsify each:** delete one variable from `.dark`; restore one `hsl()` value;
 restore the `--color-gray-200` reference. Watch each go red, then restore.
