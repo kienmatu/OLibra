@@ -6,13 +6,152 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Self-hosted web fonts: Lexend for UI, Literata for headings, in the latin,
+   latin-ext and vietnamese subsets only. The vietnamese subset is not optional --
+   U+1EA0-1EF9 carries the precomposed tone-marked vowels (ậ ộ ữ ọ ...) that
+   latin-ext does not, and without it Vietnamese body text renders half from a
+   fallback face, mismatched mid-word. unicode-range values are exactly what
+   fonts.bunny.net serves; see resources/fonts/web/SOURCE-unicode-ranges.css.
+   Both families are SIL Open Font License 1.1. */
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../fonts/web/lexend-latin-400-normal.woff2') format('woff2');
+    unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../fonts/web/lexend-latin-ext-400-normal.woff2') format('woff2');
+    unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../fonts/web/lexend-vietnamese-400-normal.woff2') format('woff2');
+    unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('../fonts/web/lexend-latin-500-normal.woff2') format('woff2');
+    unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('../fonts/web/lexend-latin-ext-500-normal.woff2') format('woff2');
+    unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('../fonts/web/lexend-vietnamese-500-normal.woff2') format('woff2');
+    unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../fonts/web/lexend-latin-600-normal.woff2') format('woff2');
+    unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../fonts/web/lexend-latin-ext-600-normal.woff2') format('woff2');
+    unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@font-face {
+    font-family: 'Lexend';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../fonts/web/lexend-vietnamese-600-normal.woff2') format('woff2');
+    unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;
+}
+
+@font-face {
+    font-family: 'Literata';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../fonts/web/literata-latin-600-normal.woff2') format('woff2');
+    unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+    font-family: 'Literata';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../fonts/web/literata-latin-ext-600-normal.woff2') format('woff2');
+    unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@font-face {
+    font-family: 'Literata';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../fonts/web/literata-vietnamese-600-normal.woff2') format('woff2');
+    unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;
+}
+
 @theme {
     --font-sans:
-        'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+        'Lexend', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-serif: 'Literata', ui-serif, Georgia, serif;
 
     --radius-lg: var(--radius);
-    --radius-md: calc(var(--radius) - 2px);
+    /* The reference has exactly two radii: 0.5rem for cards, 0.25rem for
+       controls. Retargeting --radius-md to match --radius-sm gives that
+       two-radius system across all 107 control sites (99 rounded-md, 8
+       rounded-sm) without editing a component. */
+    --radius-md: calc(var(--radius) - 4px);
     --radius-sm: calc(var(--radius) - 4px);
+
+    /* The reference's own eleven tokens, exposed so later work can name them
+       directly (bg-page, text-terracotta, border-hairline). They are
+       mode-invariant: @theme emits once, at :root, so anything consuming them
+       keeps its light-mode value in dark. Nothing in resources/js uses them
+       today -- the screens speak shadcn semantics, which is what the :root and
+       .dark blocks below re-point. */
+    --color-page: #fdfbf8;
+    --color-surface: #ffffff;
+    --color-paper: #f2ebe1;
+    --color-hairline: #d3cbc2;
+    --color-ink: #3a352f;
+    --color-meta: #716962;
+    --color-leather: #776857;
+    --color-terracotta: #a4673b;
+    --color-terracotta-ink: #965c33;
+    --color-sage: #477369;
+    --color-brick: #af4c44;
 
     --color-background: var(--background);
     --color-foreground: var(--foreground);
@@ -72,79 +211,98 @@
     ::before,
     ::backdrop,
     ::file-selector-button {
-        border-color: var(--color-gray-200, currentColor);
+        /* This was Tailwind's gray-200 with a currentColor fallback. The
+           `* { @apply border-border }` rule further down reclaims only the
+           element selector, so that stock cold grey survived on every
+           pseudo-element border -- visible against a warm palette. Repointing
+           the fallback would have changed nothing: Tailwind's own theme
+           defines the grey and this file's @theme extends rather than resets
+           it, so the fallback never fires. The declaration is the fix. */
+        border-color: var(--border);
     }
 }
 
 :root {
-    --background: hsl(0, 0%, 100%);
-    --foreground: hsl(0, 0%, 3.9%);
-    --card: hsl(0, 0%, 100%);
-    --card-foreground: hsl(0, 0%, 3.9%);
-    --popover: hsl(0, 0%, 100%);
-    --popover-foreground: hsl(0, 0%, 3.9%);
-    --primary: hsl(0, 0%, 9%);
-    --primary-foreground: hsl(0, 0%, 98%);
-    --secondary: hsl(0, 0%, 96.1%);
-    --secondary-foreground: hsl(0, 0%, 9%);
-    --muted: hsl(0, 0%, 96.1%);
-    --muted-foreground: hsl(0, 0%, 45.1%);
-    --accent: hsl(0, 0%, 96.1%);
-    --accent-foreground: hsl(0, 0%, 9%);
-    --destructive: hsl(0, 84.2%, 60.2%);
-    --destructive-foreground: hsl(0, 0%, 98%);
-    --border: hsl(0, 0%, 92.8%);
-    --input: hsl(0, 0%, 89.8%);
-    --ring: hsl(0, 0%, 3.9%);
-    --chart-1: hsl(12, 76%, 61%);
-    --chart-2: hsl(173, 58%, 39%);
-    --chart-3: hsl(197, 37%, 24%);
-    --chart-4: hsl(43, 74%, 66%);
-    --chart-5: hsl(27, 87%, 67%);
-    --radius: 0.5rem;
-    --sidebar-background: hsl(0, 0%, 98%);
-    --sidebar-foreground: hsl(240, 5.3%, 30%);
-    --sidebar-primary: hsl(0, 0%, 10%);
-    --sidebar-primary-foreground: hsl(0, 0%, 98%);
-    --sidebar-accent: hsl(0, 0%, 94%);
-    --sidebar-accent-foreground: hsl(0, 0%, 30%);
-    --sidebar-border: hsl(0, 0%, 91%);
-    --sidebar-ring: hsl(217.2, 91.2%, 59.8%);
+    /* shadcn's semantic variables, re-pointed onto the reference palette
+       (spec section 6). The 42 ported screens speak only this vocabulary --
+       `text-muted-foreground` alone has 181 call sites -- so these values are
+       what make the warm palette visible without editing a component. */
+    --background: #fdfbf8; /* page */
+    --foreground: #3a352f; /* ink */
+    --card: #ffffff; /* surface */
+    --card-foreground: #3a352f; /* ink */
+    --popover: #ffffff; /* surface */
+    --popover-foreground: #3a352f; /* ink */
+    /* terracotta-ink, not the terracotta fill: shadcn has one variable where
+       the reference has two, and it must be legible both as text on paper and
+       under its own -foreground as a fill. The fill #a4673b is 3.87 as text. */
+    --primary: #965c33; /* terracotta-ink */
+    --primary-foreground: #ffffff;
+    --secondary: #f2ebe1; /* paper */
+    --secondary-foreground: #3a352f; /* ink */
+    --muted: #f2ebe1; /* paper */
+    --muted-foreground: #716962; /* meta */
+    --accent: #f2ebe1; /* paper */
+    --accent-foreground: #3a352f; /* ink */
+    --destructive: #af4c44; /* brick */
+    --destructive-foreground: #ffffff;
+    --border: #d3cbc2; /* hairline */
+    --input: #d3cbc2; /* hairline */
+    --ring: #965c33; /* terracotta-ink */
+    --chart-1: #477369; /* sage */
+    --chart-2: #965c33; /* terracotta-ink */
+    --chart-3: #776857; /* leather */
+    --chart-4: #af4c44; /* brick */
+    --chart-5: #716962; /* meta */
+    --radius: 0.5rem; /* radius-card; :root-only, identical in both modes */
+    --sidebar-background: #ffffff; /* surface */
+    --sidebar-foreground: #3a352f; /* ink */
+    --sidebar-primary: #965c33; /* terracotta-ink */
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #f2ebe1; /* paper */
+    --sidebar-accent-foreground: #3a352f; /* ink */
+    --sidebar-border: #d3cbc2; /* hairline */
+    --sidebar-ring: #965c33; /* terracotta-ink */
 }
 
 .dark {
-    --background: hsl(0, 0%, 3.9%);
-    --foreground: hsl(0, 0%, 98%);
-    --card: hsl(0, 0%, 3.9%);
-    --card-foreground: hsl(0, 0%, 98%);
-    --popover: hsl(0, 0%, 3.9%);
-    --popover-foreground: hsl(0, 0%, 98%);
-    --primary: hsl(0, 0%, 98%);
-    --primary-foreground: hsl(0, 0%, 9%);
-    --secondary: hsl(0, 0%, 14.9%);
-    --secondary-foreground: hsl(0, 0%, 98%);
-    --muted: hsl(0, 0%, 6.9%);
-    --muted-foreground: hsl(0, 0%, 63.9%);
-    --accent: hsl(0, 0%, 14.9%);
-    --accent-foreground: hsl(0, 0%, 98%);
-    --destructive: hsl(0, 84%, 60%);
-    --destructive-foreground: hsl(0, 0%, 98%);
-    --border: hsl(0, 0%, 14.9%);
-    --input: hsl(0, 0%, 14.9%);
-    --ring: hsl(0, 0%, 83.1%);
-    --chart-1: hsl(220, 70%, 50%);
-    --chart-2: hsl(160, 60%, 45%);
-    --chart-3: hsl(30, 80%, 55%);
-    --chart-4: hsl(280, 65%, 60%);
-    --chart-5: hsl(340, 75%, 55%);
-    --sidebar-background: hsl(0, 0%, 7%);
-    --sidebar-foreground: hsl(0, 0%, 80%);
-    --sidebar-primary: hsl(360, 100%, 100%);
-    --sidebar-primary-foreground: hsl(0, 0%, 100%);
-    --sidebar-accent: hsl(0, 0%, 15.9%);
-    --sidebar-accent-foreground: hsl(240, 4.8%, 95.9%);
-    --sidebar-border: hsl(0, 0%, 15.9%);
-    --sidebar-ring: hsl(217.2, 91.2%, 59.8%);
+    /* The reference has no dark mode, so these are derived (spec D3): each ink
+       reproduces its light counterpart's contrast ratio against `paper` -- the
+       worst-case ground, which --muted, --accent and --secondary all map onto.
+       Deriving against `page` instead put five of six inks below AA on paper.
+       32 variables, not 33: --radius is :root-only and does not change here. */
+    --background: #1b1916; /* page */
+    --foreground: #dad6d1; /* ink */
+    --card: #24211d; /* surface */
+    --card-foreground: #dad6d1; /* ink */
+    --popover: #24211d; /* surface */
+    --popover-foreground: #dad6d1; /* ink */
+    --primary: #c37f4f; /* terracotta-ink */
+    --primary-foreground: #1b1916; /* page */
+    --secondary: #2b2721; /* paper */
+    --secondary-foreground: #dad6d1; /* ink */
+    --muted: #2b2721; /* paper */
+    --muted-foreground: #968d85; /* meta */
+    --accent: #2b2721; /* paper */
+    --accent-foreground: #dad6d1; /* ink */
+    --destructive: #c87871; /* brick */
+    --destructive-foreground: #1b1916; /* page */
+    --border: #4a4136; /* hairline; derived against surface, where dividers live */
+    --input: #4a4136; /* hairline */
+    --ring: #c37f4f; /* terracotta-ink */
+    --chart-1: #5e998b; /* sage */
+    --chart-2: #c37f4f; /* terracotta-ink */
+    --chart-3: #9d8c78; /* leather */
+    --chart-4: #c87871; /* brick */
+    --chart-5: #968d85; /* meta */
+    --sidebar-background: #24211d; /* surface */
+    --sidebar-foreground: #dad6d1; /* ink */
+    --sidebar-primary: #c37f4f; /* terracotta-ink */
+    --sidebar-primary-foreground: #1b1916; /* page */
+    --sidebar-accent: #2b2721; /* paper */
+    --sidebar-accent-foreground: #dad6d1; /* ink */
+    --sidebar-border: #4a4136; /* hairline */
+    --sidebar-ring: #c37f4f; /* terracotta-ink */
 }
 
 @layer base {
@@ -152,7 +310,67 @@
         @apply border-border;
     }
 
+    html {
+        -webkit-text-size-adjust: 100%;
+    }
+
     body {
         @apply bg-background text-foreground;
+        font-size: 16px;
+        line-height: 1.6;
+        letter-spacing: 0.01em;
+    }
+
+    /* Vietnamese diacritics must never clip. */
+    h1,
+    h2,
+    h3,
+    h4 {
+        line-height: 1.3;
+        text-wrap: balance;
+    }
+
+    /* Tailwind v4 dropped the preflight rule that used to give buttons a
+       pointer cursor, so a plain <button> now shows an arrow -- indistinguishable
+       from dead text. That matters more here than in most apps: volunteers who
+       use phones and laptops hesitantly rely on the cursor to tell them what is
+       tappable at all.
+
+       Set once, at the base layer, rather than as a class on every component --
+       a rule that has to be remembered on each new button is a rule that will be
+       forgotten on the twentieth. :disabled is excluded, because a pointer over
+       a control that will not respond is a small lie. */
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']),
+    summary,
+    label[for],
+    /* Checkboxes and radios, and the labels that *wrap* one rather than pointing
+       at it with `for`. Three gaps in one place, all the same gap: the box itself
+       carries the UA stylesheet's `cursor: default`, and only the `label[for]`
+       form above was covered -- so `sach/moi`'s "Hiện sách này cho bạn đọc", a
+       44px target a volunteer is meant to click, rendered with an arrow across
+       the whole control. Written here rather than as a `cursor-pointer` class on
+       that one label for this rule's own stated reason: a rule that has to be
+       remembered on each new checkbox is a rule that will be forgotten on the
+       twentieth. */
+    input[type='checkbox']:not(:disabled),
+    input[type='radio']:not(:disabled),
+    label:has(> input[type='checkbox']:not(:disabled)),
+    label:has(> input[type='radio']:not(:disabled)),
+    select:not(:disabled) {
+        cursor: pointer;
+    }
+
+    ::selection {
+        background-color: color-mix(in srgb, var(--color-terracotta) 22%, transparent);
+    }
+
+    /* The shadcn controls suppress this with focus-visible:outline-hidden and
+       keep their own ring, which is terracotta already because --ring points at
+       terracotta-ink. This outline is for everything else that can take focus:
+       plain links, skip targets, hand-rolled controls. */
+    :focus-visible {
+        outline: 2px solid var(--color-terracotta);
+        outline-offset: 2px;
     }
 }
