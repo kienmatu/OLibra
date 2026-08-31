@@ -136,3 +136,27 @@ it('draws the symbol as vectors, embedding no image', function () {
     // A raster would also fix the symbol at whatever DPI we guessed at.
     expect(app(LabelSheet::class)->render(sheetRows(3)))->not->toContain('/Subtype /Image');
 });
+
+it('truncates a space-free title rather than printing it across the next label', function () {
+    // A title with no spaces in it wraps to ONE line, so truncation gated on
+    // the wrap having filled both lines would never fire and the line would be
+    // drawn unclipped. Measured before the fix: this string is 51.67mm in a
+    // 24mm column — 24.7mm past the label's right edge, through the 4mm gutter
+    // and straight across the neighbouring sticker's 25mm symbol. Nothing on
+    // screen shows it; it is discovered on a printed sheet.
+    //
+    // The diacritics are not decoration. A truncation that walks bytes rather
+    // than characters would pass on ASCII and cut "ế" in half here, which is a
+    // worse defect than the one being fixed.
+    //
+    // Asserted on measured width, never on extracted text: the neighbouring
+    // label's text lives in the same layer, so a text assertion would pass for
+    // the wrong reason.
+    $widths = LabelSheet::titleLineWidths('Khôngcódấucáchtrongtiêuđềnàyđâubạnnhé');
+
+    expect($widths)->not->toBeEmpty();
+
+    foreach ($widths as $width) {
+        expect($width)->toBeLessThanOrEqual(LabelSheet::TEXT_W);
+    }
+});

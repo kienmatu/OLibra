@@ -79,6 +79,18 @@ final class LabelSheet
 
     private const PAD = 3.0;
 
+    /** Between the symbol's right edge and the text column. */
+    private const TEXT_GAP = 3.0;
+
+    /**
+     * The text column beside the symbol — 24mm.
+     *
+     * Public because `LabelSheetTest` measures the drawn title against it.
+     * The honest assertion for "no glyph crosses the label's right edge" is a
+     * width, and a width needs the number it is compared to.
+     */
+    public const TEXT_W = self::LABEL_W - (self::PAD + self::QR_SIDE + self::TEXT_GAP) - self::PAD;
+
     private const TITLE_SIZE = 6.8;
 
     private const CODE_SIZE = 12.0;
@@ -131,20 +143,7 @@ final class LabelSheet
      */
     public function render(array $rows): string
     {
-        $pdf = new LabelPdf('P', 'mm', 'A4');
-        $pdf->setPrintHeader(false);
-        $pdf->setPrintFooter(false);
-        $pdf->setAutoPageBreak(false);
-        $pdf->setMargins(0, 0, 0);
-        $pdf->setCellPaddings(0, 0, 0, 0);
-        $pdf->setCellMargins(0, 0, 0, 0);
-        $pdf->setCreator('OLibra');
-        $pdf->setTitle('Nhãn QR');
-
-        $regular = $this->fontPath(self::FONT_REGULAR);
-        $semibold = $this->fontPath(self::FONT_SEMIBOLD);
-        $pdf->AddFont(self::FONT_REGULAR, '', $regular);
-        $pdf->AddFont(self::FONT_SEMIBOLD, '', $semibold);
+        $pdf = self::document();
 
         $pages = max(1, (int) ceil(count($rows) / self::PER_PAGE));
 
@@ -157,6 +156,55 @@ final class LabelSheet
         }
 
         return (string) $pdf->Output('', 'S');
+    }
+
+    /**
+     * The widths, in mm, of the title lines this sheet would draw.
+     *
+     * Exists for `LabelSheetTest`. The failure it guards is not visible in a
+     * document's text layer — an over-wide line is drawn in full, and what it
+     * damages is the *neighbouring* label, whose text sits in the same layer
+     * and would make a `toContain` assertion pass for the wrong reason. Width
+     * against `TEXT_W` is the honest question: does any glyph cross the
+     * label's right edge.
+     *
+     * @return list<float>
+     */
+    public static function titleLineWidths(string $title): array
+    {
+        $pdf = self::document();
+        $pdf->AddPage();
+        $pdf->SetFont(self::FONT_REGULAR, '', self::TITLE_SIZE);
+
+        return array_map(
+            static fn (string $line): float => (float) $pdf->GetStringWidth($line),
+            (new self)->wrap($pdf, $title, self::TEXT_W),
+        );
+    }
+
+    /**
+     * An empty, configured document with both faces registered.
+     *
+     * Margins, cell padding and cell margins are all zeroed and auto
+     * page-break is off, so every coordinate below is the page's own
+     * millimetres and nothing reflows the grid.
+     */
+    private static function document(): LabelPdf
+    {
+        $pdf = new LabelPdf('P', 'mm', 'A4');
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->setAutoPageBreak(false);
+        $pdf->setMargins(0, 0, 0);
+        $pdf->setCellPaddings(0, 0, 0, 0);
+        $pdf->setCellMargins(0, 0, 0, 0);
+        $pdf->setCreator('OLibra');
+        $pdf->setTitle('Nhãn QR');
+
+        $pdf->AddFont(self::FONT_REGULAR, '', self::fontPath(self::FONT_REGULAR));
+        $pdf->AddFont(self::FONT_SEMIBOLD, '', self::fontPath(self::FONT_SEMIBOLD));
+
+        return $pdf;
     }
 
     /**
@@ -223,17 +271,16 @@ final class LabelSheet
             $y + (self::LABEL_H - self::QR_SIDE) / 2,
         );
 
-        $textX = $x + self::PAD + self::QR_SIDE + 3;
-        $textW = self::LABEL_W - (self::PAD + self::QR_SIDE + 3) - self::PAD;
+        $textX = $x + self::PAD + self::QR_SIDE + self::TEXT_GAP;
 
         $pdf->SetTextColor(26, 23, 20);
 
         $pdf->SetFont(self::FONT_SEMIBOLD, '', self::CODE_SIZE);
-        $pdf->Text($textX, $y + 6.5, $this->fit($pdf, $row['code'], $textW));
+        $pdf->Text($textX, $y + 6.5, $this->fit($pdf, $row['code'], self::TEXT_W));
 
         $pdf->SetFont(self::FONT_REGULAR, '', self::TITLE_SIZE);
 
-        foreach ($this->wrap($pdf, $row['title'], $textW) as $n => $line) {
+        foreach ($this->wrap($pdf, $row['title'], self::TEXT_W) as $n => $line) {
             $pdf->Text($textX, $y + 13.5 + $n * 3.4, $line);
         }
     }
@@ -354,13 +401,21 @@ final class LabelSheet
             return [];
         }
 
-        $last = self::TITLE_LINES - 1;
+        // Whenever there is a last line, not only when the wrap filled both:
+        // a single word with no spaces in it — Vietnamese titles are written
+        // with spaces, but nothing in the database enforces that — produces
+        // ONE line, and gating truncation on a full two lines would draw it
+        // unclipped. Measured: `Khôngcódấucáchtrongtiêuđềnàyđâubạnnhé` is
+        // 51.67mm in a 24mm column, i.e. 24.7mm past the label's right edge,
+        // through the 4mm gutter and across the neighbouring sticker's 25mm
+        // symbol. The reference has the same hole
+        // (`old_next/src/lib/qr-labels.ts`, its own `wrap()`); it is not
+        // ported.
+        $last = count($lines) - 1;
 
-        if (count($lines) === self::TITLE_LINES) {
-            $lines[$last] = $dropped
-                ? $this->ellipsise($pdf, $lines[$last], $maxW)
-                : $this->fit($pdf, $lines[$last], $maxW);
-        }
+        $lines[$last] = $dropped
+            ? $this->ellipsise($pdf, $lines[$last], $maxW)
+            : $this->fit($pdf, $lines[$last], $maxW);
 
         return $lines;
     }
@@ -379,7 +434,7 @@ final class LabelSheet
      * artefact reaches `TCPDF::Error('Could not include font definition
      * file')`, which says nothing about how to produce one.
      */
-    private function fontPath(string $font): string
+    private static function fontPath(string $font): string
     {
         $path = resource_path('fonts/tcpdf/'.$font.'.php');
 
