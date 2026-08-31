@@ -80,6 +80,14 @@ Write such prose without the arrow (`forShelf($id) or global()`). This bit the
 project twice before, in `TenancyArchitectureTest`, and is recorded in
 `known-gaps.md`.
 
+**It bit Task 3 in a form that warning did not name.** `TenancyArchitectureTest`'s
+pattern is `/where[A-Za-z]*\s*\([^;]*bookshelf_id/i`, and **a comment contains
+no semicolon to terminate `[^;]*`** — so `whereHas('user')` written in prose
+matched forward, across the intervening comment lines, to a `groupBy('bookshelf_id')`
+in the statement *below*. Any where-shaped call spelled inside a comment in
+`app/Queries/Admin/AdminOverviewQuery.php` is an offender. Name the constraint in
+prose; do not spell the call.
+
 Line numbers in `WideningArchitectureTest.php` shifted when Task 1 amended it;
 re-grep rather than trusting the numbers quoted below.
 
@@ -300,6 +308,14 @@ Spec D4. Registers `bookshelf.archived` and `bookshelf.unarchived`.
 
 Archive and un-archive from `/admin/shelves`, each writing its audit action.
 
+**`BookshelfPolicy::archive()` and `::unarchive()` already exist** — Task 3 built
+them, because spec D9's object-level refusal had no other subject to deny (a
+super admin passes `view`/`viewAny` unconditionally, so there was nothing to
+refuse until a state rule existed). They carry the rule that archiving an
+already-archived shelf is refused, and are tested through `Gate::inspect()`.
+**Wire them; do not write new ones**, and do not duplicate the state rule in the
+Action.
+
 **Do not change `ResolveTenant` in this phase.** The archived-shelf resolver
 filter is 3b-ii's: closing it alters the entry condition of every tenant-bound
 route, and it should land against a phase where the repair path already exists.
@@ -349,9 +365,22 @@ is refused; promoting an existing super admin is refused; **the target's
 `is_super_admin` is true afterwards** (a test asserting only the audit row
 passes while the promotion does nothing); the confirmation prop states history
 is retained; `user.promoted_super_admin` writes an audit row with a null
-`bookshelf_id`; **`managersMissing` becomes true for a shelf whose only manager
-was revoked** — through the revoke path, not by fixture, so it proves spec D6's
-sharp edge is actually visible.
+`bookshelf_id`; **`managersMissing` across all four of its arms.** Task 3 built the flag but
+was forbidden from asserting its value, and asserting only the revoke case
+leaves two arms uncovered — the two spec D6 explicitly raises. Cover all of:
+
+| case | `managersMissing` |
+|---|---|
+| the only manager was **revoked** (through the revoke path, not a fixture) | true |
+| the only manager is **suspended** | true |
+| the only manager's **user row is soft-deleted** | true |
+| an active **shelf admin** holds the shelf | false |
+| the shelf has **readers only** | true |
+
+The last row is the proxy mistake worth pinning: `readers` counts active
+memberships *including* managers, so a predicate that admitted `Reader` would
+report a well-staffed shelf. Each row must redden a distinct mutation of the
+predicate.
 
 ---
 
