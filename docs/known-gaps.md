@@ -4450,7 +4450,7 @@ components. These are the surfaces still rendering cold, listed here because
 the D5 per-screen pass otherwise has no inventory to work from:
 
 - `resources/js/components/input-error.tsx:10` — `text-red-600 dark:text-red-400`.
-  This is the form-error component, imported by **12** files, so every validation
+  This is the form-error component, imported by **11** files, so every validation
   message in the app renders in Tailwind red rather than the ported brick
   (`#af4c44` light / `#c87871` dark).
 - **Ten flash-success banners** hardcoded `border-green-700/30 bg-green-700/10`:

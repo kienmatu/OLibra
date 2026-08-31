@@ -508,7 +508,7 @@ parameters:
     level: 8
 ```
 
-Create `biome.json` — scoped to `resources/` only, so it never fights Next's ESLint/Prettier over `src/`:
+Create `biome.json` — scoped to `resources/js/**` only, so it never fights Next's ESLint/Prettier over `src/`:
 
 ```json
 {

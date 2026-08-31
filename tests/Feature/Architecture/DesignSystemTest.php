@@ -164,7 +164,7 @@ it('ports the reference base layer', function () {
 
     expect($css)->toContain('::selection');
 
-    // Reaches non-shadcn focusables only -- the 19 focus-visible:outline-hidden
+    // Reaches non-shadcn focusables only -- the 4 focus-visible:outline-hidden
     // sites keep their own ring, which --ring has already made terracotta.
     expect($css)->toMatch('/:focus-visible\s*\{\s*\n\s*outline: 2px solid var\(--color-terracotta\);/');
 });
@@ -387,7 +387,12 @@ it('declares the reference tokens its base layer consumes', function () {
     // targets — with no build error and no failing test. The consumer was
     // asserted; the producer was not.
     expect($css)->toMatch('/--color-terracotta:\s*#a4673b\s*;/');
-})->group('design-system');
+
+    // Pinning the string alone is not enough: a later `--color-terracotta:
+    // transparent` would satisfy it while killing both consumers, since the
+    // last declaration wins. Assert the token is declared exactly once.
+    expect(substr_count($css, '--color-terracotta:'))->toBe(1);
+});
 
 it('keeps controls at the reference control radius', function () {
     $css = File::get(resource_path('css/app.css'));
@@ -397,7 +402,12 @@ it('keeps controls at the reference control radius', function () {
     // 8 rounded-sm). Reverting it to Tailwind's stock 0.375rem is a visible
     // change that nothing else in this file would catch.
     expect($css)->toMatch('/--radius-md:\s*calc\(var\(--radius\) - 4px\)\s*;/');
-})->group('design-system');
+
+    // `--radius-md` is computed from `--radius`, so pinning only the
+    // expression leaves the operand free: changing `--radius` to 0.75rem
+    // moves all 107 control sites and every card with the suite still green.
+    expect($css)->toMatch('/--radius:\s*0\.5rem\s*;/');
+});
 
 it('points every font face at the file its own weight and subset name', function () {
     $css = File::get(resource_path('css/app.css'));
@@ -422,7 +432,24 @@ it('points every font face at the file its own weight and subset name', function
         expect($file[1])->toStartWith($expected.'-');
         expect($file[1])->toEndWith('-'.$weight[1].'-normal');
 
+        // The subset segment is the half that matters most and was the half
+        // this test originally left unchecked: a vietnamese-range block
+        // pointing at the latin file passes family and weight, exists on
+        // disk, builds cleanly — and drops every tone-marked vowel back to a
+        // fallback face mid-word. Derive the expected subset from the block's
+        // own unicode-range and require the filename to agree.
+        preg_match('/unicode-range:\s*([^;]+);/', $block, $range);
+        expect($range)->not->toBeEmpty();
+
+        $subset = match (true) {
+            str_contains($range[1], 'U+1EA0-1EF9') => 'vietnamese',
+            str_contains($range[1], 'U+0100-02BA') => 'latin-ext',
+            default => 'latin',
+        };
+
+        expect($file[1])->toBe($expected.'-'.$subset.'-'.$weight[1].'-normal');
+
         expect(File::exists(resource_path('fonts/web/'.$file[1].'.woff2')))
             ->toBeTrue("{$file[1]}.woff2 is declared but not vendored");
     }
-})->group('design-system');
+});
