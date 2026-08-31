@@ -10,9 +10,11 @@
     "license": "MIT",
     "require": {
         "php": "^8.4",
+        "bacon/bacon-qr-code": "^3.1",
         "inertiajs/inertia-laravel": "^3.3",
         "laravel/framework": "^13.0",
         "laravel/tinker": "^3.0",
+        "tecnickcom/tcpdf": "^6.11",
         "tightenco/ziggy": "^2.4"
     },
     "require-dev": {
