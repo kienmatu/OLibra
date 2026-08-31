@@ -28,14 +28,41 @@ function lblExpFix(string $slug = 'dong-thap-lblexp'): array
 }
 
 it('renders the selection screen with its titles', function () {
-    [$shelf, $manager] = lblExpFix();
+    [$shelf, $manager, $book, $copy] = lblExpFix();
 
+    // Prop assertions only — this repo has no frontend rendering tests
+    // (LabelController's docblock, and Task 11's brief), so the shape
+    // TitlesForLabelsQuery hands the accordion is the only part of the
+    // screen anything here can verify: one title, its bookId/title, and
+    // its one copy's copyId/code/printCount.
     $this->actingAs($manager)
         ->get("/shelves/{$shelf->slug}/manage/qr-labels")
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->component('manage/labels')
             ->has('titles', 1)
+            ->where('titles.0.bookId', $book->id)
+            ->where('titles.0.title', 'Dế Mèn Phiêu Lưu Ký')
+            ->has('titles.0.copies', 1)
+            ->where('titles.0.copies.0.copyId', $copy->id)
+            ->where('titles.0.copies.0.code', 'DT-0001')
+            ->where('titles.0.copies.0.printCount', 0)
             ->where('onlyUnprinted', false));
+});
+
+it('the onlyUnprinted query param round-trips into the prop and drops printed-out titles', function () {
+    [$shelf, $manager, , $copy] = lblExpFix();
+    $copy->forceFill(['qr_print_count' => 1, 'qr_printed_at' => now()])->save();
+
+    // The shelf's only copy is already printed, so with the filter on,
+    // TitlesForLabelsQuery's docblock applies: "a title whose every copy
+    // is already printed" is dropped, not rendered with an empty copies
+    // array.
+    $this->actingAs($manager)
+        ->get("/shelves/{$shelf->slug}/manage/qr-labels?onlyUnprinted=1")
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('manage/labels')
+            ->where('onlyUnprinted', true)
+            ->has('titles', 0));
 });
 
 it('exporting returns a PDF and stamps the copies', function () {

@@ -909,6 +909,30 @@ export const copy = {
         topReadersEmpty: "Chưa có bạn đọc nào mượn sách trong khoảng thời gian này.",
         countSuffix: "{count} lượt",
     },
+    // BR §19's QR label workflow: the manager's selection accordion
+    // (Task 11) posting to LabelController::export (Task 10). Its own
+    // namespace, no reach into `copy.manage` — the nav word below is a
+    // deliberately different string from `manage.settings` etc., so
+    // renaming one screen's nav label never touches another's.
+    manageLabels: {
+        // The NAV word, re-headed on the screen itself below.
+        navItem: "Nhãn QR",
+        title: "In nhãn QR",
+        lead: "Chọn các bản sách cần in nhãn QR, theo từng đầu sách hoặc từng bản riêng lẻ.",
+        onlyUnprinted: "Chỉ hiện bản chưa in nhãn",
+        selectWholeTitle: "Chọn cả đầu sách",
+        expand: "Xem các bản",
+        collapse: "Ẩn bớt",
+        copiesCount: "{count} bản",
+        // A print count of 0 reads as "never printed"; any count at or
+        // above 1 is a REPRINT, the distinction OPS §3.3 asks this screen
+        // to keep visible — a sticker that fell off is a second trip
+        // through this same copy, not a first one.
+        printCountNever: "Chưa in",
+        printCountReprint: "Đã in {count} lần",
+        empty: "Tủ sách này chưa có bản sách nào.",
+        submit: "In nhãn QR đã chọn",
+    },
 } as const;
 
 /**
