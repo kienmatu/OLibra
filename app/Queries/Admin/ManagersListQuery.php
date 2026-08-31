@@ -45,10 +45,12 @@ use Illuminate\Support\Carbon;
  * unrevocable, since the revoke control lives on it. But
  * `AdminOverviewQuery`'s `managersMissing` counts ACTIVE memberships only,
  * so a shelf whose sole manager is suspended reads "no manager" on
- * `/admin/shelves` while it is active (an archived shelf is not flagged at
- * all — `AdminOverviewQuery` gates the flag on `BookshelfStatus::Active`) while this list shows that person. Without `status` the
- * two screens simply contradict each other; with it, the row is where the
- * volunteer finds out WHY the other screen is raising the alarm. Pinned in
+ * `/admin/shelves` while that shelf is active, while this list shows the
+ * person. (An ARCHIVED shelf is not flagged at all: `AdminOverviewQuery`
+ * gates the flag on `BookshelfStatus::Active`, because an alarm no control
+ * on the page can clear is noise.) Without `status` the two screens simply
+ * contradict each other; with it, the row is where the volunteer finds out
+ * WHY the other screen is raising the alarm. Pinned in
  * `AdminManagersTest`.
  *
  * **`isSuperAdmin` IS A FACT ABOUT THE PERSON, NOT ABOUT THE ROW.** A super
