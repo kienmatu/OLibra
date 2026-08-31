@@ -1,8 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { route } from "ziggy-js";
+import { prepareZXingModule, readBarcodes } from "zxing-wasm/reader";
+import wasmUrl from "zxing-wasm/reader/zxing_reader.wasm?url";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { copy } from "@/lib/copy";
+
+// Fix round 1 (Important, overruling this task's own original "out of
+// scope" call): zxing-wasm's DEFAULT locateFile fetches its ~1.07 MB
+// .wasm binary from fastly.jsdelivr.net at scan time — this override
+// makes Vite bundle it as a hashed asset under this app's own origin
+// instead (public/build/assets/zxing_reader-*.wasm), so BR §1.3's
+// dominant case — a volunteer's phone, next to a shelf, mid-scan — never
+// depends on outbound access to a third-party CDN. The cPanel host's
+// outbound access and CSP are unverified (docs/HOSTING.md), and this was
+// the one runtime CDN fetch anywhere in resources/js. Called once at
+// module scope, not per scan. DO NOT remove this override to "simplify"
+// back to the default — that silently reintroduces the CDN dependency.
+prepareZXingModule({
+    overrides: {
+        locateFile: (path: string, prefix: string) =>
+            path.endsWith(".wasm") ? wasmUrl : prefix + path,
+    },
+});
 
 /**
  * The camera half of Task 12's label round trip — Task 4's `LabelPayload`
@@ -136,7 +156,6 @@ export default function CopyScanner({ shelfSlug, onResolved }: Props) {
             if (ctx && canvas.width > 0 && canvas.height > 0) {
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const { readBarcodes } = await import("zxing-wasm/reader");
                 const results = await readBarcodes(imageData, {
                     formats: ["QRCode"],
                     maxNumberOfSymbols: 1,

@@ -944,7 +944,6 @@ export const copy = {
         dialogTitle: "Quét mã QR trên nhãn sách",
         lead: "Đưa camera lại gần nhãn QR dán trên sách.",
         resolving: "Đang tra cứu…",
-        close: "Đóng",
         // The three ordinary failures a phone borrowed from someone else,
         // a cracked lens, or a browser without camera access produce —
         // each names the problem so the reader knows to type the code
