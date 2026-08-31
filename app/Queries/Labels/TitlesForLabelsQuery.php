@@ -37,10 +37,15 @@ use Illuminate\Support\Collection;
  * for book_copies' own ORDER BY. A correlated subquery keeps the sort in
  * the database instead: `Book::query()->select('title')
  * ->whereColumn('books.id', 'book_copies.book_id')`. That matters because
- * MariaDB's utf8mb4_unicode_ci collation orders "Aó" before "Dế", and
- * PHP's strcmp on raw bytes does not — sorting in PHP instead would make
- * LabelQueriesTest's first block's expectation depend on which layer
- * sorted.
+ * MariaDB's utf8mb4_unicode_ci collation can order titles differently
+ * than PHP's strcmp on raw bytes — e.g. "Êm Đềm" sorts before "Zang" by
+ * collation but after it by raw bytes (0xC3 > 0x5A), verified against the
+ * live database. RETRACTION: an earlier version of this docblock claimed
+ * "Aó" vs "Dế" was such a pair; it was not — "A" (0x41) sorts before "D"
+ * (0x44) identically under both raw bytes and utf8mb4_unicode_ci, so that
+ * fixture proved nothing about which layer sorted. LabelQueriesTest's
+ * first block now uses the genuinely discriminating "Êm Đềm"/"Zang" pair
+ * instead, and is shown red under a PHP-side sort and green here.
  *
  * GROUPING HAPPENS HERE, NOT ON THE PAGE. OPS §3.3, opened: "Grouped in
  * the query, not on the page, so the 'chưa in nhãn' filter can drop a
