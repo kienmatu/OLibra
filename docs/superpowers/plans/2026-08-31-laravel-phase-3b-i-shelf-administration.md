@@ -103,6 +103,20 @@ Task 4 named its parameter `{bookshelf}`. **Every remaining admin route must do
 the same.** The fence keeps meaning what it says, and the admin area stays
 cross-shelf.
 
+### A third census-shaped pin: refusal codes
+
+`RuleViolatedCodesHaveSentencesTest` holds a hand-written list of every
+`RuleViolated` code under `app/`. Throwing a new one turns the whole suite red
+until that list is extended — Task 5 hit this with
+`contact_position_1_required`.
+
+Tasks 6 and 7 introduce refusals too (archiving an already-archived shelf,
+revoking a reader, promoting an existing super admin). Extend the list in the
+same commit as the code.
+
+So this phase touches **three** census-shaped pins: audit actions, refusal codes,
+and the two widening fences.
+
 ### House rule: mandatory falsification
 
 Every test is **watched failing before it is accepted** — mutate what it
