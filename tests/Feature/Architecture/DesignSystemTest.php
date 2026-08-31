@@ -314,3 +314,58 @@ it('keeps borders visible', function () {
         }
     }
 });
+
+/**
+ * Scoped to every Blade under `resources/views`, not to `app.blade.php` alone.
+ * The two error views are exactly the kind of file a font migration forgets:
+ * neither loads `app.css`, so nothing about the self-hosting work touches them
+ * and nothing about the built CSS would reveal a CDN link left behind. A
+ * directory-wide scan is what forces them into the port and keeps them in it.
+ *
+ * The file count is asserted first on purpose. A scan that silently matches
+ * zero files would pass this test green forever, which is a failure mode this
+ * project has shipped before.
+ */
+it('references no font CDN from any blade', function () {
+    $blades = collect(File::allFiles(resource_path('views')))
+        ->filter(fn ($file): bool => str_ends_with($file->getFilename(), '.blade.php'))
+        ->values();
+
+    // app.blade.php plus errors/419 and errors/429. Raise this deliberately
+    // when a Blade is added, rather than letting the scan quietly shrink.
+    expect($blades)->toHaveCount(3);
+
+    foreach ($blades as $blade) {
+        $source = File::get($blade->getPathname());
+        $name = $blade->getRelativePathname();
+
+        // A file that read as empty would satisfy every assertion below.
+        expect($source)->not->toBeEmpty("{$name} read as empty");
+
+        foreach (['fonts.bunny.net', 'fonts.googleapis.com', 'fonts.gstatic.com'] as $host) {
+            // str_contains, not `not->toContain($host, $message)`: toContain is
+            // variadic, so a message passed as a second argument is read as a
+            // second needle and the negation becomes "does not contain BOTH" --
+            // which the message itself always satisfies, passing green over a
+            // live CDN link. Watched happening.
+            expect(str_contains($source, $host))
+                ->toBeFalse("{$name} still loads fonts from {$host}");
+        }
+    }
+});
+
+/**
+ * Both error views must actually compile and render. This looks redundant next
+ * to a text scan until you hit the trap it was written for: Blade compiles its
+ * directives from inside CSS comments too, so merely *naming* an
+ * argument-less asset directive in a comment throws a 500 out of the page whose
+ * whole job is to render when everything else is broken. The 429 has render
+ * coverage through the throttle tests; the 419 had none at all, which is how
+ * that would have shipped unnoticed.
+ */
+it('renders both error views without a compiled-asset dependency', function (string $view, string $heading) {
+    expect(view($view)->render())->toContain($heading);
+})->with([
+    ['errors.419', 'Trang đã hết hạn'],
+    ['errors.429', 'Bạn gửi hơi nhanh'],
+]);
