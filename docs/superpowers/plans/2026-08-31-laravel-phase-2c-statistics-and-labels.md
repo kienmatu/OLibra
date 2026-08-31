@@ -88,6 +88,12 @@ use App\Enums\StatsPeriod;
 use App\Support\Clock;
 use Carbon\CarbonImmutable;
 
+// RELEASE THE CLOCK. tests/Pest.php binds Laravel's TestCase with ->in('Feature')
+// only, so a Unit test gets no framework tearDown and a frozen clock LEAKS into
+// every later Unit test in the process. tests/Unit/ClockTest.php:7 opens with
+// exactly this line for exactly this reason.
+afterEach(fn () => CarbonImmutable::setTestNow());
+
 /**
  * The boundary is a CIVIL day boundary expressed as a UTC instant, which
  * is the whole reason these blocks assert on UTC strings rather than on
@@ -470,7 +476,11 @@ it('groups loans by the book\'s category, and names the uncategorised', function
     [$shelf, $manager, $anh] = statFix();
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
 
-    $category = Category::factory()->for($shelf)->create(['name' => 'Thiếu nhi']);
+    // NO ->for($shelf). App\Models\Category is "Global, deliberately NOT
+    // shelf-scoped — one taxonomy for every shelf" (its own docblock); it has
+    // no bookshelf() relation and `categories` has no bookshelf_id. Every
+    // existing call site in tests/ is a bare Category::factory()->create().
+    $category = Category::factory()->create(['name' => 'Thiếu nhi']);
     $withCat = Book::factory()->for($shelf)->create(['category_id' => $category->id]);
     $without = Book::factory()->for($shelf)->create(['category_id' => null]);
 
@@ -554,7 +564,9 @@ Create `app/Queries/StatisticsQuery.php`: one private `since()` plus one public 
 ->selectRaw("DATE(CONVERT_TZ(lent_at, '+00:00', '+07:00')) as day, COUNT(*) as n")
 ```
 
-`byCategory` needs a left join to `categories` with `coalesce(name, 'Chưa phân loại')`; `topReaders` joins `users` through `borrower_id`. Both `topBooks` and `topReaders` need a deterministic tie-break beside the count — add `id` — or their order is whatever the engine returns.
+`byCategory` needs a left join to `categories` with `coalesce(name, 'Chưa phân loại')`; `topReaders` joins `users` through `borrower_id`.
+
+**Divergence: `topReaders` does not join `memberships`.** The reference (`get-statistics.ts:167-172`) joins `memberships` on the way to `users`. This port goes straight from `loans.borrower_id` to `users.id`, which is what the foreign key actually is. Besides being simpler, it removes a fan-out: a user with memberships on two shelves would be counted twice through the reference's join. Numbered because this project numbers divergences, and because "it looked like a simplification" is how an unnoticed behaviour change gets shipped. Both `topBooks` and `topReaders` need a deterministic tie-break beside the count — add `id` — or their order is whatever the engine returns.
 
 Give the class a docblock carrying the OPS §3.3 citation, divergence D2 with the reference's own predicate quoted **in full including `deleted_at is null`**, and the numeric-offset reasoning with the measured `2026-09-01` result. Do not write "measured" for anything you have not run.
 
@@ -1627,7 +1639,9 @@ If it cannot extract text from TCPDF's output, **say so in the block's docblock 
 
 Run: `make test FILTER=LabelSheetTest` — expect red, implement `LabelSheet`, re-run and expect 4 blocks green.
 
-The implementation: `new TCPDF('P', 'mm', 'A4', true, 'UTF-8')` with header, footer and auto page-break all off — auto page-break would silently reflow the grid. Register the font once via `TCPDF_FONTS::addTTFfont()` and cache the generated name; for each row compute its cell from the grid; draw the QR modules as filled `Rect`s; print the code beneath in the regular face; truncate the title to the label width rather than letting it overflow into its neighbour. Return `$pdf->Output('', 'S')`.
+The implementation: `new TCPDF('P', 'mm', 'A4', true, 'UTF-8')` with header, footer and auto page-break all off — auto page-break would silently reflow the grid.
+
+**TCPDF stamps `Powered by TCPDF (www.tcpdf.org)` into the last page's CONTENT** even with `setPrintHeader(false)` and `setPrintFooter(false)` — measured in extracted text. `$tcpdflink` is `protected` in 6.11.4 with no setter, so removing it needs a subclass. It draws at 1pt at the sheet edge, so it is not a print defect, but it **is** in the text layer: do not write a diacritic assertion that depends on the extracted text containing nothing else. Register the font once via `TCPDF_FONTS::addTTFfont()` and cache the generated name. **Pass an explicit `$outpath`.** With the argument omitted it writes the generated `.php`, `.z` and `.ctg.z` into `K_PATH_FONTS` — i.e. `vendor/tecnickcom/tcpdf/fonts/` — which is gitignored, so `composer install --no-dev` on the host recreates the tree without them and TCPDF's own source documents that directory as one that "must be writeable by the web server". Generate into a path this repo controls (`storage/app/fonts`, created if absent) and either commit the three artefacts or generate them once at deploy. **Whichever you choose, say which in the commit message** — D4's whole premise is minimising what the unverified host must provide. for each row compute its cell from the grid; draw the QR modules as filled `Rect`s; print the code beneath in the regular face; truncate the title to the label width rather than letting it overflow into its neighbour. Return `$pdf->Output('', 'S')`.
 
 - [ ] **Step 5: Print one real sheet before the phase closes**
 
@@ -1657,6 +1671,8 @@ git commit -m "feat: the label sheet — 21 to a page inside the box A4 and Lett
 - **The export becomes a POST, and its DECLARATION ORDER is load-bearing.** `routes/web.php:494` is `Route::post('/exports/{kind}', [ExportController::class, 'store'])->name('exports.run')`. A `POST /exports/qr-labels` declared *after* it matches `{kind} = 'qr-labels'` and reaches `ExportController` instead. Declare the literal first — which is where the placeholder already sits. POST rather than GET matches this repo's export convention: `tests/Feature/Oversight/ExportHttpTest.php:41` posts to `/manage/exports/books`.
 
 **The bytes come first, and the stamp second.** OPS §3.3, opened: `ExportLabelSheetPDF` *"Writes `MarkCopiesPrinted` (§4.1) only once the bytes exist."* So the order in the controller is: expand the selection → render the PDF → `MarkCopiesPrinted` → return the download. Rendering first means a renderer that throws leaves no copy stamped as printed, which is the right way round: a manager who sees an error and retries must not have their second sheet counted as a reprint of a sheet that never existed.
+
+**What this means for D7, stated rather than glossed.** The controller hands `MarkCopiesPrinted` the **already-expanded** copy ids, and expansion is tenancy-scoped — so on this path the count almost always equals the input size, and a selection consisting only of foreign ids arrives as `[]` and is refused by `copy_selection_empty`, not recorded as a zero. **D7 is therefore a statement about the COMMAND's contract, not a description of the common HTTP path.** It is still reachable and still right: a copy soft-deleted between expansion and stamp, or any future caller that does not pre-scope, lands in it, and OPS §4.1 is explicit that a zero-row update is a fact to record rather than a failure. Task 8's block exercises it by calling the command directly. Do not "simplify" the command by assuming its input is pre-scoped.
 
 **This POST carries a body, so it gets a Form Request** — and therefore a second 404 producer via `abort_unless(Gate::allows(...), 404)` in `authorize()`, matching the five body-carrying community POSTs. (Phase 2a ruled that a **bodiless** POST does not acquire a Form Request solely to hold an `abort_unless`; this one has fields, so the ruling does not apply.)
 
@@ -1767,7 +1783,15 @@ it('a reader meets 404 on both the screen and the export', function () {
 - [ ] **Step 2: Run it to make sure it fails**
 
 Run: `make test FILTER=LabelExportTest`
-Expected: FAIL — no route claims either URI.
+
+**Expected, precisely — and read this before believing a green block.** Both URIs are ALREADY claimed:
+
+```
+GET  /shelves/{shelf}/manage/qr-labels          → shelves.manage.qr-labels   (placeholder, :492)
+POST /shelves/{shelf}/manage/exports/qr-labels  → shelves.manage.exports.run (matches exports/{kind}!)
+```
+
+So the two positive blocks fail (the GET renders `ShellController`'s page, not `manage/labels`; the POST reaches `ExportController` with `{kind} = 'qr-labels'`), and **the reader-404 block may pass for the wrong reason** — against `ExportController`'s behaviour rather than against `EnsureShelfRole`. An earlier draft of this plan claimed "no route claims either URI" and then reasoned about a 405 that cannot occur, because `exports/{kind}` already answers POST on that path. Re-check the reader block after Step 3 and confirm it refuses for the right reason.
 
 - [ ] **Step 3: Replace the two placeholders in place**
 
@@ -1829,8 +1853,8 @@ An accordion of titles, each expanding to its copies with a checkbox per copy an
 **Remember what this repo cannot check.** There are no frontend tests, so the *only* verifiable part is the props. Assert those; then read the component yourself for the label/value pairing and the flash, because nothing else will. In particular: the success path here is a **file download**, not a redirect with a flash — so do not write a flash the screen never shows. Phase 2b shipped six such flashes and the whole-branch review found them.
 
 - [ ] **Step 1:** Add a `manageLabels` namespace to `copy.ts` (its own keys — no reach into `copy.manage`).
-- [ ] **Step 2:** Build the screen. `resources/js/components/ui/checkbox.tsx` **does exist** — use it. So do `label.tsx`, `input-error.tsx` and `badge.tsx` (the last for the print count). **Do not** reach for `Pill`, `StatusBadge`, `Field`, `CopyScanField` or `QrScanner` — AGENTS.md names those and this repo does not have them.
-- [ ] **Step 3:** Add the nav item with `route("shelves.manage.labels", { shelf: shelf.slug })`.
+- [ ] **Step 2:** Build the screen. `resources/js/components/ui/checkbox.tsx` **does exist** — use it. So do `ui/label.tsx` and `ui/badge.tsx` (the last for the print count), and `components/input-error.tsx` (**not** under `ui/`). **Do not** reach for `Pill`, `StatusBadge`, `Field`, `CopyScanField` or `QrScanner` — AGENTS.md names those and this repo does not have them.
+- [ ] **Step 3:** Add the nav item with `route("shelves.manage.qr-labels", { shelf: shelf.slug })`. **Not `shelves.manage.labels`** — an earlier draft used that name; the route keeps the placeholder's settled name `qr-labels`, verified with `artisan route:list --name=qr-labels`. Ziggy throws on an unknown name and no frontend test here would catch it.
 - [ ] **Step 4:** `make test && make analyse && make lint`, then commit.
 
 ---
@@ -1907,6 +1931,8 @@ Push, open the PR, then run a **whole-branch review** with a fresh agent — it 
 ---
 
 ## Self-Review
+
+**Two review rounds, and the second one earned its place.** The rework below was itself re-reviewed, and the re-review found **one Critical that the rework had introduced**: its new `byCategory` block called `Category::factory()->for($shelf)`, but `App\Models\Category` is "Global, deliberately NOT shelf-scoped" and has no `bookshelf()` relation — the block would have thrown. That is the ninth time this project has watched a fix round introduce a fresh defect, and it is the whole argument for re-reviewing fix waves rather than trusting them. Also corrected in that pass: a stale route name (`shelves.manage.labels`, which does not exist), a RED expectation that was false because `exports/{kind}` already claims the export path, a frozen clock never released in a Unit test that gets no framework tearDown, and an overstatement in the amended D4. The re-review independently **ran** the TCPDF probe and confirmed it works.
 
 **This plan was rejected once and reworked.** An independent Opus review returned **NEEDS REWORK** with ten Criticals and eleven Importants against the first version. That review is why the rule exists — it caught, among others, a fixture written against a `LoanFactory` that does not exist, a borrower column that is not called what the plan called it, every HTTP URI in the phase pointing at `old_next`'s path scheme, four routes invented that already existed as named placeholders, a PDF library that cannot do the one thing it was chosen for, and a test asserting the exact behaviour OPS singles out as wrong. What follows is the review of the reworked version.
 

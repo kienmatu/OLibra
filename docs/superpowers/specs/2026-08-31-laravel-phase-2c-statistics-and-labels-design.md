@@ -59,7 +59,8 @@ by category, and ranked *top books* and *top readers* lists.
 **Slice B — QR labels**, scoped to the QR design's own Phase 1 boundary
 (that document's §10): `ListTitlesForLabels`, `ListCopiesForLabels`,
 `ResolveCopyById`, `ExportLabelSheetPDF`, `MarkCopiesPrinted`, the
-`/quan-ly/ma-qr` selection screen, and the scanner wired into the shipped lend
+`/manage/qr-labels` selection screen (that route already exists as a named
+placeholder), and the scanner wired into the shipped lend
 and return flows.
 
 **No schema work.** Phase 0 already wrote `qr_printed_at` and `qr_print_count`
@@ -151,7 +152,8 @@ phase. It is recorded in `known-gaps.md` instead.
 ### D4. The label sheet is generated server-side in PHP — with TCPDF
 
 **AMENDED 2026-08-31, after independent plan review. The original ruling chose
-FPDF, and every reason it gave has since been measured false.** The amendment is
+FPDF, and its DECIDING reason has since been measured false — backwards, in
+fact.** The amendment is
 written as a retraction rather than an edit, because this project has measured a
 deleted false sentence reappearing three commits later.
 
@@ -183,10 +185,15 @@ should have consulted and did not:
 | `tecnickcom/tcpdf` 6.11.4 | `php >=7.1.0`, **`ext-curl`** |
 | `bacon/bacon-qr-code` | `php ^8.1`, `ext-iconv`, `dasprid/enum` |
 
-So reason (1) was not merely weak, it was **backwards**: FPDF requires `ext-gd`,
-the exact extension the original text said it avoided, while TCPDF requires only
-`ext-curl`. `composer install --no-dev` on a gd-less host would refuse FPDF's
-platform requirement outright.
+So reason (1) — the one the choice actually turned on — was not merely weak, it
+was **backwards**: FPDF requires `ext-gd`, the exact extension the original text
+said it avoided, while TCPDF requires only `ext-curl`. `composer install
+--no-dev` on a gd-less host would refuse FPDF's platform requirement outright.
+
+**Precision about the retraction, because an overstatement is its own defect.**
+Reasons (2) and (3) — native millimetres and vector output — are **true of
+FPDF**. They simply do not discriminate, being equally true of TCPDF. Only
+reason (1) is false, and it is false in the direction that reverses the ruling.
 
 The rejection of TCPDF inverts too. **FPDF cannot load a TTF at runtime at all** —
 its `AddFont()` rejects any name containing a path separator and loads a
@@ -195,16 +202,32 @@ text through one of the `makefont/*.map` encodings. Producing Vietnamese with it
 means running MakeFont against cp1258, committing the generated `.json` and `.z`
 artefacts, and `iconv`-ing every string at call time. That is precisely the
 "font-conversion build step" TCPDF was rejected for — **FPDF needs a worse one**.
-Reasons (2) and (3) survive but do not discriminate: TCPDF takes `mm` as its page
-unit and draws vectors just as happily.
+As noted above, reasons (2) and (3) survive and simply fail to discriminate:
+TCPDF takes `mm` as its page unit and draws vectors just as happily.
+
+**One original objection to TCPDF was real and is ACCEPTED rather than refuted:
+the vendor tree.** Measured: `tecnickcom/tcpdf` 6.11.4 is **27 MB across 219
+files**, against FPDF's single ~60 KB file. On inode-quota'd shared cPanel that
+is a genuine cost. It is accepted because the alternative cannot render
+Vietnamese at all — but it is a cost, not a wash, and `docs/HOSTING.md`'s unrun
+survey should gain an inode and disk row because of it.
 
 One further consequence, and it is why this matters beyond tidiness. cp1258
 encodes Vietnamese **decomposed**, so an FPDF sheet's text layer comes back as
 NFD — `ê` + U+0301 rather than `ế` — while every title in this database is NFC.
 The phase's highest-risk test, the diacritic assertion, would have failed against
 a *correct* implementation and sent someone hunting a font bug that was not
-there. TCPDF's native TTF embedding takes UTF-8 directly and removes the whole
-class.
+there. TCPDF's native TTF embedding takes UTF-8 directly and removes the
+**encoding** half of that class.
+
+It does **not** remove generated font artefacts. `TCPDF_FONTS::addTTFfont()`
+still emits a `.php`/`.z`/`.ctg.z` triple, and with no `$outpath` it writes them
+into `K_PATH_FONTS` — `vendor/tecnickcom/tcpdf/fonts/` — which is gitignored, so
+`composer install --no-dev` recreates the tree without them, and TCPDF's own
+source documents that directory as one that "must be writeable by the web
+server". The plan therefore requires an explicit `$outpath` under a path this
+repo controls. What is gone is the cp1258 round-trip and the NFD text layer, not
+the artefacts.
 
 **Rejected, unchanged:** client-side generation reusing `pdf-lib` and `qrcode`.
 OPS §3.3 specifies that `ExportLabelSheetPDF` "Writes `MarkCopiesPrinted` only
@@ -212,6 +235,14 @@ once the bytes exist", and OPS §4.1 gives `MarkCopiesPrinted` a single
 `copy.qr_printed` audit entry for the batch. Generating in the browser makes both
 depend on the browser reporting back, so a closed laptop mid-print silently
 drifts the very count that exists to distinguish a reprint from a first print.
+
+**This was settled by execution, not by reading.** An independent reviewer ran
+the probe: `TCPDF_FONTS::addTTFfont('resources/fonts/Lexend-Regular.ttf',
+'TrueTypeUnicode', '', 96)` returned the string `"lexend"`, not `false`, and
+`smalot/pdfparser` extracted `Dế Mèn Phiêu Lưu Ký · DT-0142` from the resulting
+bytes — **already NFC**, so the normalisation step the plan adds is
+belt-and-braces rather than load-bearing. TCPDF 6.11.4 installed with **zero**
+transitive dependencies.
 
 **What would reopen this:** a production host measured to lack `ext-curl`, or a
 TCPDF release that drops the 6.x direct-drawing API. Neither is true today.
