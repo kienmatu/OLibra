@@ -520,3 +520,49 @@ it('the two lifecycle sentences read the shelf name out of before, not after', f
         after: ['status' => 'active'],
     )))->toBe('Maria Quản Trị đã mở lại một tủ sách');
 });
+
+it('the policy and contacts saves name the shelf, not "một tủ sách"', function () {
+    // The fix wave's finding 4. bookshelf.updated has THREE writers and its
+    // sentence reads the name out of $after: UpdateBookshelfProfile carried
+    // `name` on both sides, UpdateBookshelfPolicy and
+    // UpdateBookshelfContacts carried it on NEITHER, so every policy save
+    // and every contacts save rendered the bare twin — on the one log that
+    // is cross-shelf by nature, where "một tủ sách" is exactly the fact a
+    // reader needs.
+    //
+    // The census above cannot catch this, for the reason the archive twins
+    // below carry: a bare twin is a DESCRIBED sentence, not the unknown-
+    // action fallback, so a payload that never names the shelf renders
+    // something perfectly grammatical and perfectly useless. That is why
+    // the payloads are spelled out here in the shape the two commands
+    // actually write, rather than asserted through the arm alone.
+
+    // UpdateBookshelfPolicy: the eight settings keys either side, plus the
+    // shelf name unchanged on both.
+    expect(AuditSentences::sentence('bookshelf.updated', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'loan_days' => null, 'hold_days' => null],
+        after: ['name' => 'Tủ sách Đồng Tháp', 'loan_days' => 21, 'hold_days' => 4],
+    )))->toBe('Maria Quản Trị đã sửa thông tin tủ sách Tủ sách Đồng Tháp');
+
+    // UpdateBookshelfContacts: three fixed slots either side, plus the name.
+    expect(AuditSentences::sentence('bookshelf.updated', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'contact_1' => null, 'contact_2' => null, 'contact_3' => null],
+        after: [
+            'name' => 'Tủ sách Đồng Tháp',
+            'contact_1' => ['name' => 'Chị Hoa', 'phone' => null, 'role_label' => null],
+            'contact_2' => null,
+            'contact_3' => null,
+        ],
+    )))->toBe('Maria Quản Trị đã sửa thông tin tủ sách Tủ sách Đồng Tháp');
+
+    // The bare twin, so the fix above is pinned to the PAYLOAD and not to
+    // the arm: this is what both saves rendered before it, and it is still
+    // what a row naming no shelf anywhere renders.
+    expect(AuditSentences::sentence('bookshelf.updated', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['loan_days' => null],
+        after: ['loan_days' => 21],
+    )))->toBe('Maria Quản Trị đã sửa thông tin một tủ sách');
+});

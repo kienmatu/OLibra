@@ -374,13 +374,22 @@ final class AuditSentences
                 : self::line('bookshelf_created_bare'),
             // AFTER first, then BEFORE — the reference's bookshelf.
             // settings_updated arm (`str(f.after, "name") ?? str(f.before,
-            // "name")`), and the fallback is not decoration. The profile
-            // form can change the name itself, so $after carries the new
-            // one; the lending-policy form changes no name at all, and its
-            // payload is the settings bag either side. Reading only $after
-            // would leave every policy save saying 'sửa thông tin tủ sách'
-            // with no shelf named, on a screen that is cross-shelf by
-            // nature.
+            // "name")`).
+            //
+            // ALL THREE WRITERS OF THIS ACTION CARRY `name` IN BOTH BAGS,
+            // and that is where the sentence is actually made true — not
+            // here. UpdateBookshelfProfile always did; UpdateBookshelfPolicy
+            // and UpdateBookshelfContacts did not, and both rendered the
+            // bare twin for every real row they wrote, on a screen that is
+            // cross-shelf by nature. Each now puts the shelf's name on both
+            // sides unchanged. So `?? $before` is belt and braces rather
+            // than the load-bearing clause an earlier version of this
+            // comment claimed it was: no writer in the codebase reaches it,
+            // and a payload that names the shelf only in `before` would be
+            // one nothing here can invent a name for anyway. It is kept for
+            // a rename that recorded only the old name. The named form and
+            // the bare form of all three writers' payloads are pinned in
+            // AuditSentencesTest.
             'bookshelf.updated' => ($name = self::str($after, 'name') ?? self::str($before, 'name')) !== null
                 ? strtr(self::line('bookshelf_updated'), [':name' => $name])
                 : self::line('bookshelf_updated_bare'),

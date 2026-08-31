@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Bookshelf;
 use App\Models\Membership;
 use App\Models\User;
+use App\Queries\Admin\AdminOverviewQuery;
 use App\Support\TenantContext;
 use Inertia\Testing\AssertableInertia;
 
@@ -117,6 +118,95 @@ it('sends the shelf ROUTE KEY down with both the list and the appoint form', fun
                 ->and($offered['slug'])->toBe($shelf->slug)
                 // And the form's second select is fed from the same entry.
                 ->and(array_column($offered['candidates'], 'fullName'))->toBe(['Tạ Thị Đọc']);
+        });
+});
+
+it('gives a super admin who also manages a shelf both rows, and marks both unpromotable', function () {
+    // The fix wave's finding 2. This query emits a global row for every
+    // super administrator AND a row for every manager/admin membership,
+    // with no exclusion between them — which is correct: the shelf grant is
+    // real and genuinely revocable, so dropping either row would either
+    // hide a grant or remove the only control that takes it back.
+    //
+    // What was wrong was the SCREEN's promote gate, which read `role`. On
+    // the membership row the role is `manager`, so the control rendered,
+    // and pressing it threw `already_super_admin` — a live button whose
+    // only outcome was a refusal. The gate now reads `isSuperAdmin`, a fact
+    // about the person that only the server can state, and this asserts the
+    // prop that makes it possible. The refusal behind it is pinned by
+    // 'refuses to promote somebody who is already a super admin'.
+    [$admin, $shelf] = adminManagersFix('vua-quan-tri-vua-quan-ly');
+    app(TenantContext::class)->actSystemWide();
+    Membership::factory()->create([
+        'bookshelf_id' => $shelf->id,
+        'user_id' => $admin->id,
+        'role' => MembershipRole::Manager,
+        'status' => MembershipStatus::Active,
+    ]);
+
+    $this->actingAs($admin)
+        ->get('/admin/managers')
+        ->assertInertia(function (AssertableInertia $page) use ($admin, $shelf) {
+            /** @var list<array<string, mixed>> $rows */
+            $rows = $page->toArray()['props']['managers'];
+            $mine = array_values(array_filter($rows, fn (array $row): bool => $row['userId'] === $admin->id));
+
+            expect($mine)->toHaveCount(2);
+
+            $global = collect($mine)->firstWhere('membershipId', null);
+            $onShelf = collect($mine)->first(fn (array $row): bool => $row['membershipId'] !== null);
+
+            // The shelf row still reads `manager` — the role is a fact
+            // about the membership and did not change — so a gate on the
+            // role alone would still render the button here.
+            expect($onShelf['role'])->toBe('manager')
+                ->and($onShelf['shelfId'])->toBe($shelf->id)
+                // Revocable, and that is why the row must survive.
+                ->and($onShelf['revokeConfirmation'])->not->toBeNull()
+                // Both rows say the person already holds the global grant.
+                ->and($onShelf['isSuperAdmin'])->toBeTrue()
+                ->and($global['isSuperAdmin'])->toBeTrue();
+        });
+});
+
+it('agrees with /admin/shelves about a suspended manager rather than contradicting it', function () {
+    // The fix wave's finding 5. AdminOverviewQuery counts ACTIVE
+    // memberships, so a shelf whose only manager is suspended is flagged
+    // `managersMissing` — spec D6 names that case by name, and
+    // known-gaps.md rests D6's whole defensibility on the flag. This query
+    // filters by role alone, so the same person was listed here with a live
+    // Revoke button: two admin screens telling a volunteer opposite things
+    // about the same shelf.
+    //
+    // THE ROW STAYS, and the status is what reconciles them. A suspended
+    // grant is still a grant somebody holds; hiding the row would make it
+    // invisible AND unrevocable, since the revoke control lives on it. So
+    // the list keeps the person, states the status, and the screen prints
+    // the sentence explaining why the other screen is raising the alarm.
+    [$admin, $shelf] = adminManagersFix('quan-ly-tam-khoa');
+    adminManagersMember($shelf, MembershipRole::Manager, 'Hồ Thị Tạm Khoá', MembershipStatus::Suspended);
+
+    /** @var list<array{slug: string, managersMissing: bool}> $overview */
+    $overview = app(AdminOverviewQuery::class)->run();
+    /** @var array{managersMissing: bool} $row */
+    $row = collect($overview)->firstWhere('slug', 'quan-ly-tam-khoa');
+
+    // /admin/shelves says the shelf has nobody who can act.
+    expect($row['managersMissing'])->toBeTrue();
+
+    $this->actingAs($admin)
+        ->get('/admin/managers')
+        ->assertInertia(function (AssertableInertia $page) {
+            /** @var list<array<string, mixed>> $rows */
+            $rows = $page->toArray()['props']['managers'];
+            $suspended = collect($rows)->firstWhere('fullName', 'Hồ Thị Tạm Khoá');
+
+            // /admin/managers still lists them — and says why.
+            expect($suspended)->not->toBeNull()
+                ->and($suspended['status'])->toBe('suspended')
+                // Still revocable: an unusable grant is exactly the one
+                // worth taking back.
+                ->and($suspended['revokeConfirmation'])->not->toBeNull();
         });
 });
 

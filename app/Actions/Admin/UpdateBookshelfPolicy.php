@@ -37,9 +37,11 @@ use Illuminate\Support\Facades\Gate;
  *
  * THE AUDIT ROW IS `bookshelf.updated`, the same action the profile command
  * writes, which is why that action's sentence names the shelf rather than
- * the field that moved. Both bags carry only this command's own eight keys,
- * so a reader of the log sees which numbers changed without the rest of the
- * settings bag being copied into every row.
+ * the field that moved. Both bags carry this command's own eight keys plus
+ * the shelf's name, so a reader of the log sees which numbers changed
+ * without the rest of the settings bag being copied into every row — and
+ * sees WHICH SHELF they changed on. The name is what the sentence
+ * substitutes; a bag without it renders the bare twin.
  *
  * NO WIDENING IS NEEDED and none is taken: `Bookshelf` carries no shelf
  * scope, so the row is reachable from the tenant-less `/admin` group as it
@@ -82,8 +84,15 @@ final class UpdateBookshelfPolicy
         DB::transaction(function () use ($shelf, $policy): void {
             $settings = (array) $shelf->settings;
 
-            $before = [];
-            $after = [];
+            // THE SHELF NAME RIDES IN BOTH BAGS, unchanged either side.
+            // `AuditSentences`' bookshelf.updated arm names the shelf out
+            // of $after (falling back to $before), and this command moves
+            // no name — so without this key every policy save rendered
+            // "đã sửa thông tin MỘT tủ sách" on a log that is cross-shelf
+            // by nature. Carried on both sides so the pair reads as
+            // "unchanged" rather than as a rename to or from nothing.
+            $before = ['name' => $shelf->name];
+            $after = ['name' => $shelf->name];
 
             foreach (self::KEYS as $key) {
                 // Absent means "this shelf has never had a policy of its

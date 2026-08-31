@@ -250,6 +250,13 @@ export const copy = {
         promoteConfirm: "Xác nhận giao quyền",
         promoteWarning:
             "Người này sẽ thấy và sửa được mọi tủ sách. Hiện chưa có cách thu hồi quyền này.",
+        // A manager whose membership is not active still HOLDS the keys —
+        // the row stays so the grant can be seen and taken back — but they
+        // cannot use them, which is why /admin/shelves counts the shelf as
+        // unmanned. Said in words on the row, because a status chip alone
+        // leaves the two screens looking as though they disagree.
+        cannotActNote:
+            "Người này chưa thể làm việc trên tủ sách cho tới khi tài khoản hoạt động trở lại.",
     },
     auth: {
         title: "Đăng nhập",

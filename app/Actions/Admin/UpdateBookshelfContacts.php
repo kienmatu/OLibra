@@ -66,7 +66,9 @@ use Illuminate\Support\Facades\Gate;
  * too, since the creating hook also stops stamping while widened.
  *
  * The audit row is `bookshelf.updated`, the same action the profile and
- * policy commands write, with the three slots before and after.
+ * policy commands write, with the three slots before and after — and the
+ * shelf's name in both bags, which is what the sentence for that action
+ * substitutes. See `snapshot()`.
  */
 final class UpdateBookshelfContacts
 {
@@ -90,7 +92,7 @@ final class UpdateBookshelfContacts
             $this->context->systemWide(function () use ($shelf, $contacts): void {
                 $existing = $shelf->contacts()->orderBy('position')->get()->keyBy('position');
 
-                $before = $this->snapshot($existing);
+                $before = $this->snapshot($shelf, $existing);
 
                 foreach ([1, 2, 3] as $position) {
                     $name = trim((string) ($contacts[$position]['name'] ?? ''));
@@ -123,7 +125,7 @@ final class UpdateBookshelfContacts
                     $shelf->contacts()->create($fields + ['position' => $position]);
                 }
 
-                $after = $this->snapshot($shelf->contacts()->orderBy('position')->get()->keyBy('position'));
+                $after = $this->snapshot($shelf, $shelf->contacts()->orderBy('position')->get()->keyBy('position'));
 
                 $this->audit->forShelf($shelf->id)->record('bookshelf.updated', 'bookshelf', $shelf->id, $before, $after);
             });
@@ -135,12 +137,20 @@ final class UpdateBookshelfContacts
      * `null` for an empty slot, so a reader of the log sees which position
      * gained or lost a person rather than a list that shortened.
      *
+     * PLUS THE SHELF'S OWN NAME, unchanged either side. `AuditSentences`'
+     * bookshelf.updated arm names the shelf out of $after (falling back to
+     * $before) and this command moves no name, so without this key every
+     * contacts save rendered "đã sửa thông tin MỘT tủ sách" on a log that
+     * is cross-shelf by nature. It sits beside `contact_1..3` rather than
+     * inside one of them because it is a fact about the shelf, not about a
+     * slot.
+     *
      * @param  Collection<int, BookshelfContact>  $rows
-     * @return array<string, array{name: string, phone: ?string, role_label: ?string}|null>
+     * @return array<string, string|array{name: string, phone: ?string, role_label: ?string}|null>
      */
-    private function snapshot(Collection $rows): array
+    private function snapshot(Bookshelf $shelf, Collection $rows): array
     {
-        $snapshot = [];
+        $snapshot = ['name' => $shelf->name];
 
         foreach ([1, 2, 3] as $position) {
             $row = $rows->get($position);

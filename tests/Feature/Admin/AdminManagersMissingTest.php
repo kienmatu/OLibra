@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\BookshelfStatus;
 use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
 use App\Models\Bookshelf;
@@ -19,7 +20,7 @@ use App\Support\TenantContext;
  * that the assertion would land here — against the act that produces it
  * rather than against a fixture arranged to match the predicate.
  *
- * FIVE CASES, MEASURED against five mutations of the predicate
+ * SIX CASES, MEASURED against six mutations of the predicate
  * (`AdminOverviewQuery`'s manager aggregate), one mutation at a time:
  *
  * | mutation | which cases go red |
@@ -29,12 +30,13 @@ use App\Support\TenantContext;
  * | drop the surviving-user constraint | soft-deleted user |
  * | admit `reader` in the role filter | revoked, readers-only |
  * | count only `manager`, never `admin` | active shelf admin |
+ * | drop the active-shelf gate | archived shelf |
  *
- * So three of the five cases are the sole witness to their own clause, and
+ * So four of the six cases are the sole witness to their own clause, and
  * removing any clause of the predicate turns this file red.
  *
  * THE REVOKED AND READERS-ONLY ROWS SHARE THEIR MUTATIONS, and that is not
- * a gap to be closed by inventing a sixth: after a revoke the shelf IS a
+ * a gap to be closed by inventing a seventh: after a revoke the shelf IS a
  * readers-only shelf, so no predicate can tell the two end states apart.
  * What the revoked row adds is not a clause but a DIRECTION — it asserts
  * the flag reads false before the act and true after it, through the real
@@ -148,6 +150,36 @@ it('does not flag a shelf held by an active shelf admin', function () {
     ]);
 
     expect(managersMissingFor('co-quan-tri'))->toBeFalse();
+});
+
+it('does NOT flag an archived shelf, however unmanned it is', function () {
+    // The fix wave's finding 6. The flag is an alarm, and this one could
+    // not be cleared: BookshelfPolicy::assignManager() 404s an archived
+    // shelf and ManagerCandidatesQuery does not offer one, so there is no
+    // control anywhere in the application that answers it. What D6 defends
+    // is a shelf that is OPEN and that nobody can run; a shelf deliberately
+    // taken out of service is not that, and flagging it is noise beside the
+    // rows a volunteer can actually act on.
+    //
+    // Through the archive ROUTE, not a fixture status: the point is that
+    // the act of archiving clears the alarm, which is what a volunteer
+    // pressing the button on the row expects to happen.
+    $shelf = managersMissingShelf('da-ngung-hoat-dong');
+    app(TenantContext::class)->actSystemWide();
+    $admin = User::factory()->create(['is_super_admin' => true]);
+
+    // Unmanned and active — the alarm is on.
+    expect(managersMissingFor('da-ngung-hoat-dong'))->toBeTrue();
+
+    $this->actingAs($admin)
+        ->post("/admin/shelves/{$shelf->slug}/archive")
+        ->assertRedirect('/admin/shelves');
+
+    app(TenantContext::class)->actSystemWide();
+
+    // Still unmanned — nothing was appointed — but no longer an alarm.
+    expect($shelf->fresh()->status)->toBe(BookshelfStatus::Archived)
+        ->and(managersMissingFor('da-ngung-hoat-dong'))->toBeFalse();
 });
 
 it('flags a shelf that has readers only, however many of them', function () {

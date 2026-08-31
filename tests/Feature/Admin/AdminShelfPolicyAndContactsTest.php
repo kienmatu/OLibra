@@ -4,6 +4,7 @@ use App\Models\AuditLog;
 use App\Models\Bookshelf;
 use App\Models\BookshelfContact;
 use App\Models\User;
+use App\Support\Audit\AuditSentences;
 use App\Support\Circulation\LendingSettings;
 use App\Support\Community\CommentSettings;
 use App\Support\TenantContext;
@@ -141,6 +142,48 @@ it('writes bookshelf.updated when the policy is saved', function () {
         // a different fact from any value, and not the fallback repeated.
         ->and($row->before['hold_days'])->toBeNull()
         ->and($row->after['hold_days'])->toBe(4);
+});
+
+it('names the shelf in the sentence both saves render, rather than "một tủ sách"', function () {
+    // The fix wave's finding 4, at the layer that produces the defect. The
+    // bookshelf.updated arm names the shelf out of the payload, and neither
+    // of these two commands moves a name — so unless each puts the shelf's
+    // own name in its bags, every policy save and every contacts save reads
+    // "đã sửa thông tin MỘT tủ sách" on a log that is cross-shelf by nature.
+    //
+    // ASSERTED THROUGH THE SENTENCE, not through `$row->after['name']`,
+    // because the key alone is not the requirement: a bag carrying `name`
+    // under a different spelling, or only in `before`, would satisfy a key
+    // assertion and still render the bare twin. AuditLogQuery builds its
+    // facts exactly this way (that class, ~line 155).
+    $admin = adminShelfPolicyFix();
+    Bookshelf::factory()->create(['slug' => 'ten-trong-nhat-ky', 'name' => 'Tủ sách Đồng Tháp', 'settings' => []]);
+
+    $this->actingAs($admin)
+        ->patch('/admin/shelves/ten-trong-nhat-ky/policy', adminShelfPolicyPayload());
+
+    $this->actingAs($admin)
+        ->put('/admin/shelves/ten-trong-nhat-ky/contacts', [
+            'contact_1_name' => 'Chị Hoa',
+            'contact_2_name' => '',
+            'contact_3_name' => '',
+        ]);
+
+    $rows = AuditLog::query()->where('action', 'bookshelf.updated')->orderBy('occurred_at')->get();
+
+    expect($rows)->toHaveCount(2);
+
+    foreach ($rows as $row) {
+        $sentence = AuditSentences::sentence('bookshelf.updated', [
+            'actor' => $admin->full_name,
+            'subject' => null,
+            'before' => $row->before,
+            'after' => $row->after,
+        ]);
+
+        expect($sentence)->toContain('Tủ sách Đồng Tháp')
+            ->and($sentence)->not->toContain('một tủ sách');
+    }
 });
 
 it('refuses a loan period outside the bounds and saves nothing', function () {

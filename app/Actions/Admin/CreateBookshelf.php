@@ -43,13 +43,27 @@ use Illuminate\Support\Facades\Gate;
  * field entirely; see UpdateBookshelfProfile.
  *
  * `settings` IS LEFT EMPTY, and the lending policy is not copied in from an
- * installation default the way the reference copies `system_settings`. There
- * is no `system_settings` table in this port yet — `/admin/settings` is
- * 3b-ii — and every consumer already reads its own fallback
- * (App\Support\Community\CommentSettings::fromShelf's `?? true`,
- * circulation's renewal settings, and so on). A shelf created here therefore
- * behaves exactly like every shelf the seeders make, which also ship `[]`.
- * Task 5's policy form is what writes real values into it.
+ * installation default the way the reference copies `system_settings`. The
+ * TABLE exists — `2026_08_26_000017_create_system_settings_table` creates it
+ * with six `default_*` columns and seeds the single row id=1 — but nothing
+ * in the application reads it yet: there is no model, no query and no
+ * command over it, and `/admin/settings`, the screen that makes those six
+ * numbers editable, is 3b-ii. So a copy today would read defaults nobody can
+ * change.
+ *
+ * AND IT WOULD CHANGE NO BEHAVIOUR IF IT DID. The six column defaults are
+ * 14 / 3 / 3 / 1 / 7 / 3, which is character for character what
+ * App\Support\Circulation\LendingSettings::fromShelf coalesces to for an
+ * absent key, and comments fall back the same way
+ * (App\Support\Community\CommentSettings::fromShelf's `?? true`). Copying
+ * would only write six values that behave identically to their absence —
+ * while turning "this shelf has never had a policy of its own" into "this
+ * shelf chose these numbers", which is the distinction
+ * UpdateBookshelfPolicy's `before` bag deliberately preserves. A shelf
+ * created here therefore behaves exactly like every shelf the seeders make,
+ * which also ship `[]`. Task 5's policy form is what writes real values into
+ * it, and 3b-ii is where copying an installation default becomes a question
+ * worth reopening.
  */
 final class CreateBookshelf
 {

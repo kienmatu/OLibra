@@ -187,7 +187,7 @@ const CONTACT_BLOCKS = [
 }[];
 
 export default function AdminShelfEdit() {
-    const { shelf, policy, contacts, errors: pageErrors } = usePage<PageProps>().props;
+    const { shelf, policy, contacts, errors: pageErrors, flash } = usePage<PageProps>().props;
 
     // The slug is deliberately absent from this bag. Inertia submits what
     // the bag holds, so leaving it out is what makes the read-only input
@@ -252,6 +252,30 @@ export default function AdminShelfEdit() {
             <Head title={copy.adminShelves.editTitle} />
             <h2 className="mb-1 text-xl font-semibold">{shelf.name}</h2>
             <p className="mb-4 text-sm text-muted-foreground">{shelf.slug}</p>
+
+            {/* THE THREE FORMS ON THIS PAGE CONFIRM SEPARATELY, and the
+                sentence is what separates them: ShelfController flashes
+                bookshelf_profile_saved_flash, bookshelf_policy_saved_flash
+                or bookshelf_contacts_saved_flash, each naming its own
+                section, which is the requirement that controller's docblock
+                argues for. One banner in one place is still three
+                confirmations because no two of them read alike.
+
+                It is at the top rather than inside each section because a
+                submit here is a plain visit: none of the three passes
+                preserveScroll, so Inertia resets the scroll and this is
+                where the volunteer lands. Without it, saving the profile
+                left the page pixel-identical — useForm's patch preserves
+                state, so not even the inputs flicker — and a save was
+                indistinguishable from a press that did nothing. */}
+            {flash.success ? (
+                <p
+                    role="status"
+                    className="mb-4 rounded-md border border-green-700/30 bg-green-700/10 px-3 py-2 text-sm"
+                >
+                    {flash.success}
+                </p>
+            ) : null}
 
             {/* A business refusal arrives through the shared errors prop
                 under `rule`, not as a field error — bootstrap/app.php's one

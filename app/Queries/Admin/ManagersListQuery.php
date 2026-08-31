@@ -39,6 +39,25 @@ use Illuminate\Support\Carbon;
  * `TenancyArchitectureTest` confines the hand-written spelling to a
  * four-file allow-list this directory is not on.
  *
+ * **A SUSPENDED MANAGER IS STILL LISTED, with `status` saying so.** This
+ * screen answers "who holds the keys", and a suspended grant is still a
+ * grant somebody holds — hiding the row would make it invisible AND
+ * unrevocable, since the revoke control lives on it. But
+ * `AdminOverviewQuery`'s `managersMissing` counts ACTIVE memberships only,
+ * so a shelf whose sole manager is suspended reads "no manager" on
+ * `/admin/shelves` while this list shows that person. Without `status` the
+ * two screens simply contradict each other; with it, the row is where the
+ * volunteer finds out WHY the other screen is raising the alarm. Pinned in
+ * `AdminManagersTest`.
+ *
+ * **`isSuperAdmin` IS A FACT ABOUT THE PERSON, NOT ABOUT THE ROW.** A super
+ * administrator who also manages a shelf legitimately appears twice — once
+ * globally with nothing to revoke, once on the shelf whose keys they hold
+ * and which is genuinely revocable. Neither row may be dropped. What the
+ * membership row must NOT do is offer the promote control: pressing it
+ * throws `already_super_admin`, so this flag is what lets the screen
+ * suppress a button whose only outcome is a refusal.
+ *
  * A SOFT-DELETED PERSON IS NOT LISTED, matching the reference's joins
  * (`old_next/src/domain/admin/queries/get-admin-overview.ts`, whose people
  * CTE joins users on a surviving row both above and below its union). A
@@ -51,7 +70,7 @@ final class ManagersListQuery
     ) {}
 
     /**
-     * @return list<array{membershipId: ?string, userId: string, fullName: string, phone: ?string, role: string, shelfId: ?string, shelfName: ?string, shelfSlug: ?string, lastActiveAt: ?string}>
+     * @return list<array{membershipId: ?string, userId: string, fullName: string, phone: ?string, role: string, isSuperAdmin: bool, status: ?string, shelfId: ?string, shelfName: ?string, shelfSlug: ?string, lastActiveAt: ?string}>
      */
     public function run(): array
     {
@@ -73,7 +92,7 @@ final class ManagersListQuery
 
             $lastActive = $this->lastActiveByActor();
 
-            /** @var list<array{membershipId: ?string, userId: string, fullName: string, phone: ?string, role: string, shelfId: ?string, shelfName: ?string, shelfSlug: ?string, lastActiveAt: ?string}> $rows */
+            /** @var list<array{membershipId: ?string, userId: string, fullName: string, phone: ?string, role: string, isSuperAdmin: bool, status: ?string, shelfId: ?string, shelfName: ?string, shelfSlug: ?string, lastActiveAt: ?string}> $rows */
             $rows = [];
 
             foreach ($superAdmins as $person) {
@@ -85,6 +104,11 @@ final class ManagersListQuery
                     // Not a MembershipRole case, and deliberately so: this
                     // is a column on the PERSON, not a membership anywhere.
                     'role' => 'super_admin',
+                    'isSuperAdmin' => true,
+                    // No membership, so no membership status. Null is
+                    // "this row is not about a membership at all", which
+                    // is a different fact from any of the five cases.
+                    'status' => null,
                     'shelfId' => null,
                     'shelfName' => null,
                     'shelfSlug' => null,
@@ -106,6 +130,11 @@ final class ManagersListQuery
                         'fullName' => $person->full_name,
                         'phone' => $person->phone,
                         'role' => $membership->role->value,
+                        // A fact about the PERSON, decided by the server so
+                        // the screen never has to infer it by scanning the
+                        // list for a second row with the same user id.
+                        'isSuperAdmin' => (bool) $person->is_super_admin,
+                        'status' => $membership->status->value,
                         'shelfId' => $shelf->id,
                         'shelfName' => $shelf->name,
                         'shelfSlug' => $shelf->slug,

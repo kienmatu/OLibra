@@ -120,7 +120,7 @@ function ShelfRow({ shelf }: { shelf: AdminShelfRow }) {
 }
 
 export default function AdminShelves() {
-    const { shelves } = usePage<PageProps>().props;
+    const { shelves, flash } = usePage<PageProps>().props;
 
     return (
         <AdminLayout>
@@ -134,6 +134,20 @@ export default function AdminShelves() {
                     <Link href={route("admin.shelves.create")}>{copy.adminShelves.createLink}</Link>
                 </Button>
             </div>
+
+            {/* Archive and unarchive both land back here, and the row they
+                were pressed on changes its badge and swaps its button — a
+                change small enough to miss. The sentence says which of the
+                two happened and that the data was kept. role="status", the
+                manage/ pages' shape. */}
+            {flash.success ? (
+                <p
+                    role="status"
+                    className="mb-4 rounded-md border border-green-700/30 bg-green-700/10 px-3 py-2 text-sm"
+                >
+                    {flash.success}
+                </p>
+            ) : null}
 
             {shelves.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{copy.adminShelves.empty}</p>

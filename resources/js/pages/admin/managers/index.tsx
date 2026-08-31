@@ -2,6 +2,7 @@ import { Head, useForm, usePage } from "@inertiajs/react";
 import { KeyRound, ShieldCheck, UserCog } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { route } from "ziggy-js";
+import InputError from "@/components/input-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +27,23 @@ interface ManagerRow {
     fullName: string;
     phone: string | null;
     role: string;
+    /**
+     * A fact about the PERSON, not about this row. A super administrator who
+     * also manages a shelf gets two rows — the global one and the shelf one
+     * — and both are real: the shelf grant is genuinely revocable. What the
+     * shelf row must not do is offer Promote, which would throw
+     * `already_super_admin`. The server decides this rather than the screen
+     * scanning the list for a second row with the same user id.
+     */
+    isSuperAdmin: boolean;
+    /**
+     * The membership's status, `null` on a super administrator's row —
+     * there is no membership there to have one. A manager whose membership
+     * is not `active` cannot act, which is exactly why /admin/shelves counts
+     * their shelf as unmanned; the row says so rather than leaving the two
+     * screens contradicting each other.
+     */
+    status: string | null;
     shelfId: string | null;
     shelfName: string | null;
     shelfSlug: string | null;
@@ -59,6 +77,12 @@ const ROLE_LABEL: Record<string, string> = {
     admin: copy.adminManagers.roleAdmin,
     manager: copy.adminManagers.roleManager,
 };
+
+/**
+ * The membership statuses, shared with every other screen that shows one —
+ * a second spelling here would be a second vocabulary for the same column.
+ */
+const STATUS_LABEL: Record<string, string> = copy.membershipStatus;
 
 const selectClass = "mt-1 h-11 rounded-md border border-input bg-background px-2 text-sm";
 
@@ -142,6 +166,13 @@ function AssignForm({ shelves }: { shelves: AppointableShelf[] }) {
                                 </option>
                             ))}
                         </select>
+                        {/* AssignManagerRequest validates both fields, and
+                            both refusals are reachable from this form: a
+                            submit with no person chosen fails `required`,
+                            and a hand-posted role fails the Rule::in. Until
+                            these two blocks existed the press simply did
+                            nothing. */}
+                        <InputError message={form.errors.user_id} />
                     </label>
 
                     {/* Spec D7: the form offers the choice rather than
@@ -157,6 +188,7 @@ function AssignForm({ shelves }: { shelves: AppointableShelf[] }) {
                             <option value="manager">{copy.adminManagers.roleManager}</option>
                             <option value="admin">{copy.adminManagers.roleAdmin}</option>
                         </select>
+                        <InputError message={form.errors.role} />
                     </label>
 
                     <Button
@@ -241,7 +273,10 @@ function PromoteControl({ manager }: { manager: ManagerRow }) {
     const [open, setOpen] = useState(false);
     const form = useForm({});
 
-    if (manager.role === "super_admin") {
+    // isSuperAdmin, not role — the role on a super administrator's SHELF row
+    // reads `manager`, so a check on the role alone rendered a live button
+    // whose only outcome was the `already_super_admin` refusal.
+    if (manager.isSuperAdmin) {
         return null;
     }
 
@@ -285,6 +320,9 @@ function PromoteControl({ manager }: { manager: ManagerRow }) {
 
 function ManagerCard({ manager }: { manager: ManagerRow }) {
     const superAdmin = manager.role === "super_admin";
+    // A membership that is not active is a grant its holder cannot use.
+    // Null is a super administrator's row, which has no membership at all.
+    const dormant = manager.status !== null && manager.status !== "active";
     const lastActive =
         manager.lastActiveAt === null ? null : formatInstantParts(manager.lastActiveAt);
 
@@ -303,6 +341,14 @@ function ManagerCard({ manager }: { manager: ManagerRow }) {
                             ? copy.adminManagers.neverActive
                             : `${copy.adminManagers.lastActive}: ${lastActive.date}`}
                     </p>
+                    {/* Said in words, not only as the chip beside the role:
+                        this is the sentence that explains why the same
+                        shelf reads "Chưa có quản lý" on /admin/shelves. */}
+                    {dormant && (
+                        <p className="mt-1 text-sm text-destructive">
+                            {copy.adminManagers.cannotActNote}
+                        </p>
+                    )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -310,6 +356,11 @@ function ManagerCard({ manager }: { manager: ManagerRow }) {
                         <Icon iconNode={superAdmin ? ShieldCheck : UserCog} className="size-3.5" />
                         {ROLE_LABEL[manager.role] ?? manager.role}
                     </Badge>
+                    {dormant && (
+                        <Badge variant="destructive">
+                            {STATUS_LABEL[manager.status ?? ""] ?? manager.status}
+                        </Badge>
+                    )}
                     <RevokeControl manager={manager} />
                     <PromoteControl manager={manager} />
                 </div>
@@ -319,7 +370,7 @@ function ManagerCard({ manager }: { manager: ManagerRow }) {
 }
 
 export default function AdminManagers() {
-    const { managers, appointable } = usePage<PageProps>().props;
+    const { managers, appointable, errors, flash } = usePage<PageProps>().props;
 
     return (
         <AdminLayout>
@@ -328,6 +379,36 @@ export default function AdminManagers() {
                 <h2 className="text-xl font-semibold">{copy.adminManagers.title}</h2>
                 <p className="text-sm text-muted-foreground">{copy.adminManagers.lead}</p>
             </div>
+
+            {/* Every one of the three grants redirects back here with a
+                flash, and all three change a row further down that a
+                volunteer would otherwise have to hunt for. role="status" so
+                a screen reader is told without focus being stolen from the
+                control that was just pressed. */}
+            {flash.success ? (
+                <p
+                    role="status"
+                    className="mb-4 rounded-md border border-green-700/30 bg-green-700/10 px-3 py-2 text-sm"
+                >
+                    {flash.success}
+                </p>
+            ) : null}
+
+            {/* The page-level bag, by construction: bootstrap/app.php turns
+                a RuleViolated from any Action into
+                back()->withErrors(['rule' => …]) and back() follows the
+                Referer, so `already_super_admin`, `not_a_manager` and
+                `membership_not_found` all land here already translated —
+                the manage/ pages' convention. Before this block every one
+                of them was a press that did nothing and said nothing. */}
+            {errors.rule ? (
+                <p
+                    role="alert"
+                    className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+                >
+                    {errors.rule}
+                </p>
+            ) : null}
 
             <AssignForm shelves={appointable} />
 

@@ -2,6 +2,7 @@
 
 namespace App\Queries\Admin;
 
+use App\Enums\BookshelfStatus;
 use App\Enums\CommentStatus;
 use App\Enums\DonationStatus;
 use App\Enums\LoanStatus;
@@ -267,7 +268,17 @@ final class AdminOverviewQuery
                     'overdue' => (int) ($overdue[$shelf->id] ?? 0),
                     'pending' => $pending,
                     'contactsMissing' => ! isset($contacts[$shelf->id]),
-                    'managersMissing' => ! isset($managers[$shelf->id]),
+                    // AN ACTIVE SHELF ONLY. The flag is an alarm, and an
+                    // alarm nobody can clear is noise: `BookshelfPolicy::
+                    // assignManager()` 404s an archived shelf and
+                    // `ManagerCandidatesQuery` does not offer one, so an
+                    // archived shelf flagged unmanned would show a
+                    // volunteer a fault with no control anywhere in the
+                    // application that fixes it. What D6 is defending is a
+                    // shelf that is OPEN and that nobody can run; a shelf
+                    // deliberately taken out of service is not that.
+                    'managersMissing' => $shelf->status === BookshelfStatus::Active
+                        && ! isset($managers[$shelf->id]),
                 ];
             });
 
