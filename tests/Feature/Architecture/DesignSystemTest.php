@@ -168,3 +168,149 @@ it('ports the reference base layer', function () {
     // sites keep their own ring, which --ring has already made terracotta.
     expect($css)->toMatch('/:focus-visible\s*\{\s*\n\s*outline: 2px solid var\(--color-terracotta\);/');
 });
+
+/**
+ * Every `--name: #rrggbb` declaration in one block, as name => [r, g, b].
+ *
+ * Only the block's own body is scanned, never the whole file: the eleven
+ * reference tokens live in `@theme`, which is also a `:root` rule, so a
+ * whole-file match would fold light-mode values into the dark map and quietly
+ * measure light mode against itself.
+ */
+function designSystemColours(string $css, string $selector): array
+{
+    preg_match_all(
+        '/^\s*--([a-z0-9-]+):\s*#([0-9a-fA-F]{6})\s*;/m',
+        designSystemBlock($css, $selector),
+        $matches,
+        PREG_SET_ORDER
+    );
+
+    $colours = [];
+
+    foreach ($matches as [, $name, $hex]) {
+        $colours[$name] = [
+            hexdec(substr($hex, 0, 2)),
+            hexdec(substr($hex, 2, 2)),
+            hexdec(substr($hex, 4, 2)),
+        ];
+    }
+
+    return $colours;
+}
+
+/** WCAG 2.1 relative luminance of an sRGB triple. */
+function designSystemLuminance(array $rgb): float
+{
+    $channels = array_map(function (int $value): float {
+        $srgb = $value / 255;
+
+        return $srgb <= 0.04045 ? $srgb / 12.92 : (($srgb + 0.055) / 1.055) ** 2.4;
+    }, $rgb);
+
+    return 0.2126 * $channels[0] + 0.7152 * $channels[1] + 0.0722 * $channels[2];
+}
+
+/** WCAG contrast ratio, (L1 + 0.05) / (L2 + 0.05) with L1 the lighter. */
+function designSystemContrast(array $a, array $b): float
+{
+    $first = designSystemLuminance($a);
+    $second = designSystemLuminance($b);
+
+    return (max($first, $second) + 0.05) / (min($first, $second) + 0.05);
+}
+
+/**
+ * The guard whose absence produced the worst defect in this spec's own
+ * drafting: every ink had been measured against `page`, none against `paper` --
+ * the ground `--muted`, `--accent` and `--secondary` all map onto -- and five of
+ * six dark inks were below AA on it. Pairing every ink with every ground, rather
+ * than only foreground with background, is what makes that class of mistake
+ * impossible to repeat.
+ *
+ * The measured worst case is 4.504 light / 4.510 dark, both `destructive` on
+ * `secondary`. There is very little headroom above 4.5 by design, so a colour
+ * nudged "just a shade" will fail here.
+ */
+it('meets AA across the full ink and ground matrix', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    // Text colours, and the grounds they can land on. `secondary`, `muted` and
+    // `accent` are all `paper`, the darkest of the light grounds; measuring
+    // against `background` alone is exactly the mistake this test exists for.
+    $inks = ['foreground', 'muted-foreground', 'primary', 'destructive'];
+    $grounds = ['background', 'card', 'popover', 'secondary', 'muted', 'accent'];
+
+    // The two variables that are also used as fills, each under its own label.
+    $fills = ['primary' => 'primary-foreground', 'destructive' => 'destructive-foreground'];
+
+    foreach ([':root', '.dark'] as $selector) {
+        $colours = designSystemColours($css, $selector);
+
+        // Pairs are built only from variables actually parsed, so a parse that
+        // finds nothing yields nothing to iterate. The count assertion below is
+        // what turns that silence into a failure -- assert it BEFORE any ratio,
+        // or an empty matrix passes green.
+        $pairs = [];
+
+        foreach ($inks as $ink) {
+            foreach ($grounds as $ground) {
+                if (isset($colours[$ink], $colours[$ground])) {
+                    $pairs[] = ["{$ink} on {$ground}", $colours[$ink], $colours[$ground]];
+                }
+            }
+        }
+
+        foreach ($fills as $fill => $label) {
+            if (isset($colours[$fill], $colours[$label])) {
+                $pairs[] = ["{$label} on {$fill}", $colours[$label], $colours[$fill]];
+            }
+        }
+
+        // 24 ink x ground + 2 fills.
+        expect($pairs)->toHaveCount(26, "wrong number of contrast pairs parsed from `{$selector}`");
+
+        foreach ($pairs as [$description, $ink, $ground]) {
+            $ratio = designSystemContrast($ink, $ground);
+
+            expect($ratio)->toBeGreaterThanOrEqual(
+                4.5,
+                sprintf('%s in `%s` is %.3f, below AA 4.5', $description, $selector, $ratio)
+            );
+        }
+    }
+});
+
+/**
+ * Borders are not text, so they sit outside the AA matrix above -- but in a
+ * shadowless design the hairline *is* the structure, and the reference's own
+ * history records an earlier value being lost at 1.05. Measured against `card`,
+ * the ground dividers actually sit on: light 1.604, dark 1.603.
+ */
+it('keeps borders visible', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    foreach ([':root', '.dark'] as $selector) {
+        $colours = designSystemColours($css, $selector);
+
+        $pairs = [];
+
+        foreach (['border', 'input'] as $line) {
+            if (isset($colours[$line], $colours['card'])) {
+                $pairs[] = ["{$line} on card", $colours[$line], $colours['card']];
+            }
+        }
+
+        // Same guard as above: an empty matrix must fail, not pass silently.
+        expect($pairs)->toHaveCount(2, "wrong number of border pairs parsed from `{$selector}`");
+
+        foreach ($pairs as [$description, $line, $ground]) {
+            $ratio = designSystemContrast($line, $ground);
+
+            expect($ratio)->toBeGreaterThanOrEqual(
+                1.5,
+                sprintf('%s in `%s` is %.3f, too faint to read as structure', $description, $selector, $ratio)
+            );
+        }
+    }
+});
