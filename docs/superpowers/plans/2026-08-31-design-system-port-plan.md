@@ -38,6 +38,9 @@ it has been measured. Do not re-derive colours.
 - **Do not run `vendor/bin/pint` on the host** — the host PHP is broken. Run it
   inside `laravel-app-1`.
 - Run tests with `docker exec laravel-app-1 php artisan test`.
+- **The frontend build is `npm run laravel:build`.** Plain `npm run build` at the
+  repo root maps to `cd old_next && next build` — it builds the read-only Next.js
+  reference, not this app. Do not run it.
 - **Put the new tests in `tests/Feature/Architecture/DesignSystemTest.php`**, next
   to the repo's other file-scanning guards (`StyleGuideTest.php`,
   `TenancyArchitectureTest.php`, …). Note `tests/Pest.php:8-10` applies
