@@ -515,10 +515,16 @@ it('lists every shelf, ordered by name', function () {
 });
 
 it('SEES THE SHELF IT IS NOT BOUND TO — the block that fails if the widening is forgotten', function () {
-    // The phase's central proof. The tenant is bound to shelf A (see
-    // adminFix), so shelf B's row and its count are visible ONLY because
-    // AdminOverviewQuery widens. Titled assertion first: a wrong `books`
-    // count for shelf A must not hide a missing shelf B.
+    // The phase's central proof, and BE PRECISE ABOUT WHICH HALF PROVES IT.
+    // Bookshelf is NOT tenant-scoped (adminFix's docblock says so), so shelf
+    // B's ROW is listed either way — toHaveKey below can never fail and is a
+    // readability guard, not evidence. What only the widening can produce is
+    // shelf B's COUNT: bound to shelf A, a scoped Book aggregate returns
+    // nothing for B, and the assertion reads 0 instead of 1.
+    //
+    // An earlier draft of this comment claimed the row and the count were
+    // both proof. Half of that was false, and it contradicted adminFix's own
+    // docblock thirty lines above.
     [$a, $b] = adminFix();
 
     $context = app(TenantContext::class);
@@ -541,7 +547,7 @@ it('counts active memberships as readers, managers included', function () {
     [$a] = adminFix();
 
     app(TenantContext::class)->systemWide(function () use ($a): void {
-        foreach ([MembershipStatus::Active, MembershipStatus::Active, MembershipStatus::Pending] as $i => $status) {
+        foreach ([MembershipStatus::Active, MembershipStatus::Active, MembershipStatus::Pending] as $status) {
             Membership::factory()->for($a)->create([
                 'user_id' => User::factory()->create()->id, 'role' => 'reader', 'status' => $status,
             ]);
@@ -700,7 +706,7 @@ The docblock carries: OPS §3.4's `GetAdminOverview` row, D3's four sources with
 
 - [ ] **Step 4: Run it green, then the suite**
 
-`make test FILTER=AdminOverviewQueryTest` → 7 blocks. Then `make test`.
+`make test FILTER=AdminOverviewQueryTest` → **9 blocks** (`grep -c "^it("` on the file agrees). Then `make test`.
 
 - [ ] **Step 5: Prove three blocks discriminate — the first is the phase**
 
@@ -913,6 +919,15 @@ it('an empty query lists every active shelf', function () {
     $this->get('/shelves?q=')->assertInertia(fn ($page) => $page->has('shelves', 2));
 });
 
+it('a query that folds to nothing lists nothing, not everything', function () {
+    // BooksListQuery:35-39's guard, carried. `...` is non-empty but folds to
+    // '', and an unguarded search would become LIKE '%%' and list every shelf
+    // — the failure looks like success, which is why it gets its own block.
+    portalFix();
+
+    $this->get('/shelves?q=...')->assertInertia(fn ($page) => $page->has('shelves', 0));
+});
+
 it('the portal does NOT list an archived shelf — the one place it differs from the dashboard', function () {
     // D2 against D9. The dashboard lists archived shelves because an
     // administrator is their only route to them; the portal is public and
@@ -949,15 +964,9 @@ and the same for `location_folded` and `address_folded` — **but wrap those two
 
 In `ShellController::shelves()`, read `q` from the request and filter on the three folded columns with `Fold::fold($q)`, matching how `BooksListQuery` does it. Add `address` to the selected columns and to the mapped array. Keep the `status = active` filter — D2.
 
-**Carry `BooksListQuery`'s punctuation guard** (`app/Queries/BooksListQuery.php:35-39`, opened): a query that is non-empty but folds to the empty string — `?q=...` — would otherwise degenerate to `LIKE '%%'` and match **every** shelf. Guard on the FOLDED value being non-empty, not on the raw input. Add a block:
+**Carry `BooksListQuery`'s punctuation guard** (`app/Queries/BooksListQuery.php:35-39`, opened — it is an early return on `$q !== '' && $folded === ''`): a query that is non-empty but folds to the empty string — `?q=...` — would otherwise degenerate to `LIKE '%%'` and match **every** shelf. Guard on the FOLDED value being non-empty, not on the raw input.
 
-```php
-it('a query that folds to nothing lists nothing, not everything', function () {
-    portalFix();
-
-    $this->get('/shelves?q=...')->assertInertia(fn ($page) => $page->has('shelves', 0));
-});
-```
+**Its test block belongs in Step 1's file, not here** — it must be part of the red run, or it is a block written after the code it checks.
 
 - [ ] **Step 4: Update the page**
 
