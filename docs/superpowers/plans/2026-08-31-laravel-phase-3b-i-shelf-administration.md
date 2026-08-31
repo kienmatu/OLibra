@@ -69,6 +69,20 @@ itself.
 - No formatter covers `resources/css/app.css`; Biome covers `resources/js/**`.
 - Architecture guards live in `tests/Feature/Architecture/`.
 
+### The architecture fences are comment-blind
+
+`offendersFor` in `WideningArchitectureTest` reads **raw file contents** with no
+comment stripping — unlike `AuditActionCensusTest`, which runs `token_get_all`
+first. So a docblock illustrating a call as `$this->audit->global()->record(...)`
+— exactly how spec D0 writes it — makes that file its own offender.
+
+Write such prose without the arrow (`forShelf($id) or global()`). This bit the
+project twice before, in `TenancyArchitectureTest`, and is recorded in
+`known-gaps.md`.
+
+Line numbers in `WideningArchitectureTest.php` shifted when Task 1 amended it;
+re-grep rather than trusting the numbers quoted below.
+
 ### House rule: mandatory falsification
 
 Every test is **watched failing before it is accepted** — mutate what it
