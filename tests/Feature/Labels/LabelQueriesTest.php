@@ -6,6 +6,7 @@ use App\Models\Bookshelf;
 use App\Models\Membership;
 use App\Models\User;
 use App\Queries\Labels\CopiesForLabelsQuery;
+use App\Queries\Labels\CopyByIdQuery;
 use App\Queries\Labels\TitlesForLabelsQuery;
 use App\Support\TenantContext;
 
@@ -194,4 +195,54 @@ it('another shelf\'s ids expand to nothing rather than to its copies', function 
         ->where('bookshelf_id', $shelf->id)->firstOrFail());
 
     expect(app(CopiesForLabelsQuery::class)->run([$otherBook->id], [$otherCopy->id]))->toBe([]);
+});
+
+it('resolves a copy on this shelf to its book', function () {
+    [$shelf] = lblFix();
+    $book = Book::factory()->for($shelf)->create(['title' => 'Dế Mèn Phiêu Lưu Ký', 'author' => 'Tô Hoài']);
+    $copy = BookCopy::factory()->for($shelf)->for($book)->create(['code' => 'DT-0001']);
+
+    $row = app(CopyByIdQuery::class)->run($copy->id);
+
+    expect($row)->not->toBeNull()
+        ->and($row['code'])->toBe('DT-0001')
+        ->and($row['title'])->toBe('Dế Mèn Phiêu Lưu Ký')
+        ->and($row['bookId'])->toBe($book->id);
+});
+
+it('another parish\'s sticker resolves to nothing — tenancy, not role', function () {
+    // The sticker is a physical object that travels in a donated box of
+    // books. Scanning shelf B's label while bound to shelf A must answer
+    // nothing rather than shelf B's copy.
+    [$shelf] = lblFix();
+
+    app(TenantContext::class)->actSystemWide();
+    $other = Bookshelf::factory()->create(['slug' => 'other-scan', 'settings' => []]);
+    $otherBook = Book::factory()->for($other)->create(['title' => 'Zzz']);
+    $otherCopy = BookCopy::factory()->for($other)->for($otherBook)->create(['code' => 'ZZ-0001']);
+
+    app(TenantContext::class)->set($shelf, Membership::query()
+        ->where('bookshelf_id', $shelf->id)->firstOrFail());
+
+    expect(app(CopyByIdQuery::class)->run($otherCopy->id))->toBeNull();
+});
+
+it('an unknown id, and a soft-deleted copy, both answer null rather than throwing', function () {
+    [$shelf] = lblFix();
+    $book = Book::factory()->for($shelf)->create(['title' => 'Aó Dài']);
+    $copy = BookCopy::factory()->for($shelf)->for($book)->create(['code' => 'DT-0001']);
+    $copy->delete();
+
+    expect(app(CopyByIdQuery::class)->run($copy->id))->toBeNull()
+        ->and(app(CopyByIdQuery::class)->run('0191f1e3-0f7a-7c31-9b2e-6a4b1d2c3e4f'))->toBeNull();
+});
+
+it('a malformed id answers null rather than raising a database error', function () {
+    // The scanner hands this whatever came off the camera. `id` is
+    // VARCHAR(36) ascii_bin in this schema, so a non-uuid string is a
+    // perfectly legal comparison that matches nothing — but assert it,
+    // because a future uuid-typed column would turn this into a 500.
+    lblFix();
+
+    expect(app(CopyByIdQuery::class)->run('not-a-uuid'))->toBeNull();
 });
