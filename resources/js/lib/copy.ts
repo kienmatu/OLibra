@@ -27,6 +27,14 @@ export const copy = {
     shelves: {
         title: "Các tủ sách",
         empty: "Chưa có tủ sách nào.",
+        // BR §16.1: the search box is this page's only job, for a parent
+        // typing a parish name without diacritics — "hoa binh" for "Giáo
+        // xứ Hòa Bình". Folded against name, location and address
+        // (ShellController::shelves()).
+        searchLabel: "Tìm tủ sách",
+        searchPlaceholder: "Tìm theo tên, khu vực hoặc địa chỉ",
+        searchButton: "Tìm",
+        noResults: "Không tìm thấy tủ sách nào phù hợp.",
     },
     shelf: {
         catalogue: "Danh mục",
