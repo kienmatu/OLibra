@@ -413,7 +413,31 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
         ['loans', 'books', 'readers', 'community'],
     ));
     expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(40);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(41);
+});
+
+it('copy.qr_printed names the count, an int cast to string, never str()\'s trimmed-string shape', function () {
+    // Task 8, on known-gaps.md's own ground: seventeen inherited sentences
+    // have no per-action wording block, and the census above cannot see a
+    // WRONG sentence — only a missing one. This is copy.qr_printed's block,
+    // so this phase does not add an eighteenth hole. Phase 2b's nineteen
+    // community keys each have one; this matches that shape.
+    //
+    // $after['count'] is stored as an INT (MarkCopiesPrinted's $after),
+    // never a string, so this arm cannot go through the shared str()
+    // helper (str() returns null for anything that is not already a
+    // string) — this pins that the arm reads and casts the int directly
+    // instead of silently rendering the undescribed-action fallback for
+    // every real payload this command ever writes.
+    expect(AuditSentences::sentence('copy.qr_printed', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        after: ['count' => 3],
+    )))->toBe('Maria Quản Lý Kho đã in nhãn QR cho 3 bản sách');
+
+    expect(AuditSentences::sentence('copy.qr_printed', audFacts(
+        actor: 'Maria Quản Lý Kho',
+        after: ['count' => 0],
+    )))->toBe('Maria Quản Lý Kho đã in nhãn QR cho 0 bản sách');
 });
 
 it('payloadRows: em dash for an absent key, the string null for a stored null', function () {

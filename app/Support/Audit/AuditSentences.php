@@ -37,6 +37,7 @@ final class AuditSentences
         'copy.lost_reported' => 'books',
         'copy.found' => 'books',
         'copy.retired' => 'books',
+        'copy.qr_printed' => 'books',
         'loan.created' => 'loans',
         'loan.returned' => 'loans',
         'loan.renewed' => 'loans',
@@ -166,6 +167,13 @@ final class AuditSentences
             'copy.retired' => strtr(self::line('copy_retired'), [':because' => self::because(self::str($after, 'reason'))]),
             'copy.lost_reported' => self::line('copy_lost_reported'),
             'copy.found' => self::line('copy_found'),
+            // Batch bookkeeping, not a single copy: $after carries an INT
+            // 'count', never a string, so str() (which only ever returns a
+            // trimmed string) is the wrong helper here — the count is read
+            // and cast directly instead.
+            'copy.qr_printed' => strtr(self::line('copy_qr_printed'), [
+                ':count' => (string) ($after['count'] ?? 0),
+            ]),
             'loan.created' => $subject !== null
                 ? strtr(self::line('loan_created'), [':subject' => $subject, ':title' => self::which(self::str($after, 'title'))])
                 : strtr(self::line('loan_created_bare'), [':title' => self::which(self::str($after, 'title'))]),

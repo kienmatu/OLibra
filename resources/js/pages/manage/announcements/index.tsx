@@ -226,7 +226,14 @@ export default function ManageAnnouncements() {
                 manager saw every "no" and no "yes". The controller was one
                 task's and this screen another's, and each was correct
                 against its own brief — which is the shape a per-task review
-                cannot see. Same markup as manage/comments.tsx. */}
+                cannot see. Same element, role and palette as
+                manage/comments.tsx's banner, and the same structural position
+                — after the subtitle, before the rule error. The SPACING
+                differs, though: mt-6 here, mb-4 there. No reason is offered
+                for that because none was found; the two screens are simply
+                inconsistent, and saying so is more useful than inventing a
+                justification. An earlier draft said "same markup", which is
+                not true of the classes. */}
             {flash.success ? (
                 <p
                     role="status"

@@ -9,6 +9,7 @@ use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
 use App\Http\Controllers\Manage\DonationController as ManageDonationController;
 use App\Http\Controllers\Manage\ExportController;
+use App\Http\Controllers\Manage\LabelController;
 use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
@@ -17,6 +18,7 @@ use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
+use App\Http\Controllers\Manage\StatisticsController;
 use App\Http\Controllers\Reader\AnnouncementController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
@@ -25,6 +27,7 @@ use App\Http\Controllers\Reader\CommentController;
 use App\Http\Controllers\Reader\DonationController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
+use App\Http\Controllers\Reader\ScanController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
@@ -186,7 +189,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // makes this file's usual worry (a 404 block passing against a
         // deleted route) not apply to this particular pair of lines.
         Route::post('/donate', [DonationController::class, 'store'])->name('donate.store');
-        Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
+        // OPS §3.3: CopyByIdQuery is "deliberately not manager-only" — a
+        // reader scans a book on the shelf to ask for it, and tenancy
+        // (BookshelfScope, applied inside the query), not role, is what
+        // makes another parish's sticker unresolvable. Task 12.
+        Route::get('/scan', [ScanController::class, 'resolve'])->name('scan');
     });
 
     Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
@@ -487,10 +494,25 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
-        Route::get('/statistics', [ShellController::class, 'underConstruction'])->name('statistics');
+        // BR §16.3's Statistics paragraph, opened: "Period selector (week,
+        // month, year, since the shelf began), showing loans, distinct
+        // borrowers, books added, and books lost, with charts over time and
+        // ranked lists of top books and top readers." OPS §3.3's
+        // GetStatistics is the query behind it. The placeholder this replaces
+        // held the name from Phase 0; ShellController::underConstruction's
+        // docblock records that the route NAMES were final from that day.
+        Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics');
         Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
-        Route::get('/qr-labels', [ShellController::class, 'underConstruction'])->name('qr-labels');
-        Route::get('/exports/qr-labels', [ShellController::class, 'underConstruction'])->name('exports.qr-labels');
+        Route::get('/qr-labels', [LabelController::class, 'index'])->name('qr-labels');
+        // POST, matching this repo's export convention (ExportController's
+        // docblock, and tests/Feature/Oversight/ExportHttpTest.php's POST to
+        // /manage/exports/books), and DECLARED BEFORE exports/{kind} on the
+        // next line — declared after, a POST here matches {kind} =
+        // 'qr-labels' and reaches ExportController instead. Task 10's
+        // report carries the falsification: moved below exports/{kind},
+        // LabelExportTest's export block turns red; restored, it is green
+        // and git status is clean.
+        Route::post('/exports/qr-labels', [LabelController::class, 'export'])->name('exports.qr-labels');
         Route::post('/exports/{kind}', [ExportController::class, 'store'])->name('exports.run');
     });
 });

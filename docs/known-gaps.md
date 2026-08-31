@@ -3959,3 +3959,190 @@ branch, so each carries what it would take to close it.
   (`DonationQueueQuery`). The last is an internal membership id on a page with no
   consumer for it; unlike `photoUrl`/`status`/`decisionNote`, it carries no note
   saying why it rides along.
+
+## Phase 2c — Statistics and labels
+
+Manager statistics screen and QR labels. Branch
+`feat/phase-2c-statistics-and-labels`.
+
+- **`App\Support\Clock::ZONE` now names the parish's civil timezone once, and
+  `Clock::today()` reads it (Phase 2c Task 1).** `today()` previously spelled
+  `'Asia/Ho_Chi_Minh'` inline; it now reads `self::ZONE`, and the new
+  `Clock::periodStart(StatsPeriod $period)` — the boundary the statistics
+  query (Task 2) and screen (Task 3) both use — is built on the same
+  constant. `today()`'s returned value is unchanged: same
+  `CarbonImmutable::now(...)->toDateString()` call, only the timezone
+  argument's spelling moved from a literal to a constant reference.
+
+  **`app/Queries/MyLoanHistoryQuery.php:39` and `:42` still hardcode
+  `'Asia/Ho_Chi_Minh'`** (checked at the time of this entry — re-check the
+  line numbers if the file has moved). That is shipped Phase 1c code, and
+  editing it here would be scope creep into a merged phase; Phase 2c adds no
+  new literal of its own, so leaving those two lines alone does not add to
+  the count it inherited.
+
+  The per-shelf `bookshelves.timezone` column exists and is deliberately not
+  read by `Clock::ZONE` or `periodStart()` — there is one parish today, and a
+  network of shelves with independently meaningful timezones is Phase 3's
+  problem, not this one's.
+
+- **No label sheet has ever been through a printer (Phase 2c Task 9).**
+  `App\Support\Qr\LabelSheet` is verified as bytes — the diacritics survive
+  into the text layer, the grid is 21 to a page, the symbol is vectors — and
+  the geometry (186 × 255.4mm safe area inside the box A4 and US Letter
+  share) is inherited verbatim from `old_next/src/lib/qr-labels.ts`, which was
+  itself designed against measurements rather than a printed proof. Nobody has
+  put a page on paper, cut a label out and scanned it with a phone. That is
+  the one claim in this class no test can make.
+
+  The related uncertainty is the symbol's quiet zone, and the sweep at the end
+  of the phase re-measured it rather than repeating it. Each module is
+  25 ÷ 29 = 0.862mm. Horizontally the symbol has `PAD` = 3mm to the label's
+  border on its left and `TEXT_GAP` = 3mm to the code on its right — 3.48
+  modules each side, against the four the QR specification asks for.
+  Vertically it has (34 − 25) ÷ 2 = 4.5mm above and below, which is 5.22
+  modules, comfortably over. So the shortfall is on two edges out of four and
+  is about half a module. The reference sheet had exactly the same shortfall
+  from exactly the same numbers (`old_next/src/lib/qr-labels.ts:44-45`,
+  `QR_SIDE = 25`, `PAD = 3`), so this is inherited rather than introduced. The
+  only ink inside the 3mm is the label's own 0.15mm cut-guide hairline.
+
+  **This is to be settled by the physical print, not widened blind.** Adding a
+  millimetre of quiet zone means taking it from the 24mm text column, which is
+  already tight enough that Task 9's fix round existed because a space-free
+  title overran it. Trading a measured text problem for an unmeasured scan
+  problem, on the strength of a decimal, is the wrong direction. Print the
+  sheet, scan a sticker with the phone a volunteer would actually use, and let
+  that decide.
+
+- **The TCPDF font definitions under `resources/fonts/tcpdf/` are generated
+  artefacts that are committed, and `pint.json` now exists to keep Pint's
+  hands off them (Phase 2c Task 9).** `TCPDF_FONTS::addTTFfont()` emits a
+  `.php`, a `.z` and a `.ctg.z` per face. They live under `resources/` rather
+  than `storage/app/fonts` as the task brief proposed, because
+  `storage/app/.gitignore` is `*` — anything there is untracked, and
+  `composer install --no-dev` on the host would ship without it. The
+  regeneration command is in `LabelSheet`'s `FONT_REGULAR` docblock; its
+  `$outpath` must be absolute, because TCPDF opens it through
+  `TCPDF_STATIC::fopenLocal()`, which prefixes `file://`.
+
+  Before `pint.json`, Pint reformatted the two generated `.php` files, so
+  regenerating them produced a diff on the next lint. `pint.json` pins the
+  preset Pint was already using by default (`laravel`) and excludes only
+  `resources/fonts/tcpdf`, so no other file's formatting changes.
+
+- **The diacritic proof is real text extraction, not a weakened substitute
+  (Phase 2c Task 9).** This is recorded because the two possible outcomes are
+  different guarantees and the difference is invisible from a green suite.
+  `tests/Feature/Labels/LabelSheetTest.php:54` runs
+  `(new Parser)->parseContent($pdf)->getText()` — `smalot/pdfparser` genuinely
+  reading TCPDF's text layer — and line 92 asserts
+  `toContain('Dế Mèn Phiêu Lưu Ký')`, the whole diacritic-bearing title. It is
+  not a subset assertion, not a byte-count, not a "the PDF is non-empty"
+  stand-in. The block was also shown to discriminate: with the title font
+  mutated to `helvetica` this one expectation reddened while the file's other
+  six stayed green, so it would catch a subsetted font that silently dropped
+  the composed characters. What it does not and cannot prove is that those
+  glyphs are legible once printed — that belongs to the paper entry above.
+
+- **The camera scanner is unverified by any automated test, and cannot be with
+  this toolchain (Phase 2c Task 12).** `resources/js/components/copy-scanner.tsx`
+  owns the camera stream, the zxing-wasm decode and the Vietnamese sentence
+  each failure turns into. None of it is exercised: `package.json`'s `test`
+  script is `cd old_next && vitest run`, which runs the read-only reference
+  app's suite, and this repository has no frontend test runner of its own.
+  Adding one is not a line item inside a feature phase.
+
+  The mitigation is structural rather than aspirational. Every place the
+  scanner appears, the typed copy code beside it is a complete path to the
+  same outcome — the volunteer who cannot get the camera to work types the
+  code, and both routes are the same server call, which *is* tested
+  (`tests/Feature/Labels/ScanResolveTest.php`). The scanner is an accelerant on
+  a working path, never the only door.
+
+  A consequence of that gap, found by review rather than by a test: after
+  `notFoundHere` or `decodeError` the dialog stops the camera
+  (`copy-scanner.tsx:130` and `:175`) but keeps the `<video>` element mounted
+  over `bg-black`, so the volunteer sees a dead black frame with an error under
+  it and no way to try again except closing the dialog and reopening it —
+  which does reset cleanly, via the `onOpenChange` handler. Deferred, not
+  fixed; the typed path is unaffected.
+
+- **D4 was amended mid-phase, from FPDF to TCPDF, and the original reasoning
+  was measured backwards (Phase 2c).** Recorded here as a retraction naming the
+  original claim, because this project has watched a deleted false sentence
+  return three commits later. The design doc's D4 originally chose
+  `setasign/fpdf` and turned on the reason that it carried "no PHP extension
+  dependency", which on a shared host nobody had logged into was worth more
+  than convenience. From packagist metadata: `setasign/fpdf` 1.9.0 requires
+  `ext-zlib` **and `ext-gd`** — the very extension the sentence said it avoided
+  — while `tecnickcom/tcpdf` 6.11.4 requires `php >=7.1` and `ext-curl` and no
+  gd. `composer install --no-dev` on a gd-less cPanel host would have refused
+  FPDF's platform requirement outright. The retraction is deliberately narrow:
+  D4's other two reasons, native millimetres and vector output, are true of
+  FPDF; they simply do not discriminate, being equally true of TCPDF. Only the
+  deciding reason was false, and it was false in the direction that reverses
+  the ruling. The full amendment is in
+  `docs/superpowers/specs/2026-08-31-laravel-phase-2c-statistics-and-labels-design.md`
+  §D4.
+
+- **`TenancyArchitectureTest`'s `bookshelf_id` tripwire is comment-blind, and
+  it has now taught two implementers to edit correct prose.** This is a real
+  finding for someone to rule on, not a note. The pattern at
+  `tests/Feature/Architecture/TenancyArchitectureTest.php:151` is
+  `/where[A-Za-z]*\s*\([^;]*bookshelf_id/i`, matched against
+  `$file->getContents()` — raw source, comments included. Comments carry no
+  semicolons, so `[^;]*` runs straight through a whole docblock: any file whose
+  prose mentions a `where(...)` in one paragraph and `bookshelf_id` in a later
+  one trips the guard, however correct both paragraphs are and whatever the
+  code does.
+
+  It fired on true prose **twice in this phase** — Task 2 and Task 7 — and both
+  times the implementer's response was to reword correct documentation until
+  the regex stopped matching. Both rewordings were reviewed and kept the
+  guarantee they described, so nothing false shipped; but a tripwire whose
+  observed effect is that people edit comments is training the opposite of what
+  it exists for, and the next reword may not be reviewed as carefully. Two
+  candidate fixes, neither applied here because narrowing a shipped tenancy
+  guard is a ruling, not a sweep item: strip comments with `token_get_all()`
+  before matching — which is exactly what this phase's own timezone census in
+  `LabelsArchitectureTest` does, for this reason — or anchor `[^;]*` on a
+  statement terminator so it cannot span a docblock. The related note that the
+  grep is a tripwire and not a proof (a column name in a variable, a `join()`
+  condition) is already recorded above and is unchanged.
+
+- **The host must serve `.wasm` as `application/wasm`, and nobody has checked
+  (Phase 2c Task 12).** The scanner's ~1.07 MB decoder is bundled and served
+  from this app's own origin rather than from jsdelivr, so nothing depends on
+  outbound CDN access at scan time. But emscripten's loader prefers
+  `WebAssembly.instantiateStreaming()`, which requires the `application/wasm`
+  content type; served as `application/octet-stream` it falls back to buffering
+  the whole binary before compiling. Slower to the first scan, identical
+  afterwards, correct either way — so this is a performance note, not a
+  blocker. It is now row 15 of `docs/HOSTING.md`'s survey, which is where the
+  unverified facts about that host belong, with the `curl -sI` probe and the
+  one-line `.htaccess` fix.
+
+- **Four deferred cosmetics from Phase 2c, left for the whole-branch review to
+  triage.** None was fixed in the closing sweep, deliberately: a sweep that
+  quietly edits shipped behaviour is how a documentation task becomes an
+  unreviewed change.
+
+  `resources/js/pages/manage/statistics.tsx:238` keys the top-readers `<ol>` on
+  `reader.name`. Two readers with the same rendered name give React a duplicate
+  key. The list still renders in query order; `topBooks` avoids it with
+  `bookId`, and `topReaders`' prop shape carries no id, so a fix means widening
+  the query's return shape.
+
+  `resources/js/pages/manage/labels.tsx:151-157` renders
+  `"{count} bản · Chọn cả đầu sách"` as static muted sub-text under each title.
+  The second half reads like a control's label but names no control, and it
+  repeats on every row. Fold it into the checkbox's `aria-label` or drop it.
+
+  The expand/collapse button at `labels.tsx:159-167` has no `aria-expanded` or
+  `aria-controls`. The `hidden` class does correctly remove the collapsed list
+  from the accessibility tree, so nothing is announced that is not there; the
+  button simply never announces its own state. One attribute.
+
+  The scanner's dead black frame after a failed scan, described under the
+  camera entry above.

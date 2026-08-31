@@ -1,6 +1,7 @@
 import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
 import { type FormEvent, useEffect, useState } from "react";
 import { route } from "ziggy-js";
+import CopyScanner from "@/components/copy-scanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,6 +102,19 @@ export default function ReturnsIndex() {
         );
     };
 
+    // Same rule as the lend screen's own scanner wiring (resources/js/
+    // pages/manage/lend/index.tsx): a scan re-runs the identical search a
+    // typed code would, so the two never diverge, and typing the code
+    // stays a complete path with the scanner absent entirely.
+    const onScanned = (result: { code: string }) => {
+        setQ(result.code);
+        router.get(
+            route("shelves.manage.returns", { shelf: shelf.slug, q: result.code }),
+            {},
+            { preserveState: true },
+        );
+    };
+
     const submitReturn = (event: FormEvent) => {
         event.preventDefault();
         if (!chosen) return;
@@ -142,6 +156,7 @@ export default function ReturnsIndex() {
                 <Button type="submit" className="h-12">
                     {copy.circulation.returns.search}
                 </Button>
+                <CopyScanner shelfSlug={shelf.slug} onResolved={onScanned} />
             </form>
 
             <ul className="mb-6 divide-y border-y">

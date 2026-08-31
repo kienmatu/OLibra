@@ -86,6 +86,18 @@ export default function ManageLayout({ children }: PropsWithChildren) {
             href: route("shelves.manage.audit", { shelf: shelf.slug }),
         },
         {
+            name: copy.manageStatistics.title,
+            href: route("shelves.manage.statistics", { shelf: shelf.slug }),
+        },
+        {
+            // route()'s exact name, per Task 11's brief: NOT
+            // `shelves.manage.labels` — an earlier draft used that name,
+            // Ziggy throws on an unknown one, and the route itself keeps
+            // the placeholder's settled `qr-labels` (routes/web.php).
+            name: copy.manageLabels.navItem,
+            href: route("shelves.manage.qr-labels", { shelf: shelf.slug }),
+        },
+        {
             name: copy.manage.settings,
             href: route("shelves.manage.settings", { shelf: shelf.slug }),
         },

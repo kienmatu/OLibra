@@ -868,6 +868,113 @@ export const copy = {
         toForm: "Tặng sách cho tủ sách",
         backToOverview: "Về trang của tôi",
     },
+    /**
+     * BR §16.3's Thống kê screen. Own namespace, own keys — this file's
+     * header bans reaching into another namespace's keys, so the four
+     * total captions below are NOT copy.manageDashboard's totalTitles /
+     * totalCopies / totalOnLoan / totalReaders, even though they sit
+     * beside similar-looking cards on the dashboard: these four count
+     * events within the selected period (loans, borrowers, books added,
+     * copies lost), not a point-in-time inventory.
+     *
+     * A SENTENCE ABOVE EVERY CHART, not a caption beside it — AGENTS.md
+     * rule 8 and this file's own header both call for a plain-text
+     * summary, because assertInertia sees props and never pixels: the
+     * summary sentence is the only part of a chart this repo can test.
+     * dailyChartSummary and byCategoryChartSummary below are templates a
+     * caller fills with the query's own totals (t(), already exported by
+     * this file), so the sentence never drifts from the numbers the SVG
+     * draws beneath it.
+     */
+    manageStatistics: {
+        title: "Thống kê",
+        periodWeek: "Tuần này",
+        periodMonth: "Tháng này",
+        periodYear: "Năm nay",
+        periodAll: "Từ khi mở tủ sách",
+        totalLoans: "Lượt mượn",
+        totalBorrowers: "Bạn đọc đã mượn",
+        totalBooksAdded: "Sách mới thêm",
+        totalCopiesLost: "Bản sách bị mất",
+        dailyChartHeading: "Lượt mượn theo ngày",
+        dailyChartSummary:
+            "Trong khoảng thời gian này có {loans} lượt mượn, tính theo {days} ngày.",
+        dailyChartEmpty: "Chưa có lượt mượn nào trong khoảng thời gian này.",
+        byCategoryChartHeading: "Lượt mượn theo thể loại",
+        byCategoryChartSummary: "Thể loại được mượn nhiều nhất là {label}, với {count} lượt.",
+        byCategoryChartEmpty: "Chưa có lượt mượn nào để thống kê theo thể loại.",
+        topBooksHeading: "Sách được mượn nhiều nhất",
+        topBooksEmpty: "Chưa có sách nào được mượn trong khoảng thời gian này.",
+        topReadersHeading: "Bạn đọc chăm nhất",
+        topReadersEmpty: "Chưa có bạn đọc nào mượn sách trong khoảng thời gian này.",
+        countSuffix: "{count} lượt",
+    },
+    // BR §19's QR label workflow: the manager's selection accordion
+    // (Task 11) posting to LabelController::export (Task 10). Its own
+    // namespace, no reach into `copy.manage` — the nav word below is a
+    // deliberately different string from `manage.settings` etc., so
+    // renaming one screen's nav label never touches another's.
+    manageLabels: {
+        // The NAV word, re-headed on the screen itself below.
+        navItem: "Nhãn QR",
+        title: "In nhãn QR",
+        lead: "Chọn các bản sách cần in nhãn QR, theo từng đầu sách hoặc từng bản riêng lẻ.",
+        onlyUnprinted: "Chỉ hiện bản chưa in nhãn",
+        // NAMES WHAT THE TITLE CHECKBOX ACTUALLY DOES. Ticking a title
+        // prints EVERY bản of it, including the ones "Chỉ hiện bản chưa
+        // in nhãn" is currently hiding — CopiesForLabelsQuery expands
+        // bookIds without that filter, and the form carries no filter
+        // state. The old wording ("Chọn cả đầu sách") sat beside a
+        // "{count} bản" count that was the FILTERED count, so a manager
+        // reading the screen would have expected the filtered subset.
+        selectWholeTitle: "Chọn mọi bản của đầu sách này, kể cả bản đã in nhãn",
+        expand: "Xem các bản",
+        collapse: "Ẩn bớt",
+        // A print count of 0 reads as "never printed"; any count at or
+        // above 1 is a REPRINT, the distinction OPS §3.3 asks this screen
+        // to keep visible — a sticker that fell off is a second trip
+        // through this same copy, not a first one.
+        printCountNever: "Chưa in",
+        printCountReprint: "Đã in {count} lần",
+        empty: "Tủ sách này chưa có bản sách nào.",
+        submit: "In nhãn QR đã chọn",
+    },
+    // Task 12's camera scanner (copy-scanner.tsx), wired beside the
+    // existing copy-code Input on the lend and return screens — never
+    // instead of it (AGENTS.md, this task's brief: "typing the code
+    // stays a complete path"). Its own namespace: the lend/return
+    // screens reach into these keys, but nothing here reaches into
+    // `copy.circulation`.
+    scanner: {
+        openButton: "Quét mã QR",
+        dialogTitle: "Quét mã QR trên nhãn sách",
+        lead: "Đưa camera lại gần nhãn QR dán trên sách.",
+        resolving: "Đang tra cứu…",
+        // The three ordinary failures a phone borrowed from someone else,
+        // a cracked lens, or a browser without camera access produce —
+        // each names the problem so the reader knows to type the code
+        // instead, not just that something silently isn't working.
+        permissionDenied:
+            "Bạn chưa cho phép dùng camera. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        noCamera:
+            "Không tìm thấy camera trên thiết bị này. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        cameraError: "Không thể mở camera. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        decodeError: "Không đọc được mã QR. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        // A NON-OK RESPONSE IS NOT A LENS FAILURE. Without this, a 419
+        // (phiên đăng nhập hết hạn) or a 404 made response.json() throw
+        // into the same catch as a bad frame, and the volunteer was told
+        // the camera could not read the code when the session was what
+        // ended.
+        lookupFailed:
+            "Không tra cứu được mã QR — có thể phiên đăng nhập đã hết hạn. Hãy tải lại trang, hoặc nhập mã bản sách vào ô bên dưới.",
+        // Two distinct nothing-found outcomes, kept as two sentences
+        // rather than folded into one: a QR that isn't an OLibra label at
+        // all (checked locally, before any request) is a different fact
+        // from an OLB1 label the server could not resolve — unknown id,
+        // soft-deleted copy, or another parish's shelf.
+        notOlibraLabel: "Mã QR này không phải nhãn của OLibra.",
+        notFoundHere: "Không tìm thấy bản sách này trên tủ sách này.",
+    },
 } as const;
 
 /**

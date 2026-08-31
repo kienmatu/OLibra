@@ -20,6 +20,10 @@ return [
     'donor_ambiguous' => 'Chọn bạn đọc hoặc gõ tên người tặng, không chọn cả hai.',
     'donor_membership_invalid' => 'Không tìm thấy bạn đọc này trên tủ sách hiện tại.',
     'copy_count_invalid' => 'Số bản phải lớn hơn 0.',
+    // OPS §4.1's MarkCopiesPrinted entry (docs/OPERATIONS.md:188), quoted
+    // from its Failure modes list. NOT §4.4 — that is Community, and an
+    // earlier draft of this plan cited it here.
+    'copy_selection_empty' => 'Bạn chưa chọn bản sách nào để in nhãn.',
 
     // ── Members (Phase 1b) ────────────────────────────────────────────
     'membership_not_found' => 'Không tìm thấy bạn đọc này.',
