@@ -555,6 +555,19 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // lending policy and the contacts are Task 5's own routes, because spec
     // D2 makes each section its own form with its own refusal.
     Route::patch('/shelves/{bookshelf}', [AdminShelfController::class, 'update'])->name('shelves.update');
+    // Task 5's two sections, each with its own route because spec D2 makes
+    // each section its own form, its own submit and its own refusal — and
+    // spec D8 leans on that: 3b-ii adds a taxonomy section to this same
+    // screen, which is an addition here rather than a restructure.
+    //
+    // PATCH for the policy, PUT for the contacts, and the difference is
+    // real. The policy submit carries all eight settings and merges them
+    // into a settings bag it shares with keys it never showed, so it
+    // modifies part of the shelf. The contacts submit posts all three blocks
+    // every time and REPLACES the set — a block left blank removes that
+    // contact — which is what PUT means.
+    Route::patch('/shelves/{bookshelf}/policy', [AdminShelfController::class, 'updatePolicy'])->name('shelves.policy');
+    Route::put('/shelves/{bookshelf}/contacts', [AdminShelfController::class, 'updateContacts'])->name('shelves.contacts');
     Route::get('/managers', [ShellController::class, 'underConstruction'])->name('managers');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
     Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');

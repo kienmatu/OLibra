@@ -3,13 +3,20 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Actions\Admin\CreateBookshelf;
+use App\Actions\Admin\UpdateBookshelfContacts;
+use App\Actions\Admin\UpdateBookshelfPolicy;
 use App\Actions\Admin\UpdateBookshelfProfile;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreBookshelfRequest;
+use App\Http\Requests\Admin\UpdateBookshelfContactsRequest;
+use App\Http\Requests\Admin\UpdateBookshelfPolicyRequest;
 use App\Http\Requests\Admin\UpdateBookshelfProfileRequest;
 use App\Models\Bookshelf;
 use App\Models\User;
 use App\Queries\Admin\AdminOverviewQuery;
+use App\Queries\Admin\ShelfContactsQuery;
+use App\Support\Circulation\LendingSettings;
+use App\Support\Community\CommentSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -100,11 +107,37 @@ class ShelfController extends Controller
             ->with('success', __('rules.bookshelf_created_flash'));
     }
 
-    public function edit(Bookshelf $bookshelf): Response
+    public function edit(Bookshelf $bookshelf, ShelfContactsQuery $contacts): Response
     {
         Gate::authorize('update', $bookshelf);
 
+        // The policy prop is read through the two classes that actually
+        // consume these settings, not off the raw bag: `settings` is
+        // schemaless and a shelf that has never opened this screen stores
+        // `{}`, so the form has to be filled in from the same fallbacks the
+        // lending commands and the comment gate apply. Reading the bag
+        // directly here is how an editor comes to show 0 where the
+        // application behaves as 14.
+        $lending = LendingSettings::fromShelf($bookshelf);
+        $comments = CommentSettings::fromShelf($bookshelf);
+
         return Inertia::render('admin/shelves/edit', [
+            // The eight settings spec D2 fixes the form at, under their
+            // storage keys — `comments_enabled`, never BR §5.5's
+            // `allow_comments`; see UpdateBookshelfPolicy.
+            'policy' => [
+                'loan_days' => $lending->loanDays,
+                'max_concurrent_loans' => $lending->maxConcurrentLoans,
+                'max_renewals' => $lending->maxRenewals,
+                'renewal_days' => $lending->renewalDays,
+                'hold_days' => $lending->holdDays,
+                'due_soon_days' => $lending->dueSoonDays,
+                'comments_enabled' => $comments->commentsEnabled,
+                'comments_require_approval' => $comments->commentsRequireApproval,
+            ],
+            // Always three entries, `null` for an empty slot — the form has
+            // three fixed blocks and positions do not shift.
+            'contacts' => $contacts->run($bookshelf),
             'shelf' => [
                 'id' => $bookshelf->id,
                 // Rendered read-only by the form, and read-only for a
@@ -151,5 +184,77 @@ class ShelfController extends Controller
         return redirect()
             ->route('admin.shelves.edit', ['bookshelf' => $bookshelf->slug])
             ->with('success', __('rules.bookshelf_profile_saved_flash'));
+    }
+
+    /**
+     * The policy section's own submit (spec D2). It shares no route, no Form
+     * Request and no flash with the profile: a page carrying several
+     * independently-submittable forms cannot say which one saved if they all
+     * redirect to the same undifferentiated success.
+     */
+    public function updatePolicy(
+        UpdateBookshelfPolicyRequest $request,
+        Bookshelf $bookshelf,
+        UpdateBookshelfPolicy $updatePolicy,
+    ): RedirectResponse {
+        /** @var User $user */
+        $user = $request->user();
+        $validated = $request->validated();
+
+        // Eight keys, read out one at a time — the profile path's reasoning,
+        // and here it also guarantees the shape the command's merge writes.
+        // A spread would mean the day a ninth rule is added is the day an
+        // unaudited key lands in the settings bag.
+        $updatePolicy->execute($user, $bookshelf, [
+            'loan_days' => $validated['loan_days'],
+            'max_concurrent_loans' => $validated['max_concurrent_loans'],
+            'max_renewals' => $validated['max_renewals'],
+            'renewal_days' => $validated['renewal_days'],
+            'hold_days' => $validated['hold_days'],
+            'due_soon_days' => $validated['due_soon_days'],
+            'comments_enabled' => $validated['comments_enabled'],
+            'comments_require_approval' => $validated['comments_require_approval'],
+        ]);
+
+        return redirect()
+            ->route('admin.shelves.edit', ['bookshelf' => $bookshelf->slug])
+            ->with('success', __('rules.bookshelf_policy_saved_flash'));
+    }
+
+    /**
+     * The contacts section's own submit (spec D2, D3). All three blocks are
+     * posted every time and the command replaces the set; a block whose name
+     * is blank becomes no row rather than an empty one.
+     */
+    public function updateContacts(
+        UpdateBookshelfContactsRequest $request,
+        Bookshelf $bookshelf,
+        UpdateBookshelfContacts $updateContacts,
+    ): RedirectResponse {
+        /** @var User $user */
+        $user = $request->user();
+        $validated = $request->validated();
+
+        $updateContacts->execute($user, $bookshelf, [
+            1 => [
+                'name' => $validated['contact_1_name'],
+                'phone' => $validated['contact_1_phone'] ?? null,
+                'role_label' => $validated['contact_1_role_label'] ?? null,
+            ],
+            2 => [
+                'name' => $validated['contact_2_name'] ?? null,
+                'phone' => $validated['contact_2_phone'] ?? null,
+                'role_label' => $validated['contact_2_role_label'] ?? null,
+            ],
+            3 => [
+                'name' => $validated['contact_3_name'] ?? null,
+                'phone' => $validated['contact_3_phone'] ?? null,
+                'role_label' => $validated['contact_3_role_label'] ?? null,
+            ],
+        ]);
+
+        return redirect()
+            ->route('admin.shelves.edit', ['bookshelf' => $bookshelf->slug])
+            ->with('success', __('rules.bookshelf_contacts_saved_flash'));
     }
 }

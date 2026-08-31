@@ -70,6 +70,9 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'comment_not_approved',
         'comment_not_pending',
         'comments_disabled',
+        // 3b-i Task 5: the shelf editor's contacts form refusing a save that
+        // would leave the shelf with no first contact (spec D3).
+        'contact_position_1_required',
         'copy_count_invalid',
         'copy_not_found',
         'copy_selection_empty',

@@ -153,6 +153,46 @@ export const copy = {
         // book covers (BR §16.4).
         slugFixed:
             "Đường dẫn không đổi được sau khi mở tủ sách, vì nó đã nằm trên giấy dán trong sách và trên các đường liên kết đã chia sẻ.",
+        // Task 5's two sections on the same screen. Each has its own
+        // heading, its own button and its own lead sentence, because each
+        // is its own form with its own submit and its own refusal (spec
+        // D2) — a shared "Lưu" would be three buttons a volunteer cannot
+        // tell apart.
+        policySection: "Chính sách mượn sách",
+        policyLead: "Áp dụng cho mọi lượt mượn của tủ sách này.",
+        submitPolicy: "Lưu chính sách",
+        policyFields: {
+            loanDays: "Số ngày cho mượn",
+            maxConcurrentLoans: "Số sách mượn cùng lúc",
+            maxRenewals: "Số lần gia hạn",
+            renewalDays: "Số ngày mỗi lần gia hạn",
+            holdDays: "Số ngày giữ chỗ",
+            dueSoonDays: "Báo trước hạn trả (ngày)",
+            commentsEnabled: "Cho phép bạn đọc bình luận",
+            commentsRequireApproval: "Bình luận cần được duyệt trước khi hiển thị",
+        },
+        // "Số ngày báo trước hạn trả" and "số lần gia hạn" both accept 0,
+        // and the two zeroes mean real policies rather than an unset
+        // field — a shelf may allow no renewals at all, and a shelf may
+        // want the reminder on the due date itself. Said in words under
+        // the inputs, because a bare `min=0` says nothing.
+        policyZeroAllowed:
+            "Điền 0 ở “Số lần gia hạn” nghĩa là không cho gia hạn; điền 0 ở “Báo trước hạn trả” nghĩa là chỉ nhắc đúng ngày đến hạn.",
+        contactsSection: "Đầu mối liên hệ",
+        contactsLead:
+            "Tối đa ba người bạn đọc có thể liên hệ. Người thứ nhất là bắt buộc; để trống ô Họ và tên của người thứ hai hoặc thứ ba nếu tủ sách không có.",
+        submitContacts: "Lưu đầu mối liên hệ",
+        contactHeading: "Người liên hệ {position}",
+        contactFields: {
+            name: "Họ và tên",
+            phone: "Số điện thoại",
+            roleLabel: "Vai trò",
+        },
+        // Free text on purpose (spec D3): a parish names its own
+        // volunteers' jobs, and no list this application invented would
+        // survive the second parish.
+        contactRoleHint: "Ví dụ: Người giữ chìa khoá, Quản lý tủ sách.",
+        contactOptional: "Không bắt buộc",
     },
     auth: {
         title: "Đăng nhập",

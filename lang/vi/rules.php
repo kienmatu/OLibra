@@ -315,4 +315,15 @@ return [
     // message on such a page cannot say which form saved. So this sentence
     // names its own section, and Task 5's two flashes name theirs.
     'bookshelf_profile_saved_flash' => 'Đã lưu thông tin tủ sách.',
+    // Task 5's two, each naming its own section for the reason above: three
+    // forms on one screen, three sentences, so a volunteer who pressed one
+    // of three buttons reads which save landed.
+    'bookshelf_policy_saved_flash' => 'Đã lưu chính sách mượn sách.',
+    'bookshelf_contacts_saved_flash' => 'Đã lưu đầu mối liên hệ.',
+    // Spec D3. Position 1 is required by the INTERFACE and not by the
+    // column: a shelf onboarded before the contacts table existed may hold
+    // none and is flagged incomplete rather than assigned an invented
+    // volunteer. What this refuses is a save that would LEAVE that gap, so
+    // the sentence says what to type rather than reporting a rule.
+    'contact_position_1_required' => 'Tủ sách cần ít nhất một đầu mối liên hệ. Hãy điền tên cho người liên hệ thứ nhất.',
 ];
