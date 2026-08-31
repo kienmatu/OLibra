@@ -27,6 +27,14 @@ export const copy = {
     shelves: {
         title: "Các tủ sách",
         empty: "Chưa có tủ sách nào.",
+        // BR §16.1: the search box is this page's only job, for a parent
+        // typing a parish name without diacritics — "hoa binh" for "Giáo
+        // xứ Hòa Bình". Folded against name, location and address
+        // (ShellController::shelves()).
+        searchLabel: "Tìm tủ sách",
+        searchPlaceholder: "Tìm theo tên, khu vực hoặc địa chỉ",
+        searchButton: "Tìm",
+        noResults: "Không tìm thấy tủ sách nào phù hợp.",
     },
     shelf: {
         catalogue: "Danh mục",
@@ -89,10 +97,25 @@ export const copy = {
     },
     admin: {
         title: "Quản trị hệ thống",
+        dashboard: "Tổng quan",
         shelves: "Tủ sách",
         managers: "Người quản lý",
         categories: "Thể loại",
         settings: "Cài đặt",
+    },
+    adminDashboard: {
+        title: "Tổng quan hệ thống",
+        empty: "Chưa có tủ sách nào.",
+        shelfHeading: "Tủ sách",
+        statusHeading: "Tình trạng",
+        booksHeading: "Đầu sách",
+        readersHeading: "Độc giả",
+        loansHeading: "Đang mượn",
+        overdueHeading: "Quá hạn",
+        pendingHeading: "Chờ xử lý",
+        statusActive: "Đang hoạt động",
+        statusArchived: "Đã lưu trữ",
+        contactsMissing: "Thiếu đầu mối liên hệ",
     },
     auth: {
         title: "Đăng nhập",

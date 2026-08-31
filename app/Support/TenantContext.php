@@ -48,6 +48,45 @@ final class TenantContext
         $this->systemWide = true;
     }
 
+    /**
+     * Run $fn with tenancy removed, then put the tenant back.
+     *
+     * THE RESTORE IS THE POINT. actSystemWide() alone has no reset — clear()
+     * exists on this class and has zero callers in app/ — and this object is
+     * bound `scoped` (AppServiceProvider), one instance per request. So a
+     * bare widening leaks for the rest of the request, and it leaks SILENTLY:
+     * BookshelfScope::apply returns early on isSystemWide() and adds no
+     * predicate, rather than throwing the way it does on an unset tenant.
+     *
+     * The finally covers the exception path too. A cross-shelf query that
+     * throws mid-read must not leave the rest of the request unscoped.
+     *
+     * It restores what it FOUND, not a default — nesting restores to
+     * system-wide, and an unset tenant restores to unset, so a caller that
+     * was going to fail loudly still does.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $fn
+     * @return T
+     */
+    public function systemWide(callable $fn): mixed
+    {
+        $bookshelf = $this->bookshelf;
+        $membership = $this->membership;
+        $systemWide = $this->systemWide;
+
+        $this->actSystemWide();
+
+        try {
+            return $fn();
+        } finally {
+            $this->bookshelf = $bookshelf;
+            $this->membership = $membership;
+            $this->systemWide = $systemWide;
+        }
+    }
+
     public function isSystemWide(): bool
     {
         return $this->systemWide;

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
@@ -519,6 +520,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
 
 // ── The super-admin area ──────────────────────────────────────────────────
 Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(function () {
+    // BR §16.4's admin dashboard: "One row per bookshelf: name, books,
+    // active readers, current loans, overdue count, pending items.
+    // Anything needing attention is flagged." OPS §3.4's GetAdminOverview.
+    // The one route in Phase 3 that is new rather than a placeholder.
+    Route::get('/', [AdminDashboardController::class, 'index'])->name('dashboard');
     Route::get('/shelves', [ShellController::class, 'underConstruction'])->name('shelves');
     Route::get('/managers', [ShellController::class, 'underConstruction'])->name('managers');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');

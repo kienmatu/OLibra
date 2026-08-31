@@ -50,18 +50,25 @@ screen. They are not stylistic preferences — breaking one is a defect.
 
 1. **Sans everywhere; serif only for book titles.** Lexend is the interface
    font for absolutely everything. Literata appears solely on the title of a
-   book, and only via the `BookTitle` component. Nothing else reaches for
+   book. No shared title component exists yet — apply `font-serif` directly,
+   and only, on the element that renders a book's title (see `components/book-card.tsx`
+   for the current, non-serif example to correct). Nothing else reaches for
    `font-serif`.
 2. **Status is never colour alone.** Every state carries an icon, a Vietnamese
-   word and a colour together. Use `StatusBadge` / `StatusPanel`; the six
-   states are defined once in `old_next/src/lib/status.ts` (reference).
+   word and a colour together. Compose this from `ui/badge.tsx` (the colour
+   and label) plus `ui/icon.tsx` (the icon) — there is no dedicated status
+   component. The six copy states are defined once in
+   `old_next/src/lib/status.ts` (reference).
 3. **One primary action per screen.** Solid terracotta appears once. If two
    things on a screen are terracotta, one of them is wrong.
 4. **Touch targets ≥ 44px; primary buttons 56px.** Nothing closer than 8px.
 5. **Tables become stacked cards below 768px.** Never a horizontally
    scrolling table.
 6. **Forms are single-column, always.** Labels above inputs. Required fields
-   marked with the word *Bắt buộc*, never a bare asterisk. Use `Field`.
+   marked with the word *Bắt buộc*, never a bare asterisk. Compose this from
+   `ui/label.tsx` above `ui/input.tsx` / `ui/select.tsx`, with
+   `components/input-error.tsx` for validation messages — there is no single
+   labelled-field wrapper component.
 7. **No shadows, no gradients, no glassmorphism.** Depth comes from 1px
    hairline borders and flat tonal layers.
 8. Charts are bar and line only — no pie charts — and every chart carries a
@@ -75,20 +82,26 @@ copies later, the lesson is written down: **look in `old_next/src/components/ui`
 (reference) first, and if the Laravel/Inertia equivalent under
 `resources/js/components` is missing, add it there rather than inline.**
 
+The table below describes what exists in `resources/js/components` today —
+not an aspiration. When you add a component, update this table; a test
+(`tests/Feature/Architecture/StyleGuideTest.php`) fails the build if this
+table ever names one that isn't there.
+
 | Need | Use |
 |---|---|
-| One of the six copy states (Còn sách, Đang mượn, Đang giữ chỗ, Quá hạn, Đã mất, Ngừng dùng) | `StatusBadge` / `StatusPanel` |
-| Any other state pill — membership, role, post status, days remaining, condition | `Pill` (icon and label are both required) |
-| The quick-lend step marker | `StepIndicator` |
-| A settings switch | `Toggle` from `field.tsx` |
-| A labelled form control | `Field` + `Input` / `Textarea` / `Select` |
-| A read-only value | `ReadOnlyValue` |
-| A book's title | `BookTitle` — the only thing allowed to be serif |
-| A cover | `BookCover` |
-| A phone number | `PhoneLink` — never plain text |
-| Buttons | `Button` / `ButtonLink` / `BigActionLink` |
-| A selection checkbox in a list | `Checkbox` from `field.tsx` — never `Toggle`, which commits on change |
-| Reading a QR label with the camera | `QrScanner`, or `CopyScanField` where a screen already asks "which book?" |
+| One of the six copy states (Còn sách, Đang mượn, Đang giữ chỗ, Quá hạn, Đã mất, Ngừng dùng) | No component yet; compose from `ui/badge.tsx` and `ui/icon.tsx`, using the Vietnamese word and colour from `old_next/src/lib/status.ts` |
+| Any other state pill — membership, role, post status, days remaining, condition | `ui/badge.tsx` (icon and label are both required) |
+| The quick-lend step marker | No component yet; compose from `ui/badge.tsx` per step and state the requirement inline |
+| A settings switch | `ui/toggle.tsx` |
+| A labelled form control | `ui/label.tsx` + `ui/input.tsx` / `ui/select.tsx`, with `components/input-error.tsx` for the validation message |
+| A multi-line text field | No textarea component yet; there is no native `<textarea>` wrapper either — style a plain `<textarea>` like `ui/input.tsx` until one is added |
+| A read-only value | No component yet; render the label (per rule 6) above plain text |
+| A book's title | No component yet; apply `font-serif` directly per rule 1 — the only thing allowed to be serif |
+| A cover | No component yet; `components/book-card.tsx` inlines its own cover treatment — follow that pattern |
+| A phone number | No component yet; render as plain text — there is no linkified phone treatment |
+| Buttons | `ui/button.tsx`. For a link styled as a button or plain text link, Inertia's own Link component (from `@inertiajs/react`), as used in `components/text-link.tsx` and `components/book-card.tsx` — there is no separate button-styled-link component |
+| A selection checkbox in a list | `ui/checkbox.tsx` — never `ui/toggle.tsx`, which commits on change |
+| Reading a QR label with the camera | `components/copy-scanner.tsx` (`CopyScanner`) — camera capture, decode and server resolution are already built there for the lend/return screens |
 
 ## Language
 

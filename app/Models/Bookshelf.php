@@ -16,8 +16,15 @@ class Bookshelf extends Model
     /** @use HasFactory<BookshelfFactory> */
     use HasFactory, HasUuids, SoftDeletes;
 
-    /** The generated key column — writing it is errno 1906. */
-    protected $guarded = ['slug_active'];
+    /**
+     * The generated columns — writing any of them is errno 1906. `Book.php`
+     * :28 is the precedent: every generated column on the table is listed,
+     * so `Bookshelf::create($other->toArray())` and row-replicating seeders
+     * can never include one in an INSERT. The three folded columns arrived
+     * with 3a's migration and were missed here; no live path writes a
+     * bookshelf today, but 3b builds shelf editing.
+     */
+    protected $guarded = ['slug_active', 'name_folded', 'location_folded', 'address_folded'];
 
     /** {shelf} binds by slug, and slugs are immutable by trigger. */
     public function getRouteKeyName(): string

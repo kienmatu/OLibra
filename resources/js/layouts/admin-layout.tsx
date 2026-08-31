@@ -6,6 +6,7 @@ import { copy } from "@/lib/copy";
 
 export default function AdminLayout({ children }: PropsWithChildren) {
     const items = [
+        { name: copy.admin.dashboard, href: route("admin.dashboard") },
         { name: copy.admin.shelves, href: route("admin.shelves") },
         { name: copy.admin.managers, href: route("admin.managers") },
         { name: copy.admin.categories, href: route("admin.categories") },
