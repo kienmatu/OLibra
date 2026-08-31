@@ -121,6 +121,15 @@ export default function CopyScanner({ shelfSlug, onResolved }: Props) {
                     route("shelves.scan", { shelf: shelfSlug, payload: text }),
                     { headers: { Accept: "application/json" } },
                 );
+                // A 419 (expired session) or a 404 answers with a body
+                // response.json() cannot parse, which would otherwise
+                // throw into the catch below and blame the camera. The
+                // session is what failed; say that instead.
+                if (!response.ok) {
+                    setStatus("error");
+                    setMessage(copy.scanner.lookupFailed);
+                    return;
+                }
                 const body = (await response.json()) as { copy: ResolvedCopy | null };
                 if (body.copy === null) {
                     setStatus("error");

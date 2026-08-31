@@ -51,9 +51,33 @@ interface PageProps extends SharedData {
  * carry no `name`/`value` into the native form submit, silently dropping
  * a selection the manager made before collapsing — this keeps every
  * ticked copy in the request regardless of which titles are open.
+ *
+ * THE REFUSAL IS RENDERED, even though the success leg is a download.
+ * `export()` leaves RuleViolated uncaught and bootstrap/app.php turns it
+ * into `back()->withErrors(['rule' => …])`; because the submit is a
+ * native form, that redirect is a full browser GET back to this screen.
+ * Without the `errors.rule` block below the manager got a page flash, no
+ * file and no sentence — the same defect Phase 2b's announcements screen
+ * shipped. The block copies manage/returns/index.tsx's `role="alert"`
+ * pattern rather than inventing a second one. A SERVER TEST CANNOT SEE
+ * THIS: LabelExportTest asserts the redirect and the error bag, both of
+ * which were already true while nothing rendered.
+ *
+ * A TICKED TITLE IS DELIBERATELY UNFILTERED. `LabelController::export`
+ * calls `CopiesForLabelsQuery::run($bookIds, $copyIds)` without
+ * `$onlyUnprinted`, and the form carries no filter state, so ticking a
+ * title prints and stamps EVERY copy of it — including copies "Chỉ hiện
+ * bản chưa in nhãn" is hiding. That matches the reference
+ * (`old_next`'s route omits the filter too) and is left alone here; what
+ * is fixed is the LEGIBILITY of it. The title checkbox now says so in
+ * words (`copy.manageLabels.selectWholeTitle`), and the "{count} bản"
+ * sub-text that used to sit beside it is gone: that count was the
+ * FILTERED count, so it read as a promise about what ticking the title
+ * would print, and it was not one. Pinned by LabelExportTest's
+ * "ticking a whole title exports every copy" block.
  */
 export default function Labels({ titles, onlyUnprinted }: PageProps) {
-    const { shelf, csrfToken } = usePage<SharedData>().props;
+    const { shelf, csrfToken, errors } = usePage<SharedData>().props;
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [selectedBookIds, setSelectedBookIds] = useState<Set<string>>(new Set());
     const [selectedCopyIds, setSelectedCopyIds] = useState<Set<string>>(new Set());
@@ -109,6 +133,15 @@ export default function Labels({ titles, onlyUnprinted }: PageProps) {
             <h1 className="text-2xl font-semibold">{copy.manageLabels.title}</h1>
             <p className="mb-4 text-sm text-muted-foreground">{copy.manageLabels.lead}</p>
 
+            {errors.rule ? (
+                <p
+                    role="alert"
+                    className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+                >
+                    {errors.rule}
+                </p>
+            ) : null}
+
             <div className="mb-4 flex items-center gap-2">
                 <Checkbox
                     id="only-unprinted"
@@ -149,10 +182,6 @@ export default function Labels({ titles, onlyUnprinted }: PageProps) {
                                                 {title.title}
                                             </Label>
                                             <p className="text-xs text-muted-foreground">
-                                                {t(copy.manageLabels.copiesCount, {
-                                                    count: title.copies.length,
-                                                })}
-                                                {" · "}
                                                 {copy.manageLabels.selectWholeTitle}
                                             </p>
                                         </div>
@@ -219,7 +248,19 @@ export default function Labels({ titles, onlyUnprinted }: PageProps) {
                         })}
                     </ul>
 
-                    <button type="submit" className="mt-4 rounded-md border px-4 py-2 text-sm">
+                    {/*
+                     * Disabled on an empty selection so the commonest way
+                     * to meet the refusal above never has to be met. It
+                     * is a convenience, NOT the fix: a stale selection,
+                     * or ids belonging to another shelf, still expands to
+                     * nothing server-side, which is why the rendered
+                     * `errors.rule` block stays.
+                     */}
+                    <button
+                        type="submit"
+                        disabled={selectedBookIds.size === 0 && selectedCopyIds.size === 0}
+                        className="mt-4 rounded-md border px-4 py-2 text-sm disabled:opacity-50"
+                    >
                         {copy.manageLabels.submit}
                     </button>
                 </form>

@@ -82,10 +82,44 @@ it('an empty selection is refused as a rule, not a 500', function () {
 
     $this->actingAs($manager)
         ->post("/shelves/{$shelf->slug}/manage/exports/qr-labels", ['copyIds' => [], 'bookIds' => []])
-        ->assertRedirect();
+        ->assertRedirect()
+        // bootstrap/app.php renders RuleViolated as
+        // back()->withErrors(['rule' => …]). Assert the KEY, not merely
+        // that some error bag exists: `manage/labels` reads exactly
+        // `errors.rule`, so a refusal filed under any other key would
+        // render nothing at all.
+        ->assertSessionHasErrors(['rule']);
 
-    // bootstrap/app.php renders RuleViolated as back()->withErrors(['rule' => …]).
-    $this->assertTrue(session()->hasOldInput() || session()->has('errors'));
+    // WHAT THIS BLOCK CANNOT SEE, said plainly because its absence is
+    // how the defect survived a whole branch: nothing here proves the
+    // page RENDERS the message. The whole-branch review found
+    // manage/labels.tsx destructuring only `{ shelf, csrfToken }` while
+    // these two assertions passed. This repo has no frontend rendering
+    // tests; the `errors.rule` block in manage/labels.tsx is verified by
+    // reading the component, and its docblock says so.
+});
+
+it('ticking a whole title exports EVERY copy of it, including already-printed ones', function () {
+    [$shelf, $manager, $book, $printed] = lblExpFix();
+    $printed->forceFill(['qr_print_count' => 3, 'qr_printed_at' => now()])->save();
+    $fresh = BookCopy::factory()->for($shelf)->for($book)->create(['code' => 'DT-0002']);
+
+    // PINNING SHIPPED BEHAVIOUR, not endorsing it. The selection screen's
+    // "Chỉ hiện bản chưa in nhãn" filter would show this title with ONE
+    // copy (DT-0002), but LabelController::export calls
+    // CopiesForLabelsQuery::run($bookIds, $copyIds) without
+    // $onlyUnprinted and the form carries no filter state — so a ticked
+    // title expands to BOTH copies and stamps both, DT-0001 to a fourth
+    // print. That matches the reference (old_next's route omits the
+    // filter too); the fix wave made the checkbox SAY so
+    // (copy.manageLabels.selectWholeTitle) rather than change it. Anyone
+    // narrowing this to the filtered subset must break this block first.
+    $this->actingAs($manager)
+        ->post("/shelves/{$shelf->slug}/manage/exports/qr-labels", ['bookIds' => [$book->id]])
+        ->assertOk();
+
+    expect($printed->fresh()->qr_print_count)->toBe(4)
+        ->and($fresh->fresh()->qr_print_count)->toBe(1);
 });
 
 it('another shelf\'s copy id stamps nothing', function () {

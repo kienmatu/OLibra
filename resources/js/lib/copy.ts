@@ -920,10 +920,16 @@ export const copy = {
         title: "In nhãn QR",
         lead: "Chọn các bản sách cần in nhãn QR, theo từng đầu sách hoặc từng bản riêng lẻ.",
         onlyUnprinted: "Chỉ hiện bản chưa in nhãn",
-        selectWholeTitle: "Chọn cả đầu sách",
+        // NAMES WHAT THE TITLE CHECKBOX ACTUALLY DOES. Ticking a title
+        // prints EVERY bản of it, including the ones "Chỉ hiện bản chưa
+        // in nhãn" is currently hiding — CopiesForLabelsQuery expands
+        // bookIds without that filter, and the form carries no filter
+        // state. The old wording ("Chọn cả đầu sách") sat beside a
+        // "{count} bản" count that was the FILTERED count, so a manager
+        // reading the screen would have expected the filtered subset.
+        selectWholeTitle: "Chọn mọi bản của đầu sách này, kể cả bản đã in nhãn",
         expand: "Xem các bản",
         collapse: "Ẩn bớt",
-        copiesCount: "{count} bản",
         // A print count of 0 reads as "never printed"; any count at or
         // above 1 is a REPRINT, the distinction OPS §3.3 asks this screen
         // to keep visible — a sticker that fell off is a second trip
@@ -954,6 +960,13 @@ export const copy = {
             "Không tìm thấy camera trên thiết bị này. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
         cameraError: "Không thể mở camera. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
         decodeError: "Không đọc được mã QR. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        // A NON-OK RESPONSE IS NOT A LENS FAILURE. Without this, a 419
+        // (phiên đăng nhập hết hạn) or a 404 made response.json() throw
+        // into the same catch as a bad frame, and the volunteer was told
+        // the camera could not read the code when the session was what
+        // ended.
+        lookupFailed:
+            "Không tra cứu được mã QR — có thể phiên đăng nhập đã hết hạn. Hãy tải lại trang, hoặc nhập mã bản sách vào ô bên dưới.",
         // Two distinct nothing-found outcomes, kept as two sentences
         // rather than folded into one: a QR that isn't an OLibra label at
         // all (checked locally, before any request) is a different fact
