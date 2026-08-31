@@ -24,6 +24,19 @@ class ShellController extends Controller
      * :35-39) — a query that is non-empty but folds to '' (e.g. "...")
      * would otherwise degenerate to LIKE '%%' and match every shelf.
      *
+     * RETRACTION (fix round 1): this method's first version was written to
+     * make LIKE "diacritic-safe" — that framing was false. `bookshelves`'
+     * columns are `utf8mb4_unicode_ci`, and that collation already folds
+     * vowel diacritics on its own (`'Hòa Bình' LIKE '%hoa binh%'` is `1`
+     * with no fold column involved). What it does NOT fold is the
+     * Vietnamese letter đ/Đ (U+0111) — measured `'Đồng Tháp' LIKE '%dong
+     * thap%' COLLATE utf8mb4_unicode_ci` → `0` — which `Fold::MAP` does map
+     * to `d`. The folded columns exist for đ, and for whatever else
+     * `Fold::MAP` expands (ß, æ, œ, ĳ) that this collation would also miss;
+     * they are not needed for a plain accented vowel.
+     * tests/Feature/Shell/PortalSearchTest.php's fixture and its own
+     * retraction comment carry the measurements this claim rests on.
+     *
      * D2: filtered to active shelves, unlike the admin dashboard (D9),
      * which lists archived ones too — an administrator is the only person
      * who can reach an archived shelf at all; the portal is public.

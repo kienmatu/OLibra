@@ -8,10 +8,30 @@ return new class extends Migration
 {
     /**
      * Phase 3a, Task 5. BR §16.1 makes the public portal's search box the
-     * page's only job, for Vietnamese parish names — but `bookshelves` had
-     * no folded column (verified against the live table), so a naive LIKE
-     * finds nothing when a parent types "hoa binh" looking for the exact
-     * shelf the box exists to find: *Giáo xứ Hòa Bình*.
+     * page's only job, for Vietnamese parish names.
+     *
+     * RETRACTION (fix round 1): the sentence this docblock originally
+     * carried here — "a naive LIKE finds nothing when a parent types 'hoa
+     * binh' looking for *Giáo xứ Hòa Bình*" — was measured false and is
+     * deleted rather than left to be re-derived and re-believed later.
+     * `bookshelves.name`/`location`/`address` are `utf8mb4_unicode_ci`,
+     * and that collation is ITSELF accent-insensitive for vowel
+     * diacritics: `SELECT 'Giáo xứ Hòa Bình' LIKE '%hoa binh%' COLLATE
+     * utf8mb4_unicode_ci` returns `1` with no fold column involved at
+     * all — "hoa binh" cannot tell a folded search apart from a plain one.
+     *
+     * What the collation does NOT fold is the Vietnamese letter đ/Đ
+     * (U+0111) — measured `SELECT 'Đồng Tháp' LIKE '%dong thap%' COLLATE
+     * utf8mb4_unicode_ci` → `0` — which `Fold::MAP` maps to `d`. THAT is
+     * why these three columns are needed: for đ, and for whatever else
+     * `Fold::MAP` expands (ß, æ, œ, ĳ, …) that a general-purpose Unicode
+     * collation does not cover, not for Vietnamese accents in general.
+     * `books.title_folded`/`author_folded` — also `utf8mb4_unicode_ci`
+     * columns with folded twins — are the same fact already shipped
+     * elsewhere in this schema, unremarked until this task's mutation
+     * testing surfaced it. tests/Feature/Shell/PortalSearchTest.php
+     * carries the measurements this claim rests on and a mutation-tested
+     * proof (the plain-LIKE mutation reddens only the đ-bearing blocks).
      *
      * Same shape as 2026_08_28_000001 (users.full_name_folded) and the
      * books.title_folded/author_folded pair it followed: TEXT, not
