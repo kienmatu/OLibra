@@ -367,6 +367,9 @@ export const copy = {
             // The reference's own label for cong-dong, and the ordinary
             // word a volunteer uses.
             community: "Cộng đồng",
+            // Shelf administration: the profile, the lending policy and who
+            // manages the shelf. Empty until those actions are recorded.
+            administration: "Quản trị",
         },
         actorLabel: "Người thực hiện",
         actorAll: "Mọi người",

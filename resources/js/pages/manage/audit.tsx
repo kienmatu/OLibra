@@ -17,7 +17,7 @@ interface AuditRow {
     entityType: string;
     entityId: string | null;
     occurredAt: string;
-    group: "loans" | "books" | "readers" | "community" | null;
+    group: "loans" | "books" | "readers" | "community" | "administration" | null;
     sentence: string;
     expansion: ExpansionRow[];
 }
@@ -28,7 +28,9 @@ interface PageProps extends SharedData {
     log: { rows: AuditRow[]; page: number; pageCount: number; total: number };
 }
 
-const GROUP_KEYS = ["loans", "books", "readers", "community"] as const;
+// Mirrors AuditSentences::GROUPS, which is the ?group= whitelist the
+// controller enforces; a group missing here is a filter nobody can reach.
+const GROUP_KEYS = ["loans", "books", "readers", "community", "administration"] as const;
 
 export default function ManageAudit() {
     const { shelf, filters, actors, log, csrfToken } = usePage<PageProps>().props;

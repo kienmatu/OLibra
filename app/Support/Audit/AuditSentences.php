@@ -98,7 +98,15 @@ final class AuditSentences
         'donation.declined' => 'community',
     ];
 
-    public const array GROUPS = ['loans', 'books', 'readers', 'community'];
+    /**
+     * The filter whitelist, not just a fixture: Manage\AuditLogController
+     * accepts a ?group= only when it is in here, and the Vietnamese labels
+     * live beside it in resources/js/lib/copy.ts (manageAudit.groups).
+     *
+     * 'administration' is empty until the shelf and membership actions land;
+     * actionsInGroup() returns [] for it and the partition above still holds.
+     */
+    public const array GROUPS = ['loans', 'books', 'readers', 'community', 'administration'];
 
     /** @return list<string> */
     public static function actionsInGroup(string $group): array

@@ -25,9 +25,9 @@ it('a null actor renders as Hệ thống, never as an empty subject', function (
 });
 
 it('an unknown action gets the fallback phrase and NEVER the raw name', function () {
-    $s = AuditSentences::sentence('bookshelf.created', audFacts(actor: 'Ai Đó'));
+    $s = AuditSentences::sentence('nonesuch.never_registered', audFacts(actor: 'Ai Đó'));
     expect($s)->toBe('Ai Đó đã thực hiện một thao tác hệ thống chưa được mô tả')
-        ->and($s)->not->toContain('bookshelf.created');
+        ->and($s)->not->toContain('nonesuch.never_registered');
 });
 
 it('request.created names the title, and falls back when the payload has none', function () {
@@ -185,7 +185,7 @@ it('groupOf answers the family for a known action and null for a stranger', func
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
         ->and(AuditSentences::groupOf('comment.created'))->toBe('community')
-        ->and(AuditSentences::groupOf('bookshelf.created'))->toBeNull();
+        ->and(AuditSentences::groupOf('nonesuch.never_registered'))->toBeNull();
 });
 
 it('announcement.created names the title, and falls back to "một thông báo" when the payload has none', function () {
@@ -399,7 +399,7 @@ it('every action in the map renders a real sentence, never the undescribed-actio
     // and subject through LEFT joins, so an arm has to render with
     // nothing in hand, and that is also the shape that reaches the
     // default arm if one is missing.
-    $fallback = AuditSentences::sentence('bookshelf.created', audFacts(actor: 'Maria Q'));
+    $fallback = AuditSentences::sentence('nonesuch.never_registered', audFacts(actor: 'Maria Q'));
 
     foreach (array_keys(AuditSentences::ACTIONS) as $action) {
         expect(AuditSentences::sentence($action, audFacts(actor: 'Maria Q')))
@@ -407,12 +407,31 @@ it('every action in the map renders a real sentence, never the undescribed-actio
     }
 });
 
+it('nonesuch.never_registered, the suite\'s stranger, is registered nowhere', function () {
+    // Three cases above obtain the undescribed-action fallback by asking
+    // for this action, and the sweep just above compares every registered
+    // action's sentence against it. If it ever became real, that sweep
+    // would silently stop covering anything — every comparison would be
+    // against a described sentence rather than the fallback, and nothing
+    // would say so. It used to be 'bookshelf.created', which this phase
+    // registers; this name is chosen so that no domain can claim it.
+    expect(AuditSentences::ACTIONS)->not->toHaveKey('nonesuch.never_registered')
+        ->and(AuditSentences::groupOf('nonesuch.never_registered'))->toBeNull();
+});
+
 it('actionsInGroup partitions the whole map with nothing left over', function () {
+    // Spelled out rather than read from GROUPS, so that adding a group and
+    // forgetting to give its actions a home cannot pass by widening both
+    // sides of the comparison at once. The first expectation is what keeps
+    // the literal list honest: it must name every group the constant names.
+    $groups = ['loans', 'books', 'readers', 'community', 'administration'];
+
     $all = array_merge(...array_map(
         fn (string $g) => AuditSentences::actionsInGroup($g),
-        ['loans', 'books', 'readers', 'community'],
+        $groups,
     ));
-    expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
+    expect($groups)->toEqualCanonicalizing(AuditSentences::GROUPS)
+        ->and($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
         ->and(AuditSentences::ACTIONS)->toHaveCount(41);
 });
 
