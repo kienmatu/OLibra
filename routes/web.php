@@ -17,6 +17,7 @@ use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
+use App\Http\Controllers\Manage\StatisticsController;
 use App\Http\Controllers\Reader\AnnouncementController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
@@ -487,7 +488,14 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
-        Route::get('/statistics', [ShellController::class, 'underConstruction'])->name('statistics');
+        // BR §16.3's Statistics paragraph, opened: "Period selector (week,
+        // month, year, since the shelf began), showing loans, distinct
+        // borrowers, books added, and books lost, with charts over time and
+        // ranked lists of top books and top readers." OPS §3.3's
+        // GetStatistics is the query behind it. The placeholder this replaces
+        // held the name from Phase 0; ShellController::underConstruction's
+        // docblock records that the route NAMES were final from that day.
+        Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics');
         Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
         Route::get('/qr-labels', [ShellController::class, 'underConstruction'])->name('qr-labels');
         Route::get('/exports/qr-labels', [ShellController::class, 'underConstruction'])->name('exports.qr-labels');

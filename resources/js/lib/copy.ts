@@ -868,6 +868,47 @@ export const copy = {
         toForm: "Tặng sách cho tủ sách",
         backToOverview: "Về trang của tôi",
     },
+    /**
+     * BR §16.3's Thống kê screen. Own namespace, own keys — this file's
+     * header bans reaching into another namespace's keys, so the four
+     * total captions below are NOT copy.manageDashboard's totalTitles /
+     * totalCopies / totalOnLoan / totalReaders, even though they sit
+     * beside similar-looking cards on the dashboard: these four count
+     * events within the selected period (loans, borrowers, books added,
+     * copies lost), not a point-in-time inventory.
+     *
+     * A SENTENCE ABOVE EVERY CHART, not a caption beside it — AGENTS.md
+     * rule 8 and this file's own header both call for a plain-text
+     * summary, because assertInertia sees props and never pixels: the
+     * summary sentence is the only part of a chart this repo can test.
+     * dailyChartSummary and byCategoryChartSummary below are templates a
+     * caller fills with the query's own totals (t(), already exported by
+     * this file), so the sentence never drifts from the numbers the SVG
+     * draws beneath it.
+     */
+    manageStatistics: {
+        title: "Thống kê",
+        periodWeek: "Tuần này",
+        periodMonth: "Tháng này",
+        periodYear: "Năm nay",
+        periodAll: "Từ khi mở tủ sách",
+        totalLoans: "Lượt mượn",
+        totalBorrowers: "Bạn đọc đã mượn",
+        totalBooksAdded: "Sách mới thêm",
+        totalCopiesLost: "Bản sách bị mất",
+        dailyChartHeading: "Lượt mượn theo ngày",
+        dailyChartSummary:
+            "Trong khoảng thời gian này có {loans} lượt mượn, tính theo {days} ngày.",
+        dailyChartEmpty: "Chưa có lượt mượn nào trong khoảng thời gian này.",
+        byCategoryChartHeading: "Lượt mượn theo thể loại",
+        byCategoryChartSummary: "Thể loại được mượn nhiều nhất là {label}, với {count} lượt.",
+        byCategoryChartEmpty: "Chưa có lượt mượn nào để thống kê theo thể loại.",
+        topBooksHeading: "Sách được mượn nhiều nhất",
+        topBooksEmpty: "Chưa có sách nào được mượn trong khoảng thời gian này.",
+        topReadersHeading: "Bạn đọc chăm nhất",
+        topReadersEmpty: "Chưa có bạn đọc nào mượn sách trong khoảng thời gian này.",
+        countSuffix: "{count} lượt",
+    },
 } as const;
 
 /**

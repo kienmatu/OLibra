@@ -86,6 +86,10 @@ export default function ManageLayout({ children }: PropsWithChildren) {
             href: route("shelves.manage.audit", { shelf: shelf.slug }),
         },
         {
+            name: copy.manageStatistics.title,
+            href: route("shelves.manage.statistics", { shelf: shelf.slug }),
+        },
+        {
             name: copy.manage.settings,
             href: route("shelves.manage.settings", { shelf: shelf.slug }),
         },
