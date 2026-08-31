@@ -3959,3 +3959,29 @@ branch, so each carries what it would take to close it.
   (`DonationQueueQuery`). The last is an internal membership id on a page with no
   consumer for it; unlike `photoUrl`/`status`/`decisionNote`, it carries no note
   saying why it rides along.
+
+## Phase 2c — Statistics and labels
+
+Manager statistics screen and QR labels. Branch
+`feat/phase-2c-statistics-and-labels`.
+
+- **`App\Support\Clock::ZONE` now names the parish's civil timezone once, and
+  `Clock::today()` reads it (Phase 2c Task 1).** `today()` previously spelled
+  `'Asia/Ho_Chi_Minh'` inline; it now reads `self::ZONE`, and the new
+  `Clock::periodStart(StatsPeriod $period)` — the boundary the statistics
+  query (Task 2) and screen (Task 3) both use — is built on the same
+  constant. `today()`'s returned value is unchanged: same
+  `CarbonImmutable::now(...)->toDateString()` call, only the timezone
+  argument's spelling moved from a literal to a constant reference.
+
+  **`app/Queries/MyLoanHistoryQuery.php:39` and `:42` still hardcode
+  `'Asia/Ho_Chi_Minh'`** (checked at the time of this entry — re-check the
+  line numbers if the file has moved). That is shipped Phase 1c code, and
+  editing it here would be scope creep into a merged phase; Phase 2c adds no
+  new literal of its own, so leaving those two lines alone does not add to
+  the count it inherited.
+
+  The per-shelf `bookshelves.timezone` column exists and is deliberately not
+  read by `Clock::ZONE` or `periodStart()` — there is one parish today, and a
+  network of shelves with independently meaningful timezones is Phase 3's
+  problem, not this one's.
