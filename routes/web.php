@@ -9,6 +9,7 @@ use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
 use App\Http\Controllers\Manage\DonationController as ManageDonationController;
 use App\Http\Controllers\Manage\ExportController;
+use App\Http\Controllers\Manage\LabelController;
 use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
@@ -497,8 +498,16 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // docblock records that the route NAMES were final from that day.
         Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics');
         Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
-        Route::get('/qr-labels', [ShellController::class, 'underConstruction'])->name('qr-labels');
-        Route::get('/exports/qr-labels', [ShellController::class, 'underConstruction'])->name('exports.qr-labels');
+        Route::get('/qr-labels', [LabelController::class, 'index'])->name('qr-labels');
+        // POST, matching this repo's export convention (ExportController's
+        // docblock, and tests/Feature/Oversight/ExportHttpTest.php's POST to
+        // /manage/exports/books), and DECLARED BEFORE exports/{kind} on the
+        // next line — declared after, a POST here matches {kind} =
+        // 'qr-labels' and reaches ExportController instead. Task 10's
+        // report carries the falsification: moved below exports/{kind},
+        // LabelExportTest's export block turns red; restored, it is green
+        // and git status is clean.
+        Route::post('/exports/qr-labels', [LabelController::class, 'export'])->name('exports.qr-labels');
         Route::post('/exports/{kind}', [ExportController::class, 'store'])->name('exports.run');
     });
 });
