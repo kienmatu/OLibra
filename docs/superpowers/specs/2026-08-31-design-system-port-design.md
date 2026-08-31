@@ -1,246 +1,330 @@
-# The design-system port — design
+# Porting OLibra's design system to the Laravel app
 
-**Date:** 2026-08-31
-**Status:** awaiting approval
-**Branch:** `feat/design-system-port`, cut from `main` at `7704d10`
+Status: approved design, revised after review
+Date: 2026-08-31
+Branch: `feat/design-system-port`, cut from `main` at `7704d10`
 
-## Context
+## 1. Context
 
-OLibra is a Vietnamese parish library system being rewritten from a Next.js
-application (`old_next/`, kept in-tree read-only as a behavioural reference) onto
-Laravel + Inertia + React + MariaDB. Phases 0 through 3a are merged: the
-catalogue, members, circulation, oversight, community, statistics, QR labels, and
-the network foundation.
+OLibra is a parish lending-library system being ported from Next.js to Laravel +
+Inertia + React. The Next.js app lives in `old_next/` as a **read-only**
+behavioural reference. Phases 1 through 3a have shipped the data model, the
+reader-facing screens, the manager screens, statistics and QR labels — 42 React
+screens in `resources/js`.
 
-Forty-two screens have been built. **None of them uses OLibra's design system.**
-`resources/css/app.css` is still the stock Laravel/shadcn starter theme — pure
-white, near-black, greys, and `Instrument Sans` served from a third-party CDN.
-The reference's own identity — a warm paper palette with terracotta reserved for
-the one primary action per screen, Lexend for the interface and Literata for book
-titles — was never ported.
+Those screens were built against the **stock Laravel starter theme**: a neutral
+near-black-and-white shadcn palette with the `Instrument Sans` webfont pulled
+from `fonts.bunny.net`. The reference app looks nothing like it. `old_next` is
+warm and papery — a cream page, terracotta accents, `Lexend` for UI and
+`Literata` for headings, visible hairline rules instead of shadows.
 
-This was not a decision anybody recorded. The screens were migrated for
-behaviour, phase by phase, and the token layer underneath them was left as the
-starter kit shipped it.
+This is why the screenshots taken from Phase 3a look like a generic admin panel
+rather than OLibra: **the design system was never ported.** Only the screens were.
 
-## Problem statement
+## 2. Problem statement
 
-Two of the three problems here are **rendering defects**, not matters of taste.
+Two problems, and the second is the one that makes this spec non-trivial.
 
-**Vietnamese text renders in two different typefaces, mid-word, on every screen.**
-`resources/views/app.blade.php:10` requests `instrument-sans:400,500,600` from
-`fonts.bunny.net` with no subset parameter. Measured in the browser against the
-live app, the two loaded faces declare:
+**Problem 1 — the tokens do not exist.** `resources/css/app.css` has no
+`--color-page`, no `--color-terracotta`, no serif family. The warm palette and
+the two typefaces simply are not in the Laravel app.
 
-```
-U+0-FF, U+131, U+152-153, …                      (latin)
-U+100-2BA, U+2BD-2C5, …, U+1E00-1E9F, U+1EF2-1EFF (latin-ext)
-```
-
-**U+1EA0–U+1EF1 is covered by neither.** That block holds most Vietnamese
-precomposed tone-marked vowels — `ế` (U+1EBF), `ồ` (U+1ED3), `ủ` (U+1EE7), `ợ`
-(U+1EE3). So in *Tủ sách Đồng Tháp*, the `ủ` and `ồ` come from a system fallback
-while every other letter comes from Instrument Sans.
-
-The reference guarded against exactly this, in a comment at
-`old_next/src/app/layout.tsx:5`: *"Self-hosted at build time by next/font — never
-fetched from a third-party CDN. The vietnamese subset is required: diacritics are
-not optional here."*
-
-**Eleven screens already ask for a serif book title and do not get one.**
-`font-serif` is applied — correctly, only to book titles — in **eleven files**,
-enumerated rather than summarised because an earlier draft of this paragraph
-listed nine while claiming eleven, having been written from truncated grep output:
+**Problem 2 — nothing would consume them if they did.** This is the finding that
+reshaped this spec. Searching the 42 ported screens for the reference's own
+utility class names:
 
 ```
-manage/borrow-requests.tsx      manage/returns/index.tsx
-manage/comments.tsx             manage/returns/lost.tsx
-manage/lend/confirm.tsx         shelves/profile/history.tsx
-manage/lend/index.tsx           shelves/profile/overview.tsx
-manage/lend/new-reader.tsx
-manage/lend/reader.tsx
-manage/overdue.tsx
+$ grep -rnoE '\b(bg|text|border)-(page|surface|paper|hairline|ink|meta|leather|terracotta|sage|brick)\b' resources/js | wc -l
+0
 ```
 
-AGENTS.md rule 1 is honoured in the markup. But
-`resources/css/app.css` defines only `--font-sans`; there is **no `--font-serif`**,
-so those titles fall back to the browser's Times or Georgia rather than Literata.
+**Zero.** Every ported screen was written against shadcn's *semantic* vocabulary
+instead — `text-muted-foreground` appears 181 times, `bg-accent` 22, `bg-background`
+30, `bg-primary` 14. So adding the reference's tokens to `@theme` and stopping
+there would change **nothing on screen**. It would be a no-op that looks like a
+delivered feature.
 
-**And the visual identity is absent.** No terracotta token exists anywhere in
-`app/` or `resources/` — the single match in the codebase is a comment quoting the
-rule it cannot follow. AGENTS.md rule 3 says *"Solid terracotta appears once"*;
-there is nothing for a screen to be solid terracotta *with*.
+The port is therefore not "add ten colour variables." It is: **re-point shadcn's
+33 semantic variables, in both modes, onto the reference's palette** — so that
+the 181 existing `text-muted-foreground` call sites start rendering the
+reference's `meta` grey without any screen being edited.
 
-## Why now
+That mapping table is the central artefact of this work, and it is section 6.
 
-**42 screens exist; 14 placeholder routes remain**, nearly all of them in Phases
-3b and 3c, which are the most screen-heavy slices left. Porting the tokens before
-3b means those fourteen are built correct the first time. Porting after means
-restyling fifty-six.
+## 3. Scope
 
-Ruled by the product owner on 2026-08-31: **before 3b.**
+In scope: `resources/css/app.css`, `resources/views/app.blade.php`, the two error
+Blades (`errors/419.blade.php`, `errors/429.blade.php`), font assets, and a
+regression test. **No screen component is edited.** Per-screen visual refinement
+is explicitly out of scope (D5).
 
-## Decisions taken
+## 4. Decisions
 
-### D1. Fonts are self-hosted and bundled, with the Vietnamese subset
+### D1 — Self-host both families, bundled by Vite, with the `vietnamese` subset
 
-Lexend for the interface, Literata 600 for book titles, both served from this
-origin via Vite rather than from `fonts.bunny.net`.
+The app currently pulls `Instrument Sans` from `fonts.bunny.net` at runtime. The
+reference self-hosts, and its `layout.tsx:5` says why:
 
-**Subsets: `latin`, `latin-ext`, and `vietnamese`.** The third is the whole point
-— it is the block the current setup omits, and its absence is the rendering bug
-above.
+> Self-hosted at build time by `next/font` — never fetched from a third-party CDN.
+> The vietnamese subset is required: diacritics are not optional here.
 
-Two reasons for self-hosting rather than fixing the CDN URL:
+That second sentence is a correctness constraint, not a preference. The
+`vietnamese` Unicode subset covers **U+1EA0–U+1EF1**, which holds most precomposed
+tone-marked Vietnamese vowels (ậ, ộ, ữ, ọ…). The `latin-ext` subset covers
+U+0100–U+02BA and U+1EF2–U+1EFF and **does not include that range**. A build that
+ships only `latin`+`latin-ext` renders a large share of Vietnamese body text from
+a fallback font, producing visibly mismatched glyphs mid-word.
 
-1. **It is the reference's own recorded decision**, stated in the comment quoted
-   above, and it was made for this application's users.
-2. **It matches the ruling this project already made** in Phase 2c, when the QR
-   scanner was found fetching its WebAssembly module from `fastly.jsdelivr.net` at
-   scan time. That was fixed to serve from this origin, on an unverified shared
-   cPanel host, for a product whose dominant interaction is a volunteer holding a
-   phone in a parish hall (BR §1.3). Text rendering deserves the same treatment;
-   the failure is gentler — a fallback face rather than a broken feature — but the
-   dependency is the same shape.
+We self-host `Lexend` (400/500/600) and `Literata` (600) as woff2 under
+`resources/fonts/`, declared with `@font-face` and `font-display: swap`, and
+delete the `fonts.bunny.net` `<link>` and `preconnect` from `app.blade.php`.
+This also removes a third-party runtime dependency from a self-hosted cPanel
+deployment, which is consistent with the rest of the project.
 
-`resources/fonts/` already holds `Lexend-Regular.ttf` and `Lexend-SemiBold.ttf`,
-added in Phase 2c for the PDF label sheet. **Those are for TCPDF, not the
-browser** — the web build needs `woff2`, and this port adds them separately
-rather than reusing the print assets.
+### D2 — Port the reference's light palette verbatim
 
-### D2. The light palette is ported verbatim
+The ten ground/ink tokens from `old_next/src/app/globals.css` are copied
+unchanged. They are a designed set, not a starting point, and one of them
+carries a comment recording a fix we would otherwise re-break:
 
-From `old_next/src/app/globals.css`:
+| token | value | role |
+|---|---|---|
+| `page` | `#fdfbf8` | app ground |
+| `surface` | `#ffffff` | cards, raised panels |
+| `paper` | `#f2ebe1` | inset/secondary fills |
+| `hairline` | `#d3cbc2` | all dividers and borders |
+| `ink` | `#3a352f` | body text |
+| `meta` | `#716962` | secondary text |
+| `leather` | `#776857` | tertiary/labels |
+| `terracotta` | `#a4673b` | primary accent (fill) |
+| `terracotta-ink` | `#965c33` | primary accent (text) |
+| `sage` | `#477369` | positive accent |
+| `brick` | `#af4c44` | negative accent |
 
-```
---color-page:      #fdfbf8     --color-terracotta:     #a4673b
---color-surface:   #ffffff     --color-terracotta-ink: #965c33
---color-paper:     #f2ebe1     --color-sage:           #477369
---color-hairline:  #d3cbc2     --color-brick:          #af4c44
---color-ink:       #3a352f
---color-meta:      #716962
---color-leather:   #776857
-```
+On `hairline` the reference notes that an earlier `#ede5da` sat at 1.05:1 on warm
+paper, leaving row dividers effectively invisible, and that in a design with no
+shadows the borders *are* the structure. We keep `#d3cbc2`.
 
-**Copied, not re-derived.** The hairline in particular carries a fix the reference
-already made once, recorded in its own comment: `#ede5da` *"sat at 1.05:1 on warm
-paper — the dividers between rows were effectively invisible. In a design with no
-shadows the borders are the structure, so they have to be seen."* Re-deriving that
-value would risk re-making the mistake.
+Note the reference distinguishes `terracotta` (a **fill**) from `terracotta-ink`
+(**text**). Section 6 shows why that distinction forces a decision when mapping
+onto shadcn, which has only one variable for both.
 
-### D3. The dark palette is derived by preserving the reference's contrast ratios
+### D3 — Derive a dark palette, then hand-tune it
 
-**The reference has no dark mode.** Grepped: zero matches for
-`prefers-color-scheme`, `.dark` or `dark:` in `old_next/src/app/globals.css`. The
-Laravel starter shipped a complete dark palette which all 42 screens inherit, and
-the product owner ruled on 2026-08-31 to **keep dark mode** rather than drop it.
+`old_next` has **no dark mode** — zero matches for `.dark`, `dark:`, or
+`prefers-color-scheme`. But the Laravel app already ships a working dark mode
+(appearance toggle, `.dark` class, persisted preference), and 42 screens already
+carry `dark:` variants. Removing it would be a visible regression; leaving it on
+the stock neutral palette would mean the app is warm in light mode and cold in
+dark. So the dark values must be **invented**, and this is the only part of the
+port with no reference to copy.
 
-So a dark palette must be created. It is **derived, not invented.** Measuring the
-reference's light palette against its own page colour shows a deliberately tuned
-system:
+**Method, stated honestly.** The heuristic is: hold each ink's hue and saturation,
+and move its lightness until it sits at *the same contrast ratio against the dark
+ground that it has against the light ground in the reference*. This is a
+**starting heuristic followed by a hand-tuning pass**, not a derivation that
+removes judgement:
 
-| token | on `#fdfbf8` |
-|---|---|
-| ink | 11.75:1 |
-| meta | 5.21:1 |
-| terracotta | 4.44:1 |
-| hairline | 1.55:1 |
-| all six status inks | 5.16 – 5.75:1 |
+- WCAG relative luminance is not perceptually uniform, so equal ratios do not
+  guarantee equal perceived emphasis.
+- HSL saturation is not chroma; holding it does not hold colourfulness. OKLCH
+  would model this correctly. We use HSL because the reference is authored in hex
+  and the arithmetic stays inspectable in review.
+- The constraint suits **inks** and actively misfits **fills** (see below).
 
-Six independent status colours landing within 0.6 of each other is a decision,
-not a coincidence. **The derivation therefore holds hue and saturation constant
-and moves only lightness, until each token hits its own reference ratio against a
-warm dark ground of `#1b1916`:**
+Treat the numbers as a defensible starting point that a human should look at, not
+as a proof of visual equivalence.
 
-| token | light | dark | achieved | target |
+**Why ~5.2 is the reference's constant.** Measuring the reference's own tokens
+against `page`, eleven of them cluster tightly: `terracotta-ink` 5.246, `meta`
+5.214, `leather` 5.210, `sage` 5.181, `brick` 5.160, plus the six status inks.
+`ink` itself sits far above at 11.751 because it is body copy. The single low
+outlier is `terracotta` at 4.44 — and it is low precisely because it is **not an
+ink**: it is a fill that carries white text, so its constraint is white-on-fill
+(4.583), not itself-on-page.
+
+**Grounds** (chosen by hand, then checked):
+
+| token | light | dark |
+|---|---|---|
+| `page` | `#fdfbf8` | `#1b1916` |
+| `surface` | `#ffffff` | `#24211d` |
+| `paper` | `#f2ebe1` | `#2b2721` |
+
+Surface-against-page is 1.033 in light and 1.094 in dark, so cards lift slightly
+*better* in dark than in the reference — acceptable, and deliberate.
+
+**Inks** (each derived against **its own** light ratio, not a shared constant):
+
+| token | light | ratio | dark | ratio |
 |---|---|---|---|---|
-| ink | `#3a352f` | `#d7d3cd` | 11.77:1 | 11.75 |
-| meta | `#716962` | `#938b83` | 5.23:1 | 5.21 |
-| terracotta | `#a4673b` | `#b37040` | 4.43:1 | 4.44 |
-| sage | `#477369` | `#558a7e` | 4.45:1 | 4.44 |
-| brick | `#af4c44` | `#c1665e` | 4.45:1 | 4.44 |
-| hairline | `#d3cbc2` | `#42392f` | 1.55:1 | 1.55 |
+| `ink` | `#3a352f` | 11.751 | `#d7d3cd` | 11.768 |
+| `meta` | `#716962` | 5.214 | `#938b83` | 5.230 |
+| `leather` | `#776857` | 5.210 | `#9b8976` | 5.207 |
+| `terracotta-ink` | `#965c33` | 5.246 | `#c27c4b` | 5.244 |
+| `sage` | `#477369` | 5.181 | `#5d9689` | 5.170 |
+| `brick` | `#af4c44` | 5.160 | `#c7756e` | 5.177 |
 
-Every value within 0.03 of its target. **The hairline target is 1.55:1 and not a
-WCAG threshold on purpose** — it is the value the reference arrived at by fixing a
-real invisibility problem, and the same reasoning applies on a dark ground where
-borders are still the only structure.
+**`hairline` is derived against `surface`, not `page`** — dividers overwhelmingly
+sit inside cards, so `surface` is the ground that governs whether they are
+visible. Against `surface` the light hairline is 1.604; the dark value `#4a4136`
+reproduces it at 1.603 (and reads 1.754 against `page`). Deriving it against
+`page` instead would have let it regress to 1.42 on the surface where it actually
+matters — below the reference's own stated floor for a shadowless design.
 
-`page`, `surface` and `paper` invert the lightness ordering while keeping the warm
-hue: `#1b1916`, `#24211d`, `#2b2721`.
+**Fills are not derived.** `terracotta` (`#a4673b`) and the `brick` fill
+(`#af4c44`) keep their light values in dark mode. A fill's job is to carry white
+text, and that constraint does not change with the page behind it: white-on-
+terracotta stays 4.583, white-on-brick 5.33. Deriving `terracotta` as if it were
+an ink would have lightened it to `#b37040`, dropping white-on-fill to **3.956 —
+a WCAG AA failure on the app's primary button.** The fill/ink split in D2 is what
+makes this visible.
 
-### D4. The six status inks are deliberately NOT ported
+### D4 — Do not port the six status inks in this phase
 
-The reference defines six: `available #457453`, `onloan #8e6231`, `held #4d6d8f`,
-`overdue #ad4c42`, `lost #94514a`, `retired #716962`.
+The reference defines six status colours (`available` `#457453`, `onloan`
+`#8e6231`, `held` `#4d6d8f`, `overdue` `#ad4c42`, `lost` `#94514a`, `retired`
+`#716962`). We are not porting them here.
 
-**They have almost no consumers here.** The six copy-state labels (*Còn sách, Đang
-mượn, Đang giữ chỗ, Quá hạn, Đã mất, Ngừng dùng*) appear in exactly **two files**:
-`resources/js/lib/copy.ts`, which defines the strings, and
-`resources/js/pages/manage/books/lost.tsx`.
+The six copy-item states in `resources/js/lib/copy.ts:155` — "Có sẵn", "Đang cho
+mượn", "Đang giữ chỗ", "Đã mất", "Ngừng dùng", "Chưa có bản nào" — currently
+render as text through shadcn badges at **four** call sites: `book-card.tsx:48`,
+`shelves/book.tsx:157`, `manage/books/show.tsx:319` and `manage/books/index.tsx:132`.
 
-Six tokens with one consuming screen is how dead tokens accumulate — the same
-YAGNI failure this port is fixing at the font layer, where `--font-serif` was
-*absent* while eleven screens asked for it. Adding the inverse is no better.
+Porting the status inks properly means adding six token pairs (twelve values,
+since each needs a dark counterpart), deciding badge fill-vs-ink for each, and
+editing four screens. That is per-screen visual work, which D5 puts out of scope,
+and it would roughly double this change while the palette itself is still
+unproven on screen.
 
-They belong with whatever screen genuinely needs them. **AGENTS.md rule 2 is
-unaffected**: status is still never colour alone, and the shadcn badge variants
-pick up the new palette automatically.
+`AGENTS.md` rule 2 asks that a status be conveyed by word **and** colour, so
+deferring this leaves that rule partly unmet. **We record it in
+`docs/known-gaps.md` as an explicit deferral with the four call sites named**,
+rather than letting it pass silently. The states remain distinguishable by word
+throughout, so nothing becomes ambiguous in the interim.
 
-### D5. Per-screen refinement is out of scope
+### D5 — Per-screen refinement is out of scope
 
-Changing the tokens shifts all 42 screens at once. Judging each one — terracotta
-placement under rule 3, the 44px/56px touch targets under rule 4, whether a
-particular badge should now use a status ink — is separate work and a separate
-review surface. **This slice changes the token layer and the two font families,
-and nothing else.**
+This phase changes tokens only. Screens will shift in colour and type
+automatically through the mapping; some will have spacing or weight that suits
+the old palette better than the new. Fixing those is a follow-up pass with
+screenshots, not part of a change whose correctness rests on touching no
+component.
 
-One exception, because it is the same change: `AGENTS.md` rule 1 names
-`components/book-card.tsx` as *"the current, non-serif example to correct"*. A
-book title that stays sans while eleven other screens go serif is an inconsistency
-this port creates, so correcting that one file belongs here.
+## 5. What the reference's stylesheet carries besides colour
 
-## Testing
+These were missed on the first pass and are part of the identity:
 
-**Most of this cannot be tested in this repository**, and the spec says so rather
-than implying otherwise. There is no frontend rendering test runner — the only
-`vitest` scripts point at `old_next/`, and `assertInertia` sees server-side props
-only. Nothing automated can see a colour.
+- `--radius-card: 0.5rem` and `--radius-control: 0.25rem`. Laravel's `--radius`
+  is already `0.5rem`, so cards match; controls need the tighter value.
+- `h1–h4 { line-height: 1.3 }`, commented in the reference as **"Vietnamese
+  diacritics must never clip."** Stacked tone marks on capitals overflow tighter
+  leading. This is the same class of bug as D1's subset requirement and must come
+  across.
+- A `:focus-visible` outline in terracotta — the app currently uses the stock ring.
+- A `::selection` rule in warm tones.
+- An `@utility hairline` helper.
 
-What **can** be pinned, and should be:
+## 6. The mapping: shadcn's 33 variables onto the reference palette
 
-- **No `fonts.bunny.net` reference survives** anywhere in `resources/views/` — a
-  grep-shaped test, and the one that stops the CDN dependency creeping back.
-- **`--font-sans` resolves to Lexend and `--font-serif` to Literata** in the built
-  CSS, so the eleven serif screens get the family they have been asking for.
-- **The `vietnamese` subset is present in the built font CSS** — the assertion that
-  corresponds to the actual bug. A build that ships `latin` only would otherwise
-  look identical to a correct one.
-- **Every token the reference defines has a counterpart**, light and dark, so a
-  half-ported palette fails rather than degrades.
+This is the artefact that makes the port visible. `app.css` uses Tailwind 4's
+two-layer indirection — `@theme` declares `--color-background: var(--background)`,
+and `:root` / `.dark` set `--background`. That shape is **preserved**: we change
+only the values in `:root` and `.dark`, because `@theme` emits at `:root` and a
+`.dark` block cannot override it.
 
-The palette itself is verified the way it was derived — **by measuring contrast
-ratios**, with the derivation script's output recorded — and by before-and-after
-screenshots of a representative light and dark screen.
+**The one-token-two-jobs conflict.** shadcn has a single `--primary` where the
+reference has both `terracotta` (fill) and `terracotta-ink` (text). The app uses
+`bg-primary` 14 times *and* `text-primary` 6 times; `destructive` is worse —
+`bg-destructive` 18, `text-destructive` 18, `border-destructive` 16. So each such
+variable must simultaneously satisfy two constraints: legible as text on the
+ground, **and** legible under its own `-foreground` as a fill. Measured:
 
-## Explicitly not in scope
+| variable | value tried | text-on-ground | fg-on-fill | |
+|---|---|---|---|---|
+| light `--primary` | fill `#a4673b` | 4.44 | 4.58 | fails |
+| light `--primary` | ink `#965c33` | 5.25 | 5.42 | **passes** |
+| dark `--primary` | fill `#a4673b` | 3.83 | 4.58 | fails |
+| dark `--primary` | ink `#c27c4b` | 5.24 | 5.24 | **passes** |
+| dark `--destructive` | fill `#af4c44` | 3.29 | 5.33 | fails |
+| dark `--destructive` | ink `#c7756e` | 5.18 | 5.18 | **passes** |
 
-- The six status inks (D4).
-- Per-screen refinement: terracotta placement, touch targets, spacing (D5).
-- Any change to a screen's structure, copy or behaviour.
-- Phase 3b's features. This slice ships before 3b so that 3b's fourteen screens
-  are built against the real tokens.
+One rule covers every case: **map accent variables to the reference's *ink*
+value, and set the matching `-foreground` to the opposing ground** (white in
+light mode, `page` in dark). The cost is that buttons render ~7% darker than the
+reference's `#a4673b`; the alternative is either an AA failure or introducing a
+second token and editing every call site, which D5 excludes.
 
-## Risks
+| shadcn variable | light | dark | from |
+|---|---|---|---|
+| `--background` | `#fdfbf8` | `#1b1916` | page |
+| `--foreground` | `#3a352f` | `#d7d3cd` | ink |
+| `--card` | `#ffffff` | `#24211d` | surface |
+| `--card-foreground` | `#3a352f` | `#d7d3cd` | ink |
+| `--popover` | `#ffffff` | `#24211d` | surface |
+| `--popover-foreground` | `#3a352f` | `#d7d3cd` | ink |
+| `--primary` | `#965c33` | `#c27c4b` | terracotta-ink |
+| `--primary-foreground` | `#ffffff` | `#1b1916` | white / page |
+| `--secondary` | `#f2ebe1` | `#2b2721` | paper |
+| `--secondary-foreground` | `#3a352f` | `#d7d3cd` | ink |
+| `--muted` | `#f2ebe1` | `#2b2721` | paper |
+| `--muted-foreground` | `#716962` | `#938b83` | meta |
+| `--accent` | `#f2ebe1` | `#2b2721` | paper |
+| `--accent-foreground` | `#3a352f` | `#d7d3cd` | ink |
+| `--destructive` | `#af4c44` | `#c7756e` | brick |
+| `--destructive-foreground` | `#ffffff` | `#1b1916` | white / page |
+| `--border` | `#d3cbc2` | `#4a4136` | hairline |
+| `--input` | `#d3cbc2` | `#4a4136` | hairline |
+| `--ring` | `#965c33` | `#c27c4b` | terracotta-ink |
+| `--chart-1` | `#477369` | `#5d9689` | sage |
+| `--chart-2` | `#965c33` | `#c27c4b` | terracotta-ink |
+| `--chart-3` | `#776857` | `#9b8976` | leather |
+| `--chart-4` | `#af4c44` | `#c7756e` | brick |
+| `--chart-5` | `#716962` | `#938b83` | meta |
+| `--sidebar-background` | `#ffffff` | `#24211d` | surface |
+| `--sidebar-foreground` | `#3a352f` | `#d7d3cd` | ink |
+| `--sidebar-primary` | `#965c33` | `#c27c4b` | terracotta-ink |
+| `--sidebar-primary-foreground` | `#ffffff` | `#1b1916` | white / page |
+| `--sidebar-accent` | `#f2ebe1` | `#2b2721` | paper |
+| `--sidebar-accent-foreground` | `#3a352f` | `#d7d3cd` | ink |
+| `--sidebar-border` | `#d3cbc2` | `#4a4136` | hairline |
+| `--sidebar-ring` | `#965c33` | `#c27c4b` | terracotta-ink |
+| `--radius` | `0.5rem` | unchanged | radius-card |
 
-1. **Every screen changes at once, and almost nothing can catch a regression.**
-   That is inherent to a token port and it is why D5 keeps the change to the token
-   layer: a diff that touches only `app.css`, `app.blade.php` and the font assets
-   is one a reviewer can actually read, and screenshots can carry the rest.
-2. **The dark palette has never been seen by anyone.** It is derived and
-   measured, but derivation is not judgement — it should be looked at on a real
-   screen before merge, and the product owner may want values moved.
-3. **Bundle size.** Three subsets across two families adds woff2 to the build.
-   Worth measuring rather than assuming: the parish connection is the constraint
-   this product designs around, and a font payload that hurts first paint would
-   trade one rendering problem for another.
+The reference's own ten tokens are **also** exposed as `@theme` entries
+(`--color-page` and friends), so future work can name them directly. But the
+mapping above is what makes the existing 42 screens change appearance.
+
+## 7. Testing
+
+The risk this change carries is silent regression: a token dropped, a mode left
+on stock values, or a CDN link creeping back. Three guards:
+
+1. **A palette test** asserting `app.css` defines every one of the 33 variables in
+   both `:root` and `.dark`, and that no stock starter value (`hsl(0, 0%, 3.9%)`,
+   `hsl(0, 0%, 100%)`, `hsl(0, 0%, 9%)`) survives in either block. This fails
+   loudly if a mode is half-ported.
+2. **A no-CDN test** asserting no Blade under `resources/views` — `app.blade.php`
+   **and both error Blades**, which today carry the `fonts.bunny.net` link and
+   hardcoded greys while rendering Vietnamese copy — references
+   `fonts.bunny.net`, `fonts.googleapis.com`, or `fonts.gstatic.com`. Scoping the
+   scan to the whole directory is what forces the error pages into the port
+   rather than leaving them visibly stock.
+3. **A contrast test** computing WCAG ratios for every foreground/ground pair in
+   the mapping table and asserting ≥ 4.5, in both modes. This is the guard that
+   would have caught the `#b37040` fill failure described in D3.
+
+Per project practice, **each test must be watched failing before it is accepted**
+— mutate the value it protects, see red, restore, confirm `git status
+--porcelain` is clean.
+
+## 8. Risks
+
+- **The dark palette is invented.** No reference exists to check it against, and
+  D3's method is a heuristic. Expect a hand-tuning pass once it is on screen.
+- **The mapping is uniform, the screens are not.** Re-pointing `--accent` moves
+  22 call sites at once; a few may land oddly. That is what D5's follow-up is for.
+- **Font files add to the bundle.** Four woff2 faces with the vietnamese subset;
+  the cost is accepted for correct diacritics and no third-party dependency.
+- **Status colour stays deferred** (D4), leaving `AGENTS.md` rule 2 partly unmet
+  and recorded in `docs/known-gaps.md`.
