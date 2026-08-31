@@ -29,6 +29,7 @@ return [
     'copy_retired' => 'ngừng dùng một bản sách:because',
     'copy_lost_reported' => 'báo mất một bản sách',
     'copy_found' => 'tìm lại được một bản sách đã mất',
+    'copy_qr_printed' => 'in nhãn QR cho :count bản sách',
 
     // — mượn và trả —
     'loan_created' => 'cho :subject mượn :title',
