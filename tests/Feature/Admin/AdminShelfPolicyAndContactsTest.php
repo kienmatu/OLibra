@@ -149,7 +149,7 @@ it('names the shelf in the sentence both saves render, rather than "một tủ s
     // bookshelf.updated arm names the shelf out of the payload, and neither
     // of these two commands moves a name — so unless each puts the shelf's
     // own name in its bags, every policy save and every contacts save reads
-    // "đã sửa thông tin MỘT tủ sách" on a log that is cross-shelf by nature.
+    // "đã sửa thông tin MỘT tủ sách" on a log a cross-shelf browser will read.
     //
     // ASSERTED THROUGH THE SENTENCE, not through `$row->after['name']`,
     // because the key alone is not the requirement: a bag carrying `name`

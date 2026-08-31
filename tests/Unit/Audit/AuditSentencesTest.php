@@ -527,7 +527,7 @@ it('the policy and contacts saves name the shelf, not "một tủ sách"', funct
     // `name` on both sides, UpdateBookshelfPolicy and
     // UpdateBookshelfContacts carried it on NEITHER, so every policy save
     // and every contacts save rendered the bare twin — on the one log that
-    // is cross-shelf by nature, where "một tủ sách" is exactly the fact a
+    // will be cross-shelf once the browser lands, where "một tủ sách" is the fact a
     // reader needs.
     //
     // The census above cannot catch this, for the reason the archive twins

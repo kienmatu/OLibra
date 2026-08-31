@@ -381,7 +381,10 @@ final class AuditSentences
             // here. UpdateBookshelfProfile always did; UpdateBookshelfPolicy
             // and UpdateBookshelfContacts did not, and both rendered the
             // bare twin for every real row they wrote, on a screen that is
-            // cross-shelf by nature. Each now puts the shelf's name on both
+            // shelf-stamped, and today's only reader (Manage\AuditLogController,
+            // hard-scoped to one shelf) supplies the name from context — so this
+            // is redundant today and load-bearing for the cross-shelf browser
+            // Phase 3 plans. Each now puts the shelf's name on both
             // sides unchanged. So `?? $before` is belt and braces rather
             // than the load-bearing clause an earlier version of this
             // comment claimed it was: no writer in the codebase reaches it,

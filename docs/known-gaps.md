@@ -4523,8 +4523,14 @@ that 3b-ii owns and must not land out of order.
   269-270`), and both the dashboard and `/admin/shelves` render it
   (`resources/js/pages/admin/dashboard.tsx:67-78`,
   `resources/js/pages/admin/shelves/index.tsx:78-89`). The predicate is
-  deliberately narrower than "has a manager row": a suspended manager cannot
-  act, and a manager whose `users` row is gone is gone, so both read as missing.
+  deliberately narrower than "has a manager row" in **three** ways: a suspended
+  manager cannot act, and a manager whose `users` row is gone is gone, so both
+  read as missing; and an **archived** shelf is not flagged at all, because
+  `BookshelfPolicy::assignManager()` 404s an archived shelf and
+  `ManagerCandidatesQuery` excludes it — an alarm no control on the page can
+  clear is noise, not a warning. The third narrowing was added in the fix wave
+  after the whole-branch review; the spec's D6 and the plan's five-row table
+  predate it and describe only the first two.
   A permitted sharp edge that nothing surfaces is just a hole.
 
 - **There is no super-admin demotion anywhere in this port (spec D5), and the

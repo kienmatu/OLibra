@@ -46,8 +46,8 @@ use Illuminate\Support\Facades\Gate;
  * installation default the way the reference copies `system_settings`. The
  * TABLE exists — `2026_08_26_000017_create_system_settings_table` creates it
  * with six `default_*` columns and seeds the single row id=1 — but nothing
- * in the application reads it yet: there is no model, no query and no
- * command over it, and `/admin/settings`, the screen that makes those six
+ * in the application reads it yet: `App\Models\SystemSetting` exists but has
+ * no callers anywhere, and there is no query or command over the table, and `/admin/settings`, the screen that makes those six
  * numbers editable, is 3b-ii. So a copy today would read defaults nobody can
  * change.
  *

@@ -141,7 +141,9 @@ final class UpdateBookshelfContacts
      * bookshelf.updated arm names the shelf out of $after (falling back to
      * $before) and this command moves no name, so without this key every
      * contacts save rendered "đã sửa thông tin MỘT tủ sách" on a log that
-     * is cross-shelf by nature. It sits beside `contact_1..3` rather than
+     * will be cross-shelf once Phase 3 ships the browser its class docblock names;
+     * today's only reader is scoped to one shelf and supplies the name from
+     * context. It sits beside `contact_1..3` rather than
      * inside one of them because it is a fact about the shelf, not about a
      * slot.
      *

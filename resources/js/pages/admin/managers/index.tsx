@@ -107,7 +107,15 @@ function AssignForm({ shelves }: { shelves: AppointableShelf[] }) {
             return;
         }
         form.post(route("admin.managers.assign", { bookshelf: chosen.slug }), {
-            preserveScroll: true,
+        // preserveScroll is conditional, not true. Both banners on this page sit at
+        // the top, and the list runs one row per manager-or-admin membership across
+        // every shelf — so holding the scroll position on a refusal leaves a
+        // volunteer who pressed a control on row 20 staring at an unchanged row with
+        // the explanation far above the fold. Hold the position when the act
+        // succeeded (the row rewrites itself in place); go to the banner when it did
+        // not. Inertia hands the callback the fresh page, so this reads the refusal
+        // the server just set, not the one from last time.
+        preserveScroll: (page) => !page.props.errors?.rule,
             onSuccess: () => form.reset(),
         });
     };
@@ -231,7 +239,7 @@ function RevokeControl({ manager }: { manager: ManagerRow }) {
                 bookshelf: manager.shelfSlug,
                 membership: manager.membershipId,
             }),
-            { preserveScroll: true },
+            { preserveScroll: (page) => !page.props.errors?.rule },
         );
     };
 
@@ -283,7 +291,7 @@ function PromoteControl({ manager }: { manager: ManagerRow }) {
     const submit = (event: FormEvent) => {
         event.preventDefault();
         form.post(route("admin.managers.promote", { user: manager.userId }), {
-            preserveScroll: true,
+            preserveScroll: (page) => !page.props.errors?.rule,
         });
     };
 
