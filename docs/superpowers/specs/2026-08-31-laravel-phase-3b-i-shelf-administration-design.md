@@ -45,10 +45,10 @@ designed.
 `middleware('super-admin')` and nothing else. Three things follow:
 
 - `BookshelfScope` **throws** `RuntimeException` on any scoped model when no
-  tenant is bound (`app/Models/Scopes/BookshelfScope.php:40-48`) — deliberately
+  tenant is bound (`app/Models/Scopes/BookshelfScope.php:41-48`) — deliberately
   fail-closed. `Membership` and `BookshelfContact` are both scoped.
 - `AuditRecorder::record()` **throws** when `bookshelfId()` is null
-  (`app/Support/AuditRecorder.php:38-43`), even though `audit_log.bookshelf_id`
+  (`app/Support/AuditRecorder.php:39-44`), even though `audit_log.bookshelf_id`
   is nullable precisely so that "a cross-shelf act belongs to no shelf".
 - `TenantContext::systemWide()` — 3a's sanctioned widening — is fenced **by
   test** to `app/Queries/Admin/`
@@ -79,9 +79,12 @@ both are pinned by test. 3b-i extends it to writes, and keeps the fence.
 
 - **Namespace.** Administration commands live in `app/Actions/Admin/`, and
   `WideningArchitectureTest` is amended to allow `systemWide()` there **as well
-  as** `app/Queries/Admin/`. The test keeps its shape and its comment; only the
-  allowed directory list grows, and it grows in a spec, which is what that
-  comment demands.
+  as** `app/Queries/Admin/`. Note the amendment is not appending to a list: the
+  fence is a closure, `->reject(fn ($path) => str_starts_with($path,
+  'app/Queries/Admin/'))` (`tests/Feature/Architecture/WideningArchitectureTest.php:85`),
+  and the test's own name string says "confined to app/Queries/Admin" (`:76`).
+  Both change, plus the `$allowed` array's comment. The test keeps its shape, and
+  it changes in a spec, which is what its comment demands.
 - **Time.** `systemWide(callable)` already restores the previous context in a
   `finally`. Nothing in this phase calls the bare `actSystemWide()`, which stays
   pinned to its existing three files.
@@ -91,7 +94,19 @@ both are pinned by test. 3b-i extends it to writes, and keeps the fence.
   serve seven administration actions. The new path takes the shelf explicitly
   (or null) and is itself fenced to `app/Actions/Admin/`.
 
-Two of D9's actions *require* this and cannot be done any other way:
+**Widened writes carry a hazard widened reads do not, and admin Actions must
+answer it.** Under `systemWide()`, `BookshelfScope::apply()` returns before
+adding any `where` (`app/Models/Scopes/BookshelfScope.php:34-37`) and
+`BelongsToBookshelf::creating` returns **without stamping `bookshelf_id`**. So a
+widened `Membership::find($id)` reaches every shelf, and a widened `create()`
+silently writes a null `bookshelf_id`. Every Action in `app/Actions/Admin/`
+therefore names its own shelf filter and its own `bookshelf_id` explicitly —
+the same discipline `AdminOverviewQuery`'s docblock already states for reads
+("under a widening there is no scope doing the narrowing"). Nothing else in the
+write path assumes a bound tenant: there are no observers, and
+`BelongsToBookshelf::updating` is a no-op under widening.
+
+Two of D10's actions *require* this and cannot be done any other way:
 `user.promoted_super_admin` belongs to no shelf, and `bookshelf.created` names a
 shelf that does not exist when the command begins.
 
@@ -135,14 +150,34 @@ with two independently-submittable forms cannot say which form saved.
 
 **The policy form carries the reference's eight**, not BR §5.5's full list:
 `loan_days`, `max_concurrent_loans`, `max_renewals`, `renewal_days`,
-`hold_days`, `due_soon_days`, `allow_comments`, `comments_require_approval`.
+`hold_days`, `due_soon_days`, `comments_enabled`, `comments_require_approval`.
 
-The remaining four — `public_name_display`, `public_show_current_borrower`,
-`leaderboard_enabled`, `leaderboard_size` — are **already consumed by shipped
-portal and leaderboard code but have no editor anywhere in the application, and
-this phase does not add one.** That is a real gap and it is recorded in
-`docs/known-gaps.md` rather than fixed by quietly widening a form the reference
-deliberately kept at eight.
+**The key is `comments_enabled`, not BR §5.5's `allow_comments`.**
+`app/Support/Community/CommentSettings.php:22` carries a warning about exactly
+this, and `fromShelf()` reads `$settings['comments_enabled'] ?? true` (`:54`).
+An editor writing `allow_comments` would appear to save and change nothing. The
+first draft of this spec took the key from the requirements instead of the code —
+which is the mistake that comment exists to prevent.
+
+Of BR §5.5's remaining four, **two** are live and uneditable:
+`public_show_current_borrower` (`app/Queries/BookDetailQuery.php:127`) and
+`public_name_display` (`:141`) are both read by shipped code with no editor
+anywhere in the application, and this phase does not add one. That is a real gap
+and it is recorded in `docs/known-gaps.md` rather than fixed by quietly widening
+a form the reference deliberately kept at eight — its own docstring calls them
+*"the six lending-policy numbers and the two comment toggles"*
+(`old_next/src/app/quan-tri/admin-actions.ts:256`).
+
+The other two are not a gap at all. **`leaderboard_enabled` and
+`leaderboard_size` are consumed nowhere** — zero hits across `app/`,
+`resources/`, `database/` and `lang/`. The leaderboard opt-in was withdrawn on
+2026-08-12 (`docs/DATABASE.md:490`), and *Bạn đọc chăm nhất* now counts every
+borrower without reading a setting
+(`app/Http/Controllers/Manage/StatisticsController.php:23`). They survive only in
+the requirements. Recording them as "shipped but uneditable" would plant exactly
+the false-premise-copied-from-requirements defect that `known-gaps.md:4331-4338`
+already dissects for 3a, so they are recorded as **stale requirements text**
+instead.
 
 ### D3 — Contacts: one required, two conditional, none public
 
@@ -182,7 +217,7 @@ It names *reactivating and exporting* — the first draft's own two justificatio
 
 1. **A super administrator holds no membership anywhere.** `MembershipRole` has
    no super-admin case; `ResolveTenant` resolves a `Membership`
-   (`app/Http/Middleware/ResolveTenant.php:60-68`). A literal role filter would
+   (`app/Http/Middleware/ResolveTenant.php:63-68`). A literal role filter would
    404 the super admin too, and the first draft's own table gave them 200 — the
    decision contradicted itself.
 2. **`SweepReminders` filters on loan status, never shelf status**, and runs
@@ -200,11 +235,18 @@ and the portal alike get 404.
 **And therefore `ResolveTenant` is not changed in this phase.** The gap
 `docs/known-gaps.md:4306-4338` records is real, but closing it is a change to the
 entry condition of every tenant-bound route in the application, and the
-behaviour that makes it *safe* to close — reactivate and export from the admin
-area — is what 3b-i builds. Doing both at once would ship the blast radius and
-its remedy in the same unreviewed breath. **3b-i builds the explicit admin path
+behaviour that makes it *safe* to close — un-archiving from the admin area — is
+what 3b-i builds. Doing both at once would ship the blast radius and
+its remedy in the same unreviewed breath. **3b-i builds the un-archive half of the explicit admin path
 the reference names; the resolver filter follows in 3b-ii**, against a phase
-where the repair route already exists, and it is recorded as such.
+where the repair route already exists.
+
+**The other half is not built and not scheduled.** The reference names two needs
+— *"reactivating it, exporting its records"* — and 3b-i builds only the first.
+Exporting an archived shelf's register has no home in 3b-ii's list either. So the
+resolver filter must not land until export is scoped, or archiving becomes a way
+to make a parish's own records unreachable. This is recorded in
+`docs/known-gaps.md` as a precondition on 3b-ii rather than left implicit.
 
 ### D5 — Revoking is demotion to reader, with a confirmation that says so
 
@@ -221,7 +263,7 @@ retained."* So the revoke control opens a confirmation naming the person and the
 shelf and saying, in Vietnamese, that their history is kept. §5 tests it.
 
 **There is deliberately no demotion from super admin**, and the reference's
-docstring is the reasoning (`managers.ts:134-136`):
+docstring is the reasoning (`managers.ts:132-134`):
 
 > Removing the last administrator's own grant would lock the installation out of
 > its own administration surface, and nothing in the requirements says what
@@ -229,7 +271,7 @@ docstring is the reasoning (`managers.ts:134-136`):
 
 We port the omission as an omission and record it, rather than inventing a rule
 the requirements do not contain. `promoteSuperAdmin` refuses a target who is
-already a super admin (`:149`).
+already a super admin (`:148`).
 
 ### D6 — Revoking a shelf's last manager is permitted, and 3b-i makes it visible
 
@@ -241,7 +283,7 @@ We port the behaviour faithfully rather than inventing a refusal, its wording an
 its edge cases (what of a shelf whose only manager is suspended?). But the first
 draft justified that by claiming 3a's dashboard would flag it, and **that was
 false**: `AdminOverviewQuery`'s return shape
-(`app/Queries/Admin/AdminOverviewQuery.php:120`) carries no manager count, and
+(`app/Queries/Admin/AdminOverviewQuery.php:124`) carries no manager count, and
 its `readers` figure counts active memberships *including* managers, so it
 cannot even serve as a proxy.
 
@@ -256,7 +298,7 @@ is in scope precisely because D6 is otherwise indefensible.
 `MembershipRole` has `Admin = 'admin'` at rank 3 alongside `Manager`
 (`app/Enums/MembershipRole.php:11,22`), `act-as-admin` is a defined gate, and the
 reference's `assignManager` takes `role: "manager" | "admin"`, validated
-(`managers.ts:19,28`).
+(`managers.ts:20,28`).
 
 So the assign form offers both, revoke demotes either to `reader`, and the
 `/admin/managers` list shows which role each person holds. The first draft
@@ -283,7 +325,7 @@ The eight existing policies cover per-shelf resources. Administration is not
 tenant-scoped and its gate is `users.is_super_admin`.
 
 `EnsureSuperAdmin` already guards the group and aborts **404**
-(`app/Http/Middleware/EnsureSuperAdmin.php:19`). The policy answers the
+(`app/Http/Middleware/EnsureSuperAdmin.php:20`). The policy answers the
 object-level questions middleware cannot — may this shelf be archived, may this
 membership be revoked — and returns the same shape via `denyAsNotFound()`, so a
 refusal is indistinguishable from a row that is not there.
@@ -321,6 +363,26 @@ fallback) and a Vietnamese line in `lang/vi/audit.php`. So this task adds a fift
 group `administration`, seven `phrase()` arms, seven Vietnamese sentences, and
 updates the partition test's group list and its count from 41 to 48.
 
+**And it must first retire `bookshelf.created` as the suite's canonical
+stranger.** That exact string is the probe three tests use to obtain the
+undescribed-action fallback:
+
+| site | asserts today | after D10 |
+|---|---|---|
+| `AuditSentencesTest.php:26-31` | `sentence('bookshelf.created')` **is** the fallback | red |
+| `AuditSentencesTest.php:188` | `groupOf('bookshelf.created')` is **null** | red |
+| `AuditSentencesTest.php:402` | computes `$fallback` from it, then asserts no action equals it | red |
+
+Registering it reddens all three, and the third is the dangerous one: "fixing" it
+by swapping in another arbitrary string silently stops the census covering
+anything unless the replacement is *guaranteed* unregistered. So the task
+introduces a deliberately synthetic probe — an action name no domain will ever
+claim — and uses it at all three sites, so the census keeps biting.
+
+(`tests/Feature/Oversight/AuditLogQueryTest.php:67,131` also names
+`bookshelf.created`, as a null-shelf row that must not appear in a shelf-scoped
+query. That one stays valid and becomes a better test once the action is real.)
+
 ## 5. Testing
 
 The risks are authorisation, tenancy and audit completeness — not markup.
@@ -349,6 +411,12 @@ The risks are authorisation, tenancy and audit completeness — not markup.
     `app/Queries/Admin/` and `app/Actions/Admin/` still fails
     `WideningArchitectureTest`. Amending an architecture pin is exactly when to
     prove it still refuses everything else.
+11. **The audit fence bites too** — the shelf-less `AuditRecorder` sibling is
+    pinned to `app/Actions/Admin/` by its own test, in the same shape. D0 makes
+    two guarantees; without this, only one of them is pinned.
+12. **The fallback probe is genuinely unregistered** — whatever action string
+    replaces `bookshelf.created` at the three sites above is absent from
+    `AuditSentences::ACTIONS`, asserted rather than assumed.
 
 Per project practice, **every test is watched failing before it is accepted** —
 mutate what it protects, see red, restore, confirm `git status --porcelain` is
