@@ -32,14 +32,26 @@ use Illuminate\Support\Collection;
  * pending-item counts per shelf, all live" — D5), the same rule
  * `ManagerDashboardQuery` follows one scope down.
  *
- * **D9 — archived shelves are LISTED and MARKED, not hidden.** The
- * reference's own words, quoted rather than paraphrased: "An administrator
- * is the only person who can see one at all — `resolveShelfId` refuses its
- * slug to everybody, including its own admin — so a listing that dropped it
- * would make the shelf unreachable from every surface in the application at
- * once." The shelf list below therefore filters on nothing but
- * `deleted_at` (Eloquent's SoftDeletes global scope gives that for free —
- * `Bookshelf` uses it) and never on `status`.
+ * **D9 — archived shelves are LISTED and MARKED, not hidden.** The shelf
+ * list below filters on nothing but `deleted_at` (Eloquent's SoftDeletes
+ * global scope gives that for free — `Bookshelf` uses it) and never on
+ * `status`.
+ *
+ * **RETRACTION.** An earlier version of this docblock quoted the
+ * reference's reason verbatim — "An administrator is the only person who
+ * can see one at all — `resolveShelfId` refuses its slug to everybody,
+ * including its own admin". **That clause is false of this port.**
+ * `ResolveTenant.php:36` resolves a shelf by slug under the SoftDeletes
+ * scope alone, with no `status` filter, and nothing in `app/` references
+ * `BookshelfStatus::Archived`; measured, an ordinary member gets **200** on
+ * an archived shelf's home and on its catalogue. (The reference's guard did
+ * filter — `old_next/src/auth/guards.ts:22`, `status = 'active'`.) The gap
+ * is pre-existing, from Phase 0/1, and Phase 3b owns closing it; it is
+ * recorded in `docs/known-gaps.md`. **The DECISION stands on other
+ * grounds:** this dashboard is the only surface in the application that
+ * shows a shelf's archived state at all, so a listing that dropped archived
+ * shelves would leave no screen on which an administrator could see that a
+ * shelf has been archived.
  *
  * **D3 — `pending` sums FOUR sources**, matching the reference's single
  * "attention list" number: pending memberships, pending-OR-**APPROVED**
@@ -47,8 +59,30 @@ use Illuminate\Support\Collection;
  * on a person — the half a reader would not guess), pending comments, and
  * pending donations.
  *
- * **`readers` counts every ACTIVE membership, managers included** —
- * `ManagerDashboardQuery`:50's definition, ported unchanged.
+ * **Each of the four matches the shelf-scoped queue it summarises,
+ * predicate for predicate** — memberships against
+ * `PendingRegistrationsQuery.php:51-52`, requests against
+ * `BorrowRequestQueueQuery::waiting()` (:159-164), comments against
+ * `CommentModerationQuery::countPending()` (:227), donations against the
+ * donations queue. A straight delegation is not available here: those
+ * methods all run shelf-bound and this query runs widened and grouped, so
+ * this is exactly the "second predicate that merely happens to agree" that
+ * `CommentModerationQuery.php:78-84` warns about. What holds the two sides
+ * together instead is a test that asserts this number EQUALS the shelf
+ * queue's own number over a fixture exercising each divergence
+ * (`AdminOverviewQueryTest`, "pending agrees with the shelf's own queues").
+ * Without it a divergence is invisible AND uncleanable: the flag is
+ * permanent, because the manager's queue is empty and no screen exists on
+ * which to action it.
+ *
+ * **`readers` counts every ACTIVE membership whose user row still exists,
+ * managers included** — matched to `ManagerDashboardQuery`'s CODE
+ * (`ManagerDashboardQuery.php:100-103`: `status = active` AND
+ * `whereHas('user')`), not to the prose at that file's line 50, which omits
+ * the `whereHas`. The predicate has to be restated rather than delegated:
+ * that method runs shelf-bound and this one runs widened and grouped. A
+ * shelf whose active member had their `users` row soft-deleted otherwise
+ * reads one higher here than on the shelf's own dashboard, permanently.
  *
  * **`overdue` mirrors `ManagerDashboardQuery`'s own shape**: `status =
  * active AND due_on < today`, taken from the injected `Clock` rather than
@@ -106,6 +140,7 @@ final class AdminOverviewQuery
                 ->groupBy('bookshelf_id')
                 ->selectRaw('bookshelf_id, count(*) as n')
                 ->where('status', MembershipStatus::Active)
+                ->whereHas('user')
                 ->get();
             $readers = $readerRows->pluck('n', 'bookshelf_id');
 
@@ -124,19 +159,34 @@ final class AdminOverviewQuery
                 ->get();
             $overdue = $overdueRows->pluck('n', 'bookshelf_id');
 
+            // Matched to PendingRegistrationsQuery.php:51-52, the queue this
+            // number summarises: a soft-deleted identity is no applicant, and
+            // an unmatched predicate would flag an item no manager can clear.
             $pendingMembershipRows = Membership::query()
                 ->groupBy('bookshelf_id')
                 ->selectRaw('bookshelf_id, count(*) as n')
                 ->where('status', MembershipStatus::Pending)
+                ->whereHas('user')
                 ->get();
             $pendingMemberships = $pendingMembershipRows->pluck('n', 'bookshelf_id');
 
             // D3: pending OR approved — an approved hold nobody has
-            // collected is still waiting on a person.
+            // collected is still waiting on a person. The two joins are
+            // BorrowRequestQueueQuery::waiting()'s own (that file's :159-164),
+            // restated because that builder runs shelf-bound and this one runs
+            // widened and grouped: a request whose book or whose requester has
+            // been soft-deleted is absent from the manager's queue, so counting
+            // it here would flag an item that has no screen to clear it on.
             $pendingRequestRows = BorrowRequest::query()
-                ->groupBy('bookshelf_id')
-                ->selectRaw('bookshelf_id, count(*) as n')
-                ->whereIn('status', [RequestStatus::Pending, RequestStatus::Approved])
+                ->groupBy('borrow_requests.bookshelf_id')
+                ->selectRaw('borrow_requests.bookshelf_id as bookshelf_id, count(*) as n')
+                ->join('books', function ($join) {
+                    $join->on('books.id', '=', 'borrow_requests.book_id')->whereNull('books.deleted_at');
+                })
+                ->join('users', function ($join) {
+                    $join->on('users.id', '=', 'borrow_requests.member_id')->whereNull('users.deleted_at');
+                })
+                ->whereIn('borrow_requests.status', [RequestStatus::Pending, RequestStatus::Approved])
                 ->get();
             $pendingRequests = $pendingRequestRows->pluck('n', 'bookshelf_id');
 

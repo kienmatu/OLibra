@@ -8,15 +8,17 @@ import AppLayout from "@/layouts/app-layout";
 import { copy } from "@/lib/copy";
 
 type Props = {
+    q: string;
     shelves: { slug: string; name: string; location: string | null; address: string | null }[];
 };
 
-export default function ShelvesIndex({ shelves }: Props) {
-    // Read once at mount, from the URL Inertia already navigated to — the
-    // house pattern is a form the address bar drives, not client state that
-    // could drift from it.
-    const initialQ = new URLSearchParams(window.location.search).get("q") ?? "";
-    const form = useForm({ q: initialQ });
+export default function ShelvesIndex({ q, shelves }: Props) {
+    // The SUBMITTED query, sent as a server prop — the house pattern
+    // (shelves/search.tsx:11,17; manage/books/index.tsx:26,34). An earlier
+    // version read window.location.search at mount and called that the house
+    // pattern; it was the reverse, and the only window.location read in
+    // resources/js.
+    const form = useForm({ q });
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
@@ -46,7 +48,10 @@ export default function ShelvesIndex({ shelves }: Props) {
 
             {shelves.length === 0 ? (
                 <p className="mt-4 text-muted-foreground">
-                    {form.data.q ? copy.shelves.noResults : copy.shelves.empty}
+                    {/* Branches on the SUBMITTED query, not on live
+                        keystrokes: typing into the box must not relabel a
+                        list that is still showing the previous result. */}
+                    {q ? copy.shelves.noResults : copy.shelves.empty}
                 </p>
             ) : (
                 <ul className="mt-4 space-y-2">

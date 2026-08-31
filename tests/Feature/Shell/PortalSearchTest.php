@@ -112,10 +112,33 @@ it('a query that folds to nothing lists nothing, not everything', function () {
     $this->get('/shelves?q=...')->assertInertia(fn ($page) => $page->has('shelves', 0));
 });
 
+it('echoes the SUBMITTED query back as a prop, and only the submitted one', function () {
+    // MINOR 5. The page used to seed its input from window.location.search,
+    // the only window.location read in resources/js. shelves.index is in the
+    // header on every page, so arriving from the header after a search left
+    // a stale q in the box beside a list showing everything. Both readings
+    // are asserted here: the query is echoed when there is one, and it is
+    // EMPTY on the unfiltered listing — that second half is the one the
+    // window-reading version got wrong.
+    portalFix();
+
+    $this->get('/shelves?q=dong+thap')->assertInertia(fn ($page) => $page->where('q', 'dong thap'));
+    $this->get('/shelves')->assertInertia(fn ($page) => $page->where('q', ''));
+});
+
 it('the portal does NOT list an archived shelf — the one place it differs from the dashboard', function () {
-    // D2 against D9. The dashboard lists archived shelves because an
-    // administrator is their only route to them; the portal is public and
-    // shows shelves a person can join.
+    // D2 against D9. The portal is public and shows shelves a person can
+    // join; the dashboard lists archived ones because it is the only surface
+    // that shows a shelf's archived state at all.
+    //
+    // RETRACTION: this comment used to say the dashboard lists them because
+    // "an administrator is their only route to them". FALSE at HEAD —
+    // ResolveTenant.php:36 resolves a shelf by slug under the SoftDeletes
+    // scope alone, with no status filter, so an ordinary member still gets
+    // 200 on an archived shelf. The reference did filter
+    // (old_next/src/auth/guards.ts:22); this port does not. Pre-existing
+    // from Phase 0/1, recorded in docs/known-gaps.md, Phase 3b's to close.
+    // The assertion below is unaffected: the PORTAL's own filter is real.
     portalFix();
     Bookshelf::query()->where('slug', 'dong-thap')->update(['status' => 'archived']);
 

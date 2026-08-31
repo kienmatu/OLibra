@@ -112,10 +112,14 @@ columns on `bookshelves` — this phase's one migration.
   because `TenancyArchitectureTest`'s grep would not let the docblock quote its own
   regular expression. That is recorded as a finding, not a footnote.
 - **D9 — archived shelves are listed and marked, never hidden.** The one place the
-  dashboard and the portal deliberately disagree: an administrator is the only person
-  who can reach an archived shelf at all, so a dashboard that dropped it would make the
-  shelf unreachable from every surface at once, while the portal is public and filters
-  it out. Both halves have their own block.
+  dashboard and the portal deliberately disagree. **The reference's reason for it is
+  retracted:** "an administrator is the only person who can reach an archived shelf at
+  all" is false at HEAD — `ResolveTenant.php:36` resolves by slug with no `status`
+  filter, and a member measured **200** on an archived shelf and its catalogue. That
+  gap is pre-existing (Phase 0/1) and is 3b's, recorded in `docs/known-gaps.md`. The
+  decision stands on what is true: the dashboard is the only surface that renders a
+  shelf's archived state, so dropping archived shelves would leave nowhere to see it.
+  Both halves have their own block.
 
 **The carries are in `docs/known-gaps.md`**, under "Phase 3a — the network
 foundation". The largest: **the fence around widening is two greps**, with the same

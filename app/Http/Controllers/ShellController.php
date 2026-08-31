@@ -38,8 +38,13 @@ class ShellController extends Controller
      * retraction comment carry the measurements this claim rests on.
      *
      * D2: filtered to active shelves, unlike the admin dashboard (D9),
-     * which lists archived ones too — an administrator is the only person
-     * who can reach an archived shelf at all; the portal is public.
+     * which lists archived ones too because it is the only surface showing a
+     * shelf's archived state. NOT because an archived shelf is unreachable
+     * otherwise: `ResolveTenant.php:36` resolves by slug under SoftDeletes
+     * alone, with no status filter, so an ordinary member still gets 200 on
+     * an archived shelf — a pre-existing Phase 0/1 gap, recorded in
+     * `docs/known-gaps.md` and owned by 3b. This filter is what keeps an
+     * archived shelf off the PUBLIC list, and that much is real.
      */
     public function shelves(Request $request): Response
     {
@@ -58,6 +63,14 @@ class ShellController extends Controller
                 ->get(['id', 'slug', 'name', 'location', 'address']);
 
         return Inertia::render('shelves/index', [
+            // The submitted query, echoed back as a prop — the house pattern
+            // (shelves/search.tsx:11,17; manage/books/index.tsx:26,34). The
+            // page used to read it from window.location.search instead, the
+            // only window.location read in resources/js, and that drifted:
+            // shelves.index is in the header on every page, so arriving from
+            // the header after a search left a stale q in the box beside a
+            // list showing everything.
+            'q' => $q,
             'shelves' => $shelves->map(fn (Bookshelf $shelf) => [
                 'slug' => $shelf->slug, 'name' => $shelf->name,
                 'location' => $shelf->location, 'address' => $shelf->address,

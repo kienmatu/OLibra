@@ -4302,3 +4302,37 @@ distance between what the fence proves and what it merely discourages.
   surfaced the false premise underneath it. The fixture moved to *Đồng Tháp* /
   `dong thap`, where that same mutation now reddens four blocks while a fifth,
   deliberately labelled as the collation's own case, stays green.
+
+- **An archived bookshelf is still reachable by anybody who can reach an active
+  one, and 3a did not close it.** `app/Http/Middleware/ResolveTenant.php:36`
+  resolves `{shelf}` by slug under Eloquent's SoftDeletes global scope alone —
+  `Bookshelf::query()->where('slug', $slug)->first()` — with no `status`
+  condition, and nothing anywhere in `app/` references
+  `BookshelfStatus::Archived` (grepped at the end of the branch). Measured: an
+  ordinary active member of an archived shelf gets **200** on `GET
+  /shelves/{slug}` and **200** on `GET /shelves/{slug}/catalogue`. The reference
+  behaved differently — `old_next/src/auth/guards.ts:22` filters
+  `status = 'active'` in the same resolution — so this is a divergence
+  introduced when the middleware was ported, i.e. **pre-existing from Phase 0/1,
+  not from 3a**.
+
+  **Left open deliberately.** Adding a `status` filter to `ResolveTenant` alters
+  the entry condition of every tenant-bound route in the application at once,
+  and it is shelf administration, which is **Phase 3b's** — that phase owns
+  archiving and un-archiving, so it owns what an archived shelf may still serve
+  (and to whom: an archived shelf's own manager plausibly still needs its
+  screens, which is a decision, not a bug fix). Doing it inside a fix wave for
+  the admin dashboard would have been an unreviewed middleware change.
+
+  **What 3a did fix is the paperwork, and that is the transferable part.** The
+  reference's *reason* for D9 — "an administrator is the only person who can see
+  one at all, `resolveShelfId` refuses its slug to everybody" — had been quoted
+  verbatim, as settled fact about this codebase, into `AdminOverviewQuery`'s
+  docblock, `ShellController::shelves`'s docblock, `PortalSearchTest` and
+  `AdminOverviewQueryTest`. It was false in all four, and it was false because
+  it was copied from the reference rather than measured against HEAD — the same
+  failure mode as D8's retraction above, in the same phase. D9 now carries a
+  named retraction, and the decision rests on a claim that IS true here: the
+  admin dashboard is the only surface in the application that renders
+  `bookshelves.status` at all, so a listing that dropped archived shelves would
+  leave nowhere to see that a shelf had been archived.

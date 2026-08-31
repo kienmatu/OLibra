@@ -121,9 +121,12 @@ version did not contain what it claimed to contain.**
 #### The leak, measured
 
 `TenantContext` is bound `scoped` (`app/Providers/AppServiceProvider.php:48`) —
-one instance per request. `actSystemWide()` sets `$systemWide = true` and nulls
-both `bookshelf` and `membership`. **Nothing resets it.** `clear()` exists at
-`TenantContext.php:71` and has **zero callers** anywhere in `app/` (grepped).
+one instance per request. `actSystemWide()` (`TenantContext.php:44`) sets
+`$systemWide = true` and nulls both `bookshelf` and `membership`. **Nothing
+resets it.** `clear()` exists at `TenantContext.php:110` — line 71 as this
+paragraph first shipped, before the `systemWide()` wrapper (now
+`TenantContext.php:73`) was inserted above it — and has **zero callers**
+anywhere in `app/` (re-grepped at the end of the branch: still zero).
 `ResolveTenant` runs before the controller, so it cannot undo a widening the
 controller performs.
 
@@ -457,7 +460,7 @@ existing expression.
 
 ### D9. Archived shelves are listed and marked, never hidden
 
-The reference carries this in a docblock and it is load-bearing:
+The reference carries this in a docblock:
 
 > "Archived shelves are listed and marked, not hidden. An administrator is the
 > only person who can see one at all — `resolveShelfId` refuses its slug to
@@ -466,11 +469,50 @@ The reference carries this in a docblock and it is load-bearing:
 
 Its predicate is `deleted_at is null` only, and it returns `status` as a column.
 
+**Retracted from D9's original text, in the same form D8's retraction takes —
+and this is the fifth false premise this document carried.** The clause quoted
+above, *"an administrator is the only person who can see one at all —
+`resolveShelfId` refuses its slug to everybody, including its own admin"*, was
+reproduced here and into three shipping artefacts as the STATED REASON for the
+decision. **That clause is false of this port.**
+
+It is true of the reference, whose guard filters on status:
+`old_next/src/auth/guards.ts:22` — `where slug = ${slug} and status = 'active'
+and deleted_at is null`. **At HEAD the Laravel middleware does not.**
+`app/Http/Middleware/ResolveTenant.php:36` resolves a shelf by slug under the
+SoftDeletes global scope alone:
+
+```php
+$shelf = $parameter instanceof Bookshelf
+    ? $parameter
+    : Bookshelf::query()->where('slug', (string) $parameter)->first();
+```
+
+No `status` filter, and nothing anywhere in `app/` references
+`BookshelfStatus::Archived` (grepped). Measured on an archived shelf with one
+ordinary active member:
+
+| Request, as that member | Status |
+|---|---|
+| `GET /shelves/{slug}` | **200** |
+| `GET /shelves/{slug}/catalogue` | **200** |
+
+**The DECISION stands; only the reason is retracted.** The ground it stands on
+is what *is* true here: **the admin dashboard is the only surface in the whole
+application that shows a shelf's archived state at all.** Nothing else renders
+`bookshelves.status`. A dashboard that dropped archived shelves would therefore
+leave no screen anywhere on which an administrator could see that a shelf had
+been archived — which is reason enough, and does not depend on reachability.
+
+**The behaviour gap is PRE-EXISTING, from Phase 0/1, and 3a does not close it.**
+Changing `ResolveTenant` is shelf administration, which is Phase 3b's; a
+middleware change made in passing here would be unreviewed and would alter every
+tenant-bound route in the application. It is recorded in `docs/known-gaps.md`
+under "Phase 3a — the network foundation" as 3b's to close.
+
 **This is stated because the adjacent D2 establishes that the PORTAL filters to
 active**, and an implementer reading both could reasonably carry that filter onto
-the dashboard and strand every archived shelf. The two surfaces differ on purpose:
-the portal is public and shows shelves a person can join; the dashboard is the
-administrator's only route to a shelf that has been archived.
+the dashboard and strand every archived shelf from the only view of its status.
 
 **The dashboard's row is:** name, status, books, active readers, current loans,
 overdue, pending (D3), and the contacts-incomplete flag (D4).

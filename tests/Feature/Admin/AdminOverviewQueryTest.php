@@ -2,6 +2,7 @@
 
 use App\Enums\BookshelfStatus;
 use App\Enums\CommentStatus;
+use App\Enums\CopyCondition;
 use App\Enums\DonationStatus;
 use App\Enums\LoanStatus;
 use App\Enums\MembershipStatus;
@@ -17,6 +18,10 @@ use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
 use App\Queries\Admin\AdminOverviewQuery;
+use App\Queries\BorrowRequestQueueQuery;
+use App\Queries\CommentModerationQuery;
+use App\Queries\DonationQueueQuery;
+use App\Queries\PendingRegistrationsQuery;
 use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
 
@@ -88,18 +93,30 @@ it('SEES THE SHELF IT IS NOT BOUND TO — the block that fails if the widening i
     expect($rows[$a->slug]['books'])->toBe(3);
 });
 
-it('counts active memberships as readers, managers included', function () {
-    // ManagerDashboardQuery:50 defines it: "readers counts every ACTIVE
-    // membership, managers included". The pending membership below is what
-    // catches a predicate that counts every row regardless of status.
+it('counts active memberships as readers — managers included, soft-deleted identities excluded', function () {
+    // The definition is ManagerDashboardQuery's CODE (that file's :100-103):
+    // status = active AND whereHas('user'). Three things this fixture pins
+    // that an earlier all-'reader', all-live-user version did not:
+    //   - the PENDING membership catches a predicate ignoring status;
+    //   - the MANAGER membership catches a predicate narrowed to role=reader
+    //     (the prose says "managers included" and nothing proved it);
+    //   - the ACTIVE membership whose users row is SOFT-DELETED catches a
+    //     missing whereHas('user') — without it this reads 3, one higher
+    //     than the shelf's own dashboard, permanently.
     [$a] = adminFix();
 
     app(TenantContext::class)->systemWide(function () use ($a): void {
-        foreach ([MembershipStatus::Active, MembershipStatus::Active, MembershipStatus::Pending] as $status) {
+        foreach ([['reader', MembershipStatus::Active], ['manager', MembershipStatus::Active], ['reader', MembershipStatus::Pending]] as [$role, $status]) {
             Membership::factory()->for($a)->create([
-                'user_id' => User::factory()->create()->id, 'role' => 'reader', 'status' => $status,
+                'user_id' => User::factory()->create()->id, 'role' => $role, 'status' => $status,
             ]);
         }
+
+        $ghost = User::factory()->create();
+        Membership::factory()->for($a)->create([
+            'user_id' => $ghost->id, 'role' => 'reader', 'status' => MembershipStatus::Active,
+        ]);
+        $ghost->delete();
     });
 
     $rows = collect(app(AdminOverviewQuery::class)->run())->keyBy('slug');
@@ -128,12 +145,22 @@ it('counts overdue as active loans past their due date, per shelf', function () 
     $book = Book::factory()->for($a)->create();
     $user = User::factory()->create();
 
-    foreach ([['2026-08-01', 'DT-0001'], ['2026-12-01', 'DT-0002']] as [$due, $code]) {
+    // The RETURNED loan is what pins `loans`' own status filter. Without it
+    // the fixture held only active loans, and deleting `where(status,
+    // Active)` from the loans aggregate left the whole suite green
+    // (mutation-measured) while every shelf's "đang mượn" read too high.
+    // It is overdue-dated too, so it also pins the overdue filter's
+    // status half rather than only its due_on half.
+    foreach ([['2026-08-01', 'DT-0001', LoanStatus::Active], ['2026-12-01', 'DT-0002', LoanStatus::Active], ['2026-08-01', 'DT-0003', LoanStatus::Returned]] as [$due, $code, $status]) {
         $copy = BookCopy::factory()->for($a)->for($book)->create(['code' => $code]);
         Loan::query()->create([
             'bookshelf_id' => $a->id, 'copy_id' => $copy->id, 'book_id' => $book->id,
             'borrower_id' => $user->id, 'lent_by' => $user->id,
-            'due_on' => $due, 'status' => LoanStatus::Active,
+            'due_on' => $due, 'status' => $status,
+            // loans_returned_has_condition: a returned loan without one is
+            // rejected by the database, not by the model.
+            'return_condition' => $status === LoanStatus::Returned ? CopyCondition::Perfect : null,
+            'returned_at' => $status === LoanStatus::Returned ? '2026-09-01 00:00:00' : null,
         ]);
     }
 
@@ -182,6 +209,83 @@ it('sums pending from all four sources — D3, including APPROVED requests', fun
     expect($rows[$a->slug]['pending'])->toBe(4);
 });
 
+it("pending EQUALS the shelf's own four queues, over rows that used to divide them", function () {
+    // The pin that stops the two sides drifting again. A straight
+    // delegation is not on offer — the four queue methods run shelf-bound
+    // and AdminOverviewQuery runs widened and grouped — so the guarantee
+    // has to be an equality assertion instead, and the fixture has to
+    // contain the rows the predicates used to disagree about:
+    //
+    //   - a PENDING MEMBERSHIP whose users row is soft-deleted. The queue
+    //     drops it (PendingRegistrationsQuery.php:51-52, "a soft-deleted
+    //     identity is no applicant"); the admin sum used to keep it.
+    //   - a PENDING REQUEST whose BOOK is soft-deleted, and one whose
+    //     REQUESTER is soft-deleted. The queue's two joins drop both
+    //     (BorrowRequestQueueQuery.php:159-164); the admin sum kept both.
+    //
+    // Measured before the fix, on this fixture's first two rows alone:
+    // admin pending = 2, the shelf's queue = 0 and its registrations = 0.
+    // A flag no manager can see is a flag no manager can clear.
+    [$a] = adminFix();
+
+    $live = User::factory()->create();
+    $member = Membership::factory()->for($a)->create([
+        'user_id' => $live->id, 'role' => 'reader', 'status' => MembershipStatus::Active,
+    ]);
+    $book = Book::factory()->for($a)->create();
+    $doomedBook = Book::factory()->for($a)->create();
+
+    // Counted by both sides: one of each of D3's four sources.
+    Membership::factory()->for($a)->create([
+        'user_id' => User::factory()->create()->id, 'role' => 'reader', 'status' => MembershipStatus::Pending,
+    ]);
+    BorrowRequest::query()->create([
+        'bookshelf_id' => $a->id, 'book_id' => $book->id,
+        'member_id' => $live->id, 'status' => RequestStatus::Pending,
+    ]);
+    Comment::query()->create([
+        'bookshelf_id' => $a->id, 'book_id' => $book->id, 'author_id' => $live->id,
+        'body' => 'Hay lắm', 'status' => CommentStatus::Pending,
+    ]);
+    BookDonation::query()->create([
+        'bookshelf_id' => $a->id, 'donor_membership_id' => $member->id,
+        'description' => 'Một túi sách', 'status' => DonationStatus::Pending,
+    ]);
+
+    // Counted by NEITHER side once the predicates match — the divergences.
+    $ghostApplicant = User::factory()->create();
+    Membership::factory()->for($a)->create([
+        'user_id' => $ghostApplicant->id, 'role' => 'reader', 'status' => MembershipStatus::Pending,
+    ]);
+    $ghostApplicant->delete();
+
+    BorrowRequest::query()->create([
+        'bookshelf_id' => $a->id, 'book_id' => $doomedBook->id,
+        'member_id' => $live->id, 'status' => RequestStatus::Pending,
+    ]);
+    $doomedBook->delete();
+
+    $ghostRequester = User::factory()->create();
+    BorrowRequest::query()->create([
+        'bookshelf_id' => $a->id, 'book_id' => $book->id,
+        'member_id' => $ghostRequester->id, 'status' => RequestStatus::Approved,
+    ]);
+    $ghostRequester->delete();
+
+    $shelfQueues = count(app(PendingRegistrationsQuery::class)->run())
+        + app(BorrowRequestQueueQuery::class)->countWaiting()
+        + app(CommentModerationQuery::class)->countPending()
+        + app(DonationQueueQuery::class)->countPending();
+
+    $rows = collect(app(AdminOverviewQuery::class)->run())->keyBy('slug');
+
+    // Both halves asserted: the equality is the guarantee, and the literal
+    // 4 stops the pair agreeing by both being wrong (a predicate dropped
+    // from BOTH sides would keep the equality green at 0).
+    expect($shelfQueues)->toBe(4);
+    expect($rows[$a->slug]['pending'])->toBe($shelfQueues);
+});
+
 it('flags a shelf with no contacts, and does not flag one with a contact', function () {
     [$a, $b] = adminFix();
     // Widened to SEED, because the tenant is bound to shelf A and this row
@@ -198,10 +302,14 @@ it('flags a shelf with no contacts, and does not flag one with a contact', funct
 });
 
 it('LISTS an archived shelf and marks it — D9', function () {
-    // The one place the dashboard and the portal deliberately disagree. An
-    // administrator is the only person who can reach an archived shelf at
-    // all, so a listing that dropped it would make the shelf unreachable
-    // from every surface at once.
+    // The one place the dashboard and the portal deliberately disagree.
+    // NOT for the reference's reason: at HEAD an archived shelf is still
+    // reachable by any member (ResolveTenant.php:36 filters on deleted_at
+    // only) — a pre-existing Phase 0/1 gap recorded in docs/known-gaps.md
+    // and owned by 3b. The decision stands on what IS true here: this
+    // dashboard is the only surface that shows a shelf's archived state at
+    // all, so a listing that dropped archived shelves would leave nowhere
+    // to see that a shelf had been archived.
     [$a] = adminFix();
     $a->update(['status' => BookshelfStatus::Archived]);
 
