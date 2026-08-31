@@ -1,6 +1,6 @@
 # Phase 3b-i — bookshelves and managers
 
-Status: draft for review
+Status: draft, revised after review
 Date: 2026-08-31
 Branch: `feat/phase-3b-shelf-administration`, cut from `main` at `213d04f`
 
@@ -8,204 +8,293 @@ Branch: `feat/phase-3b-shelf-administration`, cut from `main` at `213d04f`
 
 OLibra is a Vietnamese parish lending-library system being ported from Next.js
 to Laravel + Inertia + React. `old_next/` is a **read-only** behavioural
-reference. Phases 0–3a shipped the schema, the catalogue, members, circulation,
-community features, statistics, QR labels, and — in 3a — the cross-shelf
-capability, the public portal and the super-admin dashboard. A design-system
-port then brought the reference's typography and palette across.
+reference. Phases 0–3a shipped the schema, catalogue, members, circulation,
+community features, statistics, QR labels and — in 3a — the cross-shelf read
+capability, the public portal and the super-admin dashboard.
 
-Phase 3 is *the network*: what a person who runs several bookshelves needs. The
-product owner decomposed it on 2026-08-31:
-
-- **3a** — the network foundation. Shipped.
-- **3b** — shelf administration.
-- **3c** — oversight and feedback.
-
-3b as ruled covers seven screens. That is roughly twice 3a, and this project's
-cross-seam defects are caught by the whole-branch review, which gets less
-reliable as a branch grows — so 3b is split, and **this spec is 3b-i**.
+Phase 3 is *the network*: what someone running several bookshelves needs. The
+product owner decomposed it on 2026-08-31 into 3a (foundation, shipped), 3b
+(shelf administration) and 3c (oversight and feedback). 3b as ruled covers seven
+screens — roughly twice 3a — so it is split. **This spec is 3b-i.**
 
 ## 2. Problem statement
 
-The super-admin area exists but is mostly scaffolding. `routes/web.php:521-535`
-registers seven admin routes, and **six of them point at
-`ShellController::underConstruction`**. Only the dashboard (3a) is real.
+The super-admin area is mostly scaffolding. `routes/web.php:522-534` registers
+**eight** admin routes; the 3a dashboard is real and the **other seven** point at
+`ShellController::underConstruction`.
 
-So today a super administrator can *see* that a bookshelf needs attention and
-cannot *do* anything about it. There is no way, anywhere in the running
-application, to:
+So a super administrator can see that a shelf needs attention and can do nothing
+about it. There is no way, anywhere in the running application, to create a
+bookshelf, edit its name or lending policy, record who to phone about it, or
+appoint and remove a manager. Every shelf and manager in the database got there
+by seeder or by hand. **An installation cannot be operated.**
 
-- create a bookshelf, or edit one's name, address or lending policy;
-- record who to phone about a shelf;
-- appoint a manager, or take the role away.
+3b-i closes the two routes that block operation — `/admin/shelves` and
+`/admin/managers`. `/admin/settings`, `/admin/categories`, the public `/contact`
+and the shelf-level `manage/units` and `manage/settings` are 3b-ii; the audit
+browser, per-manager activity, cross-shelf profile-change queue and feedback
+inbox are 3c.
 
-Every shelf and every manager in the database got there by seeder or by hand.
-An installation cannot be operated.
+### 2.1 The prerequisite this phase cannot avoid
 
-**3b-i closes the two routes that block operation** — `/admin/shelves` and
-`/admin/managers` — and settles one decision Phase 3a deliberately handed over.
-`/admin/settings`, `/admin/categories`, the public `/contact`, and the
-shelf-level `manage/units` and `manage/settings` are **3b-ii**.
+The first draft of this spec treated the admin writes as ordinary controller
+work. They are not, and the reason is worth stating before any screen is
+designed.
+
+**The `/admin` group binds no tenant.** `routes/web.php:522` carries
+`middleware('super-admin')` and nothing else. Three things follow:
+
+- `BookshelfScope` **throws** `RuntimeException` on any scoped model when no
+  tenant is bound (`app/Models/Scopes/BookshelfScope.php:40-48`) — deliberately
+  fail-closed. `Membership` and `BookshelfContact` are both scoped.
+- `AuditRecorder::record()` **throws** when `bookshelfId()` is null
+  (`app/Support/AuditRecorder.php:38-43`), even though `audit_log.bookshelf_id`
+  is nullable precisely so that "a cross-shelf act belongs to no shelf".
+- `TenantContext::systemWide()` — 3a's sanctioned widening — is fenced **by
+  test** to `app/Queries/Admin/`
+  (`tests/Feature/Architecture/WideningArchitectureTest.php:77-89`), whose own
+  comment reads: *"A new entry outside this directory is a spec amendment, not
+  a fix."*
+
+Administration writes are Actions, not Queries, so they cannot live in
+`app/Queries/Admin/`. **This spec is that amendment**, and D0 states it.
 
 ## 3. Scope
 
-In: `/admin/shelves` (list, create, edit), `/admin/contacts` as part of the shelf
-editor, `/admin/managers` (assign, revoke, promote), a `BookshelfPolicy`, six
-new audit actions, and the `ResolveTenant` archived-shelf filter.
+**In:** `/admin/shelves` — list, create, edit (profile, lending policy, up to
+three contacts), archive and un-archive. `/admin/managers` — assign (as manager
+or shelf admin), revoke, promote to super admin. A `BookshelfPolicy`. The
+cross-shelf write capability and global audit rows of D0. Seven new audit
+actions and the fifth audit group they need. A `managersMissing` flag on 3a's
+dashboard query.
 
-Out: everything listed as 3b-ii above; the whole of 3c (audit browser,
-per-manager activity, cross-shelf profile-change queue, feedback inbox).
+**Out:** everything in 3b-ii and 3c above. No change to `ResolveTenant` (D4).
 
 ## 4. Decisions
 
-### D1 — The slug is fixed after creation
+### D0 — A sanctioned cross-shelf *write* capability, fenced like 3a's read
+
+3a established the pattern: widening is confined in namespace and in time, and
+both are pinned by test. 3b-i extends it to writes, and keeps the fence.
+
+- **Namespace.** Administration commands live in `app/Actions/Admin/`, and
+  `WideningArchitectureTest` is amended to allow `systemWide()` there **as well
+  as** `app/Queries/Admin/`. The test keeps its shape and its comment; only the
+  allowed directory list grows, and it grows in a spec, which is what that
+  comment demands.
+- **Time.** `systemWide(callable)` already restores the previous context in a
+  `finally`. Nothing in this phase calls the bare `actSystemWide()`, which stays
+  pinned to its existing three files.
+- **Audit.** `AuditRecorder` gains a sibling for shelf-less acts rather than
+  relaxing `record()`. `record()` keeps throwing on a null tenant — that guard
+  protects every shelf-scoped command in the app and must not be weakened to
+  serve seven administration actions. The new path takes the shelf explicitly
+  (or null) and is itself fenced to `app/Actions/Admin/`.
+
+Two of D9's actions *require* this and cannot be done any other way:
+`user.promoted_super_admin` belongs to no shelf, and `bookshelf.created` names a
+shelf that does not exist when the command begins.
+
+### D1 — The slug is fixed after creation, and the database already says so
 
 BR §16.4: *"The slug is fixed after creation, since it appears in shared links."*
-A parish puts `/shelves/dong-thap` on a printed notice; changing it silently
-breaks every such link and every QR label already stuck inside a book cover.
+A parish prints `/shelves/dong-thap` on a notice and glues QR labels inside book
+covers; moving it breaks both.
 
-So `slug` is an input on create and is **rendered read-only on edit**. This is
-enforced server-side, not merely omitted from the form: the update path ignores
-a submitted `slug` entirely rather than validating it, so a hand-crafted request
-cannot move a shelf's URL.
+**This is already enforced by a database trigger.**
+`database/migrations/2026_08_26_000020_add_immutability_triggers.php:33-37`
+raises `SQLSTATE 45000` on any `UPDATE` that changes `slug`, and
+`app/Models/Bookshelf.php:29` records it: *"{shelf} binds by slug, and slugs are
+immutable by trigger."* Route model binding is by slug (`getRouteKeyName()`).
 
-The database already carries `bookshelves.slug_active`, a generated column that
-makes uniqueness-while-alive an index rather than a check, so create validates
-against that.
+So the application layer is defence in depth, not the enforcement: the update
+path **never passes `slug` through**, so a hand-crafted request is dropped before
+it reaches MariaDB. This matters because `Bookshelf::$guarded` lists only the
+four generated columns (`app/Models/Bookshelf.php:27`) — `slug` and `status` are
+mass-assignable, so `update($request->all())` is live ammunition.
 
-### D2 — Profile and policy save separately
+**The test must expect the right failure.** A request carrying a changed slug
+leaves the stored slug untouched *because the controller dropped it* — a green
+test here must not be a `QueryException` from the trigger, which would mean the
+application layer let it through and only the database saved us. The test
+asserts both: the slug is unchanged **and** no exception was raised.
 
-The reference splits the shelf editor into `updateBookshelfProfileAction` and
-`updateBookshelfPolicyAction` (`old_next/src/app/quan-tri/admin-actions.ts:225,263`),
-and we keep that seam. They are different kinds of edit: the profile is what the
-shelf *is* (name, location, address, description, established date), the policy
-is twelve numeric and boolean settings from BR §5.5 that change how lending
-behaves. Saving them together would mean a typo in `loan_days` blocks correcting
-an address.
+Create validates uniqueness against `bookshelves.slug_active`, a stored
+generated column (`IF(deleted_at IS NULL, slug, NULL)`) with a unique index, so
+uniqueness-while-alive is an index rather than a check.
 
-Each form reports its own success and its own refusal, beside itself. The
-reference records why at length: a single `?saved=1` marker on a page with two
-independently-submittable forms cannot say *which* form saved, and a refusal
-rendered in one banner above both leaves the reader guessing.
+### D2 — Profile and policy save separately, and the policy form carries eight settings
+
+The reference splits the editor into `updateBookshelfProfileAction` and
+`updateBookshelfPolicyAction` (`old_next/src/app/quan-tri/admin-actions.ts:225,263`)
+and we keep that seam. They are different kinds of edit — what the shelf *is*
+versus how lending behaves — and a typo in `loan_days` should not block
+correcting an address. Each form reports its own success and its own refusal,
+beside itself; the reference records at length why a single `?saved=1` on a page
+with two independently-submittable forms cannot say which form saved.
+
+**The policy form carries the reference's eight**, not BR §5.5's full list:
+`loan_days`, `max_concurrent_loans`, `max_renewals`, `renewal_days`,
+`hold_days`, `due_soon_days`, `allow_comments`, `comments_require_approval`.
+
+The remaining four — `public_name_display`, `public_show_current_borrower`,
+`leaderboard_enabled`, `leaderboard_size` — are **already consumed by shipped
+portal and leaderboard code but have no editor anywhere in the application, and
+this phase does not add one.** That is a real gap and it is recorded in
+`docs/known-gaps.md` rather than fixed by quietly widening a form the reference
+deliberately kept at eight.
 
 ### D3 — Contacts: one required, two conditional, none public
 
-BR §189 and §16.4. Up to three contacts per shelf, `position` 1–3 unique per
-shelf — the schema already enforces uniqueness through `bookshelf_contacts.position_key`.
+BR §189 and §16.4. Up to three per shelf; `bookshelf_contacts.position_key` (a
+generated `SHA2` of shelf and position, null when deleted, unique) already
+enforces one row per position, and a `CHECK (position BETWEEN 1 AND 3)` bounds
+it.
 
 - **Position 1 is required by the interface, not by the column.** A shelf
-  onboarded before this table existed may have no contacts at all, and is
-  flagged incomplete on the admin list rather than assigned an invented
-  volunteer. 3a's dashboard already flags exactly this.
-- **Positions 2 and 3 are saved only when a name is given.** A blank name means
-  the row is absent, not an empty row.
+  onboarded before this table existed may have no contacts, and is *flagged
+  incomplete* rather than assigned an invented volunteer. 3a's dashboard already
+  returns `contactsMissing` for exactly this.
+- **Positions 2 and 3 are saved only when a name is given** — a blank name means
+  no row, not an empty row.
 - `role_label` is free text: a parish names its own volunteers' jobs
-  (*Người giữ chìa khoá*, *Quản lý tủ sách*). We ship no enum.
-- **No caller without a membership on the shelf may read this table.** BR §189
-  draws this boundary explicitly, and 3a's portal decision (D2) already refused
-  to show contacts publicly. The admin screens read them as super admin; nothing
-  in this phase exposes them to a public route.
+  (*Người giữ chìa khoá*, *Quản lý tủ sách*). No enum.
+- **No caller without a membership may read this table** (BR §189, verbatim).
+  Nothing in this phase exposes contacts to a public route; 3a's portal already
+  refused to.
 
-### D4 — An archived shelf serves its managers, not its readers
+### D4 — Archived means archived: 404 for everyone, and `ResolveTenant` does not change
 
-Ruled by the product owner on 2026-08-31, closing what 3a left open.
+**Reversed after review.** The first draft proposed letting an archived shelf's
+managers through while 404ing its readers. The reference refuses that carve-out
+in a signed comment at the exact line it would live
+(`old_next/src/auth/guards.ts:27-37`):
 
-`ResolveTenant` has no status filter today, so an archived shelf serves every
-tenant-bound route exactly as a live one does. 3a declined to change it in a fix
-wave, correctly: it alters the entry condition of every tenant-bound route at
-once, and *what an archived shelf may still serve* is a decision rather than a
-bug.
+> `status = 'active'` here means an archived shelf resolves to `shelf_not_found`
+> for everyone who reaches it by slug — including its own admin… a bespoke "but
+> let the admin in anyway" carve-out here would quietly split what "archived"
+> means depending on who is asking. If a genuine "manage an archived shelf" need
+> shows up later (reactivating it, exporting its records), it should get its own
+> explicit admin path.
 
-The decision: **a manager or shelf admin of an archived shelf keeps access; a
-reader or the public gets 404.** Archiving is not deletion — a shelf may be
-archived with books still on loan, and the people who have to settle those loans,
-export the register, or un-archive the shelf are exactly its managers. Readers
-have no such errand.
+It names *reactivating and exporting* — the first draft's own two justifications
+— and routes them elsewhere. Three further facts, all measured, agreed with it:
 
-404, never 403, matching the project's existing convention (`EnsureSuperAdmin`
-already 404s, and §5.4 of the migration spec makes not-found the tenancy answer
-throughout): a reader learning that a shelf *exists but is archived* is a
-disclosure they have no membership to justify.
+1. **A super administrator holds no membership anywhere.** `MembershipRole` has
+   no super-admin case; `ResolveTenant` resolves a `Membership`
+   (`app/Http/Middleware/ResolveTenant.php:60-68`). A literal role filter would
+   404 the super admin too, and the first draft's own table gave them 200 — the
+   decision contradicted itself.
+2. **`SweepReminders` filters on loan status, never shelf status**, and runs
+   system-wide. Under a manager-only carve-out it would keep writing due-soon
+   and overdue notices to readers who can no longer open the page that shows
+   them.
+3. The reader's notification bell, loan history and read-receipts all live under
+   `shelves/{shelf}/profile/*` (`routes/web.php:218-233`) and are tenant-bound,
+   so a partial carve-out strands them anyway.
 
-Concretely, for shelf `dong-thap` with `status = 'archived'`:
+**The decision, ruled by the product owner on 2026-08-31 after seeing the
+above:** archiving takes a shelf out of circulation entirely. Readers, managers
+and the portal alike get 404.
 
-| caller | `/shelves/dong-thap/catalogue` | `/shelves/dong-thap/manage/books` |
-|---|---|---|
-| its manager | 200 | 200 |
-| its reader | 404 | 404 |
-| a stranger | 404 | 404 |
-| super admin | 200 (via the admin area) | 200 |
+**And therefore `ResolveTenant` is not changed in this phase.** The gap
+`docs/known-gaps.md:4306-4338` records is real, but closing it is a change to the
+entry condition of every tenant-bound route in the application, and the
+behaviour that makes it *safe* to close — reactivate and export from the admin
+area — is what 3b-i builds. Doing both at once would ship the blast radius and
+its remedy in the same unreviewed breath. **3b-i builds the explicit admin path
+the reference names; the resolver filter follows in 3b-ii**, against a phase
+where the repair route already exists, and it is recorded as such.
 
-### D5 — Revoking is demotion to reader, and there is no super-admin demotion
+### D5 — Revoking is demotion to reader, with a confirmation that says so
 
-The reference's `revokeManager` sets `role = 'reader'` and leaves the membership
-row standing (`old_next/src/domain/admin/commands/managers.ts:107`). That is what
-BR §16.4's *"states plainly that history is retained"* means concretely: the
-person keeps their membership, their registration, their loan history and their
-audit trail; only the grant goes. Revoking a membership that is already `reader`
-is refused as `not_permitted`.
+`revokeManager` sets `role = 'reader'` and leaves the membership standing
+(`old_next/src/domain/admin/commands/managers.ts:107`); revoking someone already
+a reader is refused as `not_permitted` (`:105`). That is what BR §16.4's
+*"states plainly that history is retained"* means concretely — the person keeps
+their membership, registration, loan history and audit trail; only the grant
+goes.
 
-**There is deliberately no demotion from super admin.** The reference's own
-docstring is the reasoning, and it is sound:
+**The confirmation is an interface requirement, not just a data-model fact.**
+BR §16.4: *"Revocation requires confirmation and states plainly that history is
+retained."* So the revoke control opens a confirmation naming the person and the
+shelf and saying, in Vietnamese, that their history is kept. §5 tests it.
+
+**There is deliberately no demotion from super admin**, and the reference's
+docstring is the reasoning (`managers.ts:134-136`):
 
 > Removing the last administrator's own grant would lock the installation out of
 > its own administration surface, and nothing in the requirements says what
 > should happen instead.
 
-We port that omission as an omission, and record it in `docs/known-gaps.md`
-rather than inventing a rule the requirements do not contain. `promoteSuperAdmin`
-refuses when the target is already a super admin.
+We port the omission as an omission and record it, rather than inventing a rule
+the requirements do not contain. `promoteSuperAdmin` refuses a target who is
+already a super admin (`:149`).
 
-### D6 — Revoking a shelf's last manager is permitted, and flagged
+### D6 — Revoking a shelf's last manager is permitted, and 3b-i makes it visible
 
-This is the decision in this spec most likely to be wrong, so it is stated
-plainly rather than buried.
+The reference permits it: `revokeManager` counts nothing. So a super
+administrator can leave a shelf with no manager — no one to approve a
+registration or lend a book — and only the admin area can repair it.
 
-The reference permits it: `revokeManager` checks only that the target is not
-already a reader. Nothing counts the shelf's remaining managers. So a super
-administrator can leave a shelf with no manager at all — its readers can still
-borrow nothing, no one can approve a registration, and only the admin area can
-repair it.
+We port the behaviour faithfully rather than inventing a refusal, its wording and
+its edge cases (what of a shelf whose only manager is suspended?). But the first
+draft justified that by claiming 3a's dashboard would flag it, and **that was
+false**: `AdminOverviewQuery`'s return shape
+(`app/Queries/Admin/AdminOverviewQuery.php:120`) carries no manager count, and
+its `readers` figure counts active memberships *including* managers, so it
+cannot even serve as a proxy.
 
-We **port the behaviour faithfully and do not add a guard**, for two reasons.
-First, a super administrator is the person who would fix it, and they are the
-only one who can reach the screen — the failure is visible and recoverable from
-the same place it is caused. Second, inventing a refusal here means inventing its
-wording, its edge cases (what about a shelf whose only manager is suspended?),
-and a rule the requirements never state; 3a's dashboard already flags shelves
-needing attention, which is where a zero-manager shelf belongs.
+So 3b-i adds one: **`managersMissing`** on the dashboard row, beside the
+`contactsMissing` that is already there. A permitted sharp edge that nothing
+surfaces is just a hole; the same screen that flags a shelf with no contacts
+should flag a shelf with no manager. This is a small addition to a 3a query and
+is in scope precisely because D6 is otherwise indefensible.
 
-It is recorded in `docs/known-gaps.md` as a deliberate port of a sharp edge, with
-this reasoning, so that a future phase adding the guard knows it is closing a
-known hole rather than discovering a bug.
+### D7 — Assigning takes a role: manager or shelf admin
 
-### D7 — The taxonomy editor lands in 3b-ii, on this same screen
+`MembershipRole` has `Admin = 'admin'` at rank 3 alongside `Manager`
+(`app/Enums/MembershipRole.php:11,22`), `act-as-admin` is a defined gate, and the
+reference's `assignManager` takes `role: "manager" | "admin"`, validated
+(`managers.ts:19,28`).
 
-BR §16.4 places the parish-taxonomy editor (level count, level labels, nesting,
-and the unit lists) inside the Bookshelves screen. The split in §1 puts taxonomy
-in 3b-ii — so 3b-i builds the shelf editor with its profile, policy and contacts
-sections, and **3b-ii adds a taxonomy section to the same screen** rather than
-either phase building that screen twice.
+So the assign form offers both, revoke demotes either to `reader`, and the
+`/admin/managers` list shows which role each person holds. The first draft
+mentioned "manager or shelf admin" in passing without ever saying the form
+offered a choice.
 
-3b-i therefore must leave the editor's layout able to take another section
-without restructuring. Nothing more; no placeholder tab, no dead markup.
+### D8 — The taxonomy editor lands in 3b-ii, on this same screen
 
-### D8 — A `BookshelfPolicy`, and 404 rather than 403
+BR §16.4 places the parish-taxonomy editor inside the Bookshelves screen. The
+split puts taxonomy in 3b-ii, so 3b-i builds the editor with its profile, policy
+and contacts sections and 3b-ii adds a taxonomy section to the same screen.
 
-The eight existing policies cover per-shelf resources. Administration is
-different: it is not scoped to a tenant at all, and its gate is
-`users.is_super_admin`.
+The rework risk is real — taxonomy is not one more flat form but a sub-editor
+with level count, labels, a nesting flag and unit-list CRUD. What makes it
+tolerable is D2's rule that **each section is its own form with its own submit
+and its own refusal**: adding a fourth such section is an addition, not a
+restructure. `parish_taxonomy` is a single JSON key in `bookshelves.settings` and
+units live in `parish_units`, so the data seam is clean too. **3b-i must not
+build the editor as one submit covering all sections.**
 
-`EnsureSuperAdmin` already guards the route group and aborts **404**. The policy
-exists for the object-level questions the middleware cannot answer — may this
-shelf be archived, may this membership be revoked — and returns the same 404
-shape via `Response::denyAsNotFound()` so a refusal is indistinguishable from a
-row that does not exist.
+### D9 — A `BookshelfPolicy`, 404 rather than 403
 
-### D9 — Six new audit actions, each with a sentence
+The eight existing policies cover per-shelf resources. Administration is not
+tenant-scoped and its gate is `users.is_super_admin`.
 
-`AuditActionCensusTest` asserts exact correspondence between actions recorded in
-code and sentences declared in `AuditSentences::ACTIONS` (115 today), and bans
-computed action names. Administration is BR §458's own list:
+`EnsureSuperAdmin` already guards the group and aborts **404**
+(`app/Http/Middleware/EnsureSuperAdmin.php:19`). The policy answers the
+object-level questions middleware cannot — may this shelf be archived, may this
+membership be revoked — and returns the same shape via `denyAsNotFound()`, so a
+refusal is indistinguishable from a row that is not there.
+`MembershipPolicy`'s own docblock already flags this 403-vs-404 mismatch, which
+is what `denyAsNotFound()` anticipates.
+
+### D10 — Seven audit actions, a fifth group, and the tests that pin them
+
+`AuditSentences::ACTIONS` holds **41** entries — pinned literally by
+`tests/Unit/Audit/AuditSentencesTest.php:416`. (The first draft said 115, which
+was `grep -c "=>"` over the whole file reported as a count of actions.)
 
 | action | when |
 |---|---|
@@ -214,34 +303,52 @@ computed action names. Administration is BR §458's own list:
 | `bookshelf.archived` | a shelf is archived |
 | `bookshelf.unarchived` | a shelf is restored |
 | `membership.role_assigned` | a reader is made manager or shelf admin |
-| `membership.role_revoked` | a manager or shelf admin is demoted to reader |
+| `membership.role_revoked` | a manager or shelf admin is demoted |
 | `user.promoted_super_admin` | a person is granted the global role |
 
-That is seven, not six: `bookshelf.unarchived` is ours rather than BR §458's,
-because D4 makes un-archiving the documented repair path for an archived shelf
-and an unaudited un-archive would be the one administration action with no
-record. `membership.role_revoked` matches the reference's existing name.
+None collides: the six existing `membership.*` entries are registered, approved,
+rejected, suspended, reactivated and left. The naming follows the file's
+`entity.past_participle` convention. `bookshelf.unarchived` is ours rather than
+BR §458's six, because D4 makes un-archiving the documented repair path and an
+unaudited un-archive would be the one administration act with no record.
+
+**This is more work than a lookup-table edit**, and the first draft treated it as
+one. `AuditSentences::GROUPS` is a closed set of four (`:101`), and
+`AuditSentencesTest:410-417` asserts those four *partition* the map with nothing
+left over, hard-coding both the group names and the count. Every action also
+needs a `phrase()` arm (a separate test asserts none falls through to the
+fallback) and a Vietnamese line in `lang/vi/audit.php`. So this task adds a fifth
+group `administration`, seven `phrase()` arms, seven Vietnamese sentences, and
+updates the partition test's group list and its count from 41 to 48.
 
 ## 5. Testing
 
-The risks here are authorisation and tenancy, so the guards are about who may
-reach what, not about markup.
+The risks are authorisation, tenancy and audit completeness — not markup.
 
-1. **Slug immutability** — an update carrying a changed `slug` leaves the stored
-   slug untouched. Not "the field is disabled"; the request is what is tested.
-2. **The archived-shelf matrix** — the full D4 table as a test: manager 200,
-   reader 404, stranger 404, on both a reader route and a manage route. This is
-   the one that guards a middleware change touching every tenant-bound route.
-3. **Contacts are not public** — a request without a membership cannot read
-   `bookshelf_contacts` through any route this phase adds.
-4. **Position 2 and 3 are conditional** — a blank name saves no row; a named one
+1. **Slug immutability, at the application layer** — an update carrying a changed
+   slug leaves the slug unchanged **and raises no exception**. A `QueryException`
+   from the trigger is a *failure* of this test: it means the controller passed
+   it through and only the database saved us.
+2. **Contacts are not public** — no route added here reads `bookshelf_contacts`
+   for a caller without a membership.
+3. **Positions 2 and 3 are conditional** — a blank name saves no row; a named one
    saves exactly one, at the right position.
-5. **Revoke is demotion** — the membership row survives with `role = 'reader'`,
-   its `id` unchanged, and its loans and audit rows still resolve.
-6. **Revoking a reader is refused**, and **promoting an existing super admin is
+4. **Revoke is demotion** — the membership row survives with `role = 'reader'`,
+   `id` unchanged, and its loans and audit rows still resolve.
+5. **Revoking a reader is refused**, and **promoting an existing super admin is
    refused**.
-7. **The census still passes** with the seven new actions, each having a
-   sentence.
+6. **The revocation confirmation exists** and states that history is retained.
+7. **`managersMissing` is true for a shelf whose last manager was revoked** —
+   the flag D6 depends on, tested through the revoke path rather than by
+   fixture, so it proves the sharp edge is actually visible.
+8. **Global audit rows land** — `user.promoted_super_admin` writes a row with
+   null `bookshelf_id`; `bookshelf.created` writes one naming the new shelf.
+9. **The census still passes**, and the partition test covers five groups and 48
+   actions.
+10. **The widening fence still bites** — a `systemWide()` call added outside
+    `app/Queries/Admin/` and `app/Actions/Admin/` still fails
+    `WideningArchitectureTest`. Amending an architecture pin is exactly when to
+    prove it still refuses everything else.
 
 Per project practice, **every test is watched failing before it is accepted** —
 mutate what it protects, see red, restore, confirm `git status --porcelain` is
@@ -249,11 +356,14 @@ clean.
 
 ## 6. Risks
 
-- **`ResolveTenant` is the blast radius.** D4 changes the entry condition of
-  every tenant-bound route in the application. Test 2 exists for this, and the
-  change should be its own task, reviewed alone.
-- **A shelf can be left with no manager** (D6), by decision.
-- **No super-admin demotion** (D5), by decision, ported as an omission.
-- **The shelf editor will be reopened in 3b-ii** for taxonomy (D7). If 3b-i's
-  layout hard-codes three sections, that becomes a rewrite rather than an
-  addition.
+- **D0 amends a pinned architecture test.** That is sanctioned here (the pin's
+  own comment asks for a spec) but it widens the blast radius of any future
+  mistake in `app/Actions/Admin/`. Test 10 is the compensating control.
+- **A shelf can be left with no manager** (D6), by decision, now flagged.
+- **No super-admin demotion** (D5), ported as an omission.
+- **Four shipped settings remain uneditable** (D2), recorded rather than fixed.
+- **The archived-shelf resolver filter moves to 3b-ii** (D4). Until then an
+  archived shelf still serves its routes — the pre-existing Phase 0/1 behaviour,
+  unchanged by this phase and still recorded in `known-gaps.md`.
+- **The shelf editor reopens in 3b-ii** for taxonomy (D8); D2's per-section forms
+  are what keep that an addition.
