@@ -6,6 +6,7 @@ use App\Enums\StatsPeriod;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\Loan;
+use App\Models\Membership;
 use App\Support\Clock;
 use Carbon\CarbonImmutable;
 
@@ -27,7 +28,12 @@ use Carbon\CarbonImmutable;
  * one of them, already scoped by BookshelfScope before the join is ever
  * planned, and `books`/`categories`/`book_copies`/`users` are joined only
  * to pull a label or a name onto rows the scope already narrowed — no
- * join condition anywhere below tests `bookshelf_id`.
+ * join condition anywhere below tests `bookshelf_id`. `topReaders`' live
+ * membership check is deliberately NOT a fourth join for the same reason:
+ * it is a `whereIn` against a `Membership::query()` subquery, which is
+ * both `BookshelfScope`'d and `SoftDeletes`'d by construction, so it
+ * reaches the same restriction the reference's `memberships` join has
+ * with no join condition to keep out of the blind spot.
  *
  * THE WINDOW'S LOWER BOUND comes from Clock::periodStart(), computed once
  * in PHP rather than in SQL — the reference does it with Postgres
@@ -50,10 +56,17 @@ use Carbon\CarbonImmutable;
  * App\Actions\Catalogue\ReportCopyLost line 70 (opened) at the moment a
  * copy is actually reported lost, so the honest predicate is available
  * here and used: `state = 'lost' and lost_reported_at >= :since`. Ruled by
- * the product owner on 2026-08-31: correctness over parity. (SoftDeletes'
- * `deleted_at is null` is implicit — BookCopy uses the trait, so every
- * query below already excludes trashed rows without a predicate naming
- * it.)
+ * the product owner on 2026-08-31: correctness over parity. SoftDeletes'
+ * `deleted_at is null` is implicit ONLY for the model-driven reads —
+ * `booksAdded` (Book::query()) and this copiesLost check
+ * (BookCopy::query()) — because the trait's global scope runs on those
+ * models directly. It buys nothing for the three raw joins below
+ * (byCategory, topBooks, topReaders): a joined table carries no global
+ * scope of its own, so a trashed row on the far side of `join('books', …)`
+ * or `join('users', …)` is invisible to Eloquent's trait machinery and
+ * must be excluded by a predicate written here if it matters. topReaders'
+ * null check on `users.deleted_at` below is exactly that predicate — its
+ * absence was Finding 1 of this task's first review round.
  *
  * THE DAILY CHART GROUPS BY THE NUMERIC OFFSET `'+07:00'`, NOT THE ZONE
  * NAME. `CONVERT_TZ(t, 'UTC', 'Asia/Ho_Chi_Minh')` requires MariaDB's
@@ -67,15 +80,25 @@ use Carbon\CarbonImmutable;
  * `DATE(CONVERT_TZ('2026-08-31 18:30:00','+00:00','+07:00'))` returns
  * `2026-09-01`.
  *
- * DIVERGENCE — `topReaders` DOES NOT JOIN `memberships`. The reference
- * (get-statistics.ts:167-172, opened) joins `memberships` on the way from
- * `loans` to `users`. This port goes straight from `loans.borrower_id` to
- * `users.id`, which is what the foreign key actually is
- * (`loans_borrower_id_foreign`, read off the live table). Besides being
- * simpler, it removes a fan-out the reference's join has: a user with
- * memberships on two shelves would be counted twice through it. Numbered
- * because this project numbers divergences, and because "it looked like a
- * simplification" is how an unnoticed behaviour change gets shipped.
+ * RETRACTED — a false rationale for dropping the `memberships` join. An
+ * earlier draft of `topReaders` omitted joining `memberships`
+ * (get-statistics.ts:172-173, opened, joins `users` then `memberships`)
+ * and justified the omission as removing a fan-out: "a user with
+ * memberships on two shelves would be counted twice through it." That
+ * cannot happen. `memberships_one_per_shelf unique (bookshelf_id,
+ * user_id)` (old_next/src/db/migrations/0003_identity.sql:107, opened)
+ * and `memberships` sits in the RLS table list under `force row level
+ * security` (old_next/src/db/migrations/0010_rls.sql:61, opened) — so at
+ * most one membership row per user is ever visible within a shelf, and
+ * there is no fan-out to remove. What the join actually does, and what
+ * this port was silently NOT doing, is exclude a borrower with no live
+ * membership on this shelf — the reference's deliberate behaviour
+ * (get-statistics.ts:172-173's `join memberships m on m.user_id = u.id and
+ * m.deleted_at is null`), and this file now matches it: `topReaders`
+ * below filters `loans.borrower_id` through a `Membership::query()`
+ * subquery rather than a raw join, so the exclusion is scoped by
+ * `BookshelfScope` and `SoftDeletes` by construction, with no join
+ * condition anywhere in this file naming `bookshelf_id`.
  *
  * DIVERGENCE — THE ROUTE PARAMETER IS `?period=`, NOT THE REFERENCE'S
  * `?ky=`. get-statistics.ts's docblock and thong-ke/page.tsx read `ky`.
@@ -166,8 +189,20 @@ final class StatisticsQuery
             ])
             ->all());
 
+        // Both restrictions the reference's memberships/users joins carry
+        // (get-statistics.ts:172-173, opened) are restored here without a
+        // raw join naming the shelf column: a null check on
+        // users.deleted_at is a plain predicate on the joined table (a
+        // joined table carries no SoftDeletes scope of its own — see the
+        // class docblock), and the membership restriction is a subquery
+        // through Membership::query(), which carries BookshelfScope and
+        // SoftDeletes by construction, so it excludes a borrower with no
+        // live membership on THIS shelf without a join condition ever
+        // testing that column.
         $topReaders = array_values($loansInPeriod->clone()
             ->join('users', 'users.id', '=', 'loans.borrower_id')
+            ->whereNull('users.deleted_at')
+            ->whereIn('loans.borrower_id', Membership::query()->select('user_id'))
             ->selectRaw("COALESCE(NULLIF(users.display_name, ''), users.full_name) as name, users.id as user_id, COUNT(*) as n")
             ->groupBy('name', 'users.id')
             ->orderByDesc('n')

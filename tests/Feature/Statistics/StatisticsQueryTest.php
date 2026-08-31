@@ -224,6 +224,39 @@ it('ranks top readers by loan count, naming the borrower', function () {
     expect($top[0]['count'])->toBe(2);
 });
 
+it('excludes a borrower with a soft-deleted membership or a soft-deleted user from topReaders, though the loan still counts — Finding 1', function () {
+    // TITLED ASSERTION FIRST: the exclusion from topReaders is what this
+    // block exists to prove; the loans total is the control showing the
+    // loan itself was never dropped, just the name on the leaderboard.
+    [$shelf, $manager, $anh] = statFix();
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
+
+    $book = Book::factory()->for($shelf)->create();
+
+    // Borrower whose membership on this shelf is soft-deleted after the loan.
+    $noMembership = User::factory()->create(['full_name' => 'Gioan Baotixita Trần']);
+    $noMembershipMembership = Membership::factory()->for($shelf)->create([
+        'user_id' => $noMembership->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    statLoan($shelf, $book, $noMembership, $manager, '2026-09-01 03:00:00', 'DT-0003');
+    $noMembershipMembership->delete();
+
+    // Borrower whose user row itself is soft-deleted after the loan.
+    $trashedUser = User::factory()->create(['full_name' => 'Phêrô Nguyễn Văn']);
+    Membership::factory()->for($shelf)->create([
+        'user_id' => $trashedUser->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    statLoan($shelf, $book, $trashedUser, $manager, '2026-09-01 04:00:00', 'DT-0004');
+    $trashedUser->delete();
+
+    $stats = app(StatisticsQuery::class)->run(StatsPeriod::Week);
+    $names = collect($stats['topReaders'])->pluck('name')->all();
+
+    expect($names)->not->toContain('Gioan Baotixita Trần');
+    expect($names)->not->toContain('Phêrô Nguyễn Văn');
+    expect($stats['loans'])->toBe(2);
+});
+
 it('another shelf\'s loans are invisible — tenancy, not a hand-written predicate', function () {
     [$shelf, $manager, $anh] = statFix();
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 02:00:00', 'UTC'));
