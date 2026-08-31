@@ -4336,3 +4336,107 @@ distance between what the fence proves and what it merely discourages.
   admin dashboard is the only surface in the application that renders
   `bookshelves.status` at all, so a listing that dropped archived shelves would
   leave nowhere to see that a shelf had been archived.
+
+## Phase 3b — the design system port
+
+The warm palette and the two typefaces from `old_next`, ported onto shadcn's 33
+semantic variables so the 42 existing screens change colour without a single
+component being edited. Branch `feat/design-system-port`, cut from `main` at
+`7704d10`. Nothing under `resources/js/pages` or `resources/js/components` was
+touched, which is the property the whole change rests on — and also the reason
+two of the entries below exist, since a token-only change cannot reach the places
+where a token is not what is missing.
+
+- **The six status inks are not ported, and the gap is two-thirds of a rule, not
+  one-third (Phase 3b, spec D4).** The reference defines `available` `#457453`,
+  `onloan` `#8e6231`, `held` `#4d6d8f`, `overdue` `#ad4c42`, `lost` `#94514a` and
+  `retired` `#716962`. None of them exists in `resources/css/app.css` after this
+  phase. `AGENTS.md:57` asks that every state carry **an icon, a Vietnamese word
+  and a colour together**; the six copy-item states declared at
+  `resources/js/lib/copy.ts:155` — "Có sẵn", "Đang cho mượn", "Đang giữ chỗ", "Đã
+  mất", "Ngừng dùng", "Chưa có bản nào" — currently render as a bare word inside
+  a stock shadcn badge at four call sites: `resources/js/components/book-card
+  .tsx:48`, `resources/js/pages/shelves/book.tsx:157`,
+  `resources/js/pages/manage/books/show.tsx:319` and
+  `resources/js/pages/manage/books/index.tsx:132`. Read those four and the badge
+  carries no `ui/icon.tsx` child and no per-state variant, so the deferral leaves
+  **the icon and the colour** unmet and only the word satisfied.
+
+  Porting them properly means twelve values rather than six (each ink needs a
+  derived dark counterpart, on the same basis as every other ink here), a
+  fill-vs-ink decision per state, and edits to those four screens — per-screen
+  visual work, which spec D5 puts out of scope, on a palette that has not yet
+  been seen on a real screen. Recorded rather than done. **Nothing becomes
+  ambiguous in the interim:** the six states stay fully distinguishable by their
+  Vietnamese word, so this is a loss of redundancy and of colour-blind-friendly
+  reinforcement, not a loss of information.
+
+- **`--primary` is pinned to the reference's *hover* colour, so every primary
+  button now renders permanently in what the reference treats as the pressed
+  state (Phase 3b Task 2).** `docs/DESIGN.md:205` specifies the primary button as
+  `bg-terracotta` with `hover:bg-terracotta-ink` — two distinct values,
+  `#a4673b` and `#965c33`, and `DESIGN.md:40` names the second one "pressed".
+  shadcn has **one** variable for both jobs, and that variable must also survive
+  being used as text: the fill `#a4673b` measures 4.44 against `page` and 3.87
+  against `paper`, both below AA. So `resources/css/app.css:239` pins `--primary`
+  to `#965c33` and the comment above it says why.
+
+  This is not a free choice between two shades. `bg-primary` appears at **14**
+  sites under `resources/js` and `text-primary` at **6**; a value that satisfies
+  the fill sites fails the text sites, and there is no third value that is both
+  the reference's fill and legible as body text. The visible cost is that the
+  primary button has no hover travel left — it starts where the reference's hover
+  ends. Splitting it back into two (a `--primary` fill plus a separate ink token
+  for the six text sites) is component-level work and therefore D5's; **this is
+  the first item the per-screen refinement pass should look at.**
+
+- **Two vacuous-guard traps, both found by falsification rather than by review,
+  both of which had already produced a green test over a real defect (Phase 3b
+  Task 4 and Task 5).** The phase's house rule required every guard to be watched
+  failing before it was accepted, and these are what that rule caught. They are
+  recorded here because both are general to this repo, not to this phase.
+
+  **Pest's `toContain` is variadic.** Written the natural way,
+  `expect($src)->not->toContain($needle, $message)` reads the message string as a
+  *second needle* and negates the conjunction — the assertion becomes "does not
+  contain both", which the message text always satisfies on its own, so it passes
+  unconditionally no matter what `$src` holds. Watched passing green over a live
+  font-CDN link in a Blade view. The working form is
+  `expect(str_contains($src, $needle))->toBeFalse($message)`, which is what
+  `tests/Feature/Architecture/DesignSystemTest.php:346-352` now uses, with the
+  trap written out in a comment beside it. Every other `->not->toContain(` in
+  `tests/` was checked at the end of this phase and each passes a single
+  argument, so no existing guard is currently vacuous this way — but nothing
+  stops the next one, since the failure mode is the *obvious* way to attach a
+  message.
+
+  **Blade compiles its directives from inside CSS and HTML comments.** A comment
+  in `resources/views/errors/419.blade.php` that named the asset directive
+  literally, in order to explain why the error page deliberately does not use it,
+  was compiled as a directive and threw `ArgumentCountError` — which took down
+  four unrelated tests in `tests/Feature/Members/RegistrationScreenTest.php`,
+  nowhere near the file that was edited. Describe such directives in prose inside
+  Blade files; do not write their literal spelling even in a comment. This is the
+  same class of failure as the comment-blind grep recorded under Phase 3a, from
+  the opposite direction: there a tool that could not read comments matched prose
+  it should have ignored, here a tool that *does* read comments executed prose it
+  should have ignored. Both cost correct documentation.
+
+- **The dark palette is invented, not ported, and the method has known limits
+  (Phase 3b Task 2, spec D3).** `old_next` has **no dark mode at all** — zero
+  matches under `old_next/src` for `.dark`, for `dark:` and for
+  `prefers-color-scheme`. So there is no reference to be faithful to, and every
+  value in the `.dark` block at `resources/css/app.css:268` is derived: each ink
+  keeps its light counterpart's hue and saturation and is lightened until it
+  reproduces that counterpart's contrast ratio against `paper` — the worst-case
+  ground, since `--muted`, `--accent` and `--secondary` all map onto it.
+
+  That is a heuristic for equal *legibility*, and it is being read as though it
+  were a proof of equal *appearance*. Two limits worth stating plainly, because
+  neither shows up in a passing contrast test: WCAG relative luminance is not
+  perceptually uniform, so two pairs at the same ratio can look unequally
+  emphatic; and HSL saturation is not chroma, so holding S constant across a
+  large lightness change does not hold colourfulness constant — OKLCH would model
+  both correctly and was not used. **The dark palette therefore expects a
+  hand-tuning pass once it has been seen on screen**, and the numbers being green
+  is not evidence that pass is unnecessary.
