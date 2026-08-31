@@ -230,9 +230,15 @@ final class UpdateAnnouncement
 
             // INV-8, and the reference's own bag: the title before and
             // the title after, nothing else. The body is deliberately
-            // absent from both — BR §14 asks the log to record what
-            // changed rather than duplicate it, and the row itself
-            // survives.
+            // absent from both because the reference's payload does not
+            // carry it and the row itself survives.
+            //
+            // RETRACTED: an earlier draft cited BR §14 here. §14 asks for
+            // previous/new values on every tracked record and names only
+            // passwords and session tokens as never captured — it does not
+            // support an exclusion. §14 IS the authority for the audit
+            // browser's readable sentence and raw-on-expansion rendering.
+            // See the same retraction in PublishAnnouncement.
             $this->audit->record('announcement.updated', 'announcement', $locked->id, $before, [
                 'title' => $locked->title,
             ]);

@@ -9,9 +9,15 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * BR §16.1's Bản tin, as the reader meets it: the shelf's live notices,
- * and one of them on its own page. OPS §3.2's GetAnnouncementsList and
- * GetAnnouncementDetail, both answered by AnnouncementsQuery.
+ * The reader's Bản tin: the shelf's live notices, and one of them on its
+ * own page. OPS §3.2's GetAnnouncementsList and GetAnnouncementDetail,
+ * both answered by AnnouncementsQuery.
+ *
+ * RETRACTED: an earlier draft called this "BR §16.1's Bản tin". BR
+ * describes no such page — §16.1's only announcement sentence is line
+ * 510, the shelf-home CARD, which is a different surface. routes/web.php
+ * and manage/announcements/index.tsx already carry this retraction for
+ * the manager side; these two reader-side copies were missed.
  *
  * NOTHING IS DECIDED HERE. Both methods hand a shape straight to Inertia:
  * the ordering, the excerpt and the published/lapsed filter are the

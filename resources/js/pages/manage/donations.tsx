@@ -88,6 +88,18 @@ function initialOf(name: string): string {
 }
 
 /**
+ * `donorName` arrives as "" when the donor has been soft-deleted — the
+ * props docblock above says so, and DonationController does branch on it
+ * for the received flash. The CARD did not, so a departed donor drew an
+ * empty circle above a blank line and the row read as broken rather than
+ * as the offer a manager most needs to clear. manage/comments.tsx's
+ * nameOr is the precedent this follows, initial included.
+ */
+function nameOr(value: string, fallback: string): string {
+    return value === "" ? fallback : value;
+}
+
+/**
  * *Duyệt* — bodiless, the way its route is.
  *
  * ONE SOLID ACTION PER ROW, AGENTS.md rule 3 read the way a queue can
@@ -248,11 +260,19 @@ export default function ManageDonations() {
                                         aria-hidden
                                         className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold"
                                     >
-                                        {initialOf(donation.donorName)}
+                                        {initialOf(
+                                            nameOr(
+                                                donation.donorName,
+                                                copy.manageDonations.deletedDonor,
+                                            ),
+                                        )}
                                     </span>
                                     <div className="min-w-0">
                                         <p className="text-base font-medium">
-                                            {donation.donorName}
+                                            {nameOr(
+                                                donation.donorName,
+                                                copy.manageDonations.deletedDonor,
+                                            )}
                                         </p>
                                         <p className="text-sm text-muted-foreground">
                                             {t(copy.manageDonations.donorLine, {

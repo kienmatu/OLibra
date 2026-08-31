@@ -13,8 +13,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * A manager pulls a comment that was already public — BR §7.5's
+ * A manager pulls a comment that was already public — BR §7.6's
  * approved -> hidden. Port of comment-moderation.ts's hideComment.
+ *
+ * RETRACTED: an earlier draft cited BR §7.5. §7.5 is the MEMBERSHIP
+ * machine (pending -> active <-> suspended / left / rejected), which is
+ * where §7.5 is the right cite — see SuspendMembership. The Comment
+ * machine is §7.6. ApproveComment and RejectComment beside this file both
+ * say §7.6, which is what makes this a copy error rather than a
+ * numbering disagreement. OPS §4.4's own HideComment entry
+ * (docs/OPERATIONS.md:650) also says §7.5 and is wrong — a PR row-edit.
  *
  * The reason is OPTIONAL here, where RejectComment's is required, and
  * OPS §4.4 draws the line: a rejection is a message to an author who is

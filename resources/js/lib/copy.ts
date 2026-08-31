@@ -587,6 +587,13 @@ export const copy = {
         // rather than a reach into manageComments.required, so rewording
         // that screen cannot silently rewrite this one.
         required: "Bắt buộc",
+        // `donorName` MAY BE THE EMPTY STRING — this screen's own props
+        // docblock says so, and DonationController branches on it for the
+        // received flash. The card did not, so a trashed donor drew an
+        // empty avatar circle above a blank line. Same shape and same
+        // reason as manageComments.deletedAuthor, kept as its own key for
+        // the reason stated there.
+        deletedDonor: "Bạn đọc đã rời tủ sách",
         declineConfirm: "Xác nhận từ chối",
     },
     circulation: {
@@ -739,6 +746,16 @@ export const copy = {
         // because "what a child wrote about a book" is not an event you
         // read a clock for.
         postedOn: "ngày {date}",
+        // The byline when the person who wrote the comment has since been
+        // soft-deleted: BookCommentsQuery casts `author?->full_name` to a
+        // string, so a departed reader arrives as "" and renders as a gap
+        // before the date — " ngày 12/03/2026" — which reads as a broken
+        // page rather than as a fact. manageComments.deletedAuthor says the
+        // same thing on the moderation screen; this is a SECOND key rather
+        // than a reach across that namespace, per this file's header, so
+        // rewording the manager's queue cannot silently rewrite what a
+        // public book page tells a family.
+        deletedAuthor: "Bạn đọc đã rời tủ sách",
     },
     // The shelf's bulletin, as its own two screens. The NAV word stays
     // `shelf.announcements` = "Bản tin"; these are the words the pages

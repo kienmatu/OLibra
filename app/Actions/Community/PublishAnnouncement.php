@@ -215,9 +215,18 @@ final class PublishAnnouncement
 
             $this->audit->record('announcement.published', 'announcement', $locked->id, $before, [
                 // The reference's bag exactly: what it is called and when
-                // it went up. The body is not in it — BR §14 asks the log
-                // to record what changed rather than duplicate it, and the
-                // row itself survives.
+                // it went up. The body is not in it because the reference's
+                // own payload does not carry it and the row itself survives.
+                //
+                // RETRACTED: an earlier draft cited BR §14 for that
+                // exclusion. §14 asks for the previous-value/new-value
+                // record "for every tracked record" and names ONLY
+                // passwords and session tokens as never captured, so it
+                // does not license leaving a field out. Where §14 IS the
+                // authority is the readable-Vietnamese-sentence shape with
+                // raw values on expansion — AuditSentences and
+                // manage/audit.tsx. `33131de` retracted this citation in
+                // three files and missed this one.
                 'title' => $locked->title,
                 'published_at' => $publishedAt->toIso8601String(),
             ]);

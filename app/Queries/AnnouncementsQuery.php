@@ -8,9 +8,17 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * The read side of shelf news — OPS §3.2's GetAnnouncements,
- * GetAllAnnouncements and GetAnnouncementDetail in one class. Port of
+ * The read side of shelf news — OPS §3.2's GetAnnouncementsList and
+ * GetAnnouncementDetail, plus OPS §3.3's GetAnnouncementsList (manager),
+ * in one class. Port of
  * old_next/src/domain/community/queries/get-announcements.ts.
+ *
+ * RETRACTED: an earlier draft named "GetAnnouncements" and
+ * "GetAllAnnouncements". Neither exists in OPS — the only two hits are
+ * GetAnnouncementsList at docs/OPERATIONS.md:63 (§3.2, reader) and :95
+ * (§3.3, manager), and the manager flavour this class's managed() answers
+ * is §3.3's, not §3.2's. `228ca76` corrected the same invented name in
+ * Reader/AnnouncementController and missed this copy.
  *
  * ONE BOUND INSTANT PER CALL. Each method below opens by reading the
  * injected Clock once into a local, and every comparison that method
@@ -158,10 +166,19 @@ final class AnnouncementsQuery
      * What a member sees: published, not yet lapsed, pinned first, then
      * most recent, then id.
      *
-     * BR §16.1 gives that ordering in as many words. Pinned
-     * announcements are ordered among themselves by recency, which only
-     * means something if more than one may be pinned — the reading
-     * PinAnnouncement's docblock records as plan divergence 8.
+     * RETRACTED: an earlier draft said "BR §16.1 gives that ordering in
+     * as many words". It does not. BR §16.1's only announcement sentence
+     * is line 510, the shelf-home CARD — "The pinned announcement, or the
+     * most recent published one" — which describes one card and orders
+     * nothing; "pinned first, most recent next" appears nowhere in BR.
+     * The phrase is OPS §4.4's, at docs/OPERATIONS.md:688, and the phase
+     * plan's. OPS §4.4 there attributes it to §16.1 and is itself wrong to
+     * — a PR row-edit against OPS, not this file's to make.
+     *
+     * Pinned announcements are ordered among themselves by recency, which
+     * only means something if more than one may be pinned — the reading
+     * PinAnnouncement's docblock records as plan divergence 8, resting on
+     * OPS §4.4's own disposition, "Left as multiple-pins-allowed".
      *
      * `id desc` beside published_at because that column carries no
      * unique constraint — and here the tiebreak is NOT redundant.

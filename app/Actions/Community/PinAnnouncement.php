@@ -42,11 +42,17 @@ use Illuminate\Support\Facades\Gate;
  * than it looks: it is open for an action nobody mapped, and shut for
  * one that was.
  *
- * NO CAP ON PINS, which is OPS §4.4's own reading of an open question
- * carried across (plan divergence 8): BR §16.1 orders pinned
- * announcements among themselves ("most recent next"), which implies
- * more than one may be pinned, and no cap is stated. This command
- * therefore refuses nothing. If the product owner later wants exactly
+ * NO CAP ON PINS, which is OPS §4.4's own disposition of an open
+ * question carried across (plan divergence 8): docs/OPERATIONS.md:688
+ * leaves it "multiple-pins-allowed, ordered by pin time, unless the
+ * product owner wants a hard limit of one", and states no cap. This
+ * command therefore refuses nothing.
+ *
+ * RETRACTED: an earlier draft said BR §16.1 orders pinned announcements
+ * among themselves ("most recent next"). BR contains no such words — its
+ * only announcement sentence, §16.1 line 510, is the shelf-home card. The
+ * phrase is OPS §4.4's own, and OPS §4.4 misattributes it to §16.1; the
+ * multi-pin reading rests on OPS's disposition, not on BR. If the product owner later wants exactly
  * one pin, that is a partial unique index and a refusal, not a change to
  * this command's shape — and AnnouncementStateTest's "more than one
  * announcement may be pinned at once" is what would have to be rewritten

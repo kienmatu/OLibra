@@ -1141,7 +1141,9 @@ the full suite ran green.
 - **`POST /register` is throttled on two keys, both numbers invented here**
   — 30/minute per IP (burst) and 20/day per SHA-256 of the submitted phone,
   falling back to the IP when the phone is blank. A decision taken on the
-  product owner's behalf: OPS §8 (:1158) lists `RegisterMembership` rate
+  product owner's behalf: OPS §8 (`docs/OPERATIONS.md:1178`; an earlier draft
+  cited `:1158`, which is twenty lines earlier and inside §7) lists
+  `RegisterMembership` rate
   limiting as unaddressed in both source documents. The per-day/hashed key
   is modelled on OPS §8's only stated limit (`SubmitFeedback`, 3 per phone
   per day, hashed); a per-IP-only limiter was rejected because BR §16.1's
@@ -3562,8 +3564,15 @@ and is already censused by `RuleViolatedCodesHaveSentencesTest`.
   (opened) writes `is_pinned => true` on the one locked row and touches no
   other; nothing anywhere unpins a sibling, and no partial unique index exists
   on the column. `AnnouncementsQuery` orders `is_pinned` desc first, then by
-  recency, which is what BR §16.1's "pinned first, most recent next" asks of a
-  multi-pin list. A cap later is a partial unique index plus a refusal, not a
+  recency, which is what OPS §4.4's "pinned first, most recent next"
+  (`docs/OPERATIONS.md:688`) asks of a multi-pin list. **Retracted in this
+  entry:** the phrase was written here as BR §16.1's. It is not — BR's only
+  announcement sentence is §16.1 line 510, the shelf-home card, and the phrase
+  appears nowhere in BR. Worse, `228ca76` had already retracted exactly this
+  misattribution in `shelves/announcements/index.tsx`, and `503d9f2` then wrote
+  it into this file fourteen commits later. That is the reappearance this
+  document's own method notes predict; it is recorded rather than merely fixed.
+  OPS §4.4 itself credits §16.1 for the phrase and is wrong to — a PR row-edit. A cap later is a partial unique index plus a refusal, not a
   change to these commands.
 
 #### New entries
@@ -3820,8 +3829,15 @@ habit that was in use before it.
 - **Seventeen audit sentences have no test behind them, and they are all
   inherited.** `AuditSentences::line()` is `return (string) self::lines()[$key];`
   with no `??`, so a missing or wrong lang value renders whatever is there. The
-  census (`AuditSentencesTest`) checks that every action HAS a sentence, not that
-  the sentence is right, and it is an **integration** test that catches a bad one —
+  census BLOCK in `AuditSentencesTest` checks that every action HAS a sentence,
+  not that the sentence is right. **Corrected here:** an earlier draft of this
+  entry said that of `AuditSentencesTest` as a whole, which understates it — the
+  file also carries per-action wording blocks, and NINE of them redden under the
+  community mutation below (`announcement.created/.updated/.published/.pinned/
+  .unpinned/.hidden`, `donation.offered/.received/.declined`). So that file does
+  catch a wrong sentence for every Phase 2b announcement and donation key. What
+  has no wording block is the seventeen, which is why deletion falls through to
+  an **integration** test —
   `CreateCommentTest` raises the `ErrorException` when `comment_created` is deleted,
   while `AuditSentencesTest` alone stays green (1 warning, 28 passed).
 
@@ -3838,8 +3854,18 @@ habit that was in use before it.
   A volunteer would read "Maria Q đã ZMUTZ" in the audit log and CI would not
   notice. **Non-vacuity proven by the converse:** the same mutation over the
   nineteen community keys gives **15 failed / 1554 passed** across
-  `AuditSentencesTest` and four Feature files. So the net is real, Phase 2b built
-  it correctly for its own actions, and the hole is entirely Phases 1/2a's.
+  `AuditSentencesTest` (nine blocks) and **five** Feature files —
+  `ApproveCommentTest`, `CommentDecisionsTest`, `CreateCommentTest`,
+  `DonationDecisionsTest`, `OfferDonationTest`. **Corrected here:** an earlier
+  draft said four; re-run at the whole-branch RE-review, with the mutation's
+  restore proven by md5 against a clean `git diff` on `lang/vi/audit.php`. So the
+  net is real, Phase 2b built it correctly for its own actions, and the hole is
+  entirely Phases 1/2a's.
+
+  The seventeen were also proven **complete**, which the original measurement did
+  not claim: every one of the other twenty-two keys in `lang/vi/audit.php` was
+  mutated individually, one full suite run each, and every one reddened at least
+  one block. No key outside the seventeen is untested.
 
 - **Five community POSTs answer 403 rather than 404 if `role:manager` is ever
   removed**, where spec §5.4 requires 404 so a refusal does not confirm which
@@ -3853,6 +3879,10 @@ habit that was in use before it.
   |---|---|
   | `comments.approve`, `announcements.hide`, `announcements.pin`, `announcements.unpin`, `donations.receive` | `comments.reject`, `comments.hide`, `announcements.store`, `announcements.update`, `announcements.publish`, `donations.decline` |
 
+  (`announcements.update` in the right-hand column is a `Route::patch`, not a
+  POST; nothing the bullet claims turns on it, since all five 403s are genuinely
+  POSTs.)
+
   All five are **bodiless POSTs**, and that is the whole of the pattern: this
   project ruled in Phase 2a that a bodiless POST does not acquire a Form Request
   solely to hold an `abort_unless`, so the five with nothing to validate have no
@@ -3861,3 +3891,71 @@ habit that was in use before it.
   defence-in-depth, not a live oracle. If it is ever closed, close it at the
   command layer for every caller rather than by minting five Form Requests that
   validate nothing.
+
+### Found by the whole-branch RE-review, left unfixed by decision
+
+Four defects the re-review measured after the fix wave. Kien's ruling was to record
+them with their evidence rather than change shipped behaviour late in a reviewed
+branch, so each carries what it would take to close it.
+
+- **A 255-character title of expanding characters overflows `announcements.slug`
+  and 500s.** `StoreAnnouncementRequest`'s `max:255` counts CHARACTERS, and
+  `Fold::MAP` has four expanding entries — `ß`/`ẞ` → `ss`, `æ` → `ae`, `þ` → `th`,
+  `œ` → `oe`. **Measured, not reasoned:** `Slugs::fromTitle(str_repeat('ß', 255))`
+  returns a slug of **510 characters** against a `varchar(255)` column, under
+  `'strict' => true`, so the INSERT raises errno **1406**. `UniqueViolation::translate`
+  matches **1062 only** and rethrows, so a manager gets an uncaught 500 rather than a
+  Vietnamese refusal.
+
+  The rule's own docblock is the interesting half: it justifies `max:255` as
+  *"Laravel's max counts characters for a string and so does a utf8mb4 varchar, so
+  the two agree"*. That is **true of `title`, and false of the DERIVED `slug`** —
+  a right instruction with a reason that does not cover the column that actually
+  overflows, eleven lines above a comment warning about exactly that class.
+
+  Manager-only and self-inflicted, which is why it is not urgent. **Pre-existing
+  class, not 2b's:** `books.slug` is the same `varchar(255)` fed by the same
+  `Slugs::fromTitle` via `CreateBook`, so a fix belongs in `Slugs` (cap the base at
+  ~200 before `nextAvailable`, leaving room for the `-NN` suffix) or in
+  `UniqueViolation` (translate 1406/1366 to a named refusal) and closes both.
+
+- **`PublishAnnouncement` is the one of six locked-read guards that is not
+  idempotent.** The other five (`ApproveComment`, `RejectComment`, `HideComment`,
+  `ReceiveDonation`, `DeclineDonation`) refuse on a status enum, so a double-submit
+  is refused. The sixth refuses on `published_at !== null && ! $supplied`, and
+  `PublishDisclosure` always posts `expires_at` — which `ConvertEmptyStringsToNull`
+  turns into a present-and-null key — so `$supplied` is true on both requests of a
+  double-click. The lock serializes them; the second finds `published_at` non-null
+  and the guard does not fire. `published_at` is re-stamped and a second
+  `announcement.published` audit row is written.
+
+  The file's sentence *"two managers pressing the button at once cannot both find it
+  unpublished"* is true as written. What is not stated is that finding it published
+  does not stop it. No block in `AnnouncementStateTest` (26 blocks) is concurrent or
+  double-submit. Consequence is audit noise and a moved timestamp; no privilege is
+  gained, since the same manager can reach the same state via Ẩn-then-Đăng.
+
+- **A live notice can be republished over HTTP; only the client withholds the
+  button.** POSTing `expires_at=` to `announcements.publish` against a *showing* row
+  makes `$supplied` true, so `already_published` does not fire, `published_at` moves
+  and `expires_at` is overwritten. The screen hides `PublishDisclosure` for
+  `state === "showing"`, so no button reaches it, and the tests pin only the
+  BODILESS post to a showing row (correctly refused). Not an authorization hole —
+  the actor is a manager of that shelf who can reach the same state by hiding first
+  — but it is a state-machine rule enforced client-side only.
+
+- **The full announcement `body` ships to two list screens that render only the
+  excerpt.** `AnnouncementsQuery::row()` emits both `body` and the 200-char
+  `excerpt`; `published()` and `managed()` both return it and neither has a `limit`;
+  neither list component declares `body` at all. `body` validates at `max:16000`
+  characters, so a shelf with 200 notices ships megabytes of unread props on every
+  visit, over a parish phone connection, growing without bound. `detail()` and the
+  edit form genuinely need `body`, so the fix is a flag or a separate `listRow()`,
+  not dropping the key. `AnnouncementController::edit` is the call site to watch: it
+  loads every announcement via `managed()` and linear-scans for one id.
+
+  Three props are shipped and read by nothing: `bookId` (`CommentModerationQuery`),
+  `slug` (`AnnouncementsQuery`, manager list) and `donorMembershipId`
+  (`DonationQueueQuery`). The last is an internal membership id on a page with no
+  consumer for it; unlike `photoUrl`/`status`/`decisionNote`, it carries no note
+  saying why it rides along.

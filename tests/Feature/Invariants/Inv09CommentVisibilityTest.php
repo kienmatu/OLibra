@@ -184,7 +184,10 @@ it('a rejected comment is never visible, to anyone — its own author included',
 });
 
 it('hiding pulls a comment that was already public', function () {
-    // BR §7.5's approved -> hidden. The interesting half is that it goes
+    // BR §7.6's approved -> hidden (RETRACTED: an earlier draft said
+    // §7.5, which is the Membership machine; §7.6 is Comment. OPS §4.4's
+    // HideComment entry carries the same error). The interesting half is
+    // that it goes
     // back through the same query: a comment can stop being visible after
     // HAVING BEEN visible, which a predicate written as "not rejected"
     // gets wrong.

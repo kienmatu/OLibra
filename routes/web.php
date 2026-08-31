@@ -96,7 +96,10 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // the whole of it. CirculationArchitectureTest pins that the
         // middleware is still on the route.
         Route::post('/books/{book}/request', [ReaderBorrowRequestController::class, 'store'])->name('books.request');
-        // BR §7.5's "viết bình luận". Unlike the request POST above, this
+        // OPS §4.4's CreateComment. RETRACTED: an earlier draft cited BR
+        // §7.5's "viết bình luận" — §7.5 is Membership (Comment is §7.6),
+        // and "bình luận" appears nowhere in BR; it is the UI's word.
+        // Unlike the request POST above, this
         // one DOES carry a field, so StoreCommentRequest holds an
         // abort_unless(Gate::allows('act-as-reader'), 404) of its own and
         // the 404 a non-member meets has TWO producers, not one — the
@@ -111,7 +114,10 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // bodiless request POST above where the middleware is the whole
         // of it.
         Route::post('/books/{book}/comments', [CommentController::class, 'store'])->name('books.comments.store');
-        // BR §16.1's Bản tin. The list keeps the placeholder's route NAME,
+        // The reader's Bản tin — OPS §3.2's GetAnnouncementsList and
+        // GetAnnouncementDetail. RETRACTED: an earlier draft said "BR
+        // §16.1's Bản tin"; BR describes no such page, only the shelf-home
+        // card at §16.1 line 510. The list keeps the placeholder's route NAME,
         // and what that continuity buys is the shelf home's nav link:
         // `git grep -n shelves.announcements c913b78 -- resources/`, run
         // before this line was written, returned two hits — the Ziggy call

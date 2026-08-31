@@ -112,10 +112,16 @@ it('an empty body is refused, whitespace included', function () {
 });
 
 it('INV-8: comment.created records the status and the book, never the body', function () {
-    // BR §14 asks the log to record what CHANGED rather than to duplicate
-    // it. The body is the reader's own words on a row that survives, and a
+    // The body is the reader's own words on a row that survives, and a
     // second copy is a second thing to redact if a child ever asks for
-    // theirs to be removed.
+    // theirs to be removed. That redaction argument is the reason, and it
+    // stands on its own.
+    //
+    // RETRACTED: an earlier draft attributed it to BR §14. §14 asks for
+    // previous/new values on every tracked record and excludes only
+    // passwords and session tokens; it does not ask the log to "record
+    // what changed rather than duplicate it". §14 IS the authority for the
+    // readable sentence plus raw-values-on-expansion.
     [, $reader, $book] = cmcFix([], 'dong-thap-cmc-audit');
 
     app(CreateComment::class)->execute($reader, $book, 'Con thích chú Dế Mèn');

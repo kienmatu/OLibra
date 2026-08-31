@@ -12,7 +12,14 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 
 /**
- * BR §7.5's "viết bình luận". No RuleViolated is caught here — whichever
+ * OPS §4.4's CreateComment — "A reader comments on a book (§16.1)".
+ *
+ * RETRACTED: an earlier draft called this BR §7.5's "viết bình luận".
+ * Twice wrong: §7.5 is the Membership machine (Comment is §7.6), and the
+ * phrase "bình luận" does not occur in BR at all — it is the built UI's
+ * word, carried by copy.ts.
+ *
+ * No RuleViolated is caught here — whichever
  * of CreateComment's codes a reader meets, bootstrap/app.php renders it
  * once, for the whole app, as back()->withErrors(['rule' => ...]), which
  * the book page reads off the shared errors prop. The Action's own

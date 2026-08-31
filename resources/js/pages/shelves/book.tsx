@@ -373,7 +373,12 @@ export default function ShelfBook() {
                         </section>
                     ) : null}
 
-                    {/* BR §7.5's comments. ABSENT ENTIRELY when the shelf has
+                    {/* BR §16.1's book detail — "approved comments with a
+                        comment box for logged-in readers" (line 522).
+                        RETRACTED: an earlier draft cited BR §7.5, which is
+                        the Membership state machine; the Comment machine is
+                        §7.6, and neither is the authority for this SURFACE.
+                        ABSENT ENTIRELY when the shelf has
                         turned them off — not a disabled box, and not a heading
                         over an explanation. That is what comments_enabled
                         means, and the reference's own comments area is built
@@ -395,7 +400,7 @@ export default function ShelfBook() {
                                     {detail.comments.map((comment) => (
                                         <li key={comment.id} className="py-4">
                                             <p className="text-sm font-medium">
-                                                {comment.authorName}
+                                                {comment.authorName || copy.comments.deletedAuthor}
                                                 <span className="ml-2 font-normal text-muted-foreground">
                                                     {t(copy.comments.postedOn, {
                                                         date: formatInstantParts(comment.createdAt)

@@ -45,8 +45,18 @@ over-wide shape Phase 1 was split for. The cut:
 
 ## Phase 2b — complete
 
-Branch `feat/phase-2b-community-voice`, cut from `main` at `fabfbd4`. **55 commits**,
-103 files, +19,513 / −107. Suite **1,569 passing / 9,384 assertions**. Pint 436 files,
+Branch `feat/phase-2b-community-voice`, cut from `main` at `fabfbd4`.
+**57 commits**, 103 files, +19,889 / −108 — measured at the
+re-review commit, which is this sentence's own commit. Suite **1,569 passing /
+9,384 assertions**.
+
+**Retracted:** this line read "55 commits, 103 files, +19,513 / −107". No single
+base makes that true — `+19,513` is the figure at `503d9f2` (54 commits) and
+"55 commits" is `c59e9ca`, so the one sentence mixed two vintages and matched
+neither, nor HEAD. It is method correction 5 in the list this same section
+introduces, committed inside the commit that introduced it. A diffstat in a doc
+that lives in the tree it measures goes stale the moment it is written; the base
+is now named so the reader can re-take it. Pint 436 files,
 Larastan level 8 clean on 256, Biome at the inherited baseline (3 warnings, 1 info), tsc
 clean, Vite builds. `git diff origin/main...HEAD -- old_next/` is empty.
 
@@ -92,6 +102,56 @@ misattribution reappearing in three new places one commit later.
 - **`toThrow($class, $message)` is a substring match** — 130 blocks, two latent prefix pairs.
 - **Measurements in comments have a shelf life.**
 
+### The whole-branch RE-review (2026-08-31)
+
+Run at Kien's instruction before any merge decision, by four independent fresh
+agents over the branch as it stood at `9c3eac8`. The target that paid: **the fix
+wave `c59e9ca` had never itself been reviewed**, and this project had already
+measured that six of its fourteen false claims were introduced by fix rounds.
+
+**All six inherited gate measurements re-taken and all six held** — suite
+1,569/9,384, Larastan 256 `[OK]`, Pint PASS 436, Biome 3 warnings + 1 info, tsc
+clean, `old_next/` diff empty.
+
+**Two user-visible defects, both fixed here, both the fix wave's own class** — a
+value correct on each side of a seam and wrong across it, invisible to a suite
+that has no frontend rendering tests:
+
+- the PUBLIC book page rendered a blank byline for a departed reader (`""` from
+  `BookCommentsQuery`'s cast), while the manager's screen handled the identical
+  value with `nameOr()` and *"Bạn đọc đã rời tủ sách"*;
+- the manager's donation queue rendered a blank donor name — in a file whose own
+  props docblock states the value may be empty, and whose controller already
+  branches on it for the flash.
+
+**Thirteen false or stale claims, corrected in retraction form.** Three were
+citation failures that trace UPSTREAM: `OPERATIONS.md:650` cites §7.5 for
+`HideComment` and `:688` credits BR §16.1 with "pinned first, most recent next".
+Both are wrong, and the branch inherited and amplified them. BR §7.5 is
+*Membership*; §7.6 is *Comment*; and "pinned first, most recent next" and
+"bình luận" appear nowhere in BR.
+
+**The retraction discipline was measured failing, twice.** `228ca76` retracted the
+§16.1 ordering attribution in one file; `503d9f2` then wrote it into
+`known-gaps.md` — the durable record — fourteen commits later. And `c59e9ca`, the
+commit that repaired the flash defect, introduced two fresh false claims of its
+own ("seven blocks" for eight; "every one redirects to this list" for two of six).
+That is the fix-round shape recurring for the fifteenth and sixteenth time, and it
+is the argument for reviewing fix waves rather than trusting them.
+
+**One correction in the branch's favour, and one strengthening.** `known-gaps.md`
+understated its own safety net: `AuditSentencesTest` does catch a WRONG sentence,
+for nine Phase 2b keys, not merely a missing one. And the "seventeen untested
+audit sentences" claim was proven **complete** — every one of the other
+twenty-two keys was mutated individually, one full suite run each, and every one
+reddened. The claim is now stronger than when it was written.
+
+**Four Minors recorded rather than fixed, by Kien's ruling** — a `varchar(255)`
+slug overflow that 500s (measured: 510 characters), `PublishAnnouncement`'s
+non-idempotent double-submit, a live notice republishable over HTTP, and the full
+`body` shipping unread to two list screens. All four are in `known-gaps.md` with
+their evidence.
+
 ### Carries to Phase 3 (none block the PR)
 
 **User-visible, and the two worth deciding first:**
@@ -108,7 +168,19 @@ misattribution reappearing in three new places one commit later.
 - `RuleViolatedCodesHaveSentencesTest` cannot see a code reachable only through a `UniqueViolation` map, nor one thrown from a variable. Widen it or correct its docblock, which overclaims its name.
 
 **Documentation defects, outside any task's scope — decisions for Kien:**
-- **AGENTS.md prescribes six components this repo does not have** — `Pill`, `StatusBadge`, `StatusPanel`, `StepIndicator`, `ReadOnlyValue`, `BookTitle` — and `BookTitle` is cited by its **numbered rule 1**, not merely its table. This misdirected three tasks, each of which needed its brief to override the house style guide. Build the six, or correct the guide.
+- **AGENTS.md prescribes FOURTEEN components this repo does not have**, and three of
+  its numbered non-negotiable rules cite one. Re-counted at the whole-branch
+  re-review; **retracted:** this bullet previously said six components and rule 1
+  alone. Absent, all verified against `resources/js/components/` and its `ui/`
+  subdirectory: `Pill`, `StatusBadge`, `StatusPanel`, `StepIndicator`,
+  `ReadOnlyValue`, `BookTitle`, `Field`, `Textarea`, `BookCover`, `PhoneLink`,
+  `ButtonLink`, `BigActionLink`, `QrScanner`, `CopyScanField`. The numbered rules
+  are **1** (`BookTitle`, AGENTS.md:53), **2** (`StatusBadge`/`StatusPanel`, :56)
+  and **6** (`Field`, :64). Its component table also routes twice through
+  `field.tsx` (:83, :90) — a file that does not exist; `find resources/js -iname
+  'field*'` returns nothing. This misdirected three tasks in 2b, each of which
+  needed its brief to override the house style guide. Build them, or correct the
+  guide. AGENTS.md is untouched by this branch, so this stays a decision, not a fix.
 - **BR §16.1 line 510** sends the reader to "§12, below" for the announcement card. §12 is *Search*, and it is **above**.
 - **OPS §4.4 abbreviates seven refusal codes across five commands**, and the §3.3 table has a stale notifications row. Task 20 raised these as PR row-edits rather than editing a shipped command's OPS entry unannounced, per 2a's precedent.
 - **Seventeen audit sentences have no test behind them**, all inherited from Phases 1/2a — measured at the whole-branch review and recorded in `known-gaps.md`.

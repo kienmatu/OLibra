@@ -203,11 +203,24 @@ export default function ManageAnnouncements() {
             {/* SIX SUCCESS FLASHES LAND HERE and until the whole-branch
                 review none of them were rendered. AnnouncementController
                 sets announcement_created/_updated/_published/_hidden/_pinned/
-                _unpinned and every one of them redirects to this list;
-                seven blocks in ManagerAnnouncementsScreenTest assert
-                assertSessionHas('success', ...) and were green throughout,
-                because a session assertion cannot see a page that never
-                reads the prop.
+                _unpinned; EIGHT blocks in ManagerAnnouncementsScreenTest
+                assert assertSessionHas('success', ...) and were green
+                throughout, because a session assertion cannot see a page
+                that never reads the prop.
+
+                Two corrections to this note, both measured after it was
+                first written and both retracted rather than edited away.
+                (a) It said SEVEN blocks. It is eight — six distinct flash
+                kinds across eight blocks, because Đăng lại / Đăng ngay
+                account for three of them; `grep -c "assertSessionHas('success'"`
+                returns 8. (b) It said every one of the six "redirects to
+                this list". Only store and update redirect()->route() here;
+                publish/hide/pin/unpin return back(), which follows the
+                Referer. All six still land here, because index.tsx is the
+                sole caller of all six routes — but that is a fact about the
+                CALLERS, not about the controller, and the day a second
+                screen posts hide, its flash lands somewhere that may not
+                read this prop.
                 
                 It was not a decision: the refusal below WAS rendered, so a
                 manager saw every "no" and no "yes". The controller was one

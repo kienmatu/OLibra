@@ -334,9 +334,13 @@ it('unpinning an already-unpinned row issues no UPDATE while the audit row is st
 });
 
 it('more than one announcement may be pinned at once', function () {
-    // Divergence 8, the ported reading: BR §16.1 orders pinned
-    // announcements among themselves ("most recent next"), which implies
-    // more than one may be pinned, and no cap is stated anywhere. A
+    // Divergence 8, the ported reading: OPS §4.4 (docs/OPERATIONS.md:688)
+    // leaves the pin cap at "multiple-pins-allowed", which implies more
+    // than one may be pinned, and no cap is stated anywhere. RETRACTED —
+    // an earlier draft credited BR §16.1 with ordering pinned
+    // announcements "most recent next"; BR says no such thing, and OPS
+    // §4.4 is where the phrase actually lives (it attributes it to §16.1
+    // and is wrong to). A
     // BLOCK rather than a comment, because "no cap" is a claim a later
     // partial unique index would falsify silently — the commands
     // themselves would not change shape.
