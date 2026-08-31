@@ -91,6 +91,18 @@ prose; do not spell the call.
 Line numbers in `WideningArchitectureTest.php` shifted when Task 1 amended it;
 re-grep rather than trusting the numbers quoted below.
 
+### Admin routes name `{bookshelf}`, never `{shelf}`
+
+`RouteOrderTest` has a test titled *"puts the tenant middleware on every route
+that names `{shelf}`"* (`tests/Feature/Architecture/RouteOrderTest.php:23`). The
+admin area binds no tenant by design, so a route spelled `{shelf}` either
+reddens that fence or, if "fixed" by adding the middleware, binds the whole
+cross-shelf area to one shelf and defeats it.
+
+Task 4 named its parameter `{bookshelf}`. **Every remaining admin route must do
+the same.** The fence keeps meaning what it says, and the admin area stays
+cross-shelf.
+
 ### House rule: mandatory falsification
 
 Every test is **watched failing before it is accepted** — mutate what it
@@ -282,7 +294,12 @@ this mistake; `fromShelf()` reads `$settings['comments_enabled'] ?? true`
 **Contacts — up to three**, reached as `$shelf->contacts()`.
 `bookshelf_contacts.position_key` already enforces one row per position and a
 `CHECK` bounds it to 1–3.
-- Position 1 required by the interface, not the column.
+- Position 1 required by the interface, not the column. **Note create does not
+  collect contacts** — Task 4 left a new shelf starting with none, so it is born
+  flagged `contactsMissing` and the flash points here. The reference's
+  `createBookshelf` refuses a shelf with no position-1 contact; we diverge
+  because the flag is the mechanism this port already has for exactly that, and
+  3a's dashboard surfaces it. Record the divergence in Task 8.
 - Positions 2 and 3 saved **only when a name is given**: blank name means no
   row, not an empty row.
 - `role_label` is free text. No enum.
