@@ -203,17 +203,42 @@ scope" forbade "any change to … `TenantContext` beyond *calling* the capabilit
 that already exists". That exclusion is **retracted** — the review established
 that calling the existing capability is exactly what cannot be contained.
 
-#### The two pins, both falsifiable
+#### The pins — three rules, all falsifiable
 
-1. **Namespace.** `actSystemWide()` may be called only from within
-   `app/Queries/Admin/`, from `TenantContext::systemWide()` itself, and from
-   `app/Console/Commands/SweepReminders.php` — **the existing production caller,
-   allow-listed here by name with its reason rather than discovered
-   mid-implementation.** The first draft of this pin would have failed on day one
-   against the sweep.
-2. **Lifetime.** After an admin query returns, a previously bound tenant is
-   **still bound** and a scoped model read **still filters**. This is the pin the
-   first version had no equivalent of.
+**Corrected after re-review: an earlier draft of this section had pin 1 guard
+`actSystemWide()` alone. That guards the wrong door.** Once D1 lands, admin
+queries call `systemWide()`, never `actSystemWide()` — so `app/Queries/Admin/`
+would never have needed the allow-list, while `systemWide()` itself stayed
+callable from anywhere with nothing pinning it. The fence would have been
+unenforced against the very API this phase introduces.
+
+The rule is about the **capability**, not one method name, and it takes two
+halves plus a lifetime check:
+
+1. **Raw widening is funnelled through the wrapper.** `actSystemWide()` may be
+   called ONLY from `TenantContext::systemWide()` itself and from these two
+   pre-existing callers, allow-listed here **by name, with their reason**:
+   - `app/Console/Commands/SweepReminders.php` — the nightly cross-shelf sweep,
+     shipped in Phase 2a and already allow-listed by `TenancyArchitectureTest`.
+   - `database/seeders/DemoShelfSeeder.php` — a seeder, widening by design.
+2. **The wrapper is confined to the admin namespace.** `systemWide()` may be
+   called only from within `app/Queries/Admin/`.
+3. **Lifetime.** After an admin query returns, a previously bound tenant is
+   **still bound** and a scoped model read **still filters** — including when the
+   callback threw. An untested `finally` is a comment.
+
+**State the scan roots explicitly, and do not copy the neighbour's blind.**
+`TenancyArchitectureTest` scans `[app_path(), database_path(), base_path('routes')]`
+(line 156). `database_path()` is why rule 1 must allow-list the seeder: a pin that
+copied those roots without it **reddens on day one**, which is the third time in
+this document's history that a pin has been specified against an allow-list
+narrower than reality. If the pin instead scans `app_path()` alone, say so and
+say why, rather than leaving the roots to be discovered.
+
+**All three must be watched failing.** Phase 2c shipped a pin whose first draft
+was vacuous — a bare path compared against offender entries carrying a
+`"(line N)"` suffix, so deleting what it guarded still reported 55 passed. Add a
+violating call, watch it redden, remove it, prove `git status --porcelain` clean.
 
 **Both must be watched failing.** Phase 2c shipped an architecture pin whose first
 draft was vacuous — it compared a bare path against offender entries carrying a
@@ -325,11 +350,37 @@ $books = Book::query()->groupBy('bookshelf_id')
     ->selectRaw('bookshelf_id, count(*) as n')->pluck('n', 'bookshelf_id');
 ```
 
-`groupBy('bookshelf_id')` does not match the grep — the pattern requires a
-`where`-shaped call — so no allow-list entry is needed. **If an implementer finds
-a metric that cannot be expressed this way and must name the column in a
-`where`-shaped call, that is a spec amendment plus an allow-list entry with its
-reason, not an improvisation.**
+**THE CHAIN ORDER MATTERS, and the naive form fails.** The pattern is
+`/where[A-Za-z]*\s*\([^;]*bookshelf_id/i` — `[^;]*` spans the rest of the
+statement, so **any `where`-shaped call anywhere earlier in the chain, followed
+by the literal `bookshelf_id` later in the same statement, matches.** Measured
+against the real pattern:
+
+| Chain | Result |
+|---|---|
+| `Book::query()->groupBy('bookshelf_id')->selectRaw(…)->pluck('n','bookshelf_id')` | clean |
+| `Loan::query()->where('status','active')->groupBy('bookshelf_id')->selectRaw(…)->pluck('n','bookshelf_id')` | **MATCH — build fails** |
+| `Loan::query()->groupBy('bookshelf_id')->selectRaw(…)->where('status','active')->get()` | clean |
+
+**Five of the six metrics need a filter**, so the unfiltered `books` example above
+is the only one that survives the naive ordering. Write every filtered aggregate
+as: `groupBy` and `selectRaw` **first**, the `where` **last**, and terminate with
+`->get()` rather than `->pluck('n', 'bookshelf_id')` — the second argument puts
+the literal back into the statement after the `where`.
+
+This is not a trick to defeat a linter; it is the same statement either way. But
+it is a real constraint on how the code is written, it is invisible until the
+build fails, and an earlier draft of this decision told the implementer no
+allow-list entry was needed without saying any of it.
+
+**If a metric genuinely cannot be expressed clean, that is a spec amendment plus
+an allow-list entry with its reason — not an improvisation.**
+
+**On "one aggregate per metric":** D3's `pending` is a sum of four counts, so it
+is four statements, not one. The constant-statement-count claim survives — the
+total does not grow with the number of parishes — but it is roughly nine
+statements, not six. `overdue` decomposes cleanly (`status = active` and
+`due_on < today`, no join), matching `ManagerDashboardQuery`'s own shape.
 
 **Retracted from D1's original text:** it rejected raw SQL because it
 "hand-writes the tenant column, which every phase of this project has forbidden".
@@ -406,9 +457,12 @@ shelf — while proving the capability that allows it cannot spread.
   project has measured: a 404-only assertion is **vacuous when no route claims
   the URI**. `/admin` is a new path, so this block is meaningless until the route
   exists — check it refuses for the right reason afterwards.
-- **The namespace pin reddens** when `actSystemWide()` is called from outside its
-  allow-list (`app/Queries/Admin/`, `TenantContext::systemWide()` itself, and
-  `SweepReminders.php`), measured rather than asserted.
+- **Pin 1 reddens** when `actSystemWide()` is called from outside its allow-list
+  (`TenantContext::systemWide()`, `SweepReminders.php`, `DemoShelfSeeder.php`).
+- **Pin 2 reddens** when `systemWide()` is called from outside `app/Queries/Admin/`.
+  These are two pins, not one: an earlier draft guarded only `actSystemWide()`,
+  which after D1 no admin query calls — the fence would have been unenforced
+  against the API this phase introduces.
 - **The lifetime pin reddens** when the widening is not restored: bind a tenant,
   run an admin query, and assert the tenant is **still bound** and a scoped read
   **still filters**. Falsify it by replacing `systemWide()`'s body with a bare
@@ -422,6 +476,16 @@ shelf — while proving the capability that allows it cannot spread.
 - **An archived shelf appears on the dashboard, marked, and NOT on the portal**
   (D9 against D2) — the one place those two surfaces deliberately disagree.
 - **A shelf with no `bookshelf_contacts` row is flagged** (D4).
+- **The `pending` sum is the whole of D3** — a shelf with one pending membership,
+  one `approved` borrow request, one pending comment and one pending donation
+  reports **4**. The `approved` half is the one a reader would not guess, so it
+  gets its own arrangement rather than riding in a total.
+- **Every figure is live** (D5): change an underlying row, re-read, see the new
+  number. Cheap, and it is what forbids a materialised counter arriving later.
+- **`AGENTS.md` names only components that exist** (D6) — a test asserting every
+  component the guide names is present under `resources/js/components/`. This is
+  the pin that stops the guide drifting back, and it is why D6 is a correction
+  rather than a deletion.
 
 ## Explicitly not in scope
 
