@@ -332,8 +332,8 @@ Both columns are measured against the **worst case**: text on `paper` (the lowes
 
 One rule covers every case: **map accent variables to the reference's *ink*
 value, and set the matching `-foreground` to the opposing ground** (white in
-light mode, `page` in dark). The cost is that buttons render ~7% darker than the
-reference's `#a4673b`; the alternative is either an AA failure or introducing a
+light mode, `page` in dark). The cost is that buttons render darker than the reference's
+`#a4673b` — a 19.7% drop in relative luminance; the alternative is either an AA failure or introducing a
 second token and editing every call site, which D5 excludes.
 
 | shadcn variable | light | dark | from |
