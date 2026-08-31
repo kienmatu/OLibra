@@ -933,6 +933,36 @@ export const copy = {
         empty: "Tủ sách này chưa có bản sách nào.",
         submit: "In nhãn QR đã chọn",
     },
+    // Task 12's camera scanner (copy-scanner.tsx), wired beside the
+    // existing copy-code Input on the lend and return screens — never
+    // instead of it (AGENTS.md, this task's brief: "typing the code
+    // stays a complete path"). Its own namespace: the lend/return
+    // screens reach into these keys, but nothing here reaches into
+    // `copy.circulation`.
+    scanner: {
+        openButton: "Quét mã QR",
+        dialogTitle: "Quét mã QR trên nhãn sách",
+        lead: "Đưa camera lại gần nhãn QR dán trên sách.",
+        resolving: "Đang tra cứu…",
+        close: "Đóng",
+        // The three ordinary failures a phone borrowed from someone else,
+        // a cracked lens, or a browser without camera access produce —
+        // each names the problem so the reader knows to type the code
+        // instead, not just that something silently isn't working.
+        permissionDenied:
+            "Bạn chưa cho phép dùng camera. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        noCamera:
+            "Không tìm thấy camera trên thiết bị này. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        cameraError: "Không thể mở camera. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        decodeError: "Không đọc được mã QR. Bạn vẫn có thể nhập mã bản sách vào ô bên dưới.",
+        // Two distinct nothing-found outcomes, kept as two sentences
+        // rather than folded into one: a QR that isn't an OLibra label at
+        // all (checked locally, before any request) is a different fact
+        // from an OLB1 label the server could not resolve — unknown id,
+        // soft-deleted copy, or another parish's shelf.
+        notOlibraLabel: "Mã QR này không phải nhãn của OLibra.",
+        notFoundHere: "Không tìm thấy bản sách này trên tủ sách này.",
+    },
 } as const;
 
 /**

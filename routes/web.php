@@ -27,6 +27,7 @@ use App\Http\Controllers\Reader\CommentController;
 use App\Http\Controllers\Reader\DonationController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
+use App\Http\Controllers\Reader\ScanController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ShellController;
@@ -188,7 +189,11 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // makes this file's usual worry (a 404 block passing against a
         // deleted route) not apply to this particular pair of lines.
         Route::post('/donate', [DonationController::class, 'store'])->name('donate.store');
-        Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
+        // OPS §3.3: CopyByIdQuery is "deliberately not manager-only" — a
+        // reader scans a book on the shelf to ask for it, and tenancy
+        // (BookshelfScope, applied inside the query), not role, is what
+        // makes another parish's sticker unresolvable. Task 12.
+        Route::get('/scan', [ScanController::class, 'resolve'])->name('scan');
     });
 
     Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');

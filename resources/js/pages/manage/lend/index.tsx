@@ -1,6 +1,7 @@
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import { type FormEvent, useState } from "react";
 import { route } from "ziggy-js";
+import CopyScanner from "@/components/copy-scanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,21 @@ export default function QuickLendStepOne() {
         );
     };
 
+    // A scan is the printed code, resolved off the shelf's own camera
+    // rather than typed — it re-runs the exact same search a manager
+    // would get from typing the same code into the box above, never a
+    // separate path. See copy-scanner.tsx's docblock: typing the code
+    // must stay a complete path on its own, and this handler is what
+    // keeps the two converging on one query instead of drifting apart.
+    const onScanned = (result: { code: string }) => {
+        setQ(result.code);
+        router.get(
+            route("shelves.manage.lend", { shelf: shelf.slug, q: result.code }),
+            {},
+            { preserveState: true },
+        );
+    };
+
     return (
         <ManageLayout>
             <Head title={copy.circulation.lend.title1} />
@@ -67,6 +83,7 @@ export default function QuickLendStepOne() {
                 <Button type="submit" className="h-12">
                     {copy.circulation.lend.search}
                 </Button>
+                <CopyScanner shelfSlug={shelf.slug} onResolved={onScanned} />
             </form>
 
             <ul className="divide-y border-y">
