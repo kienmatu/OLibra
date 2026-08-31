@@ -54,3 +54,83 @@ it('self-hosts both families across all three subsets', function () {
     expect(File::get(resource_path('views/app.blade.php')))
         ->not->toContain('fonts.bunny.net');
 });
+
+/**
+ * Extracts the body of a literal top-level block (`:root { ... }`) from CSS
+ * source, matching braces so a nested block would not truncate it.
+ *
+ * Scoping to the source file's own blocks matters: the reference's eleven
+ * tokens are declared in `@theme`, which Tailwind also emits at `:root`, so a
+ * count taken from built CSS or from a whole-file regex would see 44 variables
+ * where the mapping defines 33.
+ */
+function designSystemBlock(string $css, string $selector): string
+{
+    $start = strpos($css, "\n{$selector} {");
+
+    expect($start)->not->toBeFalse("no literal `{$selector} {` block in app.css");
+
+    $open = strpos($css, '{', $start);
+    $depth = 0;
+
+    for ($i = $open; $i < strlen($css); $i++) {
+        $depth += match ($css[$i]) {
+            '{' => 1,
+            '}' => -1,
+            default => 0,
+        };
+
+        if ($depth === 0) {
+            return substr($css, $open + 1, $i - $open - 1);
+        }
+    }
+
+    throw new RuntimeException("unbalanced braces in `{$selector}` block");
+}
+
+/**
+ * The 42 ported screens use shadcn's semantic vocabulary exclusively, so these
+ * 33 variables are the entire surface through which the reference palette
+ * reaches the screen. One dropped variable falls back to nothing at all.
+ */
+it('defines every semantic variable in both modes', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    preg_match_all('/^\s*(--[a-z0-9-]+):/m', designSystemBlock($css, ':root'), $light);
+    preg_match_all('/^\s*(--[a-z0-9-]+):/m', designSystemBlock($css, '.dark'), $dark);
+
+    // 33 and 32, deliberately: --radius is :root-only and does not change
+    // between modes, so asserting 33 in .dark would fail a correct port.
+    expect($light[1])->toHaveCount(33);
+    expect($dark[1])->toHaveCount(32);
+
+    // ...and the one that is missing from .dark is exactly --radius.
+    expect(array_values(array_diff($light[1], $dark[1])))->toBe(['--radius']);
+    expect(array_values(array_diff($dark[1], $light[1])))->toBe([]);
+});
+
+/**
+ * The stock starter palette is authored in hsl(), the ported one in hex, so
+ * `hsl(` is a clean marker for "not yet ported". Naming only the three obvious
+ * starter values would let a half-finished port through -- a leftover
+ * `--muted-foreground: hsl(0, 0%, 45.1%)` would sail past that and leave 181
+ * call sites cold grey.
+ */
+it('retains no stock starter colours', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    expect(designSystemBlock($css, ':root'))->not->toContain('hsl(');
+    expect(designSystemBlock($css, '.dark'))->not->toContain('hsl(');
+});
+
+/**
+ * The Tailwind-v3 compat block sets a border colour on `::after`, `::before`,
+ * `::backdrop` and `::file-selector-button` as well as `*`, but the later
+ * `* { @apply border-border }` reclaims only the element selector. A stock grey
+ * left there survives on every pseudo-element border, and is invisible to the
+ * hsl() marker above because it arrives through a var().
+ */
+it('leaves no cold grey on pseudo-element borders', function () {
+    expect(File::get(resource_path('css/app.css')))
+        ->not->toContain('var(--color-gray-200');
+});
