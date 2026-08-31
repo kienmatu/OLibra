@@ -4146,3 +4146,159 @@ Manager statistics screen and QR labels. Branch
 
   The scanner's dead black frame after a failed scan, described under the
   camera entry above.
+
+## Phase 3a — the network foundation
+
+The sanctioned cross-shelf capability and its fence, the public portal's search,
+and the administration dashboard. Branch `feat/phase-3a-network-foundation`, cut
+from `main` at `da93891`. This is the first phase in which a request-path query
+deliberately reads outside its tenant, so most of what follows is about the
+distance between what the fence proves and what it merely discourages.
+
+- **The widening capability now exists on a request path, and the fence around
+  it is two greps (Phase 3a Task 2).** `TenantContext::systemWide(callable)`
+  widens, runs the callback, and restores what it found in a `finally` — the
+  prior bookshelf, the prior membership and the prior flag, by object identity,
+  on the exception path too. `tests/Feature/Architecture/WideningArchitectureTest
+  .php` pins it twice: raw `->actSystemWide(` may appear only in
+  `TenantContext` itself, `SweepReminders` and `DemoShelfSeeder`, and
+  `->systemWide(` may appear only under `app/Queries/Admin/`. Both were
+  re-falsified at the phase's final commit — a call planted in `ShellController`
+  reddens pin 1 at line 73 and pin 2 at line 89 respectively, each with the
+  other staying green, and pin 2 stays green with its one legitimate inhabitant
+  (`AdminOverviewQuery`) present.
+
+  **What that does not prove is anything about behaviour.** Both pins match raw
+  file text with a regular expression, which is the same instrument
+  `TenancyArchitectureTest` uses for `bookshelf_id` and the same limits apply —
+  that test states them itself, at lines 143-146 and 181-182: a method or column
+  name held in a variable slips the pattern, and so does a `join()` condition.
+  `$m = 'systemWide'; $ctx->$m(...)` passes both pins. They are tripwires
+  against the ordinary, legible way of writing the call — which is how the call
+  will in fact be written — not a proof that no widening exists outside the
+  allow-list.
+
+- **`clear()` still has no caller in `app/`, and `actSystemWide()` is still
+  directly callable by three files (Phase 3a Task 2).** The wrapper is the
+  sanctioned path, not the only possible one. `TenantContext::clear()` has zero
+  callers anywhere under `app/` — its callers are `DemoShelfSeeder` and a
+  handful of test fixtures — so nothing in the request lifecycle ever resets a
+  widening that was performed outside the wrapper; that is precisely why the
+  wrapper's `finally` is load-bearing, and stripping it to a bare
+  `actSystemWide(); return $fn();` reddens four of the five lifetime blocks in
+  `tests/Feature/Admin/TenantWideningTest.php` plus the consumer-side restore
+  block in `AdminOverviewQueryTest`. Meanwhile `actSystemWide()` remains public
+  and remains reachable from the three allow-listed files without going through
+  `systemWide()` at all. A future editor of `SweepReminders` or of
+  `TenantContext` itself is inside the fence by construction.
+
+  A related asymmetry, recorded rather than fixed: pin 2's allow-list is
+  literally empty — it works by a `str_starts_with('app/Queries/Admin/')`
+  rejection instead — so `TenantContext.php` is not exempted from its own
+  pattern. It is protected only by never writing `->systemWide(` in its own
+  body. A wrapper that one day delegates to itself would redden the pin that
+  exists to protect it.
+
+- **The three new folded columns inherit the `Fold::MAP` cascade hazard (Phase
+  3a Task 5).** `bookshelves.name_folded`, `location_folded` and
+  `address_folded` are STORED generated columns over the existing
+  `FoldExpression`, identical in construction to `books.title_folded` and
+  `users.full_name_folded`. The migration adds no `Fold::MAP` entry, so it does
+  not re-open the sequential-`REPLACE()` question described above — but it
+  widens the blast radius of the next person who does. Adding a MAP entry now
+  rewrites five generated columns across three tables rather than two across
+  two, and every one of them must survive `FoldParityTest` and the NFD-derived
+  oracle before the DDL is regenerated.
+
+- **The dashboard screen is unverified by any test, as every screen in this repo
+  is (Phase 3a Task 4).** `resources/js/pages/admin/dashboard.tsx` has never
+  been rendered by a test runner, because there is no runner for
+  `resources/js`: `package.json`'s `test` script is `cd old_next && vitest run`,
+  which exercises the read-only reference application. What
+  `AdminDashboardScreenTest` asserts is the Inertia payload — the component
+  name, the row count and the presence of the keys — plus the 404-not-403
+  refusal and the guest redirect. That the columns render, that the two badges
+  show the icons Task 4's fix round added, and that the Vietnamese copy is the
+  copy intended, are read by eye and by nothing else.
+
+- **Seven deferred minors, left for the whole-branch review to triage.** None
+  was fixed in this sweep, on the same principle the Phase 2c sweep followed: a
+  closing documentation task that quietly edits shipped behaviour is an
+  unreviewed change wearing a sweep's clothes.
+
+  `StyleGuideTest`'s `$notComponents` escape list is entirely vacuous. It names
+  eleven words — `README`, `AGENTS`, `MariaDB`, `TypeScript`, `Vietnamese`,
+  `Laravel`, `Inertia`, `Pest`, `Larastan`, `Pint`, `Biome` — and after Task 1's
+  rewrite the only backticked PascalCase word left in `AGENTS.md` is
+  `CopyScanner`. Every entry is therefore a hole in the pin doing no work, and
+  it came verbatim from the task brief rather than from the file. Trim it to
+  what the guide actually contains, or the first genuinely-missing component
+  whose name happens to be on the list will pass unnoticed.
+
+  `make test FILTER="A|B"` cannot work. The `Makefile` interpolates `FILTER`
+  unquoted into `php artisan test --filter=$(FILTER)`, so `|` is read by the
+  shell as a pipe. Pre-existing, not introduced here, and it affects any
+  multi-file filtered run — this phase's own falsification passes were each run
+  one filter at a time because of it. One pair of quotes.
+
+  Two of `AdminOverviewQuery`'s contract clauses are unpinned by the fixtures
+  that claim to test them. The `readers` block is named "managers included", but
+  all three of its memberships are created with `'role' => 'reader'`, so an
+  implementation that added `->where('role', 'reader')` would still pass — one
+  extra fixture row closes it. The `loans` figure's `status = active` filter is
+  likewise unpinned: both loans in the overdue block are `Active`, so dropping
+  that `where()` still yields 2 — one returned loan closes it. Neither is a bug
+  in the shipped query, which has no role filter and does filter on status;
+  both are coverage gaps.
+
+  `loans` and `overdue` inherit the `SoftDeletes` exclusion, where the reference
+  SQL counted loans with no `deleted_at` predicate at all. Arguably the more
+  correct behaviour, and silently divergent from the ported query either way.
+
+  The Task 2 report places `clear()` at `TenantContext.php:71`, which was true
+  at `2474c3f` and is line 110 after the wrapper was inserted. Report prose
+  only; the shipped docblock carries no line numbers, which is why it did not
+  rot.
+
+- **`TenancyArchitectureTest`'s comment-blind grep fired for the third time in
+  two phases, and this is now a pattern rather than an incident (Phase 3a Task
+  3).** The Phase 2c section above records the first two occurrences, in that
+  phase's Tasks 2 and 7, and proposes two fixes. The third occurrence is worse
+  than the first two in a specific way worth stating: the implementer of
+  `AdminOverviewQuery` could not quote its own chain-ordering regular
+  expression inside its own docblock, because the quoted pattern tripped the
+  guard — so the docblock explains in prose what it is forbidden from showing.
+  The first two occurrences cost a reword. This one cost explanatory power: the
+  documentation of a deliberate, easily-undone query ordering is now strictly
+  less precise than it would be if the guard could read PHP.
+
+  Three occurrences in two phases, every one of them on true prose, and every
+  one resolved by editing correct documentation until a regex stopped matching,
+  is enough evidence to stop calling it bad luck. Either fix already proposed —
+  stripping comments with `token_get_all()` before matching, as
+  `LabelsArchitectureTest` does, or anchoring `[^;]*` on a statement terminator
+  — would close all three. Narrowing a shipped tenancy guard remains a ruling
+  for the whole-branch review, not a sweep item.
+
+- **D8's stated reason was false, and it survived four independent reviews
+  (Phase 3a Task 5).** The design document argued for the folded-columns
+  migration on the premise that "a naive `LIKE` finds nothing for *Giáo xứ Hòa
+  Bình* when a parent types `hoa binh`". Measured on this project's MariaDB
+  10.11 with `SET NAMES utf8mb4`, that expression under `utf8mb4_unicode_ci`
+  returns `1`: the collation folds vowel diacritics by itself, and
+  `bookshelves.name`, `location` and `address` all carry it. What it does not
+  fold is the Vietnamese `đ`/`Đ` (U+0111) — `'Đồng Tháp' LIKE '%dong thap%'`
+  returns `0` — which `Fold::MAP` maps to `d`. The migration is justified; the
+  reason given for it was not. The spec's D8 now carries that retraction, and so
+  do the migration's docblock, `ShellController::shelves` and
+  `PortalSearchTest`.
+
+  **Recorded here because of how it was caught, which is the transferable
+  part.** Not by either review of the spec, nor by either review of the plan —
+  four independent passes over prose. It was caught by the Task 5 implementer's
+  *mandatory* mutation: with the fixture searching `hoa binh`, replacing the
+  folded-column match with a plain `LIKE` on the source columns left the block
+  **green**. The test could not fail, and being required to make it fail is what
+  surfaced the false premise underneath it. The fixture moved to *Đồng Tháp* /
+  `dong thap`, where that same mutation now reddens four blocks while a fifth,
+  deliberately labelled as the collation's own case, stays green.

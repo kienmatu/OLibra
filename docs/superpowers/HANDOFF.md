@@ -5,6 +5,9 @@ dies with its plan, so this file is what lets a **different session** pick the w
 Update it as each task lands.
 
 **Last updated:** 2026-08-31. Phase 1 is COMPLETE — #63 merged, `main` = `317a3b3`.
+**Phase 3a (the network foundation) is COMPLETE on `feat/phase-3a-network-foundation`** —
+all 6 tasks landed and individually reviewed. Not yet pushed; the whole-branch review and the
+merge decision both still to come, and **the merge decision is Kien's**.
 **Phase 2c (statistics and QR labels) is COMPLETE on `feat/phase-2c-statistics-and-labels`** —
 all 13 tasks landed and individually reviewed. Not yet pushed; the whole-branch review and the
 merge decision both still to come, and **the merge decision is Kien's**.
@@ -27,6 +30,7 @@ product-owner question waiting for him under "Owed by Kien" below.
 | 2a Requests & holds | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | #64 | merged (`main` = `fabfbd4`) |
 | **2b Community voice** | `plans/2026-08-30-laravel-phase-2b-community-voice.md` | — | **complete — 20 tasks, whole-branch reviewed, fixes applied; PR open, awaiting Kien's merge decision** |
 | **2c Statistics & labels** | `plans/2026-08-31-laravel-phase-2c-statistics-and-labels.md` | — | **complete — 13 tasks, each reviewed; awaiting the whole-branch review, then Kien's merge decision** |
+| **3a Network foundation** | `plans/2026-08-31-laravel-phase-3a-network-foundation.md` | — | **complete — 6 tasks, each reviewed; awaiting the whole-branch review, then Kien's merge decision** |
 
 Phase 1 (1a–1d) IS BR §1.4's core loop, and it is done. Next: Phase 2 (Community), then
 3 (Network), 4 (Cutover).
@@ -45,6 +49,113 @@ over-wide shape Phase 1 was split for. The cut:
 - **2b — community voice.** Comments and moderation (INV-09 visibility), announcements,
   site feedback and its inbox, donations.
 - **2c — statistics and QR labels.**
+
+## Phase 3a — complete
+
+Branch `feat/phase-3a-network-foundation`, cut from `main` at `da93891`.
+
+**Gate numbers, and the commit they were taken at.** This file has twice carried a
+diffstat matching no single base, so the base is named before the numbers rather
+than after them. Everything below was measured at **`1f4e4f4`**, the last commit in
+this phase that changes any code — the commits after it are Markdown only, so
+re-taking the size figures at `HEAD` returns a larger insertion count by exactly the
+documentation the closing sweep wrote. At the moment of measurement `origin/main`,
+`git merge-base origin/main HEAD` and the branch point were all the same commit,
+`da93891`, so the three-dot diff and the two-dot diff agree. Re-take rather than
+believe: `git diff --stat origin/main...1f4e4f4`.
+
+- Suite **1,674 passing / 9,731 assertions**, up from a **1,646 / 9,585** baseline at
+  the branch point. The baseline was itself re-measured at `eb1a58b` rather than
+  carried from Phase 2c's number, which was stale by then.
+- Larastan level 8: `[OK] No errors`, **272 files**.
+- Pint: **PASS, 468 files** (`--test`, run inside `laravel-app-1`; never on the host).
+- Biome: **3 warnings, 1 info** — the inherited baseline, unchanged; `tsc -p
+  tsconfig.laravel.json --noEmit` clean.
+- **13 commits**, 19 files, **+2,837 / −26** at `1f4e4f4`.
+- `git diff origin/main...HEAD -- old_next/` is **empty**. The reference app was never
+  written to.
+
+**What shipped.** Four things, in dependency order. `AGENTS.md` was corrected to
+describe the components this repository actually has — it had named fourteen that
+never existed, and had misdirected three tasks in Phase 2b — with `StyleGuideTest`
+pinning it. `TenantContext::systemWide(callable)` gives the codebase its first
+sanctioned request-path widening: it saves the bookshelf, the membership and the flag,
+widens, runs the callback and restores all three in a `finally`, so an exception
+mid-read cannot leave the rest of the request unscoped. `AdminOverviewQuery` is its
+one caller, returning a row per shelf with `books`, `readers`, `loans`, `overdue`,
+`pending`, `contactsMissing` and `status`, behind `/admin` and `EnsureSuperAdmin`. And
+the public portal's `/shelves` gained a search box matching three new generated folded
+columns on `bookshelves` — this phase's one migration.
+
+**The decisions.**
+
+- **D1 — widening is confined in NAMESPACE and in TIME, and both are pinned.**
+  `WideningArchitectureTest` carries two independent pins over the same three roots
+  `TenancyArchitectureTest` walks (`app_path()`, `database_path()`,
+  `base_path('routes')`): raw `->actSystemWide(` is allowed only in `TenantContext`,
+  `SweepReminders` and `DemoShelfSeeder`, and `->systemWide(` only under
+  `app/Queries/Admin/`. Two pins rather than one because the capability has two doors —
+  a single pin on `actSystemWide()` would have guarded a method the new code never
+  calls while the wrapper stayed callable from anywhere. Both were re-falsified at the
+  final commit, each reddening with the other green.
+- **D2 and D8 — the portal.** `/shelves` lists **active** shelves only, and searches
+  `name`, `location` and `address` through folded generated columns built on the
+  existing `FoldExpression`, carrying `BooksListQuery`'s guard so a query that is
+  non-empty but folds to `''` lists nothing rather than everything. **D8's stated
+  reason is retracted — see the lesson below.**
+- **D3 — `pending` is a sum of four sources**, one of which is not obvious: an
+  **approved** borrow request nobody has collected is still waiting on a person, so it
+  counts. The fixture creates one of each of the four so a dropped source reads 3
+  rather than passing silently.
+- **D7 — chain ordering in `AdminOverviewQuery`.** The order of the builder calls is
+  load-bearing and easily undone, and it is documented in prose rather than shown,
+  because `TenancyArchitectureTest`'s grep would not let the docblock quote its own
+  regular expression. That is recorded as a finding, not a footnote.
+- **D9 — archived shelves are listed and marked, never hidden.** The one place the
+  dashboard and the portal deliberately disagree: an administrator is the only person
+  who can reach an archived shelf at all, so a dashboard that dropped it would make the
+  shelf unreachable from every surface at once, while the portal is public and filters
+  it out. Both halves have their own block.
+
+**The carries are in `docs/known-gaps.md`**, under "Phase 3a — the network
+foundation". The largest: **the fence around widening is two greps**, with the same
+documented limits `TenancyArchitectureTest` states for its own tripwire — a method
+name held in a variable slips both. Also recorded: `clear()` still has no caller under
+`app/` and `actSystemWide()` is still directly callable by three files, so the wrapper
+is the sanctioned path and not the only possible one; the three new folded columns
+widen the blast radius of the next `Fold::MAP` entry; the dashboard screen is
+unverified by any test, as every screen here is; the third occurrence in two phases of
+`TenancyArchitectureTest`'s comment-blind grep; and seven deferred minors for the
+whole-branch review to triage, including `StyleGuideTest`'s wholly vacuous
+`$notComponents` list and the broken `make test FILTER="A|B"`.
+
+**The reusable lesson from this phase is measured, and it is uncomfortable.** The spec
+was reviewed twice before any plan existed, and the plan twice before any code — four
+independent passes over prose, before line one. **The recurring defect on every one of
+those passes was the same one: a guard specified against an allow-list nobody had
+grepped.** Three times in the spec — the claim that no production code had ever called
+`actSystemWide()`, when `SweepReminders` had since Phase 2a and
+`TenancyArchitectureTest` allow-listed it by name; then pinning `actSystemWide()`
+alone, which would have fenced a method the new code never uses; then a pin whose scan
+roots include `database_path()` without allow-listing the seeder that lives there. A
+fourth was caught in the plan review. **What closed it was stating the scan roots and
+the allow-lists explicitly** in the spec, as literal paths, rather than leaving them to
+be discovered by whoever implemented the test — and the final plan review then executed
+both pin patterns against all three roots and confirmed the allow-list was exactly
+complete and exactly minimal.
+
+**And a fourth false premise survived all four of those passes.** D8 justified this
+phase's migration by claiming a naive `LIKE` finds nothing for *Giáo xứ Hòa Bình* when
+a parent types `hoa binh`. It finds it: `bookshelves`' columns are
+`utf8mb4_unicode_ci`, and that collation folds vowel diacritics on its own. What it
+does not fold is the Vietnamese `đ` (U+0111), which `Fold::MAP` does — which is also
+why `books.title` is `utf8mb4_unicode_ci` and still carries a `title_folded` twin. The
+decision stands; the reason was wrong. **Nothing in four rounds of reading caught it.**
+It was caught by the Task 5 implementer's *mandatory* mutation, which replaced the
+folded-column match with a plain `LIKE` expecting red and got green — a test that could
+not fail was the only instrument that saw it. Spec D8, the migration's docblock,
+`ShellController::shelves` and `PortalSearchTest` all carry the retraction, and the
+fixture moved to *Đồng Tháp* / `dong thap`, where the mutation now reddens.
 
 ## Phase 2c — complete
 

@@ -402,12 +402,46 @@ Every other search in this codebase folds diacritics and matches against a
 **`bookshelves` has no folded column** — verified against the live table: `id`,
 `slug`, `name`, `description`, `location`, `address`, `cover_url`, `timezone`,
 `locale`, `status`, `settings`, `established_on`, `created_by`, timestamps,
-`deleted_at`, `slug_active`. So a naive `LIKE` finds nothing for *Giáo xứ Hòa
-Bình* when a parent types `hoa binh`, which is the exact case the box exists for.
+`deleted_at`, `slug_active`. So the portal is the one search in this codebase
+matching raw columns, and the letter it cannot reach is the Vietnamese **`đ`**:
+a parent looking for a parish in *Đồng Tháp* who types `dong thap` finds nothing.
 
 **3a therefore ships a migration** adding generated folded columns over `name`,
 `location` and `address`, built with the same `FoldExpression` every other folded
 column uses, and the search matches those.
+
+**Retracted from D8's original text, and this is the fourth false premise this
+document carried:** it justified the migration by claiming "a naive `LIKE` finds
+nothing for *Giáo xứ Hòa Bình* when a parent types `hoa binh`, which is the exact
+case the box exists for". **That claim is false, and it was the stated reason for
+the whole decision.** `bookshelves.name`, `location` and `address` are all
+`utf8mb4_unicode_ci`, and that collation folds vowel diacritics by itself, with
+no folded column anywhere in the query. Measured on this project's MariaDB
+10.11, `SET NAMES utf8mb4`:
+
+| Expression, `COLLATE utf8mb4_unicode_ci` | Result |
+|---|---|
+| `'Giáo xứ Hòa Bình' LIKE '%hoa binh%'` | `1` |
+| `'Giáo xứ Hòa Bình' LIKE '%giao xu%'` | `1` |
+| `'Đồng Tháp' LIKE '%dong thap%'` | `0` |
+
+**The DECISION stands; only the reason is retracted.** What the collation does
+*not* fold is `đ`/`Đ` (U+0111) — the third row — which `Fold::MAP` maps to `d`,
+along with the other expansions (`ß`, `æ`, `œ`, `ĳ`) this collation would also
+miss. That is likewise why `books.title` is `utf8mb4_unicode_ci` and *still*
+carries a `title_folded` twin: the folded columns in this codebase exist for `đ`
+and for `Fold::MAP`'s expansions, not for accented vowels in general. Add the
+consistency argument below, and the migration is justified — for a reason the
+spec did not identify.
+
+**How it was caught, because the process matters more than the fact.** Not by
+either of the two independent reviews of this spec, nor by either review of the
+plan. It was caught by the Task 5 implementer's *mandatory* mutation: the fixture
+searched `hoa binh`, the implementer replaced the folded-column match with a
+plain `LIKE` on the source columns expecting red, and the block **stayed green**.
+A test that cannot fail is the only instrument that found this. The fixture moved
+to *Đồng Tháp* / `dong thap`, where four blocks now redden under that mutation
+while a fifth — deliberately labelled as the collation's own case — stays green.
 
 **Why generated columns rather than folding in the expression.** An unindexed
 `FoldExpression::sql()` in the `WHERE` would be parity-safe — it is the same
