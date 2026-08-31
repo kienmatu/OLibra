@@ -78,21 +78,30 @@ tone-marked vowels (ậ ộ ữ ọ …) in U+1EA0–1EF1. A build shipping only
 producing visibly mismatched glyphs mid-word.
 
 The reference loads **three** subsets — `["latin", "latin-ext", "vietnamese"]`
-(`layout.tsx:8,15`) — and we match that exactly. Vietnamese-only is not an
+(`layout.tsx:8,14`) — and we match that exactly. Vietnamese-only is not an
 option; it would break Latin text.
 
-**Files.** Nothing is vendored today: every `.woff2` in the repo belongs to
-KaTeX, and `old_next` has no `@next/font` directory, because `next/font` fetched
-these at build time. So the implementation must **acquire 12 files**:
+**Files.** Lexend is **already vendored** — `resources/fonts/Lexend-Regular.ttf`,
+`Lexend-SemiBold.ttf` and `OFL.txt` are git-tracked, feeding TCPDF for the Phase
+2c QR labels through `app/Support/Qr/LabelSheet.php:439`. Those are full-range
+TTFs for PDF generation, not subsetted web fonts, so they cannot serve the
+browser; but they do mean the licence text is already in place and the printed
+labels already use Lexend.
+
+Because `resources/fonts/` holds the TCPDF assets (including `resources/fonts/tcpdf/`),
+the web faces go in **`resources/fonts/web/`** to keep the two pipelines from
+mixing. The implementation acquires **12 files**:
 
 - `lexend-{latin,latin-ext,vietnamese}-{400,500,600}-normal.woff2` (9)
 - `literata-{latin,latin-ext,vietnamese}-600-normal.woff2` (3)
 
-from `https://fonts.bunny.net/{family}/files/`, into `resources/fonts/`. Both
-families are SIL Open Font License 1.1; the licence text ships alongside them.
-Each `@font-face` carries the `unicode-range` bunny serves for that subset, so
-the browser fetches only the subsets a page actually needs — copy the ranges from
+from `https://fonts.bunny.net/{family}/files/` — 143 KB in total. Each
+`@font-face` carries `font-display: swap` (matching the reference) and the
+`unicode-range` bunny serves for that subset, so a typical page fetches only two
+or three files; copy the ranges from
 `https://fonts.bunny.net/css?family=lexend:400,500,600` rather than retyping them.
+Vite rewrites relative `url()` from `resources/css/app.css`, so the `src` paths
+are written relative to that file and need no `vite.config.ts` change.
 
 **One narrowing to note:** the reference passes no weight array, so `next/font`
 ships Lexend as a *variable* font. Pinning 400/500/600 is a deliberate decision
@@ -154,7 +163,7 @@ Treat the numbers as a defensible starting point that a human should look at, no
 as a proof of visual equivalence.
 
 **Why ~5.2 is the reference's constant.** Measured against `page`, **ten** of the
-reference's eleven accent/ink tokens fall in a 5.16–5.25 band: `terracotta-ink`
+reference's eleven accent/ink tokens fall in a 5.15–5.25 band: `terracotta-ink`
 5.246, `available` 5.245, `overdue` 5.227, `meta` 5.214, `held` 5.214, `retired`
 5.214, `leather` 5.210, `sage` 5.181, `brick` 5.160, `onloan` 5.158. (That is ten
 tokens but **nine** distinct values — `retired` is byte-identical to `meta`.) Two
@@ -199,6 +208,21 @@ The light column is the reference's own values, unchanged. They are thin — bri
 sits at 4.504 — but they pass, and D2 keeps them verbatim. Every dark value
 clears 4.5 against all three grounds (`page`, `surface`, `paper`); the full
 matrix is verified in section 6.
+
+**The hairline is derived against `surface`,** where dividers actually live —
+they overwhelmingly sit inside cards, so `surface` is the ground that governs
+whether they are visible. Against `surface` the light hairline `#d3cbc2` is
+1.604; the dark value **`#4a4136`** reproduces it at 1.603. Across all three
+grounds:
+
+| | on `page` | on `surface` | on `paper` |
+|---|---|---|---|
+| light `#d3cbc2` | 1.553 | 1.604 | 1.356 |
+| dark `#4a4136` | 1.754 | 1.603 | 1.485 |
+
+Deriving it against `page` instead would have given `#413930` — 1.414 on
+`surface`, below the reference's own stated floor for a shadowless design, on the
+exact ground where it matters most.
 
 **Fills are not derived.** `terracotta` (`#a4673b`) and the `brick` fill
 (`#af4c44`) keep their light values in dark mode. A fill's job is to carry white
@@ -256,7 +280,7 @@ downloaded and never used.
 
 `errors/419.blade.php` and `errors/429.blade.php` render Vietnamese copy, carry
 the `fonts.bunny.net` link (`419:18-19`, `429:23-24`) and hardcode neutral greys
-(`#fafafa`, `#18121b`, `#52525b`). They are standalone — **neither loads
+(`#fafafa`, `#18181b`, `#52525b`). They are standalone — **neither loads
 `app.css`** via `@vite`.
 
 Deleting the CDN link alone would leave them *more* stock-looking, not less. But
@@ -300,6 +324,14 @@ which resolve through `app.css:13-15`. With `--radius: 0.5rem` (8px), those are
 `--radius-sm` become `calc(var(--radius) - 4px)` = 4px**, giving the reference's
 two-radius system across all 107 call sites without editing a component.
 
+**One stock remnant must be cleared.** `app.css:69-77` is a Tailwind-v3 compat
+block setting `border-color: var(--color-gray-200, currentColor)` on `*`,
+`::after`, `::before`, `::backdrop` and `::file-selector-button`. The later
+`* { @apply border-border }` (`app.css:151-153`) reclaims only the element
+selector, so a **cold grey survives on every pseudo-element border** — visible
+against the warm palette, and invisible to section 7's `hsl(` marker test because
+it is a `var()`. The compat block's fallback must be repointed at the hairline.
+
 **Not ported:** `@utility hairline` (119-122). It has zero call sites in
 `resources/js`, and D5 forbids adding any, so it would ship dead.
 
@@ -332,8 +364,9 @@ Both columns are measured against the **worst case**: text on `paper` (the lowes
 
 One rule covers every case: **map accent variables to the reference's *ink*
 value, and set the matching `-foreground` to the opposing ground** (white in
-light mode, `page` in dark). The cost is that buttons render darker than the reference's
-`#a4673b` — a 19.7% drop in relative luminance; the alternative is either an AA failure or introducing a
+light mode, `page` in dark). The cost is that buttons no longer match the reference's `#a4673b` exactly: in
+light mode `#965c33` is 19.7% lower in relative luminance, and in dark mode
+`#c37f4f` is 52.7% higher; the alternative is either an AA failure or introducing a
 second token and editing every call site, which D5 excludes.
 
 | shadcn variable | light | dark | from |
@@ -388,7 +421,7 @@ alone moves 181 call sites.
 ## 7. Testing
 
 The risk this change carries is silent regression: a token dropped, a mode left
-on stock values, or a CDN link creeping back. Four guards:
+on stock values, or a CDN link creeping back. Five guards:
 
 1. **A palette test** asserting `app.css` defines all **33** variables in `:root`
    and the **32** that belong in `.dark`. The counts differ deliberately:
@@ -414,6 +447,12 @@ on stock values, or a CDN link creeping back. Four guards:
    ground (`background`, `card`, `popover`, `secondary`, `muted`, `accent`) plus
    each fill under its own `-foreground`, ≥ 4.5, in both modes. The measured worst
    case is 4.504 light / 4.510 dark.
+5. **A border test** asserting `--border` and `--input` sit at ≥ 1.5 against
+   `card` in both modes (light 1.604, dark 1.603). Borders are excluded from the
+   contrast test above because they are not text, but they are the structure of a
+   shadowless design — the reference's own comment records them being lost at
+   1.05. Without this guard the dark hairline is the one value in the palette
+   nothing measures.
 
 Per project practice, **each test must be watched failing before it is accepted**
 — mutate the value it protects, see red, restore, confirm `git status
