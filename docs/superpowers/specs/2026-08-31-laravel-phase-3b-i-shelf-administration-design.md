@@ -61,6 +61,10 @@ Administration writes are Actions, not Queries, so they cannot live in
 
 ## 3. Scope
 
+Cross-shelf **reads** for these screens live in `app/Queries/Admin/` (3a's
+existing fence); cross-shelf **writes** live in `app/Actions/Admin/` (D0). A
+controller never calls `systemWide()` itself.
+
 **In:** `/admin/shelves` — list, create, edit (profile, lending policy, up to
 three contacts), archive and un-archive. `/admin/managers` — assign (as manager
 or shelf admin), revoke, promote to super admin. A `BookshelfPolicy`. The
@@ -88,21 +92,52 @@ both are pinned by test. 3b-i extends it to writes, and keeps the fence.
 - **Time.** `systemWide(callable)` already restores the previous context in a
   `finally`. Nothing in this phase calls the bare `actSystemWide()`, which stays
   pinned to its existing three files.
-- **Audit.** `AuditRecorder` gains a sibling for shelf-less acts rather than
-  relaxing `record()`. `record()` keeps throwing on a null tenant — that guard
-  protects every shelf-scoped command in the app and must not be weakened to
-  serve seven administration actions. The new path takes the shelf explicitly
-  (or null) and is itself fenced to `app/Actions/Admin/`.
+- **Audit.** `AuditRecorder` gains a **fluent configurator**, not a differently
+  named method. `record()` keeps its name, its signature and its throw — that
+  guard protects every shelf-scoped command in the app and must not be weakened
+  to serve seven administration actions. Instead the recorder gains
+  `global()` and `forShelf(string $id)`, each returning a configured instance,
+  so a call site reads:
+
+  ```php
+  $this->audit->global()->record('user.promoted_super_admin', ...);
+  $this->audit->forShelf($shelf->id)->record('bookshelf.created', ...);
+  ```
+
+  **The shape is forced, not stylistic.** `AuditActionCensusTest` finds every
+  recorded action with `/->record\(\s*\n?\s*['"]([a-z_]+\.[a-z_]+)['"]/`
+  (`tests/Feature/Architecture/AuditActionCensusTest.php:57`) and asserts
+  set-equality with `AuditSentences::ACTIONS` **in both directions** (`:70`). A
+  sibling named `recordGlobal(...)` would be invisible to that regex, so the
+  seven administration actions would never appear in the census's `$written`
+  set and the census would be **permanently red**. Keeping the literal
+  `->record('...')` at every call site leaves the pin working untouched, which
+  is better than amending it.
+- **Reaching scoped rows.** Admin Actions read and write shelf-scoped models
+  **through relations from the `Bookshelf`** — `$shelf->memberships()`,
+  `$shelf->contacts()` — never through a hand-written `bookshelf_id` predicate.
+  This is also forced. `TenancyArchitectureTest` confines
+  `/where[A-Za-z]*\s*\([^;]*bookshelf_id/i` to a four-file allow-list
+  (`tests/Feature/Architecture/TenancyArchitectureTest.php:80-95,151`) that
+  contains neither `app/Actions/Admin/` nor `app/Queries/Admin/` — 3a's own
+  cross-shelf query contorts every aggregate to avoid it, documented at
+  `app/Queries/Admin/AdminOverviewQuery.php:91-109`.
+
+  The relation form satisfies that fence *and* solves the stamping hazard below
+  in one move: a relation carries its own `bookshelf_id` constraint regardless
+  of widening, and `$shelf->memberships()->create([...])` stamps the column from
+  the relation rather than from the creating hook.
 
 **Widened writes carry a hazard widened reads do not, and admin Actions must
 answer it.** Under `systemWide()`, `BookshelfScope::apply()` returns before
-adding any `where` (`app/Models/Scopes/BookshelfScope.php:34-37`) and
+adding any `where` (`app/Models/Scopes/BookshelfScope.php:35-37`) and
 `BelongsToBookshelf::creating` returns **without stamping `bookshelf_id`**. So a
 widened `Membership::find($id)` reaches every shelf, and a widened `create()`
 silently writes a null `bookshelf_id`. Every Action in `app/Actions/Admin/`
-therefore names its own shelf filter and its own `bookshelf_id` explicitly —
-the same discipline `AdminOverviewQuery`'s docblock already states for reads
-("under a widening there is no scope doing the narrowing"). Nothing else in the
+therefore supplies its own narrowing — via the relations above, which is what
+makes that safe without tripping the filtering fence. This is the same
+discipline `AdminOverviewQuery`'s docblock already states for reads ("under a
+widening there is no scope doing the narrowing"). Nothing else in the
 write path assumes a bound tenant: there are no observers, and
 `BelongsToBookshelf::updating` is a no-op under widening.
 
@@ -176,7 +211,7 @@ borrower without reading a setting
 (`app/Http/Controllers/Manage/StatisticsController.php:23`). They survive only in
 the requirements. Recording them as "shipped but uneditable" would plant exactly
 the false-premise-copied-from-requirements defect that `known-gaps.md:4331-4338`
-already dissects for 3a, so they are recorded as **stale requirements text**
+already dissects (there, a premise copied from the reference), so they are recorded as **stale requirements text**
 instead.
 
 ### D3 — Contacts: one required, two conditional, none public
@@ -273,6 +308,13 @@ We port the omission as an omission and record it, rather than inventing a rule
 the requirements do not contain. `promoteSuperAdmin` refuses a target who is
 already a super admin (`:148`).
 
+**`is_super_admin` is not mass-assignable** — `app/Models/User.php:17-18` says
+so deliberately ("Narrow on purpose. is_super_admin is NOT here"). So
+`update(['is_super_admin' => true])` silently does nothing and returns `true`.
+The promotion sets the attribute directly, and §5 asserts the flag afterwards
+rather than only asserting that an audit row was written — a test that checks
+only the audit row passes while the promotion does nothing.
+
 ### D6 — Revoking a shelf's last manager is permitted, and 3b-i makes it visible
 
 The reference permits it: `revokeManager` counts nothing. So a super
@@ -296,7 +338,7 @@ is in scope precisely because D6 is otherwise indefensible.
 ### D7 — Assigning takes a role: manager or shelf admin
 
 `MembershipRole` has `Admin = 'admin'` at rank 3 alongside `Manager`
-(`app/Enums/MembershipRole.php:11,22`), `act-as-admin` is a defined gate, and the
+(`app/Enums/MembershipRole.php:11,24`), `act-as-admin` is a defined gate, and the
 reference's `assignManager` takes `role: "manager" | "admin"`, validated
 (`managers.ts:20,28`).
 
