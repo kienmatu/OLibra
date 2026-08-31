@@ -96,6 +96,24 @@ final class AuditSentences
         // where both entries read `group: "cong-dong"`).
         'donation.received' => 'community',
         'donation.declined' => 'community',
+        // Phase 3b-i's fifth group, administration — the cross-shelf acts
+        // of the /admin area, which are the reference's own he-thong family
+        // (audit-actions.ts:592-612 files every bookshelf.* entry there).
+        // The group was opened empty by Task 2; these are its first two
+        // members, and they land in the same commit as the commands that
+        // write them, because the census holds the two sets equal in both
+        // directions at every task boundary.
+        //
+        // bookshelf.updated is ONE action for both halves of the editor,
+        // not two. Spec D2 splits profile from lending policy into separate
+        // forms with separate submits and separate refusals, but what a
+        // volunteer reads in the log is "somebody changed this shelf", and
+        // which fields moved is in the payload rows one tap away — INV-8's
+        // own placement. The reference agrees by construction: its two
+        // server actions both run the single updateBookshelfSettings
+        // command, which writes one action name.
+        'bookshelf.created' => 'administration',
+        'bookshelf.updated' => 'administration',
     ];
 
     /**
@@ -317,6 +335,26 @@ final class AuditSentences
             // clause is filled for every row that command writes; the
             // helper renders an empty clause rather than assuming it.
             'donation.declined' => strtr(self::line('donation_declined'), [':because' => self::because(self::str($after, 'reason'))]),
+            // The reference's own arm (audit-actions.ts:592-598): the name
+            // out of $after, with a bare twin when there is none. NOT
+            // self::which() — that helper's fallback line reads 'một cuốn
+            // sách' and would describe a bookshelf as a book, the trap
+            // every announcement.* arm above documents.
+            'bookshelf.created' => ($name = self::str($after, 'name')) !== null
+                ? strtr(self::line('bookshelf_created'), [':name' => $name])
+                : self::line('bookshelf_created_bare'),
+            // AFTER first, then BEFORE — the reference's bookshelf.
+            // settings_updated arm (`str(f.after, "name") ?? str(f.before,
+            // "name")`), and the fallback is not decoration. The profile
+            // form can change the name itself, so $after carries the new
+            // one; the lending-policy form changes no name at all, and its
+            // payload is the settings bag either side. Reading only $after
+            // would leave every policy save saying 'sửa thông tin tủ sách'
+            // with no shelf named, on a screen that is cross-shelf by
+            // nature.
+            'bookshelf.updated' => ($name = self::str($after, 'name') ?? self::str($before, 'name')) !== null
+                ? strtr(self::line('bookshelf_updated'), [':name' => $name])
+                : self::line('bookshelf_updated_bare'),
             default => self::line('unknown'),
         };
     }

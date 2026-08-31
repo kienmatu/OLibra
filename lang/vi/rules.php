@@ -300,4 +300,19 @@ return [
     // returns decisionNote and resources/js/pages/shelves/profile/
     // donations.tsx renders it under the offer (both opened).
     'donation_declined_flash' => 'Đã từ chối — bạn đọc sẽ thấy lý do trên trang Tặng sách của mình.',
+
+    // — quản trị tủ sách (Phase 3b-i) —
+    // The create flash names the NEXT decision rather than only reporting
+    // the last one, because a shelf created here is not yet usable: it has
+    // no lending policy of its own and no contact on file, and the
+    // administrator lands on the editor where both are filled in. Task 5
+    // builds those two forms; until then the sentence points at a screen
+    // that will grow them, which is the same screen either way.
+    'bookshelf_created_flash' => 'Đã mở tủ sách. Hãy điền chính sách mượn và đầu mối liên hệ cho tủ sách này.',
+    // The profile save is deliberately NOT 'Đã lưu thay đổi' on its own.
+    // Spec D2 puts three independently-submittable forms on one screen, and
+    // the reference records at length why a single undifferentiated success
+    // message on such a page cannot say which form saved. So this sentence
+    // names its own section, and Task 5's two flashes name theirs.
+    'bookshelf_profile_saved_flash' => 'Đã lưu thông tin tủ sách.',
 ];

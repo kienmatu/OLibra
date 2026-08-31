@@ -126,6 +126,33 @@ export const copy = {
         statusArchived: "Đã lưu trữ",
         contactsMissing: "Thiếu đầu mối liên hệ",
         managersMissing: "Chưa có người quản lý",
+        // Task 4's two screens. The create form asks for a slug and the
+        // edit form refuses to, which is why they are two components and
+        // two blocks of copy rather than one form handed a null row.
+        createLink: "Mở tủ sách mới",
+        editLink: "Sửa thông tin",
+        createTitle: "Mở tủ sách mới",
+        editTitle: "Thông tin tủ sách",
+        profileSection: "Thông tin tủ sách",
+        required: "Bắt buộc",
+        submitCreate: "Mở tủ sách",
+        submitProfile: "Lưu thông tin",
+        cancel: "Quay lại danh sách",
+        fields: {
+            name: "Tên tủ sách",
+            slug: "Đường dẫn",
+            location: "Địa điểm",
+            address: "Địa chỉ",
+            description: "Giới thiệu",
+            establishedOn: "Ngày thành lập",
+        },
+        slugHint: "Chỉ dùng chữ thường không dấu, số và dấu gạch ngang. Ví dụ: dong-thap.",
+        // The read-only note on the edit screen. A disabled input alone
+        // says "you cannot", never "why" — and the why is the reason the
+        // rule exists: the address is printed on notices and glued inside
+        // book covers (BR §16.4).
+        slugFixed:
+            "Đường dẫn không đổi được sau khi mở tủ sách, vì nó đã nằm trên giấy dán trong sách và trên các đường liên kết đã chia sẻ.",
     },
     auth: {
         title: "Đăng nhập",

@@ -529,6 +529,32 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // BR §16.4's Bookshelves screen. Phase 3b-i Task 3 makes the list
     // real; the placeholder it replaces held the name from Phase 0.
     Route::get('/shelves', [AdminShelfController::class, 'index'])->name('shelves');
+    // Task 4's create and edit-profile. `/shelves/create` is declared
+    // BEFORE the parameterised routes for the ordinary reason — Laravel
+    // matches in declaration order — though the two could not collide as
+    // spelled, since the edit path carries a second segment.
+    //
+    // THE PARAMETER IS {bookshelf}, NOT {shelf}, AND THAT IS LOAD-BEARING.
+    // RouteOrderTest requires the `tenant` middleware on every route naming
+    // {shelf}, because in this application that name means "the shelf this
+    // request is bound to" and the scope fails closed without it. Here it
+    // would mean something else entirely: the /admin group binds no tenant
+    // by design (spec D0), and the shelf in this URL is the OBJECT being
+    // administered from outside it, not the tenant the request runs as.
+    // Spelling it {shelf} and adding the middleware to satisfy the fence
+    // would bind the admin area to one shelf and defeat the whole area; a
+    // different name keeps the fence meaning what it says.
+    //
+    // It still binds by slug — Bookshelf::getRouteKeyName — which is the
+    // address a parish prints, and spec D1 fixes it at creation. There is
+    // deliberately no route that changes one.
+    Route::get('/shelves/create', [AdminShelfController::class, 'create'])->name('shelves.create');
+    Route::post('/shelves', [AdminShelfController::class, 'store'])->name('shelves.store');
+    Route::get('/shelves/{bookshelf}/edit', [AdminShelfController::class, 'edit'])->name('shelves.edit');
+    // PATCH, not PUT: this submit carries the profile section only. The
+    // lending policy and the contacts are Task 5's own routes, because spec
+    // D2 makes each section its own form with its own refusal.
+    Route::patch('/shelves/{bookshelf}', [AdminShelfController::class, 'update'])->name('shelves.update');
     Route::get('/managers', [ShellController::class, 'underConstruction'])->name('managers');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
     Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');

@@ -1,6 +1,8 @@
-import { Head, usePage } from "@inertiajs/react";
+import { Head, Link, usePage } from "@inertiajs/react";
 import { AlertTriangle, Archive, CircleCheck, UserX } from "lucide-react";
+import { route } from "ziggy-js";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
@@ -58,6 +60,16 @@ function ShelfRow({ shelf }: { shelf: AdminShelfRow }) {
                             {copy.adminShelves.managersMissing}
                         </Badge>
                     )}
+                    {/* Task 4's editor. A link rather than a button: this
+                        row's own solid control is Task 6's archive, and two
+                        solid controls on one row would be AGENTS.md rule 3
+                        broken once per shelf. */}
+                    <Link
+                        href={route("admin.shelves.edit", { bookshelf: shelf.slug })}
+                        className="text-sm underline"
+                    >
+                        {copy.adminShelves.editLink}
+                    </Link>
                 </div>
             </CardContent>
         </Card>
@@ -70,7 +82,15 @@ export default function AdminShelves() {
     return (
         <AdminLayout>
             <Head title={copy.adminShelves.title} />
-            <h2 className="mb-4 text-xl font-semibold">{copy.adminShelves.title}</h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+                <h2 className="text-xl font-semibold">{copy.adminShelves.title}</h2>
+                {/* The one solid action on this screen, and the only route
+                    in the application that creates a bookshelf — every
+                    shelf before this task got there by seeder or by hand. */}
+                <Button asChild className="h-14">
+                    <Link href={route("admin.shelves.create")}>{copy.adminShelves.createLink}</Link>
+                </Button>
+            </div>
 
             {shelves.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{copy.adminShelves.empty}</p>

@@ -137,6 +137,29 @@ return [
     'donation_received' => 'nhận một đề nghị tặng sách',
     'donation_declined' => 'từ chối một đề nghị tặng sách:because',
 
+    // — quản trị hệ thống —
+    // Phase 3b-i's administration group. Note the key shape: this file
+    // spells an action's key with an underscore where the action name has a
+    // dot ('bookshelf.created' -> 'bookshelf_created'), the same convention
+    // every line above follows.
+    //
+    // bookshelf_created is the reference's phrase verbatim
+    // (audit-actions.ts:592-598, whose phrase is `name ? `mở tủ sách
+    // ${name}` : "mở một tủ sách mới"`), bare twin included — its `str`
+    // returns null for a missing or blank name, exactly as this file's
+    // helper does.
+    'bookshelf_created' => 'mở tủ sách :name',
+    'bookshelf_created_bare' => 'mở một tủ sách mới',
+    // NOT the reference's wording, and the divergence is the action's
+    // scope rather than a translation preference. Its entry is named
+    // bookshelf.settings_updated and reads 'sửa cài đặt tủ sách' —
+    // *settings*. Ours is bookshelf.updated and covers both halves of the
+    // editor: the profile (name, địa điểm, địa chỉ, giới thiệu, ngày thành
+    // lập) as well as the lending policy. 'cài đặt' would describe a
+    // corrected address as a settings change, so this says 'thông tin'.
+    'bookshelf_updated' => 'sửa thông tin tủ sách :name',
+    'bookshelf_updated_bare' => 'sửa thông tin một tủ sách',
+
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.
     'conditions' => [

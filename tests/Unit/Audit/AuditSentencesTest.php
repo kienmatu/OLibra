@@ -432,7 +432,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
     ));
     expect($groups)->toEqualCanonicalizing(AuditSentences::GROUPS)
         ->and($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(41);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(43);
 });
 
 it('copy.qr_printed names the count, an int cast to string, never str()\'s trimmed-string shape', function () {
