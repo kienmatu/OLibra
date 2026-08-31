@@ -4,7 +4,10 @@ Committed on purpose: the per-task ledger under `.superpowers/sdd/` is gitignore
 dies with its plan, so this file is what lets a **different session** pick the work up.
 Update it as each task lands.
 
-**Last updated:** 2026-08-30. Phase 1 is COMPLETE — #63 merged, `main` = `317a3b3`.
+**Last updated:** 2026-08-31. Phase 1 is COMPLETE — #63 merged, `main` = `317a3b3`.
+**Phase 2c (statistics and QR labels) is COMPLETE on `feat/phase-2c-statistics-and-labels`** —
+all 13 tasks landed and individually reviewed. Not yet pushed; the whole-branch review and the
+merge decision both still to come, and **the merge decision is Kien's**.
 **Phase 2a (requests and holds) is COMPLETE on `feat/phase-2-community`** — all 19 tasks landed
 and individually reviewed, plus a whole-branch review, its fix wave, and the scoped re-review
 that adjudicated the wave's one contested finding. 75 commits, suite **1,031 → 1,261 passing**
@@ -23,7 +26,7 @@ product-owner question waiting for him under "Owed by Kien" below.
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
 | 2a Requests & holds | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | #64 | merged (`main` = `fabfbd4`) |
 | **2b Community voice** | `plans/2026-08-30-laravel-phase-2b-community-voice.md` | — | **complete — 20 tasks, whole-branch reviewed, fixes applied; PR open, awaiting Kien's merge decision** |
-| 2c Statistics & labels | not written | — | — |
+| **2c Statistics & labels** | `plans/2026-08-31-laravel-phase-2c-statistics-and-labels.md` | — | **complete — 13 tasks, each reviewed; awaiting the whole-branch review, then Kien's merge decision** |
 
 Phase 1 (1a–1d) IS BR §1.4's core loop, and it is done. Next: Phase 2 (Community), then
 3 (Network), 4 (Cutover).
@@ -42,6 +45,91 @@ over-wide shape Phase 1 was split for. The cut:
 - **2b — community voice.** Comments and moderation (INV-09 visibility), announcements,
   site feedback and its inbox, donations.
 - **2c — statistics and QR labels.**
+
+## Phase 2c — complete
+
+Branch `feat/phase-2c-statistics-and-labels`, cut from `main` at `7151a91`.
+
+**Gate numbers, and the commit they were taken at.** This file has twice carried a
+diffstat matching no single base, so the base is named before the numbers rather
+than after them. Everything below was measured at **`2d126f4`**, the last commit in
+this phase that changes any code — the commits after it are Markdown only, so
+re-taking the size figures at `HEAD` returns a larger file count and insertion count
+by exactly the documentation this sweep wrote. Re-take rather than believe:
+`git diff --stat origin/main...2d126f4`.
+
+- Suite **1,645 passing / 9,581 assertions**, up from a **1,569 / 9,384** baseline at
+  the branch point.
+- Larastan level 8: `[OK] No errors`, **269 files**.
+- Pint: **PASS, 459 files**.
+- Biome: **3 warnings, 1 info** — the inherited baseline, unchanged; `tsc -p
+  tsconfig.laravel.json --noEmit` clean.
+- **22 commits**, 53 files, **+6,707 / −9** at `2d126f4`.
+- `git diff origin/main...HEAD -- old_next/` is **empty**. The reference app was never
+  written to.
+
+**What shipped.** Two slices. *Slice A* is the manager statistics screen: a
+`StatsPeriod` enum, `Clock::ZONE` and `Clock::periodStart()`, a nine-key
+`StatisticsQuery`, and a screen with four totals, two charts and a plain sentence over
+each. *Slice B* is QR labels end to end — the `OLB1:` payload codec, three label
+queries, `MarkCopiesPrinted`, a TCPDF sheet that lays 21 stickers on the page A4 and US
+Letter share with Lexend embedded and diacritics surviving into the text layer, the
+manager's selection screen, and a camera scanner that resolves a scanned label back to a
+copy and is refused across shelves by tenancy.
+
+**Divergences, all recorded rather than absorbed.**
+
+- **D2 — lost copies are counted by the column that means it.** The reference filters
+  `state = 'lost' and updated_at >= :since`, but `updated_at` moves on any write, so a
+  copy reported lost years ago re-enters the count the next time anything touches its
+  row. This schema carries `book_copies.lost_reported_at`, written by `ReportCopyLost`,
+  so the honest predicate — `state = 'lost' and lost_reported_at >= :since` — was
+  available and is used (`StatisticsQuery.php:146-147`).
+- **D7 — the zero-row rule.** `copy_selection_empty` refuses an empty INPUT array and
+  nothing else. A non-empty selection that scopes down to zero rows — every id belonging
+  to another shelf — succeeds with a count of zero, because it is a fact about a PDF that
+  already exists rather than a target that was missed.
+- **The PHP-not-SQL boundary refinement.** The design proposed rebuilding Postgres's
+  `date_trunc` as MariaDB expressions and had verified they run; Task 1 computes the
+  period boundary in PHP instead, which removes the problem rather than porting it.
+  `CONVERT_TZ` additionally depends on the host's timezone tables being loaded and
+  returns NULL rather than erroring when they are not — which would have silently
+  emptied the chart.
+- **`?period=` where the reference uses `?ky=`** — this repo's URIs are English, pinned
+  by `RouteOrderTest`.
+- **`topReaders` parity was RESTORED, and a divergence retracted by name.** Task 2
+  originally dropped the reference's two filters (trashed users, dead memberships) and
+  justified it with a fan-out that cannot happen: `memberships_one_per_shelf` is unique
+  on `(bookshelf_id, user_id)` and memberships are in the RLS table list, so at most one
+  membership row is visible per user per shelf. A divergence with a false reason was
+  never a divergence; it was an omission. Both filters are back, the membership one as
+  `whereIn('borrower_id', Membership::query()->select('user_id'))` rather than a raw
+  join, so `BookshelfScope` keeps the subquery shelf-bounded and no join condition names
+  `bookshelf_id`.
+
+**The carries are in `docs/known-gaps.md`**, under "Phase 2c — Statistics and labels".
+The largest by far: **no label sheet has ever been through a printer.** The geometry is
+verified as bytes and inherited from a reference that was itself designed against
+measurements rather than a printed proof; nothing in CI can check ink on paper. Also
+recorded: the quiet zone's half-module shortfall on two edges (to be settled by that
+print, not widened blind), the camera component being unverifiable with no frontend test
+runner, the FPDF → TCPDF retraction, `TenancyArchitectureTest`'s comment-blind
+`bookshelf_id` grep, `application/wasm` as row 15 of the hosting survey, and four
+deferred cosmetics.
+
+**The reusable lesson from this phase is about the plan, not the code.** The plan was
+reviewed **twice before any code was written**, and both rounds earned their place. The
+first review returned **NEEDS REWORK** with ten Criticals: a fixture written against a
+`LoanFactory` that does not exist, a borrower column that is not called what the plan
+called it, every HTTP URI in the phase pointing at the reference app's path scheme, four
+routes "added" that already existed as named placeholders, a PDF library that cannot do
+the one thing it was chosen for, and a test asserting the exact behaviour OPS singles out
+as wrong. The **re-review of that rework then found a Critical the rework itself had
+introduced** — a new block calling `Category::factory()->for($shelf)` against a model
+that is deliberately global and has no `bookshelf()` relation. That is the argument for
+re-reviewing fix waves rather than trusting them, and it held during execution too: the
+per-task reviews opened citations twelve times, several found false ones, and more than
+one false citation had been introduced by a fix round sent to remove an earlier one.
 
 ## Phase 2b — complete
 
@@ -948,8 +1036,9 @@ recorded; the audit log reads **all of it**, 25/page, filtered, never pruned.
 
 - **`main` has no branch protection.** CI runs and passes but a red gate would not block a
   merge. Unchanged since Phase 1a.
-- **`docs/HOSTING.md` rows 2–14 are unrun.** The deploy pipeline has never touched the
-  cPanel host.
+- **`docs/HOSTING.md` rows 2–15 are unrun.** The deploy pipeline has never touched the
+  cPanel host. Phase 2c added row 15 (does it serve `.wasm` as `application/wasm`?), which
+  is a performance note rather than a blocker.
 
 ## Open item worth a decision later
 
@@ -959,6 +1048,13 @@ the dashboard leaves all 23 of its tests — plus Pint, Larastan, Biome, tsc and
 entirely green, because `assertInertia` checks server-side props only. No page in this
 codebase can catch a mis-wired label/value pair. Recorded in Phase 1d's known-gaps; whether
 to adopt component-level tests is a real decision, not a task.
+
+**Phase 2c raised the stakes on that decision.** Until now the gap cost coverage of
+rendering. `resources/js/components/copy-scanner.tsx` is the first component that owns real
+behaviour no server test can reach — a camera stream, a wasm decode, and the branch taken on
+each failure — and it ships with zero automated coverage. The mitigation is structural (the
+typed copy code beside it is a complete path to the same outcome, and that path is tested),
+not a substitute.
 
 ## Read next
 
