@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
 use App\Http\Controllers\Admin\ShelfController as AdminShelfController;
 use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
@@ -585,7 +586,33 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // filter for 3b-ii rather than landing it beside the archive control.
     Route::post('/shelves/{bookshelf}/archive', [AdminShelfController::class, 'archive'])->name('shelves.archive');
     Route::post('/shelves/{bookshelf}/unarchive', [AdminShelfController::class, 'unarchive'])->name('shelves.unarchive');
-    Route::get('/managers', [ShellController::class, 'underConstruction'])->name('managers');
+    // Task 7's screen, spec D5 and D7 — OPS §3.4's GetManagersList, and the
+    // last placeholder in this group to become real.
+    Route::get('/managers', [AdminManagerController::class, 'index'])->name('managers');
+    // The three grants, all POST and all naming their subject in the URL.
+    //
+    // {bookshelf} AGAIN, NEVER {shelf} — the reasoning above the shelves
+    // routes applies unchanged: RouteOrderTest requires the tenant
+    // middleware on every route naming {shelf}, and this group binds no
+    // tenant by design.
+    //
+    // {membership} IS DELIBERATELY NOT BOUND TO A MODEL. Membership carries
+    // BelongsToBookshelf, so implicit binding would resolve it through
+    // BookshelfScope, which fails closed with no tenant — every request to
+    // this route would 500 before the controller body ran. The controller
+    // takes it as a string and RevokeManager reads the row through the
+    // shelf's own relation, which also confines a hand-posted id to the
+    // shelf named here. {user} on the promote route is bound normally: User
+    // is not a scoped model.
+    //
+    // Two segments, three, and four — the three patterns cannot collide
+    // however Laravel orders them.
+    Route::post('/managers/{bookshelf}', [AdminManagerController::class, 'store'])->name('managers.assign');
+    Route::post('/managers/{bookshelf}/{membership}/revoke', [AdminManagerController::class, 'revoke'])->name('managers.revoke');
+    // The one grant that belongs to no shelf, which is why its audit row
+    // carries none and why Task 1's configurator exists (spec D0, D5).
+    // There is deliberately no route back: OPS §4.5 lists no demotion.
+    Route::post('/managers/{user}/promote', [AdminManagerController::class, 'promote'])->name('managers.promote');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
     Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
     Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');

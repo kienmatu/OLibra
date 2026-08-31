@@ -334,4 +334,35 @@ return [
     // on its own can read as removal.
     'bookshelf_archived_flash' => 'Đã ngưng hoạt động tủ sách. Toàn bộ dữ liệu vẫn được giữ lại và có thể mở lại bất cứ lúc nào.',
     'bookshelf_unarchived_flash' => 'Đã mở lại tủ sách.',
+
+    // — quản lý viên (Phase 3b-i Task 7) —
+    // BR §16.4's confirmation, and the requirement is that it "states
+    // plainly that history is retained" — so the sentence says what stays,
+    // not merely what goes, and it names both the person and the tủ sách so
+    // a volunteer confirming it is looking at the grant they meant. Assembled
+    // server-side, per row, and sent down as a prop: a key the screen looked
+    // up itself could render an unsubstituted placeholder with this line
+    // still present and correct.
+    'membership_role_revoke_confirm' => 'Thu hồi quyền quản lý của :name tại tủ sách :shelf? Người này sẽ trở lại làm bạn đọc của tủ sách. Toàn bộ lịch sử mượn sách, bình luận và đăng ký đều được giữ lại.',
+    // The refusal for a revoke aimed at somebody who is already a reader.
+    // NOT the reference's shared 'not_permitted', whose sentence reads
+    // 'Bạn không có quyền thực hiện việc này' — a false statement about the
+    // actor, since a super administrator has every permission there is, when
+    // the truth is about the subject. BR §2 asks for errors that are named
+    // rather than generic, and this is what a named one buys.
+    'not_a_manager' => 'Người này không giữ quyền quản lý tủ sách, nên không có gì để thu hồi.',
+    // The refusal for promoting somebody who already holds the global
+    // grant. Says the outcome is already true rather than reporting a rule,
+    // because that is the only thing the reader needs to know — and there is
+    // deliberately no way to undo it (spec D5), so the sentence must not
+    // sound like an invitation to try the other direction.
+    'already_super_admin' => 'Người này đã là quản trị viên hệ thống.',
+    'membership_role_assigned_flash' => 'Đã giao quyền quản lý tủ sách.',
+    // Names what the person becomes rather than saying 'Đã lưu': the whole
+    // change is a role, and the row it changed is one of many on the screen.
+    'membership_role_revoked_flash' => 'Đã thu hồi quyền quản lý. Người này vẫn là bạn đọc của tủ sách và giữ nguyên toàn bộ lịch sử.',
+    // Says that the grant cannot be taken back, because this is the moment
+    // it becomes true and there is no screen anywhere that would say it
+    // later (spec D5 — OPS §4.5 lists no demotion command).
+    'user_promoted_super_admin_flash' => 'Đã giao quyền quản trị hệ thống. Hiện chưa có cách thu hồi quyền này.',
 ];

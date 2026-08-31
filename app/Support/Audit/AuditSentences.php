@@ -122,6 +122,27 @@ final class AuditSentences
         // sentence.
         'bookshelf.archived' => 'administration',
         'bookshelf.unarchived' => 'administration',
+        // Task 7's three, the same he-thong family (audit-actions.ts:
+        // 615-630). The two membership names are OPS §4.5's own rather
+        // than the shorter manager.* they read as, and the reference
+        // records why: they are facts about a MEMBERSHIP, and one person
+        // may be given the keys to one parish while staying a reader at
+        // another.
+        //
+        // They are 'administration' and not 'readers', even though every
+        // other membership.* entry above is 'readers'. The group answers
+        // "which screen is this act from", not "which table did it
+        // touch": these two are made from the cross-shelf admin area by
+        // somebody who is not a member of the shelf at all, and filing
+        // them under readers would bury them among the approvals and
+        // suspensions a shelf's own manager does daily.
+        'membership.role_assigned' => 'administration',
+        'membership.role_revoked' => 'administration',
+        // THE ONLY ACTION IN THE WHOLE MAP THAT BELONGS TO NO SHELF. Its
+        // row carries a null shelf column, which is the reason
+        // AuditRecorder has a configurator at all (spec D0) — and why the
+        // shelf-scoped audit screen never shows it.
+        'user.promoted_super_admin' => 'administration',
     ];
 
     /**
@@ -376,6 +397,23 @@ final class AuditSentences
             'bookshelf.unarchived' => ($name = self::str($before, 'name')) !== null
                 ? strtr(self::line('bookshelf_unarchived'), [':name' => $name])
                 : self::line('bookshelf_unarchived_bare'),
+            // Task 7's three, all naming a PERSON — so all three go through
+            // who(), and NONE of them needs the _bare twin the four
+            // bookshelf.* arms above carry. That twin exists because a name
+            // read out of the payload can be absent; who() has its own
+            // fallback line ('một người') built in, which is why every
+            // subject-naming arm in this file from membership.approved
+            // onwards is a single strtr and not a conditional.
+            //
+            // The subject is resolved by AuditLogQuery from the entity id on
+            // the row — a membership id joins through to its person, a user
+            // id straight to one — so it is filled for a live row whether or
+            // not the payload carried it. The commands also write 'subject'
+            // into the payload as the fallback for a row whose person is
+            // later soft-deleted.
+            'membership.role_assigned' => strtr(self::line('membership_role_assigned'), [':subject' => self::who($subject)]),
+            'membership.role_revoked' => strtr(self::line('membership_role_revoked'), [':subject' => self::who($subject)]),
+            'user.promoted_super_admin' => strtr(self::line('user_promoted_super_admin'), [':subject' => self::who($subject)]),
             default => self::line('unknown'),
         };
     }

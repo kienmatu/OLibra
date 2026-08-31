@@ -173,6 +173,24 @@ return [
     // story: mở → sửa → ngưng hoạt động → mở lại.
     'bookshelf_unarchived' => 'mở lại tủ sách :name',
     'bookshelf_unarchived_bare' => 'mở lại một tủ sách',
+    // Task 7's three, all three the reference's phrases verbatim
+    // (audit-actions.ts:619-630). NO _bare TWINS, unlike the four lines
+    // above: those substitute a name read out of the payload, which can be
+    // missing, while these substitute a SUBJECT, and who() already falls
+    // back to 'một người' on its own — the same shape every membership.*
+    // line above uses.
+    //
+    // 'quyền quản lý' covers both roles the assign form offers, manager and
+    // shelf admin, and that is deliberate rather than lossy: which of the
+    // two was given is on the payload row one tap away (INV-8's own
+    // placement), and a log sentence that had to say 'quản trị tủ sách' in
+    // one case and 'quản lý' in the other would read as two different acts
+    // when the revoke that undoes either is one.
+    'membership_role_assigned' => 'giao quyền quản lý cho :subject',
+    'membership_role_revoked' => 'thu hồi quyền quản lý của :subject',
+    // 'hệ thống', not 'tủ sách' — the whole point of this row is that it
+    // belongs to no shelf.
+    'user_promoted_super_admin' => 'giao quyền quản trị hệ thống cho :subject',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

@@ -204,6 +204,53 @@ export const copy = {
         // before the press rather than after it.
         archiveNote: "Tủ sách ngưng hoạt động vẫn giữ nguyên toàn bộ dữ liệu và có thể mở lại.",
     },
+    // Task 7's screen (spec D5, D7) — OPS §3.4's GetManagersList and the
+    // three grants of §4.5.
+    adminManagers: {
+        title: "Quản lý viên",
+        lead: "Những người có quyền trên hệ thống và trên từng tủ sách.",
+        empty: "Chưa có quản lý viên nào.",
+        // The appoint form. Above the list on purpose: on a fresh install
+        // the list holds only the one super administrator the seeder makes,
+        // and there is nothing below worth scrolling to until a parish has
+        // somebody to run it.
+        assignSection: "Giao quyền quản lý",
+        assignShelf: "Tủ sách",
+        assignShelfPlaceholder: "Chọn tủ sách",
+        assignPerson: "Bạn đọc",
+        assignPersonPlaceholder: "Chọn bạn đọc",
+        assignRole: "Quyền",
+        submitAssign: "Giao quyền quản lý",
+        // Only ACTIVE shelves are offered and only active readers of the
+        // chosen shelf, so both empty states have to say which of the two
+        // is missing — "nothing to choose" with no reason is the state a
+        // volunteer cannot act on.
+        assignNoShelves: "Chưa có tủ sách nào đang hoạt động.",
+        assignNoCandidates: "Tủ sách này chưa có bạn đọc nào để giao quyền.",
+        // The three roles as a volunteer reads them. `super_admin` is not a
+        // membership role and is never a choice in the form — it is only
+        // ever a label on a row.
+        roleSuperAdmin: "Quản trị hệ thống",
+        roleAdmin: "Quản trị tủ sách",
+        roleManager: "Quản lý",
+        wholeSystem: "Toàn hệ thống",
+        lastActive: "Hoạt động gần nhất",
+        neverActive: "Chưa làm việc gì trên hệ thống",
+        // The revoke control. The confirmation SENTENCE is not here: it
+        // names the person and the shelf, so it is assembled server-side
+        // per row and arrives as a prop (BR §16.4, and see
+        // ManagerController).
+        revoke: "Thu hồi quyền quản lý",
+        revokeConfirm: "Xác nhận thu hồi",
+        cancel: "Huỷ",
+        // The global grant, and the one control on this screen with no way
+        // back — so the warning is beside the button rather than after the
+        // press (spec D5: OPS §4.5 lists no demotion command).
+        promote: "Giao quyền quản trị hệ thống",
+        promoteConfirm: "Xác nhận giao quyền",
+        promoteWarning:
+            "Người này sẽ thấy và sửa được mọi tủ sách. Hiện chưa có cách thu hồi quyền này.",
+    },
     auth: {
         title: "Đăng nhập",
         username: "Tên đăng nhập",

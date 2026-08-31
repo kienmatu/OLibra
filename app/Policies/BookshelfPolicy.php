@@ -95,6 +95,49 @@ class BookshelfPolicy
             : Response::denyAsNotFound();
     }
 
+    /**
+     * Task 7, spec D7. A grant may only be made on a shelf that is running.
+     * `AssignManager` itself reads no status — it checks that the shelf and
+     * the person exist and nothing else — so appointing somebody to an
+     * archived shelf would silently mint a membership nobody can ever
+     * exercise, through a redirect that looks exactly like every other
+     * success. The reference's own picker excludes archived shelves for
+     * this reason; here the rule is stated once, where a hand-posted form
+     * meets it too.
+     */
+    public function assignManager(User $user, Bookshelf $bookshelf): Response
+    {
+        $allowed = $this->asSuperAdmin($user);
+
+        if ($allowed->denied()) {
+            return $allowed;
+        }
+
+        return $bookshelf->status === BookshelfStatus::Active
+            ? Response::allow()
+            : Response::denyAsNotFound();
+    }
+
+    /**
+     * NOT the mirror of assignManager(), and the asymmetry is deliberate: an
+     * archived shelf's managers must stay revocable. The manager list exists
+     * so a super administrator can see and undo what is already there, which
+     * is a different question from where a NEW grant may go — and a shelf
+     * archived while somebody still held its keys is precisely when taking
+     * them back matters.
+     *
+     * The state rule that a reader has nothing to revoke lives in
+     * `RevokeManager` rather than here, as a named refusal with its own
+     * Vietnamese sentence. This screen lists the person by name one line
+     * above the control, so the anti-enumeration argument that makes
+     * archive() a 404 has nothing to protect here — a 404 would only be a
+     * blank answer about somebody the caller is already looking at.
+     */
+    public function revokeManager(User $user, Bookshelf $bookshelf): Response
+    {
+        return $this->asSuperAdmin($user);
+    }
+
     private function asSuperAdmin(User $user): Response
     {
         return $user->is_super_admin ? Response::allow() : Response::denyAsNotFound();

@@ -23,6 +23,7 @@ use App\Policies\BorrowRequestPolicy;
 use App\Policies\CommentPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
+use App\Policies\UserPolicy;
 use App\Support\DeadlockDetector;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\Members\Phone;
@@ -269,5 +270,12 @@ class AppServiceProvider extends ServiceProvider
         // resolves this pair today, and PolicyRegistrationTest reads this
         // file's own source, so it covers the pair either way.
         Gate::policy(Bookshelf::class, BookshelfPolicy::class);
+        // Phase 3b-i Task 7, spec D5. One ability — the global grant, the
+        // only act in the catalogue done TO a person rather than to a
+        // membership, which is why it can live on neither MembershipPolicy
+        // (whose every method reads a membership under a bound tenant) nor
+        // BookshelfPolicy (this act names no shelf). Same 404-shaped
+        // refusal as the line above it.
+        Gate::policy(User::class, UserPolicy::class);
     }
 }
