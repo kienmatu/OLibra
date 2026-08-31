@@ -43,10 +43,25 @@ dashboard showing "one row per bookshelf" is, by construction, a read that no
 The hatch for this exists and was designed for exactly this moment.
 `TenantContext::actSystemWide()` sets a flag that removes filtering — and its own
 docblock is explicit that this is "a capability spec §5 sanctions widening into.
-Console commands, seeders and admin queries opt in BY NAME." But **no production
-code has ever called it.** Only seeders and test fixtures. Phase 3a is where it
-becomes real, and it does not narrow the tenant — it removes the predicate
-altogether.
+**Console commands**, seeders and admin queries opt in BY NAME."
+
+**RETRACTED:** an earlier draft of this section said "no production code has ever
+called it. Only seeders and test fixtures." That is false, and the repository
+already knew it. `app/Console/Commands/SweepReminders.php:106` calls
+`$tenant->actSystemWide()` — a nightly scheduled command serving every parish,
+shipped in Phase 2a — and `tests/Feature/Architecture/TenancyArchitectureTest.php`
+allow-lists that file with the comment *"the reminder sweep is the one non-seeder
+caller of `TenantContext::actSystemWide()`"*. The claim was written without being
+grepped, which is this project's chronic defect committed in the sentence
+introducing a phase about being careful.
+
+The honest framing is stronger than the false one. **There is a precedent, and it
+is allow-listed rather than forbidden.** The question 3a must answer is not
+"should we ever widen" — that was settled in 2a — but whether the allow-list
+generalises from one nightly console job to a family of request-path queries.
+3a's widening is the **second**, and the first on an HTTP request path. That
+distinction is the whole of D1, because a console command runs in a process that
+exits; a request does not.
 
 So the question this phase must answer, before any administration screen is
 built, is: *what stops that capability from spreading?* Answer it once, here, and
@@ -78,59 +93,144 @@ Ruled by the product owner on 2026-08-31.
 
 **1. `AGENTS.md` corrected to describe this repository.**
 
-**2. `App\Queries\Admin\`** — the only namespace permitted to widen tenancy —
-with `AdminOverviewQuery` as its first member, and a falsifiable architecture
-test as its guard.
+**2. A scoped widening capability and its two guards.** `TenantContext` gains a
+`systemWide(callable)` wrapper that restores the prior state in a `finally` (D1);
+`App\Queries\Admin\` becomes the only namespace permitted to call it, with
+`AdminOverviewQuery` as its first member; and two falsifiable architecture tests
+pin the namespace and the lifetime respectively.
 
 **3. The portal.** `/shelves` already renders active shelves from Phase 0's
-skeleton (`ShellController::shelves`, verified). It gains a search box and shows
-address alongside location.
+skeleton (`ShellController::shelves`, verified — it sends `slug`, `name`,
+`location`). It gains a **diacritic-folding** search box and shows address
+alongside location. **This brings 3a's one migration** (D8): `bookshelves` has no
+folded column, and every other search in the codebase matches a stored generated
+one.
 
 **4. The administration dashboard.** A new `/admin` index route, its screen, and
-the query behind it.
+the query behind it. `resources/js/layouts/admin-layout.tsx` **already ships** —
+its nav lists four of the seven admin routes and has no dashboard entry, so 3a
+adds that link rather than building a layout.
 
 ## Decisions taken
 
-### D1. Widening is confined to one namespace, and a test proves it
+### D1. Widening is confined in NAMESPACE and in TIME, and both are pinned
 
-`TenantContext::actSystemWide()` may be called **only** from within
-`app/Queries/Admin/`. `AdminOverviewQuery` calls it once, by name, at the top of
-its own method:
+**This decision was rewritten after independent review measured that the first
+version did not contain what it claimed to contain.**
+
+#### The leak, measured
+
+`TenantContext` is bound `scoped` (`app/Providers/AppServiceProvider.php:48`) —
+one instance per request. `actSystemWide()` sets `$systemWide = true` and nulls
+both `bookshelf` and `membership`. **Nothing resets it.** `clear()` exists at
+`TenantContext.php:71` and has **zero callers** anywhere in `app/` (grepped).
+`ResolveTenant` runs before the controller, so it cannot undo a widening the
+controller performs.
+
+Proven by probe rather than reasoned: with shelf A bound and one book on each of
+two shelves, `Book::query()->count()` returns **1**; after a widening call inside
+another object's method it returns **2**, with `bookshelf()` and `membership()`
+both `null`.
+
+#### Why that matters more than it first appears
+
+**The spec's original Risk 2 described the wrong failure mode.** It said code
+assuming a bound tenant "will fail — loudly, by design, since `BookshelfScope`
+throws on an unset tenant". That is true of **unset**. It is false of
+**system-wide**: `BookshelfScope::apply` returns early on `isSystemWide()`
+(line 35) and adds **no predicate at all**. The mode this phase introduces is the
+**silent over-read** — precisely the inversion `BookshelfScope`'s own docblock
+says fail-closed exists to prevent.
+
+Three concrete consequences, none of which bite in 3a but all of which bite in
+3b and 3c:
+
+1. **Inertia's closure props resolve after the controller.** `Inertia\Middleware`
+   shares before `$next($request)`, so the `shelf` prop is snapshotted pre-widening
+   — but `unreadNotifications` and `pendingDonations` in `HandleInertiaRequests`
+   are **closures**, evaluated at response-build time. On any shelf-bound page
+   whose controller touched a widened query, those badges would count every
+   parish's rows into one shelf's number, silently.
+2. **The role gates go dark.** `$roleGate` (`AppServiceProvider.php:167`) reads
+   `TenantContext::membership()`, which widening nulls. Afterwards every
+   `act-as-*` gate denies for an ordinary manager — and for a super admin
+   `Gate::before` returns `true` regardless, so they retain access to a shelf page
+   whose every scoped read now spans the network.
+3. It is the §5.4 disclosure boundary crossed on an Inertia prop rather than on a
+   route.
+
+**3a itself is safe**: the `/admin` group carries only `super-admin` middleware,
+no `tenant` (verified at `routes/web.php:521`), so nothing is bound to lose. But a
+namespace fence says *who may widen* and says nothing about *for how long*, and
+3b and 3c add manager-facing screens.
+
+#### The decision
+
+**Widening is scoped to a callback that restores the prior state.** Add to
+`TenantContext`:
 
 ```php
-final class AdminOverviewQuery
+/** @template T  @param callable(): T $fn  @return T */
+public function systemWide(callable $fn): mixed
 {
-    public function run(): array
-    {
-        // The ONE place this phase removes the tenant predicate. Confined to
-        // this namespace by LabelsArchitectureTest's sibling, and pinned there.
-        $this->context->actSystemWide();
-        ...
+    $bookshelf = $this->bookshelf;
+    $membership = $this->membership;
+    $systemWide = $this->systemWide;
+
+    $this->actSystemWide();
+
+    try {
+        return $fn();
+    } finally {
+        $this->bookshelf = $bookshelf;
+        $this->membership = $membership;
+        $this->systemWide = $systemWide;
     }
 }
 ```
 
-An architecture test asserts that no file outside `app/Queries/Admin/` contains
-that call, allow-listing `TenantContext`'s own declaration by name.
+and call it from the admin query:
 
-**The pin must be watched failing.** Phase 2c shipped an architecture pin whose
-first draft was vacuous — it compared a bare path against offender entries
-carrying a `"(line N)"` suffix, so deleting the thing it guarded still reported
-55 passed. It was caught only because falsification was mandatory. The same
-standard applies here: add a call outside the namespace, watch the test redden,
-remove it, and prove `git status --porcelain` clean.
+```php
+return $this->context->systemWide(fn (): array => /* the cross-shelf read */);
+```
 
-**Rejected: binding each shelf in turn.** Looping the shelves and calling
-`TenantContext::set()` per shelf would never break the invariant at all, and
-would reuse queries that have already passed review. It was rejected for query
-count — five metrics across every parish, on a page whose whole purpose is one
-screen of totals — but it remains the honest fallback if the pin cannot be made
-non-vacuous. **A widening that cannot be pinned must not ship**; take the loop
-instead.
+The `finally` restores on the exception path too, which matters: a query that
+throws mid-read must not leave the rest of the request unscoped.
 
-**Rejected: raw aggregate SQL grouped by `bookshelf_id`.** One fast statement,
-and precisely the shape `TenancyArchitectureTest` exists to catch. It also
-hand-writes the tenant column, which every phase of this project has forbidden.
+**This lifts the original exclusion.** An earlier draft's "Explicitly not in
+scope" forbade "any change to … `TenantContext` beyond *calling* the capability
+that already exists". That exclusion is **retracted** — the review established
+that calling the existing capability is exactly what cannot be contained.
+
+#### The two pins, both falsifiable
+
+1. **Namespace.** `actSystemWide()` may be called only from within
+   `app/Queries/Admin/`, from `TenantContext::systemWide()` itself, and from
+   `app/Console/Commands/SweepReminders.php` — **the existing production caller,
+   allow-listed here by name with its reason rather than discovered
+   mid-implementation.** The first draft of this pin would have failed on day one
+   against the sweep.
+2. **Lifetime.** After an admin query returns, a previously bound tenant is
+   **still bound** and a scoped model read **still filters**. This is the pin the
+   first version had no equivalent of.
+
+**Both must be watched failing.** Phase 2c shipped an architecture pin whose first
+draft was vacuous — it compared a bare path against offender entries carrying a
+`"(line N)"` suffix, so deleting what it guarded still reported 55 passed, and it
+was caught only because falsification was mandatory. Add a call outside the
+namespace, watch it redden, remove it, prove `git status --porcelain` clean; then
+do the equivalent for the lifetime pin.
+
+**Rejected: binding each shelf in turn.** Looping shelves with
+`TenantContext::set()` never widens at all and reuses reviewed queries. Rejected
+on statement count, but it remains the honest fallback: **a widening that cannot
+be pinned must not ship.** Note for whoever takes it — it is a rewrite rather than
+a drop-in, because `ManagerDashboardQuery`'s metric set is not D3's (no
+donations, and its reader count uses `whereHas('user')`).
+
+**Rejected: raw aggregate SQL grouped by `bookshelf_id`** as the *shape of the
+widening*; see D7 for the query shape actually chosen.
 
 ### D2. The portal shows name, location and address
 
@@ -139,9 +239,17 @@ page sends `location`; the `bookshelves` table carries **both** a `location` and
 an `address` column. Ruled by the product owner on 2026-08-31: **show both.**
 
 BR's "nothing else" was written to exclude book counts, reader counts and shelf
-contacts — the sentence continues "because a person with no membership has no
-business knowing them" — not to forbid a second line of geography. A parent
-looking for their own parish is served by both.
+contacts. **Corrected:** an earlier draft said BR's sentence "continues" with
+"because a person with no membership has no business knowing them". It does not —
+the next sentence is "A search box, because finding your own parish is the only
+job this page has", and the quoted clause is a separate, later sentence in the
+same paragraph. The substance holds (BR does scope "nothing else" to counts and
+contacts) but the textual link was overstated.
+
+**Both columns are nullable**, and the shipped page already guards `location`.
+Render each only when present; a shelf with neither shows its name alone rather
+than an empty line or a placeholder. The search matches **name, location and
+address** — all three, since a parent may recall the street before the saint.
 
 ### D3. "Pending" is the reference's own sum, not a new definition
 
@@ -195,6 +303,93 @@ real things. **Where a rule's intent survives its missing component, the intent
 is kept and only the mechanism changes**: rule 2's "status is never colour alone"
 is a good rule whether or not a `StatusBadge` exists to enforce it.
 
+### D7. The dashboard aggregates by `GROUP BY`, not by correlated subquery
+
+D1 rejects the per-shelf loop and raw grouped SQL as *ways of widening*. This
+decision names the **query shape** inside the widening, because the obvious
+choice does not compile.
+
+The reference uses correlated subqueries — `(select count(*) from books where
+bookshelf_id = b.id)` per metric. Ported to Eloquent that becomes
+`whereColumn('books.bookshelf_id', 'bookshelves.id')`, which **matches
+`TenancyArchitectureTest`'s first pattern**, `/where[A-Za-z]*\s*\([^;]*bookshelf_id/i`
+(read at line 151), and `app/Queries/Admin/` is not on that test's allow-list. It
+fails the build.
+
+**The shape is therefore one grouped aggregate per metric plus one shelf list** —
+a constant number of statements regardless of parish count, which also answers
+D1's statement-count objection to the loop:
+
+```php
+$books = Book::query()->groupBy('bookshelf_id')
+    ->selectRaw('bookshelf_id, count(*) as n')->pluck('n', 'bookshelf_id');
+```
+
+`groupBy('bookshelf_id')` does not match the grep — the pattern requires a
+`where`-shaped call — so no allow-list entry is needed. **If an implementer finds
+a metric that cannot be expressed this way and must name the column in a
+`where`-shaped call, that is a spec amendment plus an allow-list entry with its
+reason, not an improvisation.**
+
+**Retracted from D1's original text:** it rejected raw SQL because it
+"hand-writes the tenant column, which every phase of this project has forbidden".
+That is false. Naming `bookshelf_id` is **allow-listed**, not forbidden —
+`TenancyArchitectureTest` grants it to `AuditLogQuery.php` and
+`SweepReminders.php` — and `TenantContext`'s own docblock instructs widened
+callers to "name their own `bookshelf_id` explicitly", because under a widening
+there is no scope left to do the narrowing. The objection to raw SQL is that it
+bypasses Eloquent, not that it names the column.
+
+### D8. The portal search folds, and `bookshelves` gains folded columns
+
+BR §16.1 makes the search box the portal's only job, for Vietnamese parish names.
+Every other search in this codebase folds diacritics and matches against a
+**stored generated column**: `books.title_folded`, `books.author_folded`,
+`users.full_name_folded`, consumed by `SearchQuery`, `BooksListQuery`,
+`ReadersListQuery` and the three lending searches.
+
+**`bookshelves` has no folded column** — verified against the live table: `id`,
+`slug`, `name`, `description`, `location`, `address`, `cover_url`, `timezone`,
+`locale`, `status`, `settings`, `established_on`, `created_by`, timestamps,
+`deleted_at`, `slug_active`. So a naive `LIKE` finds nothing for *Giáo xứ Hòa
+Bình* when a parent types `hoa binh`, which is the exact case the box exists for.
+
+**3a therefore ships a migration** adding generated folded columns over `name`,
+`location` and `address`, built with the same `FoldExpression` every other folded
+column uses, and the search matches those.
+
+**Why generated columns rather than folding in the expression.** An unindexed
+`FoldExpression::sql()` in the `WHERE` would be parity-safe — it is the same
+expression — and at a few dozen parishes the index buys nothing. It is rejected
+because it would make the portal *the one search in the codebase that works
+differently*, and BR §12's store-equals-search invariant is enforced repo-wide by
+`FoldParityTest`. Consistency is worth one small migration; divergence is how the
+next person's search subtly disagrees with this one.
+
+**Note for the plan:** `Fold::MAP` has a documented cascade hazard — adding a MAP
+entry re-opens it — but this migration adds no entry, only new columns over the
+existing expression.
+
+### D9. Archived shelves are listed and marked, never hidden
+
+The reference carries this in a docblock and it is load-bearing:
+
+> "Archived shelves are listed and marked, not hidden. An administrator is the
+> only person who can see one at all — `resolveShelfId` refuses its slug to
+> everybody, including its own admin — so a listing that dropped it would make the
+> shelf unreachable from every surface in the application at once."
+
+Its predicate is `deleted_at is null` only, and it returns `status` as a column.
+
+**This is stated because the adjacent D2 establishes that the PORTAL filters to
+active**, and an implementer reading both could reasonably carry that filter onto
+the dashboard and strand every archived shelf. The two surfaces differ on purpose:
+the portal is public and shows shelves a person can join; the dashboard is the
+administrator's only route to a shelf that has been archived.
+
+**The dashboard's row is:** name, status, books, active readers, current loans,
+overdue, pending (D3), and the contacts-incomplete flag (D4).
+
 ## Testing
 
 The interesting tests in this phase are **the inverse of every tenancy test
@@ -211,18 +406,35 @@ shelf — while proving the capability that allows it cannot spread.
   project has measured: a 404-only assertion is **vacuous when no route claims
   the URI**. `/admin` is a new path, so this block is meaningless until the route
   exists — check it refuses for the right reason afterwards.
-- **The architecture pin reddens** when `actSystemWide()` is called from outside
-  `app/Queries/Admin/`, measured rather than asserted.
-- **The portal's search narrows**, and a shelf with no contacts is flagged.
+- **The namespace pin reddens** when `actSystemWide()` is called from outside its
+  allow-list (`app/Queries/Admin/`, `TenantContext::systemWide()` itself, and
+  `SweepReminders.php`), measured rather than asserted.
+- **The lifetime pin reddens** when the widening is not restored: bind a tenant,
+  run an admin query, and assert the tenant is **still bound** and a scoped read
+  **still filters**. Falsify it by replacing `systemWide()`'s body with a bare
+  `actSystemWide()` and watching it fail. This is the pin the first draft of this
+  spec had no equivalent of, and the one that matters for 3b and 3c.
+- **The widening survives an exception.** A callback that throws must still
+  restore — that is what the `finally` is for, and an untested `finally` is a
+  comment.
+- **The portal's search folds.** `hoa binh` finds *Giáo xứ Hòa Bình*; this is the
+  case the box exists for and a naive `LIKE` fails it.
+- **An archived shelf appears on the dashboard, marked, and NOT on the portal**
+  (D9 against D2) — the one place those two surfaces deliberately disagree.
+- **A shelf with no `bookshelf_contacts` row is flagged** (D4).
 
 ## Explicitly not in scope
 
 - Everything in 3b and 3c, listed under "The decomposition" above.
 - **Building the fourteen components.** D6 corrects the guide; creating a design
   system is a separate piece of work and a separate decision.
-- Any change to `BookshelfScope`, `BelongsToBookshelf` or `TenantContext` beyond
-  *calling* the capability that already exists. The hatch is built; this phase
-  uses it and fences it.
+- Any change to `BookshelfScope` or `BelongsToBookshelf`.
+- **~~Any change to `TenantContext`.~~ RETRACTED.** This exclusion originally read
+  "any change to … `TenantContext` beyond *calling* the capability that already
+  exists". Independent review established that calling the existing capability is
+  exactly what cannot be contained — the flag has no reset and `clear()` has zero
+  callers — so D1 adds a scoped `systemWide(callable)` wrapper. That is the
+  minimum change that makes the fence real; nothing else in `TenantContext` moves.
 
 ## Risks
 
@@ -230,12 +442,16 @@ shelf — while proving the capability that allows it cannot spread.
    whole answer to it. If the pin is vacuous, the fence is decorative, and every
    later phase widens a little further with nothing to notice. Hence: watch it
    fail, or take the loop instead.
-2. **The dashboard is the first page in the product with no tenant bound.** Any
-   code it reaches that assumes a bound tenant will fail — loudly, by design,
-   since `BookshelfScope` throws on an unset tenant rather than returning
-   everything. That is the correct failure mode, but it means the dashboard's
-   query must be written against models directly rather than reusing shelf-scoped
-   queries that assume a context.
+2. **~~The dashboard is the first page with no tenant bound, and will fail
+   loudly.~~ RETRACTED — the failure mode is the opposite.** This risk originally
+   said code assuming a bound tenant "will fail — loudly, by design, since
+   `BookshelfScope` throws on an unset tenant". That is true of **unset** and
+   false of **system-wide**: `BookshelfScope::apply` returns early on
+   `isSystemWide()` (line 35) and adds no predicate. The real risk is the
+   **silent over-read**, which is why D1 contains widening in time as well as in
+   namespace. Verified separately: an `/admin` page renders fine today with no
+   tenant bound — `HandleInertiaRequests::share()` yields `shelf => null`,
+   `role => null`, and both count closures short-circuit on a null shelf.
 3. **`AGENTS.md`'s correction is judged against a moving target.** The components
    present today are what the correction must describe; anyone adding one later
    must update the guide. That is inherent, and better than a guide describing a
