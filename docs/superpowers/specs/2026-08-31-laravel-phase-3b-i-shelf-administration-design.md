@@ -471,7 +471,10 @@ clean.
   mistake in `app/Actions/Admin/`. Test 10 is the compensating control.
 - **A shelf can be left with no manager** (D6), by decision, now flagged.
 - **No super-admin demotion** (D5), ported as an omission.
-- **Four shipped settings remain uneditable** (D2), recorded rather than fixed.
+- **Two shipped settings remain uneditable** (D2) — `public_show_current_borrower`
+  and `public_name_display`. The other two BR §5.5 names are stale requirements
+  text, consumed nowhere; recording them as shipped would be the very defect D2
+  was written to avoid.
 - **The archived-shelf resolver filter moves to 3b-ii** (D4). Until then an
   archived shelf still serves its routes — the pre-existing Phase 0/1 behaviour,
   unchanged by this phase and still recorded in `known-gaps.md`.
