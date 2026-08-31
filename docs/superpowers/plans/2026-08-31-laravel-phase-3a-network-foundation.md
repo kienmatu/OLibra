@@ -17,7 +17,7 @@ Every task's requirements implicitly include this section.
 - **Never write to `old_next/`.** It is a read-only behavioural reference. `git diff origin/main...HEAD -- old_next/` must stay empty; the wrap-up task asserts it.
 - **Do not run `vendor/bin/pint` on the host** — the host PHP is broken. Run it in the container: `docker compose -f docker-compose.laravel.yml exec -T app ./vendor/bin/pint`.
 - **Gates:** `make lint` (Pint + Biome + `bun run laravel:typecheck`), `make analyse` (Larastan level 8), `make test` (`make test FILTER=<File>` for one file). `make lint` carries **3 Biome warnings and 1 info** — the inherited baseline, not a regression.
-- **Baseline at branch point:** suite **1,645 passing / 9,581 assertions**. Re-take it at the start of your task rather than trusting this line.
+- **Baseline at branch point:** suite **1,646 passing / 9,585 assertions** (measured at `eb1a58b`; an earlier draft of this plan said 1,645/9,581, which was Phase 2c's number carried across without being re-run — the exact habit the last line of this section forbids). Re-take it at the start of your task rather than trusting this line.
 - **Tenancy is `BookshelfScope`'s.** No hand-written `where('bookshelf_id', …)` outside `TenancyArchitectureTest`'s existing allow-list. A foreign row is **not found** (404), never **refused** (403) — spec §5.4.
 - **`actSystemWide()` is called only from `TenantContext::systemWide()`, `SweepReminders.php` and `DemoShelfSeeder.php`.** `systemWide()` is called only from `app/Queries/Admin/`. Task 2 builds both pins.
 - **Every write transaction retries** (`ConcurrencyRetry::ATTEMPTS`) and records an audit entry. 3a adds no writes, so this constrains nothing here — but do not add one without them.
@@ -128,6 +128,8 @@ Rewrite the component table to route to what exists (`ui/badge.tsx`, `ui/button.
 
 **Where a row has no real equivalent, say so plainly** rather than inventing one — "no component yet; compose from `ui/badge.tsx` and state the requirement" is honest and useful. **Add a sentence at the head of the table** recording that it describes what exists, and that adding a component means updating this table — the test enforces it.
 
+**Watch out for your own pin while writing.** `StyleGuideTest` treats *every* backticked PascalCase word as a component claim. So writing `` `AdminLayout` `` or `` `AppShell` `` into the guide reddens the build. Any new backticked PascalCase word must either name a real file under `resources/js/components/` or go on `$notComponents` **with a justification beside it** — every entry there is a hole in the pin, so keep the list short and argued.
+
 - [ ] **Step 5: Run it green, then the suite**
 
 Run: `make test FILTER=StyleGuideTest` → PASS
@@ -156,7 +158,7 @@ git commit -m "docs: AGENTS.md describes the components this repo has, and a pin
 
 **Files:**
 - Modify: `app/Support/TenantContext.php`
-- Test: `tests/Feature/Admin/TenantWideningTest.php` (create) — the behaviour
+- Test: `tests/Feature/Admin/TenantWideningTest.php` (create) — the behaviour. (It exercises `app/Support/TenantContext.php` rather than anything under `Admin`, but it is the admin widening's contract and its only consumer is `app/Queries/Admin/`; if `tests/Feature/Support/` is the better home in your judgement, move it and say so.)
 - Test: `tests/Feature/Architecture/WideningArchitectureTest.php` (create) — the pins
 
 **Interfaces:**
@@ -265,7 +267,11 @@ it('restores an unset tenant as unset, not as a bound one', function () {
 
     expect($context->isSystemWide())->toBeFalse();
     expect($context->bookshelfId())->toBeNull();
-    expect(fn () => Book::query()->count())->toThrow(RuntimeException::class);
+    // Name a fragment: BookshelfScope throws a distinctive message, and a
+    // bare class assertion would pass on any RuntimeException at all —
+    // including one from a broken fixture.
+    expect(fn () => Book::query()->count())
+        ->toThrow(RuntimeException::class, 'actSystemWide');
 });
 ```
 
@@ -408,7 +414,7 @@ revert; git status --porcelain              → empty
 
 - [ ] **Step 7: Full suite, gates, commit**
 
-`make test` (the wrapper touches shipped code paths only by addition, so expect baseline + 10), then `make analyse` and `make lint`.
+`make test` — expect **baseline + 7** (`TenantWideningTest` has 5 blocks, `WideningArchitectureTest` has 2). Then `make analyse` and `make lint`.
 
 ```bash
 git add app/Support/TenantContext.php tests/Feature/Admin/TenantWideningTest.php tests/Feature/Architecture/WideningArchitectureTest.php
@@ -467,7 +473,17 @@ use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
 
 /**
- * Two shelves, so every count can be checked for leakage in both directions.
+ * Two shelves, so every count can be checked for leakage in both directions —
+ * and THE TENANT IS LEFT BOUND TO SHELF A.
+ *
+ * THAT BINDING IS THE POINT OF THIS FILE, and an earlier draft of this plan
+ * omitted it. Without it, every block below runs from an already-widened
+ * context, and `Bookshelf` is not shelf-scoped anyway (`app/Models/Bookshelf.php`
+ * uses HasFactory, HasUuids, SoftDeletes — no BelongsToBookshelf), so an
+ * AdminOverviewQuery that FORGOT TO WIDEN AT ALL would pass every assertion.
+ * The test that proves the phase would have proved nothing.
+ *
+ * Widen only to build fixtures; bind before returning.
  *
  * Grep first: `grep -rn "^function adminFix" tests/`.
  *
@@ -475,13 +491,20 @@ use Carbon\CarbonImmutable;
  */
 function adminFix(): array
 {
-    app(TenantContext::class)->actSystemWide();
+    $context = app(TenantContext::class);
+    $context->actSystemWide();
 
     $a = Bookshelf::factory()->create(['slug' => 'shelf-a-admin', 'name' => 'Aó Dài', 'settings' => []]);
     $b = Bookshelf::factory()->create(['slug' => 'shelf-b-admin', 'name' => 'Zzz', 'settings' => []]);
 
+    // Bound, not widened. Every block below therefore reads as an ordinary
+    // request would, and only the query's own widening can see shelf B.
+    $context->set($a, null);
+
     return [$a, $b];
 }
+
+afterEach(fn () => CarbonImmutable::setTestNow());
 
 it('lists every shelf, ordered by name', function () {
     [$a, $b] = adminFix();
@@ -491,15 +514,57 @@ it('lists every shelf, ordered by name', function () {
     expect(collect($rows)->pluck('slug')->all())->toBe([$a->slug, $b->slug]);
 });
 
-it('counts books per shelf without leaking between them', function () {
+it('SEES THE SHELF IT IS NOT BOUND TO — the block that fails if the widening is forgotten', function () {
+    // The phase's central proof. The tenant is bound to shelf A (see
+    // adminFix), so shelf B's row and its count are visible ONLY because
+    // AdminOverviewQuery widens. Titled assertion first: a wrong `books`
+    // count for shelf A must not hide a missing shelf B.
     [$a, $b] = adminFix();
-    Book::factory()->for($a)->count(3)->create();
-    Book::factory()->for($b)->count(1)->create();
+
+    $context = app(TenantContext::class);
+    $context->systemWide(function () use ($a, $b): void {
+        Book::factory()->for($a)->count(3)->create();
+        Book::factory()->for($b)->count(1)->create();
+    });
 
     $rows = collect(app(AdminOverviewQuery::class)->run())->keyBy('slug');
 
-    expect($rows[$a->slug]['books'])->toBe(3);
+    expect($rows)->toHaveKey($b->slug);
     expect($rows[$b->slug]['books'])->toBe(1);
+    expect($rows[$a->slug]['books'])->toBe(3);
+});
+
+it('counts active memberships as readers, managers included', function () {
+    // ManagerDashboardQuery:50 defines it: "readers counts every ACTIVE
+    // membership, managers included". The pending membership below is what
+    // catches a predicate that counts every row regardless of status.
+    [$a] = adminFix();
+
+    app(TenantContext::class)->systemWide(function () use ($a): void {
+        foreach ([MembershipStatus::Active, MembershipStatus::Active, MembershipStatus::Pending] as $i => $status) {
+            Membership::factory()->for($a)->create([
+                'user_id' => User::factory()->create()->id, 'role' => 'reader', 'status' => $status,
+            ]);
+        }
+    });
+
+    $rows = collect(app(AdminOverviewQuery::class)->run())->keyBy('slug');
+
+    expect($rows[$a->slug]['readers'])->toBe(2);
+});
+
+it('reads every figure live — no materialised counter can creep in', function () {
+    // Spec D5, and OPS §3.4's "all live". Two reads, one row changed
+    // between them. Cheap, and it is what a cached count would fail.
+    [$a] = adminFix();
+
+    $before = collect(app(AdminOverviewQuery::class)->run())->keyBy('slug');
+    expect($before[$a->slug]['books'])->toBe(0);
+
+    app(TenantContext::class)->systemWide(fn () => Book::factory()->for($a)->create());
+
+    $after = collect(app(AdminOverviewQuery::class)->run())->keyBy('slug');
+    expect($after[$a->slug]['books'])->toBe(1);
 });
 
 it('counts overdue as active loans past their due date, per shelf', function () {
@@ -545,7 +610,12 @@ it('sums pending from all four sources — D3, including APPROVED requests', fun
         'member_id' => $user->id, 'status' => RequestStatus::Approved,
     ]);
     Comment::query()->create([
-        'bookshelf_id' => $a->id, 'book_id' => $book->id, 'author_id' => $member->id,
+        // author_id is a users(id), NOT a memberships(id) — the FK is
+        // comments_author_id_foreign → users(id), and App\Models\Comment's
+        // own docblock says so. book_donations.donor_membership_id below is
+        // the reverse. An earlier draft of this plan passed $member->id here
+        // and would have died on the foreign key.
+        'bookshelf_id' => $a->id, 'book_id' => $book->id, 'author_id' => $user->id,
         'body' => 'Hay lắm', 'status' => CommentStatus::Pending,
     ]);
     BookDonation::query()->create([
@@ -560,9 +630,12 @@ it('sums pending from all four sources — D3, including APPROVED requests', fun
 
 it('flags a shelf with no contacts, and does not flag one with a contact', function () {
     [$a, $b] = adminFix();
-    BookshelfContact::query()->create([
+    // Widened to SEED, because the tenant is bound to shelf A and this row
+    // belongs to B. BookshelfContact carries BelongsToBookshelf, so a bound
+    // write would be refused.
+    app(TenantContext::class)->systemWide(fn () => BookshelfContact::query()->create([
         'bookshelf_id' => $b->id, 'position' => 1, 'name' => 'Maria Nguyễn Lan',
-    ]);
+    ]));
 
     $rows = collect(app(AdminOverviewQuery::class)->run())->keyBy('slug');
 
@@ -629,9 +702,15 @@ The docblock carries: OPS §3.4's `GetAdminOverview` row, D3's four sources with
 
 `make test FILTER=AdminOverviewQueryTest` → 7 blocks. Then `make test`.
 
-- [ ] **Step 5: Prove two blocks discriminate**
+- [ ] **Step 5: Prove three blocks discriminate — the first is the phase**
 
 ```
+# THE WIDENING ITSELF. Without this, the whole file can pass against a query
+# that never widens, which is what an earlier draft of this plan shipped.
+remove the $this->context->systemWide(...) wrapper from run(), leaving the body
+make test FILTER=AdminOverviewQueryTest   → 'SEES THE SHELF IT IS NOT BOUND TO' RED
+restore; git status --porcelain            → empty
+
 # D3's `approved` half
 change the borrow-request predicate to Pending only
 make test FILTER=AdminOverviewQueryTest   → the pending block RED (3, not 4)
@@ -642,6 +721,10 @@ add ->where('status', BookshelfStatus::Active) to the shelf list
 make test FILTER=AdminOverviewQueryTest   → the archived block RED
 restore; git status --porcelain            → empty
 ```
+
+**If the first mutation leaves the file green, stop and report it** — the
+query is reading across shelves for some reason other than its own widening,
+and the fence around it means nothing.
 
 - [ ] **Step 6: Gates, then commit**
 
@@ -712,9 +795,11 @@ it('a signed-in non-super-admin meets 404, never 403', function () {
 });
 
 it('a guest is redirected to login rather than 404d', function () {
+    // Name the target: a bare assertRedirect() passes on ANY 3xx, including
+    // a redirect somewhere wrong.
     adminScreenFix();
 
-    $this->get('/admin')->assertRedirect();
+    $this->get('/admin')->assertRedirect(route('login'));
 });
 ```
 
@@ -753,7 +838,7 @@ Add a `copy.admin.dashboard*` group in `copy.ts` — its own keys, no reaching i
 **Files:**
 - Create: `database/migrations/2026_08_31_000001_add_bookshelves_folded_columns.php`
 - Modify: `app/Http/Controllers/ShellController.php` (`shelves()`), `resources/js/pages/shelves/index.tsx`, `resources/js/lib/copy.ts`
-- Test: `tests/Feature/PortalSearchTest.php` (create)
+- Test: `tests/Feature/Shell/PortalSearchTest.php` (create) — `tests/Feature/Shell/` already exists and `ShellController` is what this task modifies.
 
 **Interfaces:**
 - Produces: `GET /shelves?q=…` filtering on folded `name`, `location` and `address`; the page prop gains `address`.
@@ -853,13 +938,26 @@ DB::statement(sprintf(
 DB::statement('ALTER TABLE bookshelves ADD INDEX bookshelves_name_folded_index (name_folded(191))');
 ```
 
-and the same for `location_folded` and `address_folded`. `down()` drops the three columns.
+and the same for `location_folded` and `address_folded` — **but wrap those two in `COALESCE`**, because they are nullable and the shipped precedent for a nullable source does:
+`database/migrations/2026_08_28_000002_fix_fold_expression_capital_sharp_s.php:66` uses `FoldExpression::sql("COALESCE(\`author\`, '')")`, while the bare form is used only for NOT NULL sources like `full_name` and `title`. A bare fold of a null is harmless in practice (null folds to null and simply never matches), but this plan claims to copy the shipped pattern, so copy it.
+
+`down()` **drops the index first, then the column**, mirroring the shipped migration's own teardown order.
 
 **This migration adds no `Fold::MAP` entry**, so it does not re-open the documented cascade hazard — it renders the existing expression over three new columns. Say so in the migration's docblock.
 
 - [ ] **Step 3: Fold the query**
 
-In `ShellController::shelves()`, read `q` from the request, and when non-blank filter on the three folded columns with `Fold::fold($q)`, matching how `BooksListQuery` does it. Add `address` to the selected columns and to the mapped array. Keep the `status = active` filter — D2.
+In `ShellController::shelves()`, read `q` from the request and filter on the three folded columns with `Fold::fold($q)`, matching how `BooksListQuery` does it. Add `address` to the selected columns and to the mapped array. Keep the `status = active` filter — D2.
+
+**Carry `BooksListQuery`'s punctuation guard** (`app/Queries/BooksListQuery.php:35-39`, opened): a query that is non-empty but folds to the empty string — `?q=...` — would otherwise degenerate to `LIKE '%%'` and match **every** shelf. Guard on the FOLDED value being non-empty, not on the raw input. Add a block:
+
+```php
+it('a query that folds to nothing lists nothing, not everything', function () {
+    portalFix();
+
+    $this->get('/shelves?q=...')->assertInertia(fn ($page) => $page->has('shelves', 0));
+});
+```
 
 - [ ] **Step 4: Update the page**
 
@@ -923,12 +1021,61 @@ Push, open the PR, then run a **whole-branch review** with a fresh agent on the 
 
 ## Self-Review
 
-**Spec coverage.** D1 → Task 2 (both pins and the lifetime blocks). D2 → Task 5. D3 → Task 3's pending block, with `approved` isolated. D4 → Task 3's contacts block. D5 → Task 3's docblock and Task 6's live-figures note. D6 → Task 1. D7 → Task 3's chain-ordering table. D8 → Task 5's migration. D9 → Task 3's archived block *and* Task 5's portal block, which are the two halves of the same decision and are deliberately in different tasks so a reviewer sees them disagree on purpose.
+**This plan was rejected once and reworked.** An independent Opus review returned **NEEDS REWORK** with two
+Criticals, seven Mediums and four Lows. What follows reviews the reworked version.
 
-**Placeholder scan.** No "TBD", no "similar to Task N", no "add appropriate error handling". Task 4's screen and Task 5's page carry prose steps rather than full component code — deliberate, because this repo has no frontend test runner and component code written blind into a plan is a false promise of verification. Both name exact files, props and traps.
+**The two Criticals, and what they were.**
 
-**Type consistency.** `TenantContext::systemWide(callable): mixed` (Task 2) is called by Task 3 alone. `AdminOverviewQuery::run(): array` (Task 3) is consumed by Task 4's controller under that name, and the row keys the test asserts (`books`, `pending`, `contactsMissing`, `status`) are the keys Task 4's screen reads.
+1. **`comments.author_id` is a `users(id)`, not a `memberships(id)`.** The pending-sum fixture passed a
+   membership id and would have died on `comments_author_id_foreign`. The repo documents this exact trap in
+   `App\Models\Comment`'s own docblock, and `book_donations.donor_membership_id` is the reverse — the plan
+   got four other id columns right and slipped on the one the codebase warns about.
+2. **The phase's central test proved nothing.** `adminFix()` called `actSystemWide()` and never bound a
+   shelf; `Bookshelf` is not tenant-scoped (`HasFactory, HasUuids, SoftDeletes` — no `BelongsToBookshelf`).
+   So an `AdminOverviewQuery` that **forgot to widen entirely** would have passed every block. The spec asked
+   in as many words for "the test that would fail if `actSystemWide()` were forgotten"; the plan did not
+   deliver it. `adminFix()` now widens only to seed and **leaves the tenant bound to shelf A**, one block is
+   named for the property, and Step 5's first mutation strips the widening and requires that block to redden.
 
-**Measured while writing, not assumed.** The chain-ordering table in Task 3 was run against the real regex; `->get()->pluck('n','bookshelf_id')` in one statement **matches and fails the build**, and splitting the `pluck` onto its own line is what makes it clean. The folded-column DDL is copied from the shipped `users.full_name_folded` migration, including why it is `TEXT` and why it carries no `NOT NULL`. `GET /admin` returns 404 today, which is why Task 4's non-super-admin block is flagged as passing for the wrong reason until the route lands.
+**Corrections applied, each recorded rather than silently fixed:**
 
-**Known risk carried into execution.** Task 2 is the phase. If either pin cannot be made to falsify, the spec's own fallback applies — bind each shelf in turn rather than ship an unpinned widening — and that is a spec amendment, not an implementer's call.
+| Was | Is |
+|---|---|
+| `author_id => $member->id` | `$user->id`, with the FK and the model's own docblock cited |
+| Fixture widened and never bound | Widens to seed, binds shelf A, and one block is the widening's proof |
+| Baseline 1,645 / 9,581 | **1,646 / 9,585**, measured at `eb1a58b` — the old number was Phase 2c's, carried without re-running |
+| "expect baseline + 10" | **+7** (5 blocks + 2 pins) |
+| `readers` in the contract, undefined and untested | Defined as active memberships including managers (`ManagerDashboardQuery:50`), with a block whose pending fixture catches a status-blind predicate |
+| D5 mapped to "a docblock" | A two-read block: change a row between reads, see the number move |
+| Search guarded on non-blank raw input | Guarded on the **folded** value, carrying `BooksListQuery`'s punctuation guard, plus a `?q=...` block — otherwise it degenerates to `LIKE '%%'` and lists every shelf |
+| `setTestNow()` never reset | `afterEach(fn () => CarbonImmutable::setTestNow())` |
+| Bare fold over nullable columns | `COALESCE`, matching the shipped precedent for nullable sources |
+| `down()` "drops the three columns" | Drops the index first, then the column |
+| Bare `assertRedirect()` / bare `toThrow(class)` | Named target; named message fragment |
+
+**What the review confirmed sound, and it is the part worth keeping:** the fourth instance of this
+document's recurring mistake — a guard specified against an un-grepped allow-list — **was not present**. The
+reviewer executed both pin patterns against `app_path()`, `database_path()` and `base_path('routes')` and
+found exactly the two allow-listed callers and no others, and confirmed neither pattern matches
+`->isSystemWide()`, `$this->systemWide = true`, or the `TenantContext::actSystemWide()` prose form used
+throughout the codebase. It also re-derived the chain-ordering table, ran the migration's DDL on a scratch
+database, and verified every factory, enum case and unique constraint the fixtures touch. Stating the scan
+roots and allow-lists explicitly in the spec is what closed that hole.
+
+**Spec coverage.** D1 → Task 2 (both pins, the lifetime blocks, and now the consumer-side restore assertion in
+Task 3). D2 → Task 5. D3 → Task 3, with `approved` isolated. D4 → Task 3. D5 → Task 3's live-figures block.
+D6 → Task 1. D7 → Task 3's measured chain-ordering table. D8 → Task 5's migration. D9 → Task 3 *and* Task 5,
+deliberately split so a reviewer sees the dashboard and the portal disagree on purpose.
+
+**Placeholder scan.** No "TBD", no "similar to Task N", no "add appropriate error handling". Task 4's screen
+and Task 5's page carry prose steps rather than component code — deliberate, because this repo has no
+frontend test runner and code written blind into a plan is a false promise of verification.
+
+**Type consistency.** `TenantContext::systemWide(callable): mixed` (Task 2) is called by Task 3 alone.
+`AdminOverviewQuery::run(): array` (Task 3) is consumed by Task 4 under that name, and the row keys asserted
+in Task 3 — `books`, `readers`, `loans`, `overdue`, `pending`, `contactsMissing`, `status` — are the keys
+Task 4's screen reads.
+
+**Known risk carried into execution.** Task 2 is the phase. If either pin cannot be made to falsify, the
+spec's own fallback applies — bind each shelf in turn rather than ship an unpinned widening — and that is a
+spec amendment, not an implementer's call.
