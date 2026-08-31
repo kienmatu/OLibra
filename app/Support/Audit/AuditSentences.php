@@ -114,6 +114,14 @@ final class AuditSentences
         // command, which writes one action name.
         'bookshelf.created' => 'administration',
         'bookshelf.updated' => 'administration',
+        // Task 6's pair, the same he-thong family — the reference files
+        // bookshelf.archived there (audit-actions.ts:606-614). Its
+        // un-archive has no entry because it has no command; this port
+        // builds one (spec D4), so the restore is registered beside the
+        // archive rather than left as the one administration act with no
+        // sentence.
+        'bookshelf.archived' => 'administration',
+        'bookshelf.unarchived' => 'administration',
     ];
 
     /**
@@ -355,6 +363,19 @@ final class AuditSentences
             'bookshelf.updated' => ($name = self::str($after, 'name') ?? self::str($before, 'name')) !== null
                 ? strtr(self::line('bookshelf_updated'), [':name' => $name])
                 : self::line('bookshelf_updated_bare'),
+            // BEFORE, not after — the reference's own arm
+            // (audit-actions.ts:606-614 reads `str(f.before, "name")`),
+            // and here it is forced rather than copied: ArchiveBookshelf's
+            // `after` carries the new status alone, because the name did
+            // not move. Reading $after would leave every archive row
+            // rendering the bare twin.
+            'bookshelf.archived' => ($name = self::str($before, 'name')) !== null
+                ? strtr(self::line('bookshelf_archived'), [':name' => $name])
+                : self::line('bookshelf_archived_bare'),
+            // The mirror, reading $before for the same reason.
+            'bookshelf.unarchived' => ($name = self::str($before, 'name')) !== null
+                ? strtr(self::line('bookshelf_unarchived'), [':name' => $name])
+                : self::line('bookshelf_unarchived_bare'),
             default => self::line('unknown'),
         };
     }

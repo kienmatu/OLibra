@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Actions\Admin\ArchiveBookshelf;
 use App\Actions\Admin\CreateBookshelf;
+use App\Actions\Admin\UnarchiveBookshelf;
 use App\Actions\Admin\UpdateBookshelfContacts;
 use App\Actions\Admin\UpdateBookshelfPolicy;
 use App\Actions\Admin\UpdateBookshelfProfile;
@@ -18,6 +20,7 @@ use App\Queries\Admin\ShelfContactsQuery;
 use App\Support\Circulation\LendingSettings;
 use App\Support\Community\CommentSettings;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -25,7 +28,7 @@ use Inertia\Response;
 /**
  * BR §16.4's Bookshelves screen — the list every later administration act
  * starts from. Replaces `ShellController::underConstruction` on
- * `/admin/shelves`; Tasks 4-6 add create, edit and archive beside it.
+ * `/admin/shelves`; Tasks 4-6 added create, edit and archive beside it.
  *
  * **The cross-shelf read is `AdminOverviewQuery`'s, not this class's.**
  * The `/admin` group binds no tenant, so a scoped model read from here
@@ -256,5 +259,46 @@ class ShelfController extends Controller
         return redirect()
             ->route('admin.shelves.edit', ['bookshelf' => $bookshelf->slug])
             ->with('success', __('rules.bookshelf_contacts_saved_flash'));
+    }
+
+    /**
+     * Spec D4. The two lifecycle controls, and unlike the three save
+     * methods above they take no Form Request: the request carries no
+     * fields at all, only the shelf in the URL, so there is nothing to
+     * validate and a Request class here would be an empty rules() array
+     * pretending otherwise.
+     *
+     * BACK TO THE LIST, not to the editor. The other three submits are made
+     * on the editor and return to it; these two are pressed on the list and
+     * change how the row they were pressed on reads, which is the thing the
+     * volunteer wants to see.
+     *
+     * NO STATUS CHECK HERE AND NONE IN THE COMMAND. Archiving an
+     * already-archived shelf is refused by `BookshelfPolicy::archive()`, as
+     * a 404 rather than a 403 (spec D9) so that a second click tells the
+     * caller nothing the first did not.
+     */
+    public function archive(Request $request, Bookshelf $bookshelf, ArchiveBookshelf $archive): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $archive->execute($user, $bookshelf);
+
+        return redirect()
+            ->route('admin.shelves')
+            ->with('success', __('rules.bookshelf_archived_flash'));
+    }
+
+    public function unarchive(Request $request, Bookshelf $bookshelf, UnarchiveBookshelf $unarchive): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $unarchive->execute($user, $bookshelf);
+
+        return redirect()
+            ->route('admin.shelves')
+            ->with('success', __('rules.bookshelf_unarchived_flash'));
     }
 }

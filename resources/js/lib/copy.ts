@@ -193,6 +193,16 @@ export const copy = {
         // survive the second parish.
         contactRoleHint: "Ví dụ: Người giữ chìa khoá, Quản lý tủ sách.",
         contactOptional: "Không bắt buộc",
+        // Task 6's two row controls (spec D4). "Ngưng hoạt động" rather
+        // than "Lưu trữ", the audit sentence's word, so the log and the
+        // button a volunteer pressed say the same thing.
+        archive: "Ngưng hoạt động",
+        unarchive: "Mở lại",
+        // Under the archive control, because the button alone reads like a
+        // delete. Archiving keeps everything (OPS §4.5) and "Mở lại" beside
+        // an archived row is the proof — this sentence is what says so
+        // before the press rather than after it.
+        archiveNote: "Tủ sách ngưng hoạt động vẫn giữ nguyên toàn bộ dữ liệu và có thể mở lại.",
     },
     auth: {
         title: "Đăng nhập",

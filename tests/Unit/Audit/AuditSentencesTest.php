@@ -432,7 +432,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
     ));
     expect($groups)->toEqualCanonicalizing(AuditSentences::GROUPS)
         ->and($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(43);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(45);
 });
 
 it('copy.qr_printed names the count, an int cast to string, never str()\'s trimmed-string shape', function () {
@@ -484,4 +484,39 @@ it('the condition words match copy.ts character for character', function () {
         expect($ts)->toContain("{$key}: \"{$word}\"");
     }
     expect($lang['conditions'])->toHaveCount(6);
+});
+
+it('the two lifecycle sentences read the shelf name out of before, not after', function () {
+    // Task 6. Every other bookshelf.* arm takes the name from $after;
+    // these two cannot, because ArchiveBookshelf and UnarchiveBookshelf
+    // write only the new status there — the name did not move. An arm
+    // spelled the usual way would render the bare twin for every real row
+    // either command writes, which the census above cannot see: a bare
+    // twin is a described sentence, not the fallback. So the named form
+    // and the bare form are both asserted here, against the payload shape
+    // the commands actually write.
+    expect(AuditSentences::sentence('bookshelf.archived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'status' => 'active'],
+        after: ['status' => 'archived'],
+    )))->toBe('Maria Quản Trị đã ngưng hoạt động tủ sách Tủ sách Đồng Tháp');
+
+    expect(AuditSentences::sentence('bookshelf.unarchived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'status' => 'archived'],
+        after: ['status' => 'active'],
+    )))->toBe('Maria Quản Trị đã mở lại tủ sách Tủ sách Đồng Tháp');
+
+    // The bare twins, for a row whose before carries no name at all.
+    expect(AuditSentences::sentence('bookshelf.archived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['status' => 'active'],
+        after: ['status' => 'archived'],
+    )))->toBe('Maria Quản Trị đã ngưng hoạt động một tủ sách');
+
+    expect(AuditSentences::sentence('bookshelf.unarchived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['status' => 'archived'],
+        after: ['status' => 'active'],
+    )))->toBe('Maria Quản Trị đã mở lại một tủ sách');
 });

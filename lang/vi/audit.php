@@ -159,6 +159,20 @@ return [
     // corrected address as a settings change, so this says 'thông tin'.
     'bookshelf_updated' => 'sửa thông tin tủ sách :name',
     'bookshelf_updated_bare' => 'sửa thông tin một tủ sách',
+    // Task 6's pair. bookshelf_archived is the reference's phrase verbatim
+    // (audit-actions.ts:606-614, whose phrase is `name ? `ngưng hoạt động
+    // tủ sách ${name}` : "ngưng hoạt động một tủ sách"`), bare twin
+    // included — and 'ngưng hoạt động' rather than 'lưu trữ' because that
+    // is what a volunteer reading the log needs to know happened: the tủ
+    // sách stopped serving, nothing was thrown away.
+    'bookshelf_archived' => 'ngưng hoạt động tủ sách :name',
+    'bookshelf_archived_bare' => 'ngưng hoạt động một tủ sách',
+    // Ours, since the reference has no un-archive command to phrase (spec
+    // D4). 'mở lại' is the plain opposite of the sentence above and echoes
+    // 'mở tủ sách' from bookshelf_created, so a shelf's log reads as one
+    // story: mở → sửa → ngưng hoạt động → mở lại.
+    'bookshelf_unarchived' => 'mở lại tủ sách :name',
+    'bookshelf_unarchived_bare' => 'mở lại một tủ sách',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

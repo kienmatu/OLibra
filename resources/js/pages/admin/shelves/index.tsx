@@ -1,5 +1,6 @@
-import { Head, Link, usePage } from "@inertiajs/react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import { AlertTriangle, Archive, CircleCheck, UserX } from "lucide-react";
+import type { FormEvent } from "react";
 import { route } from "ziggy-js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,32 @@ interface AdminShelfRow {
 
 interface PageProps extends SharedData {
     shelves: AdminShelfRow[];
+}
+
+/**
+ * Task 6's lifecycle control: one bodiless POST as a one-button form, the
+ * shape manage/announcements/index.tsx's ActionButton uses — the shelf named
+ * in the URL is the whole request.
+ *
+ * Outline, never solid. Rule 3 allows one terracotta control per screen and
+ * this screen already spends it on "Mở tủ sách mới"; a solid button here
+ * would additionally read as the thing to press, which archiving is not.
+ */
+function LifecycleButton({ href, label }: { href: string; label: string }) {
+    const form = useForm({});
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(href, { preserveScroll: true });
+    };
+
+    return (
+        <form onSubmit={submit}>
+            <Button type="submit" variant="outline" className="h-11" disabled={form.processing}>
+                {label}
+            </Button>
+        </form>
+    );
 }
 
 function ShelfRow({ shelf }: { shelf: AdminShelfRow }) {
@@ -60,16 +87,32 @@ function ShelfRow({ shelf }: { shelf: AdminShelfRow }) {
                             {copy.adminShelves.managersMissing}
                         </Badge>
                     )}
-                    {/* Task 4's editor. A link rather than a button: this
-                        row's own solid control is Task 6's archive, and two
-                        solid controls on one row would be AGENTS.md rule 3
-                        broken once per shelf. */}
+                    {/* Task 4's editor. A link rather than a button, so
+                        that the one button on the row is the lifecycle
+                        control below it — two buttons of equal weight per
+                        row would leave a volunteer choosing between them
+                        rather than reading the row. */}
                     <Link
                         href={route("admin.shelves.edit", { bookshelf: shelf.slug })}
                         className="text-sm underline"
                     >
                         {copy.adminShelves.editLink}
                     </Link>
+                    {/* One control, never both. The server refuses the
+                        wrong one as a 404 (BookshelfPolicy), so rendering
+                        the pair would be offering a button whose only
+                        outcome is an error page. */}
+                    {archived ? (
+                        <LifecycleButton
+                            href={route("admin.shelves.unarchive", { bookshelf: shelf.slug })}
+                            label={copy.adminShelves.unarchive}
+                        />
+                    ) : (
+                        <LifecycleButton
+                            href={route("admin.shelves.archive", { bookshelf: shelf.slug })}
+                            label={copy.adminShelves.archive}
+                        />
+                    )}
                 </div>
             </CardContent>
         </Card>
@@ -99,6 +142,11 @@ export default function AdminShelves() {
                     {shelves.map((shelf) => (
                         <ShelfRow key={shelf.shelfId} shelf={shelf} />
                     ))}
+                    {/* Said once under the list rather than once per row:
+                        the note explains what "Ngưng hoạt động" keeps, and
+                        repeating it beside every shelf would bury the rows
+                        it is meant to make safe to act on. */}
+                    <p className="text-sm text-muted-foreground">{copy.adminShelves.archiveNote}</p>
                 </div>
             )}
         </AdminLayout>

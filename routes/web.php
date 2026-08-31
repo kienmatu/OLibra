@@ -568,6 +568,23 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // contact — which is what PUT means.
     Route::patch('/shelves/{bookshelf}/policy', [AdminShelfController::class, 'updatePolicy'])->name('shelves.policy');
     Route::put('/shelves/{bookshelf}/contacts', [AdminShelfController::class, 'updateContacts'])->name('shelves.contacts');
+    // Task 6's lifecycle pair, spec D4. POST and bodiless — the shelf named
+    // in the URL is the whole request, the shape every other state
+    // transition in this file uses (readers.suspend, announcements.pin).
+    //
+    // TWO ROUTES RATHER THAN ONE TOGGLE, and that is the policy's shape
+    // surfacing: BookshelfPolicy::archive() refuses a shelf that is already
+    // archived and unarchive() refuses one that is not, each as a 404. A
+    // single /status route would have to decide the target state from the
+    // row it just read, which is exactly the read-then-act race the two
+    // named routes make impossible — a second click on a stale page is
+    // refused rather than silently reversing the first.
+    //
+    // Neither route un-archives on its own account anywhere else: this is
+    // the only path back, which is why spec D4 keeps the ResolveTenant
+    // filter for 3b-ii rather than landing it beside the archive control.
+    Route::post('/shelves/{bookshelf}/archive', [AdminShelfController::class, 'archive'])->name('shelves.archive');
+    Route::post('/shelves/{bookshelf}/unarchive', [AdminShelfController::class, 'unarchive'])->name('shelves.unarchive');
     Route::get('/managers', [ShellController::class, 'underConstruction'])->name('managers');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
     Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
