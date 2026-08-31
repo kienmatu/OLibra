@@ -134,3 +134,37 @@ it('leaves no cold grey on pseudo-element borders', function () {
     expect(File::get(resource_path('css/app.css')))
         ->not->toContain('var(--color-gray-200');
 });
+
+/**
+ * The reference's base layer carries two documented bug fixes that no
+ * screenshot would catch: the h1-h4 leading that keeps stacked Vietnamese tone
+ * marks from clipping, and the cursor rule that Tailwind 4's preflight stopped
+ * supplying, without which every button reads as dead text. A presence check is
+ * cheap, but the alternative is shipping both with no guard at all.
+ */
+it('ports the reference base layer', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    // iOS inflates text in landscape without this.
+    expect($css)->toContain('-webkit-text-size-adjust: 100%');
+
+    // The reference's typographic colour: looser leading and a hair of
+    // tracking, which Vietnamese diacritics need room for.
+    expect($css)->toContain('letter-spacing: 0.01em');
+    expect($css)->toContain('line-height: 1.6');
+
+    // Bug fix, not styling: tone marks stacked on capitals overflow tighter
+    // leading. The comment travels with the rule for that reason.
+    expect($css)->toMatch('/h1,\s*\n\s*h2,\s*\n\s*h3,\s*\n\s*h4\s*\{[^}]*line-height: 1\.3;[^}]*text-wrap: balance;/');
+    expect($css)->toContain('Vietnamese diacritics must never clip.');
+
+    // Bug fix, not styling: without it a <button> shows an arrow.
+    expect($css)->toContain('button:not(:disabled)')
+        ->toContain('cursor: pointer;');
+
+    expect($css)->toContain('::selection');
+
+    // Reaches non-shadcn focusables only -- the 19 focus-visible:outline-hidden
+    // sites keep their own ring, which --ring has already made terracotta.
+    expect($css)->toMatch('/:focus-visible\s*\{\s*\n\s*outline: 2px solid var\(--color-terracotta\);/');
+});
