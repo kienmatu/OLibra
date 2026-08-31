@@ -4440,3 +4440,61 @@ where a token is not what is missing.
   both correctly and was not used. **The dark palette therefore expects a
   hand-tuning pass once it has been seen on screen**, and the numbers being green
   is not evidence that pass is unnecessary.
+
+### Stock Tailwind colours still live on screen, and `--color-sage` has no consumers
+
+The port re-points shadcn's semantic variables, so anything written against
+those variables went warm automatically. Anything written against a **literal
+Tailwind palette class** did not, and the design-system branch did not touch
+components. These are the surfaces still rendering cold, listed here because
+the D5 per-screen pass otherwise has no inventory to work from:
+
+- `resources/js/components/input-error.tsx:10` — `text-red-600 dark:text-red-400`.
+  This is the form-error component, imported by **12** files, so every validation
+  message in the app renders in Tailwind red rather than the ported brick
+  (`#af4c44` light / `#c87871` dark).
+- **Ten flash-success banners** hardcoded `border-green-700/30 bg-green-700/10`:
+  `pages/shelves/book.tsx:244` and `:513`, `shelves/donate.tsx:76`,
+  `shelves/profile/overview.tsx:125`, `manage/donations.tsx:228`,
+  `manage/borrow-requests.tsx:423`, `manage/comments.tsx:239`,
+  `manage/lend/index.tsx:69`, `manage/announcements/index.tsx:240`,
+  `manage/returns/index.tsx:134`.
+- Two warning banners `border-amber-400/50 bg-amber-50 dark:bg-amber-950/30`:
+  `manage/readers/show.tsx:114`, `manage/registrations/index.tsx:80`.
+- `pages/auth/login.tsx:36,50` — `text-red-700`.
+- `resources/js/app.tsx:34` — the Inertia progress bar pinned to `#4B5563`, a
+  cold slate. This is global chrome on every navigation, and `app.tsx` sits
+  outside the `pages/` + `components/` scope the plan froze, so it could have
+  been changed without violating the plan. It was not, because the palette
+  change was meant to be provably component-free.
+
+The direct consequence: **`--color-sage` (`#477369`) ships with zero
+consumers.** It was ported precisely for the positive/success role that those
+ten green banners occupy, so the token is dead until they are converted. That
+is the cheapest first item for the D5 pass.
+
+### Three seams the whole-branch review found unguarded, now closed
+
+Recorded because each was green-passing and invisible, and the pattern is worth
+remembering rather than the individual fixes:
+
+- **`--color-terracotta` had an asserted consumer and an unasserted producer.**
+  A test pinned the `:focus-visible` outline that *reads* the token; nothing
+  pinned the `@theme` line that *declares* it. Deleting the declaration left the
+  outline invalid at computed-value time — no focus ring on any non-shadcn
+  focusable — with a clean build and a green suite. The agent that wrote the
+  assertion did not own the line it depended on, which is the general shape of a
+  cross-task seam.
+- **`--radius-md` carried 107 control call sites with no guard.**
+- **`@font-face` `src` was entirely unasserted**, so a block could declare weight
+  500 while pointing at the 400 file and pass every other font check.
+
+### A documentation error worth more than the thing it documented
+
+Mid-implementation this plan gained an environment note saying Prettier covers
+`resources/css/app.css`. It does not: `.prettierignore:12` ignores `resources`
+wholesale and `biome.json:4` scopes Biome to `resources/js/**`, so the file is
+covered by **no formatter or linter at all**, and `npx prettier --check` on it
+reports a false pass. The note came from an implementing agent's report and was
+written into the plan without being verified — the same defect class this
+project keeps hitting, arriving this time through a document rather than a spec.

@@ -369,3 +369,60 @@ it('renders both error views without a compiled-asset dependency', function (str
     ['errors.419', 'Trang đã hết hạn'],
     ['errors.429', 'Bạn gửi hơi nhanh'],
 ]);
+
+/**
+ * Three seams the whole-branch review found unguarded.
+ *
+ * Each is invisible in the sense that matters: the build succeeds, the suite
+ * stays green, and the damage only shows on screen — or, for the focus
+ * outline, only to someone navigating by keyboard.
+ */
+it('declares the reference tokens its base layer consumes', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    // `--color-terracotta` is the one reference token with live consumers:
+    // ::selection and the :focus-visible outline both resolve it. Deleting it
+    // leaves both declarations invalid at computed-value time, which removes
+    // the focus outline from every non-shadcn focusable — plain links, skip
+    // targets — with no build error and no failing test. The consumer was
+    // asserted; the producer was not.
+    expect($css)->toMatch('/--color-terracotta:\s*#a4673b\s*;/');
+})->group('design-system');
+
+it('keeps controls at the reference control radius', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    // The reference has exactly two radii: 0.5rem for cards, 0.25rem for
+    // controls. `--radius-md` carries 107 control call sites (99 rounded-md,
+    // 8 rounded-sm). Reverting it to Tailwind's stock 0.375rem is a visible
+    // change that nothing else in this file would catch.
+    expect($css)->toMatch('/--radius-md:\s*calc\(var\(--radius\) - 4px\)\s*;/');
+})->group('design-system');
+
+it('points every font face at the file its own weight and subset name', function () {
+    $css = File::get(resource_path('css/app.css'));
+
+    preg_match_all('/@font-face\s*\{(.*?)\}/s', $css, $matches);
+    $blocks = $matches[1];
+    expect($blocks)->toHaveCount(12, 'wrong number of @font-face blocks parsed');
+
+    foreach ($blocks as $block) {
+        preg_match("/font-family:\s*'([^']+)'/", $block, $family);
+        preg_match('/font-weight:\s*(\d+)/', $block, $weight);
+        preg_match("/url\('[^']*\/([^\/']+)\.woff2'\)/", $block, $file);
+
+        expect($family)->not->toBeEmpty();
+        expect($weight)->not->toBeEmpty();
+        expect($file)->not->toBeEmpty();
+
+        // A block declaring weight 500 while pointing at the 400 file builds
+        // cleanly and passes every other guard here. The filename carries both
+        // facts, so assert the declaration agrees with it.
+        $expected = strtolower($family[1]);
+        expect($file[1])->toStartWith($expected.'-');
+        expect($file[1])->toEndWith('-'.$weight[1].'-normal');
+
+        expect(File::exists(resource_path('fonts/web/'.$file[1].'.woff2')))
+            ->toBeTrue("{$file[1]}.woff2 is declared but not vendored");
+    }
+})->group('design-system');

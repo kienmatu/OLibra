@@ -38,9 +38,11 @@ it has been measured. Do not re-derive colours.
 - **Do not run `vendor/bin/pint` on the host** — the host PHP is broken. Run it
   inside `laravel-app-1`.
 - Run tests with `docker exec laravel-app-1 php artisan test`.
-- **Prettier covers `resources/css/app.css`** — check with
-  `npx prettier --check resources/css/app.css`. Anything copied from `old_next`
-  must be reindented to 4 spaces, or `format:check` goes red.
+- **No formatter or linter covers `resources/css/app.css`.** `.prettierignore:12`
+  ignores `resources` wholesale, and `biome.json:4` scopes Biome to
+  `resources/js/**`. Match the file's existing 4-space indentation by hand —
+  nothing will check it for you, and `npx prettier --check` on it reports a
+  false pass.
 - **The frontend build is `npm run laravel:build`.** Plain `npm run build` at the
   repo root maps to `cd old_next && next build` — it builds the read-only Next.js
   reference, not this app. Do not run it.
@@ -169,7 +171,7 @@ From spec section 5. All sources are `old_next/src/app/globals.css`.
   volunteers. Two rounds of bug reports are recorded there.
 - `::selection` (109-111) and the `:focus-visible` terracotta outline (113-116).
 
-**On the focus outline — do not go looking for a "stock ring" to remove.** The 19
+**On the focus outline — do not go looking for a "stock ring" to remove.** The 4
 `focus-visible:outline-hidden` sites in `resources/js` (e.g.
 `components/ui/button.tsx:8`, which pairs it with `focus-visible:ring-2
 focus-visible:ring-ring`) mean shadcn controls suppress this base outline and keep
