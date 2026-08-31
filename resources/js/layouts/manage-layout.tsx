@@ -2,11 +2,11 @@ import { Link, usePage } from "@inertiajs/react";
 import type { PropsWithChildren } from "react";
 import { route } from "ziggy-js";
 import AppLayout from "@/layouts/app-layout";
-import { copy } from "@/lib/copy";
+import { copy, t } from "@/lib/copy";
 import type { SharedData } from "@/types";
 
 export default function ManageLayout({ children }: PropsWithChildren) {
-    const { shelf } = usePage<SharedData>().props;
+    const { shelf, pendingDonations } = usePage<SharedData>().props;
     if (!shelf) return null;
 
     const items = [
@@ -19,6 +19,51 @@ export default function ManageLayout({ children }: PropsWithChildren) {
         {
             name: copy.manage.requests,
             href: route("shelves.manage.borrow-requests", { shelf: shelf.slug }),
+        },
+        // BR §16.3's Donation queue, with the count badge that paragraph's
+        // first sentence asks for: "Reachable from the sidebar nav with a
+        // count badge, beside *Đổi thông tin* (pending profile changes) and
+        // *Yêu cầu mượn* (request queue)".
+        //
+        // PLACED BESIDE *Yêu cầu mượn*, WHICH IS HALF OF WHAT §16.3 ASKS,
+        // and the missing half is recorded rather than quietly dropped:
+        // this list has no *Đổi thông tin* item to sit beside. The screen
+        // is routed — routes/web.php names `shelves.manage.profile-changes`
+        // — but points at ShellController::underConstruction (opened), so
+        // adding a nav item for it is a different task's decision, not a
+        // side effect of this one. Task 19 first shipped this item after
+        // *Bản tin*, three slots from *Yêu cầu mượn*, without saying so;
+        // that is the divergence this comment closes.
+        //
+        // A RETRACTION, kept rather than quietly deleted. Task 19 shipped
+        // this item with no badge and said here that a number beside one
+        // of these links "would need a counts channel shared across every
+        // manage screen — a change to what this layout receives". That was
+        // false, and this file is where it was false: ManageLayout's first
+        // statement DESTRUCTURES `shelf` out of usePage<SharedData>()
+        // .props, so the whole shared bag was already in hand, and the
+        // bell's count was one layout file away.
+        //
+        // THE COUNT IS THE SERVER'S, not a length this file could compute:
+        // HandleInertiaRequests::share() (opened) sends `pendingDonations`
+        // as a lazily-resolved, act-as-manager-gated number, exactly the
+        // shape it already sends the bell's `unreadNotifications` in — and
+        // app-layout.tsx (opened) renders that one the same way, count in
+        // the label, bare word at zero. Null and 0 both fall to the bare
+        // word here: a badge is news, and neither is news.
+        {
+            name: pendingDonations
+                ? t(copy.manage.donationsWithCount, { count: pendingDonations })
+                : copy.manage.donations,
+            href: route("shelves.manage.donations", { shelf: shelf.slug }),
+        },
+        {
+            name: copy.manage.comments,
+            href: route("shelves.manage.comments", { shelf: shelf.slug }),
+        },
+        {
+            name: copy.manage.announcements,
+            href: route("shelves.manage.announcements.index", { shelf: shelf.slug }),
         },
         {
             name: copy.manage.readers,

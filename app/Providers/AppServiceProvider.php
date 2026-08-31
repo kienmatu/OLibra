@@ -4,15 +4,21 @@ namespace App\Providers;
 
 use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
+use App\Models\Announcement;
 use App\Models\Book;
 use App\Models\BookCopy;
+use App\Models\BookDonation;
 use App\Models\BorrowRequest;
+use App\Models\Comment;
 use App\Models\Loan;
 use App\Models\Membership;
 use App\Models\User;
+use App\Policies\AnnouncementPolicy;
 use App\Policies\BookCopyPolicy;
+use App\Policies\BookDonationPolicy;
 use App\Policies\BookPolicy;
 use App\Policies\BorrowRequestPolicy;
+use App\Policies\CommentPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
 use App\Support\DeadlockDetector;
@@ -218,5 +224,38 @@ class AppServiceProvider extends ServiceProvider
         // rather than transcribing either, and so covers all five of these
         // and policy number six on the day it lands.
         Gate::policy(BorrowRequest::class, BorrowRequestPolicy::class);
+
+        // Phase 2b. Convention discovery finds this one too today, the
+        // same as BorrowRequest above, but that line's own measurement
+        // (moving the class, re-running the suite) has not been repeated
+        // for this policy — the reasoning transfers, not the number.
+        // PolicyRegistrationTest derives its census from app/Policies and
+        // from this file's own source, so it covers CommentPolicy without
+        // a test edit either way.
+        Gate::policy(Comment::class, CommentPolicy::class);
+
+        // Task 9's shelf news. Registered on the same terms as the line
+        // above and with the same disclosure: convention discovery finds
+        // App\Policies\AnnouncementPolicy for App\Models\Announcement
+        // today, and the move-the-class measurement that made
+        // BorrowRequest's line load-bearing has not been repeated here
+        // either. PolicyRegistrationTest reads this file's own source, so
+        // it covers this pair without a test edit.
+        Gate::policy(Announcement::class, AnnouncementPolicy::class);
+
+        // Slice C's donation offers, registered on the same terms as the
+        // two lines above.
+        //
+        // MEASURED for this pair rather than carried down: with this line
+        // replaced by a comment, PolicyRegistrationTest stays green at 2
+        // passed / 41 assertions, so Laravel's convention discovery
+        // (App\Models\X -> App\Policies\XPolicy) does resolve
+        // BookDonationPolicy for BookDonation as things stand. The
+        // move-the-class measurement that made BorrowRequest's line
+        // load-bearing was NOT repeated here, so what makes this line
+        // worth keeping is that file's argument, not a number of mine.
+        // PolicyRegistrationTest reads this file's own source, so it
+        // covers this pair without a test edit either way.
+        Gate::policy(BookDonation::class, BookDonationPolicy::class);
     }
 }

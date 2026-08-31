@@ -21,8 +21,8 @@ product-owner question waiting for him under "Owed by Kien" below.
 | 1b Members | `plans/2026-08-28-laravel-phase-1b-members.md` | #61 | merged |
 | 1c Circulation | `plans/2026-08-29-laravel-phase-1c-circulation.md` | #62 | merged (`main` = `6661991`) |
 | 1d Oversight | `plans/2026-08-29-laravel-phase-1d-oversight.md` | #63 | merged (`main` = `317a3b3`) |
-| **2a Requests & holds** | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | **#64** | **complete and open — 19 tasks, whole-branch reviewed, fixes applied and re-reviewed; awaiting Kien's merge decision** |
-| 2b Community voice | not written | — | — |
+| 2a Requests & holds | `plans/2026-08-29-laravel-phase-2a-requests-and-holds.md` | #64 | merged (`main` = `fabfbd4`) |
+| **2b Community voice** | `plans/2026-08-30-laravel-phase-2b-community-voice.md` | — | **complete — 20 tasks, whole-branch reviewed, fixes applied; PR open, awaiting Kien's merge decision** |
 | 2c Statistics & labels | not written | — | — |
 
 Phase 1 (1a–1d) IS BR §1.4's core loop, and it is done. Next: Phase 2 (Community), then
@@ -42,6 +42,148 @@ over-wide shape Phase 1 was split for. The cut:
 - **2b — community voice.** Comments and moderation (INV-09 visibility), announcements,
   site feedback and its inbox, donations.
 - **2c — statistics and QR labels.**
+
+## Phase 2b — complete
+
+Branch `feat/phase-2b-community-voice`, cut from `main` at `fabfbd4`.
+**57 commits**, 103 files, +19,889 / −108 — measured at the
+re-review commit, which is this sentence's own commit. Suite **1,569 passing /
+9,384 assertions**.
+
+**Retracted:** this line read "55 commits, 103 files, +19,513 / −107". No single
+base makes that true — `+19,513` is the figure at `503d9f2` (54 commits) and
+"55 commits" is `c59e9ca`, so the one sentence mixed two vintages and matched
+neither, nor HEAD. It is method correction 5 in the list this same section
+introduces, committed inside the commit that introduced it. A diffstat in a doc
+that lives in the tree it measures goes stale the moment it is written; the base
+is now named so the reader can re-take it. Pint 436 files,
+Larastan level 8 clean on 256, Biome at the inherited baseline (3 warnings, 1 info), tsc
+clean, Vite builds. `git diff origin/main...HEAD -- old_next/` is empty.
+
+Plan `plans/2026-08-30-laravel-phase-2b-community-voice.md`, **20 tasks in three slices**,
+written by Opus and reviewed by a different Opus. Site feedback was cut to Phase 3 during
+planning.
+
+- **Slice A (1–8) — comments.** Model and policy, `CreateComment`, the three moderation
+  commands, `BookCommentsQuery` + the INV-9 invariant suite, `CommentModerationQuery`, the
+  reader's book-page comments, and `/manage/comments` with the dashboard's fourth card.
+- **Slice B (9–14) — announcements.** `CreateAnnouncement`, `UpdateAnnouncement`,
+  publish/hide/pin/unpin, `AnnouncementsQuery`, the reader's Bản tin, the manager's screen.
+- **Slice C (15–20) — donations.** `OfferDonation`, `ReceiveDonation`/`DeclineDonation`,
+  `MyDonationsQuery`/`DonationQueueQuery`, the reader's Tặng sách, the manager's queue with
+  its nav count badge, and the guarantee sweep.
+
+Every task ran brief → implementer → independent review → fix round → often a scoped
+re-review. The per-task ledger is `.superpowers/sdd/2026-08-30-laravel-phase-2b-community-voice/progress.md`
+(gitignored, worktree only).
+
+### What this phase cost, and what it bought
+
+**Fourteen false claims were found and corrected**, in six shapes. Recording the shapes
+because they are the reusable part:
+
+1. a rationale **copied from a sibling file** where it was true;
+2. a rationale **copied across a language boundary** — true of the reference's raw SQL, false in Eloquent, which builds its UPDATE from the dirty set;
+3. a docblock **describing the file as it stood before a change in its own commit**;
+4. a **citation quoting a document that does not contain the quoted words** (four of the fourteen);
+5. a **measurement true when written and falsified by a later commit** — only re-running can see it;
+6. **a right instruction paired with a wrong reason** — mine, three times; the number matched so the reason went unexamined.
+
+Six of the fourteen were introduced by fix rounds sent to remove an earlier one. The
+countermeasure that worked is the **retraction shape**: name the retracted claim and say
+where it IS true. A deleted false sentence comes back — this branch measured a corrected
+misattribution reappearing in three new places one commit later.
+
+### Method corrections this phase produced
+
+- A **404-only block is vacuous when no route claims the URI** — it passes against a deleted route. Not vacuous where a sibling route holds the path: an unrouted method answers **405**.
+- **A block can redden on the wrong line.** A failed `expect()` aborts the whole METHOD, so a mutation reddening a block whose titled probe sits behind a chain proves only that something moved. And "titled assertion first" is **unachievable** where the failure mode is *the prop does not exist*.
+- **A mutation that silently fails to apply is indistinguishable from one that changed nothing.** Prove every restore.
+- **`toThrow($class, $message)` is a substring match** — 130 blocks, two latent prefix pairs.
+- **Measurements in comments have a shelf life.**
+
+### The whole-branch RE-review (2026-08-31)
+
+Run at Kien's instruction before any merge decision, by four independent fresh
+agents over the branch as it stood at `9c3eac8`. The target that paid: **the fix
+wave `c59e9ca` had never itself been reviewed**, and this project had already
+measured that six of its fourteen false claims were introduced by fix rounds.
+
+**All six inherited gate measurements re-taken and all six held** — suite
+1,569/9,384, Larastan 256 `[OK]`, Pint PASS 436, Biome 3 warnings + 1 info, tsc
+clean, `old_next/` diff empty.
+
+**Two user-visible defects, both fixed here, both the fix wave's own class** — a
+value correct on each side of a seam and wrong across it, invisible to a suite
+that has no frontend rendering tests:
+
+- the PUBLIC book page rendered a blank byline for a departed reader (`""` from
+  `BookCommentsQuery`'s cast), while the manager's screen handled the identical
+  value with `nameOr()` and *"Bạn đọc đã rời tủ sách"*;
+- the manager's donation queue rendered a blank donor name — in a file whose own
+  props docblock states the value may be empty, and whose controller already
+  branches on it for the flash.
+
+**Thirteen false or stale claims, corrected in retraction form.** Three were
+citation failures that trace UPSTREAM: `OPERATIONS.md:650` cites §7.5 for
+`HideComment` and `:688` credits BR §16.1 with "pinned first, most recent next".
+Both are wrong, and the branch inherited and amplified them. BR §7.5 is
+*Membership*; §7.6 is *Comment*; and "pinned first, most recent next" and
+"bình luận" appear nowhere in BR.
+
+**The retraction discipline was measured failing, twice.** `228ca76` retracted the
+§16.1 ordering attribution in one file; `503d9f2` then wrote it into
+`known-gaps.md` — the durable record — fourteen commits later. And `c59e9ca`, the
+commit that repaired the flash defect, introduced two fresh false claims of its
+own ("seven blocks" for eight; "every one redirects to this list" for two of six).
+That is the fix-round shape recurring for the fifteenth and sixteenth time, and it
+is the argument for reviewing fix waves rather than trusting them.
+
+**One correction in the branch's favour, and one strengthening.** `known-gaps.md`
+understated its own safety net: `AuditSentencesTest` does catch a WRONG sentence,
+for nine Phase 2b keys, not merely a missing one. And the "seventeen untested
+audit sentences" claim was proven **complete** — every one of the other
+twenty-two keys was mutated individually, one full suite run each, and every one
+reddened. The claim is now stronger than when it was written.
+
+**Four Minors recorded rather than fixed, by Kien's ruling** — a `varchar(255)`
+slug overflow that 500s (measured: 510 characters), `PublishAnnouncement`'s
+non-idempotent double-submit, a live notice republishable over HTTP, and the full
+`body` shipping unread to two list screens. All four are in `known-gaps.md` with
+their evidence.
+
+### Carries to Phase 3 (none block the PR)
+
+**User-visible, and the two worth deciding first:**
+- `moderation_note` is written by `RejectComment` and `HideComment` and **read by nothing**, so the reject form's "Bạn đọc sẽ thấy lý do này." promises a manager something no surface delivers. Either surface it or drop the sentence.
+- The moderation archives are **capped at 10 under an uncapped chip** — chip reads 12, list shows 10, no paging. Reference-faithful and plan-mandated.
+
+**One-fix-each structural items:**
+- `CommentModerationQuery::counts()` restates its status predicate; `DonationQueueQuery` shows the stronger shape one file away (one private `pending()` feeding both `run()` and `countPending()`).
+- The moderation chip set derives from `copy.ts`, not `App\Enums\CommentStatus`.
+- The locked-read-plus-status-guard block is at its **sixth** copy.
+- Nothing prevents a future screen bypassing INV-9 via `Comment::query()`.
+- `slug_key` is `binary(32)` on `announcements` and `books`, `$guarded` on both and `$hidden` on neither — any bare model handed to Inertia produces a prop bag `json_encode` cannot encode. Latent only because every query returns arrays. Fix once, across both.
+- `CommunityArchitectureTest`'s FOR-UPDATE list is hand-maintained; currently complete.
+- `RuleViolatedCodesHaveSentencesTest` cannot see a code reachable only through a `UniqueViolation` map, nor one thrown from a variable. Widen it or correct its docblock, which overclaims its name.
+
+**Documentation defects, outside any task's scope — decisions for Kien:**
+- **AGENTS.md prescribes FOURTEEN components this repo does not have**, and three of
+  its numbered non-negotiable rules cite one. Re-counted at the whole-branch
+  re-review; **retracted:** this bullet previously said six components and rule 1
+  alone. Absent, all verified against `resources/js/components/` and its `ui/`
+  subdirectory: `Pill`, `StatusBadge`, `StatusPanel`, `StepIndicator`,
+  `ReadOnlyValue`, `BookTitle`, `Field`, `Textarea`, `BookCover`, `PhoneLink`,
+  `ButtonLink`, `BigActionLink`, `QrScanner`, `CopyScanField`. The numbered rules
+  are **1** (`BookTitle`, AGENTS.md:53), **2** (`StatusBadge`/`StatusPanel`, :56)
+  and **6** (`Field`, :64). Its component table also routes twice through
+  `field.tsx` (:83, :90) — a file that does not exist; `find resources/js -iname
+  'field*'` returns nothing. This misdirected three tasks in 2b, each of which
+  needed its brief to override the house style guide. Build them, or correct the
+  guide. AGENTS.md is untouched by this branch, so this stays a decision, not a fix.
+- **BR §16.1 line 510** sends the reader to "§12, below" for the announcement card. §12 is *Search*, and it is **above**.
+- **OPS §4.4 abbreviates seven refusal codes across five commands**, and the §3.3 table has a stale notifications row. Task 20 raised these as PR row-edits rather than editing a shipped command's OPS entry unannounced, per 2a's precedent.
+- **Seventeen audit sentences have no test behind them**, all inherited from Phases 1/2a — measured at the whole-branch review and recorded in `known-gaps.md`.
 
 ## Phase 2a — current position
 

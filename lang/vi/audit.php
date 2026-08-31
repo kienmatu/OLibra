@@ -57,6 +57,85 @@ return [
     'credentials_set' => 'đặt hoặc đổi tài khoản đăng nhập cho :subject',
     'profile_corrected' => 'sửa hồ sơ của :subject',
 
+    // — cộng đồng —
+    // The reference's phrase verbatim (audit-actions.ts's comment.created).
+    // It names neither the title nor the author, deliberately: the payload
+    // holds book_id and no title, and widening the payload to make a
+    // sentence prettier is the trade this refuses.
+    'comment_created' => 'viết một bình luận',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // comment.approved). Deliberately not "duyệt bình luận của :subject":
+    // the payload carries the two statuses and no author, and the audit
+    // row's subject join has no key to work from.
+    'comment_approved' => 'duyệt một bình luận',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // comment.rejected), reusing the existing :because line — RejectComment
+    // always has a reason (it is required), so the "because" clause is
+    // present in practice; the helper line itself is shared rather than
+    // spelled a second time.
+    'comment_rejected' => 'từ chối một bình luận:because',
+    // The reference's phrase verbatim (audit-actions.ts's comment.hidden).
+    // HideComment's reason is optional, so :because renders empty when the
+    // payload carries none — the same helper copy_retired and loan_voided
+    // already use.
+    'comment_hidden' => 'ẩn một bình luận:because',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // announcement.created): `soạn thông báo ${which(str(f.after,
+    // "title"))}`. Its `which` fallback is a BOOK fallback here — the
+    // some_book line above reads 'một cuốn sách' — so the no-title arm
+    // gets its own line rather than borrowing it.
+    'announcement_created' => 'soạn thông báo :title',
+    'announcement_created_bare' => 'soạn một thông báo',
+    // The reference's phrase verbatim (audit-actions.ts's
+    // announcement.updated): `sửa thông báo ${which(str(f.after,
+    // "title"))}`. Its `which` fallback is a BOOK fallback here, the same
+    // way the created pair's is, so the no-title arm gets its own line.
+    'announcement_updated' => 'sửa thông báo :title',
+    'announcement_updated_bare' => 'sửa một thông báo',
+    // Slice B's four state changes, each the reference's phrase verbatim
+    // (audit-actions.ts's announcement.published / .pinned / .unpinned /
+    // .hidden): `đăng thông báo ${which(...)}`, `ghim thông báo …`,
+    // `bỏ ghim thông báo …`, `ẩn thông báo …`. Every one of them runs the
+    // title through its own `which`, whose fallback here is a BOOK
+    // fallback — the some_book line above reads 'một cuốn sách' — so each
+    // gets its own bare arm rather than borrowing it, the same way the
+    // created and updated pairs do.
+    //
+    // announcement_hidden is spelled out beside comment_hidden rather
+    // than sharing it: the comment sentence carries a :because clause
+    // (HideComment takes an optional reason) and HideAnnouncement takes
+    // none, so one key for both would offer a slot nothing can fill.
+    'announcement_published' => 'đăng thông báo :title',
+    'announcement_published_bare' => 'đăng một thông báo',
+    'announcement_pinned' => 'ghim thông báo :title',
+    'announcement_pinned_bare' => 'ghim một thông báo',
+    'announcement_unpinned' => 'bỏ ghim thông báo :title',
+    'announcement_unpinned_bare' => 'bỏ ghim một thông báo',
+    'announcement_hidden' => 'ẩn thông báo :title',
+    'announcement_hidden_bare' => 'ẩn một thông báo',
+    // Slice C's offer, the reference's phrase verbatim
+    // (audit-actions.ts's donation.offered, whose phrase is `() => "đề
+    // nghị tặng sách"`). It takes no facts there and takes none here, so
+    // its arm needs no strtr and no bare twin: there is no :title to lose
+    // and therefore no fallback to write. The description is deliberately
+    // NOT interpolated — INV-8's payload does not carry it, for the
+    // reason App\Actions\Community\OfferDonation's docblock gives.
+    'donation_offered' => 'đề nghị tặng sách',
+    // Slice C's two decisions, both the reference's phrases verbatim
+    // (audit-actions.ts, opened for this: donation.received is `() =>
+    // "nhận một đề nghị tặng sách"` and donation.declined is `(f) =>
+    // `từ chối một đề nghị tặng sách${because(str(f.after, "reason"))}``).
+    //
+    // donation_received takes no facts there and takes none here, so its
+    // arm needs no strtr and no bare twin.
+    //
+    // donation_declined carries the :because slot this file already
+    // defines, filled from the payload's `reason` — comment_rejected's
+    // shape, spelled with no space before the token because the
+    // 'because' line above supplies its own leading space.
+    'donation_received' => 'nhận một đề nghị tặng sách',
+    'donation_declined' => 'từ chối một đề nghị tặng sách:because',
+
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.
     'conditions' => [

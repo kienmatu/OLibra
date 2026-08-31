@@ -9,6 +9,7 @@ use App\Models\Loan;
 use App\Models\User;
 use App\Queries\Concerns\CountsCopies;
 use App\Support\Clock;
+use App\Support\Community\CommentSettings;
 use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
 
@@ -40,6 +41,7 @@ final class BookDetailQuery
         private CatalogueQuery $catalogue,
         private TenantContext $context,
         private Clock $clock,
+        private BookCommentsQuery $comments,
     ) {}
 
     /**
@@ -151,6 +153,41 @@ final class BookDetailQuery
             }
         }
 
+        // WHETHER THE SHELF TAKES COMMENTS AT ALL, so the page can leave
+        // the box off rather than offer one that will answer
+        // comments_disabled. The key's spelling stays in
+        // CommentSettings::fromShelf (App\Support\Community\
+        // CommentSettings, opened at this commit) and is not repeated in
+        // this file; a second copy is what that class's own docblock
+        // argues against.
+        //
+        // The null shelf takes the same defaults an empty settings blob
+        // does, which is the precedent set three statements above — a
+        // null shelf becomes [] there and every read falls to its ??.
+        // fromShelf's signature requires a Bookshelf, so the fallback is
+        // spelled at this call site rather than inside it.
+        //
+        // MEASURED, not assumed: the null branch is dead over HTTP on the
+        // one route that reaches this query. BookController::show sits in
+        // routes/web.php's shelves/{shelf} group behind the `tenant`
+        // middleware, and ResolveTenant (both files opened at this
+        // commit) abort(404)s an unresolvable slug before it ever calls
+        // TenantContext::set, so $shelf is a Bookshelf there. Replacing
+        // this branch with a throw and running the whole suite is how
+        // that was checked — no block reached it, ReaderQueriesTest's
+        // direct calls included, because that fixture binds a shelf too.
+        // And were run() ever reached with no tenant bound AND not
+        // system-wide, the branch would not survive being alive: the
+        // return below reads Comment through BookCommentsQuery, and
+        // BookshelfScope::apply (opened at this commit) throws a
+        // RuntimeException on a null bookshelfId. The both-conditions
+        // wording is load-bearing and a first draft dropped half of it —
+        // apply() RETURNS EARLY under TenantContext::isSystemWide(), which
+        // BookCommentsScreenTest's own fixture calls, so under that mode a
+        // null-shelf run() would not throw at all. The branch is dead over
+        // HTTP for the measured reason above, not for this one.
+        $commentsEnabled = $shelf === null || CommentSettings::fromShelf($shelf)->commentsEnabled;
+
         return array_merge($this->catalogue->row($withCounts), [
             'publisher' => $withCounts->publisher,
             'publishedYear' => $withCounts->published_year,
@@ -162,6 +199,24 @@ final class BookDetailQuery
             'queueLength' => $queueLength,
             'myRequest' => $myRequest,
             'currentLoan' => $currentLoan,
+            // THROUGH BookCommentsQuery, never a status predicate written
+            // again here. INV-9 lives in that query's access path, and a
+            // page that re-spelled `status = approved` would be a second
+            // place for it to drift — the same structural rule
+            // counts.pendingComments was held to.
+            //
+            // GATED ON THE SETTING, because resources/js/pages/shelves/
+            // book.tsx (opened at this commit) hides the whole comments
+            // section when commentsEnabled is false: an unconditional
+            // read would ship every approved body to a page that has
+            // already hidden the list, and run a SELECT to do it. Not a
+            // confidentiality fix — the recipient is the same signed-in
+            // reader of the same shelf, and the rows were on their screen
+            // before the shelf turned comments off — but props a page
+            // cannot use should not be built. BookCommentsScreenTest pins
+            // the empty array on a comments-off shelf.
+            'comments' => $commentsEnabled ? $this->comments->run($book) : [],
+            'commentsEnabled' => $commentsEnabled,
         ]);
     }
 }

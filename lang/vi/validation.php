@@ -188,6 +188,7 @@ return [
         'acquired_on' => 'ngày nhận',
         'condition' => 'tình trạng',
         'note' => 'ghi chú',
+        'body' => 'nội dung bình luận',
         'reason' => 'lý do',
         'q' => 'từ khoá',
         'username' => 'tên đăng nhập',
@@ -205,6 +206,7 @@ return [
         'parish_unit_l2_id' => 'đơn vị bậc 2',
         'copy_id' => 'bản sách',
         'membership_id' => 'bạn đọc',
+        'estimated_count' => 'số lượng ước tính',
     ],
 
 ];

@@ -41,6 +41,18 @@ export const copy = {
         // only the Vietnamese changed, and shelves/show.tsx is the one
         // place that renders it (grepped resources/js at this commit).
         announcements: "Bản tin",
+        // BR §16.1's shelf home, item 3 (opened): "two secondary cards,
+        // **Tặng sách** and **Góp ý**". Task 18 shipped the two reader
+        // donation screens and this word is what reaches them — measured
+        // at 2731bea, `grep -rn "shelves.donate" resources/js` returned
+        // exactly two hits, one in each of those two pages, cross-linking
+        // each other. shelves/show.tsx carries the same measurement beside
+        // the link this key labels, and what it does and does not prove.
+        // `Góp ý` is a second card the same paragraph asks for
+        // and it is NOT added here: `shelves.feedback` still renders the
+        // under-construction placeholder, and a link to that is a promise
+        // the page cannot keep.
+        donate: "Tặng sách",
         profile: "Hồ sơ",
         manage: "Quản lý",
     },
@@ -52,6 +64,26 @@ export const copy = {
         books: "Sách",
         overdue: "Quá hạn",
         requests: "Yêu cầu mượn",
+        // The NAV word, one of two spellings of the same subject in this
+        // file. The screen it opens is headed "Bình luận chờ duyệt" and
+        // the three archives re-head it — see manageComments.titles — so
+        // the nav says the subject and the heading says the view.
+        comments: "Bình luận",
+        // The NAV word, matching `shelf.announcements` — the bulletin is
+        // "Bản tin" on both sides of the shelf, and the manager's screen
+        // re-heads it in manageAnnouncements.title.
+        announcements: "Bản tin",
+        // The NAV word, and the same Vietnamese the reader's own two
+        // screens use — a volunteer and a child call this one thing.
+        // The screen it opens re-heads it in manageDonations.title.
+        donations: "Tặng sách",
+        // BR §16.3's count badge, on notifications.bellWithCount's
+        // pattern — the count in the LABEL, in parentheses, rather than a
+        // superscript pill: this nav is a row of plain text links and a
+        // number a volunteer can read beats a dot they have to interpret.
+        // Zero renders the bare word above, never "(0)": an empty queue is
+        // still a place to go, but it is not news.
+        donationsWithCount: "Tặng sách ({count})",
         settings: "Cài đặt",
         audit: "Nhật ký",
     },
@@ -309,6 +341,9 @@ export const copy = {
             loans: "Mượn và trả",
             books: "Sách",
             readers: "Bạn đọc",
+            // The reference's own label for cong-dong, and the ordinary
+            // word a volunteer uses.
+            community: "Cộng đồng",
         },
         actorLabel: "Người thực hiện",
         actorAll: "Mọi người",
@@ -344,6 +379,7 @@ export const copy = {
         overdueCard: "Quá hạn",
         registrationsCard: "Chờ duyệt tài khoản",
         requestsCard: "Yêu cầu chờ xử lý",
+        commentsCard: "Bình luận chờ duyệt",
         viewList: "Xem danh sách",
         lendAction: "Cho mượn",
         lendSub: "Tìm sách · chọn người đọc · xác nhận",
@@ -387,6 +423,178 @@ export const copy = {
         handoverButton: "Xác nhận trao sách",
         releaseButton: "Trả về kệ",
         nothingAutomatic: "Hệ thống không tự động giữ chỗ. Quản lý quyết định từng trường hợp.",
+    },
+    /**
+     * The manager's moderation screen. Its own section rather than a
+     * branch of `comments`: that one is the READER's wording on a book
+     * page ("Bạn thấy cuốn này thế nào?"), and these are a volunteer's
+     * words about somebody else's comment — the same split
+     * manageRequests already draws against `circulation.requests`.
+     */
+    manageComments: {
+        // The heading names the VIEW, and the ?status= chip chooses it.
+        // The reference re-heads the page per tab for the same reason
+        // and this ports that; the browser tab title stays the screen's
+        // one name (`tab` below), because a tab names a screen rather
+        // than the filter currently applied to it.
+        tab: "Bình luận",
+        titles: {
+            pending: "Bình luận chờ duyệt",
+            approved: "Bình luận đã duyệt",
+            rejected: "Bình luận đã từ chối",
+            hidden: "Bình luận đã ẩn",
+        },
+        chips: {
+            pending: "Chờ duyệt",
+            approved: "Đã duyệt",
+            rejected: "Đã từ chối",
+            hidden: "Đã ẩn",
+        },
+        // The chip's own number, beside its word.
+        chipCount: "{label} ({count})",
+        subtitle: "Bình luận chỉ hiển thị công khai sau khi được duyệt.",
+        subtitleCounted:
+            "{count} bình luận đang chờ · Bình luận chỉ hiển thị công khai sau khi được duyệt.",
+        empty: "Chưa có bình luận nào.",
+        aboutBook: "Bình luận về",
+        // A DATE and an hour: a queue is worked in order and how long a
+        // child has been waiting is the thing a volunteer reads off a
+        // row, unlike the book page's list where the date alone does.
+        postedAt: "gửi {time} ngày {date}",
+        // What a row shows when the person who wrote it, or the book it
+        // is about, has since been soft-deleted: the query returns an
+        // empty string there, and an empty string renders as a gap that
+        // reads like a bug rather than like a fact.
+        deletedAuthor: "Bạn đọc đã rời tủ sách",
+        deletedBook: "Sách đã gỡ khỏi tủ",
+        approveButton: "Duyệt bình luận",
+        rejectSummary: "Từ chối",
+        rejectReasonLabel: "Lý do từ chối",
+        rejectReasonHint: "Bạn đọc sẽ thấy lý do này.",
+        // The word, never a bare asterisk (AGENTS.md rule 6). A second
+        // key rather than a reach into `register.required` or
+        // `comments.required`, so rewording a form elsewhere cannot
+        // silently rewrite this one.
+        required: "Bắt buộc",
+        rejectConfirm: "Xác nhận từ chối",
+        hideButton: "Ẩn bình luận",
+        // Why the two read-only archives offer nothing: no command moves
+        // a rejected or hidden row anywhere, so a button there would post
+        // to nothing.
+        readOnlyNote: "Bình luận đã từ chối hoặc đã ẩn thì không đổi được nữa.",
+    },
+    // The bulletin from the writing side. A separate namespace from
+    // `announcements` (the reader's two screens) rather than extra keys on
+    // it: that group holds a heading, an empty state and a badge, and this
+    // one holds three state words, five button labels and a form.
+    //
+    // The three state words are the reference's own — "Đang hiện", "Nháp",
+    // "Hết hạn", read off
+    // old_next/src/app/tu-sach/[shelf]/quan-ly/thong-bao/page.tsx's
+    // STATE_STYLE — keyed by the exact strings
+    // AnnouncementsQuery::managed() puts on each row, so a state the server
+    // can send has a word here by construction.
+    manageAnnouncements: {
+        title: "Bản tin tủ sách",
+        subtitle: "Thông báo được ghim sẽ hiện lên đầu bản tin của tủ sách.",
+        empty: "Chưa có thông báo nào.",
+        compose: "Viết thông báo",
+        composeTitle: "Viết thông báo",
+        editTitle: "Sửa thông báo",
+        state: {
+            showing: "Đang hiện",
+            draft: "Nháp",
+            expired: "Hết hạn",
+        },
+        // Beside a pinned row, and NOT colour alone (AGENTS.md rule 2) —
+        // the reference's own word for this marker on this screen.
+        pinnedBadge: "Đang ghim",
+        notPublished: "Chưa đăng",
+        // A DATE, not a timestamp (AGENTS.md's language rule). The server
+        // sends both as ISO instants and formatInstantParts renders the
+        // NUMBER; the Vietnamese glue is here, the same split
+        // announcements.publishedOn uses.
+        publishedOn: "Đăng ngày {date}",
+        expiresOn: "Hết hạn ngày {date}",
+        publishNow: "Đăng ngay",
+        publishAgain: "Đăng lại",
+        hide: "Ẩn",
+        pin: "Ghim lên đầu",
+        unpin: "Bỏ ghim",
+        edit: "Sửa",
+        fields: {
+            title: "Tiêu đề",
+            body: "Nội dung",
+            expiresAt: "Hết hạn ngày",
+            pinned: "Ghim lên đầu bản tin",
+        },
+        // Why the box may be left empty, said once and reused by the edit
+        // form and by every row's republish box: an empty box is not "no
+        // answer", it is the answer "this notice does not expire".
+        expiresHint: "Để trống nếu thông báo không có ngày hết hạn.",
+        // The word, never a bare asterisk (AGENTS.md rule 6). Its own key
+        // rather than a reach into manageComments.required, so rewording
+        // that form cannot silently reword this one.
+        required: "Bắt buộc",
+        save: "Lưu thông báo",
+        saving: "Đang lưu…",
+        backToList: "Về bản tin",
+    },
+    /**
+     * The donation queue from the deciding side. A separate namespace from
+     * `donations` (the reader's two screens) rather than extra keys on it,
+     * the split `manageComments` already draws against `comments`: that
+     * group is a child offering their books, and this one is a volunteer's
+     * words about somebody else's offer.
+     *
+     * Wording taken from the reference's own queue screen
+     * (old_next/src/app/tu-sach/[shelf]/quan-ly/tang-sach/page.tsx,
+     * opened) — its heading, its two subtitles, its pill word, its two
+     * field captions, its two button labels and its reason field's label
+     * and hint. The one sentence NOT taken from it is `subtitleCounted`:
+     * the reference's says "Duyệt sẽ mở form thêm sách với Người tặng đã
+     * điền sẵn", which describes a pre-fill this phase does not ship (see
+     * App\Http\Controllers\Manage\DonationController's docblock), so
+     * repeating it would be the screen promising what the button does not
+     * do.
+     */
+    manageDonations: {
+        title: "Tặng sách",
+        subtitle: "Không có lời đề nghị nào đang chờ.",
+        subtitleCounted:
+            "{count} lời đề nghị đang chờ · Duyệt xong, hãy thêm sách vào kho và ghi tên người tặng.",
+        // The status word beside every row — AGENTS.md's second
+        // non-negotiable, which asks for an icon, a word and a colour
+        // together and never colour alone. One word, not three: this
+        // list is pending-only.
+        statusPending: "Chờ duyệt",
+        donorLine: "Gửi ngày {date}",
+        descriptionCaption: "Mô tả từ bạn đọc",
+        countCaption: "Số lượng áng chừng",
+        countValue: "Khoảng {count} cuốn",
+        // `photoUrl` rides every row and is not rendered as an image:
+        // plan divergence 11 keeps the column read-only until an uploader
+        // exists to write it, so no row can carry one yet. The reference
+        // draws a placeholder tile in its place and this says the same
+        // thing in words.
+        noPhoto: "Không có ảnh đính kèm",
+        empty: "Chưa có lời đề nghị tặng sách nào.",
+        receiveButton: "Duyệt",
+        declineSummary: "Từ chối",
+        declineReasonLabel: "Lý do từ chối",
+        declineReasonHint: "Bạn đọc sẽ thấy lý do này trên trang Tặng sách của mình.",
+        // The word, never a bare asterisk (AGENTS.md rule 6). Its own key
+        // rather than a reach into manageComments.required, so rewording
+        // that screen cannot silently rewrite this one.
+        required: "Bắt buộc",
+        // `donorName` MAY BE THE EMPTY STRING — this screen's own props
+        // docblock says so, and DonationController branches on it for the
+        // received flash. The card did not, so a trashed donor drew an
+        // empty avatar circle above a blank line. Same shape and same
+        // reason as manageComments.deletedAuthor, kept as its own key for
+        // the reason stated there.
+        deletedDonor: "Bạn đọc đã rời tủ sách",
+        declineConfirm: "Xác nhận từ chối",
     },
     circulation: {
         rules: {
@@ -511,6 +719,71 @@ export const copy = {
             cancelButton: "Huỷ yêu cầu",
         },
     },
+    // The reader's comments on a book page. Its own namespace rather than
+    // a corner of `catalogue`: the moderation screen is a different
+    // surface with different words, and merging on the shared subject is
+    // exactly the "coincidental wording" this file's header refuses.
+    comments: {
+        heading: "Bình luận",
+        empty: "Chưa có bình luận nào. Bạn là người đầu tiên nhé.",
+        formLabel: "Viết bình luận",
+        // The word, not an asterisk, beside the label — the reference's
+        // Field renders exactly this for a `required` textarea. The same
+        // string sits under register.required for the registration form;
+        // this is a second key rather than a reach across that namespace,
+        // so a change to the registration wording cannot silently rewrite
+        // what a book page says.
+        required: "Bắt buộc",
+        placeholder: "Bạn thấy cuốn này thế nào?",
+        submit: "Gửi bình luận",
+        // The memberless viewer's sentence, in place of a box that would
+        // refuse them — the reference's own wording for the same case.
+        onlyReaders: "Chỉ bạn đọc của tủ sách này mới viết bình luận được.",
+        // A DATE, not a timestamp (AGENTS.md's language rule). The server
+        // sends createdAt as an ISO instant, so the number comes from
+        // formatInstantParts(...).date and the Vietnamese glue is here —
+        // the same split notifications.receivedAt uses, minus the hour,
+        // because "what a child wrote about a book" is not an event you
+        // read a clock for.
+        postedOn: "ngày {date}",
+        // The byline when the person who wrote the comment has since been
+        // soft-deleted: BookCommentsQuery casts `author?->full_name` to a
+        // string, so a departed reader arrives as "" and renders as a gap
+        // before the date — " ngày 12/03/2026" — which reads as a broken
+        // page rather than as a fact. manageComments.deletedAuthor says the
+        // same thing on the moderation screen; this is a SECOND key rather
+        // than a reach across that namespace, per this file's header, so
+        // rewording the manager's queue cannot silently rewrite what a
+        // public book page tells a family.
+        deletedAuthor: "Bạn đọc đã rời tủ sách",
+    },
+    // The shelf's bulletin, as its own two screens. The NAV word stays
+    // `shelf.announcements` = "Bản tin"; these are the words the pages
+    // themselves carry, and they are a separate namespace rather than
+    // extra keys under `shelf` because that group holds nav labels and
+    // this one holds a heading, an empty state and a badge.
+    //
+    // "Bản tin tủ sách", not the reference's "Thông báo của tủ sách": Task
+    // 16 renamed this bulletin so the personal bell could keep "Thông
+    // báo", and a heading that used the old word would put the renamed
+    // word in the nav and the old one at the top of the page it opens.
+    announcements: {
+        title: "Bản tin tủ sách",
+        empty: "Hiện chưa có bản tin nào.",
+        // Beside the pinned notice, and NOT colour alone (AGENTS.md's
+        // second non-negotiable) — the reference's own word for this
+        // marker, kept.
+        pinned: "Ghim",
+        // A DATE, not a timestamp. The server sends publishedAt as an ISO
+        // instant and formatInstantParts renders the NUMBER; the
+        // Vietnamese glue is here, the same split comments.postedOn uses.
+        // The hour is dropped deliberately: a parish bulletin is read as
+        // "what was posted this week", not as an event you check a clock
+        // for.
+        publishedOn: "Đăng ngày {date}",
+        backToList: "Về bản tin tủ sách",
+        backToShelf: "Về trang tủ sách",
+    },
     // "Thông báo" belongs HERE, to the personal bell, and the shelf's
     // bulletin is `shelf.announcements` = "Bản tin" — the reference's
     // split, adopted at Task 16 rather than reinvented. The first draft of
@@ -537,6 +810,63 @@ export const copy = {
         // Vietnamese glue ("lúc", "ngày") the server does not supply,
         // because formatInstantParts renders the two NUMBERS locally.
         receivedAt: "lúc {time} ngày {date}",
+    },
+    // Tặng sách, across the reader's TWO screens — the offer form in the
+    // shelf area and their own offers under the profile. One namespace
+    // rather than two because a reader reads them as one act; the manager's
+    // queue is a different surface with different words and will not share
+    // this group.
+    //
+    // Wording taken from the reference's own single screen
+    // (old_next/src/app/tu-sach/[shelf]/(doc-gia)/ho-so/tang-sach/page.tsx,
+    // opened) — its heading, its subtitle, its two field labels, its
+    // placeholder, its button, its section heading, and its three status
+    // words.
+    donations: {
+        formTitle: "Tặng sách cho tủ sách",
+        formSubtitle: "Bạn có cuốn nào đọc xong rồi, muốn tặng lại cho các bạn khác không?",
+        descriptionLabel: "Bạn muốn tặng sách gì?",
+        // The word, not an asterisk — AGENTS.md's rule 6. Its own key
+        // rather than a reach into `comments.required` or
+        // `register.required`, so rewording a form elsewhere cannot
+        // silently rewrite what this one asks for.
+        required: "Bắt buộc",
+        descriptionPlaceholder: "Ví dụ: khoảng mười cuốn truyện tranh, còn khá mới",
+        // No `required` twin, and that is the field's whole point: OPS §4.4
+        // asks for free text and a ROUGH count, and a reader who does not
+        // know how many books are in the bag leaves it blank.
+        countLabel: "Khoảng bao nhiêu cuốn?",
+        submit: "Gửi lời tặng sách",
+        // Shown in place of the box when ResolveTenant resolved no active
+        // membership for the caller. The reference renders its
+        // NotAReaderNotice on the same branch and its comment gives the
+        // reason: it would be "a form the app should not have offered".
+        onlyReaders: "Chỉ bạn đọc của tủ sách này mới tặng sách được.",
+        listTitle: "Những lần bạn đã tặng",
+        empty: "Bạn chưa gửi lời tặng sách nào.",
+        // A DATE, not a timestamp (AGENTS.md's language rule). The server
+        // sends offeredAt as an ISO instant, so the number comes from
+        // formatInstantParts(...).date and the Vietnamese glue is here —
+        // the same split comments.postedOn and announcements.publishedOn
+        // use, minus the hour, because "when I offered my books" is not an
+        // event you read a clock for.
+        offeredOn: "Gửi ngày {date}",
+        countLine: "khoảng {count} cuốn",
+        // The status WORD beside every offer — AGENTS.md's second
+        // non-negotiable, status is never colour alone. Three words for the
+        // three cases App\Enums\DonationStatus carries.
+        statusPending: "Đang chờ",
+        statusReceived: "Đã nhận",
+        statusDeclined: "Chưa nhận",
+        // DIVERGENCE from the reference, which prints the decline note as a
+        // bare paragraph under the row. Labelled here, in the shape
+        // readerDetail.rejectionReasonLine above already uses, because this page
+        // shows the description, the date and the count as prose too and an
+        // unlabelled fourth line does not say whose sentence it is.
+        declineReasonLine: "Lý do từ chối: {reason}",
+        toList: "Những lần bạn đã tặng",
+        toForm: "Tặng sách cho tủ sách",
+        backToOverview: "Về trang của tôi",
     },
 } as const;
 

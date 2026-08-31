@@ -19,9 +19,8 @@ namespace App\Support\Notifications;
  *
  * Grown per task (plan divergence 7). The pair Task 17 adds is written
  * by the reminder sweep rather than by a command — OPS §7's argued
- * exception, still reader-facing. comment_approved is 2b's, with its
- * writer; the profile-change pair BR §15 names has no reference
- * implementation and is Phase 3's to decide.
+ * exception, still reader-facing. The profile-change pair BR §15 names
+ * has no reference implementation and is Phase 3's to decide.
  */
 enum NotificationKind: string
 {
@@ -31,4 +30,5 @@ enum NotificationKind: string
     case RequestRejected = 'request_rejected';
     case LoanDueSoon = 'loan_due_soon';
     case LoanOverdue = 'loan_overdue';
+    case CommentApproved = 'comment_approved';
 }

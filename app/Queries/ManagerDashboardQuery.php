@@ -12,10 +12,23 @@ use App\Models\Membership;
 use App\Support\Clock;
 
 /**
- * OPS §3.3's GetManagerDashboard — port of get-manager-dashboard.ts,
- * narrowed to the two of BR §16.3's four stat cards whose queues exist
- * (plan divergence 6: Yêu cầu mượn and Bình luận chờ duyệt are Phase
- * 2's, and no substitute card is promoted into their slots).
+ * OPS §3.3's GetManagerDashboard — port of get-manager-dashboard.ts.
+ * Four counts and four totals, and the four counts are the NUMBERS
+ * behind BR §16.3's four stat cards: overdue and pendingRegistrations
+ * from the foundation, pendingRequests from Phase 2a, and
+ * pendingComments from Phase 2b's CommentModerationQuery.
+ *
+ * A NUMBER IS NOT A CARD, and plan divergence 6 was about cards. That
+ * divergence is DISCHARGED as of Task 8, the commit that ships
+ * /manage/comments: resources/js/pages/manage/dashboard.tsx — opened
+ * while rewriting this paragraph — now declares four counts in its page
+ * props and renders four StatCards, the fourth being Bình luận chờ duyệt
+ * linked to that screen. The reason the card waited is worth keeping,
+ * because it is the reason it could not have shipped earlier: a card over
+ * an under-construction link is the "no comments waiting" lie the
+ * reference removed. This paragraph used to say the card "is not on the
+ * screen yet" and that the divergence "stays open"; both sentences went
+ * false in the same commit that made this one true.
  *
  * Every figure is a count() at query time over BelongsToBookshelf-scoped
  * models — never a stored counter (BR §8; OPS §3.3's own words: "a
@@ -28,6 +41,10 @@ use App\Support\Clock;
  *   rather than restating its where-clauses — the mirror rule the
  *   overdue card already follows, so the card and the screen it links
  *   to cannot drift apart the way two independent counts could.
+ * - pendingComments DELEGATES to CommentModerationQuery::countPending(),
+ *   the same rule pendingRequests already follows and for the same
+ *   reason: this number and the moderation screen's queue read one
+ *   definition of "pending" rather than two that merely agree today.
  * - pendingRegistrations mirrors PendingRegistrationsQuery (status
  *   pending, whereHas('user') — a soft-deleted identity is no applicant).
  * - readers counts every ACTIVE membership, managers included — the same
@@ -46,9 +63,13 @@ use App\Support\Clock;
  */
 final class ManagerDashboardQuery
 {
-    public function __construct(private Clock $clock, private BorrowRequestQueueQuery $queue) {}
+    public function __construct(
+        private Clock $clock,
+        private BorrowRequestQueueQuery $queue,
+        private CommentModerationQuery $comments,
+    ) {}
 
-    /** @return array{counts: array{overdue: int, pendingRegistrations: int, pendingRequests: int}, totals: array{titles: int, copies: int, onLoan: int, readers: int}} */
+    /** @return array{counts: array{overdue: int, pendingRegistrations: int, pendingRequests: int, pendingComments: int}, totals: array{titles: int, copies: int, onLoan: int, readers: int}} */
     public function run(): array
     {
         $today = $this->clock->today();
@@ -67,6 +88,10 @@ final class ManagerDashboardQuery
                 // links to cannot drift; the mirror rule the overdue
                 // card already follows.
                 'pendingRequests' => $this->queue->countWaiting(),
+                // Same delegation, same reason — the moderation
+                // screen's queue and this number read one definition of
+                // "pending".
+                'pendingComments' => $this->comments->countPending(),
             ],
             'totals' => [
                 'titles' => Book::query()->count(),

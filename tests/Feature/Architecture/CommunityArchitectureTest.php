@@ -1,0 +1,351 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+
+// Grep first: `grep -rn "^function wallClockOffenders" tests/` —
+// top-level helpers are process-global (AGENTS.md).
+//
+// THE COMMUNITY HALF OF THE NO-WALL-CLOCK GREP. This is a second copy of
+// the four-token regex CirculationArchitectureTest's own clock block
+// carries, and the duplication is DELIBERATE and disclosed rather than
+// left to be discovered: sharing it would mean editing a shipped guard to
+// extract a helper, and this phase already made one such exception (Task
+// 1's root-parameterised transaction walk). docs/known-gaps.md carries
+// the same note.
+//
+// (?<![->]) excludes `$this->clock->now()` — the Clock's own method IS the
+// sanctioned door; what this bans is the bare now() helper and the static
+// Carbon reads. It reads RAW SOURCE, comments included, so the literal
+// `Clock::now()` written into a docblock reddens this too; that is the
+// bound, not a defect.
+/** @return list<string> basenames of the offending files */
+function wallClockOffenders(string $root): array
+{
+    $offenders = [];
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($files as $file) {
+        $src = (string) file_get_contents($file->getPathname());
+        if (preg_match('/(?<![->])\bnow\(\)|Carbon::now|CarbonImmutable::now/', $src) === 1) {
+            $offenders[] = basename($file->getPathname());
+        }
+    }
+
+    return $offenders;
+}
+
+// NO is_dir() GUARD ANYWHERE IN THIS FILE, and that is the point of it
+// existing in Task 2's commit rather than Task 1's.
+//
+// RE-MEASURED AT TASK 20, AND THE PREVIOUS NUMBERS HERE WERE STALE —
+// which is why this note now dates itself. It said "with the directory
+// absent this file is 4 failed (0 assertions) — all four blocks" and
+// "present but EMPTY it is 2 failed, 2 passed"; both were true of the
+// four blocks this file held when they were written, and later commits
+// added three more (the FOR UPDATE block and the two route-order
+// blocks), which no re-run had seen. The measurement is now:
+//   - `app/Actions/Community` MOVED AWAY entirely: 5 failed, 2 passed
+//     (8 assertions). The five directory-walking blocks die on
+//     UnexpectedValueException from RecursiveDirectoryIterator; the two
+//     that pass are the route-order blocks at the foot of this file,
+//     which read the router and never touch the directory.
+//   - the directory PRESENT BUT EMPTY: 4 failed, 3 passed (10
+//     assertions). The one directory-walking block that passes on an
+//     empty directory is the clock block — it has nothing to offend.
+// A block that passes on absence is exactly what these guards exist to
+// refuse, so the fix for a red run here is the Action, never an
+// is_dir(). And a total written down here has a shelf life: re-run it
+// rather than incrementing it.
+
+it('every community write transaction retries — the attempts argument, tokenised', function () {
+    // The same property CirculationArchitectureTest states for its own
+    // directory, through the same token walk (renamed and
+    // root-parameterised in Task 1 for this caller): every Action under
+    // app/Actions/Community that opens a write transaction passes an
+    // attempts count, so a new one cannot become a silent non-retrying
+    // participant merely by being written.
+    //
+    // This asserts the argument is PRESENT, not that it is
+    // ConcurrencyRetry::ATTEMPTS or any particular number — pinning the
+    // spelling would make a deliberate per-command count a test failure,
+    // and the value is argued in ConcurrencyRetry's own docblock.
+    [, $offenders] = actionTransactionCalls(app_path('Actions/Community'));
+
+    expect($offenders)->toEqual([]);
+});
+
+it('the community attempts guard actually inspects the transactions it claims to guard', function () {
+    // The sibling file's derivation, and it has teeth from this commit
+    // because the directory now holds a file that really opens one: any
+    // file whose comment-stripped source contains the literal
+    // `DB::transaction(` must appear in the walk's own tally, and the
+    // tally must not be empty. Break the token walk and a file drops out
+    // of the tally while its call is still plainly there.
+    //
+    // One-directional by design: the walk legitimately finds calls this
+    // substring cannot (a `$connection->transaction(` spelling), so a
+    // file in the tally but not in the substring set is not an offence.
+    [$callSites, , $literals] = actionTransactionCalls(app_path('Actions/Community'));
+
+    $blind = [];
+    foreach ($literals as $rel) {
+        if (($callSites[$rel] ?? 0) === 0) {
+            $blind[] = $rel;
+        }
+    }
+
+    // Chained rather than split, and that is not the usual short-circuit
+    // trap: the two can never both fail, because $blind is built out of
+    // $literals and an empty $literals forces an empty $blind.
+    expect($literals)->not->toBeEmpty()
+        ->and($blind)->toEqual([]);
+});
+
+it('no Action under app/Actions/Community reads the wall clock', function () {
+    // The title names the directory this actually walks. A test whose
+    // name overclaims its body is how a rule gets believed without being
+    // enforced — the sibling file carries the same correction.
+    //
+    // Clock is the only place Carbon reads the wall clock. A community
+    // file calling now() bypasses setTestNow-driven derivations and BR
+    // §5.4's timezone rule at once.
+    expect(wallClockOffenders(app_path('Actions/Community')))->toBe([]);
+});
+
+it('no Action under app/Actions/Community skips the audit recorder', function () {
+    // CatalogueArchitectureTest's tripwire, ported by shape rather than
+    // by copy: each file must constructor-inject an AuditRecorder AND
+    // call ->record( on whatever the constructor named the property, so
+    // an Action pasted without audit fails the build rather than quietly
+    // shipping unaudited. Asserting the class name merely APPEARED in the
+    // source would pass on a file that imports AuditRecorder and never
+    // calls it.
+    //
+    // There is NO allow-list here, unlike the catalogue file's code
+    // allocator: every command in this directory audits. Adding an
+    // exemption means arguing for it in this comment, not adding a
+    // str_ends_with.
+    //
+    // RECURSIVE, deliberately diverging from the catalogue file this is
+    // ported from: that one globs a single level, and this file's other
+    // two directory walks both recurse, so a shallow glob under a title
+    // saying "under app/Actions/Community" would give an Action at
+    // Community/Moderation/Foo.php the retry and clock rules while
+    // silently exempting it from this one. This file elsewhere makes a
+    // point of titles not overclaiming their bodies.
+    //
+    // INV-8 has a second, sharper reason to be pinned by a tripwire in
+    // THIS namespace: AuditSentences::phrase() ends in a default arm, so
+    // a community action shipped with no match arm renders the
+    // undescribed-action fallback to a volunteer instead of failing the
+    // build the way a missing NotificationSentences arm does.
+    //
+    // CORRECTED IN THE FIX ROUND, and the correction is measured: this
+    // comment used to say AuditActionCensusTest's set-equality catches
+    // the missing ARM. It does not — both of that file's blocks compare
+    // ->record('x.y') string literals against array_keys(ACTIONS) and
+    // neither ever calls phrase() or sentence(), so deleting an arm
+    // leaves it green (measured, twice: in the original commit and
+    // again in this one). What catches a missing arm is
+    // AuditSentencesTest's "every action in the map renders a real
+    // sentence" sweep, added in this fix round for exactly that gap.
+    // What THIS block catches is the missing CALL.
+    $files = [];
+    $found = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(app_path('Actions/Community'), FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($found as $file) {
+        if (str_ends_with($file->getPathname(), '.php')) {
+            $files[] = $file->getPathname();
+        }
+    }
+    // Non-vacuity, the same job the glob's own empty check did: with the
+    // directory present but empty this block still fails rather than
+    // passing on absence.
+    expect($files)->not->toBe([]);
+
+    foreach ($files as $file) {
+        $source = (string) file_get_contents($file);
+
+        expect(preg_match('/private\s+(?:readonly\s+)?AuditRecorder\s+\$(\w+)/', $source, $ctor))
+            ->toBe(1, basename($file).' does not constructor-inject an AuditRecorder');
+
+        expect(preg_match('/\$this->'.$ctor[1].'->record\s*\(/', $source))
+            ->toBe(1, basename($file).' never calls ->record() on its AuditRecorder');
+    }
+});
+
+it('every community write transaction that re-reads an existing row opens with a FOR UPDATE — the grep pin', function () {
+    // Task 4 fix round 1. ApproveCommentTest carries its own query-log
+    // block proving lockForUpdate is that command's transaction's FIRST
+    // statement; RejectComment and HideComment's docblocks made the same
+    // claim ("FIRST statement — the only lock this command takes") with
+    // nothing in the suite pinning it. Rather than port ApproveCommentTest's
+    // query-log block twice more, this follows CirculationArchitectureTest's
+    // own precedent for the same shape ('every circulation write
+    // transaction opens with a FOR UPDATE — the grep pin'): a
+    // hand-maintained, presence-only grep, which covers every Action this
+    // phase's remaining tasks (5-19) add to this directory without a
+    // per-command block for each one.
+    //
+    // Presence only, like the Circulation precedent it is ported from —
+    // this does not re-derive POSITION (that stays ApproveCommentTest's
+    // query-log job); it only refuses a lock silently dropped from one of
+    // the commands that must keep theirs.
+    //
+    // Hand-maintained rather than a directory-wide walk, because not
+    // every community Action takes a lock: CreateComment INSERTS a fresh
+    // row and never re-reads an existing one, so it has no lockForUpdate
+    // to check for — a directory-wide "every file must contain
+    // lockForUpdate" would be false on that ground the day it was
+    // written. Adding a new community Action later means deciding, in
+    // this comment, which side of that line it falls on — CreateComment's
+    // absence from the list below is that decision already made, once.
+    //
+    // TASK 9 made that decision a second time, for CreateAnnouncement:
+    // absent, on CreateComment's ground. It INSERTs a fresh row and
+    // re-reads no existing one; the slug read inside its transaction is
+    // a read of OTHER rows to pick a free name, not a re-read of the row
+    // being written, and a lock on it would serialise every compose on
+    // the shelf. That cost is the reason recorded here. What the lock
+    // would or would not do to the window the command's docblock names
+    // is NOT recorded here, because it was not measured. (An earlier
+    // draft asserted the lock would leave that window open. Answering it
+    // needs a two-connection experiment under the isolation this server
+    // actually runs — MEASURED as REPEATABLE-READ, global and session —
+    // and that experiment was not run.) The refusal path is what the
+    // command relies on either way: the
+    // announcements_bookshelf_id_slug_key unique, with the losing INSERT
+    // translated rather than prevented.
+    //
+    // TASK 10 made it a third time, for UpdateAnnouncement, and that one
+    // falls on the OTHER side. It re-reads the announcement it is about
+    // to write, and the re-read earns its place on the AUDIT: INV-8's
+    // `before` title is taken off it, so without it the entry reports
+    // the title the caller's instance was carrying rather than the one
+    // the UPDATE lands on. Measured with the re-read removed and a
+    // deliberately stale instance — `before` and `after` both came out
+    // 'Tin A' while the row held 'Tin B'.
+    //
+    // An earlier version of this comment gave a second reason, that the
+    // re-read is what an absent `expiresAt` preserves. It was wrong, and
+    // it matters to say so HERE because this comment is where the next
+    // command decides which side of the line it is on: Eloquent builds
+    // the UPDATE from the dirty set, so a column the command never
+    // names stays out of the statement however stale the instance is —
+    // measured in that command's own docblock, against the shipped
+    // shape. A command that only needs "leave the untouched columns
+    // alone" therefore does NOT need this lock.
+    //
+    // TWO GROUNDS PUT A COMMAND IN THE LIST BELOW, and either one on its
+    // own is enough. (1) Wanting a trustworthy audit `before` — a value
+    // read off the row rather than off the caller's instance. (2) A
+    // REFUSAL that reads the same column the UPDATE is about to write:
+    // that is check-then-act, and without the lock two callers can both
+    // read the pre-decision value and both write, under the isolation
+    // the TASK 9 paragraph above records for this server (MEASURED as
+    // REPEATABLE-READ, global and session).
+    // Fix round 1 widened this sentence, which named only ground (1):
+    // Task 16's two entries land on ground (2) alone, and
+    // PublishAnnouncement's paragraph below already recorded ground (2)
+    // as its second reason.
+    //
+    // TASK 11 made the decision four more times, and all four land on the
+    // lock side by that same rule. PublishAnnouncement, HideAnnouncement,
+    // PinAnnouncement and UnpinAnnouncement each build INV-8's `before`
+    // out of a column they are about to overwrite — published_at for the
+    // first two, is_pinned for the last two — so a `before` taken off the
+    // caller's instance would be a prior value that may never have been
+    // prior. Their one-column writes would survive a stale instance
+    // perfectly well on the dirty-set ground above; it is the audit that
+    // would not. PublishAnnouncement has a second reason on top of that
+    // one: its refusal reads published_at off the same locked row, so two
+    // managers pressing the button at once cannot both find it
+    // unpublished.
+    //
+    // TASK 16 made the decision twice more, and both land on the lock
+    // side — on PublishAnnouncement's SECOND reason rather than on the
+    // audit one. ReceiveDonation and DeclineDonation each build INV-8's
+    // `before` from the literal 'pending' they have just checked for
+    // rather than from a column read, so a stale instance could not
+    // corrupt the entry; what the lock buys is that the REFUSAL reads
+    // status off the same row the UPDATE lands on, so two managers
+    // deciding one offer at once cannot both find it pending and write
+    // received over declined.
+    foreach ([
+        app_path('Actions/Community/ApproveComment.php'),
+        app_path('Actions/Community/RejectComment.php'),
+        app_path('Actions/Community/HideComment.php'),
+        app_path('Actions/Community/UpdateAnnouncement.php'),
+        app_path('Actions/Community/PublishAnnouncement.php'),
+        app_path('Actions/Community/HideAnnouncement.php'),
+        app_path('Actions/Community/PinAnnouncement.php'),
+        app_path('Actions/Community/UnpinAnnouncement.php'),
+        app_path('Actions/Community/ReceiveDonation.php'),
+        app_path('Actions/Community/DeclineDonation.php'),
+    ] as $file) {
+        expect(str_contains((string) file_get_contents($file), 'lockForUpdate'))
+            ->toBeTrue(basename($file).' has no lockForUpdate');
+    }
+});
+
+it('declares announcements/create before announcements/{announcement}', function () {
+    // Spec §6's static-before-bound rule, on the block Task 14 added. Here it
+    // is load-bearing rather than habitual: both URIs are one segment past
+    // `announcements` and both are reached by GET, so with the bound line
+    // first, /manage/announcements/create resolves "create" as an
+    // announcement id and the manager meets the binding's 404 instead of the
+    // compose form. RouteOrderTest's books block is the shape this follows;
+    // its sentences are its own.
+    //
+    // Positional, over the URI list in declaration order — which is what
+    // makes it independent of the two screen blocks in
+    // tests/Feature/Community/ManagerAnnouncementsScreenTest.php that
+    // actually fetch these two addresses.
+    $uris = collect(Route::getRoutes()->getRoutes())
+        ->map(fn ($route) => $route->uri())
+        ->filter(fn (string $uri) => str_starts_with($uri, 'shelves/{shelf}/manage/announcements'))
+        ->values();
+
+    $posCreate = $uris->search('shelves/{shelf}/manage/announcements/create');
+    $posBound = $uris->search('shelves/{shelf}/manage/announcements/{announcement}');
+
+    expect($posCreate)->not->toBeFalse()
+        ->and($posBound)->not->toBeFalse()
+        ->and($posCreate)->toBeLessThan($posBound);
+});
+
+it('declares manage/donations before manage/donations/{donation}/…', function () {
+    // Spec §6's static-before-bound rule, on the block this task added,
+    // and beside Task 14's above rather than instead of it.
+    //
+    // HABITUAL HERE, NOT LOAD-BEARING, and the difference is stated
+    // because the block above it is the other case. Task 14's two URIs are
+    // both one segment past `announcements` and both reached by GET, so the
+    // wrong order really does bind "create" as an id. These three are not:
+    // the index is one segment and both bound URIs are three, so no request
+    // can match more than one of them however they are declared. What this
+    // pins is the habit — the day someone adds
+    // `manage/donations/received`, a one-segment-past sibling, the order
+    // will matter and the assertion will already be here.
+    //
+    // Positional, over the URI list in declaration order, which is what
+    // makes it independent of the blocks in
+    // tests/Feature/Community/ManagerDonationsScreenTest.php that fetch
+    // these addresses.
+    $uris = collect(Route::getRoutes()->getRoutes())
+        ->map(fn ($route) => $route->uri())
+        ->filter(fn (string $uri) => str_starts_with($uri, 'shelves/{shelf}/manage/donations'))
+        ->values();
+
+    $posIndex = $uris->search('shelves/{shelf}/manage/donations');
+    $posReceive = $uris->search('shelves/{shelf}/manage/donations/{donation}/receive');
+    $posDecline = $uris->search('shelves/{shelf}/manage/donations/{donation}/decline');
+
+    expect($posIndex)->not->toBeFalse()
+        ->and($posReceive)->not->toBeFalse()
+        ->and($posDecline)->not->toBeFalse()
+        ->and($posIndex)->toBeLessThan($posReceive)
+        ->and($posIndex)->toBeLessThan($posDecline);
+});

@@ -128,6 +128,15 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
     // request block names could be absent from a given run and the block
     // would mint a ninth copy for it, which is what made this assertion
     // fail intermittently rather than never.
+    //
+    // Task 20 added the community rows: two comments on one seeded book
+    // (one pending, one approved), two announcements (one pinned and
+    // published, one draft) and one pending donation offer. No new user,
+    // membership, book or copy — every author and the donor are demo
+    // readers already seeded above, and the comments hang off a book the
+    // catalogue block already wrote. Three separate doesntExist() guards,
+    // one per table, so running this seeder twice writes each set once;
+    // that is what the second ->seed() call above is asking.
     expect(DB::table('bookshelves')->count())->toBe(1)
         ->and(DB::table('users')->count())->toBe(7)
         ->and(DB::table('memberships')->count())->toBe(7)
@@ -139,7 +148,15 @@ it('runs DemoShelfSeeder twice without error and without duplicating rows', func
         ->and(DB::table('borrow_requests')->count())->toBe(2)
         ->and(DB::table('borrow_requests')->where('status', 'approved')->count())->toBe(1)
         ->and(DB::table('book_copies')->where('state', 'held')->count())->toBe(1)
-        ->and(DB::table('notifications')->count())->toBe(1);
+        ->and(DB::table('notifications')->count())->toBe(1)
+        ->and(DB::table('comments')->count())->toBe(2)
+        ->and(DB::table('comments')->where('status', 'pending')->count())->toBe(1)
+        ->and(DB::table('comments')->where('status', 'approved')->count())->toBe(1)
+        ->and(DB::table('announcements')->count())->toBe(2)
+        ->and(DB::table('announcements')->where('is_pinned', true)->whereNotNull('published_at')->count())->toBe(1)
+        ->and(DB::table('announcements')->whereNull('published_at')->count())->toBe(1)
+        ->and(DB::table('book_donations')->count())->toBe(1)
+        ->and(DB::table('book_donations')->where('status', 'pending')->count())->toBe(1);
 });
 
 it('seeds AGENTS.md\'s four titles by name, not by a random draw', function () {
@@ -193,5 +210,13 @@ it('DatabaseSeeder runs DemoShelfSeeder only in local — the gate the deploy re
         // row, so it is the one that cannot be reached without running.
         ->and(DB::table('bookshelves')->count())->toBe(0)
         ->and(DB::table('users')->count())->toBe(0)
-        ->and(DB::table('borrow_requests')->count())->toBe(0);
+        ->and(DB::table('borrow_requests')->count())->toBe(0)
+        // Task 20's community rows are named here for the same reason the
+        // three above are: this list is what stops the demo seeder growing
+        // a table nobody checks. A reader's comment, a shelf notice and a
+        // donation offer written into a production database would each be
+        // visible to a real parish on a real screen.
+        ->and(DB::table('comments')->count())->toBe(0)
+        ->and(DB::table('announcements')->count())->toBe(0)
+        ->and(DB::table('book_donations')->count())->toBe(0);
 });

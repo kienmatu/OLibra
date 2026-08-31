@@ -61,5 +61,17 @@ export interface SharedData {
      * who still gets the link. See HandleInertiaRequests::share().
      */
     unreadNotifications: number | null;
+    /**
+     * BR §16.3's Donation queue badge, for the *Tặng sách* nav item in
+     * `manage-layout`.
+     *
+     * Same three states as `unreadNotifications` above and for the same
+     * reason: `null` means "this viewer gets no badge" and is the server's
+     * decision (share() asks act-as-manager), `0` is a real answer — a
+     * manager whose queue is empty. The number is
+     * App\Queries\DonationQueueQuery::countPending(), which counts through
+     * the same builder the queue screen's list is selected from.
+     */
+    pendingDonations: number | null;
     [key: string]: unknown;
 }

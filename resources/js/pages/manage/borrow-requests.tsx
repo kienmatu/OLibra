@@ -258,7 +258,17 @@ function ApproveForm({
     );
 }
 
-/** The one solid button on this page. */
+/**
+ * ONE SOLID ACTION PER ROW, which is how design rule 3 is read on a queue
+ * screen rather than a claim that the screen satisfies it as written.
+ * This form renders once per approved request, inside
+ * queue.requests.map(...) inside queues.map(...), so a shelf with a dozen
+ * approved requests puts a dozen solid buttons on the page.
+ *
+ * Corrected from "The one solid button on this page", which was false
+ * whenever two requests were approved. Phase 2b Task 8 found the same
+ * sentence on the moderation screen and fixed it there; this is its twin.
+ */
 function HandoverForm({ shelfSlug, requestId }: { shelfSlug: string; requestId: string }) {
     const form = useForm({});
 

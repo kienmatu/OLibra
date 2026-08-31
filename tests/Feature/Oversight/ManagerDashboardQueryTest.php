@@ -131,12 +131,15 @@ it('counts only the bound shelf, proven by distinguishable figures', function ()
     $d = app(ManagerDashboardQuery::class)->run();
 
     expect($d)->toBe([
-        'counts' => ['overdue' => 1, 'pendingRegistrations' => 1, 'pendingRequests' => 0],
+        'counts' => ['overdue' => 1, 'pendingRegistrations' => 1, 'pendingRequests' => 0, 'pendingComments' => 0],
         'totals' => ['titles' => 2, 'copies' => 3, 'onLoan' => 1, 'readers' => 3],
     ]);
     // Shelf B would have contributed: +1 title, +2 copies, +2 pending,
     // +1 reader, +1 onLoan, +1 overdue. Any of those leaking flips an
-    // exact assertion above.
+    // exact assertion above. mdqFix() seeds no comments at all, so
+    // pendingComments reads 0 here rather than exercising anything about
+    // CommentModerationQuery — CommentModerationQueryTest's own
+    // "dashboard's fourth card" block is what pins the delegation.
 });
 
 it('overdue moves when only the clock does — derived on read, no job, no column', function () {

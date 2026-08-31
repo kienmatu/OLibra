@@ -7,7 +7,12 @@ import type { SharedData } from "@/types";
 
 interface PageProps extends SharedData {
     dashboard: {
-        counts: { overdue: number; pendingRegistrations: number; pendingRequests: number };
+        counts: {
+            overdue: number;
+            pendingRegistrations: number;
+            pendingRequests: number;
+            pendingComments: number;
+        };
         totals: { titles: number; copies: number; onLoan: number; readers: number };
     };
     today: string;
@@ -53,9 +58,13 @@ export default function ManageDashboard() {
                 {[formatDate(today), shelf.name].join(" · ")}
             </p>
 
-            {/* Three of BR §16.3's four cards. Bình luận chờ duyệt is the
-                one still missing — Phase 2b's queue — and no substitute is
-                promoted into its slot (plan divergence 6). */}
+            {/* BR §16.3's four cards, all four of them since Task 8.
+                CORRECTED IN THAT COMMIT: this note used to read "Three of
+                BR §16.3's four cards. Bình luận chờ duyệt is the one still
+                missing — Phase 2b's queue — and no substitute is promoted
+                into its slot (plan divergence 6)", and every clause of it
+                went false the moment the fourth card below was added.
+                Divergence 6 is discharged here, not deferred. */}
             <div className="flex flex-wrap gap-4">
                 <StatCard
                     href={route("shelves.manage.overdue", { shelf: shelf.slug })}
@@ -71,6 +80,11 @@ export default function ManageDashboard() {
                     href={route("shelves.manage.borrow-requests", { shelf: shelf.slug })}
                     label={copy.manageDashboard.requestsCard}
                     value={dashboard.counts.pendingRequests}
+                />
+                <StatCard
+                    href={route("shelves.manage.comments", { shelf: shelf.slug })}
+                    label={copy.manageDashboard.commentsCard}
+                    value={dashboard.counts.pendingComments}
                 />
             </div>
 

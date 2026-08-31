@@ -29,4 +29,20 @@ return [
     'loan_due_soon' => ':book sắp đến hạn trả, ngày :due.',
     '_loan_due_soon_bare' => ':book sắp đến hạn trả, ngày sắp tới.',
     'loan_overdue' => ':book đã quá hạn trả. Bạn mang sách đến trả giúp nhé.',
+
+    // 2b's one kind, written by ApproveComment. No placeholders, because
+    // the reference sends no payload (divergence 10) — a reader with two
+    // approved comments reads the same sentence twice, by design.
+    //
+    // TRANSCRIBED FROM THE REFERENCE, and it differs from the plan's own
+    // draft of this line, which reads 'Bình luận của bạn đã được duyệt.'
+    // kinds.ts's comment_approved sentence is "Bình luận của bạn đã được
+    // duyệt và hiện đã hiển thị." — the second clause is the half that
+    // tells a child their words are now on the page, and dropping it
+    // would be a product change nothing in the plan names as a
+    // divergence. Every other line in this file is the reference word for
+    // word — placeholder spelling and the named date-rendering divergence
+    // aside (NotificationSentences::date's docblock) — so this one is
+    // too.
+    'comment_approved' => 'Bình luận của bạn đã được duyệt và hiện đã hiển thị.',
 ];

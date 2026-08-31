@@ -175,4 +175,67 @@ class Bookshelf extends Model
     {
         return $this->hasMany(AuditLog::class);
     }
+
+    /**
+     * What scopeBindings() resolves the {comment} route parameter through
+     * — the borrowRequests() precedent, same two-layer shape: this
+     * relation's own FK filter and BookshelfScope on Comment
+     * (App\Models\Concerns\BelongsToBookshelf) are each an independent
+     * defence against a foreign shelf's comment id. The task that wrote
+     * this had no route bound through {comment} to measure against and
+     * said so; TASK 8 ADDED THREE and took the measurement it asked for,
+     * on the approve POST with shelf B's comment id under shelf A's URL:
+     * 404 with both layers in place, and still 404 with ->scopeBindings()
+     * removed from the shelf group, so the global scope alone answers it.
+     * The reverse direction was not measured. routes/web.php's {comment}
+     * note carries the same result beside the routes it was taken on.
+     *
+     * @return HasMany<Comment, $this>
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class);
+    }
+
+    /**
+     * Shelf news (OPS §4.4). Beside comments() because both are Phase
+     * 2b's community tables and both are shelf-owned.
+     *
+     * The foreign key is guessed rather than spelled, matching comments()
+     * above: announcements.bookshelf_id is what Laravel's convention
+     * derives from this class, so the two agree by construction. What
+     * this relation is FOR is the same as comments()' — a shelf-rooted
+     * read that cannot be handed another shelf's id.
+     *
+     * @return HasMany<Announcement, $this>
+     */
+    public function announcements(): HasMany
+    {
+        return $this->hasMany(Announcement::class);
+    }
+
+    /**
+     * Slice C's donation offers (OPS §4.4), beside announcements() for
+     * the same reason that one sits beside comments(): all three are
+     * Phase 2b's community tables and all three are shelf-owned.
+     *
+     * The foreign key is guessed rather than spelled, matching
+     * comments() and announcements() above: book_donations.bookshelf_id
+     * is what Laravel's convention derives from this class, so the two
+     * agree by construction. Note that the DONOR column on that table is
+     * not guessable the same way and is spelled out where it is declared
+     * (App\Models\BookDonation::donor).
+     *
+     * What this relation is FOR is those two relations' purpose as well
+     * — a shelf-rooted read that cannot be handed another shelf's id —
+     * and OfferDonationTest's "Bookshelf::donations() is shelf-local"
+     * runs it under actSystemWide(), so BookshelfScope is switched off
+     * and this relation's own FK filter is left to do the separating.
+     *
+     * @return HasMany<BookDonation, $this>
+     */
+    public function donations(): HasMany
+    {
+        return $this->hasMany(BookDonation::class);
+    }
 }

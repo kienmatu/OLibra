@@ -54,6 +54,9 @@ final class NotificationSentences
             NotificationKind::LoanOverdue => strtr(self::line('loan_overdue'), [
                 ':book' => self::which(self::str($payload, 'title')),
             ]),
+            // No strtr — the MembershipApproved shape, because the
+            // payload is empty (divergence 10).
+            NotificationKind::CommentApproved => self::line('comment_approved'),
         };
     }
 

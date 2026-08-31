@@ -6,9 +6,11 @@ namespace App\Support\Audit;
 
 /**
  * BR §14's readable sentences, and the closed map of actions this build
- * can describe — 27 entries, one per audit action a shipped command
- * writes (AuditActionCensusTest holds the two sets equal in both
- * directions). Pure: the lang file is loaded by require, so nothing here
+ * can describe — one entry per audit action a shipped command writes
+ * (AuditActionCensusTest holds the two sets equal in both directions,
+ * and AuditSentencesTest's partition block carries the count, which
+ * every task that adds an action bumps deliberately).
+ * Pure: the lang file is loaded by require, so nothing here
  * needs the framework, and the wording ships in lang/vi where server
  * copy lives (spec §7).
  *
@@ -25,7 +27,7 @@ namespace App\Support\Audit;
  */
 final class AuditSentences
 {
-    /** @var array<string, string> action => group ('loans'|'books'|'readers') */
+    /** @var array<string, string> action => group, one of GROUPS below */
     public const array ACTIONS = [
         'book.created' => 'books',
         'book.updated' => 'books',
@@ -62,9 +64,40 @@ final class AuditSentences
         'membership.left' => 'readers',
         'credentials.set' => 'readers',
         'profile.corrected' => 'readers',
+        // Phase 2b files every community action under its own group, the
+        // reference's cong-dong (audit-actions.ts's comment.* family).
+        // Folding comments into books would leave next task's shelf news
+        // with no home at all.
+        'comment.created' => 'community',
+        'comment.approved' => 'community',
+        'comment.rejected' => 'community',
+        'comment.hidden' => 'community',
+        // Slice B's shelf news, the same cong-dong family — the
+        // reference files every announcement.* action there
+        // (audit-actions.ts).
+        'announcement.created' => 'community',
+        'announcement.updated' => 'community',
+        // Slice B's four state changes, the same cong-dong family — the
+        // reference files every announcement.* action there
+        // (audit-actions.ts).
+        'announcement.published' => 'community',
+        'announcement.pinned' => 'community',
+        'announcement.unpinned' => 'community',
+        'announcement.hidden' => 'community',
+        // Slice C's donation offer, the same cong-dong family — the
+        // reference files donation.offered there
+        // (old_next/src/domain/kernel/audit-actions.ts, opened for this,
+        // where its entry reads `group: "cong-dong"`).
+        'donation.offered' => 'community',
+        // Slice C's two decisions, the same cong-dong family — the
+        // reference files donation.received and donation.declined there
+        // (old_next/src/domain/kernel/audit-actions.ts, opened for this,
+        // where both entries read `group: "cong-dong"`).
+        'donation.received' => 'community',
+        'donation.declined' => 'community',
     ];
 
-    public const array GROUPS = ['loans', 'books', 'readers'];
+    public const array GROUPS = ['loans', 'books', 'readers', 'community'];
 
     /** @return list<string> */
     public static function actionsInGroup(string $group): array
@@ -188,6 +221,86 @@ final class AuditSentences
             'membership.left' => strtr(self::line('membership_left'), [':subject' => self::who($subject)]),
             'credentials.set' => strtr(self::line('credentials_set'), [':subject' => self::who($subject)]),
             'profile.corrected' => strtr(self::line('profile_corrected'), [':subject' => self::who($subject)]),
+            // No strtr at all — the copy_lost_reported shape. The
+            // reference's phrase names neither the title nor the author,
+            // and that stays deliberate: the payload holds book_id and no
+            // title, and the alternative is widening the payload to make
+            // a sentence prettier.
+            'comment.created' => self::line('comment_created'),
+            // Same no-strtr shape and the same reason: the reference's
+            // phrase names neither the comment nor its author, and the
+            // payload holds only the two statuses.
+            'comment.approved' => self::line('comment_approved'),
+            // The reason travels through the existing :because helper —
+            // RejectComment's payload always carries one (the reason is
+            // required), so this arm's :because clause is never empty in
+            // practice, but the helper itself does not assume that.
+            'comment.rejected' => strtr(self::line('comment_rejected'), [':because' => self::because(self::str($after, 'reason'))]),
+            // HideComment's reason is optional, so :because renders empty
+            // when the payload carries no 'reason' key at all — the same
+            // helper as copy.retired and loan.voided.
+            'comment.hidden' => strtr(self::line('comment_hidden'), [':because' => self::because(self::str($after, 'reason'))]),
+            // The title, with its own bare arm — copy.added's shape. NOT
+            // self::which(), although the reference's phrase uses its own
+            // `which`: this class's which() falls back to the some_book
+            // line ('một cuốn sách'), which would describe an
+            // announcement as a book.
+            'announcement.created' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_created'), [':title' => $title])
+                : self::line('announcement_created_bare'),
+            // Task 10. The created arm's shape and its reason: the
+            // reference's phrase runs the title through its own `which`,
+            // and this class's which() falls back to the some_book line
+            // ('một cuốn sách'), which would describe an announcement as
+            // a book. So a bare line of its own again. The title read is
+            // the AFTER one — an edit's sentence names what the
+            // announcement is called now; the before title is a payload
+            // row one tap away, which is where INV-8 puts it.
+            'announcement.updated' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_updated'), [':title' => $title])
+                : self::line('announcement_updated_bare'),
+            // Task 11's four, all on the created arm's shape and for its
+            // reason: the reference's phrases each run the title through
+            // its own `which`, and this class's which() falls back to the
+            // some_book line ('một cuốn sách'), which would describe an
+            // announcement as a book. So a bare line each rather than a
+            // which() call. The title read is the AFTER one — the four
+            // commands that write these all put the row's title there,
+            // and it is what the announcement is called at the moment of
+            // the act.
+            'announcement.published' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_published'), [':title' => $title])
+                : self::line('announcement_published_bare'),
+            'announcement.pinned' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_pinned'), [':title' => $title])
+                : self::line('announcement_pinned_bare'),
+            'announcement.unpinned' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_unpinned'), [':title' => $title])
+                : self::line('announcement_unpinned_bare'),
+            // Its own key rather than comment_hidden's: that sentence
+            // carries a :because slot HideComment fills from an optional
+            // reason, and HideAnnouncement records none.
+            'announcement.hidden' => ($title = self::str($after, 'title')) !== null
+                ? strtr(self::line('announcement_hidden'), [':title' => $title])
+                : self::line('announcement_hidden_bare'),
+            // No strtr and no bare twin — the request.approved shape. The
+            // reference's phrase takes no facts (`phrase: () => "đề nghị
+            // tặng sách"`), and there is nothing here for a fallback to
+            // replace: INV-8's payload for this action is the status and
+            // the rough count, and the description stays out of it.
+            'donation.offered' => self::line('donation_offered'),
+            // The offered arm's shape and its reason: the reference's
+            // phrase takes no facts (`phrase: () => "nhận một đề nghị
+            // tặng sách"`), and INV-8's payload for this action is the
+            // two statuses, so there is nothing here for a fallback to
+            // replace.
+            'donation.received' => self::line('donation_received'),
+            // The reason travels through the existing :because helper,
+            // comment.rejected's arm exactly. DeclineDonation requires
+            // and trims its reason before it opens a transaction, so the
+            // clause is filled for every row that command writes; the
+            // helper renders an empty clause rather than assuming it.
+            'donation.declined' => strtr(self::line('donation_declined'), [':because' => self::because(self::str($after, 'reason'))]),
             default => self::line('unknown'),
         };
     }

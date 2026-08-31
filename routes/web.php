@@ -1,10 +1,13 @@
 <?php
 
+use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
 use App\Http\Controllers\Manage\BorrowRequestController as ManageBorrowRequestController;
+use App\Http\Controllers\Manage\CommentModerationController;
 use App\Http\Controllers\Manage\CopyController;
 use App\Http\Controllers\Manage\DashboardController;
+use App\Http\Controllers\Manage\DonationController as ManageDonationController;
 use App\Http\Controllers\Manage\ExportController;
 use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
@@ -14,9 +17,12 @@ use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
+use App\Http\Controllers\Reader\AnnouncementController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
 use App\Http\Controllers\Reader\CatalogueController;
+use App\Http\Controllers\Reader\CommentController;
+use App\Http\Controllers\Reader\DonationController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
 use App\Http\Controllers\Reader\SearchController;
@@ -90,8 +96,96 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // the whole of it. CirculationArchitectureTest pins that the
         // middleware is still on the route.
         Route::post('/books/{book}/request', [ReaderBorrowRequestController::class, 'store'])->name('books.request');
-        Route::get('/announcements', [ShellController::class, 'underConstruction'])->name('announcements');
-        Route::get('/donate', [ShellController::class, 'underConstruction'])->name('donate');
+        // OPS §4.4's CreateComment. RETRACTED: an earlier draft cited BR
+        // §7.5's "viết bình luận" — §7.5 is Membership (Comment is §7.6),
+        // and "bình luận" appears nowhere in BR; it is the UI's word.
+        // Unlike the request POST above, this
+        // one DOES carry a field, so StoreCommentRequest holds an
+        // abort_unless(Gate::allows('act-as-reader'), 404) of its own and
+        // the 404 a non-member meets has TWO producers, not one — the
+        // group's role:reader first, that Form Request behind it. Both
+        // halves were measured rather than assumed: moving this POST out
+        // of the role:reader group leaves CreateCommentTest fully green —
+        // the non-member still meets 404, from the Form Request — and
+        // removing BOTH doors turns that same block red with 403, which
+        // is CreateComment's own Gate::authorize rendered as an
+        // AuthorizationException and the existence oracle spec §5.4
+        // forbids. So EITHER door alone is sufficient here, unlike the
+        // bodiless request POST above where the middleware is the whole
+        // of it.
+        Route::post('/books/{book}/comments', [CommentController::class, 'store'])->name('books.comments.store');
+        // The reader's Bản tin — OPS §3.2's GetAnnouncementsList and
+        // GetAnnouncementDetail. RETRACTED: an earlier draft said "BR
+        // §16.1's Bản tin"; BR describes no such page, only the shelf-home
+        // card at §16.1 line 510. The list keeps the placeholder's route NAME,
+        // and what that continuity buys is the shelf home's nav link:
+        // `git grep -n shelves.announcements c913b78 -- resources/`, run
+        // before this line was written, returned two hits — the Ziggy call
+        // in resources/js/pages/shelves/show.tsx, and a mention of the name
+        // inside a comment in resources/js/lib/copy.ts.
+        //
+        // {slug} IS A STRING, NOT A MODEL BINDING — decided at plan review
+        // and kept deliberately, so a later reader does not "fix" it to
+        // {announcement:slug}. A binding would resolve a row the controller
+        // never reads and then re-query by slug, and its 404 (any live row
+        // on this shelf) asks a different question from
+        // AnnouncementsQuery::detail()'s (published, and not yet lapsed):
+        // the row deciding the status would not be the row deciding the
+        // content. MEASURED, with this route changed to
+        // {announcement:slug} and the controller rewritten to render the
+        // bound row: ReaderAnnouncementsTest's draft block and its lapsed
+        // block both answer 200 where they want 404. The measurement is
+        // written out in AnnouncementController::show, along with the
+        // third failure that run produced.
+        //
+        // {slug} names no model for the router to resolve, so the shelf
+        // confinement on this line is one layer rather than this file's
+        // usual two, and that layer is the global scope
+        // BelongsToBookshelf installs on Announcement (read off the trait,
+        // whose boot method calls addGlobalScope(new BookshelfScope)).
+        // MEASURED rather than argued, which is what this file's earlier
+        // scopeBindings note asks of a tenancy claim: with that
+        // addGlobalScope call commented out,
+        // ReaderAnnouncementsTest's cross-shelf block is the filtered
+        // run's single failure — shelf B's notice rendered 200 under shelf
+        // A's address. role:reader is untouched by any of this: it is the
+        // group's, and RouteOrderTest requires it on both lines below.
+        //
+        // Static before bound (spec §6's house habit), even though one
+        // segment and two cannot collide.
+        Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');
+        Route::get('/announcements/{slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
+        // BR §16.2's Tặng sách, the offer form. Task 18 turned the
+        // placeholder GET into a real page and kept the route NAME, which
+        // is the continuity the POST below already depended on.
+        Route::get('/donate', [DonationController::class, 'create'])->name('donate');
+        // The POST lands beside it because Task 15 owed the over-HTTP pin
+        // for a memberless super admin, which needs an address.
+        //
+        // The 404 a non-member meets here has TWO producers, the shape
+        // the comments POST above records: this group's role:reader
+        // (EnsureShelfRole abort(404)s on act-as-reader) and
+        // OfferDonationRequest::authorize's own abort_unless on the same
+        // ability. MEASURED three ways in this task, on the "a signed-in
+        // non-member gets 404 on the donate POST" block: with this line
+        // moved out of the role:reader group the whole file stays green
+        // at 10 passed (the Form Request answers), with the abort_unless
+        // deleted instead it also stays green at 10 (the middleware
+        // answers), and with BOTH doors removed that block turns red —
+        // "Expected response status code [404] but received 403", which
+        // is OfferDonation's own Gate::authorize rendered as an
+        // AuthorizationException and the existence oracle spec §5.4
+        // forbids. So either door alone is sufficient, and the third run
+        // is what shows the pair is doing the work at all.
+        //
+        // A THIRD status is what an ABSENT route answers on this URI, and
+        // it is not 404: the GET above already claims `donate`, so the
+        // router raises 405 for an unrouted POST to it. Measured at RED,
+        // before this line existed — the non-member block reported
+        // "Expected response status code [404] but received 405". That
+        // makes this file's usual worry (a 404 block passing against a
+        // deleted route) not apply to this particular pair of lines.
+        Route::post('/donate', [DonationController::class, 'store'])->name('donate.store');
         Route::get('/scan', [ShellController::class, 'underConstruction'])->name('scan');
     });
 
@@ -129,7 +223,10 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // reader OF THIS SHELF binds fine and is refused one layer down,
         // by MarkNotificationRead's user_id key, as a silent no-op.
         Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
-        Route::get('/donations', [ShellController::class, 'underConstruction'])->name('donations');
+        // The other half of BR §16.2's Tặng sách: what happened to each
+        // offer. Same controller as the form in the reader group above,
+        // and the route NAME is the placeholder's, kept.
+        Route::get('/donations', [DonationController::class, 'mine'])->name('donations');
         Route::get('/overview', [MyLoansController::class, 'overview'])->name('overview');
         Route::post('/loans/{loan}/renew', [MyLoansController::class, 'renew'])->name('loans.renew');
         // One route, two doors. The reference defines exactly one
@@ -236,7 +333,157 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/registrations', [RegistrationQueueController::class, 'index'])->name('registrations');
         Route::post('/registrations/{reader}/approve', [RegistrationQueueController::class, 'approve'])->name('registrations.approve');
         Route::post('/registrations/{reader}/reject', [RegistrationQueueController::class, 'reject'])->name('registrations.reject');
-        Route::get('/comments', [ShellController::class, 'underConstruction'])->name('comments');
+        // The moderation screen and the three decisions a manager makes
+        // on a comment. The GET keeps the placeholder's route NAME, and
+        // what that continuity buys is the nav item and the dashboard
+        // card added in this same commit: `git grep manage.comments
+        // 972f7ca -- resources/` returned no call sites, run before this
+        // line was written.
+        //
+        // {comment} resolves two independent ways, divergence 3's two
+        // layers: through Bookshelf::comments() under the scopeBindings()
+        // on the OUTER shelves/{shelf} group — the `manage` group these
+        // four lines sit in is declared prefix->name->middleware(['auth',
+        // 'role:manager'])->group(), so the directive reaches them by
+        // inheritance rather than locally — and through BookshelfScope on Comment
+        // (App\Models\Concerns\BelongsToBookshelf) on every query
+        // Eloquent runs for the binding. Bookshelf::comments()'s docblock
+        // asked whichever task first routed through {comment} to measure
+        // which of the two, alone, suffices, rather than assume
+        // borrowRequests()'s answer transfers. MEASURED HERE, on the
+        // approve POST with shelf B's comment id under shelf A's URL:
+        // with both layers it is 404 and the row is untouched, and with
+        // ->scopeBindings() removed from that outer group it is STILL 404 —
+        // BookshelfScope alone produces it, exactly as this file's own
+        // {bookCopy} note records for that parameter. The reverse
+        // direction (scopeBindings alone, with the global scope removed)
+        // was not measured. The second layer stays for the reason that
+        // note gives: a rename that breaks the relation guess becomes a
+        // loud RelationNotFoundException rather than a silent unscoped
+        // query.
+        Route::get('/comments', [CommentModerationController::class, 'index'])->name('comments');
+        Route::post('/comments/{comment}/approve', [CommentModerationController::class, 'approve'])->name('comments.approve');
+        Route::post('/comments/{comment}/reject', [CommentModerationController::class, 'reject'])->name('comments.reject');
+        Route::post('/comments/{comment}/hide', [CommentModerationController::class, 'hide'])->name('comments.hide');
+        // The bulletin, from the side that writes it — and BR specifies no
+        // such screen, which is stated here rather than papered over with a
+        // section number. An earlier draft of this comment read "BR §16.1's
+        // Bản tin"; §16.1 is titled *Public pages* and its only sentence
+        // about announcements is the shelf home's card, while §16.3,
+        // *Manager pages*, lists the manager's screens without using the
+        // word "announcement" at all. The authority for these nine lines is
+        // OPS §4.4, which says so itself under PublishAnnouncement — "§16.3
+        // does not itself describe an announcement-management screen; this
+        // command follows the built UI" — resting on BR §13.2's "manage
+        // announcements" permission and §5.4's Announcement record. Both
+        // documents were opened for this comment.
+        //
+        // These route names are NEW rather than a placeholder's kept name: `git grep
+        // -n "manage.announcements" 228ca76 -- resources/`, run before
+        // this line was written, exited 1 with no output. The nav item
+        // added to resources/js/layouts/manage-layout.tsx in this same
+        // commit is the first Ziggy caller.
+        //
+        // ORDER IS LOAD-BEARING (spec §6): create BEFORE {announcement}.
+        // Both URIs are one segment past `announcements` and both are
+        // reached by GET, so with the bound line first Laravel resolves
+        // "create" as an announcement id and the compose form becomes the
+        // binding's 404. MEASURED by swapping the two lines and fetching
+        // /manage/announcements/create as a manager — the run and its
+        // answer are in this task's report. CommunityArchitectureTest's
+        // 'declares announcements/create before announcements/{announcement}'
+        // pins the declaration order itself.
+        //
+        // {announcement} binds BY ID, because Announcement declares no
+        // getRouteKeyName() (read off app/Models/Announcement.php). The
+        // reader's detail route above takes a plain {slug} instead, and
+        // the two are independent: that one answers "is this notice
+        // showing?" through AnnouncementsQuery::detail(), while these
+        // address a row a manager can see in every state, drafts and
+        // lapsed ones included.
+        //
+        // Shelf confinement here is this file's usual two layers:
+        // Bookshelf::announcements() under the outer group's
+        // scopeBindings(), and BookshelfScope on Announcement
+        // (App\Models\Concerns\BelongsToBookshelf) on every query
+        // Eloquent runs for the binding.
+        //
+        // BOTH DIRECTIONS MEASURED FOR {announcement}, which is more than
+        // the {comment} note a few lines up could say: that one measured
+        // the global scope alone and left "scopeBindings alone" untried.
+        // The probe is ManagerAnnouncementsScreenTest's cross-shelf block,
+        // six dataset rows over the six routes below that take an id, with
+        // shelf B's announcement id under shelf A's URL:
+        //
+        //   both layers                    6 rows green (404 each)
+        //   addGlobalScope commented out   6 rows green — scopeBindings
+        //                                  alone produces the 404
+        //   ->scopeBindings() removed      6 rows green — the global scope
+        //                                  alone produces it
+        //   BOTH removed                   6 rows RED, and they are the
+        //                                  file's only failures: 200 on the
+        //                                  GET, 302 on the five writes
+        //
+        // So either layer alone suffices here and neither is redundant
+        // while the other stands. The role gate, per route, was measured
+        // separately and is in the task report.
+        Route::get('/announcements', [ManageAnnouncementController::class, 'index'])->name('announcements.index');
+        Route::get('/announcements/create', [ManageAnnouncementController::class, 'create'])->name('announcements.create');
+        Route::post('/announcements', [ManageAnnouncementController::class, 'store'])->name('announcements.store');
+        Route::get('/announcements/{announcement}', [ManageAnnouncementController::class, 'edit'])->name('announcements.edit');
+        Route::patch('/announcements/{announcement}', [ManageAnnouncementController::class, 'update'])->name('announcements.update');
+        // The publish POST carries a body (one optional expiry box) and
+        // therefore a Form Request; the three beneath it are bodiless, so
+        // `role:manager` on this group is the whole of their refusal, the
+        // way it is for the bodiless circulation POSTs above.
+        Route::post('/announcements/{announcement}/publish', [ManageAnnouncementController::class, 'publish'])->name('announcements.publish');
+        Route::post('/announcements/{announcement}/hide', [ManageAnnouncementController::class, 'hide'])->name('announcements.hide');
+        Route::post('/announcements/{announcement}/pin', [ManageAnnouncementController::class, 'pin'])->name('announcements.pin');
+        Route::post('/announcements/{announcement}/unpin', [ManageAnnouncementController::class, 'unpin'])->name('announcements.unpin');
+        // BR §16.3's Donation queue, and the two decisions a manager
+        // makes on a row. These route names are NEW rather than a
+        // placeholder's kept name: `git grep -n "manage.donations"
+        // 2731bea -- resources/ routes/` exited 1 with no output, run
+        // before these three lines were written. The nav item added to
+        // resources/js/layouts/manage-layout.tsx in this same commit is
+        // the first Ziggy caller.
+        //
+        // STATIC BEFORE BOUND (spec §6's house habit), and HABITUAL here
+        // rather than load-bearing, which is the difference from the
+        // announcements pair above: the index is one segment past
+        // `donations` and both bound URIs are three, so no request can
+        // match more than one of them however they are declared.
+        // CommunityArchitectureTest's 'declares manage/donations before
+        // manage/donations/{donation}/…' pins the habit anyway, against
+        // the day a one-segment-past sibling is added.
+        //
+        // {donation} resolves two independent ways, divergence 3's two
+        // layers: through Bookshelf::donations() under the scopeBindings()
+        // on the OUTER shelves/{shelf} group — the `manage` group these
+        // lines sit in is declared prefix->name->middleware([...])->group(),
+        // so the directive reaches them by inheritance — and through
+        // BookshelfScope on BookDonation (App\Models\Concerns\
+        // BelongsToBookshelf) on every query Eloquent runs for the
+        // binding. ReceiveDonation's docblock recorded that the binding
+        // half of that divergence had nothing to bind while no route
+        // reached either command; these two POSTs are that address, and
+        // ManagerDonationsScreenTest's cross-shelf dataset is the
+        // measurement, over both of them, with shelf B's offer id under
+        // shelf A's URL.
+        //
+        // THE RECEIVE POST IS BODILESS and carries no Form Request, so
+        // `role:manager` on this group is the whole of its refusal — the
+        // shape the bodiless circulation and comment POSTs above already
+        // have. The decline POST carries a required reason and therefore a
+        // DeclineDonationRequest, whose authorize() abort_unless is a
+        // second door on that one route. What each of the three actually
+        // answers with the middleware dropped was MEASURED — 200, 403 and
+        // 404 respectively, three distinct numbers — and the run, with the
+        // 403 traced to the line that raises it, is in
+        // App\Http\Controllers\Manage\DonationController's docblock.
+        Route::get('/donations', [ManageDonationController::class, 'index'])->name('donations');
+        Route::post('/donations/{donation}/receive', [ManageDonationController::class, 'receive'])->name('donations.receive');
+        Route::post('/donations/{donation}/decline', [ManageDonationController::class, 'decline'])->name('donations.decline');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
         Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
