@@ -1,6 +1,8 @@
 import { Head, usePage } from "@inertiajs/react";
+import { AlertTriangle, Archive, CircleCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import AdminLayout from "@/layouts/admin-layout";
 import { copy } from "@/lib/copy";
@@ -48,14 +50,22 @@ function ShelfRow({ shelf }: { shelf: AdminShelfRow }) {
                     <div className="flex flex-wrap items-center gap-2">
                         <div>
                             <Label className="sr-only">{copy.adminDashboard.statusHeading}</Label>
-                            <Badge variant={shelf.status === "archived" ? "secondary" : "default"}>
+                            <Badge
+                                variant={shelf.status === "archived" ? "secondary" : "default"}
+                                className="gap-1"
+                            >
+                                <Icon
+                                    iconNode={shelf.status === "archived" ? Archive : CircleCheck}
+                                    className="size-3.5"
+                                />
                                 {shelf.status === "archived"
                                     ? copy.adminDashboard.statusArchived
                                     : copy.adminDashboard.statusActive}
                             </Badge>
                         </div>
                         {shelf.contactsMissing && (
-                            <Badge variant="destructive">
+                            <Badge variant="destructive" className="gap-1">
+                                <Icon iconNode={AlertTriangle} className="size-3.5" />
                                 {copy.adminDashboard.contactsMissing}
                             </Badge>
                         )}
