@@ -145,6 +145,21 @@ task boundary. Adding all seven here would leave the suite red for five tasks.
    silently stops covering anything.
 4. Add a test asserting the probe is absent from `ACTIONS` — asserted, not
    assumed.
+5. **`GROUPS` is not only a test fixture — it is a live filter whitelist.**
+   `app/Http/Controllers/Manage/AuditLogController.php:44` does
+   `in_array($groupParam, AuditSentences::GROUPS, true)`, so a fifth group
+   immediately becomes an accepted `?group=` value on the **shelf-level** audit
+   screen. That is correct behaviour — a shelf's own `bookshelf.updated` and
+   `membership.role_assigned` rows belong in it — but the front end has a
+   hard-coded union that will now be a lie:
+
+   ```
+   resources/js/pages/manage/audit.tsx:20
+       group: "loans" | "books" | "readers" | "community" | null;
+   ```
+
+   Widen it to include `"administration"`. Verify with `npm run laravel:build`;
+   Biome covers `resources/js/**`.
 
 `tests/Feature/Oversight/AuditLogQueryTest.php:67,131` also names
 `bookshelf.created`, as a null-shelf row that must not appear in a shelf-scoped
