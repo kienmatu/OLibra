@@ -4498,3 +4498,242 @@ covered by **no formatter or linter at all**, and `npx prettier --check` on it
 reports a false pass. The note came from an implementing agent's report and was
 written into the plan without being verified — the same defect class this
 project keeps hitting, arriving this time through a document rather than a spec.
+
+## Phase 3b-i — shelf administration
+
+The `/admin` area's four placeholders become real: a shelf can be opened, its
+profile, policy and contacts corrected, archived and restored, and its managers
+appointed, revoked and promoted. Branch `feat/phase-3b-i-shelf-administration`,
+cut from `main` at `213d04f`. This is the first phase with a sanctioned
+cross-shelf **write** capability, and most of what follows is either a sharp
+edge the reference already had and we ported faithfully, or a half of the work
+that 3b-ii owns and must not land out of order.
+
+- **A shelf may be left with no manager, by decision (spec D6).** The
+  reference's `revokeManager` counts nothing, so a super administrator can take
+  the last grant on a shelf and leave it with nobody to approve a registration
+  or lend a book. `app/Actions/Admin/RevokeManager.php:39-42` ports that
+  faithfully rather than inventing a refusal — a refusal we invented would need
+  its own wording and its own edge cases (what of a shelf whose only manager is
+  suspended?), none of which the requirements decide.
+
+  **What 3b-i adds is the visibility, and that is what makes the decision
+  defensible.** `AdminOverviewQuery` now returns `managersMissing` beside the
+  `contactsMissing` 3a already had (`app/Queries/Admin/AdminOverviewQuery.php:
+  269-270`), and both the dashboard and `/admin/shelves` render it
+  (`resources/js/pages/admin/dashboard.tsx:67-78`,
+  `resources/js/pages/admin/shelves/index.tsx:78-89`). The predicate is
+  deliberately narrower than "has a manager row": a suspended manager cannot
+  act, and a manager whose `users` row is gone is gone, so both read as missing.
+  A permitted sharp edge that nothing surfaces is just a hole.
+
+- **There is no super-admin demotion anywhere in this port (spec D5), and the
+  omission is ported as an omission.** The reference's own docstring
+  (`old_next/src/domain/admin/commands/managers.ts:132-134`) is the entire
+  reasoning: removing the last administrator's own grant would lock the
+  installation out of its own administration surface, and nothing in the
+  requirements says what should happen instead. So `/admin/managers` can grant
+  the global role (`PromoteSuperAdmin`, refusing a target who already holds it
+  as `already_super_admin`) and cannot take it back. `RevokeManager.php:44-48`
+  states this at the one place somebody would look for it. Inventing the rule —
+  "the last super admin may not be demoted", or "any super admin may demote any
+  other" — would be this port deciding a requirements question on the product
+  owner's behalf, which is what the omission is for.
+
+- **Two live settings still have no editor anywhere, and this phase did not add
+  one (spec D2).** `public_show_current_borrower`
+  (`app/Queries/BookDetailQuery.php:127`) and `public_name_display` (`:141`) are
+  both read by shipped code — they decide whether a public book page names the
+  person currently holding a copy, and under which name — and nothing in the
+  application writes them. The policy form deliberately carries the reference's
+  eight (`loan_days`, `max_concurrent_loans`, `max_renewals`, `renewal_days`,
+  `hold_days`, `due_soon_days`, `comments_enabled`,
+  `comments_require_approval`), because its own docstring calls them *"the six
+  lending-policy numbers and the two comment toggles"*
+  (`old_next/src/app/quan-tri/admin-actions.ts:256`), and
+  `app/Http/Requests/Admin/UpdateBookshelfPolicyRequest.php:21` records the two
+  omissions where the form is defined. Quietly widening a form the reference
+  kept at eight is a bigger change than it looks: these two govern disclosure of
+  a reader's identity to the public, so they want a decision about defaults and
+  wording, not a ninth and tenth input.
+
+- **`leaderboard_enabled` and `leaderboard_size` are stale requirements text,
+  and are recorded that way on purpose.** BR §5.5 lists them
+  (`docs/BUSINESS-REQUIREMENTS.md:235-236`) and they are consumed **nowhere**:
+  grepped across `app/`, `resources/`, `database/`, `lang/` and `routes/` at the
+  end of this branch, the only hit for the word at all is a docblock line
+  explaining that the opt-in is gone
+  (`app/Http/Controllers/Manage/StatisticsController.php:23`). The leaderboard
+  opt-in was withdrawn on 2026-08-12 (`docs/DATABASE.md:490`) and *Bạn đọc chăm
+  nhất* now counts every borrower without reading a setting.
+
+  **Recording them beside the two above, as "shipped but uneditable", would have
+  been the defect and not the fix.** That sentence would assert a consumer that
+  does not exist, and the next person to act on it builds an editor for two keys
+  nothing reads — which is precisely the false-premise-copied-from-a-document
+  failure `known-gaps.md:4331-4338` dissects (there, a premise copied from the
+  reference into four docblocks and a test). The spec's D2 catches this; its own
+  risk list at
+  `docs/superpowers/specs/2026-08-31-laravel-phase-3b-i-shelf-administration-design.md:474`
+  does not, and still says "four shipped settings remain uneditable". Two.
+
+- **The contacts disclosure boundary has no direct test in this phase, and the
+  proposed one was dropped rather than written.** Spec §5.2 asked for "no route
+  added here reads `bookshelf_contacts` for a caller without a membership".
+  3b-i adds no public route touching contacts at all — every contacts read is
+  behind `EnsureSuperAdmin` — so the assertion is vacuously green against any
+  implementation, including one that got it wrong, and a green test that cannot
+  fail is worse than none because it reads as coverage. What actually holds the
+  boundary is `BookshelfContact` carrying `BelongsToBookshelf` (so its global
+  scope throws rather than leaks outside a bound tenant) and 3a's decision that
+  the portal exposes no contacts. Both are real; neither is pinned *by this
+  phase*, and the test that would pin them belongs to whichever phase first
+  ships a public surface that could plausibly read the table.
+
+- **Exporting an archived shelf's records is unbuilt and unscheduled, and that
+  is a precondition on 3b-ii rather than a wish.** The reference's signed
+  comment (`old_next/src/auth/guards.ts:27-37`) names *two* needs an explicit
+  admin path must serve once archiving 404s the slug for everyone —
+  "reactivating it, exporting its records". 3b-i builds only the first: archive
+  and un-archive from `/admin/shelves`. Export has no home in 3b-ii's list
+  either.
+
+  **So the resolver filter must not land until export is scoped.** Today an
+  archived shelf still serves its routes (next entry), which is a gap but also,
+  accidentally, the only remaining way to read a parish's own register after it
+  is archived. Close the resolver without an export path and archiving becomes
+  the way to make a parish's records unreachable — by its readers, by its
+  managers, and by the administrator who archived it — with the data all still
+  there. That is a worse failure than the one being fixed, and it is one commit
+  away from being shipped by somebody who reads only the previous entry.
+
+- **The archived-shelf resolver filter is deferred to 3b-ii (spec D4), so an
+  archived shelf still serves its routes today.** This is the pre-existing
+  Phase 0/1 behaviour recorded at `docs/known-gaps.md:4306-4338`, unchanged by
+  this phase: `app/Http/Middleware/ResolveTenant.php:36` still resolves `{shelf}`
+  by slug with no `status` condition. D4 settles what the behaviour *should* be
+  — archiving takes a shelf out of circulation entirely, 404 for readers,
+  managers and the portal alike, with no "let the admin in anyway" carve-out —
+  and then declines to ship it here, because changing the entry condition of
+  every tenant-bound route in the application, in the same phase that first
+  builds the repair path, would ship the blast radius and its remedy in one
+  unreviewed breath. 3b-i builds the un-archive half; the filter follows against
+  a phase where the repair route already exists — and, per the entry above,
+  where export does too.
+
+### Four divergences from the reference, decided during implementation
+
+Each is argued at length in the code, so the reasoning survives where somebody
+would look for it. They are collected here because a divergence recorded only
+in the file that makes it is invisible to anyone reviewing the phase.
+
+- **`bookshelf.created` and `bookshelf.archived` are filed against the shelf,
+  not globally.** The reference sets `global: true` on both — for creation
+  because "the shelf did not exist when the decision was made"
+  (`app/Actions/Admin/CreateBookshelf.php:32-39`), for archiving because over
+  there an archived shelf's slug stops resolving the moment the command commits,
+  so a shelf-scoped row would be written into a log nobody could open
+  (`app/Actions/Admin/ArchiveBookshelf.php:35-44`). This port files both against
+  the shelf, so its audit screen tells the shelf's whole story from its first
+  act; `bookshelf.unarchived` is filed the same way, which is what makes the
+  archive/un-archive pair readable in sequence. Only `user.promoted_super_admin`
+  is global.
+
+  **The consequence is a dependency on the previous section.** The archiving
+  argument holds *because* the resolver filter is not in yet. If 3b-ii lands it,
+  these rows become unreachable from the shelf's own audit screen — the shelf
+  whose story they tell is exactly the shelf whose URL no longer resolves. That
+  argues for an admin-side audit view in 3b-ii, and is a second reason the
+  resolver filter is not a self-contained change.
+
+- **Creating a shelf does not collect contacts, so a new shelf is born flagged
+  `contactsMissing`.** The reference's `createBookshelf` refuses a shelf with no
+  position-1 contact. Here the create form takes profile fields only and
+  redirects to the new shelf's own editor, where Task 5's contacts form lives
+  (`app/Http/Controllers/Admin/ShelfController.php:105-107`, and the plan's Task
+  5). The reasoning is that this port already has the mechanism the reference's
+  refusal substitutes for — the incompleteness flag on the dashboard — and that
+  a create form which refuses until three volunteers are named is a worse
+  onboarding path than one that opens the shelf and says what is still missing.
+  The cost is real and is the thing to watch: **every shelf created through this
+  screen shows the flag until somebody returns to fill it in**, so the flag's
+  signal is diluted by exactly the shelves that are simply new.
+
+- **Task 7's two state refusals are `RuleViolated` codes with sentences, where
+  Task 6's are policy 404s.** Revoking somebody who is already a reader throws
+  `not_a_manager` (`app/Actions/Admin/RevokeManager.php:72`,
+  `lang/vi/rules.php:353`) and promoting an existing super admin throws
+  `already_super_admin` (`PromoteSuperAdmin.php:58`, `rules.php:359`) — both
+  named sentences on screen. Archiving an already-archived shelf, the same shape
+  of no-op, is instead refused by `BookshelfPolicy::archive()` as a 404 (spec
+  D9). The reasoning is in `RevokeManager.php:27-37` and in
+  `app/Policies/BookshelfPolicy.php:121-139`: the anti-enumeration argument that
+  makes archive a 404 has nothing to protect on the managers screen, which lists
+  the person by name one line above the control, so a 404 there would only be a
+  blank answer about somebody the caller is already looking at. Defensible, but
+  it does mean **two adjacent screens in the same area refuse the same shape of
+  mistake in two different registers**, and a third screen's author will have to
+  read both to know which applies.
+
+- **Appointing on an archived shelf is refused; revoking on one is still
+  allowed.** Stricter than the reference, which checks no status in either
+  command. `BookshelfPolicy::assignManager()` requires
+  `BookshelfStatus::Active` (`:98-118`) because `AssignManager` itself reads no
+  status, so appointing to an archived shelf would silently mint a membership
+  nobody can exercise, through a redirect that looks like every other success.
+  `revokeManager()` deliberately does not mirror it (`:121-139`): a shelf
+  archived while somebody still held its keys is precisely when taking them back
+  matters, and the manager list exists so an administrator can undo what is
+  already there.
+
+### Three census-shaped pins this phase touched, and two greps that cannot read
+
+Recorded because the census tests are the mechanism this repo relies on to keep
+lookup tables honest, and because two of the greps around them have limits that
+have now cost documentation twice in this phase alone.
+
+- **The audit census** (`tests/Feature/Architecture/AuditActionCensusTest.php`)
+  and the partition test (`tests/Unit/Audit/AuditSentencesTest.php:423-435`) both
+  moved: `AuditSentences::ACTIONS` goes from 41 to **48**, and `GROUPS` gains a
+  fifth, `administration`. The partition test spells the five group names out
+  literally rather than reading them from `GROUPS`, which is what makes adding a
+  group a deliberate act. Registering `bookshelf.created` also retired it as the
+  suite's canonical unregistered probe at three sites; the replacement is a
+  synthetic string no domain will claim, so the fallback census keeps biting.
+- **The refusal-code census**
+  (`tests/Unit/Catalogue/RuleViolatedCodesHaveSentencesTest.php`) now carries
+  three more codes from this phase — `not_a_manager`, `already_super_admin` and
+  the reused `membership_not_found`. Its own comments record that it has been
+  widened twice already, each time because a real code had dropped silently out
+  of its regex; a new code minted in `app/Actions/Admin/` with no
+  `lang/vi/rules.php` line is what it exists to redden.
+- **The widening fence** (`tests/Feature/Architecture/WideningArchitectureTest
+  .php`) was amended by spec D0 to admit `app/Actions/Admin/` alongside 3a's
+  `app/Queries/Admin/`, because cross-shelf **writes** cannot live in a Queries
+  namespace. Everything Phase 3a recorded about what that pin does and does not
+  prove still applies unchanged, and the blast radius is now two directories
+  rather than one.
+
+- **`WideningArchitectureTest::offendersFor` reads raw file contents with no
+  comment stripping** (`:32`, `preg_match($pattern, $file->getContents())`).
+  So a docblock that writes `->systemWide(` in prose, in a file outside the two
+  sanctioned directories, reddens the fence — the pin cannot tell an explanation
+  from a call. `AuditActionCensusTest` in the same phase does it the other way,
+  stripping `T_COMMENT`/`T_DOC_COMMENT` with `token_get_all()` first (`:13-29`)
+  and saying in its own comment why a regex for "a comment" is the wrong tool.
+  The two guards, written for the same repo, disagree about whether comments are
+  code.
+
+- **`TenancyArchitectureTest`'s `[^;]*` spans out of a comment and into the code
+  below it** (`:151`, `:153`), because a comment carries no semicolon to stop it.
+  This bit Task 3: the `whereHas('user')` predicate that `AdminOverviewQuery`
+  restates from `ManagerDashboardQuery` could not be written out in a comment
+  near the grouped query, so `AdminOverviewQuery.php:227-233` explains in prose
+  that it is explaining in prose, and the file's docblock declines to quote the
+  pattern it is describing because quoting it would satisfy it (`:94-99`). This
+  is the **fourth** occurrence in three phases — Phase 2c's Tasks 2 and 7 and
+  Phase 3a's Task 3 are recorded above — and the fix proposed there twice over
+  (strip comments with `token_get_all()`, as `LabelsArchitectureTest` and now
+  `AuditActionCensusTest` both do, or anchor `[^;]*` on a statement terminator)
+  would still close all four. Narrowing a shipped tenancy guard remains a ruling
+  for the whole-branch review rather than a documentation task's to make.
