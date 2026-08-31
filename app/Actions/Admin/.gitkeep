@@ -1,0 +1,14 @@
+Cross-shelf administration WRITES live here (spec 3b-i, D0).
+
+This directory is sanctioned by two architecture fences in
+tests/Feature/Architecture/WideningArchitectureTest.php: it is the only
+place outside app/Queries/Admin/ that may call TenantContext::systemWide(),
+and the only place at all that may call AuditRecorder::global() or
+::forShelf(). Task 1 creates it empty; Tasks 4-7 fill it.
+
+Under a widening the bookshelf scope stops narrowing and the creating hook
+stops stamping, so every Action here reaches shelf-scoped rows through
+relations from the Bookshelf ($shelf->memberships(), $shelf->contacts()),
+never through a hand-written bookshelf_id predicate.
+
+Delete this file once the directory holds real code.

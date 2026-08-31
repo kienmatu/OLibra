@@ -73,16 +73,57 @@ it('raw widening is funnelled through TenantContext::systemWide()', function () 
     expect(offendersFor($pattern, $allowed))->toBe([]);
 });
 
-it('the widening wrapper is confined to app/Queries/Admin', function () {
+it('the widening wrapper is confined to app/Queries/Admin and app/Actions/Admin', function () {
     $pattern = '/->\s*systemWide\s*\(/';
 
     $allowed = [
         // Every cross-shelf read lives here. 3a ships one; 3b and 3c add more.
-        // A new entry outside this directory is a spec amendment, not a fix.
+        // A new entry outside these directories is a spec amendment, not a fix.
     ];
 
+    // Two directories, not one. 3a fenced cross-shelf READS to
+    // app/Queries/Admin/. 3b-i's spec (D0) is the amendment that adds
+    // cross-shelf WRITES, which are Actions and so cannot live in a Queries
+    // namespace. A controller still never calls systemWide() itself.
+    $sanctioned = ['app/Queries/Admin/', 'app/Actions/Admin/'];
+
     $offenders = collect(offendersFor($pattern, $allowed))
-        ->reject(fn (string $path) => str_starts_with($path, 'app/Queries/Admin/'))
+        ->reject(fn (string $path) => collect($sanctioned)->contains(
+            fn (string $dir) => str_starts_with($path, $dir),
+        ))
+        ->values()
+        ->all();
+
+    expect($offenders)->toBe([]);
+});
+
+/**
+ * The audit half of the same capability, fenced the same way.
+ *
+ * AuditRecorder::record() throws with no bound tenant, and that throw guards
+ * every shelf-scoped command in the app. 3b-i's `/admin` group binds no
+ * tenant, so administration commands configure the recorder first —
+ * global() for a cross-shelf act, forShelf($id) for an act against one shelf
+ * — and only a configured recorder may write without a bound tenant.
+ *
+ * That is a way past a fail-closed guard, so it is fenced exactly like
+ * systemWide(): reachable only from app/Actions/Admin/. Anywhere else it
+ * would be a shelf-scoped command quietly opting out of the tenancy it was
+ * supposed to fail on.
+ *
+ * A SECOND it() IN THIS FILE, NOT A NEW ONE. offendersFor() above is a
+ * top-level function and Pest loads every test file into one process, so a
+ * new file redeclaring it is a fatal error, not a duplicated helper.
+ *
+ * The pattern anchors on `->`, so AuditRecorder's own declarations
+ * (`public function global(): self`) and its prose do not match — the fence
+ * means "someone called it", and the declaring file needs no exemption.
+ */
+it('the audit configurator is confined to app/Actions/Admin', function () {
+    $pattern = '/->\s*(global|forShelf)\s*\(/';
+
+    $offenders = collect(offendersFor($pattern, []))
+        ->reject(fn (string $path) => str_starts_with($path, 'app/Actions/Admin/'))
         ->values()
         ->all();
 
