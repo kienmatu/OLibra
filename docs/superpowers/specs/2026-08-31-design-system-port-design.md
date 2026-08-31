@@ -330,7 +330,11 @@ block setting `border-color: var(--color-gray-200, currentColor)` on `*`,
 `* { @apply border-border }` (`app.css:151-153`) reclaims only the element
 selector, so a **cold grey survives on every pseudo-element border** — visible
 against the warm palette, and invisible to section 7's `hsl(` marker test because
-it is a `var()`. The compat block's fallback must be repointed at the hairline.
+it is a `var()`. The fix is to change the **declaration** to
+`border-color: var(--border)`. Repointing the `currentColor` fallback would do
+nothing: `--color-gray-200` is defined by Tailwind's own theme
+(`node_modules/tailwindcss/theme.css:228`) and this file's `@theme` extends rather
+than resets it, so the fallback never fires.
 
 **Not ported:** `@utility hairline` (119-122). It has zero call sites in
 `resources/js`, and D5 forbids adding any, so it would ship dead.
