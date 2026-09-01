@@ -380,6 +380,21 @@ volunteer does not. That asymmetry is why the two keep separate audit actions.
 **`MembersArchitectureTest:74` must be amended again here** — this writes a
 credential column.
 
+**Also wire `CancelProfileChange`, which Task 4 built and nothing reaches.**
+Task 5 measured it: the Action exists, is tested, and has **no HTTP caller** —
+no route from the reader's page or from either queue. BR:580/602 list only
+approve and reject on the queue cards, so the queues were right not to wire it;
+the reader's own page is its home, and this task already reopens that page for
+the password form.
+
+A reader withdrawing their own pending proposal is the whole self-exemption in
+D4. Shipping the Action without a caller would leave the phase with a capability
+nobody can use — the same shape as the dead Promote control 3b-i's whole-branch
+review found.
+
+**Test:** a reader cancels their own from their own page, and the pending card
+goes away.
+
 **Tests:** the current password is required; sessions are revoked; the volunteer
 path still audits `credentials.set`.
 
