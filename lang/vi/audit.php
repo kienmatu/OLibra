@@ -73,6 +73,10 @@ return [
     // no user id to work from — and the reason through the shared :because
     // clause, the membership_rejected / comment_rejected shape.
     'profile_change_rejected' => 'từ chối yêu cầu đổi thông tin:because',
+    // Phase 3c-i Task 4. No subject and no reason: the row's entity is the
+    // request, and a withdrawal is not refused with an explanation — it is
+    // simply taken back.
+    'profile_change_cancelled' => 'huỷ yêu cầu đổi thông tin',
 
     // — cộng đồng —
     // The reference's phrase verbatim (audit-actions.ts's comment.created).

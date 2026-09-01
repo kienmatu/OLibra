@@ -16,8 +16,9 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * The one copy of spec D2's decision rule and spec D3's lock discipline,
- * shared by ApproveProfileChange and RejectProfileChange (and, from Task 4,
- * by CancelProfileChange's non-self path). Port of the shared half of
+ * shared by ApproveProfileChange and RejectProfileChange — and, for the
+ * subject-role half alone, by CancelProfileChange's non-self path (spec
+ * D4). Port of the shared half of
  * old_next/src/domain/members/commands/approve-profile-change.ts:117-175
  * and reject-profile-change.ts:72-97.
  *
@@ -164,6 +165,31 @@ trait DecidesProfileChanges
             throw new RuleViolated('not_permitted');
         }
 
+        $this->assertSubjectRolePermits($actor, $membership);
+    }
+
+    /**
+     * §9's routing rule on its own: a manager-or-admin SUBJECT's change is
+     * a super administrator's to rule on, a reader subject's is any
+     * manager's.
+     *
+     * SEPARATE FROM assertMayDecide ABOVE BECAUSE CANCEL NEEDS THIS HALF
+     * AND NOT THE OTHER (spec D4). CancelProfileChange applies exactly this
+     * table to its non-self path — cancelling is a second verb reaching the
+     * same row, and routing it differently would cut the rule off at the
+     * knees, which is the defect the reference recorded. But its self case
+     * is exempt at every rank and compares MEMBERSHIP ids, where the
+     * decision pair refuses self at every rank and compares USER ids. So
+     * the shared half is factored out and the self checks stay where they
+     * differ; a `$verb` flag through one function would be the same two
+     * rules with the difference hidden inside it.
+     *
+     * The port's `atLeast` is narrower than the reference's — see
+     * assertMayDecide's note — so this is spelled exactly as
+     * UpdateReaderProfile.php:65 spells it.
+     */
+    private function assertSubjectRolePermits(User $actor, Membership $membership): void
+    {
         if ($membership->role->atLeast(MembershipRole::Manager) && ! $actor->is_super_admin) {
             throw new RuleViolated('not_permitted');
         }

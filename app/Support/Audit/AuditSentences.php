@@ -82,6 +82,11 @@ final class AuditSentences
         // take.
         'profile_change.approved' => 'readers',
         'profile_change.rejected' => 'readers',
+        // Phase 3c-i Task 4, spec D4 — the withdrawal, and 'readers' again.
+        // The routing rule means a super administrator on the cross-shelf
+        // queue may be the one taking it back, but the act is still about a
+        // reader's own record, which is what the group names.
+        'profile_change.cancelled' => 'readers',
         // Phase 2b files every community action under its own group, the
         // reference's cong-dong (audit-actions.ts's comment.* family).
         // Folding comments into books would leave next task's shelf news
@@ -394,6 +399,11 @@ final class AuditSentences
             // writes a reason (it is refused blank), so this clause is
             // never empty in practice; the helper does not assume it.
             'profile_change.rejected' => strtr(self::line('profile_change_rejected'), [':because' => self::because(self::str($after, 'reason'))]),
+            // No strtr and no subject, for the same reason as proposed: the
+            // entity is the REQUEST, so there is no user id to join a name
+            // from. A withdrawal writes no decided_by either — the actor
+            // column of the audit row is the whole answer to who did it.
+            'profile_change.cancelled' => self::line('profile_change_cancelled'),
             // No strtr at all — the copy_lost_reported shape. The
             // reference's phrase names neither the title nor the author,
             // and that stays deliberate: the payload holds book_id and no

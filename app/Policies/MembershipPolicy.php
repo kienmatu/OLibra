@@ -223,4 +223,30 @@ class MembershipPolicy
     {
         return Gate::forUser($user)->allows('act-as-manager');
     }
+
+    /**
+     * Phase 3c-i Task 4, spec D4: withdrawing a pending proposal.
+     *
+     * requireSelfOrManager, like propose() and unlike decide() — and it
+     * delegates to viewSelf() for the same reason propose() does, rather
+     * than restating a self-check the reference writes once.
+     *
+     * THE SELF HALF IS THE POINT HERE, not an incidental widening. A person
+     * may always withdraw their own request, at every rank: a manager who
+     * mistyped their own phone number would otherwise be stranded waiting
+     * for a super administrator to take it back for them.
+     *
+     * AND IT IS STILL ONLY A FLOOR, exactly as decide() is. The manager
+     * half admits any manager to anybody's request, which is precisely the
+     * gap the reference recorded as a defect — "a manager could cancel a
+     * peer manager's own pending change" — so CancelProfileChange applies
+     * §9's subject-role rule on top, to everything but the self case. The
+     * rule needs the subject's role read under the command's own lock, so
+     * it stays out of this class exactly as it does for correct() and
+     * decide().
+     */
+    public function cancel(User $user, Membership $membership): bool
+    {
+        return $this->viewSelf($user, $membership);
+    }
 }
