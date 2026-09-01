@@ -41,6 +41,17 @@ function sfbFix(string $slug = 'dong-thap-sfb'): array
     return [$shelf, $reader];
 }
 
+// THE FROZEN CLOCK IS RELEASED HERE AND NOT IN A TEST BODY. One block below
+// freezes time to walk across the rolling 24-hour window; when the release
+// was its own last statement, any failure before it — an assertion, an
+// unexpected exception — left CarbonImmutable frozen at 2026-09-02 for every
+// test that ran afterwards in the same process, turning one red test into a
+// spray of unrelated ones with no clue pointing back here. afterEach runs
+// whatever the test did.
+afterEach(function () {
+    CarbonImmutable::setTestNow();
+});
+
 it('writes the name the sender typed AND the account they were signed into', function () {
     [$shelf, $reader] = sfbFix();
     test()->actingAs($reader);
@@ -153,8 +164,12 @@ it('the fourth message in a rolling 24 hours is refused with a sentence, and the
     // every other refusal in this system uses, carrying the Vietnamese
     // sentence in the error bag where the form reads it.
     $refused->assertRedirect($url);
-    $refused->assertSessionHasErrors(['rule' => __('rules.rate_limited')]);
-    expect(__('rules.rate_limited'))->not->toBe('rules.rate_limited');
+    // The figure in the sentence comes from the constant the command
+    // enforces, not from a 3 typed into lang/vi/rules.php — so this
+    // assertion follows DAILY_LIMIT if it ever moves.
+    $sentence = __('rules.rate_limited', ['count' => SubmitFeedback::DAILY_LIMIT]);
+    $refused->assertSessionHasErrors(['rule' => $sentence]);
+    expect($sentence)->not->toBe('rules.rate_limited');
     expect(Feedback::query()->count())->toBe(3);
 
     // Twenty-five hours after the first three, the window has rolled past
@@ -167,7 +182,81 @@ it('the fourth message in a rolling 24 hours is refused with a sentence, and the
     $accepted->assertSessionHas('success', __('rules.feedback_submitted_flash'));
     expect(Feedback::query()->count())->toBe(4);
 
-    CarbonImmutable::setTestNow();
+    // The clock is released in afterEach at the top of this file, not here:
+    // a failure between the freeze and a call in the test body leaks a
+    // frozen clock into every test that runs after it in the same process.
+});
+
+it('spends ONE budget across the shelf form, a second shelf and /contact', function () {
+    // THE PHASE'S OWN CROSS-SURFACE CLAIM, and until this test nothing
+    // pinned it. SubmitFeedback's docblock and known-gaps.md both say the
+    // limit is "genuinely global here, where the reference's is
+    // shelf-blind" — but every existing exercise of it sends three messages
+    // to ONE shelf through ONE route, which a per-shelf or per-route
+    // limiter passes just as happily.
+    //
+    // The key is the normalised phone number and nothing else: no shelf id,
+    // no route, no session. So one sender's three messages are spent here
+    // one per surface — shelf A, shelf B, and the site-wide /contact form —
+    // and the fourth is refused wherever it is sent.
+    [$first] = sfbFix('an-giang-shared');
+
+    app(TenantContext::class)->actSystemWide();
+    $second = Bookshelf::factory()->create(['slug' => 'ben-tre-shared', 'settings' => []]);
+
+    $body = [
+        'guest_name' => 'Ông Sáu',
+        'guest_contact' => '0912345678',
+        'body' => 'Cùng một người gửi.',
+    ];
+
+    // Deliberately three DIFFERENT spellings of the one subscriber number,
+    // so a limiter keyed on the raw string would also let the fourth
+    // through and this test could not tell that from a per-shelf budget.
+    $shelfOne = "/shelves/{$first->slug}/feedback";
+    $shelfTwo = "/shelves/{$second->slug}/feedback";
+
+    test()->from($shelfOne)->post($shelfOne, $body)
+        ->assertSessionHas('success', __('rules.feedback_submitted_flash'));
+    test()->from($shelfTwo)->post($shelfTwo, [...$body, 'guest_contact' => '0912 345 678'])
+        ->assertSessionHas('success', __('rules.feedback_submitted_flash'));
+    test()->from('/contact')->post('/contact', [...$body, 'guest_contact' => '+84912345678'])
+        ->assertSessionHas('success', __('rules.feedback_submitted_flash'));
+
+    expect(Feedback::query()->count())->toBe(3)
+        // Three surfaces, three rows, ONE rate-limit bucket.
+        ->and(Feedback::query()->distinct()->pluck('guest_hash'))->toHaveCount(1)
+        // And the three landed where they were sent — a limiter shared
+        // across shelves must not mean a MESSAGE shared across them.
+        ->and(Feedback::query()->whereNull('bookshelf_id')->count())->toBe(1);
+
+    // The fourth, on the surface that has taken only one of the three so
+    // far. A per-shelf budget would accept it; a per-route one would too.
+    test()->from($shelfOne)->post($shelfOne, $body)
+        ->assertSessionHasErrors(['rule' => __('rules.rate_limited', ['count' => SubmitFeedback::DAILY_LIMIT])]);
+
+    // And on /contact, which has taken one of its own — so neither
+    // direction of the seam is left untested.
+    test()->from('/contact')->post('/contact', $body)
+        ->assertSessionHasErrors(['rule' => __('rules.rate_limited', ['count' => SubmitFeedback::DAILY_LIMIT])]);
+
+    expect(Feedback::query()->count())->toBe(3);
+});
+
+it('states the enforced limit in the refusal rather than a number typed into the sentence', function () {
+    // THE FIGURE IS THE CONSTANT'S. Both forms already receive DAILY_LIMIT
+    // as a prop so the promise cannot drift; the refusal banner was the one
+    // place still holding its own copy of it, and this is what says so —
+    // the sentence must contain the constant, whatever the constant is.
+    $sentence = __('rules.rate_limited', ['count' => SubmitFeedback::DAILY_LIMIT]);
+
+    expect($sentence)->toContain((string) SubmitFeedback::DAILY_LIMIT)
+        // No placeholder left unfilled, and no literal figure surviving in
+        // the file: a sentence that still said "3" with the constant at 5
+        // would pass the line above by accident.
+        ->and($sentence)->not->toContain(':count')
+        ->and(__('rules.rate_limited', ['count' => 9]))->toContain('9')
+        ->and(__('rules.rate_limited', ['count' => 9]))->not->toContain('3 góp ý');
 });
 
 it('refuses a phone that is not a phone, and a message missing its fields', function () {

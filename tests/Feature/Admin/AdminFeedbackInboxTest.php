@@ -111,6 +111,22 @@ it('shows every message when the filter names a status that does not exist', fun
             ->where('messages.0.subject', 'Ba')
             ->where('filter', 'resolved')
         );
+
+    // A REPEATED KEY IS THE FIRST VALUE, not a dropped parameter — the
+    // answer App\Support\QueryParam gives every other guarded reader in the
+    // application, and the reason this controller reads through it rather
+    // than through $request->query() behind an is_string() guard. That
+    // guard is not wrong, it is merely a DIFFERENT answer to a shape the
+    // rest of the app has settled once: it treats `?status[]=resolved` as
+    // no filter at all, so a mangled or bookmarklet-built URL silently
+    // widens the screen instead of showing what was asked for.
+    test()->actingAs($admin)
+        ->get('/admin/feedback?status[]=resolved&status[]=new')
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('messages', 1)
+            ->where('messages.0.subject', 'Ba')
+            ->where('filter', 'resolved')
+        );
 });
 
 it('keeps the contact number out of every list row and puts it in the open one', function () {
@@ -395,6 +411,93 @@ it('falls back to the top of the list when the chosen message names no row', fun
         ->get('/admin/feedback')
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page->has('messages', 0)->where('open', null));
+});
+
+it('reads one page of 25 rather than every message the installation has ever received', function () {
+    $admin = adminFeedbackFix();
+
+    // TWENTY-SIX, one past the page size — the smallest fixture that can
+    // tell a paged read from an unbounded one. Distinct timestamps so the
+    // order is total and the two pages cannot share or skip a row.
+    for ($i = 0; $i < 26; $i++) {
+        adminFeedbackRow([
+            'subject' => 'Góp ý '.$i,
+            'status' => 'read',
+            'created_at' => CarbonImmutable::parse('2026-09-01T00:00:00Z')->addMinutes($i),
+        ]);
+    }
+
+    // WHY THIS IS A BOUND AND NOT A PREFERENCE: neither feedback route
+    // carries a request throttle, the only ceiling is per-normalised-phone,
+    // and the migration that indexed this table says it in its own words —
+    // "this is the one table whose row volume an unauthenticated outsider
+    // chooses". An unbounded read here is an unbounded read a stranger
+    // sizes.
+    test()->actingAs($admin)
+        ->get('/admin/feedback')
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('messages', 25)
+            ->where('page', 1)
+            ->where('pageCount', 2)
+            // The TOTAL is still the whole inbox's — the pager needs it,
+            // and a total that fell to the page would say "25 góp ý" on an
+            // inbox of 26.
+            ->where('total', 26)
+            // Newest first inside the page.
+            ->where('messages.0.subject', 'Góp ý 25')
+        );
+
+    // The second page is the REMAINDER, not the same rows again — the
+    // repeats-and-skips defect AuditLogQuery's docblock records measuring
+    // three times.
+    test()->actingAs($admin)
+        ->get('/admin/feedback?page=2')
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('messages', 1)
+            ->where('page', 2)
+            ->where('messages.0.subject', 'Góp ý 0')
+            // The open pane follows the page it is on when nothing is
+            // chosen, rather than reopening the top of the whole inbox.
+            ->where('open.subject', 'Góp ý 0')
+        );
+
+    // THE COUNT AND THE PAGE READ THE SAME FILTER. A status chip narrows
+    // both, so pageCount cannot be computed off an unfiltered total.
+    adminFeedbackRow(['subject' => 'Chưa đọc', 'status' => 'new']);
+
+    test()->actingAs($admin)
+        ->get('/admin/feedback?status=new')
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('messages', 1)
+            ->where('total', 1)
+            ->where('pageCount', 1)
+            // And the unread badge is the INBOX's, not the page's.
+            ->where('unread', 1)
+        );
+
+    // A page past the end is an empty list, not a 404 — the same leniency
+    // `?message=` gets, for the same reason: it is a number in a URL.
+    test()->actingAs($admin)
+        ->get('/admin/feedback?page=99')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('messages', 0)
+            ->where('open', null)
+            ->where('total', 27)
+        );
+
+    // `?message=` STILL OPENS A ROW THE PAGE DOES NOT CONTAIN. The detail
+    // pane is fetched by id, so a link kept from an older page is not
+    // broken by paging.
+    $oldest = Feedback::query()->where('subject', 'Góp ý 0')->sole();
+
+    test()->actingAs($admin)
+        ->get('/admin/feedback?message='.$oldest->id)
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('page', 1)
+            ->has('messages', 25)
+            ->where('open.subject', 'Góp ý 0')
+        );
 });
 
 it('answers 404 for a handling post naming no message, and refuses a caller who is not a super administrator', function () {

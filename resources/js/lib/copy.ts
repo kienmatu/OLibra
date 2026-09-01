@@ -95,11 +95,18 @@ export const copy = {
         // The form's own labels, phase 3c-ii Task 3. NOT copy.feedback's —
         // this file's header bans merging namespaces on coincidental
         // wording, and the wording is not even coincidental here: the shelf
-        // form is read by children and their parents and says "bạn" and
-        // "các cô chú giữ tủ sách", while this page is a parish
-        // representative writing to the people who run the installation.
-        // The reference draws the same distinction in the same place —
-        // "Tên của anh/chị" here against "Tên của bạn" there.
+        // form is read by children and their parents and says "bạn", while
+        // this page is a parish representative writing to the people who
+        // run the installation and says "anh/chị". The reference draws the
+        // same distinction in the same place — "Tên của anh/chị" here
+        // against "Tên của bạn" there.
+        //
+        // WHAT THE TWO NO LONGER DIFFER ON IS WHO READS THE MESSAGE. This
+        // comment used to cite the shelf form's "các cô chú giữ tủ sách" as
+        // the contrast; that phrase was retracted (see copy.feedback's
+        // subtitle) because the inbox is super-admin-only and a shelf's own
+        // keepers cannot read a word of it. Both forms now name ban quản
+        // trị, because on both paths ban quản trị is who reads it.
         nameLabel: "Tên của anh/chị",
         phoneLabel: "Số điện thoại",
         // WHY A NUMBER IS COMPULSORY, said beside the label: this branch
@@ -824,6 +831,15 @@ export const copy = {
         handledByUnknown: "Ban quản trị",
         markRead: "Đánh dấu đã đọc",
         markResolved: "Đánh dấu đã xử lý",
+        // The inbox is paged at 25. Its OWN keys rather than
+        // copy.manageAudit's identical two words — this file's header bans
+        // merging namespaces on coincidental wording, and these are as
+        // coincidental as wording gets.
+        prevPage: "Trang trước",
+        nextPage: "Trang sau",
+        // Shown only when there is more than one page, so a reader who
+        // pages forward knows how much of the inbox they are looking at.
+        pageOf: "Trang {page} / {pageCount} · {total} góp ý",
     },
     adminProfileChanges: {
         title: "Đề nghị đổi thông tin của người quản lý",
@@ -1620,18 +1636,34 @@ export const copy = {
      */
     feedback: {
         title: "Gửi góp ý",
-        // The reference's own subtitle, kept: it names the people at the
-        // other end rather than "ban quản trị", because the reader of this
-        // page is often a child or a parent, not a user of a system.
-        subtitle: "Có điều gì bạn muốn nhắn cho các cô chú giữ tủ sách không?",
+        // NAMES THE PEOPLE WHO ACTUALLY READ IT, and that is a correction
+        // rather than a wording preference. Until this commit it said:
+        //
+        //   > "Có điều gì bạn muốn nhắn cho các cô chú giữ tủ sách không?"
+        //
+        //   > The reference's own subtitle, kept: it names the people at
+        //   > the other end rather than "ban quản trị", because the reader
+        //   > of this page is often a child or a parent, not a user of a
+        //   > system.
+        //
+        // The warmth was right and the fact was not. The product owner
+        // ruled on 2026-09-01 that the góp ý inbox is SUPER-ADMIN ONLY;
+        // there is no manager-level inbox and no route to one, so a
+        // shelf's own keepers see nothing but "Hệ thống đã nhận một góp ý"
+        // in their audit log and cannot read a word of the message. A
+        // sender told the cô chú giữ tủ sách would read it was told
+        // something false by the screen that took their message.
+        subtitle: "Có điều gì bạn muốn nhắn cho ban quản trị không?",
         nameLabel: "Tên của bạn",
         phoneLabel: "Số điện thoại",
         // WHY A NUMBER IS COMPULSORY on a form a stranger fills in, said
         // where the label is: it is the only way anyone can answer. The
         // application sends no email at all (copy.contact.callNote says so
         // on the public page), so a góp ý with no number is a message
-        // nobody can reply to.
-        phoneNote: "Để các cô chú gọi lại trả lời bạn.",
+        // nobody can reply to. The caller is named as ban quản trị for the
+        // same reason as the subtitle above: the inbox is theirs alone, so
+        // they are who rings back.
+        phoneNote: "Để ban quản trị gọi lại trả lời bạn.",
         subjectLabel: "Chủ đề",
         // The one field with no *Bắt buộc* beside it, and its absence is
         // the field's meaning — the reference marks the other three

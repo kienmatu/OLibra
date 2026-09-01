@@ -60,6 +60,11 @@ function managerActivityLink(): string
  * satisfied by an unrelated line is no more a guard than one satisfied by
  * prose.
  *
+ * WHITESPACE IS COLLAPSED before the needles below are looked for, and that
+ * is what lets the third test pin a STATEMENT rather than an expression —
+ * see managerActivityGuard(). A needle spanning three source lines would
+ * otherwise be at the mercy of the formatter's line breaks and indentation.
+ *
  * Grep first: `grep -rn "^function managerActivitySource" tests/`.
  */
 function managerActivitySource(): string
@@ -69,7 +74,29 @@ function managerActivitySource(): string
 
     expect($after)->toHaveCount(2);
 
-    return explode('function ManagerCard', (string) $after[1])[0];
+    $component = explode('function ManagerCard', (string) $after[1])[0];
+
+    return (string) preg_replace('/\s+/', ' ', $component);
+}
+
+/**
+ * The GATE, not the comparison — and the difference is the whole of the
+ * third test.
+ *
+ * The needle used to be `manager.lastActiveAt === null` alone, which pins
+ * that a comparison EXISTS and not that it stops anything. Deleting the
+ * `return null;` underneath it left the test green while shipping exactly
+ * the harm the component's docblock describes: an activity link for a
+ * manager the log has never named, whose `?actor=` `/admin/audit` reads as
+ * "no filter", opening the entire installation's log under one person's
+ * name. Falsified by deleting that one line — green before this widening,
+ * red after it.
+ *
+ * Grep first: `grep -rn "^function managerActivityGuard" tests/`.
+ */
+function managerActivityGuard(): string
+{
+    return 'if (manager.lastActiveAt === null) { return null; }';
 }
 
 it('builds the audit link on the managers screen, in code and not in prose', function () {
@@ -173,5 +200,9 @@ it('offers no link at all to a manager the log has never named', function () {
     expect($listedRow['userId'])->toBe($idle->id)
         ->and($listedRow['lastActiveAt'])->toBeNull();
 
-    expect(managerActivitySource())->toContain('manager.lastActiveAt === null');
+    // THE EARLY RETURN, not merely the comparison. See
+    // managerActivityGuard(): the needle without `return null;` was
+    // satisfied by an `if` with an empty body, so this assertion held while
+    // the link shipped for a manager with no rows.
+    expect(managerActivitySource())->toContain(managerActivityGuard());
 });

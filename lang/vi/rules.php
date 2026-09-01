@@ -503,7 +503,16 @@ return [
     // sender who is refused with no count has no way to know whether to
     // wait a minute or a day, and one who is not told the message was
     // dropped will assume it arrived.
-    'rate_limited' => 'Mỗi số điện thoại chỉ gửi được 3 góp ý trong 24 giờ. Góp ý này chưa được gửi, xin gửi lại sau.',
+    //
+    // :count IS FILLED FROM App\Actions\Community\SubmitFeedback::DAILY_LIMIT
+    // and is not a 3 typed here. Both feedback forms already receive that
+    // constant as a `dailyLimit` prop precisely so the promise and the rule
+    // cannot drift; this sentence — the one a sender reads at the moment
+    // the rule is ENFORCED — was the one place still holding its own copy
+    // of the figure, so changing the constant made the refusal banner lie.
+    // The replacement travels on RuleViolated itself (see that class's
+    // $replacements and bootstrap/app.php's render hook).
+    'rate_limited' => 'Mỗi số điện thoại chỉ gửi được :count góp ý trong 24 giờ. Góp ý này chưa được gửi, xin gửi lại sau.',
     // NOT a refusal code — a flash, on donation_offered_flash's pattern,
     // added by 3c-ii Task 2 with the shelf's Góp ý form. It lives in this
     // file rather than in copy.ts because the SERVER decides when a
@@ -515,7 +524,30 @@ return [
     // extended by half a line. The form clears itself on success, so
     // without the second clause the sender sees an empty form and a thank
     // you and has nothing telling them where the message went.
-    'feedback_submitted_flash' => 'Đã gửi rồi, cảm ơn bạn nhé. Các cô chú giữ tủ sách sẽ đọc góp ý này.',
+    //
+    // THE SECOND CLAUSE WAS FALSE ON BOTH PATHS UNTIL THIS COMMIT, and it
+    // said:
+    //
+    //   > "Đã gửi rồi, cảm ơn bạn nhé. Các cô chú giữ tủ sách sẽ đọc góp ý
+    //   > này."
+    //
+    // Two separate ways of being wrong, one sentence. On the shelf's own
+    // form it named the wrong readers: the product owner's 2026-09-01
+    // ruling gates the inbox to the super administrator, there is no
+    // manager-level inbox and no route to one, and a shelf's keepers get
+    // only "Hệ thống đã nhận một góp ý" in their audit log. On `/contact`
+    // (ContactController::store) it named readers who do not exist at all —
+    // a site-wide message belongs to NO shelf, and the screen a line above
+    // had just said "ban quản trị sẽ đọc được trong hộp góp ý".
+    //
+    // ONE STRING FOR BOTH SURFACES, and the truth is what makes that right
+    // rather than merely convenient: under the ruling the reader is the
+    // same person whichever form the message came from, so two flashes
+    // would be two ways of saying one fact, free to drift the moment
+    // somebody edits one of them. If a manager-level inbox is ever built,
+    // the shelf path gains a different reader and THAT is when it needs its
+    // own sentence.
+    'feedback_submitted_flash' => 'Đã gửi rồi, cảm ơn bạn nhé. Ban quản trị sẽ đọc góp ý này.',
     // Task 4's two, on the same pattern and here for the same reason: the
     // SERVER decides when a status actually moved. Both name what the
     // message is now rather than what the administrator pressed, because

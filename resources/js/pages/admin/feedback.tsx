@@ -34,6 +34,12 @@ import type { SharedData } from "@/types";
  * "Chị Hạnh" displayed as "Quản trị viên", their account's own label, and the
  * administrator rang the wrong person.
  *
+ * THE LIST IS PAGED, 25 A PAGE, and the detail pane is NOT bound to the page:
+ * `?message=` is fetched by id, so a link kept from an older page still opens
+ * its message with the first page of the list beside it. Paging forward drops
+ * the selection deliberately — the message it named is not on the new page,
+ * and the server opens the top of that page instead.
+ *
  * A NULL SHELF READS AS "Toàn hệ thống". A message from the public contact
  * page belongs to no parish, and a blank where every other row names one
  * reads as a record with something missing.
@@ -80,6 +86,15 @@ interface PageProps extends SharedData {
      * `?status=` lights the *Tất cả* chip over the list it actually shows.
      */
     filter: string | null;
+    /**
+     * The list is PAGED, 25 a page. Feedback is the one table whose row
+     * volume an unauthenticated outsider chooses — neither feedback route
+     * carries a request throttle — so an unbounded list here is an
+     * unbounded read on every load of this screen.
+     */
+    page: number;
+    pageCount: number;
+    total: number;
 }
 
 const FILTERS = [
@@ -110,20 +125,31 @@ export default function AdminFeedback() {
         open,
         unread,
         filter,
+        page,
+        pageCount,
+        total,
         errors: pageErrors,
         flash,
     } = usePage<PageProps>().props;
     const c = copy.adminFeedback;
 
-    // Both parameters travel together: choosing a message must not drop the
-    // filter, and changing the filter must not carry a selection the new
-    // list may not contain.
-    const href = (next: { status?: string | null; message?: string }) => {
-        const params: Record<string, string> = {};
+    // All three parameters travel together: choosing a message must not drop
+    // the filter or the page it was chosen on, and changing the filter must
+    // not carry a selection the new list may not contain.
+    //
+    // THE PAGE IS INHERITED, NEVER THE SELECTION. A row on page 3 links to
+    // itself with `page=3`, so the list under the open message is still the
+    // one the reader was looking at; the filter chips pass `page: 1`
+    // explicitly, because page 3 of *Mới* is a different list from page 3 of
+    // *Tất cả* and landing on it empty reads as "no messages".
+    const href = (next: { status?: string | null; message?: string; page?: number }) => {
+        const params: Record<string, string | number> = {};
         const status = next.status === undefined ? filter : next.status;
+        const wanted = next.page === undefined ? page : next.page;
 
         if (status) params.status = status;
         if (next.message) params.message = next.message;
+        if (wanted > 1) params.page = wanted;
 
         return route("admin.feedback", params);
     };
@@ -152,7 +178,7 @@ export default function AdminFeedback() {
                         shell's badge, both from the same predicate. */}
                     <nav className="mt-4 flex flex-wrap gap-2">
                         <Link
-                            href={href({ status: null })}
+                            href={href({ status: null, page: 1 })}
                             className={cn(
                                 "rounded-md border px-3 py-1 text-sm",
                                 filter === null && "bg-accent font-medium",
@@ -163,7 +189,7 @@ export default function AdminFeedback() {
                         {FILTERS.map((f) => (
                             <Link
                                 key={f.key}
-                                href={href({ status: f.key })}
+                                href={href({ status: f.key, page: 1 })}
                                 className={cn(
                                     "rounded-md border px-3 py-1 text-sm",
                                     filter === f.key && "bg-accent font-medium",
@@ -204,6 +230,27 @@ export default function AdminFeedback() {
                                 </li>
                             ))}
                         </ul>
+                    )}
+
+                    {/* Only when there is more than one page: on the
+                        inbox a parish actually has, this whole block is
+                        absent rather than showing "Trang 1 / 1". */}
+                    {pageCount > 1 && (
+                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                            {page > 1 && (
+                                <Link href={href({ page: page - 1 })} className="text-sm underline">
+                                    {c.prevPage}
+                                </Link>
+                            )}
+                            {page < pageCount && (
+                                <Link href={href({ page: page + 1 })} className="text-sm underline">
+                                    {c.nextPage}
+                                </Link>
+                            )}
+                            <p className="text-sm text-muted-foreground">
+                                {t(c.pageOf, { page, pageCount, total })}
+                            </p>
+                        </div>
                     )}
                 </aside>
 

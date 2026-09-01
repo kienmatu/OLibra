@@ -5347,6 +5347,46 @@ reaches an `ascii_bin` column at all.
   closed: the test it asks for still does not exist, and now cannot arrive
   alongside a first real caller, because there is no longer a caller due.
 
+### The ruling made the sender-facing copy false, on both paths, and nothing noticed for four commits
+
+- **The entry above records the super-admin-only ruling at length; what none of
+  the three places recording it noticed is that the screens taking the message
+  said the opposite.** Fixed in the branch fix round, and written down because
+  the failure was not the wording — it was that a product ruling landed in Task
+  4 and nobody re-read what Tasks 2 and 3 had already promised the sender.
+
+  Three sentences were wrong, in two different ways:
+
+  - `copy.feedback.subtitle` — *"Có điều gì bạn muốn nhắn cho **các cô chú giữ
+    tủ sách** không?"* — and `copy.feedback.phoneNote`, *"Để **các cô chú** gọi
+    lại trả lời bạn."* Both named the shelf's own keepers. Under the ruling
+    those people have no inbox and no route to one; all they ever see is *"Hệ
+    thống đã nhận một góp ý"* in their audit log, and they cannot read a word
+    of the message or the number left for the reply.
+  - `rules.feedback_submitted_flash` — *"Đã gửi rồi, cảm ơn bạn nhé. **Các cô
+    chú giữ tủ sách** sẽ đọc góp ý này."* — which is the same falsehood, said
+    at the moment the sender is told it worked. Task 3 then reused that flash
+    on `/contact`, where it is false a second, worse way: a site-wide message
+    belongs to **no shelf at all**, so it named readers who do not exist. That
+    screen read *"ban quản trị sẽ đọc được trong hộp góp ý"* one line above the
+    success line that said the cô chú giữ tủ sách would.
+
+  All three now name **ban quản trị**, which is who actually reads them.
+
+  **One flash for both surfaces was kept, and that is a decision.** Under the
+  ruling the reader is the same person whichever form the message arrived
+  through, so two strings would be two spellings of one fact and free to drift.
+  If a manager-level inbox is ever built — the relation kept above is what it
+  would go through — the shelf path gains a different reader, and *that* is the
+  change that earns the shelf form its own sentence.
+
+  **What is honest about the cost:** no test pins any of these three strings,
+  and none was added. A copy assertion here would pin the wording rather than
+  the claim, and the claim it needs to pin — "the people this sentence names
+  can read this message" — is not observable from a screen at all. The thing
+  that would actually have caught this is what happened in the end: reading the
+  ruling and the copy in the same pass.
+
 ### `feedback.archived` is not ported, and the OPS entry says so itself
 
 - **The inbox ships with two writes and no third.** `docs/OPERATIONS.md:721`
@@ -5440,6 +5480,23 @@ would fail against `old_next`.
   index instead of filtering rows after they are read, and the count touches no
   other column — so it is a covering index for that access path. Not unique, for
   the obvious reason that three rows a day per number is the rule being counted.
+
+  **The reader Task 4 built did not join up with that sentence, and the fix
+  round is what closed it.** `FeedbackInboxQuery::inbox()` shipped as a bare
+  `->get()` — no limit, no pagination — plus a name-resolution pass over
+  everything it returned, inside a transaction, on every `/admin/feedback`
+  load. The index above makes the *write* path's count cheap; nothing made the
+  *read* path bounded, on the one table this file had already identified as the
+  one whose row volume an unauthenticated outsider chooses. It is now paged 25
+  a page on `AuditLogQuery`'s existing shape, with `?page=` read through
+  `QueryParam` like every other guarded parameter on the branch, and
+  `AdminFeedbackInboxTest` pins the page size, the total, the remainder page
+  and that a `?message=` outside the page still opens.
+
+  **What this does not add is a request ceiling.** The section above stands
+  unchanged: the requests reaching either feedback route are still unthrottled,
+  and pagination bounds what one administrator's page load costs, not what a
+  sender can put in the table.
 
 ### Still deferred, and now out of Phase 3
 

@@ -7,6 +7,7 @@ use App\Actions\Admin\ResolveFeedback;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Queries\Admin\FeedbackInboxQuery;
+use App\Support\QueryParam;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -26,14 +27,19 @@ use Inertia\Response;
  * the spec had the open and the mark in one transaction, which would have
  * written an audit row every time anybody looked at anything.
  *
- * THE TWO QUERY PARAMETERS, and why neither can produce an empty screen by
- * accident:
+ * THE THREE QUERY PARAMETERS, and why none of them can produce an empty
+ * screen by accident:
  *
  * - `?status=` is narrowed by FeedbackInboxQuery::filterFrom before it reaches
  *   the query, so anything outside the enum means NO FILTER rather than a
  *   filter matching nothing. The reference names the cost of the other
  *   reading: "an empty inbox that reads as 'no messages' is the shape of a bug
  *   this project has already shipped twice."
+ * - `?page=` is 1-based and clamped in the query; a number past the end
+ *   shows an empty page rather than 404ing, the same leniency the other two
+ *   get. The list is paged at all because feedback is the one table whose
+ *   row volume an unauthenticated outsider chooses — see the query's own
+ *   docblock.
  * - `?message=` is a feedback id, and an id naming no row falls back to the
  *   top of the list rather than 404ing. It is safe in a URL: it names a row
  *   this administrator may already read in full, and the id itself discloses
@@ -60,17 +66,31 @@ class FeedbackController extends Controller
         // No Gate call: the `/admin` group's `super-admin` middleware is the
         // whole of this screen's refusal, the shape every other
         // administration index in this directory has.
-        $rawStatus = $request->query('status');
-        $rawMessage = $request->query('message');
+        //
+        // QueryParam, not $request->query() with an is_string() guard — the
+        // same door every other guarded reader on this branch reads through
+        // (Admin\AuditController, Manage\AuditLogController, the reader
+        // catalogue). Both spellings survive `?status[]=new`; only one of
+        // them treats it the way the rest of the application does, which is
+        // to take the first value rather than silently drop the parameter.
+        $filter = FeedbackInboxQuery::filterFrom(QueryParam::first($request, 'status'));
 
-        $filter = FeedbackInboxQuery::filterFrom(is_string($rawStatus) ? $rawStatus : null);
-
-        $page = $this->inbox->run($filter, is_string($rawMessage) ? $rawMessage : null);
+        // Named $screen rather than $page: the array holds a `page` of its
+        // own now, and two things called page in six lines is how one gets
+        // rendered in the other's place.
+        $screen = $this->inbox->run(
+            $filter,
+            QueryParam::first($request, 'message'),
+            max(1, (int) QueryParam::first($request, 'page', '1')),
+        );
 
         return Inertia::render('admin/feedback', [
-            'messages' => $page['messages'],
-            'open' => $page['open'],
-            'unread' => $page['unread'],
+            'messages' => $screen['messages'],
+            'open' => $screen['open'],
+            'unread' => $screen['unread'],
+            'page' => $screen['page'],
+            'pageCount' => $screen['pageCount'],
+            'total' => $screen['total'],
             // THE NARROWED VALUE, NOT THE RAW ONE — so the chip the screen
             // shows as active is the filter actually applied. Echoing the raw
             // parameter back would let ?status=NEW light the *Mới* chip over

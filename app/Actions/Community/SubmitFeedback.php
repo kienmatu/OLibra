@@ -129,7 +129,13 @@ final class SubmitFeedback
             ->count();
 
         if ($recent >= self::DAILY_LIMIT) {
-            throw new RuleViolated('rate_limited');
+            // THE FIGURE TRAVELS WITH THE REFUSAL. The sentence in
+            // lang/vi/rules.php holds a :count placeholder rather than a 3,
+            // for the same reason both forms take DAILY_LIMIT as a prop:
+            // this constant is the only place the number is decided, and a
+            // refusal banner quoting its own copy of it lies the day the
+            // constant moves.
+            throw new RuleViolated('rate_limited', replacements: ['count' => self::DAILY_LIMIT]);
         }
 
         $subject = trim($subject ?? '');

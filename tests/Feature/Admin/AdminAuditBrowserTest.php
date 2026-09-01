@@ -226,6 +226,20 @@ it('narrows on each of the four filters and composes them', function () {
     expect($actions('/admin/audit?to=2026-08-18'))->not->toContain('user.promoted_super_admin');
     expect($actions('/admin/audit?from=2026-08-19'))->toBe(['user.promoted_super_admin']);
 
+    // `?to=` IS INCLUSIVE OF ITS OWN DAY, asserted on a day that HAS rows —
+    // and measured rather than assumed. The negative line above survives
+    // dropping the `->addDay()` from ReadsAuditLog's upper bound: with the
+    // range ending at the START of the 18th the promotion is still absent,
+    // and so is every row that ought to be there. The four rows of the 10th
+    // are what tells the two readings apart, because a bound of "the start
+    // of the 10th" excludes all four and answers an empty list.
+    //
+    // A COUNT, NOT A LIST: two of the four sit at the same instant
+    // (`book.created` on the other shelf and `system_settings.updated`),
+    // and their order is settled by uuid, which the factory chooses fresh
+    // each run.
+    expect($actions('/admin/audit?to=2026-08-10'))->toHaveCount(4);
+
     // 4. Shelf, composed with a group: the same chip that returned both
     // global rows above returns nothing once a parish is named, because
     // neither of them belongs to one.

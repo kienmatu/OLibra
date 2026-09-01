@@ -8,6 +8,7 @@ use App\Enums\FeedbackStatus;
 use App\Models\Bookshelf;
 use App\Models\Feedback;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +55,22 @@ use Illuminate\Support\Facades\DB;
  * the second could see a message the first did not — a list and a detail pane
  * disagreeing about what is unread."
  *
+ * ONE PAGE AT A TIME, 25 rows, on AuditLogQuery's existing shape — and this
+ * is a fix rather than a feature. Until it landed, `inbox()` was a bare
+ * `->get()` with no limit and no pagination, plus a name-resolution pass over
+ * whatever it returned, inside a transaction, on every `/admin/feedback`
+ * load. What makes that different from an ordinary unbounded admin list is
+ * whose hand is on the row count: neither feedback route carries `throttle:`
+ * middleware (known-gaps records that deliberately), the only ceiling is
+ * per-normalised-phone, and Task 1's own index docblock already said it —
+ * *"this is the one table whose row volume an unauthenticated outsider
+ * chooses."* Nothing joined that sentence to the reader until now.
+ *
+ * `?page=` is the third parameter and the LIST's alone. The unread count is
+ * the whole inbox's either way, and `?message=` still opens a row the current
+ * page does not contain — the detail pane is fetched by id, not read out of
+ * the page.
+ *
  * `guest_contact` IS IN THE DETAIL AND NOT IN THE LIST, and `guest_hash` in
  * neither. The reference's reason is the screen rather than the store: a list
  * is scanned, often over somebody's shoulder on a shared parish device, and
@@ -63,6 +80,16 @@ use Illuminate\Support\Facades\DB;
  */
 final class FeedbackInboxQuery
 {
+    /**
+     * 25, the number AuditLogQuery's shared trait already uses
+     * (App\Queries\Concerns\ReadsAuditLog::AUDIT_PAGE_SIZE) — the other
+     * `/admin` list of a table that grows without bound. Its own constant
+     * rather than a reach into that trait: the two lists are free to differ,
+     * and this file naming the audit browser's page size would tie one
+     * screen's density to another's.
+     */
+    private const int PAGE_SIZE = 25;
+
     /**
      * A `?status=` value narrowed to the enum, or null.
      *
@@ -90,12 +117,22 @@ final class FeedbackInboxQuery
      * may have edited or kept from a message somebody else has since handled,
      * and the top of the list is the unread message they came for anyway.
      *
-     * @return array{messages: list<array{feedbackId: string, senderName: string, accountName: string|null, subject: string, status: string, isUnread: bool, submittedAt: string, shelfName: string|null}>, open: array{feedbackId: string, senderName: string, accountName: string|null, subject: string, status: string, isUnread: bool, submittedAt: string, shelfName: string|null, body: string, senderContact: string|null, handledAt: string|null, handledByName: string|null}|null, unread: int}
+     * $page is 1-based and clamped; a page past the end returns no rows
+     * rather than 404ing, the same leniency `?message=` gets and for the
+     * same reason — it is a number in a URL, not an assertion.
+     *
+     * @return array{messages: list<array{feedbackId: string, senderName: string, accountName: string|null, subject: string, status: string, isUnread: bool, submittedAt: string, shelfName: string|null}>, open: array{feedbackId: string, senderName: string, accountName: string|null, subject: string, status: string, isUnread: bool, submittedAt: string, shelfName: string|null, body: string, senderContact: string|null, handledAt: string|null, handledByName: string|null}|null, unread: int, page: int, pageCount: int, total: int}
      */
-    public function run(?FeedbackStatus $status, ?string $selectedId): array
+    public function run(?FeedbackStatus $status, ?string $selectedId, int $page = 1): array
     {
-        return DB::transaction(function () use ($status, $selectedId): array {
-            $rows = $this->inbox($status);
+        $page = max(1, $page);
+
+        return DB::transaction(function () use ($status, $selectedId, $page): array {
+            // The count and the page come out of the SAME transaction as
+            // the rows, so "trang 2 / 4" cannot be computed against an
+            // inbox a guest wrote to between two reads.
+            $total = $this->total($status);
+            $rows = $this->inbox($status, $page);
 
             $chosen = null;
 
@@ -103,7 +140,7 @@ final class FeedbackInboxQuery
                 $chosen = Feedback::query()->whereKey($selectedId)->first();
             }
 
-            // The top of the list, and NOT rows->first() re-fetched: the row
+            // The top of the PAGE, and NOT rows->first() re-fetched: the row
             // is already in hand from the same transaction, so the fallback
             // cannot open a message the list above does not show.
             $chosen ??= $rows->first();
@@ -121,7 +158,14 @@ final class FeedbackInboxQuery
                     $rows->all(),
                 )),
                 'open' => $chosen === null ? null : $this->detailRow($chosen, $names),
+                // THE WHOLE INBOX'S, never the page's — the badge counts
+                // what is waiting, and a count that fell to the page would
+                // read as an inbox emptying itself as the reader paged
+                // forward.
                 'unread' => $this->countUnread(),
+                'page' => $page,
+                'pageCount' => max(1, (int) ceil($total / self::PAGE_SIZE)),
+                'total' => $total,
             ];
         });
     }
@@ -162,22 +206,47 @@ final class FeedbackInboxQuery
      * UNREAD FIRST, THEN NEWEST — the reference's ordering, and its reason:
      * a queue drains rather than piling up, and a message is answered while
      * it is fresh. `id` breaks the tie so a page rendered twice in the same
-     * microsecond does not reorder itself.
+     * microsecond does not reorder itself — and now that the list is paged,
+     * a TOTAL order is what stops a row repeating on one page and vanishing
+     * from the next, the defect AuditLogQuery's own docblock records
+     * measuring three times.
      *
      * @return Collection<int, Feedback>
      */
-    private function inbox(?FeedbackStatus $status): Collection
+    private function inbox(?FeedbackStatus $status, int $page): Collection
     {
-        $query = Feedback::query()
+        return $this->filtered($status)
             ->orderByRaw('case when status = ? then 0 else 1 end', [FeedbackStatus::New->value])
             ->orderByDesc('created_at')
-            ->orderByDesc('id');
+            ->orderByDesc('id')
+            ->limit(self::PAGE_SIZE)
+            ->offset(($page - 1) * self::PAGE_SIZE)
+            ->get();
+    }
+
+    /** How many messages the current filter has, across every page. */
+    private function total(?FeedbackStatus $status): int
+    {
+        return $this->filtered($status)->count();
+    }
+
+    /**
+     * The filter, in ONE place — so the count above and the page below can
+     * never come to disagree about which messages the chips select. The
+     * predicate-drift defect this project has already paid for once
+     * (commit 8e81c82) is what the shared method is for.
+     *
+     * @return Builder<Feedback>
+     */
+    private function filtered(?FeedbackStatus $status): Builder
+    {
+        $query = Feedback::query();
 
         if ($status !== null) {
             $query->where('status', $status);
         }
 
-        return $query->get();
+        return $query;
     }
 
     /**
