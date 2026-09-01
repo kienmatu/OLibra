@@ -17,14 +17,12 @@ use Inertia\Response;
  * above all no `tenant` middleware on the route, and nothing here may read a
  * model that expects one.
  *
- * **NOTHING IN `resources/js` LINKS HERE YET** — measured, `grep -rn
- * 'route("contact")' resources/js` returns nothing at this commit. In the
- * reference the portal directory's empty state is what sends a parish to
- * this page; porting that link belongs to whoever owns the portal's empty
- * state, not to this task, and it is written down here rather than left as
- * a page that exists and cannot be found.
- *
- * **IT TOUCHES NO SHELF-SCOPED MODEL, AND THAT IS A HARD CONSTRAINT RATHER
+ * *
+ * THE PORTAL LINKS HERE, BELOW ITS LIST AND UNCONDITIONALLY. An earlier
+ * version of that link sat inside the portal's empty state, which is a
+ * branch the visitor this page exists for never sees: a parish with no
+ * shelf of its own still sees OTHER parishes' shelves, so the list is not
+ * empty. The 3b-ii whole-branch review measured that and it was moved.
  * THAN A TIDINESS PREFERENCE.** `BookshelfScope` (app/Models/Scopes/
  * BookshelfScope.php) fails closed: a scoped model queried with no tenant
  * bound throws `RuntimeException` instead of returning every shelf's rows.

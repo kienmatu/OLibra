@@ -4911,3 +4911,32 @@ place where the port's own arrangement diverges from the requirements' text.
   so the author those notes were addressed to never came into being. The BR
   wording itself is untouched, deliberately: closing the lag is a one-cell edit
   to §5.5, and it is the product owner's document.
+
+### Changing a shelf's taxonomy shape hides its level-2 units, silently
+
+Found by the 3b-ii whole-branch review, in the seam between Task 4 (the shape,
+on the admin shelf editor) and Task 5 (the units, on `manage/units`). Task 4's
+brief owned the shape, Task 5's owned the units, and the transition between them
+was owned by nobody.
+
+`UpdateParishTaxonomy` never touches a unit row — correct, and its docblock says
+so. But `manage/units` is the only screen that manages units, and it renders
+level 2 conditionally:
+
+- `resources/js/pages/manage/units.tsx:398` — `showLevel2 = taxonomy.levels === 2`.
+  Drop a shelf from two levels to one and every existing level-2 row leaves the
+  screen: no rename, no reorder, no delete control.
+- `:490` — the nested branch renders only `level2ByParent.get(unit.id)`. Turn
+  `nested` on for a shelf whose level-2 units are flat (`parent_id` null) and
+  those rows key under `null` and render nowhere either.
+
+**The rows stay live in the database, and no reader sees them** —
+`ParishUnits::hasVisibleLevel2()` gates on `levels`/`nested`, so registration
+does not offer them. It is fully recoverable by switching the shape back, which
+is why it is recorded rather than fixed here: the fix is a decision (warn on the
+shape form? refuse the change while units exist? cascade a soft delete?) and
+none of those is in this phase's spec.
+
+What is wrong today is only that **nothing says so on either screen**. A
+super administrator who narrows a shelf's taxonomy has no way to learn that four
+đơn vị just became unreachable.

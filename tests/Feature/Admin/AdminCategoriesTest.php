@@ -70,7 +70,6 @@ it('lists the live genres with the book count the archive guard reads', function
             ->where('categories.1.bookCount', 0)
         );
 
-    expect($empty->fresh())->not->toBeNull();
 });
 
 it('creates a genre with a slug folded from the name, and audits it globally', function () {

@@ -165,7 +165,12 @@ it('the component actually switches its controls on canEdit', function () {
         // already translated, under a local name so the forms' own bags stay
         // separate from it.
         ->and($source)->toContain('errors: pageErrors')
-        ->and($source)->toContain('pageErrors.rule');
+        ->and($source)->toContain('pageErrors.rule')
+        // The flash half. All four writes flash their own sentence, and until
+        // the 3b-ii whole-branch review nothing asserted the screen reads any
+        // of them — a correct behaviour with no guard is one refactor away
+        // from a silent one.
+        ->and($source)->toContain('flash.success');
 });
 
 it('creates a unit, audits it with named keys, and never dumps the model', function () {

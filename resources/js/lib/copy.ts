@@ -31,8 +31,8 @@ export const copy = {
         // yet is standing, and /contact exists for exactly that person —
         // BR §16.1 calls it their only route to a human. Without this link
         // the page is reachable only by typing the URL.
-        emptyContact: "Muốn mở một tủ sách cho giáo xứ của bạn?",
-        emptyContactLink: "Liên hệ ban quản trị",
+        missingShelf: "Giáo xứ của bạn chưa có tủ sách?",
+        missingShelfLink: "Liên hệ ban quản trị",
         // BR §16.1: the search box is this page's only job, for a parent
         // typing a parish name without diacritics — "hoa binh" for "Giáo
         // xứ Hòa Bình". Folded against name, location and address

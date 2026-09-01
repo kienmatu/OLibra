@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\BookshelfStatus;
+use App\Models\Bookshelf;
 use App\Models\SystemSetting;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
@@ -216,4 +218,40 @@ it('has no write route at all — the feedback form is 3c\'s, with its inbox', f
 
     expect($source)->not->toContain('useForm')
         ->and($source)->not->toContain('<form');
+});
+
+/**
+ * The reachability half, which nothing covered until the 3b-ii whole-branch
+ * review pointed out that the page worked and could not be found.
+ *
+ * /contact exists for a parish with no bookshelf — BR:504 calls it their only
+ * route to a human. An earlier link lived inside the portal's empty state,
+ * which is a branch that visitor never sees: from the second shelf onward the
+ * portal lists OTHER parishes' shelves, so it is not empty. The assertion
+ * below is deliberately made against a NON-empty portal, because that is the
+ * case the empty-state version failed.
+ */
+it('links to the contact page from the portal even when other parishes have shelves', function () {
+    Bookshelf::factory()->count(2)->create(['status' => BookshelfStatus::Active]);
+
+    $this->get(route('shelves.index'))->assertOk();
+
+    // Whitespace-normalised: screenSource strips comments, not layout, and
+    // Biome reflows JSX freely — so a needle written with spaces is a needle
+    // that breaks on the next format run.
+    $source = (string) preg_replace('/\s+/', '', screenSource('shelves/index.tsx'));
+
+    expect(str_contains($source, 'route("contact")'))
+        ->toBeTrue('the portal does not link to /contact at all');
+
+    // The link must not be inside the empty-state branch. `shelves.length === 0`
+    // opens that branch; the link has to appear after it closes.
+    $emptyBranch = strpos($source, 'shelves.length===0');
+    $link = strpos($source, 'route("contact")');
+
+    expect($emptyBranch)->not->toBeFalse('the empty-state branch moved; re-read this test');
+    expect($link)->toBeGreaterThan(
+        strpos($source, '</ul>'),
+        'the contact link sits inside the empty-state branch, where the parish it serves never sees it',
+    );
 });

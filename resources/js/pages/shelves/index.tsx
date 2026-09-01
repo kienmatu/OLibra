@@ -54,17 +54,6 @@ export default function ShelvesIndex({ q, shelves }: Props) {
                         list that is still showing the previous result. */}
                         {q ? copy.shelves.noResults : copy.shelves.empty}
                     </p>
-                    {/* Only when the portal is genuinely empty, not when a search
-                    missed: a parish that searched and found nothing is looking
-                    for a shelf that exists, and does not need the admins. */}
-                    {!q ? (
-                        <p className="mt-2 text-muted-foreground">
-                            {copy.shelves.emptyContact}{" "}
-                            <Link className="underline" href={route("contact")}>
-                                {copy.shelves.emptyContactLink}
-                            </Link>
-                        </p>
-                    ) : null}
                 </>
             ) : (
                 <ul className="mt-4 space-y-2">
@@ -86,6 +75,18 @@ export default function ShelvesIndex({ q, shelves }: Props) {
                     ))}
                 </ul>
             )}
+            {/* ALWAYS rendered, not only on an empty portal. /contact exists for
+                a parish that has no shelf yet — and from the second shelf
+                onward that person sees OTHER parishes' shelves, so an
+                empty-state-only link is one they can never reach. This page is
+                where they are standing; measured in the 3b-ii whole-branch
+                review, which caught the empty-state version being unreachable. */}
+            <p className="mt-6 text-sm text-muted-foreground">
+                {copy.shelves.missingShelf}{" "}
+                <Link className="underline" href={route("contact")}>
+                    {copy.shelves.missingShelfLink}
+                </Link>
+            </p>
         </AppLayout>
     );
 }
