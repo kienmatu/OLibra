@@ -96,7 +96,11 @@ Spec §6 lists ten. The two that will bite hardest:
 an expression is invisible, so `new RuleViolated($tooBig ? 'a' : 'b')` registers
 neither code. Write two literal throws. 3b-ii hit this exact shape.
 
-Two fences read raw file contents with **no comment stripping** — do not spell
+**Which censuses strip comments, precisely:** `AuditActionCensusTest` runs
+`token_get_all`/`stripCommentTokens` and is comment-safe.
+`WideningArchitectureTest` and `MembersArchitectureTest` read **raw** source and
+are not. So the two fences that read raw file contents have **no comment
+stripping** — do not spell
 `->forShelf(`, `->global(`, a where-shaped call, or `new RuleViolated('code')`
 inside a comment. 3b-ii turned a docblock example into a censused code that way.
 
