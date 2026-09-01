@@ -75,7 +75,10 @@ into as a separate fact, never one standing in for the other.
 deliberately outside the `role:reader` group, recorded at
 `RouteOrderTest:101,117` — though note that is an **exemption, not a pin**:
 `$excludedSegments = ['manage', 'feedback']` *removes* the route from the
-role-gate assertion, so adding `role:reader` to it would leave the suite green.
+role-gate assertion. Note the follow-on claim that adding `role:reader` would
+leave the whole suite green is **false** — Task 2 measured 8 failures, from
+`ShellTest` and `MyNotificationsTest` among others. Only *that file* cannot
+notice.
 `HandleInertiaRequests:83-86` carries the same intent. So `member_id` is not guaranteed even there.
 
 `Feedback` is deliberately not `BelongsToBookshelf`, which is what lets the

@@ -156,8 +156,10 @@ Spec D1. No new audit actions.
 
 `routes/web.php:220`, replacing `underConstruction`. It sits **outside** the
 `role:reader` group deliberately — `RouteOrderTest:101,117` *exempts* it from the
-role-gate assertion (an exemption, **not** a pin: adding `role:reader` would
-leave the suite green), and `HandleInertiaRequests:83-86` carries the same
+role-gate assertion (an exemption, **not** a pin — though the
+follow-on claim that adding `role:reader` "would leave the suite green" is
+**false**: Task 2 measured 8 failures. What is true is narrower — *that file*
+cannot notice, while `ShellTest` and `MyNotificationsTest` can), and `HandleInertiaRequests:83-86` carries the same
 intent.
 
 So the form is guest-reachable, and `member_id` is not guaranteed even here.
