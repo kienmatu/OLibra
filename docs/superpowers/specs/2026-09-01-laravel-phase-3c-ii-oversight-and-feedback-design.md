@@ -326,8 +326,10 @@ deleted and nothing is edited: a message a parishioner sent is a record.
 6. **An invalid phone is refused** on the one form a shelf-less parish has.
 7. **An unknown filter value shows everything**, never an empty inbox.
 8. **`guest_contact` is absent from the list payload** and present in the detail.
-9. **Marking read happens in the same transaction as the read**, so two loads
-   cannot disagree about what is unread.
+9. **List, detail and the unread count resolve in ONE read**, so the panes
+   cannot disagree about what is unread — and **opening a message does NOT mark
+   it read** (D3). An earlier draft of this line said the opposite and would
+   have had every glance write a `feedback.read` audit row.
 10. **The audit browser shows global rows** when no shelf is named and hides them
     when one is — the six actions invisible until now.
 11. **Each of BR:606's four filters narrows, and they compose.**
@@ -344,8 +346,10 @@ Per project practice, **every test is watched failing before it is accepted**.
 - **`TenancyArchitectureTest`** — whole-file allow-list, pattern matches
   `whereNull('bookshelf_id')` too. D5's new query takes an entry deliberately.
 - **`WideningArchitectureTest`** — two separate fences. `systemWide()` stays
-  confined to the two admin directories; the audit configurator's fence grows
-  `app/Actions/Community/` per D7.
+  confined to the two admin directories; the audit configurator's fence takes a
+  **one-file** allow-list entry per D7 — `app/Actions/Community/SubmitFeedback.php`,
+  not the directory. An earlier draft of this line said the directory, which D7
+  argues against at length.
 - **`AuditActionCensusTest`** (set-equality both ways, computed names banned) and
   **`AuditSentencesTest`**'s group partition and count, 63 → 66.
 - **`RuleViolatedCodesHaveSentencesTest`** — globs all of `app/`, blind to a
