@@ -7,8 +7,10 @@ namespace App\Queries;
 use App\Models\Membership;
 use App\Models\ProfileChangeRequest;
 use App\Models\User;
+use App\Support\Members\AvatarStorage;
 use App\Support\Members\ProfileFields;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Arr;
 
 /**
  * OPS §3.3's `GetMyProfileChangeRequest` (docs/OPERATIONS.md:68) — what a
@@ -49,6 +51,24 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
  * manager check is MembershipPolicy::viewSelf and it is applied by the
  * controller, once, for both this query and MyProfileQuery.
  *
+ * THE PHOTOGRAPH CROSSES THIS SEAM AS TWO ADDRESSES AND NEVER AS A KEY —
+ * Phase 3c-i Task 8, spec D6. `avatar_object` is one of ProfileFields'
+ * nine, so a proposal may name it and ProfileFields::pick would hand its
+ * value straight to the browser: a raw storage key, which is meaningless to
+ * a reader and is an internal fact about a bucket layout. Task 1 rendered a
+ * bare label for that field and said in its own comment that the two
+ * photographs side by side were the right rendering and were this task's;
+ * this is that. The key is REMOVED from both bags and replaced by
+ * `proposedAvatarUrl` and `previousAvatarUrl`, so the page has exactly what
+ * BR:544 asks for — the current value with the pending one beside it — and
+ * nothing it should not have.
+ *
+ * `avatarProposed` RIDES ALONG AS A FLAG rather than being inferred from
+ * the URL being non-null, because a proposal that names the field is a
+ * different thing from one whose image is readable: a discarded object, or
+ * a disk misconfigured after a docroot change, would otherwise silently
+ * turn "they proposed a new photograph" into "they proposed nothing".
+ *
  * TENANCY IS BookshelfScope's, on ProfileChangeRequest itself
  * (BelongsToBookshelf): no bookshelf_id is written here. It matters, because
  * the `user_id` predicate is not a tenant predicate — the same person can
@@ -57,8 +77,10 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
  */
 final class MyProfileChangeRequestQuery
 {
+    public function __construct(private AvatarStorage $avatars) {}
+
     /**
-     * @return array{id: string, status: string, proposedValues: array<string, ?string>, previousValues: array<string, ?string>, rejectionReason: string|null, requestedAt: string, decidedAt: string|null}|null
+     * @return array{id: string, status: string, proposedValues: array<string, ?string>, previousValues: array<string, ?string>, avatarProposed: bool, proposedAvatarUrl: string|null, previousAvatarUrl: string|null, rejectionReason: string|null, requestedAt: string, decidedAt: string|null}|null
      */
     public function run(Membership $membership): ?array
     {
@@ -78,14 +100,21 @@ final class MyProfileChangeRequestQuery
             return null;
         }
 
+        $proposed = ProfileFields::pick($request->proposed_values);
+        $previous = ProfileFields::pick($request->previous_values);
+
         return [
             'id' => $request->id,
             // ->status->value, never (string) on the attribute: the model
             // casts status to App\Enums\ProfileChangeStatus, so the cast
             // form would be (string) on an enum OBJECT — a fatal.
             'status' => $request->status->value,
-            'proposedValues' => ProfileFields::pick($request->proposed_values),
-            'previousValues' => ProfileFields::pick($request->previous_values),
+            // The key never travels — see this class's header.
+            'proposedValues' => Arr::except($proposed, ['avatar_object']),
+            'previousValues' => Arr::except($previous, ['avatar_object']),
+            'avatarProposed' => array_key_exists('avatar_object', $proposed),
+            'proposedAvatarUrl' => $this->avatars->url($proposed['avatar_object'] ?? null),
+            'previousAvatarUrl' => $this->avatars->url($previous['avatar_object'] ?? null),
             'rejectionReason' => $request->rejection_reason,
             'requestedAt' => (string) $request->requested_at->toISOString(),
             'decidedAt' => $request->decided_at?->toISOString(),

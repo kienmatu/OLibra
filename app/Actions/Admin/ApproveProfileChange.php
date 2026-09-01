@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
 use App\Support\ConcurrencyRetry;
+use App\Support\Members\AvatarStorage;
 use App\Support\Members\ParishTaxonomy;
 use App\Support\Members\ParishUnits;
 use App\Support\Members\ProfileFields;
@@ -95,6 +96,7 @@ final class ApproveProfileChange
 
     public function __construct(
         private AuditRecorder $audit,
+        private AvatarStorage $avatars,
         private Clock $clock,
         private TenantContext $context,
         private Notifier $notifier,
@@ -106,10 +108,12 @@ final class ApproveProfileChange
      *                                       ProfileFields::normalisePatch reads a patch: an absent key
      *                                       leaves the placement alone, a key present with null clears
      *                                       it.
+     * @return string|null the SUPERSEDED photograph's storage key, already
+     *                     discarded — returned so a caller can assert on it
      */
-    public function execute(User $actor, ProfileChangeRequest $request, array $units = []): void
+    public function execute(User $actor, ProfileChangeRequest $request, array $units = []): ?string
     {
-        DB::transaction(function () use ($actor, $request, $units): void {
+        $superseded = DB::transaction(function () use ($actor, $request, $units): ?string {
             $person = $this->lockSubject($request);
             $membership = $this->subjectMembership($request);
 
@@ -137,6 +141,20 @@ final class ApproveProfileChange
             }
 
             $diff = ProfileFields::diff($before, $after);
+
+            // Spec D6: APPROVING DISCARDS THE PHOTOGRAPH THE NEW ONE
+            // REPLACES — the opposite of reject and cancel, which discard
+            // the proposed one. Captured here, inside the transaction,
+            // where the old value is still readable; DELETED after it, in
+            // execute(), where a rollback can no longer restore a reference
+            // to an image that is already gone.
+            //
+            // Null unless the approval actually moved the column, so an
+            // approval that proposed no photograph deletes nothing, and one
+            // for a person who had none has nothing to delete.
+            $orphan = in_array('avatar_object', $diff['changed'], true)
+                ? ($before['avatar_object'] ?? null)
+                : null;
 
             foreach ($diff['changed'] as $field) {
                 $person->{$field} = $after[$field];
@@ -182,7 +200,18 @@ final class ApproveProfileChange
                 $person->id,
                 NotificationKind::ProfileChangeApproved,
             );
+
+            return $orphan;
         }, ConcurrencyRetry::ATTEMPTS);
+
+        // AFTER the commit, never inside it — spec D6. DB::transaction()
+        // returns only once the commit has happened, so this line IS the
+        // ordering, expressed as control flow rather than as a comment.
+        // Deleting inside would destroy an image a rollback then restores
+        // the reference to.
+        $this->avatars->discard($superseded);
+
+        return $superseded;
     }
 
     /**

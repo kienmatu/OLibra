@@ -2,16 +2,14 @@
 
 namespace App\Actions\Admin;
 
-use App\Enums\ProfileChangeStatus;
+use App\Actions\Admin\Concerns\WritesProfileProposals;
 use App\Exceptions\RuleViolated;
 use App\Models\Membership;
-use App\Models\ProfileChangeRequest;
 use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
 use App\Support\Members\ProfileFields;
 use App\Support\Members\ProfileProposals;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -53,8 +51,17 @@ use Illuminate\Support\Facades\Gate;
  * guarding the one case the scoped SELECT in step 1 cannot see: a person
  * with memberships at TWO shelves, whose blocking row belongs to the other
  * parish. The generated column is global across shelves; the scope is not.
- * Its refusal is change_already_pending, and without the catch below it
- * would surface as a raw driver error, which OPS §2 forbids.
+ * Its refusal is change_already_pending, and without the catch it would
+ * surface as a raw driver error, which OPS §2 forbids.
+ *
+ * ALL THREE STEPS MOVED TO
+ * App\Actions\Admin\Concerns\WritesProfileProposals IN TASK 8, when
+ * ProposeAvatarChange became the second caller. Spec D6 makes the
+ * photograph this command's file-carrying case rather than a second
+ * lifecycle — same pending row, same merge, same audit action — so the lock
+ * order and the duplicate-key catch are held once. Nothing about the
+ * behaviour above changed; read that trait for the reasoning behind each
+ * step, which lives there now.
  *
  * PROPOSING IS NOT READER-ONLY (spec D5). MembershipPolicy::propose is
  * requireSelfOrManager — any manager or above may propose on another
@@ -93,6 +100,8 @@ use Illuminate\Support\Facades\Gate;
  */
 final class ProposeProfileChange
 {
+    use WritesProfileProposals;
+
     public function __construct(
         private AuditRecorder $audit,
         private Clock $clock,
@@ -121,13 +130,9 @@ final class ProposeProfileChange
             // ApproveProfileChange — which reaches the same two rows from
             // the other end — and the reference measured that deadlocking
             // 3/3 in both directions.
-            $person = User::query()->lockForUpdate()->find($membership->user_id);
+            $person = $this->lockSubjectForProposal($membership);
 
-            if ($person === null) {
-                throw new RuleViolated('membership_not_found');
-            }
-
-            $current = $this->currentFields($person);
+            $current = $this->currentProfileFields($person);
 
             $incoming = [];
             foreach ($patch as $field => $value) {
@@ -144,22 +149,13 @@ final class ProposeProfileChange
             // person each merge onto the same stale contents and the later
             // write discards the earlier one wholesale, both reporting
             // success. The reference reproduced that three times.
-            $pending = ProfileChangeRequest::query()
-                ->where('user_id', $person->id)
-                ->where('status', ProfileChangeStatus::Pending->value)
-                ->lockForUpdate()
-                ->first();
+            $pending = $this->lockPendingProposal($person);
 
-            $existing = $pending === null ? null : [
-                'proposed' => ProfileFields::pick($pending->proposed_values),
-                'previous' => ProfileFields::pick($pending->previous_values),
-            ];
-
-            $next = ProfileProposals::merge($existing, $incoming, $current);
+            $next = ProfileProposals::merge($this->existingContents($pending), $incoming, $current);
 
             $this->assertResultingRecordHasAPhoneOrAReason($next['proposed'], $current);
 
-            $requestId = $this->write($membership, $person, $pending, $next);
+            $requestId = $this->writeProposal($membership, $person, $pending, $next);
 
             // The REQUEST, not the person: nothing about the person
             // changed, which is this command's whole point.
@@ -180,31 +176,6 @@ final class ProposeProfileChange
 
             return $requestId;
         });
-    }
-
-    /**
-     * The nine verified columns as they stand, spelled and typed the way a
-     * proposal's bags are: raw attributes, with date_of_birth as the plain
-     * Y-m-d the column holds rather than the instant its cast produces.
-     * UpdateReaderProfile reads its `before` the same way and for the same
-     * reason — a Carbon compared against a posted string is never equal,
-     * which would make every unchanged birthday look like a change.
-     *
-     * @return array<string, ?string>
-     */
-    private function currentFields(User $person): array
-    {
-        $current = [];
-
-        foreach (ProfileFields::FIELDS as $field) {
-            $raw = $person->getAttributes()[$field] ?? null;
-
-            $current[$field] = $field === 'date_of_birth'
-                ? $person->date_of_birth?->toDateString()
-                : ($raw === null ? null : (string) $raw);
-        }
-
-        return $current;
     }
 
     /**
@@ -229,55 +200,8 @@ final class ProposeProfileChange
         }
     }
 
-    /**
-     * @param  array{proposed: array<string, ?string>, previous: array<string, ?string>}  $next
-     */
-    private function write(
-        Membership $membership,
-        User $person,
-        ?ProfileChangeRequest $pending,
-        array $next,
-    ): string {
-        if ($pending !== null) {
-            // UPDATED IN PLACE, keyed by the row's existing id, so the
-            // reader's one pending card is still the same card and every
-            // surface that already links to it still resolves. An INSERT
-            // here would also collide with the generated column's unique
-            // index and refuse a merge the spec calls normal.
-            $pending->update([
-                'proposed_values' => $next['proposed'],
-                'previous_values' => $next['previous'],
-                'requested_at' => $this->clock->now(),
-            ]);
-
-            return $pending->id;
-        }
-
-        try {
-            $request = ProfileChangeRequest::query()->create([
-                'bookshelf_id' => $membership->bookshelf_id,
-                'user_id' => $person->id,
-                'proposed_values' => $next['proposed'],
-                'previous_values' => $next['previous'],
-                'status' => ProfileChangeStatus::Pending->value,
-                'requested_at' => $this->clock->now(),
-            ]);
-        } catch (QueryException $e) {
-            // App\Support\UniqueViolation::translate performs exactly this
-            // match and is deliberately not used: the code it raises is a
-            // MAP VALUE, and the refusal census
-            // (tests/Unit/Catalogue/RuleViolatedCodesHaveSentencesTest.php)
-            // only sees a literal first argument, so a code raised that way
-            // is invisible to the one test that pins every code against its
-            // Vietnamese sentence. Written out, it is censused.
-            if (($e->errorInfo[1] ?? null) === 1062
-                && str_contains($e->getMessage(), 'profile_change_requests_one_pending')) {
-                throw new RuleViolated('change_already_pending');
-            }
-
-            throw $e;
-        }
-
-        return $request->id;
+    private function proposalClock(): Clock
+    {
+        return $this->clock;
     }
 }

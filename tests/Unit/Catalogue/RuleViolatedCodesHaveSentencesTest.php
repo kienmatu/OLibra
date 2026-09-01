@@ -105,9 +105,22 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'empty_body',
         'empty_description',
         'empty_proposal',
+        // 3c-i Task 8, spec D6: the photograph's byte cap, 5 MiB. Raised by
+        // App\Support\Members\AvatarStorage before anything is stored.
+        'file_too_large',
         'has_active_loans',
+        // 3c-i Task 8, spec D6: a real photograph in a codec this server
+        // cannot open. A SEPARATE code from 'invalid_image' on purpose —
+        // see lang/vi/rules.php, where the two sentences say different
+        // things because the two situations are different.
+        'heic_not_supported',
         'hold_expired',
         'hold_not_expired',
+        // 3c-i Task 8, spec D6: a DECODE failure, raised from
+        // App\Support\Members\AvatarImage's own catch. Not a content-type
+        // mismatch — the content-type-only version of this gate was the
+        // earlier and weaker design.
+        'invalid_image',
         'loan_not_active',
         'loan_not_active_cannot_void',
         'member_has_active_loans',

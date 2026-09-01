@@ -4,20 +4,25 @@ namespace App\Http\Controllers\Reader;
 
 use App\Actions\Admin\CancelProfileChange;
 use App\Actions\Admin\ChangeOwnPassword;
+use App\Actions\Admin\ProposeAvatarChange;
 use App\Actions\Admin\ProposeProfileChange;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Members\ChangeOwnPasswordRequest;
+use App\Http\Requests\Members\ProposeAvatarRequest;
 use App\Http\Requests\Members\ProposeProfileChangeRequest;
 use App\Models\Bookshelf;
 use App\Models\ProfileChangeRequest;
 use App\Models\User;
 use App\Queries\MyProfileQuery;
+use App\Support\Members\AvatarStorage;
 use App\Support\TenantContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 /**
  * BR §16.2's "View personal details" — the reader's own membership record,
@@ -30,8 +35,10 @@ use Inertia\Response;
  * changes nothing until a manager approves it. Task 7 adds the two controls
  * that do NOT wait for a manager: `changePassword` (spec D12, BR §16.2's
  * immediate-effect control) and `cancel`, the withdrawal that gives spec
- * D4's self-exemption its first and only caller. The photograph is Task
- * 8's, and the page is still not finished.
+ * D4's self-exemption its first and only caller. Task 8 adds
+ * `proposeAvatar` — the photograph, which DOES wait for a manager like
+ * every other field — and with it the first upload path this port has ever
+ * had.
  *
  * NO RuleViolated IS CAUGHT HERE — whichever of ProposeProfileChange's
  * codes a reader meets, bootstrap/app.php renders it once, for the whole
@@ -107,6 +114,69 @@ class ProfileController extends Controller
         $propose->execute($actor, $membership, $request->validated());
 
         return back()->with('success', __('rules.profile_change_proposed_flash'));
+    }
+
+    /**
+     * Phase 3c-i Task 8, spec D6 — the photograph.
+     *
+     * THREE STEPS IN AN ORDER THAT IS NOT INTERCHANGEABLE:
+     *
+     * 1. **The bytes are stored FIRST, before any transaction opens.** OPS
+     *    §4.3 requires the proposed image to exist while the request is
+     *    pending, because a manager looks at it while deciding — so there
+     *    is no version of this where the object lands after the commit.
+     *    App\Support\Members\AvatarStorage applies the three refusals here,
+     *    and none of them costs a database round trip.
+     *
+     * 2. **The command records the proposal**, and never sees the bytes —
+     *    only the key AvatarStorage minted. It discards the SUPERSEDED
+     *    photograph itself, after its own commit.
+     *
+     * 3. **The compensating delete.** Step 1 has already happened when step
+     *    2 refuses — a wrong membership, a request already pending at
+     *    another parish — and at that point the transaction has DEFINITELY
+     *    rolled back, so the object is definitively unreferenced. Deleting
+     *    it here is the one compensation that is unambiguously safe.
+     *
+     * THE COMPENSATION MUST NOT MASK THE REFUSAL THAT CAUSED IT. If the
+     * delete fails as well, the original throwable is what is rethrown: it
+     * is the one the reader can act on and the one carrying a Vietnamese
+     * sentence. The cost is one orphaned object, which is the same residual
+     * this whole path accepts, and it is preferred over a storage fault
+     * replacing `change_already_pending` in a form's error banner.
+     */
+    public function proposeAvatar(
+        ProposeAvatarRequest $request,
+        Bookshelf $shelf,
+        AvatarStorage $avatars,
+        ProposeAvatarChange $propose,
+    ): RedirectResponse {
+        $membership = $this->tenant->membership();
+
+        abort_unless($membership !== null, 404);
+
+        /** @var User $actor */
+        $actor = $request->user();
+
+        /** @var UploadedFile $upload */
+        $upload = $request->file('avatar');
+
+        $key = $avatars->store($upload);
+
+        try {
+            $propose->execute($actor, $membership, $key);
+        } catch (Throwable $refusal) {
+            try {
+                $avatars->discard($key);
+            } catch (Throwable) {
+                // See above: the refusal is the answer, one orphan is the
+                // price.
+            }
+
+            throw $refusal;
+        }
+
+        return back()->with('success', __('rules.avatar_proposed_flash'));
     }
 
     /**

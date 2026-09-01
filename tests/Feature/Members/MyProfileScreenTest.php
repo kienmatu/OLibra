@@ -202,9 +202,21 @@ it('BR:544 — the page RENDERS both halves and says plainly that it is waiting'
         ->and($source)->toContain('c.rejectionReasonLine');
 });
 
-it('a proposed avatar is named as a field but its storage key is never printed as a value', function () {
-    // avatar_object is one of ProfileFields' nine, so a proposal may name
-    // it and the pending list must not print `Ảnh đại diện: <storage key>`.
+it('a proposed avatar renders as TWO PHOTOGRAPHS, and its storage key never crosses the seam', function () {
+    // REWRITTEN BY TASK 8, and the rewrite is the point rather than an
+    // accommodation. Task 1 asserted the pending list rendered a BARE LABEL
+    // for `avatar_object` and its own comment said, by name, that the two
+    // photographs side by side were the right rendering and were this
+    // task's. The bare label was a placeholder; asserting it still existed
+    // would now be pinning the placeholder in place.
+    //
+    // What survives unchanged is the rule underneath: the storage key is
+    // meaningless to a reader and is an internal fact about a disk, so it
+    // must never be printed as a value. Task 8 makes that structural rather
+    // than a rendering choice — App\Queries\MyProfileChangeRequestQuery
+    // strips the key from both bags server-side and sends two ADDRESSES, so
+    // the page cannot print it even by mistake.
+    //
     // Read off the component with comments stripped, so the prose above the
     // branch cannot satisfy the grep.
     $source = screenSource('shelves/profile/index.tsx');
@@ -212,8 +224,50 @@ it('a proposed avatar is named as a field but its storage key is never printed a
     expect($source)->toContain('avatar_object')
         // The read-only list of current values drops it outright…
         ->and($source)->toContain('FIELD_ORDER.filter((f) => f !== "avatar_object")')
-        // …and the proposal list renders the bare label for it.
-        ->and($source)->toContain('f === "avatar_object" ? (');
+        // …the pending list is built from the eight TEXT fields, so the
+        // photograph is not a row in it at all…
+        ->and($source)->toContain('TEXT_FIELDS.filter((f) => f in pendingChange.proposedValues)')
+        // …and the pair is rendered as pictures, guarded on the FLAG rather
+        // than on a URL being non-null.
+        ->and($source)->toContain('pendingChange.avatarProposed ?')
+        ->and($source)->toContain('url={pendingChange.previousAvatarUrl}')
+        ->and($source)->toContain('url={pendingChange.proposedAvatarUrl}');
+
+    // And the key itself is gone from the payload: the props the page reads
+    // carry addresses, never a bucket path.
+    expect(str_contains($source, 'proposedValues.avatar_object'))->toBeFalse();
+});
+
+it('the reader gets an upload control whose accept list comes from the server', function () {
+    // Spec D6's photograph, as a control. `accept` is NOT hand-written in
+    // the page: App\Support\Members\AvatarLimits is the one list the
+    // server gates on, MyProfileQuery sends it, and this pins that the page
+    // uses what it was sent — a screen offering a format the server refuses
+    // is exactly what two copies of a limit produce.
+    //
+    // HEIC's ABSENCE from that list is what makes iOS Safari transcode an
+    // iPhone photograph to JPEG on the way out, so the page must not add it
+    // back.
+    $source = screenSource('shelves/profile/index.tsx');
+
+    expect($source)->toContain('accept={accept}')
+        ->and($source)->toContain('shelves.profile.avatar')
+        ->and($source)->toContain('forceFormData: true')
+        ->and(str_contains($source, 'image/heic'))->toBeFalse();
+
+    [$shelf, $person] = myProfileFixture();
+
+    $props = $this->actingAs($person)
+        ->get("/shelves/{$shelf->slug}/profile")
+        ->viewData('page')['props'];
+
+    expect($props['profile']['avatarAccept'])
+        ->toBe('image/jpeg,image/png,image/webp,image/avif')
+        // Nobody has a photograph on a shelf that has just opened, and the
+        // screen says so in words rather than drawing an unexplained disc.
+        ->and($props['profile']['avatarUrl'])->toBeNull()
+        // The KEY is not among the eight text fields the page receives.
+        ->and($props['profile']['fields'])->not->toHaveKey('avatar_object');
 });
 
 it('a proposal to CLEAR a field survives as a named field, not as an absent one', function () {

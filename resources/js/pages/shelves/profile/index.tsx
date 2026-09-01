@@ -1,6 +1,6 @@
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import type { LucideIcon } from "lucide-react";
-import { Ban, Check, Clock, Lock, X } from "lucide-react";
+import { Ban, Check, Clock, ImageOff, Lock, X } from "lucide-react";
 import type { FormEvent } from "react";
 import { route } from "ziggy-js";
 import InputError from "@/components/input-error";
@@ -48,6 +48,16 @@ import type { SharedData } from "@/types";
  * the requirement — so `currentIs` renders off previousValues, which for a
  * pending request IS the value still in force, and `stillInForce` says it.
  *
+ * THE PHOTOGRAPH IS A PROPOSAL TOO (spec D6, Task 8), and it is the one
+ * proposable field that is a FILE — so it has its own form, its own route
+ * and its own multipart encoding, while reaching the SAME pending row as
+ * the eight text fields. Nothing about it takes effect on submit: the
+ * picture in force stays beside the control, and the pending block shows
+ * the two photographs side by side, which is BR:544's contract applied to
+ * a field whose value is an image. Task 1 rendered a bare label here and
+ * said in its own comment that this was the right rendering and was this
+ * task's.
+ *
  * THE PARISH LABELS ARE THE SHELF'S OWN — spec D11, BR:247/BR:578. The
  * words "Tổ" and "Giáo họ" appear nowhere in this file; taxonomy.level1Label
  * and level2Label carry whatever this parish calls its levels, which 3b-ii
@@ -72,9 +82,11 @@ const FIELD_ORDER = [
 type ProfileField = (typeof FIELD_ORDER)[number];
 
 /**
- * The eight the page prints as text. `avatar_object` holds a storage key,
- * which is meaningless to a reader — the photograph itself is a later
- * task's, so this screen names neither.
+ * The eight the page prints as text. The ninth is the photograph, and it
+ * is not text: since Task 8 the server never sends its storage key at all
+ * (App\Queries\MyProfileQuery drops it and sends `avatarUrl` instead), and
+ * this screen renders the picture — in force, waiting, and in the upload
+ * control — rather than any value belonging to that column.
  */
 const TEXT_FIELDS = FIELD_ORDER.filter((f) => f !== "avatar_object");
 
@@ -109,6 +121,22 @@ interface ProfileChange {
     status: string;
     proposedValues: Partial<Record<ProfileField, string | null>>;
     previousValues: Partial<Record<ProfileField, string | null>>;
+    /**
+     * Whether the proposal names the photograph — a FLAG, and never
+     * inferred from `proposedAvatarUrl` being non-null. A discarded object
+     * or a disk misconfigured after a docroot change would otherwise turn
+     * "they proposed a new photograph" silently into "they proposed
+     * nothing". App\Queries\MyProfileChangeRequestQuery argues it there.
+     */
+    avatarProposed: boolean;
+    /**
+     * ADDRESSES, never storage keys. `avatar_object` is one of the nine and
+     * its value is a bucket path; Task 1 rendered a bare label for it and
+     * flagged the two photographs as this task's, so the key is now dropped
+     * from both bags server-side and these two arrive instead.
+     */
+    proposedAvatarUrl: string | null;
+    previousAvatarUrl: string | null;
     rejectionReason: string | null;
     requestedAt: string;
     decidedAt: string | null;
@@ -116,7 +144,18 @@ interface ProfileChange {
 
 interface MyProfile {
     membershipId: string;
+    /** The EIGHT text fields — `avatar_object` never crosses the seam. */
     fields: Partial<Record<ProfileField, string | null>>;
+    /** The photograph in force, as an address. Null is the ordinary case. */
+    avatarUrl: string | null;
+    /**
+     * The file input's `accept`, from the server's own allow-list
+     * (App\Support\Members\AvatarLimits) rather than hand-copied here —
+     * a screen offering a format the server refuses is exactly what two
+     * copies of a limit produce. HEIC's ABSENCE from it is what makes iOS
+     * Safari transcode a photograph to JPEG on the way out.
+     */
+    avatarAccept: string;
     parishLine: string;
     parishUnitL1Name: string;
     parishUnitL2Name: string;
@@ -312,6 +351,137 @@ function CancelButton({ requestId, shelfSlug }: { requestId: string; shelfSlug: 
 }
 
 /**
+ * One photograph with its caption underneath — the shape used three times
+ * on this screen: the picture in force, the picture waiting, and the one in
+ * the upload section.
+ *
+ * NEVER A BARE CIRCLE. A reader with no photograph reads *Chưa có ảnh*
+ * rather than being shown a grey disc to interpret, which is the same rule
+ * ValueRow above follows for an unset text value (AGENTS.md rule 6's "never
+ * an empty cell").
+ *
+ * The square is 1px-hairline-bordered and flat — no shadow, no gradient
+ * (rule 7) — and `object-cover` is belt-and-braces: every stored avatar is
+ * already a 512×512 square, because App\Support\Members\AvatarImage
+ * centre-crops it, so this only matters for the moment a disk is serving
+ * something older.
+ */
+function AvatarFigure({
+    label,
+    url,
+    size = "size-24",
+}: {
+    label: string;
+    url: string | null;
+    size?: string;
+}) {
+    const c = copy.myProfile;
+
+    return (
+        <figure className="shrink-0">
+            {url ? (
+                <img src={url} alt={label} className={`${size} rounded-md border object-cover`} />
+            ) : (
+                <div
+                    className={`${size} flex items-center justify-center rounded-md border bg-muted`}
+                >
+                    <ImageOff aria-hidden className="size-6 text-muted-foreground" />
+                </div>
+            )}
+            <figcaption className="mt-1 text-xs text-muted-foreground">
+                {url ? label : `${label} · ${c.avatarNone}`}
+            </figcaption>
+        </figure>
+    );
+}
+
+/**
+ * Spec D6's photograph — Task 8, and the first upload control this
+ * application has ever had.
+ *
+ * IT IS A PROPOSAL LIKE EVERY OTHER FIELD. The product owner confirmed that
+ * every field requires approval and named the picture explicitly, so
+ * nothing here takes effect on submit: the lead says so, and the picture in
+ * force stays beside the control while a new one waits.
+ *
+ * ITS OWN FORM AND ITS OWN ROUTE, not a field on the proposal form above.
+ * The two carry different encodings — this one is multipart — and different
+ * refusals; they still reach the same pending row, because the avatar is
+ * this lifecycle's file-carrying case and not a second lifecycle.
+ *
+ * `accept` COMES FROM THE SERVER. App\Support\Members\AvatarLimits is the
+ * one list, read by the gate and sent here by MyProfileQuery, so the
+ * control cannot offer a format the server refuses. HEIC is deliberately
+ * absent from it, which is what makes iOS Safari transcode an iPhone
+ * photograph to JPEG on the way out — the note below says so in the
+ * reader's own words, because the setting that fixes the remaining case
+ * lives on their phone rather than on this screen.
+ *
+ * SECONDARY, NOT TERRACOTTA (rule 3): the one primary action on this screen
+ * is *Gửi đề nghị* on the form above.
+ */
+function AvatarForm({
+    currentUrl,
+    accept,
+    shelfSlug,
+}: {
+    currentUrl: string | null;
+    accept: string;
+    shelfSlug: string;
+}) {
+    const c = copy.myProfile;
+    const form = useForm<{ avatar: File | null }>({ avatar: null });
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(route("shelves.profile.avatar", { shelf: shelfSlug }), {
+            forceFormData: true,
+            onSuccess: () => form.reset(),
+        });
+    };
+
+    return (
+        <section className="mt-8 max-w-xl">
+            <h2 className="mb-1 text-xl font-semibold">{c.avatarTitle}</h2>
+            <p className="mb-4 text-sm text-muted-foreground">{c.avatarLead}</p>
+
+            <div className="mb-4">
+                <AvatarFigure label={c.avatarCurrent} url={currentUrl} />
+            </div>
+
+            <form className="space-y-5" onSubmit={submit}>
+                <div>
+                    <Label htmlFor="avatar">{c.avatarChoose}</Label>
+                    <Input
+                        id="avatar"
+                        name="avatar"
+                        type="file"
+                        accept={accept}
+                        className="h-11 py-2"
+                        onChange={(event) =>
+                            form.setData("avatar", event.target.files?.[0] ?? null)
+                        }
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">{c.avatarHint}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{c.avatarCropNote}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{c.avatarHeicNote}</p>
+                    <InputError message={form.errors.avatar} />
+                </div>
+
+                <Button
+                    type="submit"
+                    variant="secondary"
+                    className="h-14 w-full"
+                    disabled={form.processing || form.data.avatar === null}
+                >
+                    {form.processing ? c.avatarSending : c.avatarSubmit}
+                </Button>
+            </form>
+        </section>
+    );
+}
+
+/**
  * BR §16.2's other reader-side control, and the one that does NOT wait for
  * a manager (spec D12): "changing the password takes effect immediately —
  * it is not a fact about the person that a manager verified". Which is why
@@ -411,8 +581,12 @@ export default function MyProfilePage() {
     // value: a key holding null means "clear this", which is a change worth
     // showing, while an absent key means the reader proposed nothing about
     // it.
+    // TEXT_FIELDS, not FIELD_ORDER: `avatar_object` no longer crosses the
+    // seam at all (App\Queries\MyProfileChangeRequestQuery strips the
+    // storage key and sends two addresses instead), and the photograph is
+    // rendered as a photograph below rather than as a row in this list.
     const proposed = pendingChange
-        ? FIELD_ORDER.filter((f) => f in pendingChange.proposedValues)
+        ? TEXT_FIELDS.filter((f) => f in pendingChange.proposedValues)
         : [];
 
     return (
@@ -464,40 +638,49 @@ export default function MyProfilePage() {
                         </div>
 
                         <ul className="mt-3 space-y-1 text-[15px]">
-                            {proposed.map((f) =>
-                                f === "avatar_object" ? (
-                                    /*
-                                     * THE BARE LABEL, NEVER `{label}: {value}`.
-                                     * avatar_object holds a storage key, which
-                                     * printed as a value is meaningless to a
-                                     * reader — the reference makes the same
-                                     * decision on this same list and on the
-                                     * manager's decision screen. The two
-                                     * photographs side by side are the right
-                                     * rendering and they are the avatar task's;
-                                     * until then the reader still needs to know
-                                     * WHICH field the proposal is about.
-                                     */
-                                    <li key={f}>{c.fieldLabels[f]}</li>
-                                ) : (
-                                    <li key={f}>
-                                        {t(c.fieldLabelLine, { label: c.fieldLabels[f] })}{" "}
-                                        <span className="font-semibold">
-                                            {pendingChange.proposedValues[f] || c.proposedBlank}
+                            {proposed.map((f) => (
+                                <li key={f}>
+                                    {t(c.fieldLabelLine, { label: c.fieldLabels[f] })}{" "}
+                                    <span className="font-semibold">
+                                        {pendingChange.proposedValues[f] || c.proposedBlank}
+                                    </span>
+                                    {f in pendingChange.previousValues ? (
+                                        <span className="text-muted-foreground">
+                                            {" · "}
+                                            {t(c.currentIs, {
+                                                value: pendingChange.previousValues[f] || c.notSet,
+                                            })}
                                         </span>
-                                        {f in pendingChange.previousValues ? (
-                                            <span className="text-muted-foreground">
-                                                {" · "}
-                                                {t(c.currentIs, {
-                                                    value:
-                                                        pendingChange.previousValues[f] || c.notSet,
-                                                })}
-                                            </span>
-                                        ) : null}
-                                    </li>
-                                ),
-                            )}
+                                    ) : null}
+                                </li>
+                            ))}
                         </ul>
+
+                        {/*
+                         * BR:544's contract for the one proposable field
+                         * that is a picture: the photograph in force with
+                         * the one waiting BESIDE it — spec D6, and what
+                         * Task 1's bare label was a placeholder for.
+                         * `avatarProposed` is the flag; the two URLs may be
+                         * null independently (a reader who had no
+                         * photograph at all, or an object already
+                         * discarded), and AvatarFigure says so in words
+                         * rather than drawing an unexplained empty square.
+                         */}
+                        {pendingChange.avatarProposed ? (
+                            <div className="mt-3 flex gap-4">
+                                <AvatarFigure
+                                    label={c.avatarCurrent}
+                                    url={pendingChange.previousAvatarUrl}
+                                    size="size-20"
+                                />
+                                <AvatarFigure
+                                    label={c.avatarProposedLabel}
+                                    url={pendingChange.proposedAvatarUrl}
+                                    size="size-20"
+                                />
+                            </div>
+                        ) : null}
 
                         {pendingChange.status === "pending" ? (
                             <p className="mt-3 text-sm text-muted-foreground">{c.stillInForce}</p>
@@ -546,6 +729,12 @@ export default function MyProfilePage() {
                 fields={fields}
                 shelfSlug={shelf.slug}
                 hasPending={pendingChange?.status === "pending"}
+            />
+
+            <AvatarForm
+                currentUrl={profile.avatarUrl}
+                accept={profile.avatarAccept}
+                shelfSlug={shelf.slug}
             />
 
             <PasswordForm shelfSlug={shelf.slug} />

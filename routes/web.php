@@ -249,6 +249,19 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // because this is the reader's own screen; a manager proposing on
         // another's behalf reaches the same Action from theirs.
         Route::post('/change-request', [ProfileController::class, 'propose'])->name('change-request');
+        // Phase 3c-i Task 8, spec D6 — the photograph, and the first upload
+        // path this port has ever had. A SEPARATE route from the text
+        // proposal above rather than a field on it: the two carry different
+        // encodings (multipart against a form post), different refusals
+        // (`file_too_large`, `heic_not_supported`, `invalid_image`, none of
+        // which the text form can raise) and different controls on the
+        // screen. They still reach the SAME pending row — spec D6 makes the
+        // avatar this lifecycle's file-carrying case, not a second one.
+        //
+        // Declared BEFORE the bound `change-request/{profileChange}/cancel`
+        // line below, the house's static-before-bound habit; these two
+        // cannot collide in any case, being under different first segments.
+        Route::post('/avatar', [ProfileController::class, 'proposeAvatar'])->name('avatar');
         // Phase 3c-i Task 7: spec D4's self-exemption, and the ONLY caller
         // App\Actions\Admin\CancelProfileChange has. Task 4 shipped that
         // Action with tests and no route — neither decision queue wires it,

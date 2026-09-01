@@ -12,6 +12,8 @@ use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
 use App\Support\ConcurrencyRetry;
+use App\Support\Members\AvatarStorage;
+use App\Support\Members\ProfileFields;
 use App\Support\Notifications\NotificationKind;
 use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
@@ -71,12 +73,17 @@ final class RejectProfileChange
 
     public function __construct(
         private AuditRecorder $audit,
+        private AvatarStorage $avatars,
         private Clock $clock,
         private TenantContext $context,
         private Notifier $notifier,
     ) {}
 
-    public function execute(User $actor, ProfileChangeRequest $request, string $reason): void
+    /**
+     * @return string|null the REFUSED photograph's storage key, already
+     *                     discarded — returned so a caller can assert on it
+     */
+    public function execute(User $actor, ProfileChangeRequest $request, string $reason): ?string
     {
         $reason = trim($reason);
 
@@ -84,13 +91,27 @@ final class RejectProfileChange
             throw new RuleViolated('reject_reason_required');
         }
 
-        DB::transaction(function () use ($actor, $request, $reason): void {
-            $this->lockSubject($request);
+        $orphan = DB::transaction(function () use ($actor, $request, $reason): ?string {
+            $person = $this->lockSubject($request);
             $membership = $this->subjectMembership($request);
 
             $this->assertMayDecide($actor, $membership, $request);
 
             $pending = $this->lockPendingRequest($request);
+
+            // Spec D6: REJECTING DISCARDS THE PROPOSED PHOTOGRAPH — the
+            // opposite of approve, which discards the one the new image
+            // replaced. Read here, inside the transaction, where the
+            // pending bag is still pending; DELETED after it, in execute().
+            //
+            // Guarded against the person's CURRENT key as well, so a bag
+            // that somehow proposes the photograph already in force does
+            // not have the live image deleted out from under it. Every
+            // upload mints a fresh UUID, so the two are never equal in
+            // practice — the guard costs one comparison and removes the
+            // one way this delete could destroy something still referenced.
+            $proposedAvatar = ProfileFields::pick($pending->proposed_values)['avatar_object'] ?? null;
+            $orphan = $proposedAvatar === $person->avatar_object ? null : $proposedAvatar;
 
             // ONE statement — see layer 2 above.
             $pending->update([
@@ -122,7 +143,17 @@ final class RejectProfileChange
                 NotificationKind::ProfileChangeRejected,
                 ['reason' => $reason],
             );
+
+            return $orphan;
         }, ConcurrencyRetry::ATTEMPTS);
+
+        // AFTER the commit, never inside it — spec D6. DB::transaction()
+        // returns only once the commit has happened, so this line IS the
+        // ordering. Deleting inside would destroy an image a rollback then
+        // restores the reference to.
+        $this->avatars->discard($orphan);
+
+        return $orphan;
     }
 
     private function tenantContext(): TenantContext

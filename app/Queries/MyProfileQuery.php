@@ -6,6 +6,8 @@ namespace App\Queries;
 
 use App\Models\Membership;
 use App\Models\User;
+use App\Support\Members\AvatarLimits;
+use App\Support\Members\AvatarStorage;
 use App\Support\Members\ParishUnits;
 use App\Support\Members\ProfileFields;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -50,6 +52,17 @@ use Illuminate\Support\Carbon;
  * ParishUnits::hasVisibleLevel2, which knows that a level-2 unit under a
  * soft-deleted parent renders no options on a nested shelf.
  *
+ * THE PHOTOGRAPH IS AN ADDRESS, NOT A KEY — Phase 3c-i Task 8, spec D6.
+ * `avatar_object` is one of the nine and the loop below would otherwise
+ * hand its raw storage key to the browser, which is meaningless to a reader
+ * and is an internal fact about a disk layout. It is dropped from `fields`
+ * and returned as `avatarUrl` instead; MyProfileChangeRequestQuery does the
+ * same thing to the proposal's own two bags, for the same reason.
+ *
+ * NULL avatarUrl IS THE ORDINARY CASE, not an error: nobody has a
+ * photograph on a shelf that has just opened, and the screen draws the
+ * placeholder every empty avatar circle in this application draws.
+ *
  * NO INLINE GATE — the house shape. MembershipPolicy::viewSelf is applied
  * by the controller.
  */
@@ -58,10 +71,11 @@ final class MyProfileQuery
     public function __construct(
         private ParishContextQuery $parish,
         private MyProfileChangeRequestQuery $changeRequest,
+        private AvatarStorage $avatars,
     ) {}
 
     /**
-     * @return array{membershipId: string, fields: array<string, ?string>, parishLine: string, parishUnitL1Name: string, parishUnitL2Name: string, taxonomy: array{levels: int, nested: bool, level1Label: string, level2Label: string}, showLevel1: bool, showLevel2: bool, pendingChange: array<string, mixed>|null}
+     * @return array{membershipId: string, fields: array<string, ?string>, avatarUrl: string|null, avatarAccept: string, parishLine: string, parishUnitL1Name: string, parishUnitL2Name: string, taxonomy: array{levels: int, nested: bool, level1Label: string, level2Label: string}, showLevel1: bool, showLevel2: bool, pendingChange: array<string, mixed>|null}
      */
     public function run(Membership $membership): array
     {
@@ -93,9 +107,20 @@ final class MyProfileQuery
             };
         }
 
+        $avatarObject = $fields['avatar_object'] ?? null;
+        unset($fields['avatar_object']);
+
         return [
             'membershipId' => $membership->id,
             'fields' => $fields,
+            'avatarUrl' => $this->avatars->url($avatarObject),
+            // The file input's own `accept`, from the one list the server
+            // gates on (App\Support\Members\AvatarLimits) rather than
+            // hand-copied into the page — a screen that offered a format
+            // the server refuses is exactly what two copies of a limit
+            // produce. HEIC's absence from it is what makes iOS Safari
+            // transcode to JPEG; see that class.
+            'avatarAccept' => AvatarLimits::acceptAttribute(),
             'parishLine' => ParishUnits::describeSelection(
                 $taxonomy, $units,
                 $membership->parish_unit_l1_id, $membership->parish_unit_l2_id,

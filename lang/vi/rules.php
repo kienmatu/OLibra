@@ -85,6 +85,30 @@ return [
     // in, which is the point of changing a password and is not something a
     // reader should have to discover.
     'password_changed_flash' => 'Đã đổi mật khẩu. Các thiết bị khác sẽ phải đăng nhập lại.',
+    // Phase 3c-i Task 8, spec D6 — the photograph's three refusals. All
+    // three are facts about bytes, raised by App\Support\Members\
+    // AvatarStorage and AvatarImage before the proposal is ever recorded.
+    //
+    // The number is written as "5 MB" and not "5 MiB" because that is what
+    // a volunteer's file manager shows them; the cap really is the binary
+    // megabyte, for the same reason.
+    'file_too_large' => 'Ảnh vượt quá 5 MB. Vui lòng chọn ảnh nhỏ hơn.',
+    // ITS OWN SENTENCE, and not a variant of invalid_image below. A HEIC
+    // file is a real photograph — usually of the reader's own child — in a
+    // codec this server cannot open, and telling somebody holding a
+    // perfectly good picture that it "is not a valid image" is a false
+    // statement. The sentence says what to do instead, because on the one
+    // device that produces these the answer is a setting.
+    'heic_not_supported' => 'Ảnh chụp từ iPhone (HEIC) chưa mở được. Vui lòng chọn ảnh dạng JPEG hoặc PNG.',
+    // A DECODE failure, not a content-type mismatch: this is what a file
+    // that is not an image earns after the encoder has actually tried to
+    // read it, so a renamed document cannot pass by wearing the right
+    // header.
+    'invalid_image' => 'Tệp này không phải là ảnh hợp lệ.',
+    // The photograph waits for a manager exactly as the eight text fields
+    // do, and the flash says so — a reader who saw their new picture
+    // appear immediately would reasonably think it was already in force.
+    'avatar_proposed_flash' => 'Đã gửi ảnh đại diện mới. Ảnh hiện tại vẫn được dùng cho đến khi quản lý duyệt.',
     'parish_unit_l1_not_found' => 'Đơn vị bậc 1 đã chọn không tồn tại.',
     'parish_unit_l2_not_found' => 'Đơn vị bậc 2 đã chọn không tồn tại.',
     'parish_unit_l2_not_in_l1' => 'Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.',

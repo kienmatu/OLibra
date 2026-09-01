@@ -1347,6 +1347,31 @@ export const copy = {
         passwordNote: "Đổi xong, các thiết bị đang đăng nhập sẽ phải đăng nhập lại.",
         passwordSubmit: "Đổi mật khẩu",
         passwordSending: "Đang đổi…",
+        // ── Ảnh đại diện (spec D6, Task 8) ──────────────────────────────
+        // The photograph waits for a manager exactly as the eight text
+        // fields do — the product owner confirmed EVERY field needs
+        // approval and named the picture explicitly — so the lead says so
+        // rather than letting a reader assume an upload is immediate.
+        avatarTitle: "Ảnh đại diện",
+        avatarLead: "Ảnh mới cũng cần quản lý duyệt. Ảnh hiện tại vẫn được dùng cho đến lúc đó.",
+        avatarCurrent: "Ảnh hiện tại",
+        avatarProposedLabel: "Ảnh chờ duyệt",
+        // Never an empty circle with no words beside it: a reader with no
+        // photograph should read the state, not guess at a grey disc.
+        avatarNone: "Chưa có ảnh",
+        avatarChoose: "Chọn ảnh",
+        avatarSubmit: "Gửi ảnh mới",
+        avatarSending: "Đang gửi…",
+        // The two facts a reader needs BEFORE the server refuses them, in
+        // their own words. The 5 MB is App\Support\Members\AvatarLimits'
+        // number; the crop sentence is why nothing is refused for not being
+        // square.
+        avatarHint: "Ảnh JPEG, PNG, WebP hoặc AVIF, tối đa 5 MB.",
+        avatarCropNote: "Ảnh sẽ được cắt vuông và thu nhỏ lại giúp bạn.",
+        // The iPhone sentence, said on the screen and not only in the
+        // refusal, because the setting that fixes it lives on the phone.
+        avatarHeicNote:
+            "Ảnh chụp bằng iPhone thường tự đổi sang JPEG khi gửi. Nếu máy báo lỗi ảnh HEIC, hãy đổi cài đặt máy ảnh sang “Tương thích nhất”.",
         backToOverview: "Về trang của tôi",
     },
     // Tặng sách, across the reader's TWO screens — the offer form in the

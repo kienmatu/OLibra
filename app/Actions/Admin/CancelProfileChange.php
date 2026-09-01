@@ -13,6 +13,8 @@ use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
 use App\Support\ConcurrencyRetry;
+use App\Support\Members\AvatarStorage;
+use App\Support\Members\ProfileFields;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -106,6 +108,7 @@ final class CancelProfileChange
 
     public function __construct(
         private AuditRecorder $audit,
+        private AvatarStorage $avatars,
         private Clock $clock,
         private TenantContext $context,
     ) {}
@@ -113,8 +116,10 @@ final class CancelProfileChange
     /**
      * @param  Membership  $membership  the SUBJECT's membership — OPS §4.3's
      *                                  `membershipId`, and half of the pairing check below.
+     * @return string|null the WITHDRAWN photograph's storage key, already
+     *                     discarded — returned so a caller can assert on it
      */
-    public function execute(User $actor, Membership $membership, ProfileChangeRequest $request): void
+    public function execute(User $actor, Membership $membership, ProfileChangeRequest $request): ?string
     {
         // requireSelfOrManager, and it is only the FLOOR — see this class's
         // docblock. The rule that actually routes a cancellation is the
@@ -136,13 +141,13 @@ final class CancelProfileChange
         $own = $this->context->membership();
         $isSelf = $own !== null && $own->id === $membership->id;
 
-        DB::transaction(function () use ($actor, $request, $isSelf): void {
+        $orphan = DB::transaction(function () use ($actor, $request, $isSelf): ?string {
             // Spec D3's ordering rule: the subject's `users` row FIRST,
             // before anything in profile_change_requests. Reversed, this
             // command deadlocked against approve — a manager clicking
             // *Duyệt* as the reader clicked *Huỷ* — 3/3 in both directions,
             // and the loser's driver error shipped as a 500.
-            $this->lockSubject($request);
+            $person = $this->lockSubject($request);
             $subject = $this->subjectMembership($request);
 
             if (! $isSelf) {
@@ -150,6 +155,14 @@ final class CancelProfileChange
             }
 
             $pending = $this->lockPendingRequest($request);
+
+            // Spec D6: CANCELLING DISCARDS THE PROPOSED PHOTOGRAPH, exactly
+            // as rejecting does and unlike approving, which discards the
+            // one the new image replaced. Read inside the transaction,
+            // deleted after it — the guard against the person's current key
+            // is RejectProfileChange's, for the same reason.
+            $proposedAvatar = ProfileFields::pick($pending->proposed_values)['avatar_object'] ?? null;
+            $orphan = $proposedAvatar === $person->avatar_object ? null : $proposedAvatar;
 
             $pending->update([
                 'status' => ProfileChangeStatus::Cancelled->value,
@@ -163,7 +176,16 @@ final class CancelProfileChange
                 ['status' => ProfileChangeStatus::Pending->value],
                 ['status' => ProfileChangeStatus::Cancelled->value],
             );
+
+            return $orphan;
         }, ConcurrencyRetry::ATTEMPTS);
+
+        // AFTER the commit, never inside it — spec D6. See
+        // RejectProfileChange, which orders the identical delete the
+        // identical way.
+        $this->avatars->discard($orphan);
+
+        return $orphan;
     }
 
     private function tenantContext(): TenantContext
