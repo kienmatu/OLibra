@@ -20,7 +20,7 @@ else
 endif
 
 # The TypeScript step is here because CI runs it and `make lint` did not:
-# .github/workflows/laravel.yml runs `bun run laravel:typecheck`, so a local
+# .github/workflows/laravel.yml runs `bun run typecheck`, so a local
 # run could be green on all three make targets while CI failed on a type
 # error in resources/js. (Before phase 4, `bun run typecheck` was NOT this —
 # it was `cd old_next && tsc`, checking the read-only reference. That reference
@@ -28,7 +28,7 @@ endif
 lint:
 	$(COMPOSE) exec app ./vendor/bin/pint
 	bun x biome check --write .
-	bun run laravel:typecheck
+	bun run typecheck
 
 analyse:
 	$(COMPOSE) exec app ./vendor/bin/phpstan analyse

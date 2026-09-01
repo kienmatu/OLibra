@@ -171,9 +171,9 @@ locally and pushing is how this repo gets red PRs:
 ```bash
 docker exec laravel-app-1 vendor/bin/pint --test          # 1. format
 docker exec laravel-app-1 vendor/bin/phpstan analyse --no-progress  # 2. Larastan level 8
-npm run laravel:lint                                      # 3. Biome  <- easy to forget
-npm run laravel:typecheck                                 # 4. TypeScript
-npm run laravel:build                                     # 5. Vite
+npm run lint                                              # 3. Biome  <- easy to forget
+npm run typecheck                                         # 4. TypeScript
+npm run build                                             # 5. Vite
 docker exec laravel-app-1 php artisan test                # 6. Pest
 ```
 
@@ -183,10 +183,10 @@ artefact, not a code failure. Run them inside `laravel-app-1`.
 
 **`npm run build` IS the app's build**, as of phase 4. It used to map to
 `cd old_next && next build` and build the read-only Next.js reference, which
-cost one red CI run in phase 3b. `npm run laravel:build` still exists and does
-the same thing — the two workflows and the gate list below invoke it by that
-name, so it is kept as an alias rather than renamed in the same commit that
-changed the scripts.
+cost one red CI run in phase 3b. The `laravel:*` aliases that carried the two
+workflows through that change are gone as of the post-cutover commit: the
+workflows, this file and the Makefile all call the primary names now, and
+there is exactly one name per gate.
 
 
 ### Install with bun, not npm — CI uses `--frozen-lockfile`
