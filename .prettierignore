@@ -1,5 +1,5 @@
-.next
-out
+# .next and out (Next.js build output) were dropped in the post-cutover
+# commit — phase 4 deleted the application that produced them.
 node_modules
 bun.lock
 .artifacts
@@ -21,3 +21,7 @@ components.json
 composer.json
 composer.lock
 phpstan.neon
+# pint.json was missing from this list, so `npm run format:check` had been
+# failing on it — pre-existing, and not a CI gate (CI's "format check" step
+# is vendor/bin/pint --test, which is PHP). Added with its siblings.
+pint.json

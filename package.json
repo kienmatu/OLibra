@@ -10,12 +10,7 @@
     "lint:fix": "biome check --write resources",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check:diagrams": "bun run scripts/check-mermaid.mjs",
-    "laravel:dev": "vite",
-    "laravel:build": "vite build",
-    "laravel:typecheck": "tsc -p tsconfig.laravel.json --noEmit",
-    "laravel:lint": "biome check resources",
-    "laravel:lint:fix": "biome check --write resources"
+    "check:diagrams": "bun run scripts/check-mermaid.mjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
