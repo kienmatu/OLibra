@@ -87,6 +87,12 @@ final class AuditSentences
         // queue may be the one taking it back, but the act is still about a
         // reader's own record, which is what the group names.
         'profile_change.cancelled' => 'readers',
+        // Phase 3c-i Task 7, spec D12 — the phase's last action, and
+        // 'readers' for the plainest of this family's reasons: it is a
+        // person acting on their own record, from the reader's own page.
+        // credentials.set, the volunteer-side act it deliberately does NOT
+        // share an action with, is in the same group.
+        'user.password_changed' => 'readers',
         // Phase 2b files every community action under its own group, the
         // reference's cong-dong (audit-actions.ts's comment.* family).
         // Folding comments into books would leave next task's shelf news
@@ -404,6 +410,13 @@ final class AuditSentences
             // from. A withdrawal writes no decided_by either — the actor
             // column of the audit row is the whole answer to who did it.
             'profile_change.cancelled' => self::line('profile_change_cancelled'),
+            // NAMES THE SUBJECT, like credentials.set and unlike the four
+            // profile_change.* arms: this row's entity is the USER (there
+            // is no request row for a password change), so the subject join
+            // has a key to work from. No payload to read — the audit row
+            // carries no before and no after, which is spec D12's
+            // requirement and not a gap in this sentence.
+            'user.password_changed' => strtr(self::line('user_password_changed'), [':subject' => self::who($subject)]),
             // No strtr at all — the copy_lost_reported shape. The
             // reference's phrase names neither the title nor the author,
             // and that stays deliberate: the payload holds book_id and no

@@ -77,6 +77,14 @@ return [
     // request, and a withdrawal is not refused with an explanation — it is
     // simply taken back.
     'profile_change_cancelled' => 'huỷ yêu cầu đổi thông tin',
+    // Phase 3c-i Task 7, spec D12. NAMES THE SUBJECT, which credentials_set
+    // above also does — and the two sentences are deliberately different
+    // sentences: this one says the person changed their OWN password
+    // (they supplied the current one), that one says somebody set it FOR
+    // them. An oversight screen reading these two rows has to be able to
+    // tell those apart, which is the whole reason the actions did not
+    // merge.
+    'user_password_changed' => 'đổi mật khẩu của :subject',
 
     // — cộng đồng —
     // The reference's phrase verbatim (audit-actions.ts's comment.created).

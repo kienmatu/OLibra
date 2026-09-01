@@ -274,6 +274,122 @@ function ProposeForm({
     );
 }
 
+/**
+ * Spec D4's self-exemption, given a control — Task 7. The Action behind it
+ * has existed since Task 4 and nothing reached it: neither decision queue
+ * wires cancelling (BR:580/602 list only *Duyệt* and *Từ chối* on those
+ * cards), so a reader withdrawing their own proposal — the one case D4
+ * exempts from the subject-role rule — had no button anywhere.
+ *
+ * PENDING ONLY. A decided request is history; there is nothing to take
+ * back, and the server would answer `profile_change_not_pending`.
+ *
+ * NOT terracotta (AGENTS.md rule 3): the primary action on this screen is
+ * *Gửi đề nghị* below, and withdrawing is the quieter of the two.
+ */
+function CancelButton({ requestId, shelfSlug }: { requestId: string; shelfSlug: string }) {
+    const c = copy.myProfile;
+    const form = useForm({});
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(
+            route("shelves.profile.change-request.cancel", {
+                shelf: shelfSlug,
+                profileChange: requestId,
+            }),
+        );
+    };
+
+    return (
+        <form className="mt-4" onSubmit={submit}>
+            <Button type="submit" variant="outline" className="h-11" disabled={form.processing}>
+                {form.processing ? c.cancelSending : c.cancelSubmit}
+            </Button>
+            <p className="mt-2 text-sm text-muted-foreground">{c.cancelNote}</p>
+        </form>
+    );
+}
+
+/**
+ * BR §16.2's other reader-side control, and the one that does NOT wait for
+ * a manager (spec D12): "changing the password takes effect immediately —
+ * it is not a fact about the person that a manager verified". Which is why
+ * it sits in its own section rather than among the eight proposable fields.
+ *
+ * THE CURRENT PASSWORD IS ASKED FOR, and that is the whole difference
+ * between this form and a volunteer's *Đặt lại mật khẩu* on the reader
+ * detail screen. A volunteer supplies none — BR:79 makes that inherent to
+ * the trust model and mitigates it with visibility, which is why the two
+ * paths keep separate audit actions.
+ *
+ * autoComplete is spelled for a password manager: `current-password` and
+ * `new-password` are what stop one overwriting the other.
+ */
+function PasswordForm({ shelfSlug }: { shelfSlug: string }) {
+    const c = copy.myProfile;
+    const form = useForm({ current_password: "", new_password: "" });
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(route("shelves.profile.password", { shelf: shelfSlug }), {
+            onSuccess: () => form.reset(),
+        });
+    };
+
+    return (
+        <section className="mt-8 max-w-xl">
+            <h2 className="mb-1 text-xl font-semibold">{c.passwordTitle}</h2>
+            <p className="mb-4 text-sm text-muted-foreground">{c.passwordLead}</p>
+
+            <form className="space-y-5" onSubmit={submit}>
+                <div>
+                    <Label htmlFor="current_password">{c.passwordCurrent}</Label>
+                    <Input
+                        id="current_password"
+                        name="current_password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={form.data.current_password}
+                        onChange={(event) => form.setData("current_password", event.target.value)}
+                    />
+                    <InputError message={form.errors.current_password} />
+                </div>
+
+                <div>
+                    <Label htmlFor="new_password">{c.passwordNew}</Label>
+                    <Input
+                        id="new_password"
+                        name="new_password"
+                        type="password"
+                        autoComplete="new-password"
+                        value={form.data.new_password}
+                        onChange={(event) => form.setData("new_password", event.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">{c.passwordNewHint}</p>
+                    <InputError message={form.errors.new_password} />
+                </div>
+
+                <p className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <Lock aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    {c.passwordNote}
+                </p>
+
+                {/* Secondary, not terracotta — rule 3's one primary is the
+                    proposal form's *Gửi đề nghị*. */}
+                <Button
+                    type="submit"
+                    variant="secondary"
+                    className="h-14 w-full"
+                    disabled={form.processing}
+                >
+                    {form.processing ? c.passwordSending : c.passwordSubmit}
+                </Button>
+            </form>
+        </section>
+    );
+}
+
 export default function MyProfilePage() {
     const { isMember, profile, shelf, errors, flash } = usePage<PageProps>().props;
     if (!shelf) return null;
@@ -408,6 +524,10 @@ export default function MyProfilePage() {
                                 {t(c.decidedOn, formatInstantParts(pendingChange.decidedAt))}
                             </p>
                         ) : null}
+
+                        {pendingChange.status === "pending" ? (
+                            <CancelButton requestId={pendingChange.id} shelfSlug={shelf.slug} />
+                        ) : null}
                     </div>
                 )}
             </section>
@@ -427,6 +547,8 @@ export default function MyProfilePage() {
                 shelfSlug={shelf.slug}
                 hasPending={pendingChange?.status === "pending"}
             />
+
+            <PasswordForm shelfSlug={shelf.slug} />
 
             {profile.showLevel1 || profile.showLevel2 ? (
                 <section className="mt-8 max-w-xl">

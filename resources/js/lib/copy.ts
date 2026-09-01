@@ -1325,6 +1325,28 @@ export const copy = {
         // allowed only with a reason, which is the refusal the server
         // raises (rules.thieu-so-dien-thoai) and this line prevents.
         phoneHint: "Chưa có số thì để trống ô số và ghi lý do bên dưới.",
+        // ── Huỷ đề nghị (spec D4's self-exemption) ──────────────────────
+        // The verb is "huỷ" and the object is the ĐỀ NGHỊ, never the
+        // information: withdrawing changes nothing about the person, and a
+        // button reading "Huỷ" alone on a card full of their own details
+        // would read as undoing the details.
+        cancelSubmit: "Huỷ đề nghị",
+        cancelSending: "Đang huỷ…",
+        cancelNote: "Huỷ rồi thì gửi lại đề nghị mới lúc nào cũng được.",
+        // ── Đổi mật khẩu (spec D12, BR §16.2's immediate-effect control) ─
+        passwordTitle: "Đổi mật khẩu",
+        // Says out loud what makes this control unlike everything else on
+        // the page: it does not wait for a manager.
+        passwordLead: "Đổi mật khẩu có hiệu lực ngay, không cần quản lý duyệt.",
+        passwordCurrent: "Mật khẩu hiện tại",
+        passwordNew: "Mật khẩu mới",
+        // The length rule as a hint, in the same words the refusal uses.
+        passwordNewHint: "Ít nhất 8 ký tự.",
+        // The revocation, said before it happens rather than discovered
+        // afterwards on a phone that stopped working.
+        passwordNote: "Đổi xong, các thiết bị đang đăng nhập sẽ phải đăng nhập lại.",
+        passwordSubmit: "Đổi mật khẩu",
+        passwordSending: "Đang đổi…",
         backToOverview: "Về trang của tôi",
     },
     // Tặng sách, across the reader's TWO screens — the offer form in the

@@ -323,3 +323,90 @@ it('a memberless super admin gets the not-a-member page rather than a 500', func
             ->where('isMember', false)
             ->where('profile', null));
 });
+
+/*
+ * ── Task 7: the withdrawal gets a caller ─────────────────────────────────
+ *
+ * App\Actions\Admin\CancelProfileChange shipped in Task 4 with tests and no
+ * HTTP route at all — Task 5 measured it: neither decision queue wires it
+ * (BR:580/602 list only *Duyệt* and *Từ chối* on those cards), so spec D4's
+ * self-exemption, a reader taking back their own proposal, was reachable by
+ * nobody. These blocks are the difference between an Action that exists and
+ * a capability that does.
+ */
+
+it('a reader withdraws their own pending proposal from their own page, and the pending card goes away', function () {
+    [$shelf, $person] = myProfileFixture();
+
+    $request = ProfileChangeRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'user_id' => $person->id,
+        'proposed_values' => ['phone' => '0922222222'],
+        'previous_values' => ['phone' => '0911111111'],
+        'status' => 'pending',
+    ]);
+
+    $this->actingAs($person)
+        ->from("/shelves/{$shelf->slug}/profile")
+        ->post("/shelves/{$shelf->slug}/profile/change-request/{$request->id}/cancel")
+        ->assertRedirect("/shelves/{$shelf->slug}/profile")
+        ->assertSessionHasNoErrors();
+
+    // The card does not vanish — this page shows the most recent request of
+    // ANY status, deliberately (Task 1), so what goes away is the PENDING
+    // one. The reader is told their own withdrawal took effect, and the
+    // phone they proposed is not on their record.
+    $this->actingAs($person)
+        ->get("/shelves/{$shelf->slug}/profile")
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('profile.pendingChange.status', 'cancelled')
+            ->where('profile.fields.phone', '0911111111'));
+
+    expect($request->fresh()->status->value)->toBe('cancelled')
+        ->and($person->fresh()->phone)->toBe('0911111111');
+});
+
+it('the withdrawal control renders on a PENDING card only', function () {
+    // Read off the component with comments stripped, so the prose above the
+    // block cannot satisfy the grep. A decided request has nothing to take
+    // back, and the server would answer profile_change_not_pending.
+    $source = screenSource('shelves/profile/index.tsx');
+
+    expect($source)->toContain('shelves.profile.change-request.cancel')
+        ->and($source)->toContain('<CancelButton');
+});
+
+it('a reader cannot withdraw somebody ELSE\'s request — not_own_request, not a silent success', function () {
+    [$shelf, $person] = myProfileFixture();
+
+    $other = User::factory()->create(['full_name' => 'Trần Minh Khác']);
+    Membership::factory()->for($shelf)->create(['user_id' => $other->id, 'status' => 'active']);
+
+    $request = ProfileChangeRequest::query()->create([
+        'bookshelf_id' => $shelf->id, 'user_id' => $other->id,
+        'proposed_values' => ['phone' => '0933333333'],
+        'previous_values' => ['phone' => null],
+        'status' => 'pending',
+    ]);
+
+    // The route binds by shelf, never by person — that layer is the
+    // Action's pairing check, one layer down, which is where the refusal
+    // comes from.
+    $this->actingAs($person)
+        ->from("/shelves/{$shelf->slug}/profile")
+        ->post("/shelves/{$shelf->slug}/profile/change-request/{$request->id}/cancel")
+        ->assertSessionHasErrors(['rule' => __('rules.not_own_request')]);
+
+    expect($request->fresh()->status->value)->toBe('pending');
+});
+
+it('the password form posts to its own route, and it is not a proposal', function () {
+    // Spec D12: BR §16.2's one immediate-effect control on this page. It is
+    // NOT one of the eight proposable fields, so a screen that folded it
+    // into the change-request form would be promising a manager's approval
+    // for something no manager decides.
+    $source = screenSource('shelves/profile/index.tsx');
+
+    expect($source)->toContain('shelves.profile.password')
+        ->and($source)->toContain('current_password')
+        ->and($source)->toContain('c.passwordNote');
+});

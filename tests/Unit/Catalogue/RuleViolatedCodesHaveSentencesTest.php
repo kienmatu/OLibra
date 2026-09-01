@@ -89,6 +89,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'copy_count_invalid',
         'copy_not_found',
         'copy_selection_empty',
+        // 3c-i Task 7, spec D12: the current-password check on
+        // ChangeOwnPassword. Its own code rather than a shared
+        // 'not_permitted' — the caller is permitted, they mistyped.
+        'current_password_incorrect',
         'donation_not_pending',
         'donor_ambiguous',
         'donor_membership_invalid',
@@ -108,6 +112,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'loan_not_active_cannot_void',
         'member_has_active_loans',
         'membership_not_found',
+        // 3c-i Task 7: the NEW password's length, kept distinct from
+        // SetReaderCredentials' 'password_too_short' so a form carrying two
+        // password boxes can say which one is wrong.
+        'new_password_too_short',
         'no_renewals_remaining',
         // 3b-i Task 7: revoking a grant from somebody who is already a
         // reader. A code of its own rather than the reference's shared

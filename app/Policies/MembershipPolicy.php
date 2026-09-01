@@ -249,4 +249,28 @@ class MembershipPolicy
     {
         return $this->viewSelf($user, $membership);
     }
+
+    /**
+     * Phase 3c-i Task 7, spec D12: changing one's own password.
+     *
+     * requireSelfOrManager again, delegating to viewSelf() for the third
+     * time rather than restating a self-check the reference writes once —
+     * and the manager half is NOT an oversight. The reference gates this
+     * command with the same function it gates the profile view with, and
+     * the thing that actually restricts a volunteer here is not the gate:
+     * it is that App\Actions\Admin\ChangeOwnPassword demands the SUBJECT's
+     * current password, which a volunteer setting a password for somebody
+     * does not have. Their path is SetReaderCredentials, with its own
+     * ability, its own audit action, and no current password to supply —
+     * BR:79's "visible, not restricted".
+     *
+     * The refusal a reader can meet here is the same 403 viewSelf's is, and
+     * on the route it gates today it is unreachable for the same reason:
+     * `shelves.profile.password` names no membership, and the controller
+     * hands this method the caller's own row.
+     */
+    public function changePassword(User $user, Membership $membership): bool
+    {
+        return $this->viewSelf($user, $membership);
+    }
 }

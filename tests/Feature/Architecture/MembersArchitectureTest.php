@@ -83,11 +83,20 @@ it('only the three sanctioned Actions write a credential or profile column on us
     // correction (UpdateReaderProfile) and the approved proposal. The
     // three-item list this test was born with predates the second path
     // existing in the port; widening it is the act of admitting that path,
-    // not of accommodating a new file. (Task 7's ChangeOwnPassword writes
-    // a CREDENTIAL column and joins the same list in its own commit, for
-    // the same reason and by the same deliberate edit.)
+    // not of accommodating a new file.
+    //
+    // AMENDED AGAIN, 3c-i Task 7, as that note said it would be:
+    // ChangeOwnPassword writes `users.password_hash`, which is INV-14's
+    // credential half, and it is the THIRD credential-or-profile writer
+    // rather than a variant of SetReaderCredentials. The two are separate
+    // deliberately (spec D12, BR:79): the subject supplies their current
+    // password here and a volunteer supplies none there, so they keep
+    // separate audit actions — and a list that admitted one file on the
+    // strength of the other's entry would be admitting a write nobody
+    // decided about.
     $sanctioned = [
         app_path('Actions/Admin/ApproveProfileChange.php'),
+        app_path('Actions/Admin/ChangeOwnPassword.php'),
         app_path('Actions/Members/Registration.php'),
         app_path('Actions/Members/SetReaderCredentials.php'),
         app_path('Actions/Members/UpdateReaderProfile.php'),

@@ -249,6 +249,25 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // because this is the reader's own screen; a manager proposing on
         // another's behalf reaches the same Action from theirs.
         Route::post('/change-request', [ProfileController::class, 'propose'])->name('change-request');
+        // Phase 3c-i Task 7: spec D4's self-exemption, and the ONLY caller
+        // App\Actions\Admin\CancelProfileChange has. Task 4 shipped that
+        // Action with tests and no route — neither decision queue wires it,
+        // because BR:580/602 list only Duyệt and Từ chối on those cards —
+        // so the capability was unreachable until this line. Static before
+        // bound is not at issue: this is two segments past /profile and the
+        // POST above is one.
+        //
+        // {profileChange} resolves through Bookshelf::profileChanges()
+        // under the outer group's scopeBindings() AND through BookshelfScope
+        // on the model, the same double layer the manager queue's own
+        // decide routes describe. Neither layer scopes by person — that is
+        // the Action's `not_own_request`, one layer down, exactly as the
+        // notification routes below document for their own binding.
+        Route::post('/change-request/{profileChange}/cancel', [ProfileController::class, 'cancel'])->name('change-request.cancel');
+        // Phase 3c-i Task 7, spec D12. BR §16.2's one remaining
+        // immediate-effect control: a password change is not a fact a
+        // manager verified, so it is not a proposal and nothing here waits.
+        Route::post('/password', [ProfileController::class, 'changePassword'])->name('password');
         Route::get('/history', [MyLoansController::class, 'history'])->name('history');
         // The bell. read-all is declared BEFORE the bound route — the
         // house habit (spec §6's static-before-bound discipline), even

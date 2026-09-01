@@ -71,6 +71,20 @@ return [
     // this hand-off is stated.
     'profile_change_approved_flash' => 'Đã duyệt. Thông tin mới đã được ghi vào hồ sơ của bạn đọc.',
     'profile_change_rejected_flash' => 'Đã từ chối — bạn đọc sẽ thấy lý do trên trang hồ sơ của mình.',
+    // Phase 3c-i Task 7. The withdrawal's flash, written for the person who
+    // tapped it on their own page: what went away is the REQUEST, and the
+    // sentence says so, because the information itself never moved.
+    'profile_change_cancelled_flash' => 'Đã huỷ đề nghị. Thông tin trong hồ sơ của bạn không thay đổi.',
+    // Phase 3c-i Task 7, spec D12. Two codes, not one, and neither reuses
+    // `password_too_short` above: a form with a current-password box and a
+    // new-password box has to be able to say which of the two is wrong, and
+    // SetReaderCredentials' code names a form that has only one.
+    'current_password_incorrect' => 'Mật khẩu hiện tại chưa đúng.',
+    'new_password_too_short' => 'Mật khẩu mới cần ít nhất 8 ký tự.',
+    // Says the revocation out loud. Every other device stops being signed
+    // in, which is the point of changing a password and is not something a
+    // reader should have to discover.
+    'password_changed_flash' => 'Đã đổi mật khẩu. Các thiết bị khác sẽ phải đăng nhập lại.',
     'parish_unit_l1_not_found' => 'Đơn vị bậc 1 đã chọn không tồn tại.',
     'parish_unit_l2_not_found' => 'Đơn vị bậc 2 đã chọn không tồn tại.',
     'parish_unit_l2_not_in_l1' => 'Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.',
