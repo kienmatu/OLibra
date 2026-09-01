@@ -178,17 +178,37 @@ it('a reader cannot correct anyone\'s details, including their own', function ()
         ->toThrow(AuthorizationException::class);
 });
 
-it('takes the locking re-read of the membership as the first statement of its transaction', function () {
-    [, $actor, $membership] = corrFixture();
+it('locks the membership and THEN the subject\'s users row — the order approve now agrees with', function () {
+    // Divergence 1's own half of spec D3, stated as the PAIR rather than as
+    // one statement. This command is the far end of an AB–BA edge:
+    // ApproveProfileChange writes the same subject's membership (its
+    // placement pair) and the same subject's `users` row, and for a while it
+    // took them the other way round — its docblock argued that leaving the
+    // membership unlocked avoided the inversion, which missed that
+    // `$membership->save()` takes the exclusive lock regardless. This
+    // command has NO retry (a bare DB::transaction), so it is the one that
+    // would have shipped errno 1213 as a 500.
+    //
+    // The bindings are asserted because both `users` rows here — the
+    // correcting manager's and the subject's — yield a byte-identical
+    // locking select.
+    [, $actor, $membership, $person] = corrFixture();
 
+    DB::flushQueryLog();
     DB::enableQueryLog();
     app(UpdateReaderProfile::class)->execute($actor, $membership, ['phone' => '0922222222']);
-    $log = DB::getQueryLog();
+    $locking = lockingReads(DB::getQueryLog());
     DB::disableQueryLog();
 
-    expect($log)->not->toBe([])
-        ->and(str_contains($log[0]['query'], 'memberships'))->toBeTrue('first query is not on memberships: '.$log[0]['query'])
-        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+    expect(array_map(fn (array $e) => preg_replace('/^select \* from (`\w+`).*$/s', '$1', $e['query']), $locking))
+        ->toBe(['`memberships`', '`users`']);
+
+    // The membership select carries BookshelfScope's shelf id alongside the
+    // key, so that one is `toContain`; the users select is the whole
+    // discriminator between the subject and the correcting manager, and is
+    // asserted exactly.
+    expect($locking[0]['bindings'])->toContain($membership->id)
+        ->and($locking[1]['bindings'])->toBe([$person->id]);
 });
 
 // (The reference's systemContext-refusal test does not port: there is no

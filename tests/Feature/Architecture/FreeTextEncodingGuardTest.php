@@ -4,6 +4,7 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Catalogue\StoreBookRequest;
 use App\Http\Requests\Catalogue\UpdateBookRequest;
 use App\Http\Requests\Circulation\QuickLendRegisterReaderRequest;
+use App\Http\Requests\Members\ChangeOwnPasswordRequest;
 use App\Http\Requests\Members\RegisterMembershipRequest;
 use App\Http\Requests\Members\RegisterReaderOnBehalfRequest;
 use App\Http\Requests\Members\SetReaderCredentialsRequest;
@@ -304,6 +305,10 @@ function fegExemptions(): array
         ],
         SetReaderCredentialsRequest::class => [
             'password' => 'hashed via Hash::make() before storage, never written raw',
+        ],
+        ChangeOwnPasswordRequest::class => [
+            'current_password' => 'compared via Hash::check() against the stored hash (App\Actions\Admin\ChangeOwnPassword), never written to a column — LoginRequest::password\'s exemption, same shape',
+            'new_password' => 'hashed via Hash::make() before storage, never written raw',
         ],
         UpdateReaderProfileRequest::class => [
             'phone' => 'same Phone::assert() gate as RegisterMembershipRequest',

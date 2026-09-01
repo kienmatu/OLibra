@@ -4,7 +4,9 @@ namespace App\Http\Middleware;
 
 use App\Models\Notification;
 use App\Models\User;
+use App\Queries\Admin\ManagerProfileChangeQueueQuery;
 use App\Queries\DonationQueueQuery;
+use App\Queries\ProfileChangeQueueQuery;
 use App\Support\TenantContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -131,6 +133,56 @@ class HandleInertiaRequests extends Middleware
             // request.
             'pendingDonations' => fn (): ?int => ($user !== null && $shelf !== null && Gate::allows('act-as-manager'))
                 ? app(DonationQueueQuery::class)->countPending()
+                : null,
+            // BR §16.3's OTHER badge, and the one that paragraph names
+            // first: the donation queue is "beside *Đổi thông tin*
+            // (pending profile changes) and *Yêu cầu mượn*". Built on
+            // pendingDonations above, key for key and clause for clause,
+            // because it is the same badge over a different queue — a
+            // closure so nothing resolves on a redirect (the decision
+            // POSTs are redirects, so approving a change costs no count),
+            // act-as-manager because it is the manage sidebar's number,
+            // and a $shelf clause because BookshelfScope fails closed on
+            // an unbound tenant and this query reads through it.
+            //
+            // THE NUMBER IS App\Queries\ProfileChangeQueueQuery
+            // ::countPending(), which shares its whole predicate — pending
+            // AND reader-subject — with the list the badge links to. That
+            // sharing is the point rather than tidiness: spec D9 names the
+            // defect Phase 3a already had to fix once (commit 8e81c82,
+            // "match the admin dashboard's predicates to the shelf's own
+            // queues"), and a badge counting all pending requests would
+            // send a manager to a screen that deliberately hides their own
+            // colleague's, so the number would exceed the cards for a
+            // reason no volunteer could see.
+            'pendingProfileChanges' => fn (): ?int => ($user !== null && $shelf !== null && Gate::allows('act-as-manager'))
+                ? app(ProfileChangeQueueQuery::class)->countPending()
+                : null,
+            // BR §16.4's cross-shelf equivalent, for the admin shell's own
+            // *Đổi thông tin* item — proposals whose subject is a manager
+            // or shelf admin ANYWHERE (BR:602).
+            //
+            // NO $shelf CLAUSE AND NO ROLE GATE, and both differences from
+            // the three counts above are the same difference: this queue
+            // is not a shelf's. The `/admin` group binds no tenant, so
+            // requiring one would send null on every page of the area the
+            // badge belongs to; and the audience is exactly the global
+            // super administrator, which is a flag on the row rather than
+            // a membership role — Gate::allows('act-as-manager') would ask
+            // about a shelf there is none of.
+            //
+            // THE WIDENING IS THE QUERY OBJECT'S, NOT THIS FILE'S.
+            // ProfileChangeRequest is shelf-scoped, so counting cross-shelf
+            // means TenantContext::systemWide(), and
+            // WideningArchitectureTest confines that to app/Queries/Admin/
+            // and app/Actions/Admin/ — its own comment saying "a controller
+            // still never calls systemWide() itself", which a middleware is
+            // no more sanctioned than. So the count is
+            // ManagerProfileChangeQueueQuery's, resolved out of the
+            // container INSIDE the closure so no query object is built on
+            // the non-Inertia requests that never read the prop.
+            'pendingManagerProfileChanges' => fn (): ?int => ($user !== null && $user->is_super_admin)
+                ? app(ManagerProfileChangeQueueQuery::class)->countPending()
                 : null,
             // For the plain <form method="post"> downloads (an Inertia
             // router.post cannot receive a file): the token VerifyCsrfToken

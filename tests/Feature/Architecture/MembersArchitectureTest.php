@@ -75,7 +75,28 @@ it('only the three sanctioned Actions write a credential or profile column on us
     // The Laravel form of the reference's INV-13 source walk: profile and
     // credential writes are named, enumerated, and anything new must join
     // this list deliberately.
+    //
+    // AMENDED, 3c-i Task 3 — deliberately, which is the only way this list
+    // is meant to change. ApproveProfileChange is the SECOND of INV-13's
+    // two sanctioned profile writers: BR §6's restatement of INV-13 names
+    // both paths by which a person's verified details move, the direct
+    // correction (UpdateReaderProfile) and the approved proposal. The
+    // three-item list this test was born with predates the second path
+    // existing in the port; widening it is the act of admitting that path,
+    // not of accommodating a new file.
+    //
+    // AMENDED AGAIN, 3c-i Task 7, as that note said it would be:
+    // ChangeOwnPassword writes `users.password_hash`, which is INV-14's
+    // credential half, and it is the THIRD credential-or-profile writer
+    // rather than a variant of SetReaderCredentials. The two are separate
+    // deliberately (spec D12, BR:79): the subject supplies their current
+    // password here and a volunteer supplies none there, so they keep
+    // separate audit actions — and a list that admitted one file on the
+    // strength of the other's entry would be admitting a write nobody
+    // decided about.
     $sanctioned = [
+        app_path('Actions/Admin/ApproveProfileChange.php'),
+        app_path('Actions/Admin/ChangeOwnPassword.php'),
         app_path('Actions/Members/Registration.php'),
         app_path('Actions/Members/SetReaderCredentials.php'),
         app_path('Actions/Members/UpdateReaderProfile.php'),

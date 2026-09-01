@@ -78,6 +78,48 @@ final class ProfileFields
     }
 
     /**
+     * The allowlist applied on the way OUT of a stored bag, for the read
+     * side: exactly the keys of FIELDS that $raw actually carries, each
+     * folded to a string or null.
+     *
+     * `proposed_values` and `previous_values` are JSON columns with no
+     * check constraint behind them, so a hand-written row, an older
+     * schema's row, or a future field this list has not learned yet can put
+     * anything in there. pickProfileFields (profile-fields.ts:212) is the
+     * reference's name for the same guard and its reason is the same: the
+     * query that hands back whatever the column happened to hold is the
+     * place that leaks it.
+     *
+     * KEY PRESENCE IS PRESERVED, exactly as normalisePatch preserves it on
+     * the way in — an absent key means "this request proposes nothing about
+     * this field" and a present null means "clear it". Folding the two
+     * together here would make a proposal to blank a field indistinguishable
+     * from one that never mentioned it, on the screen whose whole job is
+     * showing which fields are changing.
+     *
+     * @return array<string, ?string>
+     */
+    public static function pick(mixed $raw): array
+    {
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $picked = [];
+
+        foreach (self::FIELDS as $field) {
+            if (! array_key_exists($field, $raw)) {
+                continue;
+            }
+
+            $value = $raw[$field];
+            $picked[$field] = is_scalar($value) ? (string) $value : null;
+        }
+
+        return $picked;
+    }
+
+    /**
      * Only the keys whose values actually differ — an audit entry is a
      * claim about what changed, and six identical fields on both sides
      * would make it a lie of emphasis.

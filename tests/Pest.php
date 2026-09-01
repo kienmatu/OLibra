@@ -64,3 +64,41 @@ function screenSource(string $page): string
 
     return (string) $stripped;
 }
+
+/**
+ * Every locking read a transaction took, in order, with its bindings.
+ *
+ * MATCHED ON A LEADING `select` (HandoverRequestTest's own idiom, and the
+ * reason is the same there and here): a guarded `update memberships set …`
+ * must never be mistaken for a locking READ of that table, because the
+ * whole point of the assertions below is WHERE in the sequence a lock is
+ * taken rather than merely that one exists.
+ *
+ * THE BINDINGS COME WITH IT, and that is not decoration. Every one of these
+ * statements is `select * from <table> … limit 1 for update`, so a
+ * regression that locked the ACTOR's row instead of the SUBJECT's — a
+ * plausible mistake, since both are `users` rows in scope — would leave the
+ * query text byte-identical. Only the bindings can tell those two apart.
+ *
+ * getQueryLog is sound for the reason HandoverRequestTest states:
+ * Connection::run() logs after the callback RETURNS, so a statement that
+ * throws is invisible to it. Every caller must therefore be a happy path.
+ *
+ * IT LIVES HERE, next to screenSource, for that helper's own stated reason:
+ * Pest loads every test file into ONE process, so the members decide tests
+ * and the cancel tests cannot each keep a copy under this name without a
+ * fatal redeclaration — and two copies is two places for the `select` guard
+ * to drift. (HandoverRequestTest's `hovLockingReads` predates this and
+ * differs: it returns query STRINGS, which is all its own blocks need.)
+ *
+ * @param  list<array{query: string, bindings: array<int, mixed>}>  $log
+ * @return list<array{query: string, bindings: array<int, mixed>}>
+ */
+function lockingReads(array $log): array
+{
+    return array_values(array_filter(
+        $log,
+        fn (array $entry) => str_starts_with(strtolower(ltrim($entry['query'])), 'select')
+            && str_contains(strtolower($entry['query']), 'for update'),
+    ));
+}

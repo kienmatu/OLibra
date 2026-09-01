@@ -13,13 +13,15 @@ use App\Support\Notifications\NotificationKind;
  *
  * The bound, stated rather than implied: nothing mechanically ties the
  * constant below to docs/OPERATIONS.md §7, so a wrong transcription is
- * invisible to this test. It currently holds SEVEN of §7's eight table
- * rows — the seven whose writers exist — and each was checked against the
+ * invisible to this test. It currently holds NINE of §7's ten table
+ * rows — the nine whose writers exist — and each was checked against the
  * document by hand in the commit that added it. (Six until 2b's Task 3,
  * which added the writer for §7's last row ("Bình luận được duyệt") and
- * so the seventh entry here. The
+ * so the seventh entry here; seven until 3c-i's Task 6, which added §7's
+ * two profile-change rows and their writers together and so the eighth
+ * and ninth. The
  * count is re-derived from the document, not incremented on trust: §7's
- * table is the eight rows under its "| Notification | Written by |"
+ * table is the ten rows under its "| Notification | Written by |"
  * header. A line range used to be cited here and had gone stale by
  * nineteen lines — the document moves, so the section and its header are
  * the citation now.)
@@ -42,8 +44,11 @@ use App\Support\Notifications\NotificationKind;
  * arrived — 2b's Task 3 landed the kind, its sentence, its writer
  * (ApproveComment) and §7's "Bình luận được duyệt" row together, which is
  * the rule this table enforces rather than a courtesy. The profile-change
- * pair BR §15 names has no reference implementation and is Phase 3's to
- * decide (known-gaps).
+ * pair BR §15 names HAS now arrived too — 3c-i's Task 6 landed the two
+ * kinds, their sentences, their writers (ApproveProfileChange and
+ * RejectProfileChange) and §7's two new rows in one commit, which closes
+ * the known-gaps entry that said it had no reference implementation and
+ * was Phase 3's to decide.
  */
 const OPS_SECTION_7 = [
     'membership_approved' => ['app/Actions/Members/ApproveMembership.php'],
@@ -66,6 +71,14 @@ const OPS_SECTION_7 = [
     // Task 3), that one row: "| Bình luận được duyệt | `ApproveComment`
     // |" — the last row of §7's table, and the only one this phase adds.
     'comment_approved' => ['app/Actions/Community/ApproveComment.php'],
+    // Re-transcribed from docs/OPERATIONS.md by hand at this commit (3c-i,
+    // Task 6), those two rows: "| Thông tin cá nhân được cập nhật |
+    // `ApproveProfileChange` |" and "| Yêu cầu cập nhật thông tin bị từ
+    // chối (kèm lý do) | `RejectProfileChange` |" — the two rows §15 of
+    // the requirements has always named and this document did not carry
+    // until now.
+    'profile_change_approved' => ['app/Actions/Admin/ApproveProfileChange.php'],
+    'profile_change_rejected' => ['app/Actions/Admin/RejectProfileChange.php'],
 ];
 
 it('every notification is written where OPERATIONS §7 says it is', function () {

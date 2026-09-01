@@ -75,6 +75,11 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         // thing protecting those books' labels — the soft delete never
         // fires the schema's ON DELETE SET NULL.
         'category_in_use',
+        // 3c-i Task 2: NOT the second-proposal guard — a second proposal at
+        // this shelf merges into the pending row. This is the cross-shelf
+        // case the tenant-scoped SELECT cannot see, caught off the
+        // generated pending_user_id column's global unique index.
+        'change_already_pending',
         'comment_not_approved',
         'comment_not_pending',
         'comments_disabled',
@@ -84,6 +89,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'copy_count_invalid',
         'copy_not_found',
         'copy_selection_empty',
+        // 3c-i Task 7, spec D12: the current-password check on
+        // ChangeOwnPassword. Its own code rather than a shared
+        // 'not_permitted' — the caller is permitted, they mistyped.
+        'current_password_incorrect',
         'donation_not_pending',
         'donor_ambiguous',
         'donor_membership_invalid',
@@ -96,13 +105,30 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'empty_body',
         'empty_description',
         'empty_proposal',
+        // 3c-i Task 8, spec D6: the photograph's byte cap, 5 MiB. Raised by
+        // App\Support\Members\AvatarStorage before anything is stored.
+        'file_too_large',
         'has_active_loans',
+        // 3c-i Task 8, spec D6: a real photograph in a codec this server
+        // cannot open. A SEPARATE code from 'invalid_image' on purpose —
+        // see lang/vi/rules.php, where the two sentences say different
+        // things because the two situations are different.
+        'heic_not_supported',
         'hold_expired',
         'hold_not_expired',
+        // 3c-i Task 8, spec D6: a DECODE failure, raised from
+        // App\Support\Members\AvatarImage's own catch. Not a content-type
+        // mismatch — the content-type-only version of this gate was the
+        // earlier and weaker design.
+        'invalid_image',
         'loan_not_active',
         'loan_not_active_cannot_void',
         'member_has_active_loans',
         'membership_not_found',
+        // 3c-i Task 7: the NEW password's length, kept distinct from
+        // SetReaderCredentials' 'password_too_short' so a form carrying two
+        // password boxes can say which one is wrong.
+        'new_password_too_short',
         'no_renewals_remaining',
         // 3b-i Task 7: revoking a grant from somebody who is already a
         // reader. A code of its own rather than the reference's shared
@@ -127,6 +153,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'password_too_short',
         'passwords_dont_match',
         'phone_invalid',
+        // 3c-i Task 3: the re-read under the decide lock (spec D3). Not a
+        // not-found — the row is there, it has simply already been decided
+        // or withdrawn since the manager opened the card.
+        'profile_change_not_pending',
         'reason_required',
         'registration_not_pending',
         'reject_reason_required',

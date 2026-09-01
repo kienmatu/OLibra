@@ -21,6 +21,14 @@ interface Props {
     l1: string;
     l2: string;
     onChange: (l1: string, l2: string) => void;
+    /**
+     * Appended to both selects' `id`/`htmlFor`, so a screen may render more
+     * than one picker without minting duplicate element ids — which is not
+     * a lint nicety but the thing that makes a <Label> point at the wrong
+     * control. Phase 3c-i's change queue renders one picker PER CARD.
+     * Omitted on the three single-form callers, whose ids are unchanged.
+     */
+    idSuffix?: string;
 }
 
 /**
@@ -31,7 +39,14 @@ interface Props {
  * chọn"). When nested, the level-2 options follow the chosen parent and
  * a parent change clears a child that no longer belongs.
  */
-export default function ParishUnitFields({ taxonomy, units, l1, l2, onChange }: Props) {
+export default function ParishUnitFields({
+    taxonomy,
+    units,
+    l1,
+    l2,
+    onChange,
+    idSuffix = "",
+}: Props) {
     const level1 = units.filter((u) => u.level === 1);
     const level2All = units.filter((u) => u.level === 2);
     const level2 = taxonomy.nested ? level2All.filter((u) => u.parentId === l1) : level2All;
@@ -45,9 +60,9 @@ export default function ParishUnitFields({ taxonomy, units, l1, l2, onChange }: 
         <div className="space-y-6">
             {level1.length > 0 && (
                 <div className="space-y-2">
-                    <Label htmlFor="parish-l1">{taxonomy.level1Label}</Label>
+                    <Label htmlFor={`parish-l1${idSuffix}`}>{taxonomy.level1Label}</Label>
                     <select
-                        id="parish-l1"
+                        id={`parish-l1${idSuffix}`}
                         name="parish_unit_l1_id"
                         className={selectClass}
                         value={l1}
@@ -70,9 +85,9 @@ export default function ParishUnitFields({ taxonomy, units, l1, l2, onChange }: 
             )}
             {showLevel2 && (
                 <div className="space-y-2">
-                    <Label htmlFor="parish-l2">{taxonomy.level2Label}</Label>
+                    <Label htmlFor={`parish-l2${idSuffix}`}>{taxonomy.level2Label}</Label>
                     <select
-                        id="parish-l2"
+                        id={`parish-l2${idSuffix}`}
                         name="parish_unit_l2_id"
                         className={selectClass}
                         value={l2}

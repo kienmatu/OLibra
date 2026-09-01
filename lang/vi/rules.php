@@ -43,6 +43,72 @@ return [
     'empty_proposal' => 'Vui lòng thay đổi ít nhất một trường.',
     'not_permitted' => 'Bạn không có quyền thực hiện việc này.',
     'thieu-so-dien-thoai' => 'Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có.',
+    // Phase 3c-i Task 2, spec D1. NOT the second-proposal refusal — a
+    // second proposal at this shelf merges into the pending row and is
+    // never refused. This is the case the shelf-scoped read cannot see: a
+    // person with memberships at two parishes, whose pending row belongs to
+    // the other one, caught off the generated column's global unique index.
+    // The reference's own sentence, which is honest about both.
+    'change_already_pending' => 'Bạn đang có một yêu cầu thay đổi chờ duyệt.',
+    'profile_change_proposed_flash' => 'Đã gửi đề nghị. Thông tin hiện tại vẫn được dùng cho đến khi quản lý duyệt.',
+    // Phase 3c-i Task 3, spec D3. The re-read under the lock: between the
+    // moment a manager opened the card and the moment they tapped, a
+    // colleague may have decided it or the reader may have withdrawn it.
+    // A distinct code rather than a not-found, because the row is still
+    // there and "already dealt with" is what the volunteer needs told.
+    // OPS §4.3 spells it `not_pending`; the port qualifies the name,
+    // because `request_not_pending` (a borrow request) already exists and
+    // two unqualified 'not_pending' codes would be one sentence for two
+    // different things.
+    'profile_change_not_pending' => 'Yêu cầu đổi thông tin này đã được xử lý.',
+    // Phase 3c-i Task 5, the two decision queues (BR:580, BR:602). Both
+    // sentences are written for a VOLUNTEER, not for the reader: they
+    // confirm what the tap did and say where the consequence lands, which
+    // for the approval is the person's own record and for the rejection is
+    // the reader's profile page — the one screen where BR:544 shows them
+    // the reason. Task 6 adds the notification that reaches the reader
+    // directly; until it does, the queue's own words are the only place
+    // this hand-off is stated.
+    'profile_change_approved_flash' => 'Đã duyệt. Thông tin mới đã được ghi vào hồ sơ của bạn đọc.',
+    'profile_change_rejected_flash' => 'Đã từ chối — bạn đọc sẽ thấy lý do trên trang hồ sơ của mình.',
+    // Phase 3c-i Task 7. The withdrawal's flash, written for the person who
+    // tapped it on their own page: what went away is the REQUEST, and the
+    // sentence says so, because the information itself never moved.
+    'profile_change_cancelled_flash' => 'Đã huỷ đề nghị. Thông tin trong hồ sơ của bạn không thay đổi.',
+    // Phase 3c-i Task 7, spec D12. Two codes, not one, and neither reuses
+    // `password_too_short` above: a form with a current-password box and a
+    // new-password box has to be able to say which of the two is wrong, and
+    // SetReaderCredentials' code names a form that has only one.
+    'current_password_incorrect' => 'Mật khẩu hiện tại chưa đúng.',
+    'new_password_too_short' => 'Mật khẩu mới cần ít nhất 8 ký tự.',
+    // Says the revocation out loud. Every other device stops being signed
+    // in, which is the point of changing a password and is not something a
+    // reader should have to discover.
+    'password_changed_flash' => 'Đã đổi mật khẩu. Các thiết bị khác sẽ phải đăng nhập lại.',
+    // Phase 3c-i Task 8, spec D6 — the photograph's three refusals. All
+    // three are facts about bytes, raised by App\Support\Members\
+    // AvatarStorage and AvatarImage before the proposal is ever recorded.
+    //
+    // The number is written as "5 MB" and not "5 MiB" because that is what
+    // a volunteer's file manager shows them; the cap really is the binary
+    // megabyte, for the same reason.
+    'file_too_large' => 'Ảnh vượt quá 5 MB. Vui lòng chọn ảnh nhỏ hơn.',
+    // ITS OWN SENTENCE, and not a variant of invalid_image below. A HEIC
+    // file is a real photograph — usually of the reader's own child — in a
+    // codec this server cannot open, and telling somebody holding a
+    // perfectly good picture that it "is not a valid image" is a false
+    // statement. The sentence says what to do instead, because on the one
+    // device that produces these the answer is a setting.
+    'heic_not_supported' => 'Ảnh chụp từ iPhone (HEIC) chưa mở được. Vui lòng chọn ảnh dạng JPEG hoặc PNG.',
+    // A DECODE failure, not a content-type mismatch: this is what a file
+    // that is not an image earns after the encoder has actually tried to
+    // read it, so a renamed document cannot pass by wearing the right
+    // header.
+    'invalid_image' => 'Tệp này không phải là ảnh hợp lệ.',
+    // The photograph waits for a manager exactly as the eight text fields
+    // do, and the flash says so — a reader who saw their new picture
+    // appear immediately would reasonably think it was already in force.
+    'avatar_proposed_flash' => 'Đã gửi ảnh đại diện mới. Ảnh hiện tại vẫn được dùng cho đến khi quản lý duyệt.',
     'parish_unit_l1_not_found' => 'Đơn vị bậc 1 đã chọn không tồn tại.',
     'parish_unit_l2_not_found' => 'Đơn vị bậc 2 đã chọn không tồn tại.',
     'parish_unit_l2_not_in_l1' => 'Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.',

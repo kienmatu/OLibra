@@ -124,6 +124,14 @@ export const copy = {
         // Zero renders the bare word above, never "(0)": an empty queue is
         // still a place to go, but it is not news.
         donationsWithCount: "Tặng sách ({count})",
+        // BR §16.3's *Đổi thông tin*, the nav item this list was missing —
+        // the paragraph above records that Task 19 shipped the donation
+        // badge "beside *Yêu cầu mượn*, which is half of what §16.3 asks",
+        // because the screen was still a placeholder. It is a screen now,
+        // so the other half lands here. Two spellings on the badge's own
+        // pattern: zero renders the bare word, never "(0)".
+        profileChanges: "Đổi thông tin",
+        profileChangesWithCount: "Đổi thông tin ({count})",
         settings: "Cài đặt",
         // The NAV word for shelves/{shelf}/manage/units, matching the
         // reference's own sidebar label — the screen re-heads it in
@@ -140,6 +148,15 @@ export const copy = {
         shelves: "Tủ sách",
         managers: "Người quản lý",
         categories: "Thể loại",
+        // BR §16.4's "Change queue for managers and shelf admins", carrying
+        // the SAME two words as the manage nav's own item above — the
+        // subject is the same subject, and a super administrator who is
+        // also a manager somewhere should not have to learn that this
+        // installation calls it two things. What distinguishes them is
+        // which shell they hang in; the screens themselves are headed
+        // differently.
+        profileChanges: "Đổi thông tin",
+        profileChangesWithCount: "Đổi thông tin ({count})",
         settings: "Cài đặt",
     },
     adminDashboard: {
@@ -622,6 +639,77 @@ export const copy = {
         approve: "Duyệt đăng ký",
         reject: "Từ chối",
         rejectReason: "Lý do từ chối",
+    },
+    // BR §16.3's *Đổi thông tin* screen. The FIELD labels are not here:
+    // both queues render `myProfile.fieldLabels`, which is keyed by column
+    // name because the server sends the fields keyed that way, and a second
+    // label map would be a translation table that is wrong in exactly one
+    // entry the day somebody edits one of them. A reader and a volunteer
+    // call these nine fields the same nine things.
+    manageProfileChanges: {
+        title: "Đề nghị đổi thông tin",
+        lead: "Mỗi thẻ là một bạn đọc xin sửa hồ sơ. Thông tin cũ vẫn được dùng cho đến khi bạn duyệt.",
+        empty: "Không có đề nghị nào đang chờ.",
+        requestedAt: "Gửi ngày {date}",
+        // The two halves of BR:580's "side by side". Labelled rather than
+        // laid out by position alone: on a phone the two values stack, and
+        // a stacked pair with no labels is unreadable.
+        currentHeading: "Hiện tại",
+        proposedHeading: "Đề nghị",
+        // A proposal to clear a field is a change worth showing, and it is
+        // not the same as a field the reader never mentioned — myProfile
+        // .proposedBlank's own distinction, on the deciding side.
+        blank: "(bỏ trống)",
+        notSet: "Chưa có",
+        // THE SENTENCE STAYS, above the two photographs rather than instead
+        // of them. It was on its own until the fix wave: a manager approved
+        // a photograph of a child on the strength of a claim that one
+        // existed, which BR:580's "see exactly what would change" cannot
+        // mean for the one field that is a picture. What is still never
+        // printed is the VALUE — it is a storage key, and the server sends
+        // addresses.
+        avatarProposed: "Bạn đọc có gửi kèm ảnh đại diện mới.",
+        avatarCurrent: "Ảnh hiện tại",
+        avatarProposedLabel: "Ảnh đề nghị",
+        // The optional re-placement, spec D3. Headed as a question rather
+        // than as a field group, because leaving it alone is the normal
+        // answer and the form must not read as though something is
+        // required.
+        placementTitle: "Đơn vị của bạn đọc",
+        placementNote:
+            "Bạn đọc không tự đổi được đơn vị. Nếu gia đình đã chuyển, chọn lại ở đây rồi duyệt.",
+        placementUnset: "— Chưa chọn —",
+        approve: "Duyệt",
+        rejectReason: "Lý do chưa duyệt",
+        reject: "Từ chối",
+    },
+    // BR §16.4's cross-shelf queue. Its own words, not the shelf screen's:
+    // the reader of this page is not standing in the parish the proposal
+    // came from, which is the whole reason it exists.
+    adminProfileChanges: {
+        title: "Đề nghị đổi thông tin của người quản lý",
+        lead: "Đề nghị của người quản lý và quản trị tủ sách, ở mọi tủ sách — vì không ai trong tủ sách của họ được duyệt.",
+        empty: "Không có đề nghị nào đang chờ.",
+        requestedAt: "Gửi ngày {date}",
+        // BR:602's "the shelf named on each card", which on a cross-shelf
+        // screen is not decoration: two parishes may both have a manager
+        // called Nguyễn Văn A.
+        shelfLine: "Tủ sách: {shelf}",
+        roleManager: "Quản lý tủ sách",
+        roleAdmin: "Quản trị tủ sách",
+        currentHeading: "Hiện tại",
+        proposedHeading: "Đề nghị",
+        blank: "(bỏ trống)",
+        notSet: "Chưa có",
+        // Its own words, and the two photographs below it — see the shelf
+        // queue's note. A cross-shelf administrator is deciding a picture
+        // they have even less other context for.
+        avatarProposed: "Người này có gửi kèm ảnh đại diện mới.",
+        avatarCurrent: "Ảnh hiện tại",
+        avatarProposedLabel: "Ảnh đề nghị",
+        approve: "Duyệt",
+        rejectReason: "Lý do chưa duyệt",
+        reject: "Từ chối",
     },
     readerDetail: {
         title: "Hồ sơ bạn đọc",
@@ -1143,6 +1231,158 @@ export const copy = {
         // Vietnamese glue ("lúc", "ngày") the server does not supply,
         // because formatInstantParts renders the two NUMBERS locally.
         receivedAt: "lúc {time} ngày {date}",
+    },
+    // BR §16.2's "Hồ sơ của bạn" — the reader's own record, read-only in
+    // this phase's first task (proposing a change to it is a later one, and
+    // posts from its own form).
+    //
+    // Wording taken from the reference's own screen
+    // (old_next/src/app/tu-sach/[shelf]/(doc-gia)/ho-so/page.tsx, opened):
+    // its heading, its subtitle, its four status words, its "hiện tại"
+    // comparison line, its "thông tin hiện tại vẫn được dùng" sentence and
+    // its parish note.
+    myProfile: {
+        title: "Hồ sơ của bạn",
+        lead: "Những thay đổi bạn gửi chỉ có hiệu lực sau khi quản lý duyệt.",
+        // The same null-membership branch donations.onlyReaders covers —
+        // see ProfileController's own note on why that state is live.
+        onlyReaders: "Chỉ bạn đọc của tủ sách này mới có hồ sơ ở đây.",
+        sectionPerson: "Thông tin cá nhân",
+        sectionParish: "Giáo xứ",
+        // Keyed by COLUMN name, not camelCase, and that is the point:
+        // App\Queries\MyProfileQuery returns the nine fields snake_case so
+        // the page can match them key-for-key against a proposal's
+        // proposed_values bag. A camelCase label map here would put a
+        // translation table between the two halves of a comparison —
+        // profile-labels.ts's argument, kept. Nine entries for the nine of
+        // App\Support\Members\ProfileFields::FIELDS.
+        fieldLabels: {
+            saint_name: "Tên thánh",
+            full_name: "Họ và tên",
+            date_of_birth: "Ngày sinh",
+            father_name: "Tên cha",
+            mother_name: "Tên mẹ",
+            phone: "Số điện thoại",
+            phone_missing_reason: "Lý do chưa có số điện thoại",
+            email: "Email",
+            // The label names what the field is to a reader — their
+            // photograph — not the storage identifier the column holds.
+            avatar_object: "Ảnh đại diện",
+        },
+        // A read-only value that is not set. `unitName`'s own word for the
+        // same state, so the page reads one way throughout.
+        notSet: "Chưa có",
+        changesTitle: "Đề nghị thay đổi gần nhất",
+        // Four words for the four cases App\Enums\ProfileChangeStatus
+        // carries — status is never colour alone (AGENTS.md rule 2), so
+        // each rides a Badge with an icon beside it.
+        statusPending: "Đang chờ quản lý duyệt",
+        statusApproved: "Đã được duyệt",
+        statusRejected: "Quản lý chưa duyệt",
+        statusCancelled: "Bạn đã huỷ",
+        // BR:544's rendering contract: the current value with the pending
+        // one beside it. Three keys rather than one glued sentence, because
+        // the proposed half is emphasised and the current half is not, and
+        // even the colon is copy — a locale that does not use one gets to
+        // say so here rather than in JSX.
+        fieldLabelLine: "{label}:",
+        currentIs: "hiện tại {value}",
+        // A proposal to clear a field is a change worth showing, and it is
+        // not the same as a field the reader never mentioned.
+        proposedBlank: "(bỏ trống)",
+        // The sentence that makes "waiting" plain, BR:544's other half.
+        stillInForce: "Thông tin hiện tại vẫn được dùng cho đến khi đề nghị này được duyệt.",
+        requestedOn: "Bạn gửi ngày {date}",
+        // The whole reason a rejection requires a reason: the reader reads
+        // it, and this page is the only place they can. Labelled rather
+        // than a bare paragraph, the shape readerDetail.rejectionReasonLine
+        // and donations.declineReasonLine already use.
+        rejectionReasonLine: "Lý do quản lý chưa duyệt: {reason}",
+        // formatInstantParts, not formatDate: decided_at is an instant. The
+        // reference shipped the other one here and 500ed every reader whose
+        // request had been decided.
+        decidedOn: "Đề nghị này được xử lý lúc {time} ngày {date}.",
+        empty: "Bạn chưa gửi đề nghị thay đổi nào.",
+        // The placement is read-only to a reader (OPS §4.3) and the screen
+        // says whom to ask. Two sentences because a one-level shelf has no
+        // second unit to name.
+        parishNoteOne: "Muốn đổi {level1} thì nhờ quản lý tủ sách giúp.",
+        parishNoteTwo: "Muốn đổi {level1} hoặc {level2} thì nhờ quản lý tủ sách giúp.",
+        // REPLACES Task 1's `readOnlyNote`, which said to ask a manager.
+        // That sentence was honest exactly as long as the screen had no
+        // form; with one below it, it would send a reader away from the box
+        // that does the thing. Task 1 flagged the rewrite for this task by
+        // name, and the KEY is renamed as well as the words, so nothing can
+        // keep rendering the old sentence under a name that no longer
+        // describes it.
+        verifiedNote: "Thông tin ở trên do quản lý xác minh. Muốn sửa thì gửi đề nghị bên dưới.",
+        // ── The propose form (BR:83, "a request, not an edit") ──────────
+        proposeTitle: "Đề nghị sửa thông tin",
+        proposeLead:
+            "Sửa những ô cần đổi rồi gửi. Thông tin hiện tại vẫn được dùng cho đến khi quản lý duyệt.",
+        // The WORD, never a bare asterisk (AGENTS.md rule 6).
+        required: "Bắt buộc",
+        proposeSubmit: "Gửi đề nghị",
+        proposeSending: "Đang gửi…",
+        // Spec D1's merge, said out loud on the screen. A reader who has
+        // one waiting and sends another is not starting a second request —
+        // the fields they change now join the one already there — and a
+        // screen that stayed silent about it would let them think the first
+        // one had been thrown away.
+        proposeMergeNote:
+            "Bạn đang có một đề nghị chờ duyệt. Những ô bạn đổi lần này sẽ được gộp vào đề nghị đó.",
+        // The phone pair, in the reader's own words: a blank number is
+        // allowed only with a reason, which is the refusal the server
+        // raises (rules.thieu-so-dien-thoai) and this line prevents.
+        phoneHint: "Chưa có số thì để trống ô số và ghi lý do bên dưới.",
+        // ── Huỷ đề nghị (spec D4's self-exemption) ──────────────────────
+        // The verb is "huỷ" and the object is the ĐỀ NGHỊ, never the
+        // information: withdrawing changes nothing about the person, and a
+        // button reading "Huỷ" alone on a card full of their own details
+        // would read as undoing the details.
+        cancelSubmit: "Huỷ đề nghị",
+        cancelSending: "Đang huỷ…",
+        cancelNote: "Huỷ rồi thì gửi lại đề nghị mới lúc nào cũng được.",
+        // ── Đổi mật khẩu (spec D12, BR §16.2's immediate-effect control) ─
+        passwordTitle: "Đổi mật khẩu",
+        // Says out loud what makes this control unlike everything else on
+        // the page: it does not wait for a manager.
+        passwordLead: "Đổi mật khẩu có hiệu lực ngay, không cần quản lý duyệt.",
+        passwordCurrent: "Mật khẩu hiện tại",
+        passwordNew: "Mật khẩu mới",
+        // The length rule as a hint, in the same words the refusal uses.
+        passwordNewHint: "Ít nhất 8 ký tự.",
+        // The revocation, said before it happens rather than discovered
+        // afterwards on a phone that stopped working.
+        passwordNote: "Đổi xong, các thiết bị đang đăng nhập sẽ phải đăng nhập lại.",
+        passwordSubmit: "Đổi mật khẩu",
+        passwordSending: "Đang đổi…",
+        // ── Ảnh đại diện (spec D6, Task 8) ──────────────────────────────
+        // The photograph waits for a manager exactly as the eight text
+        // fields do — the product owner confirmed EVERY field needs
+        // approval and named the picture explicitly — so the lead says so
+        // rather than letting a reader assume an upload is immediate.
+        avatarTitle: "Ảnh đại diện",
+        avatarLead: "Ảnh mới cũng cần quản lý duyệt. Ảnh hiện tại vẫn được dùng cho đến lúc đó.",
+        avatarCurrent: "Ảnh hiện tại",
+        avatarProposedLabel: "Ảnh chờ duyệt",
+        // Never an empty circle with no words beside it: a reader with no
+        // photograph should read the state, not guess at a grey disc.
+        avatarNone: "Chưa có ảnh",
+        avatarChoose: "Chọn ảnh",
+        avatarSubmit: "Gửi ảnh mới",
+        avatarSending: "Đang gửi…",
+        // The two facts a reader needs BEFORE the server refuses them, in
+        // their own words. The 5 MB is App\Support\Members\AvatarLimits'
+        // number; the crop sentence is why nothing is refused for not being
+        // square.
+        avatarHint: "Ảnh JPEG, PNG, WebP hoặc AVIF, tối đa 5 MB.",
+        avatarCropNote: "Ảnh sẽ được cắt vuông và thu nhỏ lại giúp bạn.",
+        // The iPhone sentence, said on the screen and not only in the
+        // refusal, because the setting that fixes it lives on the phone.
+        avatarHeicNote:
+            "Ảnh chụp bằng iPhone thường tự đổi sang JPEG khi gửi. Nếu máy báo lỗi ảnh HEIC, hãy đổi cài đặt máy ảnh sang “Tương thích nhất”.",
+        backToOverview: "Về trang của tôi",
     },
     // Tặng sách, across the reader's TWO screens — the offer form in the
     // shelf area and their own offers under the profile. One namespace

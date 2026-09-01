@@ -3309,8 +3309,20 @@ named in it, not by reading it off the plan.
   admin's, because `Gate::before` returns true for any `act-as-*` when
   `is_super_admin`, which lets a null membership through.
 
-- **Two notification kinds BR §15 names are still deliberately absent,
-  and they have an owner.** This entry used to describe THREE, and the
+- **~~Two notification kinds BR §15 names are still deliberately absent,
+  and they have an owner~~ — CLOSED by Phase 3c-i Task 6.** The pair
+  shipped the way the entry below says the rule requires: two
+  `NotificationKind` cases (`profile_change_approved`,
+  `profile_change_rejected`), their two Vietnamese sentences, their
+  writers (`ApproveProfileChange` and `RejectProfileChange`), OPS §7's
+  two new table rows and the census's two new entries, all in one commit.
+  The rejection carries the manager's reason, which is the half BR:490
+  states explicitly. There was no reference to port, so the Vietnamese is
+  this port's own, written to the two shapes already in the file — the
+  `membership_approved` fixed sentence and the `membership_rejected`
+  `:because` clause. The original entry follows.
+
+  This entry used to describe THREE, and the
   count it carried was of entries rather than of kinds — the wording is
   corrected here in both directions. `comment_approved` has since
   ARRIVED: 2b's Task 3 landed the kind, its sentence, its writer
@@ -4940,3 +4952,223 @@ none of those is in this phase's spec.
 What is wrong today is only that **nothing says so on either screen**. A
 super administrator who narrows a shelf's taxonomy has no way to learn that four
 đơn vị just became unreachable.
+
+## Phase 3c-i — the profile-change lifecycle
+
+A reader can see their own record, propose a correction to any verified field
+including their photograph, and withdraw the proposal; a manager or a super
+administrator decides it from a queue, and the reader is told the outcome.
+Branch `feat/phase-3c-oversight-and-feedback`. Four audit actions land —
+`profile_change.proposed`, `.approved`, `.rejected`, `.cancelled`, all grouped
+`readers` (`app/Support/Audit/AuditSentences.php:74,83-84,89`) — and two
+reader-facing notifications BR §15 has always required but the reference never
+had. What follows is the product question this phase answered on the product
+owner's behalf, the one functional gap it knowingly leaves, and four traps that
+cost time and will cost it again.
+
+### The one question that is the product owner's to settle
+
+- **A second proposal MERGES field-wise; the requirements say it "replaces".**
+  `docs/BUSINESS-REQUIREMENTS.md:343-344` is plain: "Proposing a new change
+  while one is outstanding replaces it, so a manager never faces two competing
+  versions of the same fact." What ships is a merge —
+  `ProfileProposals::merge()` (`app/Support/Members/ProfileProposals.php:141-156`)
+  unions the incoming keys onto the pending bag, both the proposed values and
+  the `previous` snapshot. Spec D1 ported the reference's behaviour rather than
+  the requirements' sentence, and the reason is in the class header
+  (`:20-35`): read strictly, a reader who corrects their phone number and then
+  proposes a new photograph silently loses the phone correction, and nothing on
+  a screen that shows *one* pending card would tell them.
+
+  **This is a product reading, not a technical one, and it is isolated so it
+  can be reversed in one line** — `merge()` returning `$incoming` outright. But
+  reversing it is not that one line alone. `avatar_object` is an ordinary
+  proposable key of the same jsonb bag, and it survives a later text-only
+  proposal *only because* the merge carries it: the graft is
+  `WritesProfileProposals::existingContents()`, whose docblock records the
+  coupling from the other side (`app/Actions/Admin/Concerns/WritesProfileProposals.php:95-102`).
+  Under a literal "replace", a phone-only proposal drops the pending
+  photograph's storage key — and because the deletion of a superseded image is
+  keyed off that same value (`app/Actions/Admin/ProposeAvatarChange.php:142-146`),
+  the image is orphaned in a public-read location forever, with nothing left
+  pointing at it. **Whoever flips D1 must restore an `avatar_object` graft in
+  the same change.** The behaviour is pinned by
+  `tests/Feature/Members/ProposeAvatarChangeTest.php:141`, which asserts the
+  graft holds in both directions.
+
+### The functional gap this phase leaves open
+
+- **Both decision queues tell a manager that a photograph was proposed. Neither
+  shows it to them.** OPS §4.3 is explicit that the image is stored at proposal
+  time precisely "so the manager can look at it while deciding"
+  (`docs/OPERATIONS.md:540`, restated at `:613`). Half of that is satisfied: the
+  image is stored, and it is fetchable — the reader's own page renders it, since
+  `MyProfileQuery` sends a `proposedAvatarUrl`
+  (`resources/js/pages/shelves/profile/index.tsx:138,679`). The queues send a
+  boolean instead. `ProfileChangeQueueQuery.php:145` and
+  `Admin/ManagerProfileChangeQueueQuery.php:173` both emit
+  `avatarProposed => array_key_exists('avatar_object', $proposed)`, and both
+  screens render that flag as a line of prose
+  (`resources/js/pages/manage/profile-changes.tsx:146-147`,
+  `resources/js/pages/admin/profile-changes.tsx:122-123`).
+
+  **Recorded plainly rather than softly, because it is arguably a real defect
+  and not a deferral**: a manager is being asked to approve a photograph of a
+  child on the strength of a sentence saying one exists. Nothing about the data
+  is missing — the key is in the pending row and the `avatars` disk has a URL
+  generator; only the query and the card were never wired. It fell through a
+  seam in the plan: Task 8 sequenced the avatar last and named the earlier tasks
+  it reopens as Tasks 1 through 4 (the page, the merge, and the two decision
+  Actions), which is where the *storage* work landed. Tasks 5 and 6 built the
+  queues and their screens, and were not on that list.
+
+### Two things the deploy story now knows that it did not
+
+- **The shim docroot does not serve `public/storage`, so `storage:link` is not
+  the avatar's answer.** HOSTING row 6 confirmed `symlink()` is allowed on the
+  host (`docs/HOSTING.md:29`), which reads like the question is closed — it is
+  not. Under docroot option 3, the shim, `public/` and `public_html/` stay two
+  separate directories (`docs/HOSTING.md:225-240`), and `deploy/post-deploy.sh`
+  syncs exactly two things across: `public/build` and `public/.htaccess`
+  (`deploy/post-deploy.sh:129-133`). A `public/storage` symlink therefore sits
+  in a directory the web server never reaches, and every avatar 404s in
+  production while working perfectly everywhere else. Task 8 took row 6's own
+  documented fallback instead — a dedicated `avatars` disk reading
+  `AVATAR_DISK_ROOT`/`AVATAR_DISK_URL`
+  (`config/filesystems.php:76-79`, `.env.example:210-225`), pointed under the
+  served docroot when the shim is in use and left on its `storage/app/public`
+  defaults under options 1 and 2.
+
+  **Written down because the trap is general, not about avatars.** Any future
+  feature that serves a file the application wrote — the archived-shelf export
+  below being the obvious one — meets the same wall, and meets it only in
+  production, since local and CI both serve `public/` directly.
+
+- **Whether the host's `gd` has WebP *encode* support is still unconfirmed.**
+  Row 3 is otherwise answered (`docs/HOSTING.md:26`): `gd` present, `imagick`
+  absent, `exif` present. The one capability nobody has measured is WebP
+  encoding, so `AvatarImage::encode()` asks `gd_info()['WebP Support']` at
+  runtime and encodes JPEG when the answer is no
+  (`app/Support/Members/AvatarImage.php:265-270`). **It degrades rather than
+  failing** — the failure mode is larger files, not a broken upload — which is
+  why this is a note and not a blocker. One probe on the host closes it:
+  `php -r 'print_r(gd_info());'`.
+
+### The refusal census reads raw source, so an example in a comment mints a code
+
+Task 8 hit this while writing `AvatarStorage`'s header. That class raises three
+refusals as three literal `throw` statements and never as a ternary, because
+`tests/Unit/Catalogue/RuleViolatedCodesHaveSentencesTest.php:55` matches a
+refusal whose first argument is a **quoted literal** and is blind to one that is
+an expression — so a ternary would register neither code with the census that
+pins every code to its Vietnamese sentence. The header explains that rule. The
+first draft explained it *with an example*, and because the census globs raw
+file contents (`:33`, `file_get_contents`) with comments included, the
+illustrative `new RuleViolated('literal')` minted a code named `literal` —
+which has no `lang/vi/rules.php` entry and no census enumeration, so two tests
+went red on a change that touched no behaviour at all. The header now describes
+the shape in prose and says why it contains no example
+(`app/Support/Members/AvatarStorage.php:40-49`).
+
+**The trap is not the ternary; the trap is the example.** The ternary hazard was
+already known — `ReorderParishUnits.php:123` carries the same warning from an
+earlier phase, which is the second time this census has shaped how a comment is
+written. Anything that looks like a `new RuleViolated('…')` call anywhere under
+`app/`, including inside a docblock, a commented-out line, or a string, is a
+code as far as the census is concerned. This has now bitten in two phases; the
+general form — a source-reading guard cannot distinguish code from prose about
+code — belongs with the other guard traps in `AGENTS.md`.
+
+### Two smaller things
+
+- **Post-commit image deletion is not transactional, and the alternative is
+  worse.** Approve discards the superseded image, reject and cancel discard the
+  proposed one, and in every case the delete happens *after* the transaction
+  commits. A crash in that window orphans an image: storage cost, no
+  correctness consequence, and recoverable by a sweep nobody has written yet.
+  The reverse order deletes an image a rollback then restores a live reference
+  to — a pending request pointing at bytes that are gone, which no sweep can
+  repair. The reference chose the orphan and so do we. The pin is Task 8's
+  forced-rollback test
+  (`tests/Feature/Members/ProposeAvatarChangeTest.php:248-289`), which injects a
+  failure on the last write inside `RejectProfileChange`'s transaction and
+  asserts the request is still pending *and* the image still on disk; a
+  successful reject passes under either ordering, so it could not be the test
+  that pins this.
+
+- **~~`docs/OPERATIONS.md:587` is stale, and only half corrected.~~ CLOSED
+  2026-09-01, commit `88a03aa`.** The blockquote is retracted in place — struck
+  through, with the retraction naming `BUSINESS-REQUIREMENTS.md:490` and the §7
+  rows Task 6 added — so §4.3 no longer contradicts §7. The entry is kept struck
+  rather than deleted for this file's usual reason: a note that vanishes without
+  saying it was answered comes back. Original text below.
+
+  > ~~That blockquote — an "Open question — notification gap" under
+  > `CancelProfileChange` — asserts that BR §15's reader-facing list "does not
+  > mention a profile-change decision at all". It does:
+  > `docs/BUSINESS-REQUIREMENTS.md:490` names both ("profile change approved,
+  > profile change rejected (carrying the manager's reason)") and BR:492 gives
+  > the reason. Task 6 built both, and added them to OPS §7's notification table
+  > with a note saying so (`docs/OPERATIONS.md:1147-1150`). **The §4.3 blockquote
+  > at :587 was not retracted**, so the document now contradicts itself: a reader
+  > who reaches §4.3 first is told the notifications do not exist and that the
+  > silence is for the product owner to resolve. It is a one-paragraph edit and
+  > it was left undone; this task's brief is `known-gaps.md` only.~~
+
+### Still deferred, unchanged
+
+- **The archived-shelf resolver filter and the export it depends on**, exactly
+  as 3b-i and 3b-ii left them. `app/Http/Middleware/ResolveTenant.php:35-37`
+  still resolves `{shelf}` by slug with no `status` condition, so an archived
+  shelf still serves its routes. The export is still unbuilt and still
+  **unscheduled** — 3c-i did not give it a home either — and it remains a
+  precondition on the filter, for the reason 3b-i argues at length: closing the
+  resolver without an export path makes archiving the way to put a parish's own
+  register beyond reach of everyone, including the administrator who archived
+  it, with the data all still there. This phase adds a little to the blast
+  radius (three more manager routes behind the resolver,
+  `routes/web.php:584-586`) and one new consideration to the export itself: it
+  would now have to carry files, which is the docroot trap above.
+
+### The whole-branch fix wave, and what it deliberately left alone
+
+A review of `feat/phase-3c-oversight-and-feedback` found six things after the
+phase's own tasks were done. Five were fixed on the branch and are recorded
+where they now live; two were judged out of scope and are recorded here,
+because a defect that is known and unfixed belongs in this file rather than in
+a review that scrolls away.
+
+**Fixed, and each pinned.** A lock-order inversion in
+`ApproveProfileChange` (it held `users` while its `applyPlacement` UPDATE went
+on to take the `memberships` lock, against `UpdateReaderProfile`'s and
+`ChangeOwnPassword`'s memberships-then-users — an AB–BA cycle over exactly the
+pair spec D3 exists to prevent, and neither of those two has a retry). The
+reader's own page rendering an `<img>` for an object the decide path had
+deleted. The avatars disk configured `throw => false`, so a failed write minted
+a key for bytes that were never stored. Both decision queues sending
+`avatarProposed` as a bare boolean, so a manager approved a photograph of a
+child on the strength of a sentence. And four tests that guarded nothing — a
+`json_encode` without `JSON_UNESCAPED_UNICODE` in the leak half of a leak test,
+a `'Tổ '` grep whose trailing space missed the bare literal it names, a
+"renders on a PENDING card only" test that never mentioned the guard, and three
+lock-order pins that read only `$log[0]`'s table and would have passed a
+command locking the wrong row entirely.
+
+**Not fixed, deliberately.**
+
+- **The audit-log screen prints the raw storage key.** A `profile_change.proposed`
+  row's `after` bag carries `avatar_object`, and the audit screen renders the
+  before/after payload verbatim. That is defensible under BR §14 — the audit
+  record is the record of exactly what was written, and rewriting a value on
+  the way to a super administrator's oversight screen is the wrong direction of
+  fix — but it does mean a bucket path is on a screen. If it is ever changed, it
+  should be changed by the audit renderer knowing the field, not by the Action
+  writing something other than what it wrote.
+- **A soft-deleted subject membership strands a pending request.** Both queues
+  drop a card whose subject cannot be resolved (`ProfileChangeQueueQuery`
+  continues past a null person; the cross-shelf queue's predicate needs a live
+  Manager/Admin membership), so a request whose subject has left sits pending
+  with nobody able to see it, let alone decide it. It is a real hole. It needs
+  a decision about what SHOULD happen — auto-cancel on departure, a
+  soft-deleted-subject queue, or a sweep — and that decision is the product
+  owner's, not a fix wave's.

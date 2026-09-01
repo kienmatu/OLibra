@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
+use App\Http\Controllers\Admin\ProfileChangeController as AdminProfileChangeController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\ShelfController as AdminShelfController;
 use App\Http\Controllers\ContactController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Manage\LendController;
 use App\Http\Controllers\Manage\LoanController;
 use App\Http\Controllers\Manage\LostCopiesController;
 use App\Http\Controllers\Manage\OverdueController;
+use App\Http\Controllers\Manage\ProfileChangeController as ManageProfileChangeController;
 use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
@@ -35,6 +37,7 @@ use App\Http\Controllers\Reader\CommentController;
 use App\Http\Controllers\Reader\DonationController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
+use App\Http\Controllers\Reader\ProfileController;
 use App\Http\Controllers\Reader\ScanController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
@@ -233,7 +236,51 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // original's memberless-super-admin allowance for free, the same way
     // it does for the reader group above.
     Route::prefix('profile')->name('profile.')->middleware(['auth', 'role:reader'])->group(function () {
-        Route::get('/', [ShellController::class, 'underConstruction'])->name('show');
+        // Phase 3c-i Task 1: the last placeholder in this group. BR §16.2's
+        // "View personal details" — the reader's own record, GetMyProfile
+        // (OPS:67) and GetMyProfileChangeRequest (OPS:68) behind it.
+        // Proposing a change to it is Task 2's and posts elsewhere; this
+        // one only reads.
+        Route::get('/', [ProfileController::class, 'show'])->name('show');
+        // Phase 3c-i Task 2: BR:83's request-not-an-edit. It names no
+        // membership — the caller's own row comes off the bound tenant, so
+        // there is nothing in this URL for a reader to edit into somebody
+        // else's. Declared beside its GET rather than in the manager area
+        // because this is the reader's own screen; a manager proposing on
+        // another's behalf reaches the same Action from theirs.
+        Route::post('/change-request', [ProfileController::class, 'propose'])->name('change-request');
+        // Phase 3c-i Task 8, spec D6 — the photograph, and the first upload
+        // path this port has ever had. A SEPARATE route from the text
+        // proposal above rather than a field on it: the two carry different
+        // encodings (multipart against a form post), different refusals
+        // (`file_too_large`, `heic_not_supported`, `invalid_image`, none of
+        // which the text form can raise) and different controls on the
+        // screen. They still reach the SAME pending row — spec D6 makes the
+        // avatar this lifecycle's file-carrying case, not a second one.
+        //
+        // Declared BEFORE the bound `change-request/{profileChange}/cancel`
+        // line below, the house's static-before-bound habit; these two
+        // cannot collide in any case, being under different first segments.
+        Route::post('/avatar', [ProfileController::class, 'proposeAvatar'])->name('avatar');
+        // Phase 3c-i Task 7: spec D4's self-exemption, and the ONLY caller
+        // App\Actions\Admin\CancelProfileChange has. Task 4 shipped that
+        // Action with tests and no route — neither decision queue wires it,
+        // because BR:580/602 list only Duyệt and Từ chối on those cards —
+        // so the capability was unreachable until this line. Static before
+        // bound is not at issue: this is two segments past /profile and the
+        // POST above is one.
+        //
+        // {profileChange} resolves through Bookshelf::profileChanges()
+        // under the outer group's scopeBindings() AND through BookshelfScope
+        // on the model, the same double layer the manager queue's own
+        // decide routes describe. Neither layer scopes by person — that is
+        // the Action's `not_own_request`, one layer down, exactly as the
+        // notification routes below document for their own binding.
+        Route::post('/change-request/{profileChange}/cancel', [ProfileController::class, 'cancel'])->name('change-request.cancel');
+        // Phase 3c-i Task 7, spec D12. BR §16.2's one remaining
+        // immediate-effect control: a password change is not a fact a
+        // manager verified, so it is not a proposal and nothing here waits.
+        Route::post('/password', [ProfileController::class, 'changePassword'])->name('password');
         Route::get('/history', [MyLoansController::class, 'history'])->name('history');
         // The bell. read-all is declared BEFORE the bound route — the
         // house habit (spec §6's static-before-bound discipline), even
@@ -509,7 +556,34 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/donations', [ManageDonationController::class, 'index'])->name('donations');
         Route::post('/donations/{donation}/receive', [ManageDonationController::class, 'receive'])->name('donations.receive');
         Route::post('/donations/{donation}/decline', [ManageDonationController::class, 'decline'])->name('donations.decline');
-        Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
+        // Phase 3c-i Task 5, spec D9 — BR §16.3's *Đổi thông tin*, the
+        // shelf's own decision queue, replacing the Phase 0 placeholder
+        // that has held this settled name since.
+        //
+        // ONE CARD PER READER-SUBJECT PROPOSAL (BR:580). The other half of
+        // the pending set — proposals whose subject is a manager or shelf
+        // admin — is deliberately absent, and lives at
+        // /admin/profile-changes below, because "nobody present may decide
+        // it". The two predicates partition the set by the subject's role;
+        // App\Queries\ProfileChangeQueueQuery's docblock carries why the
+        // count badge shares them rather than approximating them.
+        //
+        // {profileChange} resolves the two independent ways this file's
+        // divergence-3 note describes: through Bookshelf::profileChanges()
+        // under the scopeBindings() on the OUTER shelves/{shelf} group,
+        // and through BookshelfScope on ProfileChangeRequest itself. Both
+        // layers say the same thing here — a request id from another
+        // parish is a 404 at routing, before either Action runs — and the
+        // Action then takes the shelf off the ROW rather than from
+        // anything in the URL or the body (spec D10).
+        //
+        // BOTH POSTS CARRY A BODY, which is unusual for an approve in this
+        // project: spec D3 gave ApproveProfileChange optional parish-unit
+        // ids, and this card is where a manager re-places a reader. The
+        // reject's required reason is the ordinary shape.
+        Route::get('/profile-changes', [ManageProfileChangeController::class, 'index'])->name('profile-changes');
+        Route::post('/profile-changes/{profileChange}/approve', [ManageProfileChangeController::class, 'approve'])->name('profile-changes.approve');
+        Route::post('/profile-changes/{profileChange}/reject', [ManageProfileChangeController::class, 'reject'])->name('profile-changes.reject');
         // Phase 3b-ii Task 5, spec D5 and D6 — BR §5.6's parish units, the
         // rows a reader picks from at registration. The placeholder these
         // five replace held the name `units` from Phase 0;
@@ -753,7 +827,26 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     Route::post('/settings/defaults', [AdminSettingsController::class, 'updateDefaults'])->name('settings.defaults');
     Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
     Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
-    Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
+    // Phase 3c-i Task 5, spec D9 and D10 — BR §16.4's "Change queue for
+    // managers and shelf admins": the other half of the partition above,
+    // "every pending profile-change proposal whose subject is a manager or
+    // shelf admin anywhere in the system, the shelf named on each card"
+    // (BR:602). This is where a manager's own proposed change is decided,
+    // because nobody at their own shelf may decide it.
+    //
+    // NO {shelf} AND NO BINDING. This group binds no tenant, so
+    // BookshelfScope fails closed on ProfileChangeRequest and an implicit
+    // binding would throw before the controller ran — these two carry a
+    // bare id, which App\Queries\Admin\ManagerProfileChangeQueueQuery
+    // ::find() resolves by widening once inside the sanctioned directory.
+    // A missing id is the 404 the binding would have produced.
+    //
+    // THE SAME TWO ACTIONS AS THE SHELF QUEUE, per spec D10 — one
+    // implementation of the decision, two surfaces reaching it — and the
+    // shelf comes off the ROW on both paths, never off the body.
+    Route::get('/profile-changes', [AdminProfileChangeController::class, 'index'])->name('profile-changes');
+    Route::post('/profile-changes/{profileChange}/approve', [AdminProfileChangeController::class, 'approve'])->name('profile-changes.approve');
+    Route::post('/profile-changes/{profileChange}/reject', [AdminProfileChangeController::class, 'reject'])->name('profile-changes.reject');
 });
 
 require __DIR__.'/auth.php';

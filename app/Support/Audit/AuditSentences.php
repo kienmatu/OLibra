@@ -65,6 +65,34 @@ final class AuditSentences
         'membership.left' => 'readers',
         'credentials.set' => 'readers',
         'profile.corrected' => 'readers',
+        // Phase 3c-i Task 2, spec D1 and D5 — the first of the lifecycle's
+        // five, and 'readers' rather than 'administration' even though the
+        // command lives in app/Actions/Admin/. That directory is forced by
+        // the audit configurator's fence (spec D10), not by the act being
+        // administrative: this is a reader on their own profile page, and
+        // the group answers "which screen is this act from".
+        'profile_change.proposed' => 'readers',
+        // Phase 3c-i Task 3, spec D2 and D3 — the decision pair, and the
+        // same 'readers' answer for the same reason: the group names which
+        // screen an act is from, and both queues that reach these are
+        // reader-record screens. That the cross-shelf one hangs off /admin
+        // does not make the act administrative; 'administration' is the
+        // group for acts ON a shelf or ON a manager, not for acts about a
+        // reader that an administrator happens to be the one permitted to
+        // take.
+        'profile_change.approved' => 'readers',
+        'profile_change.rejected' => 'readers',
+        // Phase 3c-i Task 4, spec D4 — the withdrawal, and 'readers' again.
+        // The routing rule means a super administrator on the cross-shelf
+        // queue may be the one taking it back, but the act is still about a
+        // reader's own record, which is what the group names.
+        'profile_change.cancelled' => 'readers',
+        // Phase 3c-i Task 7, spec D12 — the phase's last action, and
+        // 'readers' for the plainest of this family's reasons: it is a
+        // person acting on their own record, from the reader's own page.
+        // credentials.set, the volunteer-side act it deliberately does NOT
+        // share an action with, is in the same group.
+        'user.password_changed' => 'readers',
         // Phase 2b files every community action under its own group, the
         // reference's cong-dong (audit-actions.ts's comment.* family).
         // Folding comments into books would leave next task's shelf news
@@ -361,6 +389,34 @@ final class AuditSentences
             'membership.left' => strtr(self::line('membership_left'), [':subject' => self::who($subject)]),
             'credentials.set' => strtr(self::line('credentials_set'), [':subject' => self::who($subject)]),
             'profile.corrected' => strtr(self::line('profile_corrected'), [':subject' => self::who($subject)]),
+            // No strtr at all — the reference's phrase takes no
+            // substitution, and the payload (the proposed values beside
+            // their snapshot) is what a volunteer opens the row for.
+            'profile_change.proposed' => self::line('profile_change_proposed'),
+            // NAMES THE SUBJECT, unlike proposed just above, and it can:
+            // this row's entity IS the user (spec D3's entity-type rule),
+            // so the subject join has a key to work from. Which fields
+            // moved is in the payload rows one tap away.
+            'profile_change.approved' => strtr(self::line('profile_change_approved'), [':subject' => self::who($subject)]),
+            // NO subject, and the reason through the existing :because
+            // helper. The entity here is the REQUEST, so there is no user
+            // id to join a name from — the same situation
+            // profile_change.proposed is in. RejectProfileChange always
+            // writes a reason (it is refused blank), so this clause is
+            // never empty in practice; the helper does not assume it.
+            'profile_change.rejected' => strtr(self::line('profile_change_rejected'), [':because' => self::because(self::str($after, 'reason'))]),
+            // No strtr and no subject, for the same reason as proposed: the
+            // entity is the REQUEST, so there is no user id to join a name
+            // from. A withdrawal writes no decided_by either — the actor
+            // column of the audit row is the whole answer to who did it.
+            'profile_change.cancelled' => self::line('profile_change_cancelled'),
+            // NAMES THE SUBJECT, like credentials.set and unlike the four
+            // profile_change.* arms: this row's entity is the USER (there
+            // is no request row for a password change), so the subject join
+            // has a key to work from. No payload to read — the audit row
+            // carries no before and no after, which is spec D12's
+            // requirement and not a gap in this sentence.
+            'user.password_changed' => strtr(self::line('user_password_changed'), [':subject' => self::who($subject)]),
             // No strtr at all — the copy_lost_reported shape. The
             // reference's phrase names neither the title nor the author,
             // and that stays deliberate: the payload holds book_id and no

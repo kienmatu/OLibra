@@ -57,6 +57,34 @@ return [
     'membership_left' => 'đánh dấu :subject đã rời tủ sách',
     'credentials_set' => 'đặt hoặc đổi tài khoản đăng nhập cho :subject',
     'profile_corrected' => 'sửa hồ sơ của :subject',
+    // Phase 3c-i Task 2. The reference's phrase verbatim, and it names NO
+    // subject on purpose: this row's entity is the request, whose subject
+    // join has no user id to work from, and the overwhelming case is a
+    // reader proposing about themselves — where naming them after the
+    // actor would read as though somebody proposed a change to somebody
+    // else. Which fields were proposed is in the payload rows one tap
+    // away, which is where INV-8 puts them.
+    'profile_change_proposed' => 'gửi yêu cầu đổi thông tin',
+    // Phase 3c-i Task 3. This one DOES name the subject: the audit row's
+    // entity is the person whose details just moved, which is the whole
+    // difference between approving a change and proposing one.
+    'profile_change_approved' => 'duyệt yêu cầu đổi thông tin của :subject',
+    // No subject — the row's entity is the request, whose subject join has
+    // no user id to work from — and the reason through the shared :because
+    // clause, the membership_rejected / comment_rejected shape.
+    'profile_change_rejected' => 'từ chối yêu cầu đổi thông tin:because',
+    // Phase 3c-i Task 4. No subject and no reason: the row's entity is the
+    // request, and a withdrawal is not refused with an explanation — it is
+    // simply taken back.
+    'profile_change_cancelled' => 'huỷ yêu cầu đổi thông tin',
+    // Phase 3c-i Task 7, spec D12. NAMES THE SUBJECT, which credentials_set
+    // above also does — and the two sentences are deliberately different
+    // sentences: this one says the person changed their OWN password
+    // (they supplied the current one), that one says somebody set it FOR
+    // them. An oversight screen reading these two rows has to be able to
+    // tell those apart, which is the whole reason the actions did not
+    // merge.
+    'user_password_changed' => 'đổi mật khẩu của :subject',
 
     // — cộng đồng —
     // The reference's phrase verbatim (audit-actions.ts's comment.created).
