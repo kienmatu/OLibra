@@ -47,6 +47,20 @@ export default function ShelfShow() {
                         {copy.shelf.donate}
                     </Link>
                 ) : null}
+                {/* The OTHER of BR §16.1's two secondary cards, built in
+                    phase 3c-ii Task 2 and linked the day it stopped being a
+                    placeholder — copy.shelf.feedback's own comment carries
+                    the sentence this replaces.
+
+                    NO auth.user GUARD, unlike the donate link above, and the
+                    difference is the whole point of the route: shelves.feedback
+                    sits outside routes/web.php's ['auth', 'role:reader'] group
+                    because a guest may leave feedback for a shelf they are not
+                    a member of. Guarding it here would hide the page from
+                    exactly the visitor it exists for. */}
+                <Link href={route("shelves.feedback", { shelf: shelf.slug })}>
+                    {copy.shelf.feedback}
+                </Link>
                 {auth.user ? (
                     <Link href={route("shelves.profile.show", { shelf: shelf.slug })}>
                         {copy.shelf.profile}

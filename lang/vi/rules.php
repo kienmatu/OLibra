@@ -504,4 +504,16 @@ return [
     // wait a minute or a day, and one who is not told the message was
     // dropped will assume it arrived.
     'rate_limited' => 'Mỗi số điện thoại chỉ gửi được 3 góp ý trong 24 giờ. Góp ý này chưa được gửi, xin gửi lại sau.',
+    // NOT a refusal code — a flash, on donation_offered_flash's pattern,
+    // added by 3c-ii Task 2 with the shelf's Góp ý form. It lives in this
+    // file rather than in copy.ts because the SERVER decides when a
+    // message was stored, and a success line the client rendered on its
+    // own would tell a sender their message arrived whenever the round
+    // trip merely finished.
+    //
+    // "Đã gửi rồi, cảm ơn bạn nhé" is the reference's own sentence,
+    // extended by half a line. The form clears itself on success, so
+    // without the second clause the sender sees an empty form and a thank
+    // you and has nothing telling them where the message went.
+    'feedback_submitted_flash' => 'Đã gửi rồi, cảm ơn bạn nhé. Các cô chú giữ tủ sách sẽ đọc góp ý này.',
 ];

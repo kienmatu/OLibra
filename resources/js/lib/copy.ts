@@ -88,11 +88,19 @@ export const copy = {
         // exactly two hits, one in each of those two pages, cross-linking
         // each other. shelves/show.tsx carries the same measurement beside
         // the link this key labels, and what it does and does not prove.
-        // `Góp ý` is a second card the same paragraph asks for
-        // and it is NOT added here: `shelves.feedback` still renders the
+        // `Góp ý` is the second card the same paragraph asks for. It used
+        // to be missing from this list, and the reason it gave was: "it is
+        // NOT added here: `shelves.feedback` still renders the
         // under-construction placeholder, and a link to that is a promise
-        // the page cannot keep.
+        // the page cannot keep." Phase 3c-ii Task 2 built that page, so
+        // the promise can now be kept and the word lands below.
+        //
+        // Unlike `donate`, the link that uses this one is NOT guarded on
+        // auth.user in shelves/show.tsx: shelves.feedback sits outside the
+        // ['auth', 'role:reader'] group deliberately, so a guest who
+        // follows it meets the form rather than the login redirect.
         donate: "Tặng sách",
+        feedback: "Góp ý",
         profile: "Hồ sơ",
         manage: "Quản lý",
     },
@@ -1440,6 +1448,53 @@ export const copy = {
         toList: "Những lần bạn đã tặng",
         toForm: "Tặng sách cho tủ sách",
         backToOverview: "Về trang của tôi",
+    },
+    /**
+     * BR §16.1's Góp ý — the shelf's message form, phase 3c-ii Task 2.
+     *
+     * ITS OWN NAMESPACE even though three of its four labels look like
+     * `register`'s and `donations`', because this file's header bans
+     * reaching across namespaces and this form asks its questions of a
+     * different person: a visitor who may have no account at all. Reusing
+     * `donations.required` here would let a reword of the donation form
+     * silently rewrite what this one marks compulsory.
+     *
+     * THE LIMIT SENTENCE IS A TEMPLATE, not a sentence with a 3 in it.
+     * The reference hard-codes "tối đa 3 góp ý mỗi ngày" in its own
+     * markup; here the number arrives from the server as
+     * App\Actions\Community\SubmitFeedback::DAILY_LIMIT, so the figure the
+     * form promises and the figure the command enforces are one constant.
+     * A copy edit cannot make the page lie about the rule.
+     */
+    feedback: {
+        title: "Gửi góp ý",
+        // The reference's own subtitle, kept: it names the people at the
+        // other end rather than "ban quản trị", because the reader of this
+        // page is often a child or a parent, not a user of a system.
+        subtitle: "Có điều gì bạn muốn nhắn cho các cô chú giữ tủ sách không?",
+        nameLabel: "Tên của bạn",
+        phoneLabel: "Số điện thoại",
+        // WHY A NUMBER IS COMPULSORY on a form a stranger fills in, said
+        // where the label is: it is the only way anyone can answer. The
+        // application sends no email at all (copy.contact.callNote says so
+        // on the public page), so a góp ý with no number is a message
+        // nobody can reply to.
+        phoneNote: "Để các cô chú gọi lại trả lời bạn.",
+        subjectLabel: "Chủ đề",
+        // The one field with no *Bắt buộc* beside it, and its absence is
+        // the field's meaning — the reference marks the other three
+        // required and leaves this one bare.
+        subjectOptional: "Không bắt buộc",
+        bodyLabel: "Nội dung",
+        bodyPlaceholder: "Ví dụ: tủ sách mở cửa lúc mấy giờ ạ?",
+        // The word, not an asterisk — AGENTS.md rule 6. Its own key, per
+        // the namespace note above.
+        required: "Bắt buộc",
+        // {count} is filled from the dailyLimit prop. Says the number, the
+        // window and the reason, which is the reference's own wording.
+        limitNote: "Mỗi số điện thoại gửi tối đa {count} góp ý mỗi ngày, để tránh tin rác.",
+        submit: "Gửi góp ý",
+        backToShelf: "Về trang tủ sách",
     },
     /**
      * BR §16.3's Thống kê screen. Own namespace, own keys — this file's

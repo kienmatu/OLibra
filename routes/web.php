@@ -35,6 +35,7 @@ use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestCo
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\CommentController;
 use App\Http\Controllers\Reader\DonationController;
+use App\Http\Controllers\Reader\FeedbackController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
 use App\Http\Controllers\Reader\ProfileController;
@@ -217,7 +218,41 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/scan', [ScanController::class, 'resolve'])->name('scan');
     });
 
-    Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
+    // BR §16.1's Góp ý, phase 3c-ii Task 2 — the last placeholder in the
+    // reader area. The route NAME is the placeholder's, kept: `grep -rn
+    // "shelves.feedback" resources/` at 213f5bb, run before these two lines
+    // were written, returned one hit — a mention of the name inside a
+    // comment in resources/js/lib/copy.ts explaining why the shelf home did
+    // NOT yet link here. That comment is amended in this commit and the
+    // link added, which is what the continuity buys.
+    //
+    // BOTH LINES STAY OUTSIDE THE role:reader GROUP ABOVE, deliberately,
+    // and the block comment on that group carries the reason: this is the
+    // one page under the original's reader route group with no
+    // `requireReader` at all, because a guest may leave feedback for a
+    // shelf they are not a member of. What guards the destination instead
+    // is that nothing in the body can choose it — `tenant` binds {shelf}
+    // and SubmitFeedback reads the shelf off TenantContext, so a message
+    // filed here belongs to the shelf whose address was typed.
+    //
+    // THE EXEMPTION IS NOT A PIN, said here because the shape invites the
+    // opposite reading: RouteOrderTest:117's `$excludedSegments =
+    // ['manage', 'feedback']` REMOVES these two routes from the
+    // reader-area role-gate sweep, so THAT file cannot notice a
+    // `role:reader` added here. MEASURED rather than argued, by wrapping
+    // both lines in `Route::middleware(['auth', 'role:reader'])` and
+    // running the whole suite: 8 failed, 1930 passed, and RouteOrderTest
+    // is green in that run. The eight are the guest blocks in
+    // tests/Feature/Community/ReaderFeedbackScreenTest.php (five, this
+    // task's), SubmitFeedbackTest's rate-limit block (which posts here as
+    // a guest), ShellTest's "serves feedback to a guest" and
+    // MyNotificationsTest's "a signed-in NON-member gets no bell at all,
+    // on the one shelf page they can reach" — that last one being
+    // HandleInertiaRequests:83-86's third clause, which exists BECAUSE
+    // this route is the page a non-member reaches. So the door is
+    // guarded, just not by the file whose name suggests it.
+    Route::get('/feedback', [FeedbackController::class, 'create'])->name('feedback');
+    Route::post('/feedback', [FeedbackController::class, 'store'])->name('feedback.store');
 
     // Coordinator correction to this follow-up: `(doc-gia)/layout.tsx`
     // itself does not gate (it only resolves the address for the footer,

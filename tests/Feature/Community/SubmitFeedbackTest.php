@@ -9,12 +9,19 @@ use App\Models\Membership;
 use App\Models\User;
 use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Route;
 
 /**
  * Shelf + one active reader, bound as the tenant — the shelf Góp ý route's
- * situation, which is the one Task 1 can exercise (Tasks 2 and 3 add the two
- * routes themselves).
+ * situation.
+ *
+ * THIS FILE OWNS THE COMMAND, and since phase 3c-ii Task 2 built the shelf
+ * route it stops there: what a REQUEST to that address does — who may reach
+ * it, which shelf the row lands on, whether a body can name one — belongs to
+ * tests/Feature/Community/ReaderFeedbackScreenTest.php. The one block below
+ * that goes over HTTP does so because the sentence a refusal renders is only
+ * observable through bootstrap/app.php's render hook, and it now posts to
+ * the real route rather than to a throwaway of its own. (Task 3's public
+ * contact form is still to come.)
  *
  * Grep first: `grep -rn "^function sfbFix" tests/` — top-level helpers are
  * process-global (AGENTS.md).
@@ -115,19 +122,22 @@ it('five spellings of one number are one sender, not five', function () {
 });
 
 it('the fourth message in a rolling 24 hours is refused with a sentence, and the window rolls', function () {
-    sfbFix();
+    [$shelf] = sfbFix();
 
-    // A route of this test's own, because Tasks 2 and 3 are what add the
-    // real ones — what it exercises is bootstrap/app.php's single
-    // RuleViolated render hook, the one place a code becomes a sentence, so
-    // the assertion below is about the response a sender really gets.
-    Route::post('/_test/feedback', function () {
-        app(SubmitFeedback::class)->execute(
-            null, 'Ông Sáu', '0912345678', null, 'Góp ý thứ tư.',
-        );
-
-        return redirect('/');
-    })->middleware('web');
+    // THE REAL ROUTE, as of phase 3c-ii Task 2. This block used to declare
+    // a throwaway `POST /_test/feedback` of its own, because Tasks 2 and 3
+    // were what added the real ones; leaving it in place after Task 2
+    // would have put two paths under test, and the one that mattered — the
+    // address a sender actually posts to, with its Form Request in front
+    // of the command — was the one not being exercised. What the block
+    // still exercises is unchanged: bootstrap/app.php's single RuleViolated
+    // render hook, the one place a code becomes a sentence.
+    $url = "/shelves/{$shelf->slug}/feedback";
+    $body = [
+        'guest_name' => 'Ông Sáu',
+        'guest_contact' => '0912345678',
+        'body' => 'Góp ý thứ tư.',
+    ];
 
     CarbonImmutable::setTestNow('2026-09-01 08:00:00');
     for ($i = 0; $i < 3; $i++) {
@@ -137,20 +147,24 @@ it('the fourth message in a rolling 24 hours is refused with a sentence, and the
     // Twenty-three hours on: still inside the window, still refused. A
     // calendar-day limiter would have reset at midnight.
     CarbonImmutable::setTestNow('2026-09-02 07:00:00');
-    $refused = test()->from('/tu-sach/dong-thap-sfb/gop-y')->post('/_test/feedback');
+    $refused = test()->from($url)->post($url, $body);
 
     // NOT a 429, deliberately: the domain rule answers with the redirect
     // every other refusal in this system uses, carrying the Vietnamese
     // sentence in the error bag where the form reads it.
-    $refused->assertRedirect('/tu-sach/dong-thap-sfb/gop-y');
+    $refused->assertRedirect($url);
     $refused->assertSessionHasErrors(['rule' => __('rules.rate_limited')]);
     expect(__('rules.rate_limited'))->not->toBe('rules.rate_limited');
     expect(Feedback::query()->count())->toBe(3);
 
     // Twenty-five hours after the first three, the window has rolled past
-    // them and the same number is welcome again.
+    // them and the same number is welcome again — and the same POST that
+    // was refused above now succeeds, with the flash in place of the
+    // error bag.
     CarbonImmutable::setTestNow('2026-09-02 09:00:01');
-    test()->from('/tu-sach/dong-thap-sfb/gop-y')->post('/_test/feedback')->assertRedirect('/');
+    $accepted = test()->from($url)->post($url, $body);
+    $accepted->assertRedirect($url);
+    $accepted->assertSessionHas('success', __('rules.feedback_submitted_flash'));
     expect(Feedback::query()->count())->toBe(4);
 
     CarbonImmutable::setTestNow();
