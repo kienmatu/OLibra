@@ -172,9 +172,12 @@ docker exec laravel-app-1 php artisan test                # 6. Pest
 dyld error before running anything, so a host-side "pint failed" is a toolchain
 artefact, not a code failure. Run them inside `laravel-app-1`.
 
-**`npm run build` is not the app's build.** The repo root's `build` script maps
-to `cd old_next && next build`, which builds the read-only Next.js reference.
-The Laravel build is `npm run laravel:build`.
+**`npm run build` IS the app's build**, as of phase 4. It used to map to
+`cd old_next && next build` and build the read-only Next.js reference, which
+cost one red CI run in phase 3b. `npm run laravel:build` still exists and does
+the same thing — the two workflows and the gate list below invoke it by that
+name, so it is kept as an alias rather than renamed in the same commit that
+changed the scripts.
 
 ### Pest's `toContain` takes no message argument
 
