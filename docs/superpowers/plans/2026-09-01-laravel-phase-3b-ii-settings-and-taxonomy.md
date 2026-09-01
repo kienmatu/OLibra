@@ -64,7 +64,13 @@ that writes it, with its `phrase()` arm, its `lang/vi/audit.php` line, its group
 The census asserts set-equality **both ways**, so registering an action whose
 writer does not exist yet turns the suite red until it does.
 
-Count starts at **48** and ends at **58**.
+Count starts at **48** and ends at **58**. Each task's number is **absolute, not
+relative**, so the task order below is mandatory rather than merely preferred.
+
+**Two other ordering dependencies**, both real: Task 7 needs Task 1's editable
+defaults (it says so), and **Task 2's end-to-end test needs Task 1's contact
+form** — "changing the details changes the page" must go through the real save
+path, not a direct database update.
 
 ---
 
@@ -80,8 +86,14 @@ exist with **zero callers** — this is its first.
    it is the only setting the public can see). A typo in a default must not block
    fixing the administration's phone number.
 2. **Contact form** — `contact_name`, `contact_phone`, `contact_hours`. Validate
-   the phone with `App\Support\Phone` when non-empty: this is the number
-   `/contact` publishes, so a bad value is a *public* dead link.
+   the phone with **`App\Support\Members\Phone`** (not `App\Support\Phone`)
+   when non-empty: this is the number `/contact` publishes, so a bad value is a
+   *public* dead link. Its API is `Phone::assert(string): void`, throwing
+   `RuleViolated('phone_invalid')`, plus `isValid()`, `normalise()` and
+   `PATTERN` for the HTML mirror. Every existing caller
+   (`ProfileFields.php:71`, `Registration.php:90`) does the blank check first,
+   then `assert()` — follow that, so the refusal reaches the shared
+   `errors.rule` banner rather than being a field error.
 3. **Defaults form** — the six `default_*` columns, bounds from spec D7:
    loan 1–365, concurrent 1–50, renewals **0**–10, renewal days 1–365, hold
    1–30, due-soon **0**–30. The two zero-minimums are load-bearing ("no renewals
@@ -96,9 +108,24 @@ exist with **zero callers** — this is its first.
 6. Commands live in `app/Actions/Admin/` — required, because they audit and the
    audit configurator is fenced there.
 
+**Extend `tests/Feature/Admin/AdminScreensRenderFeedbackTest.php`.** Its screen
+list is **hand-written** (`:79-81`) and will not grow to cover a new admin page
+on its own — so a screen that renders neither its refusals nor its flashes ships
+silently. That is the exact defect the file exists to catch; its docblock is a
+forty-line argument about it.
+
+**Routes and controller:** every other task inherits an existing screen; this one
+invents a page. Two POSTs under the `/admin` group, an `Admin\SettingsController`,
+and the screen at `resources/js/pages/admin/settings/index.tsx`. New Vietnamese
+copy goes in `resources/js/lib/copy.ts`, the pattern `admin/shelves/edit.tsx:9`
+uses.
+
 **Tests:** the two forms refuse independently; both writers set
 `changed_by`/`changed_at`; a phone that fails `Phone` is refused; a default
 below its minimum is refused and `max_renewals: 0` is accepted.
+
+Note `changed_at` is `->useCurrent()` and **not nullable** — only `changed_by`
+can stay null, so assert that one.
 
 **Falsify:** set `max_renewals`' minimum to 1 and watch the zero case go red.
 
@@ -145,8 +172,19 @@ fenced there.
   sentence: *"Chỉ lưu trữ được khi không còn sách nào thuộc thể loại này."*
   The refusal code is `category_in_use`. It needs a Vietnamese sentence in
   `lang/vi/rules.php` **and** an entry in `RuleViolatedCodesHaveSentencesTest`'s
-  hand-written list — the catalogue slice has no census that would catch a
-  missing one, so this fails silently rather than red.
+  hand-written list. **That census is not slice-scoped** despite living under
+  `tests/Unit/Catalogue/` — it globs the whole of `app/` (`:24`), regexes every
+  literal `new RuleViolated('code')` and asserts set-equality against its list.
+  So minting a code without listing it turns the suite **red immediately**, on
+  the set-equality, before the sentence check runs. (An earlier draft of this
+  plan said the opposite; do not trust it.)
+
+**The slug is derived on create**, never typed — `categories.slug` is unique and
+`utf8mb4_bin`. Use the repo's `Fold` helper, matching how the reference's
+`create-category.ts` derives it.
+
+**Extend `AdminScreensRenderFeedbackTest`'s hand-written screen list** for this
+page too, for the reason given in Task 1.
 
 **Tests:** archiving with books is refused; archiving an empty genre succeeds and
 it leaves the picker; a rename leaves the slug untouched.
@@ -170,6 +208,17 @@ keys are `levels`, `nested`, `level1_label`, `level2_label` (snake_case in
 `settings`, camelCase in PHP), with `default()` = `(1, false, 'Tổ', 'Tổ')`. Read
 that class rather than trusting this list — a key taken from the requirements
 instead of the code is this project's signature failure.
+
+**The writer lives in `app/Actions/Admin/`** and audits with
+`->forShelf($shelf->id)->record('parish_taxonomy.updated', ...)`. The admin
+editor binds no tenant, so `AuditRecorder::record()` throws unless configured,
+and the configurator is fenced to that directory.
+
+**Give the form its own flash key.** `admin/shelves/edit.tsx:255-282` has one
+`flash.success` banner and one `InputError message={pageErrors.rule}` shared by
+all its forms, distinguished only by per-form flash keys
+(`bookshelf_profile_saved_flash` and siblings). Without a fourth key this save is
+indistinguishable from a policy save.
 
 **Merge into `settings`, never assign over it.** The bag also holds the eight
 policy keys and the two public-display settings; 3b-i carries a test proving a
@@ -201,6 +250,21 @@ is exactly this. A manager must not see a control the server refuses.
 - **Delete cascades to level-2 children and writes one audit row per deleted
   row**, children marked `cascaded: true` in the `after` payload. A single row
   saying "deleted a unit" would hide that four sub-units went with it.
+- **Duplicate names are a database constraint, not a validation nicety.**
+  `parish_units` carries `parish_units_name_unique_in_scope`, a UNIQUE over a
+  generated `name_scope_key` of `(bookshelf_id, level, parent_id, name)`, null
+  when soft-deleted. A duplicate live name is a raw 1062 — a 500, not a refusal.
+  Catch it and re-raise as `validation_failed`, the way the reference does
+  (`create-parish-unit.ts:38-50,136`, `rename-parish-unit.ts:23-25,66`).
+  A missing parent is `parish_unit_l1_not_found` (`create-parish-unit.ts:109`),
+  a code that does **not** exist in `lang/vi/rules.php` today: add the sentence
+  **and** the census-list entry, or the suite goes red on set-equality.
+- **Name the audit payload keys explicitly; never dump the model.**
+  `AuditSecrets` forbids any payload key containing the token `key`
+  (`app/Support/Audit/AuditSecrets.php:26`, matched whole within snake splits),
+  and `ParishUnit` carries `name_scope_key`. So `->record(..., $unit->toArray())`
+  or `getChanges()` throws `audit_forbidden_field`. D6's one-row-per-deleted-row
+  shape is exactly what invites a wholesale dump.
 - **Reorder has two rules.** Level-2 siblings group by their real `parent_id`,
   never the flat display list — a shelf with `nested` off otherwise refuses every
   click. And the posted list must be the **entire** sibling group: a partial list
@@ -208,7 +272,10 @@ is exactly this. A manager must not see a control the server refuses.
   silently restores name ordering.
 
 **Tests:** a super admin sees the editor and a manager sees text, both
-directions; deleting a parent writes one row per deleted row; reordering groups
+directions — the server half asserts the Inertia `canEdit` prop, and the half
+that matters (that the component actually switches on it) is a **comment-stripped**
+source read using `AdminScreensRenderFeedbackTest`'s helper, because a comment
+saying `// canEdit switches the tree` satisfies a naive grep; deleting a parent writes one row per deleted row; reordering groups
 by real `parent_id` on a shelf with `nested` off; a partial sibling list is
 refused.
 
@@ -228,8 +295,24 @@ its taxonomy shape — **all as text**, with a line saying who can change them
 as super admin and would 404 a manager; do not reach for it, and do not add a
 manager-side writer.
 
-**Test:** the screen renders no form — asserted as the absence of a control
-rather than the presence of text.
+**Test — and this is the weakest test in the plan unless you write it
+deliberately.** "The absence of a control" has two vacuous forms and one honest
+one:
+
+- A raw `.tsx` grep for `<form` is **defeated by a comment** mentioning the word.
+  `AdminScreensRenderFeedbackTest:43-58` exists solely because a raw grep passed
+  on prose alone; use its comment-stripping helper, not a bare grep.
+- A route-absence assertion alone is **green against an empty implementation**,
+  since no POST exists under `manage/settings` before this task either.
+
+So do both: assert no POST/PATCH/PUT route exists under `manage/settings`
+(`CatalogueArchitectureTest.php:44-53` is the precedent — "there is deliberately
+no delete-book route"), **and** read the screen source with comments stripped and
+assert it references no form bag.
+
+**Falsify:** add a form and a POST route, watch both halves go red, remove them.
+This is the only task whose test cannot be falsified by mutating existing code,
+so the mutation has to be additive.
 
 ---
 

@@ -87,7 +87,7 @@ looks enabled and does nothing.
 **The contact phone is validated, because it is published.** The reference calls
 `assertPhone` on a non-empty value (`system-settings.ts:50`) and gives the
 reason on the line above: this is `/lien-he`'s public number, so a bad value is a
-*public* dead link rather than a private inconvenience. `App\Support\Phone`
+*public* dead link rather than a private inconvenience. `App\Support\Members\Phone`
 already exists here.
 
 **Backup is listed by §16.4 and deliberately not built.** `BUSINESS-REQUIREMENTS.md:598`
@@ -164,8 +164,8 @@ Three commands, matching the reference: create, rename, archive.
   loại này."* The refusal code is `category_in_use`
   (`archive-category.ts:52`) and needs a Vietnamese sentence in
   `lang/vi/rules.php` plus an entry in `RuleViolatedCodesHaveSentencesTest`'s
-  hand-written list — the members slice has a census that would catch a missing
-  one, the catalogue slice does not, so this fails silently rather than red. The first draft's test asserted the opposite — that archiving
+  hand-written list. That census globs the whole of `app/` despite its
+  directory, so an unlisted code is red immediately rather than silent. The first draft's test asserted the opposite — that archiving
   succeeds and books keep the reference — which would have tested that the
   refusal does not exist.
 - **No BR mandate.** §16.4 (`BUSINESS-REQUIREMENTS.md:596-612`) lists eight
@@ -397,10 +397,11 @@ where-shaped calls or `->global(` inside a comment.
 
 ## 7. Risks
 
-- **The admin shelf editor gains a fourth section that is itself a sub-editor**
-  with list CRUD and reordering — much the largest screen in the phase, landing
-  where three forms already live. 3b-i's per-section-form rule is what keeps it
-  an addition.
+- **The admin shelf editor gains a fourth section — the taxonomy *shape* only.**
+  Unit CRUD and reordering live on `manage/units` (D5); an earlier draft of this
+  risk bullet said otherwise and survived D5's reversal. Building the sub-editor
+  on the admin screen would force `systemWide()` across every `ParishUnit`
+  access, which is precisely what D5 reversed twice to avoid.
 - **Ten audit actions is the phase's bulk paperwork**, and the census bites in
   both directions, so a half-registered action is instantly red.
 - **`/contact` is the app's only fully public surface besides the portal**, so a
