@@ -1,6 +1,6 @@
 # Phase 3b-ii — settings, taxonomy and the public contact page
 
-Status: draft for review
+Status: draft, revised after review
 Date: 2026-09-01
 Branch: `feat/phase-3b-ii-settings-and-taxonomy`, cut from `main` at `5cf8b9c`
 
@@ -10,214 +10,313 @@ OLibra is a Vietnamese parish lending-library system being ported from Next.js
 to Laravel + Inertia + React. `old_next/` is a **read-only** behavioural
 reference. Phases 0–3a shipped the schema, catalogue, members, circulation,
 community features, statistics, QR labels, the public portal and the super-admin
-dashboard; a design-system port then brought the reference's palette and
-typography across; and 3b-i made an installation **operable** — bookshelves and
-managers can now be created, edited, appointed and revoked.
+dashboard; a design-system port brought the reference's palette and typography
+across; and 3b-i made an installation **operable** — bookshelves and managers can
+be created, edited, appointed and revoked.
 
-Phase 3b was split because as ruled it covered seven screens, roughly twice 3a,
-and this project's cross-seam defects are caught by a whole-branch review that
-gets less reliable as a branch grows. 3b-i took the two screens that blocked
-operation. **This spec is 3b-ii, the other five.**
+Phase 3b was split because as ruled it covered seven screens. 3b-i took the two
+that blocked operation. **This spec is 3b-ii, the other five.**
 
 ## 2. Problem statement
 
-Five `underConstruction` placeholders remain from 3b's original scope, and they
-share a theme: **everything an installation configures, rather than operates.**
+Five `underConstruction` placeholders remain, and they share a theme:
+**everything an installation configures, rather than operates.**
 
-- `routes/web.php:616` `/admin/settings` — the six defaults applied to new
+- `routes/web.php:617` `/admin/settings` — the six defaults applied to new
   shelves, and the administration's own contact details.
 - `routes/web.php:44` `/contact` — the public page those details feed. **This is
   the only route to a human that a parish with no bookshelf has**, since such a
   person holds no membership anywhere.
-- `routes/web.php:617` `/admin/categories` — the book genres every shelf's
-  catalogue draws on.
-- `routes/web.php:498` `shelves/{shelf}/manage/units` — a shelf's parish unit
-  lists.
-- `routes/web.php:508` `shelves/{shelf}/manage/settings` — a shelf's own
-  settings, edited by its manager rather than by the super administrator.
+- `routes/web.php:616` `/admin/categories` — the book genres every catalogue
+  draws on.
+- `routes/web.php:498` `shelves/{shelf}/manage/units` — a shelf's parish units.
+- `routes/web.php:508` `shelves/{shelf}/manage/settings` — a shelf's settings as
+  its manager sees them.
 
-Two consequences today. The public contact page shows nothing, so **a parish
-that has not yet joined cannot reach anybody** — BR §504 calls this out
-explicitly and says a change of administrator "must not require a deploy."
-And a manager cannot adjust their own shelf's lending policy at all; only a
-super administrator can, through the screen 3b-i built.
+Two consequences today. The public contact page shows nothing, so **a parish that
+has not yet joined cannot reach anybody** — `BUSINESS-REQUIREMENTS.md:598`
+(§16.4) requires that changing administrator not need a deploy. And a manager
+has no view of their own shelf's configuration at all.
 
 **Not in this phase, by the product owner's decision on 2026-09-01:** the
-archived-shelf `ResolveTenant` filter and the export it depends on. 3b-i
-recorded that the filter must not land until export is scoped, or archiving
-becomes a way to make a parish's own records unreachable. Both move to a phase
-where they can be designed together. Archived shelves keep serving their routes,
-exactly as today — an unclosed gap, not a regression.
+archived-shelf `ResolveTenant` filter and the export it depends on. 3b-i recorded
+that the filter must not land until export is scoped, or archiving becomes a way
+to make a parish's own records unreachable. Both move to a phase where they can
+be designed together. Archived shelves keep serving their routes — an unclosed
+gap, not a regression.
 
 ## 3. Scope
 
-**In:** the five routes above, the parish-taxonomy editor promised to this phase
-by 3b-i's D8, and the new-shelf defaults of D7 below.
+**In:** the five routes above; the parish-taxonomy editor **and unit CRUD**,
+both on the admin shelf editor (D5); ten new audit actions (D8); the new-shelf
+defaults of D9.
 
-**Out:** the resolver filter and export (above); the whole of 3c (audit browser,
-per-manager activity, cross-shelf profile-change queue, feedback inbox).
+**Out:** the resolver filter and export; the whole of 3c.
 
 ## 4. Decisions
 
-### D1 — `/admin/settings` edits one row, and contact comes first
+### D1 — `/admin/settings`: two forms, contact first, and a read-only environment block
 
-`system_settings` is a single-row table (`id` is a `tinyint` and the migration
-seeds row 1). It carries two unrelated groups:
+`system_settings` is single-row (`id` is a `tinyint`, the migration seeds row 1)
+and carries **eleven** columns in three groups:
 
 | group | columns |
 |---|---|
 | the administration's identity | `contact_name`, `contact_phone`, `contact_hours` |
 | defaults for new shelves | `default_loan_days`, `default_max_concurrent_loans`, `default_hold_days`, `default_max_renewals`, `default_renewal_days`, `default_due_soon_days` |
+| provenance | `changed_by`, `changed_at` |
 
-BR §16.4 puts contact **first on the page**, and gives the reason: it is the only
-setting a member of the public can see. We keep that order.
+`BUSINESS-REQUIREMENTS.md:598` (§16.4) puts contact **first on the page**,
+because it is the only setting a member of the public can see. We keep that
+order, and split the page into **two forms with two submits and two refusals** —
+the rule 3b-i's D2 established, for the same reason: a typo in a default must
+not block correcting the administrator's phone number.
 
-Two forms, two submits, two refusals — the same rule 3b-i's D2 established for
-the shelf editor and for the same reason: a typo in `default_loan_days` must not
-block correcting the administrator's phone number.
+**`changed_by` and `changed_at` are written explicitly.** The model sets
+`$timestamps = false`, so nothing fills them automatically; both writers set
+them or the provenance columns stay null forever.
 
-`App\Models\SystemSetting` already exists with `SystemSetting::sole()` and has no
-callers; this phase is its first.
+**Locale and timezone ship as a read-only block, not a control.** §16.4 lists
+them, and the reference renders them as fixed text (`cai-dat/page.tsx:243-257`,
+*"Hệ thống hiện chỉ hỗ trợ tiếng Việt và múi giờ Việt Nam"*) rather than a
+`<select>` with one option. Porting it as a control would be a control that
+looks enabled and does nothing.
 
-### D2 — The public contact page reads the row, and renders nothing invented
+`App\Models\SystemSetting` already exists, documents `sole()`, and has **zero
+callers** — this phase is its first.
 
-BR §504: *"The three details are configuration, edited by the super
-administrator — never written into the page, or changing who runs OLibra means a
-deploy."*
+### D2 — The public contact page reads the row **and carries a form**
 
-So `/contact` reads `contact_name`, `contact_phone` and `contact_hours` and
-renders exactly what is stored. **It is public**, deliberately — no membership,
-no shelf, no tenant. It must therefore not touch any shelf-scoped model, or
-`BookshelfScope` will throw for precisely the visitor the page exists for.
+`BUSINESS-REQUIREMENTS.md:504`: *"The administration's name, phone and contact
+hours, **plus a short form**."* The first draft of this spec dropped the form and
+said a blank detail should omit its line — which would ship a blank page to
+exactly the visitor the page exists for.
 
-If a detail is blank the page omits that line rather than showing a placeholder
-or a stale default. A parish reading "Liên hệ: —" learns nothing; a parish
-reading an invented name is misled.
+So `/contact` renders the three stored details, omitting any that is blank
+(never a placeholder, never an invented default), **and always renders the
+feedback form**: name, phone, subject, body, posting site-wide feedback with a
+null `bookshelf_id`. The reference rate-limits it per phone per day
+(`lien-he/page.tsx`), and we keep a limit; `Feedback` already exists from Phase
+2b and is already rate-limited by hashed identifier.
 
-### D3 — `/admin/categories` needs no widening, because categories are not shelf-scoped
+**It is public** — no membership, no shelf, no tenant. It must therefore touch
+**no shelf-scoped model**, or `BookshelfScope` throws for precisely the visitor
+this page serves. That is §5 test 1.
 
-`Category` does **not** use `BelongsToBookshelf` and the `categories` table has
-no `bookshelf_id`: genres are system-wide, shared by every shelf's catalogue.
+### D3 — Categories are system-wide, but their writes still belong in `app/Actions/Admin/`
 
-So unlike everything in 3b-i, these writes need neither `systemWide()` nor
-`app/Actions/Admin/`. Stating it here because the shape of 3b-i makes the
-opposite the natural assumption, and an unnecessary widening would be a real
-loosening — it is fenced by test precisely so it stays rare.
+Two halves, and the first draft got the second backwards.
 
-Create, rename and archive, matching the reference's three commands. Archiving
-is a soft delete; the `categories` table has `deleted_at`, and books already
-categorised keep their reference.
+**True:** `Category` does not use `BelongsToBookshelf` and `categories` has no
+`bookshelf_id`. Genres are shared by every shelf, so nothing here needs
+`systemWide()`.
 
-### D4 — The shelf settings screen reuses 3b-i's Action; it does not copy it
+**False as first written:** "these writes need neither `systemWide()` nor
+`app/Actions/Admin/`." The reference audits all three category commands
+**globally** (`audit-actions.ts:644,651,660`), and `AuditRecorder`'s `global()`
+is fenced by `WideningArchitectureTest:118-127` to `app/Actions/Admin/`. So the
+commands must live there. Same for D1's two settings commands.
 
-This is the decision most likely to be got wrong by building the obvious thing.
+Three commands, matching the reference: create, rename, archive.
 
-`shelves/{shelf}/manage/settings` lets a **manager** edit their own shelf's
-lending policy. 3b-i already built `UpdateBookshelfPolicy` for the **super
-administrator** to edit the same eight keys through `/admin/shelves/{bookshelf}`.
-Same columns, same validation bounds, same audit action.
+- **The slug is immutable on rename.** The reference records why: moving it
+  silently repoints already-catalogued books. Renaming changes the display name
+  only — the same shape as 3b-i's D1 for a shelf's slug.
+- **Archiving is refused while books still carry the genre**, with the
+  reference's own sentence: *"Chỉ lưu trữ được khi không còn sách nào thuộc thể
+  loại này."* The first draft's test asserted the opposite — that archiving
+  succeeds and books keep the reference — which would have tested that the
+  refusal does not exist.
+- **No BR mandate.** `DATABASE.md:658-730` says outright that a categories screen
+  *"is a decision rather than something the requirements settled"* and that §5.1
+  does not list Category among the entities. We port the reference's screen and
+  say so, rather than citing §16.4 for it.
 
-**One Action, two authorizations.** The manager's screen calls the same
-`app/Actions/Admin/UpdateBookshelfPolicy`, authorized by the shelf's own
-`act-as-manager` gate rather than by `is_super_admin`. Two copies would drift —
-and drift here means two screens that disagree about what a legal `loan_days`
-is, with the audit log unable to say which one wrote a row.
+### D4 — `manage/settings` is **read-only**. The manager edits nothing here.
 
-Note the Action lives under `app/Actions/Admin/` and is fenced there by
-`WideningArchitectureTest`. It does not call `systemWide()` (it never needed
-to — `Bookshelf` is not shelf-scoped), so a manager-side caller trips nothing.
-**If it did widen, this decision would be wrong** and the manager's path would
-need its own narrower Action; the review should confirm it does not.
+**Reversed after review.** The first draft proposed sharing 3b-i's
+`UpdateBookshelfPolicy` between an admin writer and a manager writer. Three
+independent sources falsify that:
 
-### D5 — The parish-taxonomy editor lands on the admin shelf editor, as promised
+1. **The Action authorizes internally as super admin.**
+   `UpdateBookshelfPolicy::execute()` opens with
+   `Gate::forUser($actor)->authorize('update', $shelf)`, and
+   `BookshelfPolicy::update()` returns `asSuperAdmin($user)`, denying **as 404**.
+   A manager calling it gets a 404. "One Action, two authorizations" is not
+   possible without editing the Action *and* the policy.
+2. **The reference's manager screen is read-only and says so on the page.** Every
+   policy value renders through a `PolicyRow` whose docstring reads *"plain text,
+   never a control, because a manager cannot edit it"*
+   (`quan-ly/cai-dat/page.tsx:63`), under the line *"Chỉ quản trị viên mới đổi
+   được các mục này"* (`:226`). Its only POSTs are three CSV exports.
+3. **BR lists no manager settings screen.** §16.3 enumerates fourteen manager
+   screens and Settings is not among them; §16.4 puts the lending policy on the
+   **admin** Bookshelves screen.
 
-3b-i's D8 deferred this here and left the editor able to take another section:
-profile, policy and contacts are three independent forms, so taxonomy is a
-fourth, not a restructure.
+So `manage/settings` is a summary: the eight policy values, the shelf's
+contacts, its taxonomy shape — all as text, with the sentence saying who can
+change them. That makes the first draft's "anti-drift" test and its
+"both directions" authorization test moot; both are dropped.
 
-Per BR §5.6 and §16.4 it edits: the level count, each level's label, whether
-level 2 nests under level 1, and the unit lists themselves — with a level-2 unit
-edited under its parent.
+### D5 — Unit CRUD lands on the **admin** shelf editor, beside the taxonomy shape
 
-`parish_taxonomy` is a single JSON key inside `bookshelves.settings`. **It must
-be merged, not assigned** — 3b-i's `UpdateBookshelfPolicy` learned this the hard
-way: that bag also holds the eight policy keys and the two public-display
-settings, and a wholesale write drops whatever it does not name.
+**Reversed after review**, for the same reason and with a sharper precedent.
 
-**The level labels ship no built-in unit list.** BR §247 is explicit: a list of
-units baked into the product would be exactly right for whichever parish it was
-copied from and wrong for every other one. The level-1 label defaults to `Tổ`
-as a plausible starting guess; the hint text names `Tổ` and `Giáo họ` as
-examples of what to type, because those are the only two words the requirements
-have ever seen a parish actually use.
+The first draft split the work: the super administrator configures the *shape*
+(levels, labels, nesting) from the admin editor, and the manager fills in the
+*units* from `manage/units`. That split is invented. All five parish-unit
+commands call `requireSuperAdmin` in the reference; `BUSINESS-REQUIREMENTS.md:600`
+(§16.4) puts *"level count, each level's label, nesting, **and the unit lists
+themselves**"* on the admin Bookshelves screen; and 3b-i's own D8 described the
+deferred editor as *"a sub-editor with level count, labels, a nesting flag **and
+unit-list CRUD**."*
 
-### D6 — `manage/units` is shelf-scoped, and is the reader-facing half of D5
+The reference's own screen carries the precedent, in a docstring worth quoting
+because this spec reproduced the exact mistake it records:
 
-`parish_units` **is** shelf-scoped (`bookshelf_id`, plus `level`, `parent_id`,
-`sort_order`). The manager's screen edits their own shelf's units under the
-tenant middleware, so no widening and no relation gymnastics — the ordinary
-scoped path every `manage/*` screen already uses.
+> Rendering the write forms to them anyway would be exactly the defect this
+> branch's own QA sweep spent itself cataloguing on other screens: a control that
+> looks enabled and does nothing. **This first shipped that way — reviewed and
+> corrected before merge.**
 
-The relationship to D5 is that the super administrator configures the *shape*
-(how many levels, what they are called, whether they nest) from the admin
-editor, and the manager fills in the *units* from their own screen. Both write
-the same table for units; only the shape lives in `settings`.
+So: the admin shelf editor gains a fourth section carrying both the shape and
+the units. `manage/units` becomes a **read-only** view of the shelf's units for
+its manager.
 
-### D7 — A new shelf now copies the system defaults, closing 3b-i's open reasoning
+**The shape's keys are `ParishTaxonomy`'s, not prose.**
+`app/Support/Members/ParishTaxonomy.php` already fixes the storage: under
+`parish_taxonomy`, the keys are **`levels`, `nested`, `level1_label`,
+`level2_label`** (snake_case in `settings`, camelCase in PHP), and
+`app/Queries/ParishContextQuery.php:63` already reads them. Naming these here
+rather than describing them is the direct lesson of 3b-i, where a settings key
+taken from the requirements instead of the code (`allow_comments` for the real
+`comments_enabled`) would have saved successfully and changed nothing.
 
-3b-i's `CreateBookshelf` writes `settings => []` and its docblock argues: the
-`system_settings` table exists but nothing reads it, its six values are
-character-for-character what `LendingSettings::fromShelf()` already coalesces
-to, so copying would change nothing while turning "never had a policy" into
+**`parish_taxonomy` must be merged into `settings`, not assigned over it** — the
+bag also holds the eight policy keys and the two public-display settings, and
+3b-i's `UpdateBookshelfPolicy` carries a test proving a wholesale write drops
+them.
+
+**Reordering is part of CRUD.** `reorder-parish-units.ts` exists and the
+reference ships JS-free reorder controls. One subtlety must come across:
+level-2 siblings group by their **real `parent_id`**, never by the flat display
+list — a shelf that turned `nested` off otherwise refuses every click.
+
+**No built-in unit list ships.** `BUSINESS-REQUIREMENTS.md:247` is explicit that
+a list of units baked into the product would be right for whichever parish it
+was copied from and wrong for every other. The narrower carve-out at `:249` is
+that the two *label words* may appear as hint text: `Tổ` and `Giáo họ` are the
+only two the requirements have seen a parish use, and `Tổ` is the level-1
+default — which matches `ParishTaxonomy::default()` already.
+
+### D6 — Deleting a unit writes one audit row per row deleted
+
+`delete-parish-unit.ts` cascades to level-2 children and writes an audit row for
+**each** deleted row, marking the children `cascaded: true` in the `after`
+payload. That shape is deliberate — a single row saying "deleted a unit" would
+hide that four sub-units went with it — and it comes across.
+
+### D7 — Bounds are the reference's, including two zero-minimums
+
+`old_next/src/domain/admin/policy.ts:61-72`, applied to D1's six defaults:
+
+| setting | min | max |
+|---|---|---|
+| `loan_days` | 1 | 365 |
+| `max_concurrent_loans` | 1 | 50 |
+| `max_renewals` | **0** | 10 |
+| `renewal_days` | 1 | 365 |
+| `hold_days` | 1 | 30 |
+| `due_soon_days` | **0** | 30 |
+
+The two zero-minimums are load-bearing: "no renewals allowed" is a real policy
+under BR §5.5, and a min of 1 would forbid it. Each bound is validated as a safe
+integer first, so `"3.5"` and `1e400` are refused before a range check.
+
+### D8 — Ten new audit actions, and the pin moves 48 → 58
+
+The first draft mentioned no audit work at all. The reference requires:
+
+| action | writer |
+|---|---|
+| `system_settings.updated` | D1's defaults form |
+| `site_contact.updated` | D1's contact form |
+| `category.created` / `.renamed` / `.archived` | D3 |
+| `parish_unit.created` / `.renamed` / `.deleted` / `.reordered` | D5 |
+| `parish_taxonomy.updated` | D5 |
+
+Two actions for D1 because it has two forms, matching the reference.
+
+Each needs an `ACTIONS` entry under the `administration` group 3b-i created, a
+`phrase()` arm, a `lang/vi/audit.php` line, and the partition pin at
+`tests/Unit/Audit/AuditSentencesTest.php:435` moved from **48 to 58**.
+`AuditActionCensusTest` asserts set-equality in both directions, so a missing
+sentence or a missing writer is red immediately — and, per 3b-i's practice, each
+action lands in the same task as the code that writes it.
+
+### D9 — A new shelf copies the system defaults, closing 3b-i's open reasoning
+
+3b-i's `CreateBookshelf` writes `settings => []`, arguing the `system_settings`
+table exists but nothing reads it and its six values are character-for-character
+what `LendingSettings::fromShelf()` coalesces to (verified: 14/3/3/1/7/3 both
+sides), so copying would change nothing while turning "never had a policy" into
 "chose these numbers."
 
-**D1 makes that reasoning obsolete**, because the six defaults become editable.
-Once an administrator has set `default_loan_days` to 21, a shelf created
-afterwards that silently uses 14 is wrong.
+**D1 makes that obsolete**, because the six become editable. Once an
+administrator sets `default_loan_days` to 21, a shelf created afterwards that
+silently uses 14 is wrong. So `CreateBookshelf` copies them at creation and its
+docblock is rewritten to say why the earlier reasoning no longer holds.
 
-So `CreateBookshelf` copies the six `default_*` values into the new shelf's
-`settings` at creation, and its docblock is rewritten to say why the earlier
-reasoning no longer holds. This is a change to a 3b-i file and is in scope
-deliberately: leaving it would make D1 half-effective in a way nothing would
-report.
+The reference does the same and says so on-screen: *"Chỉ áp dụng cho tủ sách mở
+mới. Các tủ sách đang hoạt động giữ nguyên quy định của mình."* — the defaults
+apply to new shelves only; existing shelves keep their own.
+
+**No 3b-i test asserts a new shelf's settings are empty.** The only creation test
+asserts profile fields and the audit row and never touches `settings`; every
+`'settings' => []` elsewhere is a factory argument. So this change breaks
+nothing, and the first draft's risk bullet claiming otherwise was an unmeasured
+guess.
 
 ## 5. Testing
 
 1. **The public contact page renders for a caller with no membership and no
-   shelf** — the case the page exists for, and the one that would throw if any
-   shelf-scoped model were touched.
-2. **A blank contact detail omits its line**, rather than rendering a placeholder
-   or a default.
-3. **Changing the contact details changes the public page** with no deploy —
-   BR §504's actual requirement, tested end to end rather than by asserting the
-   column.
-4. **The two settings forms refuse independently** — an invalid default does not
-   block a contact edit.
+   shelf** — the case the page exists for, and the one that throws if any
+   shelf-scoped model is touched.
+2. **A blank contact detail omits its line**, and **the form renders anyway** —
+   the first draft would have shipped a blank page here.
+3. **Changing the contact details changes the public page**, end to end, no
+   deploy.
+4. **The two settings forms refuse independently**, and both write
+   `changed_by`/`changed_at`.
 5. **`parish_taxonomy` merges** — saving it leaves the eight policy keys and the
-   two public-display settings intact. This is 3b-i's data-loss test, applied to
-   the new writer.
-6. **A manager can edit their own shelf's policy and cannot edit another's** —
-   the D4 authorization split, both directions.
-7. **The manager's screen and the admin's screen write the same audit action and
-   the same columns** — the anti-drift assertion D4 exists for.
-8. **A shelf created after a default changes carries the new value** (D7), and
-   one created before is untouched.
-9. **Category archive is soft** — an archived genre disappears from the picker
-   while books already carrying it keep their reference.
+   two public-display settings intact. 3b-i's data-loss test, applied to the new
+   writer.
+6. **`manage/settings` and `manage/units` render no control a manager cannot
+   use** — the D4/D5 inversion, asserted as the absence of a form rather than
+   the presence of text.
+7. **Archiving a category with books is refused**; archiving an empty one
+   succeeds and it leaves the picker.
+8. **A category rename does not move its slug.**
+9. **Deleting a parent unit writes one audit row per deleted row**, children
+   marked cascaded.
+10. **Reordering groups level-2 siblings by real `parent_id`** — proven on a
+    shelf with `nested` turned off.
+11. **A shelf created after a default changes carries the new value** (D9); one
+    created before is untouched.
+12. **The census passes at 58 actions**, both directions.
 
-Per project practice, **every test is watched failing before it is accepted** —
-mutate what it protects, see red, restore, confirm `git status --porcelain` is
-clean.
+Per project practice, **every test is watched failing before it is accepted**.
 
 ## 6. Risks
 
-- **D4's shared Action is the phase's main structural bet.** If review finds
-  `UpdateBookshelfPolicy` widens, or that the manager's screen needs different
-  validation, the decision inverts and the manager gets its own Action.
-- **D7 edits a 3b-i file**, so 3b-i's own test for "a new shelf behaves like a
-  seeded one" may need to change with it. That is expected, not a regression.
-- **The taxonomy editor is the largest single screen in the phase** and lands on
-  a screen three other forms already share.
-- **The contact page is the app's only fully public authenticated-nothing
-  surface** besides the portal, so it is the one place where a shelf-scoped
-  model reached by accident throws for a real visitor rather than in a test.
+- **The admin shelf editor gains a fourth section that is itself a sub-editor**
+  with list CRUD and reordering — much the largest screen in the phase, landing
+  where three forms already live. 3b-i's per-section-form rule is what keeps it
+  an addition.
+- **Ten audit actions is the phase's bulk paperwork**, and the census bites in
+  both directions, so a half-registered action is instantly red.
+- **`/contact` is the app's only fully public surface besides the portal**, so a
+  shelf-scoped model reached by accident throws for a real visitor rather than in
+  a test.
+- **D9 edits a 3b-i file.** Measured: no 3b-i test asserts empty settings, so
+  nothing should break.
