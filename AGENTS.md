@@ -188,6 +188,26 @@ the same thing — the two workflows and the gate list below invoke it by that
 name, so it is kept as an alias rather than renamed in the same commit that
 changed the scripts.
 
+
+### Install with bun, not npm — CI uses `--frozen-lockfile`
+
+The repository's lockfile is `bun.lock`. CI runs `bun install
+--frozen-lockfile`, which **fails the build** if `package.json` and `bun.lock`
+disagree — so any change to dependencies must be followed by `bun install` and
+the updated `bun.lock` committed.
+
+`npm install` does not update `bun.lock`. It writes `package-lock.json`
+instead, which is gitignored precisely because one slipped into a commit in
+phase 4 and turned CI red: the dependency removal was correct, the lockfile CI
+actually reads was simply never regenerated. Local gates all passed, because
+locally `node_modules` was already right.
+
+Reproduce what CI does before you push a dependency change:
+
+```bash
+rm -rf node_modules && bun install && bun install --frozen-lockfile
+```
+
 ### Pest's `toContain` takes no message argument
 
 `expect($x)->not->toContain($needle, "my message")` **passes unconditionally**.

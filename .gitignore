@@ -102,3 +102,7 @@ Homestead.json
 Homestead.yaml
 npm-debug.log
 yarn-error.log
+
+# This repo installs with bun; an npm lockfile here would drift from bun.lock
+# and CI installs with --frozen-lockfile. Added in phase 4 after one slipped in.
+/package-lock.json
