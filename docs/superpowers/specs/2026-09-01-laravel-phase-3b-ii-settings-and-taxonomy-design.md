@@ -47,11 +47,13 @@ gap, not a regression.
 
 ## 3. Scope
 
-**In:** the five routes above; the parish-taxonomy editor **and unit CRUD**,
-both on the admin shelf editor (D5); ten new audit actions (D8); the new-shelf
-defaults of D9.
+**In:** the five routes above; the taxonomy *shape* editor on the admin shelf
+editor and unit CRUD on `manage/units`, gated (D5); ten new audit actions (D8);
+the new-shelf defaults of D9.
 
-**Out:** the resolver filter and export; the whole of 3c.
+**Out:** the resolver filter and export; the whole of 3c — **including the public
+contact form**, which D2 defers to land with the inbox that reads it; and the
+backup controls §16.4 lists, which D1 omits deliberately.
 
 ## 4. Decisions
 
@@ -328,8 +330,9 @@ guess.
 1. **The public contact page renders for a caller with no membership and no
    shelf** — the case the page exists for, and the one that throws if any
    shelf-scoped model is touched.
-2. **A blank contact detail omits its line**, and **the form renders anyway** —
-   the first draft would have shipped a blank page here.
+2. **A blank contact detail omits its line**, and a page with no contact at all
+   still tells the visitor what to do — never a blank page, a placeholder, or an
+   invented default.
 3. **Changing the contact details changes the public page**, end to end, no
    deploy.
 4. **The two settings forms refuse independently**, and both write
@@ -337,19 +340,23 @@ guess.
 5. **`parish_taxonomy` merges** — saving it leaves the eight policy keys and the
    two public-display settings intact. 3b-i's data-loss test, applied to the new
    writer.
-6. **`manage/settings` and `manage/units` render no control a manager cannot
-   use** — the D4/D5 inversion, asserted as the absence of a form rather than
-   the presence of text.
-7. **Archiving a category with books is refused**; archiving an empty one
+6. **`manage/settings` renders no control at all** — D4, asserted as the absence
+   of a form rather than the presence of text.
+7. **`manage/units` renders the editor to a super administrator and read-only
+   text to a manager** — D5's `canEdit` switch, both directions. A manager
+   seeing a control the server would refuse is the defect the reference's own
+   docstring records having shipped and corrected.
+8. **Archiving a category with books is refused**; archiving an empty one
    succeeds and it leaves the picker.
-8. **A category rename does not move its slug.**
-9. **Deleting a parent unit writes one audit row per deleted row**, children
+9. **A category rename does not move its slug.**
+10. **Deleting a parent unit writes one audit row per deleted row**, children
    marked cascaded.
-10. **Reordering groups level-2 siblings by real `parent_id`** — proven on a
-    shelf with `nested` turned off.
-11. **A shelf created after a default changes carries the new value** (D9); one
+11. **Reordering groups level-2 siblings by real `parent_id`** — proven on a
+    shelf with `nested` turned off — **and refuses a partial sibling list**,
+    which would otherwise tie the ranks and silently restore name ordering.
+12. **A shelf created after a default changes carries the new value** (D9); one
     created before is untouched.
-12. **The census passes at 58 actions**, both directions.
+13. **The census passes at 58 actions**, both directions.
 
 Per project practice, **every test is watched failing before it is accepted**.
 
