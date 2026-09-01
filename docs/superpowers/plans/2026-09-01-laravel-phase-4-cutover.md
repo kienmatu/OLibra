@@ -128,6 +128,14 @@ The rewritten document must:
   `TenancyArchitectureTest` read RAW source, so an example written inside a
   comment mints a code or an offender. That is not a defect to fix in this
   task — it is a fact to write down.
+
+  **A correction to this plan, found during Task 3:**
+  `RuleViolatedCodesHaveSentencesTest` is NOT a file in
+  `tests/Feature/Architecture/`, as the sentence above implies. It lives at
+  `tests/Unit/Catalogue/RuleViolatedCodesHaveSentencesTest.php` and covers the
+  catalogue slice; the members-slice code census is an `it()` block inside
+  `MembersArchitectureTest.php`. The underlying point — raw-source guards mint
+  offenders from examples written in comments — is correct.
 - **Carry across** §5 (where the invariants live), §6.3 (time), §6.6
   (internationalisation) where they are still true, editing only the parts that
   name a TypeScript file.

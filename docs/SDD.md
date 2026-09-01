@@ -90,7 +90,7 @@ codebase.
 | | `app/Actions/` | `app/Queries/` |
 |---|---|---|
 | Does | Writes. One class per operation in [OPERATIONS.md](OPERATIONS.md) | Reads. One class per screen or panel |
-| Shape | `final class X { public function execute(...) }` | `final class XQuery { public function run(...) }` |
+| Shape | `final class X { public function execute(...) }` — 71 of the 75 files declare an `execute()`; all 73 classes are `final` | `final class XQuery { public function run(...) }` — 41 of the 48 files declare a `run()` |
 | Owns | The transaction, the authorisation check, the audit row | Nothing; it returns arrays for Inertia to serialise |
 | Files | **75** (73 classes plus two traits under `Admin/Concerns/`) | **48** (45 classes plus three traits under `Concerns/`) |
 
@@ -233,7 +233,7 @@ never reach the log.
 
 ## 6. Where the invariants live
 
-[DATABASE.md](DATABASE.md) §7 has the full table of the fourteen rules; the
+[DATABASE.md](DATABASE.md) has the full table of the fourteen rules; the
 summary that matters for application design has not changed with the port, only
 its mechanisms have.
 

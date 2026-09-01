@@ -142,9 +142,15 @@ questions are answered; the options were not taken.
 
 The rewrite describes the architecture that shipped. Its spine:
 
-- The **Actions / Queries split** — 75 write commands under `app/Actions/`,
-  48 reads under `app/Queries/`, and the rule that a controller calls one of
-  each and neither calls the other.
+- The **Actions / Queries split** — 75 files under `app/Actions/` (73 classes
+  plus 2 traits), 48 under `app/Queries/` (45 plus 3), and what the separation
+  actually holds. **Half of what this spec first claimed here was false**: it
+  said "a controller calls one of each and neither calls the other". No Query
+  imports an Action — verified, the five `App\Actions\…` mentions under
+  `app/Queries/` are all inside comments — but **two Actions do inject a
+  Query**: `Members\Registration` and `Members\CreateParishUnit` both use
+  `ParishContextQuery`. The document states the direction that holds and names
+  the two exceptions rather than asserting a symmetry the code does not have.
 - **Tenancy** — `BookshelfScope` fails *closed*: an unbound tenant throws rather
   than returning every shelf's rows. `/admin` binds no tenant, which is why
   admin Actions reach scoped rows through relations from the `Bookshelf`.

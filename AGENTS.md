@@ -121,7 +121,15 @@ Vietnamese is the shipped language and the only one written into the UI.
   the interface, never lorem ipsum.
 - Plain words, no jargon: **Cho mượn**, never *Giao dịch lưu thông*.
   **Nhận trả**, never *Tiếp nhận hoàn trả*.
-- URLs are Vietnamese too: `/tu-sach/dong-thap/danh-muc`, not `/shelves/.../catalogue`.
+- **URLs are ENGLISH — this bullet used to say the opposite and was wrong.**
+  It read *"URLs are Vietnamese too: `/tu-sach/dong-thap/danh-muc`"*, which is
+  the exact URI a shipped test rejects: `RouteOrderTest.php:153` requires every
+  URI to be pure ASCII and bans the segments `tu-sach`, `cho-muon`, `nhan-tra`,
+  `nguoi-doc`, `quan-ly`, `quan-tri` and `dang-nhap` by name. The port's paths
+  are `/shelves/{shelf}/catalogue`, `/manage/lend`, `/admin/categories`. The
+  reasoning is recorded at `routes/web.php:852`: the reference's screen carries
+  across, its Vietnamese path does not. **The interface copy is still
+  Vietnamese** — this bullet is about the address bar and nothing else.
 - Dates read as dates — *Chúa nhật 20/08 · 14 ngày* — never as timestamps.
   A loan is due at the end of a day, not at 14:23 on that day.
 - No user-facing string is hard-coded in a way that blocks a later locale.
