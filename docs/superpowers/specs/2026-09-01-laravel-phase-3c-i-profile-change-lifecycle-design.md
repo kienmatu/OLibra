@@ -358,7 +358,7 @@ with the pending one beside it, and says plainly that it is waiting."* That is a
 rendering contract, not a data one: a page that shows only the proposed values,
 or only the current ones, satisfies the query and fails the requirement.
 
-### D11 — `ChangeOwnPassword` revokes sessions, and is not reader-only either
+### D12 — `ChangeOwnPassword` revokes sessions, and is not reader-only either
 
 It deletes the subject's sessions in the same transaction
 (`change-own-password.ts:69`) — a password change is a revocation. Its refusals
@@ -373,7 +373,7 @@ to make every use **visible**, not to restrict it. The reader supplies their
 current password; the volunteer does not. That asymmetry is why the two keep
 separate audit actions rather than sharing one.
 
-### D12 — Five new audit actions, 58 → 63, and two nav badges
+### D13 — Five new audit actions, 58 → 63, and two nav badges
 
 | action | group | when |
 |---|---|---|
