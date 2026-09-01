@@ -44,29 +44,89 @@ export const copy = {
     },
     // Phase 3b-ii Task 2's screen (spec D2) — the public `/contact`, and the
     // only page in the application a parish with no bookshelf at all can
-    // reach and act on. Everything here is read from `system_settings`'
-    // three contact columns, which /admin/settings (Task 1) edits.
+    // reach and act on. The card above the fold is read from
+    // `system_settings`' three contact columns, which /admin/settings edits;
+    // the keys below `noContact` are phase 3c-ii Task 3's form, which is
+    // what the page shows INSTEAD of that card when there is nothing in
+    // those columns to show.
     contact: {
         title: "Liên hệ ban quản trị",
         // The reference's own subtitle, and the reason the page exists: the
         // portal's empty state sends a parish here to ask for a tủ sách.
         lead: "Muốn mở một tủ sách cho giáo xứ mình, hoặc cần giúp đỡ về hệ thống?",
-        // THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, given by the
-        // plan rather than invented here. The reference has none to port —
-        // its else-branch is the feedback form 3b-ii defers to 3c, to land
-        // with the inbox that reads it — so this is the app's only public
-        // front door talking to somebody it cannot help directly, and the
-        // wording was decided once, in the plan, rather than improvised.
+        // Shown only beside a real number. The application sends no email at
+        // all, so a visitor who reads "liên hệ" and looks for an address
+        // would otherwise wait for a reply that never comes.
+        callNote: "Hệ thống không gửi email. Gọi vào số trên là nhanh nhất.",
+        // THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, and since
+        // phase 3c-ii Task 3 it INTRODUCES THE FORM below it rather than
+        // standing in for it. What it said until this commit is retracted
+        // in place, the way this project retracts:
+        //
+        //   > "Hiện chưa có thông tin liên hệ chung. Xin liên hệ trực tiếp
+        //   > với giáo xứ của bạn."
+        //
+        //   > THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, given
+        //   > by the plan rather than invented here. The reference has none
+        //   > to port — its else-branch is the feedback form 3b-ii defers
+        //   > to 3c, to land with the inbox that reads it — so this is the
+        //   > app's only public front door talking to somebody it cannot
+        //   > help directly, and the wording was decided once, in the plan,
+        //   > rather than improvised.
+        //
+        // Its own comment named itself the substitute for the form, so the
+        // form arriving is what retires it. It became FALSE as well as
+        // redundant: "xin liên hệ trực tiếp với giáo xứ của bạn" sends the
+        // sender away from the one channel that now reaches the
+        // administrator, and the visitor this page exists for is a parish
+        // whose own giáo xứ is precisely who is asking.
+        //
+        // The replacement is the reference's own else-branch lead
+        // (`old_next/src/app/lien-he/page.tsx:104`), which says three
+        // things in one breath: why there is no number to ring, that the
+        // message is read, and that the reply comes by telephone — which is
+        // what makes asking for the number below reasonable.
         //
         // It is NOT a placeholder for the three details: a blank field is
         // omitted outright (never an invented name or number), and this
         // line appears only when there is no name and no phone at all.
         noContact:
-            "Hiện chưa có thông tin liên hệ chung. Xin liên hệ trực tiếp với giáo xứ của bạn.",
-        // Shown only beside a real number. The application sends no email at
-        // all, so a visitor who reads "liên hệ" and looks for an address
-        // would otherwise wait for a reply that never comes.
-        callNote: "Hệ thống không gửi email. Gọi vào số trên là nhanh nhất.",
+            "Ban quản trị chưa điền số điện thoại liên hệ trực tiếp. Gửi lời nhắn dưới đây, ban quản trị sẽ đọc được trong hộp góp ý và liên lạc lại theo số điện thoại bạn để lại.",
+        // The form's own labels, phase 3c-ii Task 3. NOT copy.feedback's —
+        // this file's header bans merging namespaces on coincidental
+        // wording, and the wording is not even coincidental here: the shelf
+        // form is read by children and their parents and says "bạn", while
+        // this page is a parish representative writing to the people who
+        // run the installation and says "anh/chị". The reference draws the
+        // same distinction in the same place — "Tên của anh/chị" here
+        // against "Tên của bạn" there.
+        //
+        // WHAT THE TWO NO LONGER DIFFER ON IS WHO READS THE MESSAGE. This
+        // comment used to cite the shelf form's "các cô chú giữ tủ sách" as
+        // the contrast; that phrase was retracted (see copy.feedback's
+        // subtitle) because the inbox is super-admin-only and a shelf's own
+        // keepers cannot read a word of it. Both forms now name ban quản
+        // trị, because on both paths ban quản trị is who reads it.
+        nameLabel: "Tên của anh/chị",
+        phoneLabel: "Số điện thoại",
+        // WHY A NUMBER IS COMPULSORY, said beside the label: this branch
+        // renders precisely when the installation has published no number
+        // of its own, so the sender's is the only way an answer can come
+        // back. The application sends no email at all.
+        phoneNote: "Ban quản trị sẽ gọi lại theo số này.",
+        subjectLabel: "Chủ đề",
+        // The reference's own example, and it names the errand that brings
+        // most people to this page.
+        subjectPlaceholder: "vd: Mở tủ sách mới",
+        subjectOptional: "Không bắt buộc",
+        bodyLabel: "Nội dung",
+        // The word, never an asterisk — AGENTS.md rule 6.
+        required: "Bắt buộc",
+        // {count} is filled from the dailyLimit prop, so the promise and
+        // App\Actions\Community\SubmitFeedback::DAILY_LIMIT cannot drift.
+        // The reference hard-codes the 3 in its own markup.
+        limitNote: "Mỗi số điện thoại gửi tối đa {count} góp ý mỗi ngày, để tránh tin rác.",
+        submit: "Gửi liên hệ",
     },
     shelf: {
         catalogue: "Danh mục",
@@ -88,11 +148,19 @@ export const copy = {
         // exactly two hits, one in each of those two pages, cross-linking
         // each other. shelves/show.tsx carries the same measurement beside
         // the link this key labels, and what it does and does not prove.
-        // `Góp ý` is a second card the same paragraph asks for
-        // and it is NOT added here: `shelves.feedback` still renders the
+        // `Góp ý` is the second card the same paragraph asks for. It used
+        // to be missing from this list, and the reason it gave was: "it is
+        // NOT added here: `shelves.feedback` still renders the
         // under-construction placeholder, and a link to that is a promise
-        // the page cannot keep.
+        // the page cannot keep." Phase 3c-ii Task 2 built that page, so
+        // the promise can now be kept and the word lands below.
+        //
+        // Unlike `donate`, the link that uses this one is NOT guarded on
+        // auth.user in shelves/show.tsx: shelves.feedback sits outside the
+        // ['auth', 'role:reader'] group deliberately, so a guest who
+        // follows it meets the form rather than the login redirect.
         donate: "Tặng sách",
+        feedback: "Góp ý",
         profile: "Hồ sơ",
         manage: "Quản lý",
     },
@@ -157,6 +225,21 @@ export const copy = {
         // differently.
         profileChanges: "Đổi thông tin",
         profileChangesWithCount: "Đổi thông tin ({count})",
+        // BR §16.1's inbox nav item, phase 3c-ii Task 4. The SAME word the
+        // reader's own form is called — a super administrator who has also
+        // sent a góp ý should not have to learn that this installation
+        // calls the message and the mailbox two different things. The
+        // count is unread only, on profileChangesWithCount's shape.
+        feedback: "Góp ý",
+        feedbackWithCount: "Góp ý ({count})",
+        // BR:606's cross-shelf browser, phase 3c-ii Task 5. The SAME word
+        // the manage nav calls its own log above — it is the same record,
+        // read from further back, and a super administrator who also
+        // manages a parish should not have to learn two names for one
+        // thing. Which shell the item hangs in is what distinguishes them;
+        // the screens themselves are headed differently (adminAudit.title
+        // says "toàn hệ thống", manageAudit.title does not).
+        audit: "Nhật ký",
         settings: "Cài đặt",
     },
     adminDashboard: {
@@ -419,6 +502,12 @@ export const copy = {
         wholeSystem: "Toàn hệ thống",
         lastActive: "Hoạt động gần nhất",
         neverActive: "Chưa làm việc gì trên hệ thống",
+        // BR:608's per-manager activity, which is a LINK and not a screen
+        // (spec D4): the row carries the person into the system-wide log
+        // with the actor already chosen, and that log's group chips are
+        // what "theo loại việc" means. Worded as the log a volunteer is
+        // being taken to, not as a report that does not exist.
+        activity: "Xem nhật ký của người này",
         // The revoke control. The confirmation SENTENCE is not here: it
         // names the person and the shelf, so it is assembled server-side
         // per row and arrives as a prop (BR §16.4, and see
@@ -686,6 +775,72 @@ export const copy = {
     // BR §16.4's cross-shelf queue. Its own words, not the shelf screen's:
     // the reader of this page is not standing in the parish the proposal
     // came from, which is the whole reason it exists.
+    /**
+     * BR §16.1's Góp ý inbox, phase 3c-ii Task 4. Its OWN namespace — this
+     * file's header bans reaching into another's keys, and the reader's
+     * `copy.feedback` above belongs to the form a parishioner fills in.
+     * They share the two words in the nav item and nothing else: one asks a
+     * child to write a message, the other asks an administrator to handle
+     * a queue.
+     *
+     * TWO FALLBACK STRINGS THAT ARE NOT DECORATION. `guestSender` and
+     * `noSubject` stand in for an empty name and an empty subject, and
+     * without them a row renders as a blank line a volunteer cannot click
+     * on with any idea of what it holds. SubmitFeedback requires the name
+     * non-blank on every write, so `guestSender` covers a historical row
+     * rather than an ordinary submission; the subject is genuinely optional
+     * on both forms, so `noSubject` is met every day.
+     */
+    adminFeedback: {
+        title: "Góp ý",
+        // The unread line above the chips. Two sentences rather than one
+        // template with a 0 in it: "0 tin mới" is a number a reader has to
+        // parse before they know there is nothing to do.
+        unreadNone: "Không có tin mới",
+        unreadSome: "{count} tin mới",
+        filterAll: "Tất cả",
+        filterNew: "Mới",
+        filterRead: "Đã đọc",
+        filterResolved: "Đã xử lý",
+        empty: "Chưa có góp ý nào.",
+        // The right-hand pane before anything is chosen, which on a
+        // non-empty inbox a volunteer never sees (the server opens the top
+        // of the list for them) and on an empty one is the whole screen.
+        choose: "Chọn một tin để đọc.",
+        unreadBadge: "Tin mới",
+        guestSender: "Khách (không đăng nhập)",
+        noSubject: "(không có chủ đề)",
+        // NULL SHELF READS AS THIS, never as a blank — a site-wide message
+        // with nothing beside it looks like a message whose parish nobody
+        // recorded.
+        siteWide: "Toàn hệ thống",
+        // The typed name and the signed-in account are SEPARATE FACTS and
+        // this line is the second of them. The reference's recorded
+        // incident is what it exists for: a reader who typed "Chị Hạnh" was
+        // displayed as their account's own label and the administrator rang
+        // the wrong person. The fix made the typed name win everywhere;
+        // this line keeps the account visible rather than hidden by it.
+        sentWhileSignedIn: "Gửi khi đang đăng nhập bằng {name}.",
+        // Said on the screen because it is true of the whole application:
+        // nothing here sends email, so the number above is the only way
+        // anybody answers.
+        replyNote: "Hệ thống không gửi email. Trả lời bằng cách gọi vào số điện thoại ở trên.",
+        handledBy: "{name} đã xử lý lúc {at}.",
+        // Falls back to the institution when the handler's account is gone
+        // — a message handled by somebody since removed still was handled.
+        handledByUnknown: "Ban quản trị",
+        markRead: "Đánh dấu đã đọc",
+        markResolved: "Đánh dấu đã xử lý",
+        // The inbox is paged at 25. Its OWN keys rather than
+        // copy.manageAudit's identical two words — this file's header bans
+        // merging namespaces on coincidental wording, and these are as
+        // coincidental as wording gets.
+        prevPage: "Trang trước",
+        nextPage: "Trang sau",
+        // Shown only when there is more than one page, so a reader who
+        // pages forward knows how much of the inbox they are looking at.
+        pageOf: "Trang {page} / {pageCount} · {total} góp ý",
+    },
     adminProfileChanges: {
         title: "Đề nghị đổi thông tin của người quản lý",
         lead: "Đề nghị của người quản lý và quản trị tủ sách, ở mọi tủ sách — vì không ai trong tủ sách của họ được duyệt.",
@@ -750,6 +905,27 @@ export const copy = {
         reactivate: "Mở khoá lại",
         markLeft: "Đánh dấu đã rời",
     },
+    // BR:606's cross-shelf audit browser. It borrows manageAudit's group
+    // chips, its date labels, its expansion table and its paging words
+    // wholesale rather than restating them — the same record read from
+    // further back is the same vocabulary, and a second copy of "Trước" and
+    // "Sau" is a second place for them to drift. What is here is only what
+    // is genuinely new: the heading, the lead, and the shelf filter.
+    adminAudit: {
+        title: "Nhật ký toàn hệ thống",
+        // Names the thing this screen can show that no other can, because
+        // that is the reason a volunteer would come here rather than to
+        // their own shelf's log.
+        lead: "Mọi thay đổi trong hệ thống, kể cả những việc không thuộc tủ sách nào.",
+        shelfLabel: "Tủ sách",
+        shelfAll: "Mọi tủ sách",
+        // The label for a row belonging to the installation rather than to
+        // any parish — the same two words /admin/feedback renders for a
+        // message with no shelf, deliberately: it is the same distinction.
+        shelfSiteWide: "Toàn hệ thống",
+        shelfEntries: "({count} lượt)",
+    },
+
     manageAudit: {
         title: "Nhật ký",
         lead: "Mọi thay đổi trong tủ sách, ai làm và lúc nào.",
@@ -1440,6 +1616,69 @@ export const copy = {
         toList: "Những lần bạn đã tặng",
         toForm: "Tặng sách cho tủ sách",
         backToOverview: "Về trang của tôi",
+    },
+    /**
+     * BR §16.1's Góp ý — the shelf's message form, phase 3c-ii Task 2.
+     *
+     * ITS OWN NAMESPACE even though three of its four labels look like
+     * `register`'s and `donations`', because this file's header bans
+     * reaching across namespaces and this form asks its questions of a
+     * different person: a visitor who may have no account at all. Reusing
+     * `donations.required` here would let a reword of the donation form
+     * silently rewrite what this one marks compulsory.
+     *
+     * THE LIMIT SENTENCE IS A TEMPLATE, not a sentence with a 3 in it.
+     * The reference hard-codes "tối đa 3 góp ý mỗi ngày" in its own
+     * markup; here the number arrives from the server as
+     * App\Actions\Community\SubmitFeedback::DAILY_LIMIT, so the figure the
+     * form promises and the figure the command enforces are one constant.
+     * A copy edit cannot make the page lie about the rule.
+     */
+    feedback: {
+        title: "Gửi góp ý",
+        // NAMES THE PEOPLE WHO ACTUALLY READ IT, and that is a correction
+        // rather than a wording preference. Until this commit it said:
+        //
+        //   > "Có điều gì bạn muốn nhắn cho các cô chú giữ tủ sách không?"
+        //
+        //   > The reference's own subtitle, kept: it names the people at
+        //   > the other end rather than "ban quản trị", because the reader
+        //   > of this page is often a child or a parent, not a user of a
+        //   > system.
+        //
+        // The warmth was right and the fact was not. The product owner
+        // ruled on 2026-09-01 that the góp ý inbox is SUPER-ADMIN ONLY;
+        // there is no manager-level inbox and no route to one, so a
+        // shelf's own keepers see nothing but "Hệ thống đã nhận một góp ý"
+        // in their audit log and cannot read a word of the message. A
+        // sender told the cô chú giữ tủ sách would read it was told
+        // something false by the screen that took their message.
+        subtitle: "Có điều gì bạn muốn nhắn cho ban quản trị không?",
+        nameLabel: "Tên của bạn",
+        phoneLabel: "Số điện thoại",
+        // WHY A NUMBER IS COMPULSORY on a form a stranger fills in, said
+        // where the label is: it is the only way anyone can answer. The
+        // application sends no email at all (copy.contact.callNote says so
+        // on the public page), so a góp ý with no number is a message
+        // nobody can reply to. The caller is named as ban quản trị for the
+        // same reason as the subtitle above: the inbox is theirs alone, so
+        // they are who rings back.
+        phoneNote: "Để ban quản trị gọi lại trả lời bạn.",
+        subjectLabel: "Chủ đề",
+        // The one field with no *Bắt buộc* beside it, and its absence is
+        // the field's meaning — the reference marks the other three
+        // required and leaves this one bare.
+        subjectOptional: "Không bắt buộc",
+        bodyLabel: "Nội dung",
+        bodyPlaceholder: "Ví dụ: tủ sách mở cửa lúc mấy giờ ạ?",
+        // The word, not an asterisk — AGENTS.md rule 6. Its own key, per
+        // the namespace note above.
+        required: "Bắt buộc",
+        // {count} is filled from the dailyLimit prop. Says the number, the
+        // window and the reason, which is the reference's own wording.
+        limitNote: "Mỗi số điện thoại gửi tối đa {count} góp ý mỗi ngày, để tránh tin rác.",
+        submit: "Gửi góp ý",
+        backToShelf: "Về trang tủ sách",
     },
     /**
      * BR §16.3's Thống kê screen. Own namespace, own keys — this file's

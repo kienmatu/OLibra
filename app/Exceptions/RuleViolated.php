@@ -41,10 +41,36 @@ final class RuleViolated extends RuntimeException
     /** @var string */
     public $code;
 
-    public function __construct(string $code, ?Throwable $previous = null)
+    /**
+     * Placeholder values for the sentence, when the sentence has any.
+     *
+     * A refusal that has to state a NUMBER the application also enforces
+     * cannot hold its own copy of that number in lang/vi/rules.php — change
+     * the constant and the sentence lies. `rate_limited` was exactly that:
+     * "3 góp ý trong 24 giờ" typed into the file while
+     * SubmitFeedback::DAILY_LIMIT decided the actual refusal, and both
+     * feedback forms already received that constant as a prop specifically
+     * so the figure could not drift. This array is how the throw site hands
+     * the figure to the one place a code becomes a sentence
+     * (bootstrap/app.php's render hook, which passes it straight to
+     * `__()`), so the whole application still has ONE renderer.
+     *
+     * Empty for every other refusal in the system, and deliberately not a
+     * general-purpose bag: a value here is a placeholder in a sentence, not
+     * context for a log.
+     *
+     * @var array<string, scalar>
+     */
+    public readonly array $replacements;
+
+    /**
+     * @param  array<string, scalar>  $replacements
+     */
+    public function __construct(string $code, ?Throwable $previous = null, array $replacements = [])
     {
         parent::__construct($code, 0, $previous);
 
         $this->code = $code;
+        $this->replacements = $replacements;
     }
 }

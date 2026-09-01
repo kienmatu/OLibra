@@ -487,4 +487,76 @@ return [
     'parish_unit_renamed_flash' => 'Đã đổi tên đơn vị. Bạn đọc đang ở đơn vị này vẫn giữ nguyên.',
     'parish_unit_deleted_flash' => 'Đã xoá đơn vị, cùng các đơn vị bậc 2 bên trong nó. Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.',
     'parish_unit_reordered_flash' => 'Đã đổi thứ tự các đơn vị.',
+
+    // — góp ý (Phase 3c-ii Task 1, spec D1 and D2) —
+    // Both refused by SubmitFeedback, and both written for a caller who may
+    // be a guest with no account: they name what to do next, not what the
+    // system checked.
+    //
+    // The fields sentence lists the three fields by name rather than saying
+    // "các trường bắt buộc", because this is the only form in the system a
+    // person reaches with no session, no account and nothing on screen to
+    // compare against — and the subject line is genuinely optional, so a
+    // generic sentence would have them hunting for a fourth missing box.
+    'feedback_fields_required' => 'Vui lòng ghi tên, số điện thoại và nội dung góp ý.',
+    // Says the number, the window and that the message was NOT kept. A
+    // sender who is refused with no count has no way to know whether to
+    // wait a minute or a day, and one who is not told the message was
+    // dropped will assume it arrived.
+    //
+    // :count IS FILLED FROM App\Actions\Community\SubmitFeedback::DAILY_LIMIT
+    // and is not a 3 typed here. Both feedback forms already receive that
+    // constant as a `dailyLimit` prop precisely so the promise and the rule
+    // cannot drift; this sentence — the one a sender reads at the moment
+    // the rule is ENFORCED — was the one place still holding its own copy
+    // of the figure, so changing the constant made the refusal banner lie.
+    // The replacement travels on RuleViolated itself (see that class's
+    // $replacements and bootstrap/app.php's render hook).
+    'rate_limited' => 'Mỗi số điện thoại chỉ gửi được :count góp ý trong 24 giờ. Góp ý này chưa được gửi, xin gửi lại sau.',
+    // NOT a refusal code — a flash, on donation_offered_flash's pattern,
+    // added by 3c-ii Task 2 with the shelf's Góp ý form. It lives in this
+    // file rather than in copy.ts because the SERVER decides when a
+    // message was stored, and a success line the client rendered on its
+    // own would tell a sender their message arrived whenever the round
+    // trip merely finished.
+    //
+    // "Đã gửi rồi, cảm ơn bạn nhé" is the reference's own sentence,
+    // extended by half a line. The form clears itself on success, so
+    // without the second clause the sender sees an empty form and a thank
+    // you and has nothing telling them where the message went.
+    //
+    // THE SECOND CLAUSE WAS FALSE ON BOTH PATHS UNTIL THIS COMMIT, and it
+    // said:
+    //
+    //   > "Đã gửi rồi, cảm ơn bạn nhé. Các cô chú giữ tủ sách sẽ đọc góp ý
+    //   > này."
+    //
+    // Two separate ways of being wrong, one sentence. On the shelf's own
+    // form it named the wrong readers: the product owner's 2026-09-01
+    // ruling gates the inbox to the super administrator, there is no
+    // manager-level inbox and no route to one, and a shelf's keepers get
+    // only "Hệ thống đã nhận một góp ý" in their audit log. On `/contact`
+    // (ContactController::store) it named readers who do not exist at all —
+    // a site-wide message belongs to NO shelf, and the screen a line above
+    // had just said "ban quản trị sẽ đọc được trong hộp góp ý".
+    //
+    // ONE STRING FOR BOTH SURFACES, and the truth is what makes that right
+    // rather than merely convenient: under the ruling the reader is the
+    // same person whichever form the message came from, so two flashes
+    // would be two ways of saying one fact, free to drift the moment
+    // somebody edits one of them. If a manager-level inbox is ever built,
+    // the shelf path gains a different reader and THAT is when it needs its
+    // own sentence.
+    'feedback_submitted_flash' => 'Đã gửi rồi, cảm ơn bạn nhé. Ban quản trị sẽ đọc góp ý này.',
+    // Task 4's two, on the same pattern and here for the same reason: the
+    // SERVER decides when a status actually moved. Both name what the
+    // message is now rather than what the administrator pressed, because
+    // the list reorders under them (unread first) and the sentence is the
+    // only thing saying which of the two buttons took effect.
+    //
+    // NOT refusal codes either — neither of these two commands raises a
+    // RuleViolated at all, which is why this task mints none and the
+    // RuleViolatedCodesHaveSentencesTest census is untouched by it.
+    'feedback_read_flash' => 'Đã đánh dấu góp ý này là đã đọc.',
+    'feedback_resolved_flash' => 'Đã đánh dấu góp ý này là đã xử lý xong.',
 ];

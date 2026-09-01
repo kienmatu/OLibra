@@ -124,6 +124,23 @@ final class AuditSentences
         // where both entries read `group: "cong-dong"`).
         'donation.received' => 'community',
         'donation.declined' => 'community',
+        // Phase 3c-ii Task 1, the same cong-dong family — the reference
+        // files feedback.submitted there (audit-actions.ts:336-341, whose
+        // entry reads `group: "cong-dong"`). Its two handling actions,
+        // feedback.read and feedback.resolved, land with the inbox that
+        // writes them; the census holds both sets equal at every task
+        // boundary, so they are not listed here ahead of their commands.
+        'feedback.submitted' => 'community',
+        // Phase 3c-ii Task 4, the same cong-dong family and the two the
+        // note above promised. They are administration ACTS — only a super
+        // administrator may write one — but the group is what a volunteer
+        // filters the log by, and the reference files all three feedback
+        // actions under `cong-dong` because what the row is ABOUT is a
+        // parishioner's message. There is deliberately no fourth:
+        // feedback.archived stays unported (spec D8), which is why this
+        // phase's count is 66 and not 67.
+        'feedback.read' => 'community',
+        'feedback.resolved' => 'community',
         // Phase 3b-i's fifth group, administration — the cross-shelf acts
         // of the /admin area, which are the reference's own he-thong family
         // (audit-actions.ts:592-612 files every bookshelf.* entry there).
@@ -497,6 +514,28 @@ final class AuditSentences
             // clause is filled for every row that command writes; the
             // helper renders an empty clause rather than assuming it.
             'donation.declined' => strtr(self::line('donation_declined'), [':because' => self::because(self::str($after, 'reason'))]),
+            // No strtr, no bare twin, and NO SENDER — the reference's own
+            // arm, with its reason recorded there: a guest submits this and
+            // the actor is null, so the frame already reads "Hệ thống đã…",
+            // and the sender's name is on the message rather than in the
+            // log. The payload is the site-wide flag alone (SubmitFeedback
+            // keeps the number and its hash out of it deliberately), so
+            // there is nothing here for a fallback to replace.
+            'feedback.submitted' => self::line('feedback_submitted'),
+            // Task 4's pair, and like the arm above they interpolate
+            // nothing. The payload is {status: …} either side, which the
+            // expansion renders as raw values — putting it in the sentence
+            // too would make the line say "đánh dấu một góp ý là đã đọc
+            // (new → read)", a state machine read out loud to somebody who
+            // wanted to know who touched the message.
+            //
+            // These two DO have an actor on every row: unlike
+            // feedback.submitted, which a guest may write, only a signed-in
+            // super administrator can reach either command. The frame still
+            // renders the null-actor case, because a fact bag with no actor
+            // is what a LEFT join produces for a deleted account.
+            'feedback.read' => self::line('feedback_read'),
+            'feedback.resolved' => self::line('feedback_resolved'),
             // The reference's own arm (audit-actions.ts:592-598): the name
             // out of $after, with a bare twin when there is none. NOT
             // self::which() — that helper's fallback line reads 'một cuốn

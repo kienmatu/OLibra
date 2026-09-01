@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Community\SubmitFeedback;
+use App\Http\Requests\Community\SubmitFeedbackRequest;
 use App\Models\SystemSetting;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -17,12 +20,13 @@ use Inertia\Response;
  * above all no `tenant` middleware on the route, and nothing here may read a
  * model that expects one.
  *
- * *
  * THE PORTAL LINKS HERE, BELOW ITS LIST AND UNCONDITIONALLY. An earlier
  * version of that link sat inside the portal's empty state, which is a
  * branch the visitor this page exists for never sees: a parish with no
  * shelf of its own still sees OTHER parishes' shelves, so the list is not
  * empty. The 3b-ii whole-branch review measured that and it was moved.
+ *
+ * **THE ABSENCE OF `tenant` ON THIS ROUTE IS A GUARANTEE RATHER
  * THAN A TIDINESS PREFERENCE.** `BookshelfScope` (app/Models/Scopes/
  * BookshelfScope.php) fails closed: a scoped model queried with no tenant
  * bound throws `RuntimeException` instead of returning every shelf's rows.
@@ -41,13 +45,39 @@ use Inertia\Response;
  * the screen has one emptiness to test rather than two — a whitespace-only
  * `contact_hours` saved by a volunteer is as absent as a null one.
  *
- * **NO FEEDBACK FORM.** BR §16.1 lists one and D2 defers it to 3c
- * deliberately, to land together with the inbox that reads it: there is no
- * feedback write path in this application today, and `/admin/feedback` is
- * 3c's. A form whose messages land where no screen can read them promises a
- * reply that cannot come, which is worse than the honest sentence the page
- * shows instead. `docs/known-gaps.md` records it as a deferral rather than
- * leaving it to look like an oversight.
+ * **THE FORM 3b-ii DEFERRED, BUILT HERE (phase 3c-ii Task 3).** What this
+ * docblock said until this commit is retracted rather than deleted, because
+ * it stated the condition this task had to meet before the form could be
+ * built:
+ *
+ * > **NO FEEDBACK FORM.** BR §16.1 lists one and D2 defers it to 3c
+ * > deliberately, to land together with the inbox that reads it: there is
+ * > no feedback write path in this application today, and
+ * > `/admin/feedback` is 3c's. A form whose messages land where no screen
+ * > can read them promises a reply that cannot come, which is worse than
+ * > the honest sentence the page shows instead. `docs/known-gaps.md`
+ * > records it as a deferral rather than leaving it to look like an
+ * > oversight.
+ *
+ * That condition is met: `App\Actions\Community\SubmitFeedback` is the
+ * write path (Task 1) and `/admin/feedback` is the inbox (Task 4). The
+ * deferral entry in `docs/known-gaps.md` is closed in this same commit —
+ * struck through in place, not removed — because a deferral note left
+ * standing after its phase has arrived reads as a live gap.
+ *
+ * **THE CARD OR THE FORM, NEVER BOTH**, which is the reference's own shape
+ * (`old_next/src/app/lien-he/page.tsx:83` is a ternary on
+ * `hasContact = name || phone`) and not a simplification. An installation
+ * that has filled in a name or a number already offers the stranger a human
+ * to ring, and that is better than a message they must wait for; the form
+ * is the empty state, for the gap it exists to close.
+ *
+ * **`store()` IS THE APPLICATION'S ONLY SHELF-LESS WRITE.** It passes
+ * `siteWide: true`, so the row's `bookshelf_id` — the schema's one nullable
+ * tenant column — is null, and the audit row is written against no shelf.
+ * Everything in the paragraph above about reading no shelf-scoped model
+ * applies to it with more force than to `show()`: this method runs for a
+ * sender who is, by construction, a member of nothing.
  */
 class ContactController extends Controller
 {
@@ -68,7 +98,56 @@ class ContactController extends Controller
                 'phone' => self::filled($settings->contact_phone),
                 'hours' => self::filled($settings->contact_hours),
             ],
+            // OPS §8's limit as a NUMBER, the shelf form's own arrangement
+            // (Reader\FeedbackController::create): the sentence under the
+            // form and the rule the command enforces read one constant, so
+            // they cannot drift. Sent whichever branch the screen takes —
+            // the props of a page are not a place to encode which half of
+            // a ternary rendered.
+            'dailyLimit' => SubmitFeedback::DAILY_LIMIT,
         ]);
+    }
+
+    /**
+     * The site-wide góp ý. Nothing here reads the tenant, the session or a
+     * membership: `$request->user()` is null for the visitor this exists
+     * for, and is passed anyway because a signed-in sender's account is
+     * ADDITIONAL attribution beside the name they typed (spec D1) rather
+     * than a substitute for it.
+     *
+     * NO REPOPULATION AFTER A REFUSAL, the shelf form's reasoning
+     * unchanged: the three fields are a person's name, telephone number and
+     * message, and echoing them back through a query string would put all
+     * three into browser history and proxy logs, here on the shared parish
+     * telephone this page is most often read on.
+     *
+     * No RuleViolated is caught. bootstrap/app.php renders every one of
+     * them as back()->withErrors(['rule' => …]), which is how
+     * `rate_limited`, `phone_invalid` and `feedback_fields_required` reach
+     * the banner above the form.
+     */
+    public function store(
+        SubmitFeedbackRequest $request,
+        SubmitFeedback $submit,
+    ): RedirectResponse {
+        $subject = $request->validated('subject');
+
+        $submit->execute(
+            $request->user(),
+            (string) $request->validated('guest_name'),
+            (string) $request->validated('guest_contact'),
+            $subject === null ? null : (string) $subject,
+            (string) $request->validated('body'),
+            // THE ONE PLACE IN THE APPLICATION THIS IS TRUE. There is no
+            // shelf to bind and none to name, and the flag is a boolean
+            // decided here rather than an id any request body could carry
+            // — SubmitFeedbackRequest's ruleset has no key that names a
+            // shelf, so this route cannot be talked into filing a
+            // stranger's message into some parish's inbox.
+            siteWide: true,
+        );
+
+        return back()->with('success', __('rules.feedback_submitted_flash'));
     }
 
     /** A field that is null, empty or whitespace-only is one the page omits. */

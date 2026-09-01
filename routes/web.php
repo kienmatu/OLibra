@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Admin\AuditController as AdminAuditController;
 use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
 use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
 use App\Http\Controllers\Admin\ProfileChangeController as AdminProfileChangeController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
@@ -35,6 +37,7 @@ use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestCo
 use App\Http\Controllers\Reader\CatalogueController;
 use App\Http\Controllers\Reader\CommentController;
 use App\Http\Controllers\Reader\DonationController;
+use App\Http\Controllers\Reader\FeedbackController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
 use App\Http\Controllers\Reader\ProfileController;
@@ -49,17 +52,42 @@ Route::get('/', [ShellController::class, 'home'])->name('home');
 Route::get('/register', [RegistrationController::class, 'create'])->name('register');
 Route::post('/register', [RegistrationController::class, 'store'])
     ->middleware('throttle:register')->name('register.store');
-// Phase 3b-ii Task 2 (spec D2). Deliberately outside every group on this
-// file: no `auth`, no `role:`, and above all no `tenant`. The visitor this
-// page is for is a parish with no bookshelf at all, so binding a tenant is
-// not merely unnecessary, there is nothing to bind. ContactController's
+// Phase 3b-ii Task 2 (spec D2), and phase 3c-ii Task 3's POST beside it.
+// BOTH VERBS sit deliberately outside every group on this file: no `auth`,
+// no `role:`, and above all no `tenant`. The visitor these two lines are
+// for is a parish with no bookshelf at all, so binding a tenant is not
+// merely unnecessary, there is nothing to bind. ContactController's
 // docblock carries what that costs the controller.
 //
-// There is NO POST here and must not be one until 3c: BR §16.1's feedback
-// form lands with the inbox that reads it, and adding a write path to a
-// route with no throttle and no reader is how a page that helps a stranger
-// becomes a page that silently swallows their message.
+// RETRACTED, phase 3c-ii Task 3, by the phase this line was waiting for.
+// What stood here was:
+//
+//   > There is NO POST here and must not be one until 3c: BR §16.1's
+//   > feedback form lands with the inbox that reads it, and adding a write
+//   > path to a route with no throttle and no reader is how a page that
+//   > helps a stranger becomes a page that silently swallows their message.
+//
+// It is retracted rather than deleted because it was right, and because the
+// POST below is only defensible once its two conditions are met. They are:
+// `/admin/feedback` is this phase's Task 4, so the message has a reader;
+// and the limit is spec D2's domain rule inside
+// App\Actions\Community\SubmitFeedback — three messages per phone number
+// over a ROLLING 24 hours, counted off the injected clock — chosen there
+// over route middleware deliberately, because a `throttle:` refusal is a
+// bare 429 where this one is a Vietnamese sentence the sender can read.
+//
+// NO `throttle:` MIDDLEWARE, then, and that is stated rather than left to
+// be noticed: this route is no weaker than `shelves.feedback.store`, the
+// guest-reachable shelf form the previous task shipped under exactly the
+// same domain rule and no route limiter either. What is NOT bought by
+// either is a per-IP ceiling — the key is the phone number, so a sender
+// churning valid numbers is bounded by Phone::assert() and nothing else.
+//
+// The POST is the one call site in the whole application that tells
+// SubmitFeedback its message belongs to NO shelf, which is the only reason
+// that command takes a $siteWide flag at all.
 Route::get('/contact', [ContactController::class, 'show'])->name('contact');
+Route::post('/contact', [ContactController::class, 'store'])->name('contact.feedback');
 Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index');
 
 // ── One shelf ─────────────────────────────────────────────────────────────
@@ -217,7 +245,41 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::get('/scan', [ScanController::class, 'resolve'])->name('scan');
     });
 
-    Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
+    // BR §16.1's Góp ý, phase 3c-ii Task 2 — the last placeholder in the
+    // reader area. The route NAME is the placeholder's, kept: `grep -rn
+    // "shelves.feedback" resources/` at 213f5bb, run before these two lines
+    // were written, returned one hit — a mention of the name inside a
+    // comment in resources/js/lib/copy.ts explaining why the shelf home did
+    // NOT yet link here. That comment is amended in this commit and the
+    // link added, which is what the continuity buys.
+    //
+    // BOTH LINES STAY OUTSIDE THE role:reader GROUP ABOVE, deliberately,
+    // and the block comment on that group carries the reason: this is the
+    // one page under the original's reader route group with no
+    // `requireReader` at all, because a guest may leave feedback for a
+    // shelf they are not a member of. What guards the destination instead
+    // is that nothing in the body can choose it — `tenant` binds {shelf}
+    // and SubmitFeedback reads the shelf off TenantContext, so a message
+    // filed here belongs to the shelf whose address was typed.
+    //
+    // THE EXEMPTION IS NOT A PIN, said here because the shape invites the
+    // opposite reading: RouteOrderTest:117's `$excludedSegments =
+    // ['manage', 'feedback']` REMOVES these two routes from the
+    // reader-area role-gate sweep, so THAT file cannot notice a
+    // `role:reader` added here. MEASURED rather than argued, by wrapping
+    // both lines in `Route::middleware(['auth', 'role:reader'])` and
+    // running the whole suite: 8 failed, 1930 passed, and RouteOrderTest
+    // is green in that run. The eight are the guest blocks in
+    // tests/Feature/Community/ReaderFeedbackScreenTest.php (five, this
+    // task's), SubmitFeedbackTest's rate-limit block (which posts here as
+    // a guest), ShellTest's "serves feedback to a guest" and
+    // MyNotificationsTest's "a signed-in NON-member gets no bell at all,
+    // on the one shelf page they can reach" — that last one being
+    // HandleInertiaRequests:83-86's third clause, which exists BECAUSE
+    // this route is the page a non-member reaches. So the door is
+    // guarded, just not by the file whose name suggests it.
+    Route::get('/feedback', [FeedbackController::class, 'create'])->name('feedback');
+    Route::post('/feedback', [FeedbackController::class, 'store'])->name('feedback.store');
 
     // Coordinator correction to this follow-up: `(doc-gia)/layout.tsx`
     // itself does not gate (it only resolves the address for the footer,
@@ -825,8 +887,59 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings');
     Route::post('/settings/contact', [AdminSettingsController::class, 'updateContact'])->name('settings.contact');
     Route::post('/settings/defaults', [AdminSettingsController::class, 'updateDefaults'])->name('settings.defaults');
-    Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
-    Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
+    // Phase 3c-ii Task 5, spec D5 — BR:606's cross-shelf audit browser, and
+    // the LAST placeholder route in the application. The six administration
+    // acts that record no parish (3b-ii's five and 3b-i's
+    // user.promoted_super_admin) have been written to a table whose only
+    // reader compared the tenant column for equality, so not one of them
+    // has ever been visible on any screen. This is the reader they were
+    // written for, and docs/known-gaps.md's 3b-ii entry saying so is closed
+    // in the same commit.
+    //
+    // READ-ONLY, AND NO SECOND ROUTE. There is no POST here and there must
+    // never be one: a log a screen can edit is not a log (INV-12). The four
+    // filters BR:606 asks for are query parameters on this one GET, which
+    // is also what lets /admin/managers link straight into it with an actor
+    // already chosen (Task 6).
+    //
+    // NO {bookshelf} AND NO {shelf}: the browser spans every parish PLUS
+    // the installation's own rows, and which parish an entry belongs to is
+    // a FILTER on this screen rather than a segment of its address —
+    // App\Queries\Admin\AuditBrowserQuery owns the three answers that
+    // filter can give.
+    Route::get('/audit', [AdminAuditController::class, 'index'])->name('audit');
+    // Phase 3c-ii Task 4, spec D3, D6, D8 and D9 — BR §16.1's Góp ý inbox,
+    // and the read half of a table that has been writable since Phase 2b's
+    // schema with no screen anywhere able to open it.
+    //
+    // SUPER-ADMIN ONLY, from this group's own middleware, ruled by the
+    // product owner on 2026-09-01 and matching the reference (which gates
+    // every feedback read and both handling writes on requireSuperAdmin).
+    // BR §13.2 can be read as granting a shelf's own manager a shelf-level
+    // inbox; it is not built, and App\Models\Bookshelf::feedback() is the
+    // relation that would have served it — kept, unused, recorded in
+    // docs/known-gaps.md rather than deleted.
+    //
+    // NO {bookshelf} AND NO {shelf}: the inbox is one list spanning every
+    // parish PLUS the site-wide messages a shelf-scoped read cannot express
+    // — feedback.bookshelf_id is the schema's one nullable tenant column.
+    //
+    // {feedback} IS TAKEN AS A STRING rather than bound to a model. Unlike
+    // the profile-change routes below, binding would actually WORK here
+    // (Feedback carries no BelongsToBookshelf, so no BookshelfScope fails
+    // closed on it) — the id goes through App\Queries\Admin\
+    // FeedbackInboxQuery::find() anyway so that one class owns how an
+    // unbound `/admin` caller resolves a message, and the missing-row
+    // answer is the same 404 either way.
+    //
+    // TWO WRITES AND NO THIRD. feedback.archived is deliberately not ported
+    // (spec D8): OPERATIONS.md lists ArchiveFeedback provisionally with an
+    // open question about an inert button, BR:610 asks only for read and
+    // resolved, and the reference's own screen records the product owner
+    // removing the fourth control.
+    Route::get('/feedback', [AdminFeedbackController::class, 'index'])->name('feedback');
+    Route::post('/feedback/{feedback}/read', [AdminFeedbackController::class, 'markRead'])->name('feedback.read');
+    Route::post('/feedback/{feedback}/resolve', [AdminFeedbackController::class, 'resolve'])->name('feedback.resolve');
     // Phase 3c-i Task 5, spec D9 and D10 — BR §16.4's "Change queue for
     // managers and shelf admins": the other half of the partition above,
     // "every pending profile-change proposal whose subject is a manager or

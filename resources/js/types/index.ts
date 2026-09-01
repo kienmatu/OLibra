@@ -95,5 +95,16 @@ export interface SharedData {
      * — the `/admin` area never binds one.
      */
     pendingManagerProfileChanges: number | null;
+    /**
+     * BR §16.1's unread-feedback badge for the admin shell — messages
+     * still at `new`, across every parish and the site-wide ones.
+     *
+     * `null` means "not a super administrator", and like the count above
+     * it is the ONLY viewer test: the inbox belongs to no shelf, so this
+     * does not go null merely because no tenant is bound — the `/admin`
+     * area never binds one, which is exactly the trap copying the
+     * donations badge's `$shelf !== null` clause would have sprung.
+     */
+    unreadFeedback: number | null;
     [key: string]: unknown;
 }

@@ -124,8 +124,16 @@ $app = Application::configure(basePath: dirname(__DIR__))
         // key — pages read it from the shared `errors` prop. Business-rule
         // refusals are never 500s (OPS §2) and never field errors (those
         // are ValidationException's, rendered per-field).
+        //
+        // The replacements array is almost always empty; it carries a
+        // placeholder value when the sentence has one, so a refusal that
+        // must state a number the application also enforces (rate_limited
+        // and SubmitFeedback::DAILY_LIMIT) reads that number from the
+        // constant instead of from a copy typed into lang/vi/rules.php.
+        // Still ONE renderer — the throw site chooses the value, never the
+        // response.
         $exceptions->render(function (RuleViolated $e, Request $request) {
-            return back()->withErrors(['rule' => __('rules.'.$e->code)]);
+            return back()->withErrors(['rule' => __('rules.'.$e->code, $e->replacements)]);
         });
     })->create();
 

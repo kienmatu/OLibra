@@ -720,6 +720,8 @@ A message to the administrator, from anyone, shelf-scoped or site-wide (the `gop
 
 #### `ArchiveFeedback`
 
+> **NOT PORTED — Laravel phase 3c-ii, spec D8 (2026-09-01).** This entry stays for the record and is not a gap. BR:610 asks only that messages be *"markable read and resolved"*, the open question below was never answered, and the reference's own inbox records the product owner removing the "Lưu trữ" button on 2026-08-09 for exactly the reason that question raises. `/admin/feedback` therefore ships with two writes, and the phase's audit-action count is 66 **because** `feedback.archived` stays out — it is registered in `AuditSentences::ACTIONS` nowhere, and the census would redden if it were. Reopening this needs a migration either way (a fourth status value, or a `deleted_at`), which is the decision nothing has made.
+
 - **Inputs:** `feedbackId`
 - **Caller:** `super_admin`
 - **Invariants enforced:** INV-8

@@ -107,6 +107,12 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'empty_proposal',
         // 3c-i Task 8, spec D6: the photograph's byte cap, 5 MiB. Raised by
         // App\Support\Members\AvatarStorage before anything is stored.
+        // 3c-ii Task 1, spec D1: SubmitFeedback's floor. The reference
+        // raises this one as a ValidationFailed; here it is a literal
+        // RuleViolated thrown from the command — OfferDonation's
+        // empty_description shape — so the two routes' Form Requests are
+        // the per-field errors and this is what a direct caller hits.
+        'feedback_fields_required',
         'file_too_large',
         'has_active_loans',
         // 3c-i Task 8, spec D6: a real photograph in a codec this server
@@ -157,6 +163,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         // not-found — the row is there, it has simply already been decided
         // or withdrawn since the manager opened the card.
         'profile_change_not_pending',
+        // 3c-ii Task 1, spec D2: the feedback limit is a domain rule, not
+        // route middleware — a rolling 24-hour count off the injected clock
+        // raising a refusal a sender can read, rather than a bare 429.
+        'rate_limited',
         'reason_required',
         'registration_not_pending',
         'reject_reason_required',

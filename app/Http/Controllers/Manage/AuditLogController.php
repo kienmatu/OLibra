@@ -43,12 +43,15 @@ class AuditLogController extends Controller
         $groupParam = QueryParam::first($request, 'group');
         $group = in_array($groupParam, AuditSentences::GROUPS, true) ? $groupParam : null;
 
-        $from = self::dateParam(QueryParam::first($request, 'from'));
-        $to = self::dateParam(QueryParam::first($request, 'to'));
-        // The max(1, …) clamp here is currently redundant with
-        // AuditLogQuery::run()'s own `$page = max(1, $page)`
-        // (app/Queries/AuditLogQuery.php:58), which re-clamps whatever it
-        // is given. Kept as defence in depth for any future caller of this
+        // A real calendar day or null — 2026-02-31 matches the shape and is
+        // still refused. The narrowing moved to QueryParam::civilDay in phase
+        // 3c-ii Task 5, unchanged, when /admin/audit became its second caller.
+        $from = QueryParam::civilDay($request, 'from');
+        $to = QueryParam::civilDay($request, 'to');
+        // The max(1, …) clamp here is currently redundant with the query's
+        // own `$page = max(1, $page)` (App\Queries\Concerns\ReadsAuditLog
+        // ::auditPage, which phase 3c-ii Task 5 moved it into), which
+        // re-clamps whatever it is given. Kept as defence in depth for any future caller of this
         // action that isn't the query itself. Mutation-tested: dropping
         // this clamp and passing a negative page straight through still
         // leaves the suite green, because the query clamps it anyway.
@@ -59,16 +62,5 @@ class AuditLogController extends Controller
             'actors' => $actors,
             'log' => $audit->run($actorId, $group, $from, $to, $page),
         ]);
-    }
-
-    /** A real calendar day as Y-m-d, or null — 2026-02-31 matches the regex and is still refused. */
-    private static function dateParam(?string $raw): ?string
-    {
-        if ($raw === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw) !== 1) {
-            return null;
-        }
-        [$y, $m, $d] = array_map(intval(...), explode('-', $raw));
-
-        return checkdate($m, $d, $y) ? $raw : null;
     }
 }

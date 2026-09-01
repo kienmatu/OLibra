@@ -11,7 +11,7 @@ export default function AdminLayout({ children }: PropsWithChildren) {
     // its nav item for the same reason §16.3's three do — a super
     // administrator has no other prompt that somebody's proposal is
     // waiting on them and only on them.
-    const { pendingManagerProfileChanges } = usePage<SharedData>().props;
+    const { pendingManagerProfileChanges, unreadFeedback } = usePage<SharedData>().props;
 
     const items = [
         { name: copy.admin.dashboard, href: route("admin.dashboard") },
@@ -33,6 +33,29 @@ export default function AdminLayout({ children }: PropsWithChildren) {
                 : copy.admin.profileChanges,
             href: route("admin.profile-changes"),
         },
+        {
+            // BR §16.1's unread badge, built exactly as the item above is —
+            // count in the label, bare word at both null and 0. The number
+            // is App\Queries\Admin\FeedbackInboxQuery::countUnread(), the
+            // same object the inbox's own list and its "n tin mới" line
+            // come out of, so the two share one predicate.
+            //
+            // Null here means "not a super administrator" and nothing else.
+            // It does NOT go null for want of a bound tenant, which is the
+            // trap the three shelf badges' `$shelf !== null` clause would
+            // have sprung on an area that binds none.
+            name: unreadFeedback
+                ? t(copy.admin.feedbackWithCount, { count: unreadFeedback })
+                : copy.admin.feedback,
+            href: route("admin.feedback"),
+        },
+        // BR:606's cross-shelf audit browser, phase 3c-ii Task 5. NO BADGE
+        // and nothing to count: a log is a record somebody consults, not a
+        // queue that drains, so a number beside it would be the size of the
+        // installation's history rather than anything waiting on this
+        // person. Task 4 added the item above and left this one to Task 5,
+        // which is also the task that gave the route a controller.
+        { name: copy.admin.audit, href: route("admin.audit") },
         { name: copy.admin.settings, href: route("admin.settings") },
     ];
 
