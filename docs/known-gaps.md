@@ -4834,6 +4834,25 @@ place where the port's own arrangement diverges from the requirements' text.
   contact hours alone do not count. An installation with a published name or
   number still shows only the card.
 
+  **Re-decided on 2026-09-01 (phase 3c-ii), by the product owner, with its
+  cost on the table.** Task 4 built the site-wide inbox, which for the first
+  time gave the `/lien-he` form a reader — so the ternary was worth asking
+  about again rather than inheriting. The question put was "keep the
+  reference's card OR form, or show both", and the answer was *keep the
+  reference's behaviour*.
+
+  What that costs, stated rather than left to be discovered: `contact.tsx:91`
+  is still `hasContact ? card : form`, so **on any installation that publishes
+  a contact name or phone number, the site-wide form never renders** — and with
+  it, the one UI entry point to `SubmitFeedback`'s global branch
+  (`bookshelf_id` NULL) is dark. `/admin/feedback`'s site-wide rows can then
+  only arrive from an installation with neither detail configured. The shelf
+  form (`/shelves/{shelf}/feedback`) is NOT behind this gate and is unaffected,
+  so shelf-scoped messages keep flowing either way; it is specifically the
+  parish-level message that has no door on a configured site. The write path,
+  its rate limit and its inbox are all built and tested regardless — this is a
+  rendering gate in front of them, reversible by deleting one ternary.
+
   **What is NOT bought, said plainly:** the route takes no `throttle:`
   middleware. The limit is spec D2's domain rule — three per phone number
   over a rolling 24 hours, inside the command — so a sender churning valid
@@ -5322,8 +5341,12 @@ reaches an `ascii_bin` column at all.
 
 - **`Bookshelf::feedback()` (`app/Models/Bookshelf.php:167`) now has no call
   site anywhere, and is kept rather than deleted.** `grep -rn "feedback()" app
-  resources tests database` returns four hits and every one is inside a
-  docblock. The relation was built in Phase 2 as the mechanism a shelf-scoped
+  resources tests database` returns FIVE hits, and not one of them is a call:
+  four are prose inside docblocks (`FeedbackInboxQuery.php:48`,
+  `Feedback.php:13`, `Bookshelf.php:163`, `Bookshelf.php:177`) and the fifth is
+  the declaration itself (`Bookshelf.php:167`). An earlier version of this entry
+  said "four hits and every one is inside a docblock", which undercounted by the
+  declaration — the conclusion (no caller) is what the grep actually shows. The relation was built in Phase 2 as the mechanism a shelf-scoped
   feedback read would go through — instead of a hand-written
   `where('bookshelf_id', …)` needing a `TenancyArchitectureTest` allow-list
   entry — and the read that would have used it was never built.
@@ -5536,7 +5559,9 @@ would fail against `old_next`.
 
   **What is honest about the cost:** they are dead code today, no test covers
   either, and `copy.common.underConstruction` (`resources/js/lib/copy.ts:19`) is
-  now an unreferenced string in a file that is otherwise fully used. If Phase 4
+  read from exactly one place — `under-construction.tsx:10`, the dead component
+  above — so it is live by grep and dead in fact. (This entry first called it
+  "unreferenced", which the grep refutes.) If Phase 4
   reaches its cutover with no placeholder route added, delete all three
   together — this entry is the note saying they were left deliberately and what
   would make removing them right.

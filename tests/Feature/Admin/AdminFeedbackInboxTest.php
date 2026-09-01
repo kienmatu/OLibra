@@ -157,15 +157,26 @@ it('keeps the contact number out of every list row and puts it in the open one',
 
             expect($rows)->toHaveCount(3);
 
+            // BY VALUE, not by key name. An earlier version of this block
+            // asserted three key names were absent — which is why the fixture
+            // gives every row a distinct number, work those assertions never
+            // used. Any OTHER key carrying the number (a stray
+            // `'contact' => $row->guest_contact`) leaked a phone into every
+            // list row with the test green. Two of the three names were also
+            // spellings this query has never emitted.
+            $serialised = json_encode($rows, JSON_UNESCAPED_UNICODE);
+
+            expect($serialised)->toBeString();
+            foreach (['0900000002', '0900000003'] as $unlistedNumber) {
+                expect(str_contains((string) $serialised, $unlistedNumber))
+                    ->toBeFalse("a list row carries {$unlistedNumber}, a sender's phone number");
+            }
+
             foreach ($rows as $row) {
-                // SCOPED TO THE LIST PROP, key by key — the server must not
-                // send the field at all, not merely leave it unrendered.
-                expect($row)->not->toHaveKey('senderContact')
-                    ->and($row)->not->toHaveKey('guestContact')
-                    // The rate-limit key is in NEITHER pane. It is of no use
-                    // to a person and AuditSecrets would refuse it in a
-                    // payload for the same reason.
-                    ->and($row)->not->toHaveKey('guestHash');
+                // The rate-limit key is in NEITHER pane. It is of no use to a
+                // person and AuditSecrets would refuse it in a payload for
+                // the same reason.
+                expect($row)->not->toHaveKey('guestHash');
             }
 
             $page->where('open.senderContact', '0900000001')

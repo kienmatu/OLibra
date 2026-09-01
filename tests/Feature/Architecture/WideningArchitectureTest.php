@@ -132,6 +132,16 @@ it('the audit configurator is confined to app/Actions/Admin', function () {
     // exactly the shelf-scoped writes this fence exists to hold inside
     // tenancy. The shelf's own Góp ý route needs no entry at all — it runs
     // under a bound tenant, so the recorder never throws for it.
+    // ONE FILE, not the directory: app/Actions/Community/ also holds the
+    // announcement, comment and donation writes, which are shelf-scoped and
+    // are exactly what this fence exists to hold.
+    //
+    // ITS COST, stated the way the two TenancyArchitectureTest exemptions
+    // state theirs: the allow-list is whole-FILE, so a second and wrongly
+    // scoped configurator call added to SubmitFeedback.php later is invisible
+    // here. What stands behind it instead is identity: SubmitFeedbackTest's
+    // site-wide block and ReaderFeedbackScreenTest's shelf blocks pin both
+    // branches by the row they write.
     $allowed = ['app/Actions/Community/SubmitFeedback.php'];
 
     $offenders = collect(offendersFor($pattern, $allowed))

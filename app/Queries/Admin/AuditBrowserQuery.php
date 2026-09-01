@@ -53,11 +53,14 @@ use Illuminate\Database\Eloquent\Builder;
  * EVERYTHING BELOW THE SCOPE IS SHARED with the manager's own log, through
  * App\Queries\Concerns\ReadsAuditLog — the joins with their collation
  * guards, the four-way coalesce, the page size, the total order and the
- * four filters BR:606 asks for. Only one of those four is new work here:
- * the actor filter, the group chips and the date range with its
- * Asia/Ho_Chi_Minh civil-day boundary were all already implemented and
- * paid for, and re-deriving the boundary was the mistake spec D5 exists to
- * stop.
+ * four filters BR:606 asks for — actor, group, from, to.
+ *
+ * Of those four, ONE is new work here: the actor filter. The group chips and
+ * the date range's two ends (`from`/`to`, with their Asia/Ho_Chi_Minh
+ * civil-day boundary) were already implemented and paid for by the manager's
+ * log, and re-deriving that boundary was the mistake spec D5 exists to stop.
+ * An earlier wording of this paragraph ran the two lists into one sentence and
+ * so appeared to claim the actor filter was both new and already implemented.
  */
 final class AuditBrowserQuery
 {

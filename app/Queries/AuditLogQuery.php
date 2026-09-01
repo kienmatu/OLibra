@@ -11,7 +11,14 @@ use RuntimeException;
 /**
  * OPS §3.3's GetAuditLog (shelf-scoped) — port of get-audit-log.ts.
  *
- * THE one hand-written bookshelf_id filter outside BookshelfScope, and
+ * ~~THE one hand-written bookshelf_id filter outside BookshelfScope~~ —
+ * RETRACTED 2026-09-01 (phase 3c-ii, Task 5). There are now TWO: this one,
+ * and app/Queries/Admin/AuditBrowserQuery.php, which needs its own because
+ * "site-wide only" is a predicate no relation can express. Each carries its
+ * own allow-list entry. The rest of this docblock was rewritten then and
+ * points at the new class correctly; this opening absolute was left standing
+ * and is the sentence that went stale. It remains true that this is the one
+ * such filter for the SHELF-scoped read, and
  * TenancyArchitectureTest names this file for it: AuditLog is exempt from
  * BelongsToBookshelf (nullable bookshelf_id — global rows are Phase 3's
  * cross-shelf browser), so scoping is this class's own where, and the

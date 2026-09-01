@@ -170,13 +170,19 @@ return [
     // (a guest may send one), so the frame reads "Hệ thống đã nhận một góp
     // ý", and who sent it is on the message itself rather than in the log.
     'feedback_submitted' => 'nhận một góp ý',
-    // Phase 3c-ii Task 4's two handling moves, the reference's phrases
-    // verbatim (audit-actions.ts, `đánh dấu một góp ý là đã đọc` and
-    // `xử lý một góp ý`). Both take facts — the payload carries the status
-    // either side — and interpolate none of them: what a volunteer reads in
-    // the log is that somebody handled a message, and the message itself is
-    // where its contents live. The <details> expansion beside the sentence
-    // is where before/after actually shows.
+    // Phase 3c-ii Task 4's two handling moves.
+    // `feedback_resolved` IS the reference's phrase
+    // verbatim (`xử lý xong một góp ý`). `feedback_read` DIVERGES and this
+    // note used to hide that: the reference says `đánh dấu đã đọc một góp ý`,
+    // this ships `đánh dấu một góp ý là đã đọc` — the more natural Vietnamese
+    // word order, a deliberate readability edit. The earlier comment quoted
+    // the SHIPPED string back as the reference's, and misquoted the resolved
+    // line in the other direction, so it was wrong about both.
+    //
+    // Both take facts — the payload carries the status either side — and
+    // interpolate none of them: what a volunteer reads in the log is that
+    // somebody handled a message, and the message itself is where its
+    // contents live.
     'feedback_read' => 'đánh dấu một góp ý là đã đọc',
     'feedback_resolved' => 'xử lý xong một góp ý',
 

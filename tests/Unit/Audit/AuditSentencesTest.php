@@ -441,9 +441,11 @@ it('the two feedback handling actions name the administrator and never the messa
         after: ['status' => 'resolved'],
     )))->toBe('Maria Quản Trị đã xử lý xong một góp ý');
 
-    // And they are not each other's sentence — a copy-paste that pointed
-    // both arms at one lang line would pass every expectation above except
-    // this one.
+    // A belt on top of the two exact-string assertions above, which are what
+    // actually catch a copy-paste: if either arm pointed at the other's lang
+    // key, one of THOSE fails first. An earlier version of this comment
+    // claimed this line was the only thing that would catch it, which was
+    // not true — it is cheap, not load-bearing.
     expect(AuditSentences::sentence('feedback.read', audFacts(actor: 'Maria Quản Trị')))
         ->not->toBe(AuditSentences::sentence('feedback.resolved', audFacts(actor: 'Maria Quản Trị')));
 });
