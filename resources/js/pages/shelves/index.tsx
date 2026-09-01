@@ -47,12 +47,25 @@ export default function ShelvesIndex({ q, shelves }: Props) {
             </form>
 
             {shelves.length === 0 ? (
-                <p className="mt-4 text-muted-foreground">
-                    {/* Branches on the SUBMITTED query, not on live
+                <>
+                    <p className="mt-4 text-muted-foreground">
+                        {/* Branches on the SUBMITTED query, not on live
                         keystrokes: typing into the box must not relabel a
                         list that is still showing the previous result. */}
-                    {q ? copy.shelves.noResults : copy.shelves.empty}
-                </p>
+                        {q ? copy.shelves.noResults : copy.shelves.empty}
+                    </p>
+                    {/* Only when the portal is genuinely empty, not when a search
+                    missed: a parish that searched and found nothing is looking
+                    for a shelf that exists, and does not need the admins. */}
+                    {!q ? (
+                        <p className="mt-2 text-muted-foreground">
+                            {copy.shelves.emptyContact}{" "}
+                            <Link className="underline" href={route("contact")}>
+                                {copy.shelves.emptyContactLink}
+                            </Link>
+                        </p>
+                    ) : null}
+                </>
             ) : (
                 <ul className="mt-4 space-y-2">
                     {shelves.map((shelf) => (
