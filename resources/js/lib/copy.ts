@@ -1220,10 +1220,33 @@ export const copy = {
         // second unit to name.
         parishNoteOne: "Muốn đổi {level1} thì nhờ quản lý tủ sách giúp.",
         parishNoteTwo: "Muốn đổi {level1} hoặc {level2} thì nhờ quản lý tủ sách giúp.",
-        // Honest for THIS task, which ships the screen read-only: the
-        // propose form is a later task's and this line changes with it.
-        readOnlyNote:
-            "Thông tin ở trên do quản lý xác minh. Muốn sửa thì nhờ quản lý tủ sách giúp.",
+        // REPLACES Task 1's `readOnlyNote`, which said to ask a manager.
+        // That sentence was honest exactly as long as the screen had no
+        // form; with one below it, it would send a reader away from the box
+        // that does the thing. Task 1 flagged the rewrite for this task by
+        // name, and the KEY is renamed as well as the words, so nothing can
+        // keep rendering the old sentence under a name that no longer
+        // describes it.
+        verifiedNote: "Thông tin ở trên do quản lý xác minh. Muốn sửa thì gửi đề nghị bên dưới.",
+        // ── The propose form (BR:83, "a request, not an edit") ──────────
+        proposeTitle: "Đề nghị sửa thông tin",
+        proposeLead:
+            "Sửa những ô cần đổi rồi gửi. Thông tin hiện tại vẫn được dùng cho đến khi quản lý duyệt.",
+        // The WORD, never a bare asterisk (AGENTS.md rule 6).
+        required: "Bắt buộc",
+        proposeSubmit: "Gửi đề nghị",
+        proposeSending: "Đang gửi…",
+        // Spec D1's merge, said out loud on the screen. A reader who has
+        // one waiting and sends another is not starting a second request —
+        // the fields they change now join the one already there — and a
+        // screen that stayed silent about it would let them think the first
+        // one had been thrown away.
+        proposeMergeNote:
+            "Bạn đang có một đề nghị chờ duyệt. Những ô bạn đổi lần này sẽ được gộp vào đề nghị đó.",
+        // The phone pair, in the reader's own words: a blank number is
+        // allowed only with a reason, which is the refusal the server
+        // raises (rules.thieu-so-dien-thoai) and this line prevents.
+        phoneHint: "Chưa có số thì để trống ô số và ghi lý do bên dưới.",
         backToOverview: "Về trang của tôi",
     },
     // Tặng sách, across the reader's TWO screens — the offer form in the

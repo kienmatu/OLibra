@@ -43,6 +43,14 @@ return [
     'empty_proposal' => 'Vui lòng thay đổi ít nhất một trường.',
     'not_permitted' => 'Bạn không có quyền thực hiện việc này.',
     'thieu-so-dien-thoai' => 'Bạn chưa nhập số điện thoại. Hãy nhập số, hoặc cho biết lý do chưa có.',
+    // Phase 3c-i Task 2, spec D1. NOT the second-proposal refusal — a
+    // second proposal at this shelf merges into the pending row and is
+    // never refused. This is the case the shelf-scoped read cannot see: a
+    // person with memberships at two parishes, whose pending row belongs to
+    // the other one, caught off the generated column's global unique index.
+    // The reference's own sentence, which is honest about both.
+    'change_already_pending' => 'Bạn đang có một yêu cầu thay đổi chờ duyệt.',
+    'profile_change_proposed_flash' => 'Đã gửi đề nghị. Thông tin hiện tại vẫn được dùng cho đến khi quản lý duyệt.',
     'parish_unit_l1_not_found' => 'Đơn vị bậc 1 đã chọn không tồn tại.',
     'parish_unit_l2_not_found' => 'Đơn vị bậc 2 đã chọn không tồn tại.',
     'parish_unit_l2_not_in_l1' => 'Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.',

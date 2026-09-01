@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers\Reader;
 
+use App\Actions\Admin\ProposeProfileChange;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Members\ProposeProfileChangeRequest;
 use App\Models\Bookshelf;
+use App\Models\User;
 use App\Queries\MyProfileQuery;
 use App\Support\TenantContext;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -15,13 +19,17 @@ use Inertia\Response;
  * at `shelves.profile.show`. Phase 3c-i Task 1; the route rendered
  * ShellController::underConstruction until this commit.
  *
- * READ-ONLY, AND THAT IS THIS TASK'S SCOPE RATHER THAN THE SCREEN'S FINAL
- * SHAPE. BR:83 — "changing your own details is a request, not an edit" —
- * needs ProposeProfileChange, which is Task 2's; the password form is
- * Task 7's and the avatar Task 8's. What ships here is the half a reader
- * needs before any of them exists: their verified details, their parish
- * unit under this shelf's own name for the level, and what happened to the
- * proposal they already sent.
+ * NOT READ-ONLY ANY MORE. Task 1 shipped the view alone and said so on the
+ * page; Task 2 adds `propose`, the POST behind BR:83's "changing your own
+ * details is a request, not an edit", so the screen now carries a form that
+ * changes nothing until a manager approves it. The password form is Task
+ * 7's and the photograph Task 8's, and the page is still not finished.
+ *
+ * NO RuleViolated IS CAUGHT HERE — whichever of ProposeProfileChange's
+ * codes a reader meets, bootstrap/app.php renders it once, for the whole
+ * app, as back()->withErrors(['rule' => …]). The Action's own docblock is
+ * where the codes and their reasons live; a list of them here would be a
+ * second copy to go stale.
  *
  * THE MEMBERSHIP COMES FROM TenantContext, NEVER FROM THE URL. This route
  * names no membership — a reader cannot ask for somebody else's profile by
@@ -63,5 +71,33 @@ class ProfileController extends Controller
             'isMember' => true,
             'profile' => $profile->run($membership),
         ]);
+    }
+
+    /**
+     * BR §16.2's other half — "propose changes to them".
+     *
+     * THE MEMBERSHIP COMES FROM TenantContext HERE TOO, never from the
+     * body. The Action takes a Membership rather than a user id precisely
+     * so that a caller cannot name a person; this route hands it the row
+     * ResolveTenant put there. A memberless caller — the super admin
+     * `role:reader` admits to a shelf they hold no membership of — has no
+     * record here to propose about, and 404s for the same anti-enumeration
+     * reason the request class's own backstop does.
+     */
+    public function propose(
+        ProposeProfileChangeRequest $request,
+        Bookshelf $shelf,
+        ProposeProfileChange $propose,
+    ): RedirectResponse {
+        $membership = $this->tenant->membership();
+
+        abort_unless($membership !== null, 404);
+
+        /** @var User $actor */
+        $actor = $request->user();
+
+        $propose->execute($actor, $membership, $request->validated());
+
+        return back()->with('success', __('rules.profile_change_proposed_flash'));
     }
 }

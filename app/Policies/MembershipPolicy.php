@@ -165,4 +165,32 @@ class MembershipPolicy
 
         return $own !== null && $own->id === $membership->id;
     }
+
+    /**
+     * Phase 3c-i Task 2, spec D5: the SECOND of the two reader-side member
+     * verbs this class's own docblock has named as deferred — proposing a
+     * change to a person's verified details. (The third, deciding one, is
+     * Task 3's.)
+     *
+     * THE SAME requireSelfOrManager AS viewSelf, and it delegates rather
+     * than restating it, because the reference gates both with that one
+     * function and two copies of a self-check are two places for the
+     * membership-id-versus-user-id distinction to be got wrong.
+     *
+     * PROPOSING IS NOT READER-ONLY. The manager half of the delegate is
+     * load-bearing here rather than incidental: any manager or above may
+     * propose on another person's behalf, which is the capability the
+     * reference ships. A "reader proposes about themselves" gate would have
+     * shipped something narrower and called it a port.
+     *
+     * WHAT THIS ABILITY DOES NOT DECIDE is whether the proposal may be
+     * APPROVED. §9's subject-role rule — a manager/admin subject is a super
+     * admin's to decide — needs the subject's role read under the deciding
+     * command's own lock, so it stays out of this class exactly as it does
+     * for correct().
+     */
+    public function propose(User $user, Membership $membership): bool
+    {
+        return $this->viewSelf($user, $membership);
+    }
 }

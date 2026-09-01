@@ -65,6 +65,13 @@ final class AuditSentences
         'membership.left' => 'readers',
         'credentials.set' => 'readers',
         'profile.corrected' => 'readers',
+        // Phase 3c-i Task 2, spec D1 and D5 — the first of the lifecycle's
+        // five, and 'readers' rather than 'administration' even though the
+        // command lives in app/Actions/Admin/. That directory is forced by
+        // the audit configurator's fence (spec D10), not by the act being
+        // administrative: this is a reader on their own profile page, and
+        // the group answers "which screen is this act from".
+        'profile_change.proposed' => 'readers',
         // Phase 2b files every community action under its own group, the
         // reference's cong-dong (audit-actions.ts's comment.* family).
         // Folding comments into books would leave next task's shelf news
@@ -361,6 +368,10 @@ final class AuditSentences
             'membership.left' => strtr(self::line('membership_left'), [':subject' => self::who($subject)]),
             'credentials.set' => strtr(self::line('credentials_set'), [':subject' => self::who($subject)]),
             'profile.corrected' => strtr(self::line('profile_corrected'), [':subject' => self::who($subject)]),
+            // No strtr at all — the reference's phrase takes no
+            // substitution, and the payload (the proposed values beside
+            // their snapshot) is what a volunteer opens the row for.
+            'profile_change.proposed' => self::line('profile_change_proposed'),
             // No strtr at all — the copy_lost_reported shape. The
             // reference's phrase names neither the title nor the author,
             // and that stays deliberate: the payload holds book_id and no

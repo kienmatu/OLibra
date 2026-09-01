@@ -1,21 +1,36 @@
-import { Head, Link, usePage } from "@inertiajs/react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import type { LucideIcon } from "lucide-react";
 import { Ban, Check, Clock, Lock, X } from "lucide-react";
+import type { FormEvent } from "react";
 import { route } from "ziggy-js";
+import InputError from "@/components/input-error";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import AppLayout from "@/layouts/app-layout";
 import { copy, t } from "@/lib/copy";
 import { formatInstantParts } from "@/lib/dates";
 import type { SharedData } from "@/types";
 
 /**
- * BR §16.2's "Hồ sơ của bạn" — the reader's own record.
+ * BR §16.2's "Hồ sơ của bạn" — the reader's own record, and since Task 2
+ * the form BR:83 calls "a request, not an edit".
  *
- * READ-ONLY IN THIS TASK, and the note at the foot says so in words rather
- * than leaving a reader to guess. BR:83's "changing your own details is a
- * request, not an edit" needs ProposeProfileChange, which is a later task's;
- * what this screen owes a reader today is their verified details, their
- * parish unit, and what happened to a proposal they already sent.
+ * THE VERIFIED LIST AND THE FORM ARE BOTH HERE, and the duplication is the
+ * point rather than an oversight: the list is what the parish currently
+ * believes about this person and what stays in force, and the form is what
+ * they would like it to say. Collapsing the two into prefilled inputs would
+ * lose the first meaning — a reader could no longer tell a value they had
+ * typed from a value a manager verified.
+ *
+ * SUBMITTING SENDS ALL EIGHT PROPOSABLE FIELDS, not only the touched ones,
+ * and nothing downstream minds: App\Actions\Admin\ProposeProfileChange
+ * filters the patch against the person as they stand and refuses
+ * `empty_proposal` when nothing differs, so an untouched field is never a
+ * proposal. What that DOES buy is the four not-null columns arriving as
+ * present-and-blank when a reader clears one, which is how
+ * `required_fields_missing` reaches them instead of a silent no-op.
  *
  * THE FIELD KEYS ARE COLUMN NAMES ON BOTH SIDES. App\Queries\MyProfileQuery
  * returns the nine verified fields snake_case, and a proposal's
@@ -62,6 +77,32 @@ type ProfileField = (typeof FIELD_ORDER)[number];
  * task's, so this screen names neither.
  */
 const TEXT_FIELDS = FIELD_ORDER.filter((f) => f !== "avatar_object");
+
+/**
+ * The eight App\Support\Members\ProfileProposals::proposableFields() names
+ * — the same list, and the same exclusion for the same reason: the
+ * photograph is a FILE, so it arrives through the avatar task's own path.
+ * `avatar_object` is deliberately absent from the form AND from
+ * ProposeProfileChangeRequest's rules, because ProfileFields normalises it
+ * as a plain trimmed string with no validation — a form that posted it
+ * would let a reader point their avatar at any storage key in the bucket.
+ */
+const PROPOSABLE_FIELDS = TEXT_FIELDS;
+
+/** How each proposable field is typed, so a birthday gets a date control. */
+const FIELD_INPUT: Partial<Record<ProfileField, string>> = {
+    date_of_birth: "date",
+    phone: "tel",
+    email: "email",
+};
+
+/** The four NOT NULL columns of App\Support\Members\ProfileFields::REQUIRED. */
+const REQUIRED_FIELDS: ReadonlySet<string> = new Set([
+    "saint_name",
+    "full_name",
+    "father_name",
+    "mother_name",
+]);
 
 interface ProfileChange {
     id: string;
@@ -144,8 +185,97 @@ function ValueRow({ label, value }: { label: string; value: string | null }) {
     );
 }
 
+/**
+ * BR:83's request. SINGLE COLUMN, labels above inputs, the word *Bắt buộc*
+ * rather than an asterisk — AGENTS.md rule 6 — and the trio its component
+ * table names for a labelled control: Label + the control + InputError.
+ *
+ * THE MERGE IS SAID OUT LOUD when something is already pending (spec D1). A
+ * second proposal does not start a second request and does not throw the
+ * first away; the fields touched now join the one already waiting, and the
+ * same card keeps the same id. A screen silent about that would let a
+ * reader believe they had replaced their earlier proposal.
+ */
+function ProposeForm({
+    fields,
+    shelfSlug,
+    hasPending,
+}: {
+    fields: Partial<Record<ProfileField, string | null>>;
+    shelfSlug: string;
+    hasPending: boolean;
+}) {
+    const c = copy.myProfile;
+    const form = useForm<Record<string, string>>(
+        Object.fromEntries(PROPOSABLE_FIELDS.map((f) => [f, fields[f] ?? ""])),
+    );
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(route("shelves.profile.change-request", { shelf: shelfSlug }));
+    };
+
+    return (
+        <section className="mt-8 max-w-xl">
+            <h2 className="mb-1 text-xl font-semibold">{c.proposeTitle}</h2>
+            <p className="mb-4 text-sm text-muted-foreground">{c.proposeLead}</p>
+
+            {hasPending ? (
+                <p className="mb-4 rounded-md border px-3 py-2 text-sm text-muted-foreground">
+                    {c.proposeMergeNote}
+                </p>
+            ) : null}
+
+            <form className="space-y-5" onSubmit={submit}>
+                {PROPOSABLE_FIELDS.map((field) => (
+                    <div key={field}>
+                        <Label htmlFor={field}>
+                            {c.fieldLabels[field]}
+                            {REQUIRED_FIELDS.has(field) ? (
+                                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                    {c.required}
+                                </span>
+                            ) : null}
+                        </Label>
+                        {field === "phone_missing_reason" ? (
+                            /* No textarea component exists yet — AGENTS.md's
+                               table says to style a plain one like the input. */
+                            <textarea
+                                id={field}
+                                name={field}
+                                rows={2}
+                                className="min-h-16 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                value={form.data[field]}
+                                onChange={(event) => form.setData(field, event.target.value)}
+                            />
+                        ) : (
+                            <Input
+                                id={field}
+                                name={field}
+                                type={FIELD_INPUT[field] ?? "text"}
+                                value={form.data[field]}
+                                onChange={(event) => form.setData(field, event.target.value)}
+                            />
+                        )}
+                        {field === "phone" ? (
+                            <p className="mt-1 text-xs text-muted-foreground">{c.phoneHint}</p>
+                        ) : null}
+                        <InputError message={form.errors[field]} />
+                    </div>
+                ))}
+
+                {/* THE one primary action on this screen (rule 3); h-14 is
+                    rule 4's 56px. */}
+                <Button type="submit" className="h-14 w-full" disabled={form.processing}>
+                    {form.processing ? c.proposeSending : c.proposeSubmit}
+                </Button>
+            </form>
+        </section>
+    );
+}
+
 export default function MyProfilePage() {
-    const { isMember, profile, shelf } = usePage<PageProps>().props;
+    const { isMember, profile, shelf, errors, flash } = usePage<PageProps>().props;
     if (!shelf) return null;
 
     const c = copy.myProfile;
@@ -175,6 +305,32 @@ export default function MyProfilePage() {
 
             <h1 className="mb-1 text-2xl font-semibold">{c.title}</h1>
             <p className="mb-6 text-sm text-muted-foreground">{c.lead}</p>
+
+            {flash.success ? (
+                <p
+                    role="status"
+                    className="mb-4 max-w-xl rounded-md border border-green-700/30 bg-green-700/10 px-3 py-2 text-sm"
+                >
+                    {flash.success}
+                </p>
+            ) : null}
+
+            {/*
+             * The rule banner. Every RuleViolated in this application
+             * arrives the same way — bootstrap/app.php renders it as
+             * back()->withErrors(['rule' => …]) — and ProposeProfileChange
+             * has several a reader can genuinely meet: a blank saint name,
+             * a phone cleared with no reason, a form submitted unchanged,
+             * and a pending request filed at another parish.
+             */}
+            {errors.rule ? (
+                <p
+                    role="alert"
+                    className="mb-4 max-w-xl rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+                >
+                    {errors.rule}
+                </p>
+            ) : null}
 
             <section className="max-w-xl">
                 <h2 className="mb-2 text-xl font-semibold">{c.changesTitle}</h2>
@@ -263,8 +419,14 @@ export default function MyProfilePage() {
                         <ValueRow key={f} label={c.fieldLabels[f]} value={fields[f] ?? null} />
                     ))}
                 </dl>
-                <p className="mt-3 text-sm text-muted-foreground">{c.readOnlyNote}</p>
+                <p className="mt-3 text-sm text-muted-foreground">{c.verifiedNote}</p>
             </section>
+
+            <ProposeForm
+                fields={fields}
+                shelfSlug={shelf.slug}
+                hasPending={pendingChange?.status === "pending"}
+            />
 
             {profile.showLevel1 || profile.showLevel2 ? (
                 <section className="mt-8 max-w-xl">

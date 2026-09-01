@@ -75,6 +75,11 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         // thing protecting those books' labels — the soft delete never
         // fires the schema's ON DELETE SET NULL.
         'category_in_use',
+        // 3c-i Task 2: NOT the second-proposal guard — a second proposal at
+        // this shelf merges into the pending row. This is the cross-shelf
+        // case the tenant-scoped SELECT cannot see, caught off the
+        // generated pending_user_id column's global unique index.
+        'change_already_pending',
         'comment_not_approved',
         'comment_not_pending',
         'comments_disabled',

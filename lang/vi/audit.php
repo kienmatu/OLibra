@@ -57,6 +57,14 @@ return [
     'membership_left' => 'đánh dấu :subject đã rời tủ sách',
     'credentials_set' => 'đặt hoặc đổi tài khoản đăng nhập cho :subject',
     'profile_corrected' => 'sửa hồ sơ của :subject',
+    // Phase 3c-i Task 2. The reference's phrase verbatim, and it names NO
+    // subject on purpose: this row's entity is the request, whose subject
+    // join has no user id to work from, and the overwhelming case is a
+    // reader proposing about themselves — where naming them after the
+    // actor would read as though somebody proposed a change to somebody
+    // else. Which fields were proposed is in the payload rows one tap
+    // away, which is where INV-8 puts them.
+    'profile_change_proposed' => 'gửi yêu cầu đổi thông tin',
 
     // — cộng đồng —
     // The reference's phrase verbatim (audit-actions.ts's comment.created).

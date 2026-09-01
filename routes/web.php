@@ -240,6 +240,13 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // Proposing a change to it is Task 2's and posts elsewhere; this
         // one only reads.
         Route::get('/', [ProfileController::class, 'show'])->name('show');
+        // Phase 3c-i Task 2: BR:83's request-not-an-edit. It names no
+        // membership — the caller's own row comes off the bound tenant, so
+        // there is nothing in this URL for a reader to edit into somebody
+        // else's. Declared beside its GET rather than in the manager area
+        // because this is the reader's own screen; a manager proposing on
+        // another's behalf reaches the same Action from theirs.
+        Route::post('/change-request', [ProfileController::class, 'propose'])->name('change-request');
         Route::get('/history', [MyLoansController::class, 'history'])->name('history');
         // The bell. read-all is declared BEFORE the bound route — the
         // house habit (spec §6's static-before-bound discipline), even
