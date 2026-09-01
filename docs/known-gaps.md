@@ -586,6 +586,14 @@ the equivalent by hand, as above, is now how that gets checked, on demand.
   So the *first real caller* is Phase 3's, not Phase 2's,
   and a reader sent looking for one in this phase's diff finds nothing.
   The coverage-debt half stands unchanged.
+  **AMENDED AGAIN 2026-09-01, phase 3c-ii: there is no first real caller,
+  and under the ruling this phase took there will not be one.** The feedback
+  slice is now fully built and `/admin/feedback` is super-admin-only and
+  cross-shelf, so it reads the table directly and never through a shelf; the
+  same grep still returns docblock mentions only. The coverage debt is
+  therefore not payable by a caller arriving later, which changes what it
+  means — see "A relation kept for a caller that does not exist" in the
+  Phase 3c-ii section at the end of this file.
 - **Factory `->create()` under a bound tenant now throws for any factory
   whose `definition()` names its own `bookshelf_id`.** `BelongsToBookshelf`'s
   `creating` hook validates an explicit `bookshelf_id` against the bound
@@ -3568,8 +3576,14 @@ and is already censused by `RuleViolatedCodesHaveSentencesTest`.
   `BookshelfScope` on the model, so a nonexistent id and a foreign shelf's id
   are indistinguishable before the Action runs.
 
-- **§4.4's four feedback commands describe commands nothing implements, and
-  that is a deferral rather than a gap** — see the feedback entry below.
+- **~~§4.4's four feedback commands describe commands nothing implements, and
+  that is a deferral rather than a gap~~ CLOSED 2026-09-01, phase 3c-ii.**
+  Three of the four are built — `App\Actions\Community\SubmitFeedback`
+  (Task 1), `App\Actions\Admin\MarkFeedbackRead` and
+  `App\Actions\Admin\ResolveFeedback` (Task 4). The fourth,
+  `ArchiveFeedback`, is deliberately not ported and its OPS entry now says so
+  in its own words (`docs/OPERATIONS.md:723`). See the feedback entry below,
+  and the Phase 3c-ii section at the end of this file.
 
 - **§4.4's pin-cap open question is settled at "no cap", matching the
   reference.** Divergence 8. `App\Actions\Community\PinAnnouncement::execute`
@@ -3683,8 +3697,27 @@ and is already censused by `RuleViolatedCodesHaveSentencesTest`.
   parish ever meets this, the fix is the shape `feedback.ts` already uses,
   and BR §8's own rate-limit section is where the numbers would come from.
 
-- **The feedback slice is deferred WHOLE to Phase 3 — form and inbox
-  together — and that is a decision with four reasons.** OPS §4.4 lists
+- **~~The feedback slice is deferred WHOLE to Phase 3 — form and inbox
+  together — and that is a decision with four reasons.~~ CLOSED 2026-09-01,
+  phase 3c-ii.** The whole slice landed in one phase, form and inbox
+  together, exactly as this entry asked: `SubmitFeedback` (Task 1), the
+  shelf's own *Góp ý* at `routes/web.php:281-282` (Task 2), the public
+  contact form at `:90` (Task 3) and `/admin/feedback` at `:940-942`
+  (Task 4). All four of this entry's reasons expired the way it predicted —
+  the `/admin` area and its cross-shelf read conventions were built in 3b-i
+  and 3b-ii, and `AuditRecorder`'s global arm, which reason (3) named as the
+  blocker for a site-wide row, is what `SubmitFeedback:161` now calls.
+  **Both open questions this entry carried are answered**, and neither by
+  default: the fourth "archive" status is not ported (spec D8), and the
+  shelf-manager visibility question the phase plan could only *recommend* on
+  was ruled by the product owner on 2026-09-01 — **super-admin only**,
+  matching the reference. That ruling is what leaves `Bookshelf::feedback()`
+  with no caller; see the Phase 3c-ii section at the end of this file.
+  Kept struck rather than deleted, for this file's usual reason: a note that
+  vanishes without saying it was answered comes back. **The original entry,
+  unedited:**
+
+  OPS §4.4 lists
   `SubmitFeedback`, `MarkFeedbackRead`, `ResolveFeedback` and
   `ArchiveFeedback`; `find app/Actions -iname '*Feedback*'` returns **0**
   files, and `grep -rn "Feedback" app/` reaches only four files — the model
@@ -5222,3 +5255,262 @@ command locking the wrong row entirely.
   a decision about what SHOULD happen — auto-cancel on departure, a
   soft-deleted-subject queue, or a sweep — and that decision is the product
   owner's, not a fix wave's.
+
+## Phase 3c-ii — oversight and feedback
+
+The last three placeholder routes close. A reader or a passing guest can send a
+message to the people who keep the shelf (`routes/web.php:281-282`), a parish
+with no shelf at all can reach the administrator from the public contact page
+(`:90`), and the administrator can finally open both — `/admin/feedback`
+(`:940-942`), an inbox spanning every parish plus the installation's own
+messages, and `/admin/audit` (`:910`), the cross-shelf log browser six audit
+actions have been writing into with no reader. `/admin/managers` gains a link
+per row carrying the actor, which is the whole of BR:608. Branch
+`feat/phase-3c-ii-oversight-and-feedback`. Three audit actions land —
+`feedback.submitted`, `feedback.read`, `feedback.resolved`, all grouped
+`community` — taking the census from 63 to 66.
+
+**This was the last phase of Phase 3.** Anything below has no later phase inside
+Phase 3 to absorb it; Phase 4 deletes the Next.js tree and rewrites the
+architecture documents. What follows is one guard this phase discovered it
+cannot test, a product ruling that stranded a relation, two deliberate
+divergences from the reference, the deferrals that outlived Phase 3, and the
+dead code the last placeholder left behind.
+
+### The collation guard is not falsifiable in this environment, and nothing in the suite would notice its removal
+
+**Recorded first and at length because it is the one thing here that could be
+deleted by somebody acting reasonably.** The audit browsers resolve a subject's
+name partly out of the JSON payload, through two `leftJoin`s that each compare a
+`JSON_UNQUOTE(JSON_EXTRACT(…))` result — utf8mb4 — against `users.id`, which is
+`ascii_bin`. Both wrap the left side in `CONVERT(… USING ascii) COLLATE
+ascii_bin` (`app/Queries/Concerns/ReadsAuditLog.php:129,158`) against errno 1267,
+"Illegal mix of collations", which is this repo's *six-times-paid live 500*.
+
+Task 5 tried to falsify that guard when it moved the joins into the shared trait
+and could not: replacing the expression with a bare `JSON_UNQUOTE(JSON_EXTRACT(…))`
+left **all six** tests in `tests/Feature/Admin/AdminAuditBrowserTest.php` green,
+including the one written specifically to exercise the payload join. The
+measurement is in that file's own docblock (`:37-48`). The MariaDB this suite
+runs on **resolves** that pairing rather than refusing it, so whatever produced
+those six production incidents is not reproducible here.
+
+**The guard is KEPT** — six live incidents outweigh one environment that will
+not reproduce them — **but it is protecting a six-times-paid production defect
+with no test behind it.** It is not that the pin is weak; there is no pin. A
+future reader who deletes the `CONVERT`/`COLLATE` on the strength of a green run
+will get a green run.
+
+**This is the second independent measurement of the same fact, which is why it
+is stated this strongly rather than hedged.** The manager-side
+`tests/Feature/Oversight/AuditLogQueryTest.php:224-246` already feeds the join a
+hostile payload — Vietnamese text and an emoji where a uuid belongs — and its
+comment records the same result on MariaDB 10.11.19: *"the raw JSON comparison
+does not raise 1267 either … this test is green with the guard removed."* That
+test pins the **outcome** (no subject resolved, the bare sentence, a page that
+renders), which is worth having and is not the same thing. Two files now say, in
+different phases, that the guard itself is unpinned.
+
+**What would actually pin it** is a fixture whose collation differs from this
+container's — a second connection, or a column deliberately built utf8mb4 — and
+that is a test-infrastructure decision nobody has taken. The related guards that
+*are* pinned are the bind-side ones (`App\Support\SafeId`, and the uuid-shape
+checks the Form Requests carry), which catch the 1267 class before a parameter
+reaches an `ascii_bin` column at all.
+
+### A relation kept for a caller that does not exist
+
+- **`Bookshelf::feedback()` (`app/Models/Bookshelf.php:167`) now has no call
+  site anywhere, and is kept rather than deleted.** `grep -rn "feedback()" app
+  resources tests database` returns four hits and every one is inside a
+  docblock. The relation was built in Phase 2 as the mechanism a shelf-scoped
+  feedback read would go through — instead of a hand-written
+  `where('bookshelf_id', …)` needing a `TenancyArchitectureTest` allow-list
+  entry — and the read that would have used it was never built.
+
+  **Because the product owner ruled `/admin/feedback` super-admin-only on
+  2026-09-01**, matching the reference, which gates every feedback read and both
+  handling writes on `requireSuperAdmin`. BR §13.2 (`docs/BUSINESS-REQUIREMENTS.md:454`)
+  files "view feedback, resolve feedback" under the general *Community*
+  permission category without restricting it to `super_admin`, so it **can** be
+  read as granting a shelf's own manager a shelf-level inbox — OPS §4.4 has
+  carried that exact open question since the reference was written. The ruling
+  settles it, and `FeedbackInboxQuery`'s docblock (`app/Queries/Admin/FeedbackInboxQuery.php:42-49`)
+  and `routes/web.php:915-921` both record it at the point somebody would look.
+
+  **Kept because the archived-shelf export will want it.** That export has to
+  gather one parish's own rows, feedback included, from a context that is not
+  the parish's — which is precisely a shelf-scoped read of a table with a
+  nullable tenant column, the case this relation exists for. Deleting it now
+  means re-deriving both the relation and the reason it is not a hand-written
+  filter. The `known-gaps.md:570-596` coverage-debt entry is amended rather than
+  closed: the test it asks for still does not exist, and now cannot arrive
+  alongside a first real caller, because there is no longer a caller due.
+
+### `feedback.archived` is not ported, and the OPS entry says so itself
+
+- **The inbox ships with two writes and no third.** `docs/OPERATIONS.md:721`
+  lists `ArchiveFeedback` **provisionally** — its own blockquote asks whether the
+  domain needs a fourth status or whether "archive" is a filter over `resolved`,
+  and notes the reference's built screen has a "Lưu trữ" button with no status
+  behind it. BR:610 asks only that messages be *"markable read and resolved"*,
+  and the reference's inbox records the product owner removing that button on
+  2026-08-09 for the same reason the open question raises.
+
+  **Task 4 annotated the OPS entry rather than leaving it to imply a gap**
+  (`docs/OPERATIONS.md:723`): the entry stays for the record, and says in its own
+  words that it is not ported and why. The phase's audit count is 66 **because**
+  `feedback.archived` stays out — it is registered in `AuditSentences::ACTIONS`
+  nowhere, and the census would redden if it were. Reopening it needs a
+  migration either way (a fourth status value, or a `deleted_at`), which is the
+  decision nothing has made.
+
+### Two deliberate divergences from the reference, both in the rate limit
+
+The limit is spec D2's domain rule and not route middleware: three messages per
+phone number over a **rolling** 24 hours, counted off the injected clock inside
+`App\Actions\Community\SubmitFeedback`, refused with a Vietnamese sentence in
+the error bag rather than a bare 429. Two things about it are stricter than the
+reference on purpose, and are recorded because a test written against either
+would fail against `old_next`.
+
+- **The key hashes a NORMALISED phone, not a whitespace-stripped one**
+  (`SubmitFeedback::phoneHash`, `:193-196`). The reference hashes
+  `phone.replace(/\s+/g, "")`, so `0912345678`, `0912 345 678`, `0912.345.678`,
+  `0912-345-678` and `+84912345678` — five spellings of one subscriber number,
+  every one accepted by `Phone::isValid()` — land in four separate buckets over
+  there. That is a 12/day budget wearing a 3/day label. `Phone::normalise()`
+  folds dots, hyphens and a leading `+84` to a leading `0`, so all five are one
+  bucket here. **This port has already paid for this defect once**, in the
+  registration limiter — its day key hashed the raw trimmed phone and gave the
+  same five spellings five separate 20/day buckets, closed by that fix round's
+  Task 13 (`app/Providers/AppServiceProvider.php:125-135`). Doing it the
+  reference's way a second time would have been porting a known bug knowingly.
+
+- **The 24-hour count is genuinely global here, where the reference's is
+  shelf-blind by accident.** `SubmitFeedback:126-129` counts every row with that
+  hash, full stop — `Feedback` deliberately does not carry `BelongsToBookshelf`,
+  so no global scope narrows it. The reference's identical-looking query runs on
+  an RLS-guarded connection whose `feedback_tenant` policy admits only *this
+  session's shelf's rows plus every site-wide row*, and its own docblock
+  (`old_next/src/domain/community/commands/feedback.ts:44-77`) records the
+  consequence as a known gap left open by its Task 17: a number that has spent
+  its three at shelf A is invisible from shelf B, and invisible again from
+  `/lien-he`, so the same number sends three more. OPS §8 states the limit with
+  no "per shelf" qualifier, so **this port matches the requirement and diverges
+  from the reference's behaviour** — a gap the reference documents at length is
+  silently closed here, which is the reason to write it down rather than let it
+  read as an oversight.
+
+### No per-IP ceiling on either feedback route
+
+- **Neither `contact.feedback` nor `shelves.feedback.store` takes `throttle:`
+  middleware, and that is stated rather than left to be noticed**
+  (`routes/web.php:79-84`). The only route limiter in the whole application is
+  still `throttle:register` on `register.store` (`:54`). What the domain rule
+  buys is a per-*number* ceiling; what nothing buys is a per-*IP* one, so a
+  sender churning valid Vietnamese numbers is bounded by `Phone::assert()` and
+  by nothing else. Both routes are guest-reachable by design — a guest may leave
+  feedback for a shelf they are not a member of, and a parish with no shelf has
+  no other way to reach the administrator.
+
+  Recorded because the two halves are easy to conflate: the message that reaches
+  the inbox is rate-limited, the *requests* that reach the route are not. If a
+  parish ever meets this, BR §8's own rate-limit section is where the numbers
+  would come from, and `register.store` is the shape to copy.
+
+### The index Task 1 added, and why
+
+- **`feedback` gained a non-unique `(guest_hash, created_at)` index named
+  `feedback_rate_limit`**
+  (`database/migrations/2026_09_01_000001_add_feedback_rate_limit_index.php`).
+  The plan asked for a decision either way; this is it, recorded here so the
+  reasoning is not only in the migration.
+
+  The count runs on **every** submission, before anything is written, and the
+  table shipped in `2026_08_26_000012_create_feedback_table.php` with no index on
+  `guest_hash` at all — so the limit's own query was a full scan of every
+  message ever sent to the installation. It grows with the deployment rather
+  than with the parish, and **this is the one table whose row volume an
+  unauthenticated outsider chooses**, which is what tipped it from a
+  nice-to-have to a decision worth making now.
+
+  Composite rather than `guest_hash` alone because both predicates sit in the
+  same `WHERE`: the equality leads, the range on `created_at` rides the same
+  index instead of filtering rows after they are read, and the count touches no
+  other column — so it is a covering index for that access path. Not unique, for
+  the obvious reason that three rows a day per number is the rule being counted.
+
+### Still deferred, and now out of Phase 3
+
+- **The archived-shelf resolver filter and the export it depends on are now
+  Phase 4's or later's.** Unchanged in substance from 3b-i, 3b-ii and 3c-i:
+  `app/Http/Middleware/ResolveTenant.php:35-37` still resolves `{shelf}` by slug
+  with no `status` condition, so an archived shelf still serves its routes; the
+  export is still unbuilt, still unscheduled, and still a precondition on the
+  filter, because closing the resolver without an export path makes archiving
+  the way to put a parish's own register beyond reach of everyone including the
+  administrator who archived it, with the data all still there.
+
+  **What is new is only that the runway has run out.** This was the last phase
+  of Phase 3 that could have scoped them, and it did not — its own spec is about
+  feedback and audit — so they now belong to Phase 4 or to whatever follows it,
+  and they will be picked up by somebody with no memory of the three phases that
+  each added a little to the blast radius. This phase adds a little more of its
+  own: the export would now have to carry a parish's feedback as well as its
+  register, and 3c-i's docroot trap (a file the application wrote is not served
+  under the shim) still stands in front of any export artifact.
+
+### The last placeholder closed, and the dead code it left
+
+- **`ShellController::underConstruction` (`app/Http/Controllers/ShellController.php:91`)
+  and `resources/js/pages/under-construction.tsx` are now unreachable, and both
+  are KEPT — the decision found and recorded, not deferred.** Every placeholder
+  route is gone: `grep -n underConstruction routes/web.php` returns two hits
+  (`:652`, `:708`) and both are prose explaining what a route *used* to be. No
+  route resolves to the method, and nothing renders the page.
+
+  **Kept for one reason and it is not sentiment**: Phase 4 rewrites the
+  architecture documents and the §6 route map, and a route added there ahead of
+  its screen has exactly one house-standard answer, which is this pair. Deleting
+  them costs a controller method and a fifteen-line component; re-deriving them
+  costs the convention — the route NAMES are final while the pages are not,
+  which is the asymmetry the method's own docblock exists to state.
+
+  **What is honest about the cost:** they are dead code today, no test covers
+  either, and `copy.common.underConstruction` (`resources/js/lib/copy.ts:19`) is
+  now an unreferenced string in a file that is otherwise fully used. If Phase 4
+  reaches its cutover with no placeholder route added, delete all three
+  together — this entry is the note saying they were left deliberately and what
+  would make removing them right.
+
+### A never-active manager's activity link is hidden, and that is not decoration
+
+- **`/admin/audit` treats an unrecognised `?actor=` as NO FILTER, never as a
+  filter matching nothing** (`app/Http/Controllers/Admin/AuditController.php:63-74`:
+  the parameter must be uuid-shaped *and* appear in the list of people the log
+  actually records, or it is dropped). That reading is deliberate and is not
+  changed here — it is this file's own repeated lesson that *"an empty list that
+  reads as 'no messages' is the shape of a bug this project has already shipped
+  twice"*, and every one of the browser's five parameters is guarded the same
+  way.
+
+  **It does mean a per-manager activity link for somebody with no audit rows
+  would open the entire system's log under the words "this person's activity"**
+  — the one wrong answer available, and worse than no link, because the reader
+  has no way to tell a busy manager from a broken filter.
+
+  So Task 6 gates the link on `lastActiveAt`
+  (`resources/js/pages/admin/managers/index.tsx:346-370`), which
+  `ManagersListQuery::lastActiveByActor` (`:177`) reads from the same table by
+  the same rule — making it exactly the predicate "the log names this actor".
+  The link is present when the filter will resolve and absent when it will not,
+  and the row already says *"Chưa làm việc gì trên hệ thống"* a line above, so
+  nothing is silently missing.
+
+  **Recorded because the asymmetry looks like an omission from either side.** A
+  reader of the managers screen sees a control that is sometimes there; a reader
+  of the audit controller sees a lenient parameter. Neither half explains the
+  other on its own, and the fix somebody would reach for — making an
+  unrecognised actor mean "no rows" — trades this narrow hole for the general
+  one the browser is built to avoid.
