@@ -191,11 +191,15 @@ you write must be one the live schema actually has. Check with
    Do **not** rewrite the body — the product owner deferred it deliberately,
    and a body rewritten from YAML would read as tested.
 2. **`known-gaps.md`:** one entry recording the deferral, its reason, and the
-   two things only a real deploy can check — that the shim docroot serves
-   `public/storage` (the host probe found `symlink()` allowed and absent from
-   `disable_functions`), and that `imagick` being **absent** while `gd` is
-   present matches what the avatar pipeline calls. Verify the second claim
-   against the code before writing it.
+   two things only a real deploy can check. **The first draft of this line was
+   wrong and is corrected here:** it said the check was "that the shim docroot
+   serves `public/storage`", but `docs/HOSTING.md` row 6 and
+   `deploy/post-deploy.sh` already answer that the other way — under the shim it
+   does not, and the fallback is `AVATAR_DISK_ROOT`/`AVATAR_DISK_URL` pointed
+   inside the served docroot. The real check is which of the three docroot
+   wirings the host permits, and whether an uploaded avatar comes back over
+   HTTP. The second is that `imagick` being absent while `gd` is present matches
+   what the avatar pipeline calls — verify against the code before writing it.
 3. **`README.md`:** it currently describes both stacks. Make it describe the one
    that ships, including how to run the app and the six gates.
 4. **`DESIGN.md`:** it points at `src/app/globals.css` in 6 places. The tokens

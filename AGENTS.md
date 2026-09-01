@@ -24,8 +24,9 @@ the read-only behavioural reference every phase diffed its work against. Phase 3
 closed the last screen it had, so phase 4 deleted it. **521 tracked files left
 the repository; nothing about the running application changed.**
 
-Roughly 116 files under `app/`, `resources/` and `tests/` still carry comments
-citing it — `ContactController.php` explains a copy decision by pointing at
+**104** files under `app/`, `resources/` and `tests/` still carry comments
+citing it — `git grep -l old_next -- app resources tests | wc -l`, which is the
+number to quote because it is the one a reader can reproduce — `ContactController.php` explains a copy decision by pointing at
 `old_next/src/app/lien-he/page.tsx:83`, and there are many more. Those citations
 were deliberately NOT rewritten: restating from memory, in bulk, what a
 reference said is this project's most repeated failure. They stay verbatim, and

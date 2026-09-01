@@ -2,7 +2,7 @@
 
 The visual language for OLibra. Derived from §17 of [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md); that document is the authority, this one is the working brief for design tools and implementers.
 
-Every value here is a token. Design tools and code consume the same names, so a screen and its implementation cannot drift. The source of truth for colour, type and radius tokens is `src/app/globals.css` (Tailwind v4's `@theme` block) — see §10.
+Every value here is a token. Design tools and code consume the same names, so a screen and its implementation cannot drift. The source of truth for colour, type and radius tokens is `resources/css/app.css` (Tailwind v4's `@theme` block) — see §10.
 
 ## Who this is for
 
@@ -23,7 +23,7 @@ It should feel like a warm community bookshelf in a church hall — not enterpri
 
 ## 1. Colour
 
-A softened warm palette — nothing saturated, nothing heavy. Every token below is defined once, in `src/app/globals.css`.
+A softened warm palette — nothing saturated, nothing heavy. Every token below is defined once, in `resources/css/app.css`.
 
 ### 1.1 Core tokens
 
@@ -88,11 +88,11 @@ Never encode a category by colour alone — label the series directly on the cha
 
 ## 2. Typography
 
-**Lexend** is the interface font for absolutely everything — headings, body, labels, buttons, navigation, numbers, badges. Self-hosted through `next/font/google` (`--font-lexend`, consumed as `--font-sans`), with the `latin`, `latin-ext` and `vietnamese` subsets all loaded — a missing subset means every `ơ`, `ư` and `đ` falls back to a different face mid-word.
+**Lexend** is the interface font for absolutely everything — headings, body, labels, buttons, navigation, numbers, badges. Self-hosted through `@font-face` rules in `resources/css/app.css` (consumed as `--font-sans`), with the `latin`, `latin-ext` and `vietnamese` subsets all loaded — a missing subset means every `ơ`, `ư` and `đ` falls back to a different face mid-word.
 
-**Literata** (serif) is reserved for exactly one thing: the title of a book. Nothing else is ever serif. It ships at weight 600 only and renders solely through the `BookTitle` component (`src/components/ui/book.tsx`) and its `font-serif` class — no other component reaches for it. (The letter shown on a missing-cover placeholder is set in Literata too, since it stands in for the title itself.)
+**Literata** (serif) is reserved for exactly one thing: the title of a book. Nothing else is ever serif. It ships at weight 600 only (three `@font-face` rules in `resources/css/app.css`, all `font-weight: 600`) and is reached through Tailwind's `font-serif` class, applied directly by the pages that render a title — there is no shared `BookTitle` component, and AGENTS.md's shared-components table says so. The reference had one at `old_next/src/components/ui/book.tsx`; this port does not. (The letter shown on a missing-cover placeholder is set in Literata too, since it stands in for the title itself.)
 
-Base body size **16px**, line-height **1.6**, letter-spacing **~0.01em** — set once on `body` in `globals.css`.
+Base body size **16px**, line-height **1.6**, letter-spacing **~0.01em** — set once on `body` in `resources/css/app.css`.
 
 ### Scale
 
@@ -111,7 +111,7 @@ Nothing below 12px.
 ### Rules
 
 - **Never all-caps.** Vietnamese diacritics stack above and below; capitals destroy the word shape and clip the marks.
-- Heading line-height is 1.3 (`h1`–`h4` in `globals.css`), with `text-wrap: balance` so a heading never breaks one lonely word onto its own line — headroom that stacked `dấu ngã` and `dấu hỏi` need.
+- Heading line-height is 1.3 (`h1`–`h4` in `resources/css/app.css`), with `text-wrap: balance` so a heading never breaks one lonely word onto its own line — headroom that stacked `dấu ngã` and `dấu hỏi` need.
 - Body line-height 1.6.
 - `html lang="vi"` is set at the root, so screen readers pronounce diacritics correctly.
 
@@ -189,7 +189,7 @@ Every interactive component specifies six states: **default · hover · pressed 
 **Anything clickable shows a pointer cursor on hover.** Tailwind v4 removed the
 preflight rule that used to do this for `<button>`, so a plain button now
 renders with an arrow — visually indistinguishable from dead text. This is set
-once in `globals.css` at the base layer, covering `button`, `[role="button"]`,
+once in `resources/css/app.css` at the base layer, covering `button`, `[role="button"]`,
 `summary`, `label[for]`, a `label` that wraps its own checkbox or radio, and
 `select`, rather than as a class per component: a
 rule that must be remembered on every new button is a rule that will be
@@ -351,7 +351,7 @@ Non-negotiable, checked per screen:
 
 ## 10. Tokens in code
 
-Colour, font and radius tokens are implemented in `src/app/globals.css` under Tailwind v4's `@theme` block — there is no `tailwind.config.js`; every token is a CSS custom property, and Tailwind derives the matching utility class automatically. §1.1 and §1.2 above give the full colour mapping. The remaining tokens:
+Colour, font and radius tokens are implemented in `resources/css/app.css` under Tailwind v4's `@theme` block — there is no `tailwind.config.js`; every token is a CSS custom property, and Tailwind derives the matching utility class automatically. §1.1 and §1.2 above give the full colour mapping. The remaining tokens:
 
 | CSS variable | Tailwind utility | Value |
 |---|---|---|

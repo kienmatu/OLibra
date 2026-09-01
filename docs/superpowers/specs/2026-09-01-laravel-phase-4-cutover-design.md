@@ -234,11 +234,20 @@ is knowingly wrong. The mitigation is that it now *says* it is wrong in its
 first line, which the current version does not.
 
 `docs/known-gaps.md` gets the matching entry, including the two things the first
-deploy must check that no test can: that the shim docroot serves
-`public/storage` (the product owner's host probe found `symlink()` allowed and
-not in `disable_functions`, so the symlink path is available), and that
+deploy must check that no test can: that the docroot wiring the host actually
+permits is one of `HOSTING.md`'s three (Document Root override, symlink, or the
+shim), and that an uploaded avatar comes back over HTTP from whatever path that
+leaves configured. Note the plan's first draft said the check was "that the shim
+docroot serves `public/storage`" — **HOSTING.md row 6 and `deploy/post-deploy.sh`
+already answer that, the other way**: under the shim, `public_html/` and
+`public/` are two directories, the script copies only `public/build` and
+`public/.htaccess` across, and a `public/storage` symlink sits where the web
+server never looks. The fallback is `config/filesystems.php`'s
+`AVATAR_DISK_ROOT`/`AVATAR_DISK_URL` pointed inside the served docroot. The open
+question is which docroot, not whether the symlink is permitted; and that
 `imagick` being **absent** while `gd` is present matches what the avatar
-pipeline actually calls.
+pipeline actually calls — which was checked during implementation and **holds**:
+`AvatarImage` calls gd functions only and has no imagick branch to lose.
 
 ---
 
