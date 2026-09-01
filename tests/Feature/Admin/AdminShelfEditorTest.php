@@ -3,6 +3,7 @@
 use App\Models\AuditLog;
 use App\Models\Bookshelf;
 use App\Models\User;
+use App\Support\Circulation\LendingSettings;
 use App\Support\TenantContext;
 use Inertia\Testing\AssertableInertia;
 
@@ -211,4 +212,81 @@ it('404s a signed-in reader on every route this task adds', function () {
     $this->actingAs($reader)->post('/admin/shelves', ['name' => 'x', 'slug' => 'x'])->assertNotFound();
     $this->actingAs($reader)->get("/admin/shelves/{$shelf->slug}/edit")->assertNotFound();
     $this->actingAs($reader)->patch("/admin/shelves/{$shelf->slug}", ['name' => 'x'])->assertNotFound();
+});
+
+/**
+ * Phase 3b-ii Task 7, spec D9. 3b-i's CreateBookshelf wrote `settings => []`
+ * on the reasoning that the six `default_*` columns were unreachable and
+ * identical to LendingSettings::fromShelf's fallbacks anyway; Task 1's
+ * /admin/settings makes them editable, which is what retires that reasoning.
+ *
+ * THE DEFAULTS ARE CHANGED THROUGH THE REAL SAVE PATH, not by updating the
+ * row directly: this test's whole claim is that the two screens are wired to
+ * each other, and a direct write would assert only that CreateBookshelf can
+ * read a column.
+ *
+ * THE SECOND HALF IS THE POINT. "New shelves only" is the rule the reference
+ * states on screen ("Chỉ áp dụng cho tủ sách mở mới"), so the shelf opened
+ * BEFORE the change is re-read afterwards and must still carry 14 — an
+ * implementation that pointed a shelf at the installation row instead of
+ * copying would pass the first half and fail here.
+ *
+ * WATCHED FAILING BEFORE IT WAS ACCEPTED. CreateBookshelf mutated back to
+ * `'settings' => []`: red at the first expectation, "Failed asserting that
+ * two arrays are identical", the six expected keys against `Array &0 []`.
+ * Restored by targeted edit, green.
+ */
+it('gives a new shelf the defaults as they stood when it was opened, and leaves earlier shelves alone', function () {
+    $admin = adminShelfEditorFix();
+
+    $this->actingAs($admin)
+        ->post('/admin/shelves', ['name' => 'Tủ sách mở trước', 'slug' => 'mo-truoc'])
+        ->assertRedirect('/admin/shelves/mo-truoc/edit');
+
+    $before = Bookshelf::query()->where('slug', 'mo-truoc')->sole();
+
+    // The migration's own column defaults, under the SHELF-side key names —
+    // `loan_days`, not `default_loan_days`. UpdateSystemDefaults::COLUMNS is
+    // the map between the two vocabularies.
+    expect((array) $before->settings)->toBe([
+        'loan_days' => 14,
+        'max_concurrent_loans' => 3,
+        'max_renewals' => 1,
+        'renewal_days' => 7,
+        'hold_days' => 3,
+        'due_soon_days' => 3,
+    ]);
+
+    $this->actingAs($admin)->post('/admin/settings/defaults', [
+        'loan_days' => 21,
+        'max_concurrent_loans' => 5,
+        'max_renewals' => 2,
+        'renewal_days' => 10,
+        'hold_days' => 4,
+        'due_soon_days' => 2,
+    ])->assertSessionHasNoErrors();
+
+    $this->actingAs($admin)
+        ->post('/admin/shelves', ['name' => 'Tủ sách mở sau', 'slug' => 'mo-sau'])
+        ->assertRedirect('/admin/shelves/mo-sau/edit');
+
+    $after = Bookshelf::query()->where('slug', 'mo-sau')->sole();
+
+    expect((array) $after->settings)->toBe([
+        'loan_days' => 21,
+        'max_concurrent_loans' => 5,
+        'max_renewals' => 2,
+        'renewal_days' => 10,
+        'hold_days' => 4,
+        'due_soon_days' => 2,
+    ]);
+
+    // Read the way every lending command reads it, not just as a bag: the
+    // keys are only right if this resolves to the administration's numbers.
+    expect(LendingSettings::fromShelf($after)->loanDays)->toBe(21)
+        ->and(LendingSettings::fromShelf($after)->holdDays)->toBe(4);
+
+    // New shelves only. The earlier shelf keeps the policy it was opened
+    // with, and reads 14 days after the change as it did before.
+    expect(LendingSettings::fromShelf($before->fresh())->loanDays)->toBe(14);
 });
