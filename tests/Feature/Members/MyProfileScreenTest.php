@@ -202,6 +202,20 @@ it('BR:544 — the page RENDERS both halves and says plainly that it is waiting'
         ->and($source)->toContain('c.rejectionReasonLine');
 });
 
+it('a proposed avatar is named as a field but its storage key is never printed as a value', function () {
+    // avatar_object is one of ProfileFields' nine, so a proposal may name
+    // it and the pending list must not print `Ảnh đại diện: <storage key>`.
+    // Read off the component with comments stripped, so the prose above the
+    // branch cannot satisfy the grep.
+    $source = screenSource('shelves/profile/index.tsx');
+
+    expect($source)->toContain('avatar_object')
+        // The read-only list of current values drops it outright…
+        ->and($source)->toContain('FIELD_ORDER.filter((f) => f !== "avatar_object")')
+        // …and the proposal list renders the bare label for it.
+        ->and($source)->toContain('f === "avatar_object" ? (');
+});
+
 it('a proposal to CLEAR a field survives as a named field, not as an absent one', function () {
     [$shelf, $person] = myProfileFixture();
 

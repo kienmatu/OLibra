@@ -192,22 +192,39 @@ export default function MyProfilePage() {
                         </div>
 
                         <ul className="mt-3 space-y-1 text-[15px]">
-                            {proposed.map((f) => (
-                                <li key={f}>
-                                    {t(c.fieldLabelLine, { label: c.fieldLabels[f] })}{" "}
-                                    <span className="font-semibold">
-                                        {pendingChange.proposedValues[f] || c.proposedBlank}
-                                    </span>
-                                    {f in pendingChange.previousValues ? (
-                                        <span className="text-muted-foreground">
-                                            {" · "}
-                                            {t(c.currentIs, {
-                                                value: pendingChange.previousValues[f] || c.notSet,
-                                            })}
+                            {proposed.map((f) =>
+                                f === "avatar_object" ? (
+                                    /*
+                                     * THE BARE LABEL, NEVER `{label}: {value}`.
+                                     * avatar_object holds a storage key, which
+                                     * printed as a value is meaningless to a
+                                     * reader — the reference makes the same
+                                     * decision on this same list and on the
+                                     * manager's decision screen. The two
+                                     * photographs side by side are the right
+                                     * rendering and they are the avatar task's;
+                                     * until then the reader still needs to know
+                                     * WHICH field the proposal is about.
+                                     */
+                                    <li key={f}>{c.fieldLabels[f]}</li>
+                                ) : (
+                                    <li key={f}>
+                                        {t(c.fieldLabelLine, { label: c.fieldLabels[f] })}{" "}
+                                        <span className="font-semibold">
+                                            {pendingChange.proposedValues[f] || c.proposedBlank}
                                         </span>
-                                    ) : null}
-                                </li>
-                            ))}
+                                        {f in pendingChange.previousValues ? (
+                                            <span className="text-muted-foreground">
+                                                {" · "}
+                                                {t(c.currentIs, {
+                                                    value:
+                                                        pendingChange.previousValues[f] || c.notSet,
+                                                })}
+                                            </span>
+                                        ) : null}
+                                    </li>
+                                ),
+                            )}
                         </ul>
 
                         {pendingChange.status === "pending" ? (
