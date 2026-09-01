@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
+use App\Http\Controllers\Admin\ShelfController as AdminShelfController;
 use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
@@ -525,8 +527,92 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // Anything needing attention is flagged." OPS §3.4's GetAdminOverview.
     // The one route in Phase 3 that is new rather than a placeholder.
     Route::get('/', [AdminDashboardController::class, 'index'])->name('dashboard');
-    Route::get('/shelves', [ShellController::class, 'underConstruction'])->name('shelves');
-    Route::get('/managers', [ShellController::class, 'underConstruction'])->name('managers');
+    // BR §16.4's Bookshelves screen. Phase 3b-i Task 3 makes the list
+    // real; the placeholder it replaces held the name from Phase 0.
+    Route::get('/shelves', [AdminShelfController::class, 'index'])->name('shelves');
+    // Task 4's create and edit-profile. `/shelves/create` is declared
+    // BEFORE the parameterised routes for the ordinary reason — Laravel
+    // matches in declaration order — though the two could not collide as
+    // spelled, since the edit path carries a second segment.
+    //
+    // THE PARAMETER IS {bookshelf}, NOT {shelf}, AND THAT IS LOAD-BEARING.
+    // RouteOrderTest requires the `tenant` middleware on every route naming
+    // {shelf}, because in this application that name means "the shelf this
+    // request is bound to" and the scope fails closed without it. Here it
+    // would mean something else entirely: the /admin group binds no tenant
+    // by design (spec D0), and the shelf in this URL is the OBJECT being
+    // administered from outside it, not the tenant the request runs as.
+    // Spelling it {shelf} and adding the middleware to satisfy the fence
+    // would bind the admin area to one shelf and defeat the whole area; a
+    // different name keeps the fence meaning what it says.
+    //
+    // It still binds by slug — Bookshelf::getRouteKeyName — which is the
+    // address a parish prints, and spec D1 fixes it at creation. There is
+    // deliberately no route that changes one.
+    Route::get('/shelves/create', [AdminShelfController::class, 'create'])->name('shelves.create');
+    Route::post('/shelves', [AdminShelfController::class, 'store'])->name('shelves.store');
+    Route::get('/shelves/{bookshelf}/edit', [AdminShelfController::class, 'edit'])->name('shelves.edit');
+    // PATCH, not PUT: this submit carries the profile section only. The
+    // lending policy and the contacts are Task 5's own routes, because spec
+    // D2 makes each section its own form with its own refusal.
+    Route::patch('/shelves/{bookshelf}', [AdminShelfController::class, 'update'])->name('shelves.update');
+    // Task 5's two sections, each with its own route because spec D2 makes
+    // each section its own form, its own submit and its own refusal — and
+    // spec D8 leans on that: 3b-ii adds a taxonomy section to this same
+    // screen, which is an addition here rather than a restructure.
+    //
+    // PATCH for the policy, PUT for the contacts, and the difference is
+    // real. The policy submit carries all eight settings and merges them
+    // into a settings bag it shares with keys it never showed, so it
+    // modifies part of the shelf. The contacts submit posts all three blocks
+    // every time and REPLACES the set — a block left blank removes that
+    // contact — which is what PUT means.
+    Route::patch('/shelves/{bookshelf}/policy', [AdminShelfController::class, 'updatePolicy'])->name('shelves.policy');
+    Route::put('/shelves/{bookshelf}/contacts', [AdminShelfController::class, 'updateContacts'])->name('shelves.contacts');
+    // Task 6's lifecycle pair, spec D4. POST and bodiless — the shelf named
+    // in the URL is the whole request, the shape every other state
+    // transition in this file uses (readers.suspend, announcements.pin).
+    //
+    // TWO ROUTES RATHER THAN ONE TOGGLE, and that is the policy's shape
+    // surfacing: BookshelfPolicy::archive() refuses a shelf that is already
+    // archived and unarchive() refuses one that is not, each as a 404. A
+    // single /status route would have to decide the target state from the
+    // row it just read, which is exactly the read-then-act race the two
+    // named routes make impossible — a second click on a stale page is
+    // refused rather than silently reversing the first.
+    //
+    // Neither route un-archives on its own account anywhere else: this is
+    // the only path back, which is why spec D4 keeps the ResolveTenant
+    // filter for 3b-ii rather than landing it beside the archive control.
+    Route::post('/shelves/{bookshelf}/archive', [AdminShelfController::class, 'archive'])->name('shelves.archive');
+    Route::post('/shelves/{bookshelf}/unarchive', [AdminShelfController::class, 'unarchive'])->name('shelves.unarchive');
+    // Task 7's screen, spec D5 and D7 — OPS §3.4's GetManagersList, and the
+    // last placeholder in this group to become real.
+    Route::get('/managers', [AdminManagerController::class, 'index'])->name('managers');
+    // The three grants, all POST and all naming their subject in the URL.
+    //
+    // {bookshelf} AGAIN, NEVER {shelf} — the reasoning above the shelves
+    // routes applies unchanged: RouteOrderTest requires the tenant
+    // middleware on every route naming {shelf}, and this group binds no
+    // tenant by design.
+    //
+    // {membership} IS DELIBERATELY NOT BOUND TO A MODEL. Membership carries
+    // BelongsToBookshelf, so implicit binding would resolve it through
+    // BookshelfScope, which fails closed with no tenant — every request to
+    // this route would 500 before the controller body ran. The controller
+    // takes it as a string and RevokeManager reads the row through the
+    // shelf's own relation, which also confines a hand-posted id to the
+    // shelf named here. {user} on the promote route is bound normally: User
+    // is not a scoped model.
+    //
+    // Two segments, three, and four — the three patterns cannot collide
+    // however Laravel orders them.
+    Route::post('/managers/{bookshelf}', [AdminManagerController::class, 'store'])->name('managers.assign');
+    Route::post('/managers/{bookshelf}/{membership}/revoke', [AdminManagerController::class, 'revoke'])->name('managers.revoke');
+    // The one grant that belongs to no shelf, which is why its audit row
+    // carries none and why Task 1's configurator exists (spec D0, D5).
+    // There is deliberately no route back: OPS §4.5 lists no demotion.
+    Route::post('/managers/{user}/promote', [AdminManagerController::class, 'promote'])->name('managers.promote');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
     Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
     Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');

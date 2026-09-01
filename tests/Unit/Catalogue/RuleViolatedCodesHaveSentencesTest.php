@@ -63,6 +63,9 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
     expect(array_keys($codes))->toEqualCanonicalizing([
         'already_published',
         'already_registered_here',
+        // 3b-i Task 7: promoting somebody who already holds the global
+        // grant (spec D5).
+        'already_super_admin',
         'announcement_fields_required',
         'audit_forbidden_field',
         'audit_nesting_too_deep',
@@ -70,6 +73,9 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'comment_not_approved',
         'comment_not_pending',
         'comments_disabled',
+        // 3b-i Task 5: the shelf editor's contacts form refusing a save that
+        // would leave the shelf with no first contact (spec D3).
+        'contact_position_1_required',
         'copy_count_invalid',
         'copy_not_found',
         'copy_selection_empty',
@@ -89,6 +95,11 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'member_has_active_loans',
         'membership_not_found',
         'no_renewals_remaining',
+        // 3b-i Task 7: revoking a grant from somebody who is already a
+        // reader. A code of its own rather than the reference's shared
+        // 'not_permitted' — see RevokeManager for why that sentence would
+        // be a false statement about the actor.
+        'not_a_manager',
         'not_lost',
         'not_own_request',
         'not_permitted',

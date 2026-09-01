@@ -96,9 +96,64 @@ final class AuditSentences
         // where both entries read `group: "cong-dong"`).
         'donation.received' => 'community',
         'donation.declined' => 'community',
+        // Phase 3b-i's fifth group, administration — the cross-shelf acts
+        // of the /admin area, which are the reference's own he-thong family
+        // (audit-actions.ts:592-612 files every bookshelf.* entry there).
+        // The group was opened empty by Task 2; these are its first two
+        // members, and they land in the same commit as the commands that
+        // write them, because the census holds the two sets equal in both
+        // directions at every task boundary.
+        //
+        // bookshelf.updated is ONE action for both halves of the editor,
+        // not two. Spec D2 splits profile from lending policy into separate
+        // forms with separate submits and separate refusals, but what a
+        // volunteer reads in the log is "somebody changed this shelf", and
+        // which fields moved is in the payload rows one tap away — INV-8's
+        // own placement. The reference agrees by construction: its two
+        // server actions both run the single updateBookshelfSettings
+        // command, which writes one action name.
+        'bookshelf.created' => 'administration',
+        'bookshelf.updated' => 'administration',
+        // Task 6's pair, the same he-thong family — the reference files
+        // bookshelf.archived there (audit-actions.ts:606-614). Its
+        // un-archive has no entry because it has no command; this port
+        // builds one (spec D4), so the restore is registered beside the
+        // archive rather than left as the one administration act with no
+        // sentence.
+        'bookshelf.archived' => 'administration',
+        'bookshelf.unarchived' => 'administration',
+        // Task 7's three, the same he-thong family (audit-actions.ts:
+        // 615-630). The two membership names are OPS §4.5's own rather
+        // than the shorter manager.* they read as, and the reference
+        // records why: they are facts about a MEMBERSHIP, and one person
+        // may be given the keys to one parish while staying a reader at
+        // another.
+        //
+        // They are 'administration' and not 'readers', even though every
+        // other membership.* entry above is 'readers'. The group answers
+        // "which screen is this act from", not "which table did it
+        // touch": these two are made from the cross-shelf admin area by
+        // somebody who is not a member of the shelf at all, and filing
+        // them under readers would bury them among the approvals and
+        // suspensions a shelf's own manager does daily.
+        'membership.role_assigned' => 'administration',
+        'membership.role_revoked' => 'administration',
+        // THE ONLY ACTION IN THE WHOLE MAP THAT BELONGS TO NO SHELF. Its
+        // row carries a null shelf column, which is the reason
+        // AuditRecorder has a configurator at all (spec D0) — and why the
+        // shelf-scoped audit screen never shows it.
+        'user.promoted_super_admin' => 'administration',
     ];
 
-    public const array GROUPS = ['loans', 'books', 'readers', 'community'];
+    /**
+     * The filter whitelist, not just a fixture: Manage\AuditLogController
+     * accepts a ?group= only when it is in here, and the Vietnamese labels
+     * live beside it in resources/js/lib/copy.ts (manageAudit.groups).
+     *
+     * 'administration' is empty until the shelf and membership actions land;
+     * actionsInGroup() returns [] for it and the partition above still holds.
+     */
+    public const array GROUPS = ['loans', 'books', 'readers', 'community', 'administration'];
 
     /** @return list<string> */
     public static function actionsInGroup(string $group): array
@@ -309,6 +364,68 @@ final class AuditSentences
             // clause is filled for every row that command writes; the
             // helper renders an empty clause rather than assuming it.
             'donation.declined' => strtr(self::line('donation_declined'), [':because' => self::because(self::str($after, 'reason'))]),
+            // The reference's own arm (audit-actions.ts:592-598): the name
+            // out of $after, with a bare twin when there is none. NOT
+            // self::which() — that helper's fallback line reads 'một cuốn
+            // sách' and would describe a bookshelf as a book, the trap
+            // every announcement.* arm above documents.
+            'bookshelf.created' => ($name = self::str($after, 'name')) !== null
+                ? strtr(self::line('bookshelf_created'), [':name' => $name])
+                : self::line('bookshelf_created_bare'),
+            // AFTER first, then BEFORE — the reference's bookshelf.
+            // settings_updated arm (`str(f.after, "name") ?? str(f.before,
+            // "name")`).
+            //
+            // ALL THREE WRITERS OF THIS ACTION CARRY `name` IN BOTH BAGS,
+            // and that is where the sentence is actually made true — not
+            // here. UpdateBookshelfProfile always did; UpdateBookshelfPolicy
+            // and UpdateBookshelfContacts did not, and both rendered the
+            // bare twin for every real row they wrote, on a screen that is
+            // shelf-stamped, and today's only reader (Manage\AuditLogController,
+            // hard-scoped to one shelf) supplies the name from context — so this
+            // is redundant today and load-bearing for the cross-shelf browser
+            // Phase 3 plans. Each now puts the shelf's name on both
+            // sides unchanged. So `?? $before` is belt and braces rather
+            // than the load-bearing clause an earlier version of this
+            // comment claimed it was: no writer in the codebase reaches it,
+            // and a payload that names the shelf only in `before` would be
+            // one nothing here can invent a name for anyway. It is kept for
+            // a rename that recorded only the old name. The named form and
+            // the bare form of all three writers' payloads are pinned in
+            // AuditSentencesTest.
+            'bookshelf.updated' => ($name = self::str($after, 'name') ?? self::str($before, 'name')) !== null
+                ? strtr(self::line('bookshelf_updated'), [':name' => $name])
+                : self::line('bookshelf_updated_bare'),
+            // BEFORE, not after — the reference's own arm
+            // (audit-actions.ts:606-614 reads `str(f.before, "name")`),
+            // and here it is forced rather than copied: ArchiveBookshelf's
+            // `after` carries the new status alone, because the name did
+            // not move. Reading $after would leave every archive row
+            // rendering the bare twin.
+            'bookshelf.archived' => ($name = self::str($before, 'name')) !== null
+                ? strtr(self::line('bookshelf_archived'), [':name' => $name])
+                : self::line('bookshelf_archived_bare'),
+            // The mirror, reading $before for the same reason.
+            'bookshelf.unarchived' => ($name = self::str($before, 'name')) !== null
+                ? strtr(self::line('bookshelf_unarchived'), [':name' => $name])
+                : self::line('bookshelf_unarchived_bare'),
+            // Task 7's three, all naming a PERSON — so all three go through
+            // who(), and NONE of them needs the _bare twin the four
+            // bookshelf.* arms above carry. That twin exists because a name
+            // read out of the payload can be absent; who() has its own
+            // fallback line ('một người') built in, which is why every
+            // subject-naming arm in this file from membership.approved
+            // onwards is a single strtr and not a conditional.
+            //
+            // The subject is resolved by AuditLogQuery from the entity id on
+            // the row — a membership id joins through to its person, a user
+            // id straight to one — so it is filled for a live row whether or
+            // not the payload carried it. The commands also write 'subject'
+            // into the payload as the fallback for a row whose person is
+            // later soft-deleted.
+            'membership.role_assigned' => strtr(self::line('membership_role_assigned'), [':subject' => self::who($subject)]),
+            'membership.role_revoked' => strtr(self::line('membership_role_revoked'), [':subject' => self::who($subject)]),
+            'user.promoted_super_admin' => strtr(self::line('user_promoted_super_admin'), [':subject' => self::who($subject)]),
             default => self::line('unknown'),
         };
     }

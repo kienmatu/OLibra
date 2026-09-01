@@ -2,9 +2,11 @@
 
 namespace App\Queries\Admin;
 
+use App\Enums\BookshelfStatus;
 use App\Enums\CommentStatus;
 use App\Enums\DonationStatus;
 use App\Enums\LoanStatus;
+use App\Enums\MembershipRole;
 use App\Enums\MembershipStatus;
 use App\Enums\RequestStatus;
 use App\Models\Book;
@@ -121,7 +123,7 @@ final class AdminOverviewQuery
     ) {}
 
     /**
-     * @return list<array{shelfId: string, slug: string, name: string, status: string, books: int, readers: int, loans: int, overdue: int, pending: int, contactsMissing: bool}>
+     * @return list<array{shelfId: string, slug: string, name: string, status: string, books: int, readers: int, loans: int, overdue: int, pending: int, contactsMissing: bool, managersMissing: bool}>
      */
     public function run(): array
     {
@@ -210,11 +212,45 @@ final class AdminOverviewQuery
                 ->get();
             $contacts = $contactRows->pluck('n', 'bookshelf_id');
 
-            /** @var Collection<int, array{shelfId: string, slug: string, name: string, status: string, books: int, readers: int, loans: int, overdue: int, pending: int, contactsMissing: bool}> $mapped */
+            // D6 — a shelf with nobody who can approve a registration or
+            // lend a book. Revoking a shelf's LAST manager is permitted
+            // (the reference counts nothing, and we ported that faithfully
+            // rather than inventing a refusal), so the whole defence is
+            // that this screen shows it: a permitted sharp edge nothing
+            // surfaces is just a hole.
+            //
+            // The predicate is deliberately narrower than "has a manager
+            // row". A manager whose membership is SUSPENDED cannot act —
+            // the act-as gates read status, not role alone — so the shelf
+            // is as unmanned as one with no manager at all, and D6 names
+            // that case as the one the first draft had no answer for. A
+            // manager whose `users` row has been soft-deleted is gone in
+            // the same way, which is why the surviving-user constraint is
+            // here for the same reason `readers` carries it above. (Named
+            // in prose rather than written out: this file's docblock
+            // explains that TenancyArchitectureTest's grep reads raw file
+            // contents, so a where-shaped call spelled inside a comment
+            // pairs with the grouped column below it and makes this file
+            // its own offender. Measured — it did.)
+            //
+            // `readers` cannot serve as a proxy, and it is the near miss
+            // worth naming: it counts every ACTIVE membership INCLUDING
+            // managers, so a shelf with fifty readers and no manager reads
+            // fifty there and is indistinguishable from a healthy one.
+            $managerRows = Membership::query()
+                ->groupBy('bookshelf_id')
+                ->selectRaw('bookshelf_id, count(*) as n')
+                ->whereIn('role', [MembershipRole::Manager, MembershipRole::Admin])
+                ->where('status', MembershipStatus::Active)
+                ->whereHas('user')
+                ->get();
+            $managers = $managerRows->pluck('n', 'bookshelf_id');
+
+            /** @var Collection<int, array{shelfId: string, slug: string, name: string, status: string, books: int, readers: int, loans: int, overdue: int, pending: int, contactsMissing: bool, managersMissing: bool}> $mapped */
             $mapped = $shelves->map(function (Bookshelf $shelf) use (
                 $books, $readers, $loans, $overdue,
                 $pendingMemberships, $pendingRequests, $pendingComments, $pendingDonations,
-                $contacts,
+                $contacts, $managers,
             ): array {
                 $pending = (int) ($pendingMemberships[$shelf->id] ?? 0)
                     + (int) ($pendingRequests[$shelf->id] ?? 0)
@@ -232,6 +268,17 @@ final class AdminOverviewQuery
                     'overdue' => (int) ($overdue[$shelf->id] ?? 0),
                     'pending' => $pending,
                     'contactsMissing' => ! isset($contacts[$shelf->id]),
+                    // AN ACTIVE SHELF ONLY. The flag is an alarm, and an
+                    // alarm nobody can clear is noise: `BookshelfPolicy::
+                    // assignManager()` 404s an archived shelf and
+                    // `ManagerCandidatesQuery` does not offer one, so an
+                    // archived shelf flagged unmanned would show a
+                    // volunteer a fault with no control anywhere in the
+                    // application that fixes it. What D6 is defending is a
+                    // shelf that is OPEN and that nobody can run; a shelf
+                    // deliberately taken out of service is not that.
+                    'managersMissing' => $shelf->status === BookshelfStatus::Active
+                        && ! isset($managers[$shelf->id]),
                 ];
             });
 

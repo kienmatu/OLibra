@@ -1,5 +1,5 @@
 import { Head, usePage } from "@inertiajs/react";
-import { AlertTriangle, Archive, CircleCheck } from "lucide-react";
+import { AlertTriangle, Archive, CircleCheck, UserX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
@@ -19,6 +19,7 @@ interface AdminShelfRow {
     overdue: number;
     pending: number;
     contactsMissing: boolean;
+    managersMissing: boolean;
 }
 
 interface PageProps extends SharedData {
@@ -67,6 +68,12 @@ function ShelfRow({ shelf }: { shelf: AdminShelfRow }) {
                             <Badge variant="destructive" className="gap-1">
                                 <Icon iconNode={AlertTriangle} className="size-3.5" />
                                 {copy.adminDashboard.contactsMissing}
+                            </Badge>
+                        )}
+                        {shelf.managersMissing && (
+                            <Badge variant="destructive" className="gap-1">
+                                <Icon iconNode={UserX} className="size-3.5" />
+                                {copy.adminShelves.managersMissing}
                             </Badge>
                         )}
                     </div>

@@ -117,6 +117,147 @@ export const copy = {
         statusArchived: "Đã lưu trữ",
         contactsMissing: "Thiếu đầu mối liên hệ",
     },
+    adminShelves: {
+        title: "Danh sách tủ sách",
+        empty: "Chưa có tủ sách nào.",
+        slugHeading: "Đường dẫn",
+        statusHeading: "Tình trạng",
+        statusActive: "Đang hoạt động",
+        statusArchived: "Đã lưu trữ",
+        contactsMissing: "Thiếu đầu mối liên hệ",
+        managersMissing: "Chưa có người quản lý",
+        // Task 4's two screens. The create form asks for a slug and the
+        // edit form refuses to, which is why they are two components and
+        // two blocks of copy rather than one form handed a null row.
+        createLink: "Mở tủ sách mới",
+        editLink: "Sửa thông tin",
+        createTitle: "Mở tủ sách mới",
+        editTitle: "Thông tin tủ sách",
+        profileSection: "Thông tin tủ sách",
+        required: "Bắt buộc",
+        submitCreate: "Mở tủ sách",
+        submitProfile: "Lưu thông tin",
+        cancel: "Quay lại danh sách",
+        fields: {
+            name: "Tên tủ sách",
+            slug: "Đường dẫn",
+            location: "Địa điểm",
+            address: "Địa chỉ",
+            description: "Giới thiệu",
+            establishedOn: "Ngày thành lập",
+        },
+        slugHint: "Chỉ dùng chữ thường không dấu, số và dấu gạch ngang. Ví dụ: dong-thap.",
+        // The read-only note on the edit screen. A disabled input alone
+        // says "you cannot", never "why" — and the why is the reason the
+        // rule exists: the address is printed on notices and glued inside
+        // book covers (BR §16.4).
+        slugFixed:
+            "Đường dẫn không đổi được sau khi mở tủ sách, vì nó đã nằm trên giấy dán trong sách và trên các đường liên kết đã chia sẻ.",
+        // Task 5's two sections on the same screen. Each has its own
+        // heading, its own button and its own lead sentence, because each
+        // is its own form with its own submit and its own refusal (spec
+        // D2) — a shared "Lưu" would be three buttons a volunteer cannot
+        // tell apart.
+        policySection: "Chính sách mượn sách",
+        policyLead: "Áp dụng cho mọi lượt mượn của tủ sách này.",
+        submitPolicy: "Lưu chính sách",
+        policyFields: {
+            loanDays: "Số ngày cho mượn",
+            maxConcurrentLoans: "Số sách mượn cùng lúc",
+            maxRenewals: "Số lần gia hạn",
+            renewalDays: "Số ngày mỗi lần gia hạn",
+            holdDays: "Số ngày giữ chỗ",
+            dueSoonDays: "Báo trước hạn trả (ngày)",
+            commentsEnabled: "Cho phép bạn đọc bình luận",
+            commentsRequireApproval: "Bình luận cần được duyệt trước khi hiển thị",
+        },
+        // "Số ngày báo trước hạn trả" and "số lần gia hạn" both accept 0,
+        // and the two zeroes mean real policies rather than an unset
+        // field — a shelf may allow no renewals at all, and a shelf may
+        // want the reminder on the due date itself. Said in words under
+        // the inputs, because a bare `min=0` says nothing.
+        policyZeroAllowed:
+            "Điền 0 ở “Số lần gia hạn” nghĩa là không cho gia hạn; điền 0 ở “Báo trước hạn trả” nghĩa là chỉ nhắc đúng ngày đến hạn.",
+        contactsSection: "Đầu mối liên hệ",
+        contactsLead:
+            "Tối đa ba người bạn đọc có thể liên hệ. Người thứ nhất là bắt buộc; để trống ô Họ và tên của người thứ hai hoặc thứ ba nếu tủ sách không có.",
+        submitContacts: "Lưu đầu mối liên hệ",
+        contactHeading: "Người liên hệ {position}",
+        contactFields: {
+            name: "Họ và tên",
+            phone: "Số điện thoại",
+            roleLabel: "Vai trò",
+        },
+        // Free text on purpose (spec D3): a parish names its own
+        // volunteers' jobs, and no list this application invented would
+        // survive the second parish.
+        contactRoleHint: "Ví dụ: Người giữ chìa khoá, Quản lý tủ sách.",
+        contactOptional: "Không bắt buộc",
+        // Task 6's two row controls (spec D4). "Ngưng hoạt động" rather
+        // than "Lưu trữ", the audit sentence's word, so the log and the
+        // button a volunteer pressed say the same thing.
+        archive: "Ngưng hoạt động",
+        unarchive: "Mở lại",
+        // Under the archive control, because the button alone reads like a
+        // delete. Archiving keeps everything (OPS §4.5) and "Mở lại" beside
+        // an archived row is the proof — this sentence is what says so
+        // before the press rather than after it.
+        archiveNote: "Tủ sách ngưng hoạt động vẫn giữ nguyên toàn bộ dữ liệu và có thể mở lại.",
+    },
+    // Task 7's screen (spec D5, D7) — OPS §3.4's GetManagersList and the
+    // three grants of §4.5.
+    adminManagers: {
+        title: "Quản lý viên",
+        lead: "Những người có quyền trên hệ thống và trên từng tủ sách.",
+        empty: "Chưa có quản lý viên nào.",
+        // The appoint form. Above the list on purpose: on a fresh install
+        // the list holds only the one super administrator the seeder makes,
+        // and there is nothing below worth scrolling to until a parish has
+        // somebody to run it.
+        assignSection: "Giao quyền quản lý",
+        assignShelf: "Tủ sách",
+        assignShelfPlaceholder: "Chọn tủ sách",
+        assignPerson: "Bạn đọc",
+        assignPersonPlaceholder: "Chọn bạn đọc",
+        assignRole: "Quyền",
+        submitAssign: "Giao quyền quản lý",
+        // Only ACTIVE shelves are offered and only active readers of the
+        // chosen shelf, so both empty states have to say which of the two
+        // is missing — "nothing to choose" with no reason is the state a
+        // volunteer cannot act on.
+        assignNoShelves: "Chưa có tủ sách nào đang hoạt động.",
+        assignNoCandidates: "Tủ sách này chưa có bạn đọc nào để giao quyền.",
+        // The three roles as a volunteer reads them. `super_admin` is not a
+        // membership role and is never a choice in the form — it is only
+        // ever a label on a row.
+        roleSuperAdmin: "Quản trị hệ thống",
+        roleAdmin: "Quản trị tủ sách",
+        roleManager: "Quản lý",
+        wholeSystem: "Toàn hệ thống",
+        lastActive: "Hoạt động gần nhất",
+        neverActive: "Chưa làm việc gì trên hệ thống",
+        // The revoke control. The confirmation SENTENCE is not here: it
+        // names the person and the shelf, so it is assembled server-side
+        // per row and arrives as a prop (BR §16.4, and see
+        // ManagerController).
+        revoke: "Thu hồi quyền quản lý",
+        revokeConfirm: "Xác nhận thu hồi",
+        cancel: "Huỷ",
+        // The global grant, and the one control on this screen with no way
+        // back — so the warning is beside the button rather than after the
+        // press (spec D5: OPS §4.5 lists no demotion command).
+        promote: "Giao quyền quản trị hệ thống",
+        promoteConfirm: "Xác nhận giao quyền",
+        promoteWarning:
+            "Người này sẽ thấy và sửa được mọi tủ sách. Hiện chưa có cách thu hồi quyền này.",
+        // A manager whose membership is not active still HOLDS the keys —
+        // the row stays so the grant can be seen and taken back — but they
+        // cannot use them, which is why /admin/shelves counts the shelf as
+        // unmanned. Said in words on the row, because a status chip alone
+        // leaves the two screens looking as though they disagree.
+        cannotActNote:
+            "Người này chưa thể làm việc trên tủ sách cho tới khi tài khoản hoạt động trở lại.",
+    },
     auth: {
         title: "Đăng nhập",
         username: "Tên đăng nhập",
@@ -367,6 +508,9 @@ export const copy = {
             // The reference's own label for cong-dong, and the ordinary
             // word a volunteer uses.
             community: "Cộng đồng",
+            // Shelf administration: the profile, the lending policy and who
+            // manages the shelf. Empty until those actions are recorded.
+            administration: "Quản trị",
         },
         actorLabel: "Người thực hiện",
         actorAll: "Mọi người",

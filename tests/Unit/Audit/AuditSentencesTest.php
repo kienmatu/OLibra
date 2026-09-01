@@ -25,9 +25,9 @@ it('a null actor renders as Hệ thống, never as an empty subject', function (
 });
 
 it('an unknown action gets the fallback phrase and NEVER the raw name', function () {
-    $s = AuditSentences::sentence('bookshelf.created', audFacts(actor: 'Ai Đó'));
+    $s = AuditSentences::sentence('nonesuch.never_registered', audFacts(actor: 'Ai Đó'));
     expect($s)->toBe('Ai Đó đã thực hiện một thao tác hệ thống chưa được mô tả')
-        ->and($s)->not->toContain('bookshelf.created');
+        ->and($s)->not->toContain('nonesuch.never_registered');
 });
 
 it('request.created names the title, and falls back when the payload has none', function () {
@@ -185,7 +185,7 @@ it('groupOf answers the family for a known action and null for a stranger', func
         ->and(AuditSentences::groupOf('credentials.set'))->toBe('readers')
         ->and(AuditSentences::groupOf('copy.retired'))->toBe('books')
         ->and(AuditSentences::groupOf('comment.created'))->toBe('community')
-        ->and(AuditSentences::groupOf('bookshelf.created'))->toBeNull();
+        ->and(AuditSentences::groupOf('nonesuch.never_registered'))->toBeNull();
 });
 
 it('announcement.created names the title, and falls back to "một thông báo" when the payload has none', function () {
@@ -399,7 +399,7 @@ it('every action in the map renders a real sentence, never the undescribed-actio
     // and subject through LEFT joins, so an arm has to render with
     // nothing in hand, and that is also the shape that reaches the
     // default arm if one is missing.
-    $fallback = AuditSentences::sentence('bookshelf.created', audFacts(actor: 'Maria Q'));
+    $fallback = AuditSentences::sentence('nonesuch.never_registered', audFacts(actor: 'Maria Q'));
 
     foreach (array_keys(AuditSentences::ACTIONS) as $action) {
         expect(AuditSentences::sentence($action, audFacts(actor: 'Maria Q')))
@@ -407,13 +407,32 @@ it('every action in the map renders a real sentence, never the undescribed-actio
     }
 });
 
+it('nonesuch.never_registered, the suite\'s stranger, is registered nowhere', function () {
+    // Three cases above obtain the undescribed-action fallback by asking
+    // for this action, and the sweep just above compares every registered
+    // action's sentence against it. If it ever became real, that sweep
+    // would silently stop covering anything — every comparison would be
+    // against a described sentence rather than the fallback, and nothing
+    // would say so. It used to be 'bookshelf.created', which this phase
+    // registers; this name is chosen so that no domain can claim it.
+    expect(AuditSentences::ACTIONS)->not->toHaveKey('nonesuch.never_registered')
+        ->and(AuditSentences::groupOf('nonesuch.never_registered'))->toBeNull();
+});
+
 it('actionsInGroup partitions the whole map with nothing left over', function () {
+    // Spelled out rather than read from GROUPS, so that adding a group and
+    // forgetting to give its actions a home cannot pass by widening both
+    // sides of the comparison at once. The first expectation is what keeps
+    // the literal list honest: it must name every group the constant names.
+    $groups = ['loans', 'books', 'readers', 'community', 'administration'];
+
     $all = array_merge(...array_map(
         fn (string $g) => AuditSentences::actionsInGroup($g),
-        ['loans', 'books', 'readers', 'community'],
+        $groups,
     ));
-    expect($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(41);
+    expect($groups)->toEqualCanonicalizing(AuditSentences::GROUPS)
+        ->and($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
+        ->and(AuditSentences::ACTIONS)->toHaveCount(48);
 });
 
 it('copy.qr_printed names the count, an int cast to string, never str()\'s trimmed-string shape', function () {
@@ -465,4 +484,85 @@ it('the condition words match copy.ts character for character', function () {
         expect($ts)->toContain("{$key}: \"{$word}\"");
     }
     expect($lang['conditions'])->toHaveCount(6);
+});
+
+it('the two lifecycle sentences read the shelf name out of before, not after', function () {
+    // Task 6. Every other bookshelf.* arm takes the name from $after;
+    // these two cannot, because ArchiveBookshelf and UnarchiveBookshelf
+    // write only the new status there — the name did not move. An arm
+    // spelled the usual way would render the bare twin for every real row
+    // either command writes, which the census above cannot see: a bare
+    // twin is a described sentence, not the fallback. So the named form
+    // and the bare form are both asserted here, against the payload shape
+    // the commands actually write.
+    expect(AuditSentences::sentence('bookshelf.archived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'status' => 'active'],
+        after: ['status' => 'archived'],
+    )))->toBe('Maria Quản Trị đã ngưng hoạt động tủ sách Tủ sách Đồng Tháp');
+
+    expect(AuditSentences::sentence('bookshelf.unarchived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'status' => 'archived'],
+        after: ['status' => 'active'],
+    )))->toBe('Maria Quản Trị đã mở lại tủ sách Tủ sách Đồng Tháp');
+
+    // The bare twins, for a row whose before carries no name at all.
+    expect(AuditSentences::sentence('bookshelf.archived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['status' => 'active'],
+        after: ['status' => 'archived'],
+    )))->toBe('Maria Quản Trị đã ngưng hoạt động một tủ sách');
+
+    expect(AuditSentences::sentence('bookshelf.unarchived', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['status' => 'archived'],
+        after: ['status' => 'active'],
+    )))->toBe('Maria Quản Trị đã mở lại một tủ sách');
+});
+
+it('the policy and contacts saves name the shelf, not "một tủ sách"', function () {
+    // The fix wave's finding 4. bookshelf.updated has THREE writers and its
+    // sentence reads the name out of $after: UpdateBookshelfProfile carried
+    // `name` on both sides, UpdateBookshelfPolicy and
+    // UpdateBookshelfContacts carried it on NEITHER, so every policy save
+    // and every contacts save rendered the bare twin — on the one log that
+    // will be cross-shelf once the browser lands, where "một tủ sách" is the fact a
+    // reader needs.
+    //
+    // The census above cannot catch this, for the reason the archive twins
+    // below carry: a bare twin is a DESCRIBED sentence, not the unknown-
+    // action fallback, so a payload that never names the shelf renders
+    // something perfectly grammatical and perfectly useless. That is why
+    // the payloads are spelled out here in the shape the two commands
+    // actually write, rather than asserted through the arm alone.
+
+    // UpdateBookshelfPolicy: the eight settings keys either side, plus the
+    // shelf name unchanged on both.
+    expect(AuditSentences::sentence('bookshelf.updated', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'loan_days' => null, 'hold_days' => null],
+        after: ['name' => 'Tủ sách Đồng Tháp', 'loan_days' => 21, 'hold_days' => 4],
+    )))->toBe('Maria Quản Trị đã sửa thông tin tủ sách Tủ sách Đồng Tháp');
+
+    // UpdateBookshelfContacts: three fixed slots either side, plus the name.
+    expect(AuditSentences::sentence('bookshelf.updated', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['name' => 'Tủ sách Đồng Tháp', 'contact_1' => null, 'contact_2' => null, 'contact_3' => null],
+        after: [
+            'name' => 'Tủ sách Đồng Tháp',
+            'contact_1' => ['name' => 'Chị Hoa', 'phone' => null, 'role_label' => null],
+            'contact_2' => null,
+            'contact_3' => null,
+        ],
+    )))->toBe('Maria Quản Trị đã sửa thông tin tủ sách Tủ sách Đồng Tháp');
+
+    // The bare twin, so the fix above is pinned to the PAYLOAD and not to
+    // the arm: this is what both saves rendered before it, and it is still
+    // what a row naming no shelf anywhere renders.
+    expect(AuditSentences::sentence('bookshelf.updated', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['loan_days' => null],
+        after: ['loan_days' => 21],
+    )))->toBe('Maria Quản Trị đã sửa thông tin một tủ sách');
 });

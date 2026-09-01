@@ -137,6 +137,61 @@ return [
     'donation_received' => 'nhận một đề nghị tặng sách',
     'donation_declined' => 'từ chối một đề nghị tặng sách:because',
 
+    // — quản trị hệ thống —
+    // Phase 3b-i's administration group. Note the key shape: this file
+    // spells an action's key with an underscore where the action name has a
+    // dot ('bookshelf.created' -> 'bookshelf_created'), the same convention
+    // every line above follows.
+    //
+    // bookshelf_created is the reference's phrase verbatim
+    // (audit-actions.ts:592-598, whose phrase is `name ? `mở tủ sách
+    // ${name}` : "mở một tủ sách mới"`), bare twin included — its `str`
+    // returns null for a missing or blank name, exactly as this file's
+    // helper does.
+    'bookshelf_created' => 'mở tủ sách :name',
+    'bookshelf_created_bare' => 'mở một tủ sách mới',
+    // NOT the reference's wording, and the divergence is the action's
+    // scope rather than a translation preference. Its entry is named
+    // bookshelf.settings_updated and reads 'sửa cài đặt tủ sách' —
+    // *settings*. Ours is bookshelf.updated and covers both halves of the
+    // editor: the profile (name, địa điểm, địa chỉ, giới thiệu, ngày thành
+    // lập) as well as the lending policy. 'cài đặt' would describe a
+    // corrected address as a settings change, so this says 'thông tin'.
+    'bookshelf_updated' => 'sửa thông tin tủ sách :name',
+    'bookshelf_updated_bare' => 'sửa thông tin một tủ sách',
+    // Task 6's pair. bookshelf_archived is the reference's phrase verbatim
+    // (audit-actions.ts:606-614, whose phrase is `name ? `ngưng hoạt động
+    // tủ sách ${name}` : "ngưng hoạt động một tủ sách"`), bare twin
+    // included — and 'ngưng hoạt động' rather than 'lưu trữ' because that
+    // is what a volunteer reading the log needs to know happened: the tủ
+    // sách stopped serving, nothing was thrown away.
+    'bookshelf_archived' => 'ngưng hoạt động tủ sách :name',
+    'bookshelf_archived_bare' => 'ngưng hoạt động một tủ sách',
+    // Ours, since the reference has no un-archive command to phrase (spec
+    // D4). 'mở lại' is the plain opposite of the sentence above and echoes
+    // 'mở tủ sách' from bookshelf_created, so a shelf's log reads as one
+    // story: mở → sửa → ngưng hoạt động → mở lại.
+    'bookshelf_unarchived' => 'mở lại tủ sách :name',
+    'bookshelf_unarchived_bare' => 'mở lại một tủ sách',
+    // Task 7's three, all three the reference's phrases verbatim
+    // (audit-actions.ts:619-630). NO _bare TWINS, unlike the four lines
+    // above: those substitute a name read out of the payload, which can be
+    // missing, while these substitute a SUBJECT, and who() already falls
+    // back to 'một người' on its own — the same shape every membership.*
+    // line above uses.
+    //
+    // 'quyền quản lý' covers both roles the assign form offers, manager and
+    // shelf admin, and that is deliberate rather than lossy: which of the
+    // two was given is on the payload row one tap away (INV-8's own
+    // placement), and a log sentence that had to say 'quản trị tủ sách' in
+    // one case and 'quản lý' in the other would read as two different acts
+    // when the revoke that undoes either is one.
+    'membership_role_assigned' => 'giao quyền quản lý cho :subject',
+    'membership_role_revoked' => 'thu hồi quyền quản lý của :subject',
+    // 'hệ thống', not 'tủ sách' — the whole point of this row is that it
+    // belongs to no shelf.
+    'user_promoted_super_admin' => 'giao quyền quản trị hệ thống cho :subject',
+
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.
     'conditions' => [

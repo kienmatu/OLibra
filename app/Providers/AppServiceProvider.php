@@ -8,6 +8,7 @@ use App\Models\Announcement;
 use App\Models\Book;
 use App\Models\BookCopy;
 use App\Models\BookDonation;
+use App\Models\Bookshelf;
 use App\Models\BorrowRequest;
 use App\Models\Comment;
 use App\Models\Loan;
@@ -17,10 +18,12 @@ use App\Policies\AnnouncementPolicy;
 use App\Policies\BookCopyPolicy;
 use App\Policies\BookDonationPolicy;
 use App\Policies\BookPolicy;
+use App\Policies\BookshelfPolicy;
 use App\Policies\BorrowRequestPolicy;
 use App\Policies\CommentPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
+use App\Policies\UserPolicy;
 use App\Support\DeadlockDetector;
 use App\Support\HashedDatabaseSessionHandler;
 use App\Support\Members\Phone;
@@ -257,5 +260,22 @@ class AppServiceProvider extends ServiceProvider
         // PolicyRegistrationTest reads this file's own source, so it
         // covers this pair without a test edit either way.
         Gate::policy(BookDonation::class, BookDonationPolicy::class);
+
+        // Phase 3b-i, spec D9. Unlike the eight above, this policy answers
+        // with Illuminate\Auth\Access\Response rather than bool, so a
+        // refusal carries EnsureSuperAdmin's 404 instead of a policy's
+        // usual 403 — see BookshelfPolicy's docblock. Registered on the
+        // same terms as the lines above: convention discovery
+        // (App\Models\Bookshelf -> App\Policies\BookshelfPolicy) also
+        // resolves this pair today, and PolicyRegistrationTest reads this
+        // file's own source, so it covers the pair either way.
+        Gate::policy(Bookshelf::class, BookshelfPolicy::class);
+        // Phase 3b-i Task 7, spec D5. One ability — the global grant, the
+        // only act in the catalogue done TO a person rather than to a
+        // membership, which is why it can live on neither MembershipPolicy
+        // (whose every method reads a membership under a bound tenant) nor
+        // BookshelfPolicy (this act names no shelf). Same 404-shaped
+        // refusal as the line above it.
+        Gate::policy(User::class, UserPolicy::class);
     }
 }
