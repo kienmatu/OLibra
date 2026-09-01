@@ -116,3 +116,58 @@ it('a manager at shelf A cannot resolve a membership that belongs to shelf B', f
     expect(Membership::find($memberAtB->id))->toBeNull()
         ->and($shelfA->readers()->find($memberAtB->id))->toBeNull();
 });
+
+// ── viewSelf, Phase 3c-i Task 1 (spec D7/D11) ───────────────────────────
+// The one ability in this policy a reader ever passes, and the one that
+// reads TenantContext rather than only a gate. Deliberately NOT added to
+// MEMPOL_ROW_ABILITIES above: those two blocks assert a reader holds none
+// of the manager set, and this ability is precisely the exception.
+it('viewSelf admits a reader to their OWN membership and refuses every other row', function () {
+    [$shelf, $actor] = polFixture('reader');
+    $own = app(TenantContext::class)->membership();
+    $somebodyElse = Membership::factory()->for($shelf)->create(['status' => 'active']);
+
+    expect($own)->not->toBeNull()
+        ->and(Gate::forUser($actor)->allows('viewSelf', $own))->toBeTrue()
+        ->and(Gate::forUser($actor)->allows('viewSelf', $somebodyElse))->toBeFalse()
+        // The mistake MembershipPolicy's docblock has warned against since
+        // Task 16: `view` is act-as-manager only, so wiring the reader's
+        // own profile page to it hands every reader a permanent 403.
+        ->and(Gate::forUser($actor)->allows('view', $own))->toBeFalse();
+});
+
+it('viewSelf admits a manager to a row that is not theirs — the "or manager" half', function () {
+    [, $actor, $reader] = polFixture('manager');
+
+    expect(Gate::forUser($actor)->allows('viewSelf', $reader))->toBeTrue();
+});
+
+it('viewSelf refuses a reader whose own membership is on a DIFFERENT shelf', function () {
+    // The self check compares membership ids, not user ids, and this is
+    // why: one person, two parishes, two rows with two roles and two
+    // parish units. A user-id comparison would say yes to the wrong row.
+    $shelfA = Bookshelf::factory()->create(['settings' => []]);
+    $shelfB = Bookshelf::factory()->create(['settings' => []]);
+    $user = User::factory()->create();
+    $atA = Membership::factory()->for($shelfA)->create(['user_id' => $user->id, 'status' => 'active']);
+    $atB = Membership::factory()->for($shelfB)->create(['user_id' => $user->id, 'status' => 'active']);
+
+    app(TenantContext::class)->set($shelfA, $atA);
+
+    expect(Gate::forUser($user)->allows('viewSelf', $atA))->toBeTrue()
+        ->and(Gate::forUser($user)->allows('viewSelf', $atB))->toBeFalse();
+});
+
+it('viewSelf does not let a NULL own-membership match a row by accident', function () {
+    // A memberless caller has TenantContext::membership() === null. The
+    // null guard is what stops that comparing equal to anything; a
+    // memberless SUPER ADMIN still passes, on the manager half.
+    $shelf = Bookshelf::factory()->create(['settings' => []]);
+    $stranger = User::factory()->create();
+    $admin = User::factory()->superAdmin()->create();
+    $someRow = Membership::factory()->for($shelf)->create(['status' => 'active']);
+    app(TenantContext::class)->set($shelf, null);
+
+    expect(Gate::forUser($stranger)->allows('viewSelf', $someRow))->toBeFalse()
+        ->and(Gate::forUser($admin)->allows('viewSelf', $someRow))->toBeTrue();
+});

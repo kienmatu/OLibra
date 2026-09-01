@@ -100,10 +100,11 @@ it('redirects a guest from the profile area, 404s a signed-in non-member', funct
     }
 });
 
-// The name says "reader area" rather than "skeleton": four of these
-// five paths are real screens now (history and overview from 1c,
-// notifications from 2a's Task 16, and donations from 2b's Task 18),
-// and 'profile' still renders under-construction. What this block
+// The name says "reader area" rather than "skeleton": all five of these
+// paths are real screens now (history and overview from 1c,
+// notifications from 2a's Task 16, donations from 2b's Task 18, and
+// 'profile' itself from 3c-i's Task 1 — it was the last placeholder in
+// the group and rendered under-construction until then). What this block
 // has always asserted is the ACCESS half — that role:reader admits an
 // approved reader to every path in the group — which is as true of a
 // finished screen as of a placeholder, and is the half its sibling

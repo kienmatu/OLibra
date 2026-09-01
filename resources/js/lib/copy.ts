@@ -1144,6 +1144,88 @@ export const copy = {
         // because formatInstantParts renders the two NUMBERS locally.
         receivedAt: "lúc {time} ngày {date}",
     },
+    // BR §16.2's "Hồ sơ của bạn" — the reader's own record, read-only in
+    // this phase's first task (proposing a change to it is a later one, and
+    // posts from its own form).
+    //
+    // Wording taken from the reference's own screen
+    // (old_next/src/app/tu-sach/[shelf]/(doc-gia)/ho-so/page.tsx, opened):
+    // its heading, its subtitle, its four status words, its "hiện tại"
+    // comparison line, its "thông tin hiện tại vẫn được dùng" sentence and
+    // its parish note.
+    myProfile: {
+        title: "Hồ sơ của bạn",
+        lead: "Những thay đổi bạn gửi chỉ có hiệu lực sau khi quản lý duyệt.",
+        // The same null-membership branch donations.onlyReaders covers —
+        // see ProfileController's own note on why that state is live.
+        onlyReaders: "Chỉ bạn đọc của tủ sách này mới có hồ sơ ở đây.",
+        sectionPerson: "Thông tin cá nhân",
+        sectionParish: "Giáo xứ",
+        // Keyed by COLUMN name, not camelCase, and that is the point:
+        // App\Queries\MyProfileQuery returns the nine fields snake_case so
+        // the page can match them key-for-key against a proposal's
+        // proposed_values bag. A camelCase label map here would put a
+        // translation table between the two halves of a comparison —
+        // profile-labels.ts's argument, kept. Nine entries for the nine of
+        // App\Support\Members\ProfileFields::FIELDS.
+        fieldLabels: {
+            saint_name: "Tên thánh",
+            full_name: "Họ và tên",
+            date_of_birth: "Ngày sinh",
+            father_name: "Tên cha",
+            mother_name: "Tên mẹ",
+            phone: "Số điện thoại",
+            phone_missing_reason: "Lý do chưa có số điện thoại",
+            email: "Email",
+            // The label names what the field is to a reader — their
+            // photograph — not the storage identifier the column holds.
+            avatar_object: "Ảnh đại diện",
+        },
+        // A read-only value that is not set. `unitName`'s own word for the
+        // same state, so the page reads one way throughout.
+        notSet: "Chưa có",
+        changesTitle: "Đề nghị thay đổi gần nhất",
+        // Four words for the four cases App\Enums\ProfileChangeStatus
+        // carries — status is never colour alone (AGENTS.md rule 2), so
+        // each rides a Badge with an icon beside it.
+        statusPending: "Đang chờ quản lý duyệt",
+        statusApproved: "Đã được duyệt",
+        statusRejected: "Quản lý chưa duyệt",
+        statusCancelled: "Bạn đã huỷ",
+        // BR:544's rendering contract: the current value with the pending
+        // one beside it. Three keys rather than one glued sentence, because
+        // the proposed half is emphasised and the current half is not, and
+        // even the colon is copy — a locale that does not use one gets to
+        // say so here rather than in JSX.
+        fieldLabelLine: "{label}:",
+        currentIs: "hiện tại {value}",
+        // A proposal to clear a field is a change worth showing, and it is
+        // not the same as a field the reader never mentioned.
+        proposedBlank: "(bỏ trống)",
+        // The sentence that makes "waiting" plain, BR:544's other half.
+        stillInForce: "Thông tin hiện tại vẫn được dùng cho đến khi đề nghị này được duyệt.",
+        requestedOn: "Bạn gửi ngày {date}",
+        // The whole reason a rejection requires a reason: the reader reads
+        // it, and this page is the only place they can. Labelled rather
+        // than a bare paragraph, the shape readerDetail.rejectionReasonLine
+        // and donations.declineReasonLine already use.
+        rejectionReasonLine: "Lý do quản lý chưa duyệt: {reason}",
+        // formatInstantParts, not formatDate: decided_at is an instant. The
+        // reference shipped the other one here and 500ed every reader whose
+        // request had been decided.
+        decidedOn: "Đề nghị này được xử lý lúc {time} ngày {date}.",
+        empty: "Bạn chưa gửi đề nghị thay đổi nào.",
+        // The placement is read-only to a reader (OPS §4.3) and the screen
+        // says whom to ask. Two sentences because a one-level shelf has no
+        // second unit to name.
+        parishNoteOne: "Muốn đổi {level1} thì nhờ quản lý tủ sách giúp.",
+        parishNoteTwo: "Muốn đổi {level1} hoặc {level2} thì nhờ quản lý tủ sách giúp.",
+        // Honest for THIS task, which ships the screen read-only: the
+        // propose form is a later task's and this line changes with it.
+        readOnlyNote:
+            "Thông tin ở trên do quản lý xác minh. Muốn sửa thì nhờ quản lý tủ sách giúp.",
+        backToOverview: "Về trang của tôi",
+    },
     // Tặng sách, across the reader's TWO screens — the offer form in the
     // shelf area and their own offers under the profile. One namespace
     // rather than two because a reader reads them as one act; the manager's

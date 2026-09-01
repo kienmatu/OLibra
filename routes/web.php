@@ -35,6 +35,7 @@ use App\Http\Controllers\Reader\CommentController;
 use App\Http\Controllers\Reader\DonationController;
 use App\Http\Controllers\Reader\MyLoansController;
 use App\Http\Controllers\Reader\NotificationController;
+use App\Http\Controllers\Reader\ProfileController;
 use App\Http\Controllers\Reader\ScanController;
 use App\Http\Controllers\Reader\SearchController;
 use App\Http\Controllers\RegistrationController;
@@ -233,7 +234,12 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
     // original's memberless-super-admin allowance for free, the same way
     // it does for the reader group above.
     Route::prefix('profile')->name('profile.')->middleware(['auth', 'role:reader'])->group(function () {
-        Route::get('/', [ShellController::class, 'underConstruction'])->name('show');
+        // Phase 3c-i Task 1: the last placeholder in this group. BR §16.2's
+        // "View personal details" — the reader's own record, GetMyProfile
+        // (OPS:67) and GetMyProfileChangeRequest (OPS:68) behind it.
+        // Proposing a change to it is Task 2's and posts elsewhere; this
+        // one only reads.
+        Route::get('/', [ProfileController::class, 'show'])->name('show');
         Route::get('/history', [MyLoansController::class, 'history'])->name('history');
         // The bell. read-all is declared BEFORE the bound route — the
         // house habit (spec §6's static-before-bound discipline), even
