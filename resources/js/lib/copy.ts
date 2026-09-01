@@ -1296,6 +1296,81 @@ export const copy = {
         moveUp: "Đưa {name} lên",
         moveDown: "Đưa {name} xuống",
     },
+    // Phase 3b-ii Task 6's screen (spec D4) — the shelf's own settings, as
+    // text. Its own namespace rather than a reach into `adminShelves`: that
+    // one labels the INPUTS of an editor and may gain a placeholder or a
+    // "Bắt buộc" tomorrow, and a manager's read-only summary must not
+    // inherit words written for a control it does not render. The two files
+    // agreeing on the six numbers is `LendingSettings`' job, not a shared
+    // string's.
+    manageSettings: {
+        title: "Cài đặt",
+        lead: "Cài đặt của {shelf}.",
+        profileSection: "Thông tin tủ sách",
+        nameLabel: "Tên tủ sách",
+        // "Địa điểm" over `location` and "Địa chỉ" over `address`, and the
+        // pair is not interchangeable: the reference shipped `location`'s
+        // value ("Nhà xứ Thánh Tâm", a landmark) under a label promising a
+        // street address, while the street address an administrator had
+        // actually typed rendered on no screen at all.
+        locationLabel: "Địa điểm",
+        addressLabel: "Địa chỉ",
+        // Every one of these is nullable and a blank line reads as a
+        // rendering bug, so an unset value says so in words.
+        blank: "Chưa có",
+        contactsSection: "Đầu mối liên hệ",
+        contactsEmpty: "Chưa có đầu mối liên hệ nào.",
+        // The fallback label for a contact whose vai trò is blank — free
+        // text, so a parish that named none still gets a row heading.
+        contactFallbackRole: "Người liên hệ",
+        policySection: "Quy định cho mượn",
+        policyFields: {
+            loanDays: "Số ngày cho mượn",
+            maxConcurrentLoans: "Số sách mượn cùng lúc",
+            maxRenewals: "Số lần gia hạn",
+            renewalDays: "Số ngày mỗi lần gia hạn",
+            holdDays: "Số ngày giữ chỗ",
+            dueSoonDays: "Báo sắp đến hạn trước",
+        },
+        // A number on its own is not a policy — "3" reads as three of
+        // something. Each hint is the sentence the reference puts under the
+        // label, so a manager can check the shelf behaves as they expect
+        // without opening the requirements.
+        policyHints: {
+            loanDays: "Số ngày bạn đọc được giữ sách trong một lượt mượn.",
+            maxConcurrentLoans: "Số cuốn tối đa một bạn đọc được giữ cùng lúc.",
+            maxRenewals: "Số lần bạn đọc được xin gia hạn cho một lượt mượn.",
+            renewalDays: "Số ngày được cộng thêm mỗi lần gia hạn.",
+            holdDays: "Số ngày tủ sách giữ sách cho bạn đọc đã đăng ký chờ mượn.",
+            dueSoonDays: "Số ngày trước hạn trả mà hệ thống nhắc bạn đọc.",
+        },
+        days: "{count} ngày",
+        books: "{count} cuốn",
+        times: "{count} lần",
+        commentsSection: "Bình luận",
+        commentsEnabledLabel: "Cho phép bình luận",
+        commentsRequireApprovalLabel: "Bình luận cần duyệt",
+        taxonomySection: "Cách gọi các đơn vị",
+        levelsLabel: "Số bậc",
+        levelsOne: "Một bậc",
+        levelsTwo: "Hai bậc",
+        nestedLabel: "Bậc 2 thuộc về một đơn vị bậc 1 cụ thể",
+        level1LabelLabel: "Tên gọi bậc 1",
+        level2LabelLabel: "Tên gọi bậc 2",
+        yes: "Có",
+        no: "Không",
+        // THE SENTENCE THE WHOLE SCREEN RESTS ON, the reference's own, drawn
+        // under every section. Nothing on this page is a control, because
+        // the commands behind these values all authorize as a super
+        // administrator and would answer a manager with a 404 rather than a
+        // refusal — a control here could only mislead the person pressing
+        // it.
+        superAdminOnly: "Chỉ quản trị viên mới đổi được các mục này.",
+        // Where the units themselves are, since this screen shows only the
+        // shape. That screen a manager CAN reach, and it is in their own
+        // nav — said by name so it is not a hunt.
+        unitsNote: "Danh sách đơn vị nằm ở trang Cơ cấu giáo xứ.",
+    },
     manageLabels: {
         // The NAV word, re-headed on the screen itself below.
         navItem: "Nhãn QR",

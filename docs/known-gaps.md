@@ -2216,7 +2216,7 @@ text turned out wrong is called out rather than repeated.
   | `GetStatistics` | **Phase 2** — confirmed still absent from `app/Queries`; `/manage/statistics` route still resolves to `ShellController::underConstruction` |
   | ~~`GetBorrowRequestQueue`, `GetDonationQueue`, `GetCommentsList`, `GetAnnouncementsList` (manager)~~ | **STRUCK at the Phase 2b wrap-up — the row has nothing left in it.** All four are answered, and the row's "no matching class under `app/Queries`" was already false for the first one before this branch was cut: `GetBorrowRequestQueue` → `BorrowRequestQueueQuery` (2a); `GetCommentsList` → `CommentModerationQuery` (2b Task 6); `GetAnnouncementsList` → `AnnouncementsQuery` (2b Task 12); `GetDonationQueue` → `DonationQueueQuery` (2b Task 17). Each named class was opened at the wrap-up |
   | `GetPendingProfileChanges` | **Phase 3** — the propose/approve queue does not exist; `UpdateReaderProfile`'s direct correction (1b) is the only reader-profile write path today |
-  | `GetShelfSettings` (manager, read-only) | **Phase 3** — `/manage/settings` route still `under-construction` |
+  | ~~`GetShelfSettings` (manager, read-only)~~ | **STRUCK at Phase 3b-ii Task 6** — `/manage/settings` is a real screen (`app/Http/Controllers/Manage/SettingsController.php`), read-only per spec D4: the eight lending/comment values through `LendingSettings` and `CommentSettings`, the shelf's contacts through the ordinary scoped relation, the taxonomy shape through `ParishTaxonomy`. No query class of its own — three settings reads off the bound row are not a query — and deliberately **no write route under the path at all**, asserted in `tests/Feature/Members/ManagerSettingsScreenTest.php` |
   | `ListTitlesForLabels`, `ListCopiesForLabels`, `ExportLabelSheetPDF`, `ResolveCopyById` | **Phase 2** — QR labels, per 1c's own census |
   | All of OPS §3.4 (`GetAdminOverview` … `DownloadSystemBackup`, 11 rows) | **Phase 3** — no `admin/`-prefixed manage query exists yet; `AuditLogQuery` deliberately excludes the null-`bookshelf_id` rows this cross-shelf browser will need |
   | ~~Notification commands, `GetMyNotifications`, the reminder sweep~~ | **STRUCK at the Phase 2b wrap-up — stale, and not named by the plan's own list of stale cells; found by the count-word sweep.** All three shipped in 2a and the 2a wrap-up table above already says so: `MyNotificationsQuery` under `app/Queries`, one `MarkNotificationRead` Action behind two routes, and `reminders:sweep` scheduled 07:00 `Asia/Ho_Chi_Minh` from `routes/console.php` (line re-read at this wrap-up) |
@@ -3600,9 +3600,16 @@ and is already censused by `RuleViolatedCodesHaveSentencesTest`.
   occurrence is a comment or `docs/BUSINESS-REQUIREMENTS.md`'s settings table
   itself. **The key `/manage/settings` must write is `comments_enabled`**, and
   the same is true of `comments_require_approval`, which both documents
-  already spell alike. That screen is not built by this phase — its route
-  still resolves to `ShellController::underConstruction` — so this is the note
-  its author needs, and closing the lag is a one-cell edit to BR §5.5.
+  already spell alike. **AMENDED at Phase 3b-ii Task 6: `/manage/settings` is
+  built, and it WRITES NOTHING.** Spec D4 made it read-only — the eight values,
+  the contacts and the taxonomy shape as text — so the writer this note was
+  addressed to never came into being on the manager side. The only writer of
+  either key is `App\Actions\Admin\UpdateBookshelfPolicy`, on the admin shelf
+  editor, and it already spells both keys the implementation's way. The new
+  screen READS them through `CommentSettings::fromShelf` for the same reason.
+  So the divergence is unchanged and still unclosed, and closing the lag is
+  still a one-cell edit to BR §5.5 — there is simply no longer a future author
+  waiting on this note.
 
 - **Announcement bodies are plain text, and the reference's `bodyText`
   parameter is dropped (divergence 5).** The reference accepts an optional

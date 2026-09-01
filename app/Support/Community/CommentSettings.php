@@ -36,8 +36,12 @@ use App\Models\Bookshelf;
  * Every occurrence found outside the phase plan was a comment or the
  * requirements table itself.
  *
- * Whoever builds /manage/settings writes comments_enabled;
- * docs/known-gaps.md carries the entry recording the lag.
+ * CORRECTED at Phase 3b-ii Task 6, which built /manage/settings: that
+ * screen WRITES NOTHING. Spec D4 made it read-only, so it reads both keys
+ * through this class and the only writer of either remains
+ * App\Actions\Admin\UpdateBookshelfPolicy on the admin shelf editor.
+ * docs/known-gaps.md carries the entry recording the lag against BR §5.5,
+ * which this correction does not close.
  */
 final readonly class CommentSettings
 {

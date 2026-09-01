@@ -24,6 +24,7 @@ use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
+use App\Http\Controllers\Manage\SettingsController as ManageSettingsController;
 use App\Http\Controllers\Manage\StatisticsController;
 use App\Http\Controllers\Manage\UnitController;
 use App\Http\Controllers\Reader\AnnouncementController;
@@ -571,7 +572,20 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // held the name from Phase 0; ShellController::underConstruction's
         // docblock records that the route NAMES were final from that day.
         Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics');
-        Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
+        // Phase 3b-ii Task 6, spec D4 — the shelf's own settings, READ-ONLY
+        // and deliberately one route. A manager edits nothing here: the
+        // lending policy, the contacts and the taxonomy shape all belong to
+        // the super administrator's shelf editor under /admin, and
+        // UpdateBookshelfPolicy authorizes internally as one — a manager
+        // reaching it gets a 404 rather than a refusal, so a control on this
+        // screen could only ever mislead. BR §16.3's fourteen manager
+        // screens do not include Settings; §16.4 puts the policy on the
+        // admin Bookshelves screen. CatalogueArchitectureTest's
+        // "deliberately no delete-book route" is the precedent for saying so
+        // in a test rather than only in a comment, and
+        // ManagerSettingsScreenTest holds both halves: no write verb under
+        // this path, and a component source that reaches for no form.
+        Route::get('/settings', [ManageSettingsController::class, 'index'])->name('settings');
         Route::get('/qr-labels', [LabelController::class, 'index'])->name('qr-labels');
         // POST, matching this repo's export convention (ExportController's
         // docblock, and tests/Feature/Oversight/ExportHttpTest.php's POST to
