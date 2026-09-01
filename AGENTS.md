@@ -167,6 +167,28 @@ artefact, not a code failure. Run them inside `laravel-app-1`.
 to `cd old_next && next build`, which builds the read-only Next.js reference.
 The Laravel build is `npm run laravel:build`.
 
+### Pest's `toContain` takes no message argument
+
+`expect($x)->not->toContain($needle, "my message")` **passes unconditionally**.
+`toContain` is variadic over needles, so the message becomes a second needle and
+the negation is satisfied by that string being absent — which it always is.
+
+This has now shipped a green test over a real defect **twice**, in two different
+phases. Both times it was a source-read guard, and both times the thing it
+protected was genuinely broken while it stayed green.
+
+```php
+// wrong — always passes
+expect($source)->not->toContain($needle, "message");
+// right
+expect(str_contains($source, $needle))->toBeFalse("message");
+```
+
+The same shape catches source-read guards generally: a needle that also appears
+somewhere unrelated in the file makes the test green forever. Pick a needle that
+exists only where the thing you are testing lives, and **prove it by mutation** —
+delete the thing, watch red, restore.
+
 ### "Pre-existing" means pre-existing on `main`
 
 Phase 3b-i shipped a PHPStan error to CI twice because two separate agents
