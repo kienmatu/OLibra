@@ -48,14 +48,19 @@ use Illuminate\Support\Facades\Gate;
 trait DecidesProfileChanges
 {
     /**
-     * The subject's `users` row, locked, and it is the FIRST statement of
-     * every decide transaction — spec D3's ordering rule.
+     * The subject's `users` row, locked, and it comes BEFORE the request row
+     * in every decide transaction — spec D3's ordering rule.
      *
      * The order is not taste. Reversed — profile_change_requests first,
      * then users — approve racing cancel deadlocked 3/3 in BOTH directions
      * and the loser's driver error shipped as a 500
      * (cancel-profile-change.ts:70-74). ProposeProfileChange takes the same
      * two rows in the same order from the other end.
+     *
+     * IT IS THE FIRST STATEMENT FOR REJECT AND CANCEL, WHICH TAKE NO
+     * MEMBERSHIP LOCK AT ALL, and the SECOND for ApproveProfileChange, which
+     * takes one — see subjectMembership() below for why that one is not an
+     * exception to this rule but the other half of it.
      *
      * `users` is global, not shelf-scoped, so this one read needs no
      * widening.
@@ -105,14 +110,44 @@ trait DecidesProfileChanges
      * holding manager memberships at two parishes let an unqualified query
      * pick an arbitrary one, so the role the routing rule read could come
      * from the wrong shelf entirely.
+     *
+     * ── $lock, and why it is not optional decoration ─────────────────────
+     *
+     * A COMMAND THAT WILL WRITE THIS ROW MUST PASS `lock: true` AND CALL
+     * THIS FIRST, ahead of lockSubject(). Only ApproveProfileChange writes
+     * it — `applyPlacement()`'s `$membership->save()` moves the two unit
+     * ids — and an UPDATE takes the exclusive row lock whether or not
+     * anybody wrote `lockForUpdate()` above it. So "read but not locked" was
+     * never a description of that command: measured on the query log of a
+     * real approve-with-units, it took `select … users … for update` first
+     * and `update memberships` after it.
+     *
+     * That is the INVERSION spec D3 exists to prevent, not an avoidance of
+     * one. UpdateReaderProfile.php:61,69 and ChangeOwnPassword.php:91,93
+     * both take memberships and THEN users — as do SetReaderCredentials and
+     * every other members command that reaches a person through their
+     * membership — so an approve holding users while it waits for
+     * memberships is one half of an AB–BA cycle over exactly the pair those
+     * commands hold from the other end. Worse than symmetrical: only
+     * ApproveProfileChange passes ConcurrencyRetry::ATTEMPTS, so the two
+     * bare `DB::transaction()` callers cannot survive losing, and ship the
+     * driver error as a 500 — D3's stated failure mode, reached by the very
+     * paragraph that claimed to avoid it.
+     *
+     * The house order is therefore memberships → users → profile_change_
+     * requests, and it holds across the whole family. Reject and Cancel take
+     * NO membership lock because they write no membership, which introduces
+     * no edge in either direction; passing them a lock they do not need
+     * would only add contention.
      */
-    private function subjectMembership(ProfileChangeRequest $request): Membership
+    private function subjectMembership(ProfileChangeRequest $request, bool $lock = false): Membership
     {
         $shelf = $this->requestShelf($request);
 
         $membership = $this->tenantContext()->systemWide(
             fn (): ?Membership => $shelf->memberships()
                 ->where('user_id', $request->user_id)
+                ->when($lock, fn ($query) => $query->lockForUpdate())
                 ->first(),
         );
 

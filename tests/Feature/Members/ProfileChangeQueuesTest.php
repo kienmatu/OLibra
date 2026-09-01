@@ -162,6 +162,86 @@ it('the cross-shelf queue holds MANAGER and ADMIN subjects anywhere, with the sh
             ->where('queue.1.subjectRole', 'admin'));
 });
 
+it('BOTH queues send the two PHOTOGRAPHS, not a sentence saying one exists', function () {
+    // BR:580 asks that a decider "see exactly what would change", and for
+    // the one proposable field that is a picture, seeing it IS the decision.
+    // Both queues used to send `avatarProposed` as a bare boolean and both
+    // screens rendered a sentence — which meant a manager approved a
+    // photograph of a child on the strength of a claim that one existed.
+    //
+    // The CURRENT half is read off the PERSON, never out of the request's
+    // previous_values: this fixture's subject already has a photograph on
+    // file that the request never mentions, and it is that one a decider
+    // must be comparing against.
+    $f = pcqFixture();
+
+    $f['readerA']->forceFill(['avatar_object' => 'anh-dang-dung.webp'])->save();
+    $f['managerA']->forceFill(['avatar_object' => 'anh-quan-ly.webp'])->save();
+
+    $f['readerARequest']->forceFill([
+        'proposed_values' => ['phone' => '0922222222', 'avatar_object' => 'anh-de-nghi.webp'],
+    ])->save();
+    $f['managerARequest']->forceFill([
+        'proposed_values' => ['email' => 'dong@nghiep.vn', 'avatar_object' => 'anh-quan-ly-moi.webp'],
+    ])->save();
+
+    // The shelf queue, tenant-bound.
+    $this->actingAs($f['manager'])
+        ->get("/shelves/{$f['shelfA']->slug}/manage/profile-changes")
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('queue.0.avatarProposed', true)
+            ->where('queue.0.proposedAvatarUrl', fn (?string $url) => is_string($url) && str_contains($url, 'anh-de-nghi.webp'))
+            ->where('queue.0.currentAvatarUrl', fn (?string $url) => is_string($url) && str_contains($url, 'anh-dang-dung.webp')));
+
+    // The cross-shelf queue, UNBOUND — the half that could not have been
+    // taken for granted. AvatarStorage::url is a config-derived read of a
+    // local disk with no tenancy of its own, which is why the widened query
+    // may call it exactly as the reader's own page does.
+    $this->actingAs($f['superAdmin'])
+        ->get('/admin/profile-changes')
+        ->assertOk()
+        ->assertInertia(function (Assert $page) {
+            $queue = $page->toArray()['props']['queue'];
+            $card = collect($queue)->firstWhere('subjectName', 'Lê Văn Đồng Nghiệp');
+
+            expect($card['avatarProposed'])->toBeTrue()
+                ->and($card['proposedAvatarUrl'])->toContain('anh-quan-ly-moi.webp')
+                ->and($card['currentAvatarUrl'])->toContain('anh-quan-ly.webp')
+                // And still never the key itself, on either half.
+                ->and(json_encode($card, JSON_UNESCAPED_UNICODE))->not->toContain('"avatar_object"');
+        });
+});
+
+it('a proposal that names NO photograph sends no flag, and both screens render the pair through ONE component', function () {
+    // The negative half: the flag is what draws the block, so a text-only
+    // proposal must not draw two empty squares captioned "Chưa có ảnh".
+    $f = pcqFixture();
+
+    $this->actingAs($f['manager'])
+        ->get("/shelves/{$f['shelfA']->slug}/manage/profile-changes")
+        ->assertInertia(fn (Assert $page) => $page->where('queue.0.avatarProposed', false));
+
+    // ONE component, not three near-identical figures — AGENTS.md's own
+    // rule about pages growing their own copy of a shared shape, and the
+    // reason this fix lifted AvatarFigure out of the reader's page rather
+    // than pasting it into two queues. Read with comments stripped, so the
+    // prose above each block cannot satisfy the grep.
+    foreach (['manage/profile-changes.tsx', 'admin/profile-changes.tsx'] as $screen) {
+        $source = screenSource($screen);
+
+        expect($source)->toContain('from "@/components/avatar-figure"')
+            ->and($source)->toContain('url={card.currentAvatarUrl}')
+            ->and($source)->toContain('url={card.proposedAvatarUrl}');
+    }
+
+    // …and the page it was lifted OUT of imports it rather than keeping a
+    // second copy, which is the half that makes this one component.
+    expect(screenSource('shelves/profile/index.tsx'))
+        ->toContain('from "@/components/avatar-figure"');
+    expect(str_contains(screenSource('shelves/profile/index.tsx'), 'function AvatarFigure('))
+        ->toBeFalse('the reader page still defines its own AvatarFigure');
+});
+
 it('the two queues PARTITION the pending set — every request in exactly one', function () {
     $f = pcqFixture();
 

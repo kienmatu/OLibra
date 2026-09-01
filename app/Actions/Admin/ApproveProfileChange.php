@@ -78,17 +78,35 @@ use Illuminate\Support\Facades\DB;
  * cancel audit the `profile_change_request` instead, because nothing about
  * the person changed.
  *
- * ── One lock, deliberately, and it is not the membership's ───────────────
+ * ── Three locks, in the order the whole application takes them ───────────
  *
- * The subject's `users` row is locked first (the trait), and the request
- * row is re-read under it. The MEMBERSHIP is read but NOT locked, even
- * though this command may write its two unit ids. UpdateReaderProfile locks
- * memberships and then users; locking it here would give this command the
- * opposite order and hand the pair a lock cycle of exactly the kind spec D3
- * exists to prevent. What the membership is read for — the subject's role,
- * and the placement half a caller did not name — is read inside the same
- * transaction, after the subject is pinned, which is what "at decision
- * time" means.
+ * memberships → users → profile_change_requests, and this command is the
+ * only one of the decide trio that takes the first of the three, because it
+ * is the only one that WRITES a membership: `applyPlacement()` below moves
+ * the two unit ids.
+ *
+ * THE MEMBERSHIP LOCK IS NOT OPTIONAL AND IT IS NOT NEW WORK — it is the
+ * lock `$membership->save()` was already taking, hoisted to the front where
+ * its position is a decision rather than an accident. An earlier version of
+ * this paragraph argued the opposite: that the membership was deliberately
+ * read-but-not-locked so as not to invert against UpdateReaderProfile. That
+ * reasoning covered the SELECT and missed the UPDATE. An UPDATE takes the
+ * exclusive row lock regardless, so the command it described took
+ * users-then-memberships against UpdateReaderProfile's and
+ * ChangeOwnPassword's memberships-then-users — an AB–BA cycle over that
+ * exact pair, which is what spec D3 exists to prevent, and which only this
+ * command (with ConcurrencyRetry::ATTEMPTS) could have survived; the other
+ * two use a bare DB::transaction() and would have shipped the driver error
+ * as a 500. Measured on the query log before the fix: `select … users … for
+ * update` at statement one, `update memberships` at statement seven.
+ *
+ * What the membership is read for — the subject's role, and the placement
+ * half a caller did not name — is still read inside the transaction, so "at
+ * decision time" is as literal as it ever was. Locking it a few statements
+ * earlier does not change what it says, only who can move it underneath.
+ *
+ * The request row is still re-read UNDER the users lock, which is the half
+ * of D3 that cancel measured; see the trait.
  */
 final class ApproveProfileChange
 {
@@ -114,8 +132,12 @@ final class ApproveProfileChange
     public function execute(User $actor, ProfileChangeRequest $request, array $units = []): ?string
     {
         $superseded = DB::transaction(function () use ($actor, $request, $units): ?string {
+            // FIRST, ahead of the users row — this command writes this
+            // membership, so it takes its exclusive lock here rather than
+            // letting the UPDATE take it out of order. See the class
+            // docblock and the trait's.
+            $membership = $this->subjectMembership($request, lock: true);
             $person = $this->lockSubject($request);
-            $membership = $this->subjectMembership($request);
 
             $this->assertMayDecide($actor, $membership, $request);
 

@@ -5096,18 +5096,24 @@ code — belongs with the other guard traps in `AGENTS.md`.
   successful reject passes under either ordering, so it could not be the test
   that pins this.
 
-- **`docs/OPERATIONS.md:587` is stale, and only half corrected.** That
-  blockquote — an "Open question — notification gap" under `CancelProfileChange`
-  — asserts that BR §15's reader-facing list "does not mention a profile-change
-  decision at all". It does: `docs/BUSINESS-REQUIREMENTS.md:490` names both
-  ("profile change approved, profile change rejected (carrying the manager's
-  reason)") and BR:492 gives the reason. Task 6 built both, and added them to
-  OPS §7's notification table with a note saying so
-  (`docs/OPERATIONS.md:1147-1150`). **The §4.3 blockquote at :587 was not
-  retracted**, so the document now contradicts itself: a reader who reaches §4.3
-  first is told the notifications do not exist and that the silence is for the
-  product owner to resolve. It is a one-paragraph edit and it was left undone;
-  this task's brief is `known-gaps.md` only.
+- **~~`docs/OPERATIONS.md:587` is stale, and only half corrected.~~ CLOSED
+  2026-09-01, commit `88a03aa`.** The blockquote is retracted in place — struck
+  through, with the retraction naming `BUSINESS-REQUIREMENTS.md:490` and the §7
+  rows Task 6 added — so §4.3 no longer contradicts §7. The entry is kept struck
+  rather than deleted for this file's usual reason: a note that vanishes without
+  saying it was answered comes back. Original text below.
+
+  > ~~That blockquote — an "Open question — notification gap" under
+  > `CancelProfileChange` — asserts that BR §15's reader-facing list "does not
+  > mention a profile-change decision at all". It does:
+  > `docs/BUSINESS-REQUIREMENTS.md:490` names both ("profile change approved,
+  > profile change rejected (carrying the manager's reason)") and BR:492 gives
+  > the reason. Task 6 built both, and added them to OPS §7's notification table
+  > with a note saying so (`docs/OPERATIONS.md:1147-1150`). **The §4.3 blockquote
+  > at :587 was not retracted**, so the document now contradicts itself: a reader
+  > who reaches §4.3 first is told the notifications do not exist and that the
+  > silence is for the product owner to resolve. It is a one-paragraph edit and
+  > it was left undone; this task's brief is `known-gaps.md` only.~~
 
 ### Still deferred, unchanged
 
@@ -5123,3 +5129,46 @@ code — belongs with the other guard traps in `AGENTS.md`.
   radius (three more manager routes behind the resolver,
   `routes/web.php:584-586`) and one new consideration to the export itself: it
   would now have to carry files, which is the docroot trap above.
+
+### The whole-branch fix wave, and what it deliberately left alone
+
+A review of `feat/phase-3c-oversight-and-feedback` found six things after the
+phase's own tasks were done. Five were fixed on the branch and are recorded
+where they now live; two were judged out of scope and are recorded here,
+because a defect that is known and unfixed belongs in this file rather than in
+a review that scrolls away.
+
+**Fixed, and each pinned.** A lock-order inversion in
+`ApproveProfileChange` (it held `users` while its `applyPlacement` UPDATE went
+on to take the `memberships` lock, against `UpdateReaderProfile`'s and
+`ChangeOwnPassword`'s memberships-then-users — an AB–BA cycle over exactly the
+pair spec D3 exists to prevent, and neither of those two has a retry). The
+reader's own page rendering an `<img>` for an object the decide path had
+deleted. The avatars disk configured `throw => false`, so a failed write minted
+a key for bytes that were never stored. Both decision queues sending
+`avatarProposed` as a bare boolean, so a manager approved a photograph of a
+child on the strength of a sentence. And four tests that guarded nothing — a
+`json_encode` without `JSON_UNESCAPED_UNICODE` in the leak half of a leak test,
+a `'Tổ '` grep whose trailing space missed the bare literal it names, a
+"renders on a PENDING card only" test that never mentioned the guard, and three
+lock-order pins that read only `$log[0]`'s table and would have passed a
+command locking the wrong row entirely.
+
+**Not fixed, deliberately.**
+
+- **The audit-log screen prints the raw storage key.** A `profile_change.proposed`
+  row's `after` bag carries `avatar_object`, and the audit screen renders the
+  before/after payload verbatim. That is defensible under BR §14 — the audit
+  record is the record of exactly what was written, and rewriting a value on
+  the way to a super administrator's oversight screen is the wrong direction of
+  fix — but it does mean a bucket path is on a screen. If it is ever changed, it
+  should be changed by the audit renderer knowing the field, not by the Action
+  writing something other than what it wrote.
+- **A soft-deleted subject membership strands a pending request.** Both queues
+  drop a card whose subject cannot be resolved (`ProfileChangeQueueQuery`
+  continues past a null person; the cross-shelf queue's predicate needs a live
+  Manager/Admin membership), so a request whose subject has left sits pending
+  with nobody able to see it, let alone decide it. It is a real hole. It needs
+  a decision about what SHOULD happen — auto-cancel on departure, a
+  soft-deleted-subject queue, or a sweep — and that decision is the product
+  owner's, not a fix wave's.

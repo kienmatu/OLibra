@@ -260,22 +260,36 @@ it('a request already decided since the card was opened yields profile_change_no
         ->toThrow(RuleViolated::class, 'profile_change_not_pending');
 });
 
-it('takes the SUBJECT\'s users row as the first statement of the transaction', function () {
+it('takes the SUBJECT\'s users row first, then the request, and locks NO membership', function () {
     // Spec D3's ordering rule, and cancel is the command that measured it:
     // reversed, a manager clicking *Duyệt* as the reader clicked *Huỷ*
     // deadlocked 3/3 in both directions and the loser shipped a 500.
+    //
+    // THE BINDINGS ARE ASSERTED, NOT ONLY THE TABLE. Both `users` rows in
+    // scope — the subject's and the cancelling manager's — produce a
+    // byte-identical `select * from `users` … limit 1 for update`, so a
+    // regression locking the wrong one leaves the query text untouched.
+    // Only the binding tells them apart. (Approve's own version of this
+    // block, in DecideProfileChangeTest, carries the fuller note.)
+    //
+    // The membership half is the other statement worth making: cancel
+    // writes no membership, so it takes no membership lock, and adding one
+    // it does not need would only buy contention.
     [$shelf, $person, $subjectMembership] = canShelfWith('dong-thap');
     [$manager, $managerMembership] = canShelfManager($shelf);
 
     canActAs($shelf, $manager, $managerMembership);
     $cancelling = canRow(canPending($shelf, $person)->id);
 
+    DB::flushQueryLog();
     DB::enableQueryLog();
     canCancel($manager, $subjectMembership, $cancelling);
-    $log = DB::getQueryLog();
+    $locking = lockingReads(DB::getQueryLog());
     DB::disableQueryLog();
 
-    expect($log)->not->toBe([])
-        ->and(str_contains($log[0]['query'], '`users`'))->toBeTrue('first query is not on users: '.$log[0]['query'])
-        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+    expect(array_map(fn (array $e) => preg_replace('/^select \* from (`\w+`).*$/s', '$1', $e['query']), $locking))
+        ->toBe(['`users`', '`profile_change_requests`']);
+
+    expect($locking[0]['bindings'])->toBe([$person->id])
+        ->and($locking[1]['bindings'])->toBe([$cancelling->id]);
 });

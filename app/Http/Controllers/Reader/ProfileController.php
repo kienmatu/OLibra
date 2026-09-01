@@ -144,6 +144,20 @@ class ProfileController extends Controller
      * sentence. The cost is one orphaned object, which is the same residual
      * this whole path accepts, and it is preferred over a storage fault
      * replacing `change_already_pending` in a form's error banner.
+     *
+     * THE CATCH BELOW IS NOW BELT AND BRACES RATHER THAN THE ONLY GUARD, and
+     * it is kept for that reason. It was written against a disk configured
+     * `throw => false`, which meant the very failure it compensates for
+     * could not raise anything for it to catch; the disk now throws, and
+     * `AvatarStorage::discard()` holds its own swallow because every OTHER
+     * caller of it runs after a commit and must not 500. Two catches over
+     * one line is cheap, and the rule this one states — the refusal wins —
+     * is the one worth having written down at the call site.
+     *
+     * STEP 1 CAN NOW FAIL LOUDLY, which is the point of the disk's flag: a
+     * write that does not land no longer returns a key for an object that
+     * does not exist, so there is no path from here to a proposal
+     * referencing bytes nobody ever stored.
      */
     public function proposeAvatar(
         ProposeAvatarRequest $request,

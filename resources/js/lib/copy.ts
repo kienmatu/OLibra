@@ -661,11 +661,16 @@ export const copy = {
         // .proposedBlank's own distinction, on the deciding side.
         blank: "(bỏ trống)",
         notSet: "Chưa có",
-        // Task 8 replaces this line with the two photographs. Until then
-        // the field is ANNOUNCED and its value is not: the value is a
-        // storage key, and printing one on a screen is what this sentence
-        // exists to avoid.
+        // THE SENTENCE STAYS, above the two photographs rather than instead
+        // of them. It was on its own until the fix wave: a manager approved
+        // a photograph of a child on the strength of a claim that one
+        // existed, which BR:580's "see exactly what would change" cannot
+        // mean for the one field that is a picture. What is still never
+        // printed is the VALUE — it is a storage key, and the server sends
+        // addresses.
         avatarProposed: "Bạn đọc có gửi kèm ảnh đại diện mới.",
+        avatarCurrent: "Ảnh hiện tại",
+        avatarProposedLabel: "Ảnh đề nghị",
         // The optional re-placement, spec D3. Headed as a question rather
         // than as a field group, because leaving it alone is the normal
         // answer and the form must not read as though something is
@@ -696,7 +701,12 @@ export const copy = {
         proposedHeading: "Đề nghị",
         blank: "(bỏ trống)",
         notSet: "Chưa có",
+        // Its own words, and the two photographs below it — see the shelf
+        // queue's note. A cross-shelf administrator is deciding a picture
+        // they have even less other context for.
         avatarProposed: "Người này có gửi kèm ảnh đại diện mới.",
+        avatarCurrent: "Ảnh hiện tại",
+        avatarProposedLabel: "Ảnh đề nghị",
         approve: "Duyệt",
         rejectReason: "Lý do chưa duyệt",
         reject: "Từ chối",

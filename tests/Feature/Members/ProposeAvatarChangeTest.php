@@ -14,6 +14,7 @@ use App\Models\ProfileChangeRequest;
 use App\Models\User;
 use App\Support\Members\AvatarStorage;
 use App\Support\TenantContext;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -327,6 +328,79 @@ it('refuses a file that is not an image with invalid_image, and stores nothing',
     ))->toThrow(RuleViolated::class, 'invalid_image');
 
     expect(Storage::disk('avatars')->allFiles())->toBe([]);
+});
+
+it('an UNWRITABLE disk fails loudly — it never mints a key for bytes that are not there', function () {
+    // The failure this pins is not a reader's: it is AVATAR_DISK_ROOT
+    // pointing somewhere the process cannot write, which is the
+    // misconfiguration config/filesystems.php's own comment warns about
+    // under the shim docroot — a whole shelf's uploads, not one file.
+    //
+    // What it used to do: `'throw' => false` turned the failure into a
+    // `false` return that store() did not read, so the method returned a
+    // key for an object that had never landed. The proposal was recorded,
+    // the manager was told a photograph was waiting, the reader's page drew
+    // a broken image, and approving wrote a dangling key permanently onto
+    // `users.avatar_object`. Nothing anywhere said a write had failed.
+    //
+    // `/proc` IS THE ROOT, and the choice is load-bearing. A path that does
+    // not EXIST raises UnableToCreateDirectory, which Laravel's adapter does
+    // not catch and which is therefore loud under either flag — a test built
+    // on one would have stayed green through the whole defect. `/proc`
+    // exists and is not writable, so the failure is UnableToWriteFile: the
+    // exact one `throw => false` swallows into a boolean. (The suite runs in
+    // the Linux container by rule; there is no host path here.)
+    [, $person, $membership] = avShelf();
+
+    config(['filesystems.disks.avatars' => array_merge(
+        (array) config('filesystems.disks.avatars'),
+        ['root' => '/proc', 'throw' => (bool) config('filesystems.disks.avatars.throw')],
+    )]);
+    Storage::forgetDisk('avatars');
+
+    try {
+        // RuntimeException covers both routes out of store(): Flysystem's
+        // UnableToWriteFile (which extends it) under `throw => true`, and
+        // store()'s own boolean check under a flag flipped back. Either is
+        // loud; what the old code did was neither.
+        expect(fn () => app(AvatarStorage::class)->store(avUpload()))
+            ->toThrow(RuntimeException::class);
+
+        // …and nothing downstream was told a photograph existed.
+        expect(ProfileChangeRequest::query()->withoutGlobalScopes()->count())->toBe(0)
+            ->and($person->fresh()->avatar_object)->toBeNull()
+            ->and($membership->fresh()->parish_unit_l1_id)->toBeNull();
+    } finally {
+        Storage::forgetDisk('avatars');
+    }
+});
+
+it('a put that reports failure by RETURN VALUE is a failure too', function () {
+    // The other half, and neither covers the other. `throw => true` catches
+    // what the driver raises; this catches a put that answers `false`
+    // instead — and it is what keeps store() correct if somebody flips the
+    // config flag back while copying the three stock disks around it.
+    avShelf();
+
+    $disk = Mockery::mock(Filesystem::class);
+    $disk->shouldReceive('put')->once()->andReturnFalse();
+    Storage::set('avatars', $disk);
+
+    expect(fn () => app(AvatarStorage::class)->store(avUpload()))
+        ->toThrow(RuntimeException::class, 'avatar disk refused the write');
+});
+
+it('the avatars disk is configured to fail loudly — throw, alone among the four', function () {
+    // The shipped config line, asserted directly: Storage::fake() builds a
+    // config of its own, so every other test in this file runs against a
+    // disk whose flag is not this one.  Stock Laravel's three disks keep
+    // `false` deliberately; this one does not, because a failed write here
+    // mints a reference to bytes that do not exist.
+    $shipped = require base_path('config/filesystems.php');
+
+    expect($shipped['disks']['avatars']['throw'])->toBeTrue()
+        ->and($shipped['disks']['public']['throw'])->toBeFalse()
+        ->and($shipped['disks']['local']['throw'] ?? false)->toBeFalse();
 });
 
 it('mints its own key — nothing a caller sends becomes one', function () {

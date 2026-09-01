@@ -98,8 +98,14 @@ it('a reader sees their own record and not another reader\'s', function () {
         ->get("/shelves/{$shelf->slug}/profile")
         ->viewData('page')['props'];
 
+    // JSON_UNESCAPED_UNICODE IS THE WHOLE OF THIS ASSERTION. Without it
+    // json_encode emits `Tr\u1ea7n Minh Kh\u00e1c`, which contains no
+    // substring 'Trần Minh Khác' — so the leak half of this leak test passed
+    // even against a payload carrying the other reader's name in full. Every
+    // name in this repository's fixtures is Vietnamese, so the escaping is
+    // not an edge case here, it is the default.
     expect($props['profile']['membershipId'])->toBe($membership->id)
-        ->and(json_encode($props))->not->toContain('Trần Minh Khác');
+        ->and(json_encode($props, JSON_UNESCAPED_UNICODE))->not->toContain('Trần Minh Khác');
 
     // The route names no membership, so the ONLY way to ask for someone
     // else's row is a future caller handing one to the ability. That is
@@ -227,15 +233,65 @@ it('a proposed avatar renders as TWO PHOTOGRAPHS, and its storage key never cros
         // …the pending list is built from the eight TEXT fields, so the
         // photograph is not a row in it at all…
         ->and($source)->toContain('TEXT_FIELDS.filter((f) => f in pendingChange.proposedValues)')
-        // …and the pair is rendered as pictures, guarded on the FLAG rather
-        // than on a URL being non-null.
-        ->and($source)->toContain('pendingChange.avatarProposed ?')
+        // …the pair is rendered as pictures, guarded on the STATUS and the
+        // FLAG together — never on a URL being non-null, and never on the
+        // flag alone (see the decided-request test below for why).
+        ->and($source)->toContain('pendingChange.status === "pending" && pendingChange.avatarProposed ?')
         ->and($source)->toContain('url={pendingChange.previousAvatarUrl}')
         ->and($source)->toContain('url={pendingChange.proposedAvatarUrl}');
 
     // And the key itself is gone from the payload: the props the page reads
     // carry addresses, never a bucket path.
     expect(str_contains($source, 'proposedValues.avatar_object'))->toBeFalse();
+});
+
+it('a DECIDED request sends NO avatar addresses — the objects behind them are gone', function () {
+    // Spec D6 deletes one of the two images on every decision: approve
+    // discards the superseded one, reject and cancel discard the proposed
+    // one. Neither rewrites the JSON bag — it is the record of what was
+    // asked for — so the KEY outlives the object every time.
+    //
+    // What that used to produce, on this exact page: a rejected request
+    // still reported avatarProposed=true and still carried a well-formed
+    // proposedAvatarUrl, so the reader got a broken <img> captioned "Ảnh
+    // chờ duyệt". AvatarFigure's "Chưa có ảnh" fallback could not save it —
+    // that fallback asks whether the URL is null, and a URL derived from a
+    // surviving key is a string.
+    [$shelf, $person] = myProfileFixture();
+
+    $request = ProfileChangeRequest::query()->create([
+        'bookshelf_id' => $shelf->id,
+        'user_id' => $person->id,
+        // Both bags name a photograph, which is the shape a real decided
+        // request has: the reader proposed one over one already in force.
+        'proposed_values' => ['avatar_object' => 'da-bi-xoa.webp'],
+        'previous_values' => ['avatar_object' => 'anh-cu.webp'],
+        'status' => 'rejected',
+        'rejection_reason' => 'Ảnh không rõ mặt.',
+        'decided_at' => now(),
+    ]);
+
+    $this->actingAs($person)
+        ->get("/shelves/{$shelf->slug}/profile")
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('profile.pendingChange.status', 'rejected')
+            // The FLAG is still true: they did propose a photograph, and
+            // that is still the truth about this row.
+            ->where('profile.pendingChange.avatarProposed', true)
+            // The ADDRESSES are not sent, because the bytes are not there.
+            ->where('profile.pendingChange.proposedAvatarUrl', null)
+            ->where('profile.pendingChange.previousAvatarUrl', null));
+
+    // And while it IS pending, both addresses are sent — otherwise the
+    // assertion above would pass against a query that never sent them.
+    $request->update(['status' => 'pending', 'rejection_reason' => null, 'decided_at' => null]);
+
+    $props = $this->actingAs($person)
+        ->get("/shelves/{$shelf->slug}/profile")
+        ->viewData('page')['props'];
+
+    expect($props['profile']['pendingChange']['proposedAvatarUrl'])->toContain('da-bi-xoa.webp')
+        ->and($props['profile']['pendingChange']['previousAvatarUrl'])->toContain('anh-cu.webp');
 });
 
 it('the reader gets an upload control whose accept list comes from the server', function () {
@@ -333,7 +389,11 @@ it('D11 — the units render through THIS shelf\'s labels, never the words Tổ 
 
     expect($source)->toContain('taxonomy.level1Label')
         ->and(str_contains($source, 'Giáo họ'))->toBeFalse('the page hard-codes Giáo họ')
-        ->and(str_contains($source, 'Tổ '))->toBeFalse('the page hard-codes Tổ');
+        // NO TRAILING SPACE. It used to read 'Tổ ', which does not match a
+        // bare `"Tổ"` string literal — the exact shape a page hard-coding
+        // the default level-2 label would most likely use, and the one this
+        // assertion names. The word on its own is what must be absent.
+        ->and(str_contains($source, 'Tổ'))->toBeFalse('the page hard-codes Tổ');
 });
 
 it('a shelf whose units are all retired renders no unit row, and still names the reader\'s own', function () {
@@ -420,13 +480,26 @@ it('a reader withdraws their own pending proposal from their own page, and the p
 });
 
 it('the withdrawal control renders on a PENDING card only', function () {
-    // Read off the component with comments stripped, so the prose above the
-    // block cannot satisfy the grep. A decided request has nothing to take
-    // back, and the server would answer profile_change_not_pending.
+    // THE GUARD IS WHAT IS ASSERTED, not merely the control's existence.
+    // This test used to be `toContain('<CancelButton')`, which stays green
+    // with the `status === "pending"` condition deleted — the one thing its
+    // own name promises. It cannot be asserted through the response body
+    // either: the branch is React's, and an Inertia response carries the
+    // props as JSON with no rendered markup for a test to read.
+    //
+    // So the SOURCE is read, with comments stripped (the prose above the
+    // block must not satisfy the grep) and with whitespace collapsed, so
+    // that a reformat by Biome cannot redden it while a deleted guard can.
+    //
+    // A decided request has nothing to take back — the server answers
+    // profile_change_not_pending — while the CARD itself stays, because
+    // this page shows the most recent request of any status (spec D7) and a
+    // rejected reader has a reason to read there.
     $source = screenSource('shelves/profile/index.tsx');
+    $dense = (string) preg_replace('/\s+/', '', $source);
 
     expect($source)->toContain('shelves.profile.change-request.cancel')
-        ->and($source)->toContain('<CancelButton');
+        ->and($dense)->toContain('pendingChange.status==="pending"?(<CancelButton');
 });
 
 it('a reader cannot withdraw somebody ELSE\'s request — not_own_request, not a silent success', function () {

@@ -10,6 +10,7 @@ use App\Models\Membership;
 use App\Models\ProfileChangeRequest;
 use App\Models\User;
 use App\Queries\Concerns\PresentsProfileChanges;
+use App\Support\Members\AvatarStorage;
 use App\Support\Members\ProfileFields;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -62,6 +63,8 @@ final class ProfileChangeQueueQuery
 {
     use PresentsProfileChanges;
 
+    public function __construct(private AvatarStorage $avatars) {}
+
     /**
      * The one place this class says what "in this queue" means — shared by
      * run() and countPending() so the badge and the list cannot answer two
@@ -91,7 +94,7 @@ final class ProfileChangeQueueQuery
      * end a reader has waited longest at. `id` beside `requested_at` for
      * the tie, DonationQueueQuery's habit.
      *
-     * @return list<array{requestId: string, subjectUserId: string, subjectName: string, saintName: string|null, parishUnitL1Id: string|null, parishUnitL2Id: string|null, requestedAt: string, fields: list<array{field: string, current: string|null, proposed: string|null}>, avatarProposed: bool}>
+     * @return list<array{requestId: string, subjectUserId: string, subjectName: string, saintName: string|null, parishUnitL1Id: string|null, parishUnitL2Id: string|null, requestedAt: string, fields: list<array{field: string, current: string|null, proposed: string|null}>, avatarProposed: bool, proposedAvatarUrl: string|null, currentAvatarUrl: string|null}>
      */
     public function run(): array
     {
@@ -133,7 +136,7 @@ final class ProfileChangeQueueQuery
             $membership = $memberships->get($request->user_id);
             $proposed = ProfileFields::pick($request->proposed_values);
 
-            $rows[] = [
+            $rows[] = array_merge([
                 'requestId' => $request->id,
                 'subjectUserId' => $person->id,
                 'subjectName' => $person->full_name,
@@ -142,8 +145,10 @@ final class ProfileChangeQueueQuery
                 'parishUnitL2Id' => $membership?->parish_unit_l2_id,
                 'requestedAt' => (string) $request->requested_at->toISOString(),
                 'fields' => self::sideBySide($person, $proposed),
-                'avatarProposed' => array_key_exists('avatar_object', $proposed),
-            ];
+                // The FLAG and the two ADDRESSES together — a manager
+                // deciding a photograph of a child has to see it, not read
+                // that one exists. The trait argues it at length.
+            ], self::avatarPair($this->avatars, $person, $proposed));
         }
 
         return $rows;

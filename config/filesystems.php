@@ -72,13 +72,35 @@ return [
          * guessable by nobody (a UUID) but readable by anyone who has it.
          * That is what makes stripping EXIF a child-safety control rather
          * than a nicety — see App\Support\Members\AvatarImage.
+         *
+         * `throw => true`, AND IT IS THE ONLY DISK HERE THAT SETS IT. The
+         * other three are stock Laravel's `false`, which turns a failed
+         * write into a `false` return value — and a false nobody reads is a
+         * write that did not happen and nothing that says so. On THIS disk
+         * that failure has a name: `AvatarStorage::store()` mints a key from
+         * the put, so a silently-failed write records a proposal for an
+         * object that does not exist, tells the manager a photograph was
+         * proposed, and — on approval — writes a dangling key permanently
+         * onto `users.avatar_object`. The likeliest cause is exactly the
+         * misconfiguration the paragraphs above warn about: AVATAR_DISK_ROOT
+         * pointed somewhere the process cannot write under the shim docroot.
+         * A 500 in the log naming an unwritable path is what an operator can
+         * act on; a reader repeatedly told their photograph was accepted is
+         * not.
+         *
+         * The one place that must NOT fail loudly is the post-commit delete,
+         * and `AvatarStorage::discard()` now says so in code rather than
+         * relying on this flag to say it — see its own comment. That is the
+         * documented residual (docs/known-gaps.md): an orphaned object costs
+         * storage, and turning it into a 500 after a decision has already
+         * committed would be strictly worse.
          */
         'avatars' => [
             'driver' => 'local',
             'root' => env('AVATAR_DISK_ROOT', storage_path('app/public/avatars')),
             'url' => env('AVATAR_DISK_URL', env('APP_URL').'/storage/avatars'),
             'visibility' => 'public',
-            'throw' => false,
+            'throw' => true,
         ],
 
         's3' => [

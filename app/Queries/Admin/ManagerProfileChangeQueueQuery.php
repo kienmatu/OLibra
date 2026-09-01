@@ -10,6 +10,7 @@ use App\Models\Membership;
 use App\Models\ProfileChangeRequest;
 use App\Models\User;
 use App\Queries\Concerns\PresentsProfileChanges;
+use App\Support\Members\AvatarStorage;
 use App\Support\Members\ProfileFields;
 use App\Support\TenantContext;
 use Illuminate\Database\Eloquent\Collection;
@@ -67,7 +68,14 @@ final class ManagerProfileChangeQueueQuery
 {
     use PresentsProfileChanges;
 
-    public function __construct(private TenantContext $context) {}
+    /**
+     * AvatarStorage IS SAFE FOR THE UNBOUND CALLER, which is the one thing
+     * worth checking before a widened query takes a dependency: it reads
+     * `config('filesystems.disks.avatars')` and derives a URL from a key.
+     * No tenant, no query, no scope to widen — so this queue can show the
+     * photographs exactly as the reader's tenant-bound page does.
+     */
+    public function __construct(private TenantContext $context, private AvatarStorage $avatars) {}
 
     /**
      * The one place this class says what "in this queue" means — shared by
@@ -117,7 +125,7 @@ final class ManagerProfileChangeQueueQuery
      * named on each card", which on a cross-shelf screen is not decoration:
      * two parishes may both have a manager called Nguyễn Văn A.
      *
-     * @return list<array{requestId: string, subjectUserId: string, subjectName: string, saintName: string|null, subjectRole: string, shelfName: string, shelfSlug: string, requestedAt: string, fields: list<array{field: string, current: string|null, proposed: string|null}>, avatarProposed: bool}>
+     * @return list<array{requestId: string, subjectUserId: string, subjectName: string, saintName: string|null, subjectRole: string, shelfName: string, shelfSlug: string, requestedAt: string, fields: list<array{field: string, current: string|null, proposed: string|null}>, avatarProposed: bool, proposedAvatarUrl: string|null, currentAvatarUrl: string|null}>
      */
     public function run(): array
     {
@@ -160,18 +168,30 @@ final class ManagerProfileChangeQueueQuery
 
             $proposed = ProfileFields::pick($request->proposed_values);
 
-            $rows[] = [
+            $rows[] = array_merge([
                 'requestId' => $request->id,
                 'subjectUserId' => $person->id,
                 'subjectName' => $person->full_name,
                 'saintName' => $person->saint_name,
-                'subjectRole' => $roles[self::pair($request->user_id, $request->bookshelf_id)] ?? '',
+                // THE FALLBACK IS A REAL ROLE, NOT ''. It is structurally
+                // unreachable — pending() keeps a request only when the
+                // (user, shelf) pair has a Manager-or-Admin membership, and
+                // $roles above is built by the identical query over the
+                // identical set — but it is a fallback a reader of this file
+                // has to be able to trust. '' was not one: the screen maps
+                // anything that is not "admin" to *Quản lý tủ sách*, so an
+                // empty string did not read as "unknown", it read as a
+                // confident and possibly wrong statement of rank on a
+                // cross-shelf card whose whole job is saying which rank
+                // routed the proposal here. Manager is the weaker of the two
+                // claims and the one this queue's own predicate makes.
+                'subjectRole' => $roles[self::pair($request->user_id, $request->bookshelf_id)] ?? MembershipRole::Manager->value,
                 'shelfName' => $shelf->name,
                 'shelfSlug' => $shelf->slug,
                 'requestedAt' => (string) $request->requested_at->toISOString(),
                 'fields' => self::sideBySide($person, $proposed),
-                'avatarProposed' => array_key_exists('avatar_object', $proposed),
-            ];
+                // The FLAG and the two ADDRESSES together — see the trait.
+            ], self::avatarPair($this->avatars, $person, $proposed));
         }
 
         return $rows;

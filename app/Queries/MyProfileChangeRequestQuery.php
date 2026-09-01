@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Queries;
 
+use App\Enums\ProfileChangeStatus;
 use App\Models\Membership;
 use App\Models\ProfileChangeRequest;
 use App\Models\User;
@@ -69,6 +70,24 @@ use Illuminate\Support\Arr;
  * a disk misconfigured after a docroot change, would otherwise silently
  * turn "they proposed a new photograph" into "they proposed nothing".
  *
+ * BOTH URLS ARE DERIVED ONLY WHILE THE REQUEST IS PENDING, and that is a
+ * correctness rule rather than a saving. Spec D6 says the decide paths
+ * DELETE one of the two objects: approve discards the superseded image
+ * (`previous_values`' key), reject and cancel discard the proposed one
+ * (`proposed_values`' key). Neither rewrites the JSON — there is nothing to
+ * rewrite, the bag is the historical record of what was asked for — so the
+ * KEY survives the object every time. Deriving a URL from a surviving key
+ * after a decision hands the page an address for bytes that are gone, and
+ * `AvatarFigure`'s "Chưa có ảnh" fallback cannot fire, because the fallback
+ * asks whether the URL is null and the URL is a perfectly well-formed
+ * string. What the reader would see is a broken image captioned "Ảnh chờ
+ * duyệt" after a rejection, or "Ảnh hiện tại" after an approval.
+ *
+ * Nulling them here rather than only guarding the render is deliberate:
+ * this class is the one that knows an address is derived from a key, and a
+ * prop that is an address for something that does not exist is wrong
+ * wherever it is read.
+ *
  * TENANCY IS BookshelfScope's, on ProfileChangeRequest itself
  * (BelongsToBookshelf): no bookshelf_id is written here. It matters, because
  * the `user_id` predicate is not a tenant predicate — the same person can
@@ -102,6 +121,7 @@ final class MyProfileChangeRequestQuery
 
         $proposed = ProfileFields::pick($request->proposed_values);
         $previous = ProfileFields::pick($request->previous_values);
+        $pending = $request->status === ProfileChangeStatus::Pending;
 
         return [
             'id' => $request->id,
@@ -112,9 +132,14 @@ final class MyProfileChangeRequestQuery
             // The key never travels — see this class's header.
             'proposedValues' => Arr::except($proposed, ['avatar_object']),
             'previousValues' => Arr::except($previous, ['avatar_object']),
+            // The flag is about the REQUEST and stays true at every status:
+            // "they did propose a photograph" is still the truth about a
+            // rejected row, and the page uses it to say so in words.
             'avatarProposed' => array_key_exists('avatar_object', $proposed),
-            'proposedAvatarUrl' => $this->avatars->url($proposed['avatar_object'] ?? null),
-            'previousAvatarUrl' => $this->avatars->url($previous['avatar_object'] ?? null),
+            // The addresses are about the OBJECTS, and after a decision one
+            // of the two is deleted — see this class's header.
+            'proposedAvatarUrl' => $pending ? $this->avatars->url($proposed['avatar_object'] ?? null) : null,
+            'previousAvatarUrl' => $pending ? $this->avatars->url($previous['avatar_object'] ?? null) : null,
             'rejectionReason' => $request->rejection_reason,
             'requestedAt' => (string) $request->requested_at->toISOString(),
             'decidedAt' => $request->decided_at?->toISOString(),

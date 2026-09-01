@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Queries\Concerns;
 
 use App\Models\User;
+use App\Support\Members\AvatarStorage;
 use App\Support\Members\ProfileFields;
 
 /**
@@ -38,11 +39,27 @@ use App\Support\Members\ProfileFields;
  *
  * avatar_object CARRIES NO VALUE ACROSS THIS SEAM. It is one of the nine
  * and a proposal may name it, but its value is a storage key: a generic
- * {label}: {value} row would print one on a screen. Task 2's brief fixed
- * this rule for every surface that lists proposed fields, and Task 1's page
- * already keeps it — the FIELD is announced (the queues send
- * `avatarProposed`) and the key stays server-side until Task 8 replaces the
- * label with the two photographs.
+ * {label}: {value} row would print one on a screen. sideBySide() therefore
+ * skips the field outright, and avatarPair() below sends ADDRESSES instead —
+ * the same rule App\Queries\MyProfileChangeRequestQuery keeps on the
+ * reader's own page, and the same one RegistrationController records for
+ * registration: a key is minted server-side and never crosses a seam.
+ *
+ * ── Why the queues send the PICTURES and not a sentence ──────────────────
+ *
+ * They used to send `avatarProposed` as a bare boolean and each screen
+ * rendered "Bạn đọc có gửi kèm ảnh đại diện mới." underneath the table. That
+ * meant a manager APPROVED A PHOTOGRAPH OF A CHILD on the strength of a
+ * sentence saying one existed. BR:580's whole demand of this card is that
+ * the manager "can see exactly what would change", and for the one field
+ * that is a picture, seeing it is the entire decision — a wrong face, a
+ * screenshot, an unsuitable image are not things a boolean can carry.
+ *
+ * `AvatarStorage::url()` is a config-derived read of a local disk with no
+ * constructor dependencies and no tenancy of its own, so the UNBOUND
+ * `/admin` queue can call it exactly as the reader's tenant-bound page
+ * does. That is why this lives in the shared trait rather than in the one
+ * queue that happened to need it first.
  */
 trait PresentsProfileChanges
 {
@@ -77,5 +94,42 @@ trait PresentsProfileChanges
         }
 
         return $rows;
+    }
+
+    /**
+     * The two addresses a decision card shows: the photograph in force and
+     * the one waiting.
+     *
+     * THE CURRENT HALF IS READ OFF THE PERSON, not off `previous_values`,
+     * for this trait's own stated reason — a manager may have corrected the
+     * record since the proposal was filed, and "what would change" is
+     * measured against the row as it stands now. That is a deliberate
+     * divergence from the reader's own page, which reads its `previous`
+     * half out of the request because a reader is reading their own
+     * submission back; the prop is named `currentAvatarUrl` here and
+     * `previousAvatarUrl` there so the two cannot be confused.
+     *
+     * NO STATUS GATE, unlike MyProfileChangeRequestQuery's pair. Both queues
+     * are built from a `status = pending` predicate, so no row reaching this
+     * method has had either object discarded yet — spec D6's deletes all
+     * happen at decision time. A gate here would be dead code arguing that
+     * the predicate above it might change.
+     *
+     * @param  array<string, string|null>  $proposed  ProfileFields::pick's output
+     * @return array{avatarProposed: bool, proposedAvatarUrl: string|null, currentAvatarUrl: string|null}
+     */
+    private static function avatarPair(AvatarStorage $avatars, User $person, array $proposed): array
+    {
+        return [
+            // Still a FLAG beside the addresses, never inferred from a URL
+            // being non-null: a proposal that names the field is a different
+            // thing from one whose image is readable, and a disk
+            // misconfigured after a docroot change would otherwise turn
+            // "they proposed a new photograph" silently into "they proposed
+            // nothing" on the one screen where that matters most.
+            'avatarProposed' => array_key_exists('avatar_object', $proposed),
+            'proposedAvatarUrl' => $avatars->url($proposed['avatar_object'] ?? null),
+            'currentAvatarUrl' => $avatars->url($person->avatar_object),
+        ];
     }
 }

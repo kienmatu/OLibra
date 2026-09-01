@@ -1,6 +1,7 @@
 import { Head, router, usePage } from "@inertiajs/react";
 import { useState } from "react";
 import { route } from "ziggy-js";
+import AvatarFigure from "@/components/avatar-figure";
 import InputError from "@/components/input-error";
 import ParishUnitFields, {
     type ParishTaxonomyProp,
@@ -47,9 +48,12 @@ import type { SharedData } from "@/types";
  * họ, which is the same component the registration form and the reader
  * creation form use.
  *
- * A PROPOSED AVATAR IS ANNOUNCED, NEVER PRINTED. Its value is a storage
- * key; the server sends a boolean and this screen renders a sentence. Task
- * 8 replaces that sentence with the two photographs.
+ * A PROPOSED AVATAR IS SHOWN, and its storage key still never printed. The
+ * server sent a bare boolean until the fix wave and this screen rendered a
+ * sentence, which meant a manager approved a photograph of a child on the
+ * strength of a claim that one existed — not what BR:580's "see exactly
+ * what would change" can mean for the one field that is a picture. Two
+ * ADDRESSES now arrive beside the flag; the key stays server-side.
  */
 
 interface FieldChange {
@@ -68,6 +72,15 @@ interface QueueCard {
     requestedAt: string;
     fields: FieldChange[];
     avatarProposed: boolean;
+    /**
+     * ADDRESSES, never storage keys. `currentAvatarUrl` is the person's
+     * photograph AS IT STANDS NOW — read off the row rather than out of the
+     * request's previous_values, because "what would change" on a decision
+     * card is measured against the record a manager may have corrected
+     * since (App\Queries\Concerns\PresentsProfileChanges argues it).
+     */
+    proposedAvatarUrl: string | null;
+    currentAvatarUrl: string | null;
 }
 
 interface PageProps extends SharedData {
@@ -79,17 +92,37 @@ interface PageProps extends SharedData {
 /** The nine labels App\Support\Members\ProfileFields::FIELDS is keyed by. */
 const LABELS = copy.myProfile.fieldLabels as Record<string, string>;
 
+/**
+ * Whether THIS card is the one whose rejection was refused.
+ *
+ * Inertia's error bag is flat and page-wide: `errors.reason` says a blank
+ * reason was rejected, not WHICH card it was typed on. Rendered
+ * unconditionally inside the card body — which is what this screen used to
+ * do — one blank-reason rejection put the same red sentence under every
+ * card on the queue, pointing at four proposals nobody had touched.
+ *
+ * A LOCAL FLAG RATHER THAN A SERVER-SIDE KEY PER CARD: the error is raised
+ * by App\Http\Requests\Members\RejectProfileChangeRequest under the field
+ * name `reason`, which is the name the input actually has, and keying it by
+ * request id would make the validation message's key depend on which screen
+ * posted it. Inertia preserves component state across a visit that comes
+ * back carrying validation errors, so the card that posted is still mounted
+ * and still holds this flag when the errors arrive.
+ */
 function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string }) {
     const c = copy.manageProfileChanges;
     const { errors, taxonomy, units } = usePage<PageProps>().props;
 
     const [reason, setReason] = useState("");
+    const [rejected, setRejected] = useState(false);
     const [l1, setL1] = useState(card.parishUnitL1Id ?? "");
     const [l2, setL2] = useState(card.parishUnitL2Id ?? "");
     const [touched, setTouched] = useState(false);
 
-    const approve = () =>
-        router.post(
+    const approve = () => {
+        setRejected(false);
+
+        return router.post(
             route("shelves.manage.profile-changes.approve", {
                 shelf: shelfSlug,
                 profileChange: card.requestId,
@@ -97,9 +130,12 @@ function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string })
             touched ? { parish_unit_l1_id: l1, parish_unit_l2_id: l2 } : {},
             { preserveScroll: true },
         );
+    };
 
-    const reject = () =>
-        router.post(
+    const reject = () => {
+        setRejected(true);
+
+        return router.post(
             route("shelves.manage.profile-changes.reject", {
                 shelf: shelfSlug,
                 profileChange: card.requestId,
@@ -107,6 +143,7 @@ function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string })
             { reason },
             { preserveScroll: true },
         );
+    };
 
     return (
         <article className="rounded-md border p-5">
@@ -144,7 +181,31 @@ function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string })
             </table>
 
             {card.avatarProposed ? (
-                <p className="mt-3 text-[15px] text-muted-foreground">{c.avatarProposed}</p>
+                <div className="mt-3">
+                    <p className="text-[15px] text-muted-foreground">{c.avatarProposed}</p>
+                    {/*
+                     * BR:580's "see exactly what would change", applied to
+                     * the one field that is a picture. The sentence above
+                     * used to be the whole of it, which meant approving a
+                     * photograph of a child on the strength of a claim that
+                     * one existed. The CURRENT half is the person's own
+                     * avatar as it stands now, not the request's
+                     * previous_values — the trait behind this queue argues
+                     * that at length.
+                     */}
+                    <div className="mt-2 flex gap-4">
+                        <AvatarFigure
+                            label={c.avatarCurrent}
+                            url={card.currentAvatarUrl}
+                            size="size-20"
+                        />
+                        <AvatarFigure
+                            label={c.avatarProposedLabel}
+                            url={card.proposedAvatarUrl}
+                            size="size-20"
+                        />
+                    </div>
+                </div>
             ) : null}
 
             <section className="mt-5">
@@ -181,7 +242,7 @@ function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string })
                             {c.reject}
                         </Button>
                     </div>
-                    <InputError message={errors.reason} />
+                    <InputError message={rejected ? errors.reason : undefined} />
                 </div>
             </div>
         </article>

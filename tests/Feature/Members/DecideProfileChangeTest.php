@@ -389,39 +389,90 @@ it('a blank reject reason is refused, and the reason reaches the audit row', fun
         ->and($row->after['reason'])->toBe('Số này là của hàng xóm.');
 });
 
-it('takes the SUBJECT\'s users row as the first statement of every decide transaction', function () {
-    // Spec D3's ordering rule, and it is not taste: reversed — the request
-    // row first, the person second — approve racing cancel deadlocked 3/3
-    // in BOTH directions and the loser's driver error shipped as a 500.
-    // ProposeProfileChange reaches the same two rows in the same order from
-    // the other end, which is what makes the pair safe.
+it('approve locks memberships, THEN users, THEN the request — and each on the SUBJECT\'s own id', function () {
+    // Spec D3's ordering rule, stated as the whole sequence rather than as
+    // one statement, because this command's hazard was never its first
+    // lock. It USED to read the membership unlocked and lock `users` first,
+    // on a docblock arguing that not locking the membership avoided
+    // inverting against UpdateReaderProfile. It did not: applyPlacement's
+    // `$membership->save()` takes the exclusive row lock anyway, so the
+    // measured order was users-then-memberships against
+    // UpdateReaderProfile.php:61,69's and ChangeOwnPassword.php:91,93's
+    // memberships-then-users — an AB–BA cycle over that exact pair, and
+    // those two use a bare DB::transaction() with no retry at all, so the
+    // loser ships a driver error as a 500.
+    //
+    // A test reading only $log[0] and only the TABLE could not have caught
+    // it, which is why this one reads the whole locking sequence and the
+    // bindings under it.
+    $shelf = Bookshelf::factory()->create(['slug' => 'dong-thap', 'settings' => []]);
+    $unit = ParishUnit::factory()->for($shelf)->create(['level' => 1, 'name' => 'Giáo họ Mân Côi']);
+
+    $person = User::factory()->create([
+        'saint_name' => 'Maria', 'full_name' => 'Nguyễn Thị Lan',
+        'phone' => '0911111111', 'phone_missing_reason' => null,
+    ]);
+    $subjectMembership = Membership::factory()->for($shelf)->create([
+        'user_id' => $person->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    [$manager, $managerMembership] = decShelfManager($shelf);
+
+    decActAs($shelf, $manager, $managerMembership);
+    // WITH a placement, so applyPlacement actually writes the membership —
+    // an approve that names no unit never reaches the UPDATE and so cannot
+    // demonstrate the edge this test pins.
+    $approving = decRow(decPending($shelf, $person, ['phone' => '0922222222'])->id);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    decApprove($manager, $approving, ['parish_unit_l1_id' => $unit->id]);
+    $locking = lockingReads(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect(array_map(fn (array $e) => preg_replace('/^select \* from (`\w+`).*$/s', '$1', $e['query']), $locking))
+        ->toBe(['`memberships`', '`users`', '`profile_change_requests`']);
+
+    // Each one on the SUBJECT's row, named by binding. The manager is an
+    // active member of this same shelf with a `users` row of their own, so
+    // "some users row was locked" is not the statement worth making.
+    expect($locking[0]['bindings'])->toContain($person->id)
+        ->and($locking[0]['bindings'])->toContain($shelf->id)
+        ->and($locking[0]['bindings'])->not->toContain($manager->id)
+        ->and($locking[1]['bindings'])->toBe([$person->id])
+        ->and($locking[2]['bindings'])->toBe([$approving->id]);
+
+    // And the write this ordering exists for did happen — a fixture where
+    // applyPlacement silently no-opped would make the sequence above true
+    // for the wrong reason.
+    expect($subjectMembership->fresh()->parish_unit_l1_id)->toBe($unit->id);
+});
+
+it('reject takes the SUBJECT\'s users row first and locks NO membership at all', function () {
+    // Reject writes no membership, so it takes none — and taking one it did
+    // not need would be contention bought for nothing. Its own half of D3
+    // is the pair the reference measured: reversed — the request row first,
+    // the person second — approve racing cancel deadlocked 3/3 in BOTH
+    // directions. ProposeProfileChange reaches those same two rows in the
+    // same order from the other end.
     [$shelf, $person] = decShelfWith('dong-thap');
     [$manager, $managerMembership] = decShelfManager($shelf);
 
     decActAs($shelf, $manager, $managerMembership);
     // Resolved BEFORE the log is enabled — the controller's own read is
     // not part of the transaction whose first statement is under test.
-    $approving = decRow(decPending($shelf, $person, ['phone' => '0922222222'])->id);
-
-    DB::enableQueryLog();
-    decApprove($manager, $approving);
-    $log = DB::getQueryLog();
-    DB::disableQueryLog();
-
-    expect($log)->not->toBe([])
-        ->and(str_contains($log[0]['query'], '`users`'))->toBeTrue('first query is not on users: '.$log[0]['query'])
-        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
-
     $rejecting = decRow(decPending($shelf, $person, ['phone' => '0933333333'])->id);
 
+    DB::flushQueryLog();
     DB::enableQueryLog();
     decReject($manager, $rejecting, 'Không đúng số.');
-    $log = DB::getQueryLog();
+    $locking = lockingReads(DB::getQueryLog());
     DB::disableQueryLog();
 
-    expect($log)->not->toBe([])
-        ->and(str_contains($log[0]['query'], '`users`'))->toBeTrue('first query is not on users: '.$log[0]['query'])
-        ->and(str_contains(strtolower($log[0]['query']), 'for update'))->toBeTrue('first query is not FOR UPDATE: '.$log[0]['query']);
+    expect(array_map(fn (array $e) => preg_replace('/^select \* from (`\w+`).*$/s', '$1', $e['query']), $locking))
+        ->toBe(['`users`', '`profile_change_requests`']);
+
+    expect($locking[0]['bindings'])->toBe([$person->id])
+        ->and($locking[1]['bindings'])->toBe([$rejecting->id]);
 });
 
 /**

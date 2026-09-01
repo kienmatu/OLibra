@@ -1,8 +1,9 @@
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import type { LucideIcon } from "lucide-react";
-import { Ban, Check, Clock, ImageOff, Lock, X } from "lucide-react";
+import { Ban, Check, Clock, Lock, X } from "lucide-react";
 import type { FormEvent } from "react";
 import { route } from "ziggy-js";
+import AvatarFigure from "@/components/avatar-figure";
 import InputError from "@/components/input-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -351,51 +352,6 @@ function CancelButton({ requestId, shelfSlug }: { requestId: string; shelfSlug: 
 }
 
 /**
- * One photograph with its caption underneath — the shape used three times
- * on this screen: the picture in force, the picture waiting, and the one in
- * the upload section.
- *
- * NEVER A BARE CIRCLE. A reader with no photograph reads *Chưa có ảnh*
- * rather than being shown a grey disc to interpret, which is the same rule
- * ValueRow above follows for an unset text value (AGENTS.md rule 6's "never
- * an empty cell").
- *
- * The square is 1px-hairline-bordered and flat — no shadow, no gradient
- * (rule 7) — and `object-cover` is belt-and-braces: every stored avatar is
- * already a 512×512 square, because App\Support\Members\AvatarImage
- * centre-crops it, so this only matters for the moment a disk is serving
- * something older.
- */
-function AvatarFigure({
-    label,
-    url,
-    size = "size-24",
-}: {
-    label: string;
-    url: string | null;
-    size?: string;
-}) {
-    const c = copy.myProfile;
-
-    return (
-        <figure className="shrink-0">
-            {url ? (
-                <img src={url} alt={label} className={`${size} rounded-md border object-cover`} />
-            ) : (
-                <div
-                    className={`${size} flex items-center justify-center rounded-md border bg-muted`}
-                >
-                    <ImageOff aria-hidden className="size-6 text-muted-foreground" />
-                </div>
-            )}
-            <figcaption className="mt-1 text-xs text-muted-foreground">
-                {url ? label : `${label} · ${c.avatarNone}`}
-            </figcaption>
-        </figure>
-    );
-}
-
-/**
  * Spec D6's photograph — Task 8, and the first upload control this
  * application has ever had.
  *
@@ -661,13 +617,31 @@ export default function MyProfilePage() {
                          * that is a picture: the photograph in force with
                          * the one waiting BESIDE it — spec D6, and what
                          * Task 1's bare label was a placeholder for.
-                         * `avatarProposed` is the flag; the two URLs may be
-                         * null independently (a reader who had no
-                         * photograph at all, or an object already
-                         * discarded), and AvatarFigure says so in words
-                         * rather than drawing an unexplained empty square.
+                         *
+                         * GUARDED ON THE STATUS AS WELL AS THE FLAG, like
+                         * its two neighbours below. "Beside it" is only a
+                         * true sentence while the request is PENDING: spec
+                         * D6 has approve delete the superseded object and
+                         * reject/cancel delete the proposed one, and the
+                         * JSON bag keeps the KEY either way, so a decided
+                         * request still names two photographs of which one
+                         * no longer exists. An earlier comment here reasoned
+                         * that AvatarFigure's "Chưa có ảnh" fallback covered
+                         * that; it does not — the fallback asks whether the
+                         * URL is null, and a URL derived from a surviving
+                         * key is a perfectly good string pointing at
+                         * nothing. The server now sends null for both after
+                         * a decision (MyProfileChangeRequestQuery), and this
+                         * guard means the block is not drawn to be empty.
+                         *
+                         * `avatarProposed` stays the flag rather than the
+                         * URL being non-null: within a pending request the
+                         * two URLs may still be null independently — a
+                         * reader who had no photograph at all — and
+                         * AvatarFigure says so in words rather than drawing
+                         * an unexplained empty square.
                          */}
-                        {pendingChange.avatarProposed ? (
+                        {pendingChange.status === "pending" && pendingChange.avatarProposed ? (
                             <div className="mt-3 flex gap-4">
                                 <AvatarFigure
                                     label={c.avatarCurrent}

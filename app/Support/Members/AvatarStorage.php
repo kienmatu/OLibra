@@ -9,6 +9,8 @@ use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
 
 /**
  * The avatar's surface half — Phase 3c-i Task 8, spec D6. Port of
@@ -83,6 +85,30 @@ use Illuminate\Support\Str;
  * correctness, it is retryable, and deleting a key that is not there is not
  * an error — so it is strictly the better half of the trade, and it is the
  * half chosen deliberately. docs/known-gaps.md carries it.
+ *
+ * ── A FAILED WRITE IS NOT A RESIDUAL, and used to be treated as one ──────
+ *
+ * The disk is configured `throw => true` (config/filesystems.php), alone
+ * among the four, and store() reads put()'s return value as well. Before
+ * both, a failed write was a `false` nobody looked at, and this method
+ * returned a key for an object that had never landed: the proposal was
+ * recorded, the queue told a manager a photograph was waiting, the two
+ * photographs rendered as one broken image, and approving wrote the
+ * dangling key permanently onto `users.avatar_object`. Nothing anywhere
+ * said a write had failed.
+ *
+ * The likeliest way to reach it is the misconfiguration config/filesystems'
+ * own comment warns about — AVATAR_DISK_ROOT pointing at a directory the
+ * process cannot write under the shim docroot — which is to say a whole
+ * shelf's uploads, not one unlucky reader's.
+ *
+ * IT IS NOT A RuleViolated, and that is deliberate. The three refusals
+ * above are facts about the reader's file and each has a Vietnamese
+ * sentence telling them what to do differently. There is nothing a reader
+ * can do differently about an unwritable disk, and dressing an operational
+ * fault as a refusal is what buries it: the same quiet sentence forever, no
+ * log line, nobody looking. A 500 naming the path is the answer an operator
+ * can act on.
  */
 final class AvatarStorage
 {
@@ -134,10 +160,19 @@ final class AvatarStorage
 
         $key = Str::uuid()->toString().'.'.$processed['extension'];
 
-        $this->disk()->put($key, $processed['bytes'], [
+        // BOTH HALVES, and neither is redundant. `throw => true` covers the
+        // driver's own failures; this covers a put that reports failure by
+        // return value instead — and it is what keeps this method correct if
+        // the config flag is ever flipped back by somebody copying the three
+        // stock disks around it.
+        $stored = $this->disk()->put($key, $processed['bytes'], [
             'visibility' => 'public',
             'ContentType' => $processed['mime'],
         ]);
+
+        if ($stored === false) {
+            throw new RuntimeException("avatar disk refused the write: {$key}");
+        }
 
         return $key;
     }
@@ -149,6 +184,20 @@ final class AvatarStorage
      * NULL IS THE ORDINARY CASE and a no-op rather than a caller's job to
      * check, so that "delete whatever the command handed back" is one line
      * at every call site and cannot be written as an `if` somebody forgets.
+     *
+     * THE SWALLOW IS WRITTEN HERE RATHER THAN LEFT TO `throw => false`, and
+     * that is the whole reason this catch exists. Every caller is a line
+     * AFTER a `DB::transaction()` has returned — ApproveProfileChange,
+     * RejectProfileChange, CancelProfileChange — so by the time this runs
+     * the decision has committed and the manager's click has succeeded.
+     * Letting a failed unlink out of here would turn a completed approval
+     * into a 500 on the way back to the queue, and the reader's details
+     * would have moved anyway. The header's residual is exactly this: an
+     * orphaned object, storage rather than correctness, sweepable.
+     *
+     * Note what is NOT swallowed: store()'s write. A delete that fails
+     * leaves a file nobody references; a WRITE that fails leaves a reference
+     * to a file nobody has.
      */
     public function discard(?string $key): void
     {
@@ -156,7 +205,11 @@ final class AvatarStorage
             return;
         }
 
-        $this->disk()->delete($key);
+        try {
+            $this->disk()->delete($key);
+        } catch (Throwable) {
+            // The residual, deliberately. See above.
+        }
     }
 
     /**
