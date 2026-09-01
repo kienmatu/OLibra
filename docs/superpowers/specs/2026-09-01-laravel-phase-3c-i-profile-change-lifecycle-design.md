@@ -45,7 +45,7 @@ one) are both placeholders.
 page, `GetMyProfile` and `ChangeOwnPassword` were held for "Phase 3 whole"
 precisely because they share a screen with the profile-change lifecycle.
 `MembershipPolicy`'s docblock (`:20-26`) leaves a standing instruction for
-whoever arrives here, naming `GetMyProfile`, BR:544 and OPS:69 by hand. This is
+whoever arrives here, naming `GetMyProfile`, BR:544 and the OPS row by hand (that row is `OPERATIONS.md:67`; `:69` is `GetMyNotifications`). This is
 that phase.
 
 ## 3. Scope
@@ -67,21 +67,35 @@ gate, and post-commit image deletion. §7 records the risk that follows.
 
 ## 4. Decisions
 
-### D1 — Proposing again **replaces** the pending request; it is not refused
+### D1 — Proposing again **merges into** the pending request; it is not refused
 
 **Reversed after review.** The first draft treated a second proposal as a
 duplicate-key error to be caught and refused. The requirement is the opposite.
-`BUSINESS-REQUIREMENTS.md:344`: *"Proposing a new change while one is outstanding
-**replaces** it, so a manager never faces two competing"* — and the reference
-records the same, calling it *"normal rather than a failure"*
-(`propose-profile-change.ts:33-43`). A pending row is **UPDATEd in place**,
+The reference calls it *"normal rather than a failure"*
+(`propose-profile-change.ts:33-43`).
+
+**And the authority here is the reference's reading, not the requirement's
+words.** `BUSINESS-REQUIREMENTS.md:343` says a new proposal *"replaces"* an
+outstanding one — the literal reading. `profile-proposals.ts:45-86` records that
+the shipped behaviour is a **merge**, that this is a deliberate product reading
+*"isolated so it can be reversed in one line"*, and that **the product owner may
+prefer the literal one**: B2b's plan flags it as the one question answered on a
+reading rather than on a source. An earlier draft of this spec cited BR:344 as
+*proving* the merge, which inverts its own source.
+
+We port the merge, because it is what the reference does and what this port's
+users have had. **The open question travels with it** into
+`docs/known-gaps.md`, along with the coupling `profile-proposals.ts:66-79`
+warns about: flipping the constant back to `"replace"` now also requires
+restoring an `avatar_object` graft, or a phone-only proposal drops a pending
+photograph's key and orphans the image forever. A pending row is **UPDATEd in place**,
 keyed by its existing id, and the same request id comes back
 (`pending-proposal.ts:169-177`).
 
 The merge is field-wise and deliberately partial: `mergeProposal`
 (`profile-proposals.ts:115-133`) snapshots `previous` only for the **incoming**
 fields, and does *not* re-snapshot fields already pending, "because that is the
-moment its `previous` describes".
+moment its `previous` describes" (`profile-proposals.ts:100-101`).
 
 **`profile_change_requests.pending_user_id`** is a generated column
 (`IF(status = 'pending', user_id, NULL)`) with a UNIQUE constraint
@@ -115,8 +129,15 @@ own record fails there too. What is genuinely new is point 3: that check does
 **not** stop a reader deciding their own proposal, because a reader's role is not
 `manager`.
 
-`atLeast` compares ranks `guest 0 / reader 1 / manager 2 / admin 3 /
-super_admin 4`, so shelf admins are covered by "manager or above".
+**The port's `atLeast` is narrower than the reference's.**
+`app/Enums/MembershipRole.php` has **Reader 1, Manager 2, Admin 3** and nothing
+else; its docblock says why — *"guest (0) is the absence of a membership and
+super_admin (4) is the global `users.is_super_admin` flag; neither is a
+membership role, so neither is a case here."* So the check is
+`$membership->role->atLeast(MembershipRole::Manager) && ! $actor->is_super_admin`,
+exactly as `UpdateReaderProfile.php:65` already writes it. There is no
+`MembershipRole::SuperAdmin` to reach for. Shelf admins are covered by
+"manager or above".
 
 ### D3 — The decide commands do more than decide
 
@@ -184,9 +205,12 @@ with no saint name is not a parish register"*) on every write path.
 `ProfileFields::normalisePatch` already raises `required_fields_missing` for a
 blanked saint name (`ProfileFields.php:59-61`). **A phone is required by the
 interface, not the column** — a genuinely absent phone needs a typed reason,
-cleared automatically once a phone is supplied; `UpdateReaderProfile.php:85-91`
-already implements the pair. `assertPhoneOrReason` is checked against the
-**resulting** record, at propose *and* at approve.
+cleared automatically once a phone is supplied; `UpdateReaderProfile.php:88-94`
+already implements the pair — the auto-clear at `:89-91` and the refusal at
+`:92-94`. **The port has no `assertPhoneOrReason` helper**; it is that inline
+pair, and its code is the Vietnamese slug `thieu-so-dien-thoai`
+(`lang/vi/rules.php:45`), not one of §6's new codes. The rule is checked against
+the **resulting** record, at propose *and* at approve.
 
 ### D6 — The avatar shares the lifecycle, and its image deletion is post-commit
 
@@ -197,11 +221,33 @@ field, naming the photograph explicitly."*
 `ProposeAvatarChange` is the fifth command. It shares the pending row, the merge
 of D1 and the audit action `profile_change.proposed`.
 
-**The port has no upload path**, so this phase also builds: a storage disk, the
-gate (5 MB; JPEG, PNG, WEBP, AVIF; refusals `file_too_large`, `invalid_image`,
-`heic_not_supported`), and the write to `avatar_object`. Note
-`RegistrationController.php:94` records that a guest may never *name* a storage
-key — the same rule binds here.
+**The port has no upload path at all** — `config/filesystems.php` is stock
+Laravel, there is no `Storage::` or `UploadedFile` anywhere in `app/`, and
+`avatar_object` appears only as a column read and a guest-write guard
+(`RegistrationController.php:93-98`). So this phase builds a storage disk, the
+write to `avatar_object`, and **an image pipeline — not merely a gate.**
+
+The reference's `avatar-image.ts` is the part an earlier draft of this spec
+missed, and three of its four jobs are requirements rather than optimisations:
+
+- **Every upload is EXIF-rotated, centre-cropped and re-encoded to a 512×512
+  WebP** (`:79-85`). The crop is *how OPS §4.3's "square" is satisfied* (`:25-30`)
+  — a content-type allow-list cannot produce a square photograph.
+- **Metadata is stripped** (`:32-38`), argued as a **child-safety control**: the
+  bucket is public-read and a phone photo carries the GPS of the house.
+- **`invalid_image` is a decode failure** raised from the encoder's own catch
+  (`:40-47,86-94`), not a content-type mismatch — `avatar.ts:123` records that
+  the content-type-only version was the earlier, weaker design. A pixel bound is
+  what stops a decompression bomb once the byte cap is 5 MB.
+- **HEIC stays out of the `accept` list** (`avatar-limits.ts:43-47`) so iOS
+  Safari transcodes to JPEG; adding it ships a broken iPhone path. Its refusal is
+  `heic_not_supported`.
+
+Limits are 5 MiB and jpeg/png/webp/avif (`avatar-limits.ts:29,53-58`). **No PHP
+image library is chosen yet** — picking one is part of this work.
+
+A guest may never *name* a storage key (`RegistrationController.php:94`); the
+same rule binds here.
 
 **Image deletion is ordered after the commit, and which image dies depends on the
 decision** (`avatar.ts:255-262`): approve discards the **superseded** image;
@@ -219,11 +265,58 @@ because the page is where a reader learns they were **rejected** — it shows th
 rejection reason (`ho-so/page.tsx:304-306`) and a "last decided on…" footer
 (`:545-549`).
 
-**No notification exists for a profile-change decision**, so that card is the
-only place a rejection is ever seen. Building the page on the pending-only shape
-would ship a screen that silently forgets the answer.
+Building the page on the pending-only shape would ship a screen that silently
+forgets the answer.
 
-### D8 — One set of Actions, in `app/Actions/Admin/`, with the shelf from the row
+**An earlier draft justified this by claiming no notification exists for a
+profile-change decision. That is false**, and the false claim came from
+`OPERATIONS.md:587`, an open-question note asserting §15 lists none — stale
+against the requirement itself. `BUSINESS-REQUIREMENTS.md:490` (§15) names both:
+*"profile change approved, profile change rejected (carrying the manager's
+reason)"*, and `:492` gives the reason — *"without them a reader would have to
+keep revisiting the page to find out whether their new phone number took
+effect."* D7 stands on OPS:68 and the reference; its stated justification did
+not.
+
+### D8 — The two notifications BR §15 requires, which this phase owns
+
+The port has already booked this work here.
+`app/Support/Notifications/NotificationKind.php:20-23`: *"The profile-change pair
+BR §15 names has no reference implementation and is Phase 3's to decide."* The
+enum has seven cases and neither.
+
+So this phase adds: two `NotificationKind` cases, two `NotificationSentences`
+entries (its match is exhaustive — Larastan errors on a missing arm), the
+`notify()` calls in Approve and Reject, and `NotificationsAreReaderFacingTest`
+coverage. The rejection notification **carries the manager's reason**, per BR:490.
+
+They are reader-facing by construction, which is the property that test exists to
+hold.
+
+### D9 — Each queue has a predicate, and they must not overlap
+
+Neither queue is "all pending requests filtered by what I can see". BR states
+each one's subject:
+
+- **`manage/profile-changes`** — `BUSINESS-REQUIREMENTS.md:580`: *"One card per
+  proposed change **whose subject is a reader** of this shelf"*, and it says why:
+  a manager's or shelf admin's own proposed change *"no longer sits in this
+  queue, where nobody present may decide it"*.
+- **`/admin/profile-changes`** — `:602`: *"every pending profile-change proposal
+  **whose subject is a manager or shelf admin** anywhere in the system, the shelf
+  named on each card."*
+
+Together they partition the pending set by the subject's role — the same axis D2
+decides on, which is why neither can contain a request nobody present may decide.
+
+**The count badges must share these predicates**, not approximate them. This is
+the defect 3a already had to fix once: commit `8e81c82`, *"match the admin
+dashboard's predicates to the shelf's own queues"*. The existing counts channel
+does it correctly — `HandleInertiaRequests.php:132`'s `pendingDonations` shares
+`DonationQueueQuery::countPending()` with the list it links to. Follow that
+shape rather than writing a second predicate.
+
+### D10 — One set of Actions, in `app/Actions/Admin/`, with the shelf from the row
 
 Both queues decide the same way, so the decide/reject/cancel Actions are shared —
 and the reference agrees, importing the same modules from its admin surface and
@@ -249,7 +342,23 @@ let "a mismatched post" file an approval "against the wrong parish", and
 subject with manager memberships at two parishes let the query pick an arbitrary
 one, so the subject's role could come from the wrong shelf.
 
-### D9 — `ChangeOwnPassword` revokes sessions, and is not reader-only either
+### D11 — `GetMyProfile` renders units by the shelf's own label, and shows pending beside current
+
+Two contracts the first draft left implicit, both required for this page.
+
+**`OPERATIONS.md:67`'s `GetMyProfile`** returns the reader's parish-unit
+selections **rendered read-only through the shelf's own labels**, never the words
+`Tổ` or `Giáo họ` (`BUSINESS-REQUIREMENTS.md:247`, and `:578` makes it a
+cross-screen rule). The labels come from `ParishTaxonomy`'s `level1_label` /
+`level2_label`, which 3b-ii made editable — so this page is the first reader-side
+consumer of that shape.
+
+**`BUSINESS-REQUIREMENTS.md:544`** requires the page to show *"the current value
+with the pending one beside it, and says plainly that it is waiting."* That is a
+rendering contract, not a data one: a page that shows only the proposed values,
+or only the current ones, satisfies the query and fails the requirement.
+
+### D11 — `ChangeOwnPassword` revokes sessions, and is not reader-only either
 
 It deletes the subject's sessions in the same transaction
 (`change-own-password.ts:69`) — a password change is a revocation. Its refusals
@@ -264,7 +373,7 @@ to make every use **visible**, not to restrict it. The reader supplies their
 current password; the volunteer does not. That asymmetry is why the two keep
 separate audit actions rather than sharing one.
 
-### D10 — Five new audit actions, 58 → 63, and two nav badges
+### D12 — Five new audit actions, 58 → 63, and two nav badges
 
 | action | group | when |
 |---|---|---|
@@ -311,6 +420,15 @@ the admin shell needs the cross-shelf equivalent.
     reason for existing.
 14. **A password change revokes sessions** and requires the current password.
 15. **The census passes at 63**, both directions, with the partition at `readers`.
+16. **Approving notifies the subject; rejecting notifies them with the reason** —
+    BR:490's pair, and reader-facing by construction.
+17. **The shelf queue contains only reader subjects, and the cross-shelf queue
+    only manager and admin subjects** — D9's partition, asserted from both sides
+    so a request cannot appear in both or neither.
+18. **Each count badge equals its own queue's length** — the predicate-drift
+    defect 3a already had to fix once.
+19. **The reader's page renders units by the shelf's own labels**, and shows the
+    pending value beside the current one while it waits.
 
 Per project practice, **every test is watched failing before it is accepted**.
 
@@ -334,7 +452,9 @@ Per project practice, **every test is watched failing before it is accepted**.
 - **`RuleViolatedCodesHaveSentencesTest`** — globs the whole of `app/`. New codes
   with no sentence today: `change_already_pending`, `profile_change_not_pending`,
   `current_password_incorrect`, `new_password_too_short`, `file_too_large`,
-  `invalid_image`, `heic_not_supported`.
+  `invalid_image`, `heic_not_supported`. Already present and reused:
+  `not_own_request` (`lang/vi/rules.php:87`), `reject_reason_required` (`:38`),
+  `required_fields_missing`, `not_permitted`, `thieu-so-dien-thoai` (`:45`).
 - **`FreeTextEncodingGuardTest`** — the proposal form is almost all free text:
   `saint_name`, `full_name`, `father_name`, `mother_name`, `email`,
   `phone_missing_reason`, plus reject's `reason`.
@@ -357,7 +477,7 @@ Per project practice, **every test is watched failing before it is accepted**.
   sequence the avatar last so the lifecycle is green before storage lands.
 - **D2 has three independent ways to be subtly wrong** and §5 tests each
   separately.
-- **D8's shared Actions widen.** A `systemWide()` there disables isolation for
+- **D10's shared Actions widen.** A `systemWide()` there disables isolation for
   the manager's path too, which is why the shelf comes from the request row on
   both paths. This is the phase's sharpest edge.
 - **Post-commit image deletion is not transactional.** A crash between commit and
