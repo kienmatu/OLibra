@@ -4864,7 +4864,22 @@ place where the port's own arrangement diverges from the requirements' text.
   land. The cost is that BR §16.4's sentence is now wrong about where two of
   its clauses live, and a reader following it finds only half of what it names.
 
-- **Five of this phase's ten audit rows land where no screen can read them.**
+- **~~Five of this phase's ten audit rows land where no screen can read
+  them.~~ CLOSED 2026-09-01, phase 3c-ii Task 5.** `/admin/audit` is built —
+  `App\Http\Controllers\Admin\AuditController` over
+  `App\Queries\Admin\AuditBrowserQuery` — and it is exactly the cross-shelf
+  browser this entry (and `AuditLogQuery`'s own comments, and the 3b-i entry
+  above about the archived-shelf resolver) kept pointing at. All five rows
+  named below are visible on it now, together with 3b-i's
+  `user.promoted_super_admin`, which had the same problem for the same reason.
+  The mechanism is the one this entry says is missing: the unfiltered case
+  applies no tenant narrowing at all, so rows recording no parish come back
+  beside every parish's, and the screen's shelf filter is what narrows —
+  including to *Toàn hệ thống*, the installation's own rows alone, which no
+  shelf-scoped read can express. Pinned by
+  `tests/Feature/Admin/AdminAuditBrowserTest.php`'s first test, which fails
+  the moment that case narrows again. **The original entry, unedited:**
+
   `system_settings.updated` and `site_contact.updated`
   (`app/Support/Audit/AuditSentences.php:161-162`) and the three `category.*`
   (`:179-181`) all belong to the installation rather than to any parish, so they

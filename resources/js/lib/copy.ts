@@ -225,6 +225,14 @@ export const copy = {
         // count is unread only, on profileChangesWithCount's shape.
         feedback: "Góp ý",
         feedbackWithCount: "Góp ý ({count})",
+        // BR:606's cross-shelf browser, phase 3c-ii Task 5. The SAME word
+        // the manage nav calls its own log above — it is the same record,
+        // read from further back, and a super administrator who also
+        // manages a parish should not have to learn two names for one
+        // thing. Which shell the item hangs in is what distinguishes them;
+        // the screens themselves are headed differently (adminAudit.title
+        // says "toàn hệ thống", manageAudit.title does not).
+        audit: "Nhật ký",
         settings: "Cài đặt",
     },
     adminDashboard: {
@@ -875,6 +883,27 @@ export const copy = {
         reactivate: "Mở khoá lại",
         markLeft: "Đánh dấu đã rời",
     },
+    // BR:606's cross-shelf audit browser. It borrows manageAudit's group
+    // chips, its date labels, its expansion table and its paging words
+    // wholesale rather than restating them — the same record read from
+    // further back is the same vocabulary, and a second copy of "Trước" and
+    // "Sau" is a second place for them to drift. What is here is only what
+    // is genuinely new: the heading, the lead, and the shelf filter.
+    adminAudit: {
+        title: "Nhật ký toàn hệ thống",
+        // Names the thing this screen can show that no other can, because
+        // that is the reason a volunteer would come here rather than to
+        // their own shelf's log.
+        lead: "Mọi thay đổi trong hệ thống, kể cả những việc không thuộc tủ sách nào.",
+        shelfLabel: "Tủ sách",
+        shelfAll: "Mọi tủ sách",
+        // The label for a row belonging to the installation rather than to
+        // any parish — the same two words /admin/feedback renders for a
+        // message with no shelf, deliberately: it is the same distinction.
+        shelfSiteWide: "Toàn hệ thống",
+        shelfEntries: "({count} lượt)",
+    },
+
     manageAudit: {
         title: "Nhật ký",
         lead: "Mọi thay đổi trong tủ sách, ai làm và lúc nào.",

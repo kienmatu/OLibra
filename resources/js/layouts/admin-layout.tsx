@@ -49,6 +49,13 @@ export default function AdminLayout({ children }: PropsWithChildren) {
                 : copy.admin.feedback,
             href: route("admin.feedback"),
         },
+        // BR:606's cross-shelf audit browser, phase 3c-ii Task 5. NO BADGE
+        // and nothing to count: a log is a record somebody consults, not a
+        // queue that drains, so a number beside it would be the size of the
+        // installation's history rather than anything waiting on this
+        // person. Task 4 added the item above and left this one to Task 5,
+        // which is also the task that gave the route a controller.
+        { name: copy.admin.audit, href: route("admin.audit") },
         { name: copy.admin.settings, href: route("admin.settings") },
     ];
 

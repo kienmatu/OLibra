@@ -104,6 +104,34 @@ final class QueryParam
         return self::flatten($request->input($key)) ?? $default;
     }
 
+    /**
+     * The value at $key as a real calendar day (`Y-m-d`), or null.
+     *
+     * Both audit browsers take `?from=`/`?to=` and both must refuse a date
+     * that only LOOKS like one: `2026-02-31` matches the shape and is not a
+     * day, and handing it to CarbonImmutable::parse() rolls it forward to
+     * 3 March — a range silently different from the one the URL asked for.
+     * checkdate() is what says so.
+     *
+     * It lives here rather than privately in a controller because phase
+     * 3c-ii Task 5 gave this parse a second caller (`/admin/audit` beside
+     * `/shelves/{shelf}/manage/audit`), and two copies of a rule this
+     * specific are two places for it to drift. Same flattening as first(),
+     * so a repeated key is treated identically.
+     */
+    public static function civilDay(Request $request, string $key): ?string
+    {
+        $raw = self::first($request, $key);
+
+        if ($raw === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw) !== 1) {
+            return null;
+        }
+
+        [$y, $m, $d] = array_map(intval(...), explode('-', $raw));
+
+        return checkdate($m, $d, $y) ? $raw : null;
+    }
+
     private static function flatten(mixed $value): ?string
     {
         if (is_array($value)) {

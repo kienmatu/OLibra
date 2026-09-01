@@ -89,6 +89,27 @@ it('confines bookshelf_id filtering to the files this allow-list names', functio
         // tests/Feature/Oversight/AuditLogQueryTest.php's two-shelf-plus-
         // global-row test, which proves it by identity, not by convention.
         'app/Queries/AuditLogQuery.php',
+        // Phase 3c-ii Task 5 (spec D5): the cross-shelf audit browser
+        // AuditLogQuery's own entry above has been pointing at since 1d.
+        // It is here for its SHELF FILTER and for nothing else — the
+        // unfiltered case needs no predicate at all, since AuditLog is the
+        // exempt model above and no scope narrows it, so "every parish plus
+        // the installation" is what a plain query already returns. Two of
+        // the filter's three answers have to name the tenant column
+        // directly: one parish, and the installation's own rows, which are
+        // the rows that record no parish. The second is why a relation
+        // constraint was not an escape from this list — there is no related
+        // shelf to constrain when the whole point is that there is none.
+        //
+        // WHAT THIS COSTS is the same whole-file cost SweepReminders' entry
+        // below spells out: that file today holds exactly one shelf filter,
+        // the browser's, and a second one a later edit adds is now silent.
+        // What stands behind it instead is
+        // tests/Feature/Admin/AdminAuditBrowserTest.php, which proves the
+        // three answers by identity on a two-shelf-plus-global fixture —
+        // including that the unfiltered case shows the global rows, the
+        // property this whole screen exists for.
+        'app/Queries/Admin/AuditBrowserQuery.php',
         // Phase 2a Task 17: the reminder sweep is the one non-seeder caller
         // of TenantContext::actSystemWide(), so BookshelfScope adds no WHERE
         // to anything it reads. Its "has this reader already been told"

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AuditController as AdminAuditController;
 use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
@@ -886,7 +887,27 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings');
     Route::post('/settings/contact', [AdminSettingsController::class, 'updateContact'])->name('settings.contact');
     Route::post('/settings/defaults', [AdminSettingsController::class, 'updateDefaults'])->name('settings.defaults');
-    Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
+    // Phase 3c-ii Task 5, spec D5 — BR:606's cross-shelf audit browser, and
+    // the LAST placeholder route in the application. The six administration
+    // acts that record no parish (3b-ii's five and 3b-i's
+    // user.promoted_super_admin) have been written to a table whose only
+    // reader compared the tenant column for equality, so not one of them
+    // has ever been visible on any screen. This is the reader they were
+    // written for, and docs/known-gaps.md's 3b-ii entry saying so is closed
+    // in the same commit.
+    //
+    // READ-ONLY, AND NO SECOND ROUTE. There is no POST here and there must
+    // never be one: a log a screen can edit is not a log (INV-12). The four
+    // filters BR:606 asks for are query parameters on this one GET, which
+    // is also what lets /admin/managers link straight into it with an actor
+    // already chosen (Task 6).
+    //
+    // NO {bookshelf} AND NO {shelf}: the browser spans every parish PLUS
+    // the installation's own rows, and which parish an entry belongs to is
+    // a FILTER on this screen rather than a segment of its address —
+    // App\Queries\Admin\AuditBrowserQuery owns the three answers that
+    // filter can give.
+    Route::get('/audit', [AdminAuditController::class, 'index'])->name('audit');
     // Phase 3c-ii Task 4, spec D3, D6, D8 and D9 — BR §16.1's Góp ý inbox,
     // and the read half of a table that has been writable since Phase 2b's
     // schema with no screen anywhere able to open it.

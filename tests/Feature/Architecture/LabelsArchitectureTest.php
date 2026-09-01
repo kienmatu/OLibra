@@ -79,7 +79,13 @@ it('adds no new Asia/Ho_Chi_Minh literal — the census, comments stripped', fun
         'app/Console/Commands/SweepReminders.php' => 1,
         'app/Http/Controllers/Manage/AnnouncementController.php' => 1,
         'app/Http/Controllers/Manage/BorrowRequestController.php' => 1,
-        'app/Queries/AuditLogQuery.php' => 1,
+        // MOVED, NOT ADDED, in phase 3c-ii Task 5: this was
+        // app/Queries/AuditLogQuery.php's until the audit browser's joins,
+        // ordering and four filters — the civil-day boundary among them —
+        // were extracted so /admin/audit could share them rather than
+        // re-derive a timezone rule this repo has already paid for. The
+        // count is still one, and it is still the same declaration.
+        'app/Queries/Concerns/ReadsAuditLog.php' => 1,
         'app/Queries/Exports/LoansExportQuery.php' => 1,
         'app/Queries/Exports/ReadersExportQuery.php' => 1,
         'app/Queries/MyDashboardQuery.php' => 1,
