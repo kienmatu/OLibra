@@ -278,4 +278,31 @@ class Bookshelf extends Model
     {
         return $this->hasMany(ParishUnit::class);
     }
+
+    /**
+     * BR:580's shelf-level change queue — what scopeBindings() resolves
+     * `{profileChange}` through on the manage decision routes, so a
+     * request id from another parish 404s at routing rather than reaching
+     * a command.
+     *
+     * NAMED `profileChanges`, NOT `profileChangeRequests`, and the name is
+     * load-bearing rather than a preference: under scopeBindings() Laravel
+     * derives the relation from the ROUTE PARAMETER, pluralised —
+     * `{profileChange}` looks for `profileChanges()` and nothing else.
+     * The route parameter is the shorter word because it is what a URL
+     * segment should read as; the model keeps the table's own longer name.
+     *
+     * THE ADMIN GROUP CANNOT USE THIS. `/admin` binds no tenant, so
+     * BookshelfScope throws for the cross-shelf caller and there is no
+     * {shelf} in those URLs to hang a scoped binding off; that path
+     * resolves through App\Queries\Admin\ManagerProfileChangeQueueQuery
+     * ::find() instead, which widens deliberately and then re-narrows by
+     * the row.
+     *
+     * @return HasMany<ProfileChangeRequest, $this>
+     */
+    public function profileChanges(): HasMany
+    {
+        return $this->hasMany(ProfileChangeRequest::class);
+    }
 }

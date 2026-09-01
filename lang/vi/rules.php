@@ -61,6 +61,16 @@ return [
     // two unqualified 'not_pending' codes would be one sentence for two
     // different things.
     'profile_change_not_pending' => 'Yêu cầu đổi thông tin này đã được xử lý.',
+    // Phase 3c-i Task 5, the two decision queues (BR:580, BR:602). Both
+    // sentences are written for a VOLUNTEER, not for the reader: they
+    // confirm what the tap did and say where the consequence lands, which
+    // for the approval is the person's own record and for the rejection is
+    // the reader's profile page — the one screen where BR:544 shows them
+    // the reason. Task 6 adds the notification that reaches the reader
+    // directly; until it does, the queue's own words are the only place
+    // this hand-off is stated.
+    'profile_change_approved_flash' => 'Đã duyệt. Thông tin mới đã được ghi vào hồ sơ của bạn đọc.',
+    'profile_change_rejected_flash' => 'Đã từ chối — bạn đọc sẽ thấy lý do trên trang hồ sơ của mình.',
     'parish_unit_l1_not_found' => 'Đơn vị bậc 1 đã chọn không tồn tại.',
     'parish_unit_l2_not_found' => 'Đơn vị bậc 2 đã chọn không tồn tại.',
     'parish_unit_l2_not_in_l1' => 'Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.',

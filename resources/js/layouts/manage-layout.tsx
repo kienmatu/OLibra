@@ -6,7 +6,7 @@ import { copy, t } from "@/lib/copy";
 import type { SharedData } from "@/types";
 
 export default function ManageLayout({ children }: PropsWithChildren) {
-    const { shelf, pendingDonations } = usePage<SharedData>().props;
+    const { shelf, pendingDonations, pendingProfileChanges } = usePage<SharedData>().props;
     if (!shelf) return null;
 
     const items = [
@@ -25,15 +25,17 @@ export default function ManageLayout({ children }: PropsWithChildren) {
         // count badge, beside *Đổi thông tin* (pending profile changes) and
         // *Yêu cầu mượn* (request queue)".
         //
-        // PLACED BESIDE *Yêu cầu mượn*, WHICH IS HALF OF WHAT §16.3 ASKS,
-        // and the missing half is recorded rather than quietly dropped:
-        // this list has no *Đổi thông tin* item to sit beside. The screen
-        // is routed — routes/web.php names `shelves.manage.profile-changes`
-        // — but points at ShellController::underConstruction (opened), so
-        // adding a nav item for it is a different task's decision, not a
-        // side effect of this one. Task 19 first shipped this item after
-        // *Bản tin*, three slots from *Yêu cầu mượn*, without saying so;
-        // that is the divergence this comment closes.
+        // PLACED BESIDE *Yêu cầu mượn*, WHICH WAS HALF OF WHAT §16.3 ASKS.
+        // Task 19 recorded the missing half here rather than dropping it:
+        // this list had no *Đổi thông tin* item to sit beside, because the
+        // route pointed at ShellController::underConstruction, and adding a
+        // nav item for a placeholder was a different task's decision.
+        //
+        // PHASE 3c-i TASK 5 DISCHARGES THAT NOTE. The screen is real, so
+        // the third item lands immediately below, completing the trio
+        // §16.3's first sentence names — *Đổi thông tin* (pending profile
+        // changes), *Yêu cầu mượn* (request queue) and this one — and the
+        // hand-off is by NAME, which is why that note said which name.
         //
         // A RETRACTION, kept rather than quietly deleted. Task 19 shipped
         // this item with no badge and said here that a number beside one
@@ -56,6 +58,24 @@ export default function ManageLayout({ children }: PropsWithChildren) {
                 ? t(copy.manage.donationsWithCount, { count: pendingDonations })
                 : copy.manage.donations,
             href: route("shelves.manage.donations", { shelf: shelf.slug }),
+        },
+        {
+            // BR §16.3's *Đổi thông tin*, badge and all, built exactly like
+            // the donation item above — the count in the label, in
+            // parentheses, and the bare word at both null and 0, because a
+            // badge is news and neither of those is news.
+            //
+            // THE COUNT IS THE SERVER'S and shares the queue screen's own
+            // predicate: App\Queries\ProfileChangeQueueQuery::countPending()
+            // counts pending proposals whose subject is a READER of this
+            // shelf, which is precisely the set of cards this link opens.
+            // A count of "all pending" would be larger than the list for a
+            // reason no volunteer could see, since a manager's own proposal
+            // is deliberately decided elsewhere (BR:580).
+            name: pendingProfileChanges
+                ? t(copy.manage.profileChangesWithCount, { count: pendingProfileChanges })
+                : copy.manage.profileChanges,
+            href: route("shelves.manage.profile-changes", { shelf: shelf.slug }),
         },
         {
             name: copy.manage.comments,

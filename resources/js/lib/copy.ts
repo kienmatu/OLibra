@@ -124,6 +124,14 @@ export const copy = {
         // Zero renders the bare word above, never "(0)": an empty queue is
         // still a place to go, but it is not news.
         donationsWithCount: "Tặng sách ({count})",
+        // BR §16.3's *Đổi thông tin*, the nav item this list was missing —
+        // the paragraph above records that Task 19 shipped the donation
+        // badge "beside *Yêu cầu mượn*, which is half of what §16.3 asks",
+        // because the screen was still a placeholder. It is a screen now,
+        // so the other half lands here. Two spellings on the badge's own
+        // pattern: zero renders the bare word, never "(0)".
+        profileChanges: "Đổi thông tin",
+        profileChangesWithCount: "Đổi thông tin ({count})",
         settings: "Cài đặt",
         // The NAV word for shelves/{shelf}/manage/units, matching the
         // reference's own sidebar label — the screen re-heads it in
@@ -140,6 +148,15 @@ export const copy = {
         shelves: "Tủ sách",
         managers: "Người quản lý",
         categories: "Thể loại",
+        // BR §16.4's "Change queue for managers and shelf admins", carrying
+        // the SAME two words as the manage nav's own item above — the
+        // subject is the same subject, and a super administrator who is
+        // also a manager somewhere should not have to learn that this
+        // installation calls it two things. What distinguishes them is
+        // which shell they hang in; the screens themselves are headed
+        // differently.
+        profileChanges: "Đổi thông tin",
+        profileChangesWithCount: "Đổi thông tin ({count})",
         settings: "Cài đặt",
     },
     adminDashboard: {
@@ -622,6 +639,67 @@ export const copy = {
         approve: "Duyệt đăng ký",
         reject: "Từ chối",
         rejectReason: "Lý do từ chối",
+    },
+    // BR §16.3's *Đổi thông tin* screen. The FIELD labels are not here:
+    // both queues render `myProfile.fieldLabels`, which is keyed by column
+    // name because the server sends the fields keyed that way, and a second
+    // label map would be a translation table that is wrong in exactly one
+    // entry the day somebody edits one of them. A reader and a volunteer
+    // call these nine fields the same nine things.
+    manageProfileChanges: {
+        title: "Đề nghị đổi thông tin",
+        lead: "Mỗi thẻ là một bạn đọc xin sửa hồ sơ. Thông tin cũ vẫn được dùng cho đến khi bạn duyệt.",
+        empty: "Không có đề nghị nào đang chờ.",
+        requestedAt: "Gửi ngày {date}",
+        // The two halves of BR:580's "side by side". Labelled rather than
+        // laid out by position alone: on a phone the two values stack, and
+        // a stacked pair with no labels is unreadable.
+        currentHeading: "Hiện tại",
+        proposedHeading: "Đề nghị",
+        // A proposal to clear a field is a change worth showing, and it is
+        // not the same as a field the reader never mentioned — myProfile
+        // .proposedBlank's own distinction, on the deciding side.
+        blank: "(bỏ trống)",
+        notSet: "Chưa có",
+        // Task 8 replaces this line with the two photographs. Until then
+        // the field is ANNOUNCED and its value is not: the value is a
+        // storage key, and printing one on a screen is what this sentence
+        // exists to avoid.
+        avatarProposed: "Bạn đọc có gửi kèm ảnh đại diện mới.",
+        // The optional re-placement, spec D3. Headed as a question rather
+        // than as a field group, because leaving it alone is the normal
+        // answer and the form must not read as though something is
+        // required.
+        placementTitle: "Đơn vị của bạn đọc",
+        placementNote:
+            "Bạn đọc không tự đổi được đơn vị. Nếu gia đình đã chuyển, chọn lại ở đây rồi duyệt.",
+        placementUnset: "— Chưa chọn —",
+        approve: "Duyệt",
+        rejectReason: "Lý do chưa duyệt",
+        reject: "Từ chối",
+    },
+    // BR §16.4's cross-shelf queue. Its own words, not the shelf screen's:
+    // the reader of this page is not standing in the parish the proposal
+    // came from, which is the whole reason it exists.
+    adminProfileChanges: {
+        title: "Đề nghị đổi thông tin của người quản lý",
+        lead: "Đề nghị của người quản lý và quản trị tủ sách, ở mọi tủ sách — vì không ai trong tủ sách của họ được duyệt.",
+        empty: "Không có đề nghị nào đang chờ.",
+        requestedAt: "Gửi ngày {date}",
+        // BR:602's "the shelf named on each card", which on a cross-shelf
+        // screen is not decoration: two parishes may both have a manager
+        // called Nguyễn Văn A.
+        shelfLine: "Tủ sách: {shelf}",
+        roleManager: "Quản lý tủ sách",
+        roleAdmin: "Quản trị tủ sách",
+        currentHeading: "Hiện tại",
+        proposedHeading: "Đề nghị",
+        blank: "(bỏ trống)",
+        notSet: "Chưa có",
+        avatarProposed: "Người này có gửi kèm ảnh đại diện mới.",
+        approve: "Duyệt",
+        rejectReason: "Lý do chưa duyệt",
+        reject: "Từ chối",
     },
     readerDetail: {
         title: "Hồ sơ bạn đọc",

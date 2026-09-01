@@ -73,5 +73,27 @@ export interface SharedData {
      * the same builder the queue screen's list is selected from.
      */
     pendingDonations: number | null;
+    /**
+     * BR §16.3's *Đổi thông tin* badge, for the manage nav — pending
+     * profile changes whose subject is a READER of the bound shelf.
+     *
+     * Same three states as `pendingDonations` above and for the same
+     * reasons. The number is App\Queries\ProfileChangeQueueQuery
+     * ::countPending(), which shares its WHOLE predicate — pending and
+     * reader-subject — with the queue screen the badge links to, so the
+     * badge can never exceed the cards.
+     */
+    pendingProfileChanges: number | null;
+    /**
+     * BR §16.4's cross-shelf change queue badge, for the admin shell —
+     * pending proposals whose subject is a manager or shelf admin
+     * anywhere.
+     *
+     * `null` here means "not a super administrator", and it is the ONLY
+     * viewer test: this queue belongs to no shelf, so unlike the three
+     * counts above it does not go null merely because no tenant is bound
+     * — the `/admin` area never binds one.
+     */
+    pendingManagerProfileChanges: number | null;
     [key: string]: unknown;
 }
