@@ -160,6 +160,25 @@ final class AuditSentences
         // a shelf's own audit screen.
         'system_settings.updated' => 'administration',
         'site_contact.updated' => 'administration',
+        // Phase 3b-ii Task 3's three, spec D3 and D8 — the book genres.
+        // 'administration' and not 'books', and the distinction is the one
+        // the membership pair above already turns on: the group answers
+        // "which screen is this act from", not "which table did it touch".
+        // These three are made from the cross-shelf admin area by somebody
+        // who holds the whole installation, not from a tủ sách's own
+        // catalogue screens.
+        //
+        // ALL THREE ROWS BELONG TO NO SHELF, like the installation's own
+        // pair above: categories carries no bookshelf_id, so there is no
+        // shelf whose log this act could sit on. The reference records all
+        // three globally for the same reason.
+        //
+        // THERE IS NO category.unarchived, because there is no command —
+        // spec D3 ports the reference's omission as an omission, and an
+        // action with no writer is instantly red in the census either way.
+        'category.created' => 'administration',
+        'category.renamed' => 'administration',
+        'category.archived' => 'administration',
     ];
 
     /**
@@ -454,8 +473,59 @@ final class AuditSentences
             // could be identified by).
             'system_settings.updated' => self::line('system_settings_updated'),
             'site_contact.updated' => self::line('site_contact_updated'),
+            // Task 3's three, each the reference's own arm (audit-actions.ts:
+            // 644-665). UNLIKE THE PAIR ABOVE, EVERY ONE OF THESE READS ITS
+            // PAYLOAD AND EVERY ONE CARRIES A BARE TWIN — what changed here
+            // is one genre out of many, so a sentence that could not name it
+            // would leave a volunteer with no way to tell which.
+            //
+            // AFTER for the create, BEFORE for the archive, and both for the
+            // rename — each reading the side where the name is a fact. The
+            // archive's `after` deliberately carries only the instant, so
+            // reading it would render every archive row bare.
+            'category.created' => ($name = self::str($after, 'name')) !== null
+                ? strtr(self::line('category_created'), [':name' => $name])
+                : self::line('category_created_bare'),
+            'category.renamed' => self::categoryRenamed($before, $after),
+            'category.archived' => ($name = self::str($before, 'name')) !== null
+                ? strtr(self::line('category_archived'), [':name' => $name])
+                : self::line('category_archived_bare'),
             default => self::line('unknown'),
         };
+    }
+
+    /**
+     * `category.renamed`'s three cases, the reference's own ladder
+     * (audit-actions.ts:651-659): both names, the new one alone, neither.
+     *
+     * A METHOD RATHER THAN A NESTED TERNARY IN THE MATCH ARM, because two
+     * independent nullable reads is where a chained ternary stops being
+     * readable — and this is the one arm in the map whose sentence changes
+     * SHAPE rather than only its substitution.
+     *
+     * `RenameCategory` always writes both names, so the two fallbacks are
+     * unreachable from this codebase today. They are here for the reason the
+     * `bookshelf.updated` arm keeps its own: a payload is data, and a
+     * sentence that assumed its shape would render an unsubstituted `:from`
+     * to a volunteer the day one did not.
+     *
+     * @param  ?array<string, mixed>  $before
+     * @param  ?array<string, mixed>  $after
+     */
+    private static function categoryRenamed(?array $before, ?array $after): string
+    {
+        $from = self::str($before, 'name');
+        $to = self::str($after, 'name');
+
+        if ($from !== null && $to !== null) {
+            return strtr(self::line('category_renamed'), [':from' => $from, ':to' => $to]);
+        }
+
+        if ($to !== null) {
+            return strtr(self::line('category_renamed_to'), [':to' => $to]);
+        }
+
+        return self::line('category_renamed_bare');
     }
 
     /**

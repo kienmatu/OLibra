@@ -199,6 +199,20 @@ return [
     // nothing about any tủ sách already open.
     'system_settings_updated' => 'đổi cài đặt mặc định của hệ thống',
     'site_contact_updated' => 'đổi thông tin liên hệ của ban quản trị',
+    // Phase 3b-ii Task 3's three, the reference's phrases verbatim
+    // (audit-actions.ts:644-665). Each has a bare twin, unlike the pair
+    // above: the subject here is one thể loại out of many, so a row that
+    // could not name it would leave a volunteer unable to tell which.
+    //
+    // 'lưu trữ', not 'xoá' — the row is soft-deleted and every book that
+    // ever carried the thể loại keeps it. The screen uses the same word.
+    'category_created' => 'thêm thể loại :name',
+    'category_created_bare' => 'thêm một thể loại',
+    'category_renamed' => 'đổi tên thể loại :from thành :to',
+    'category_renamed_to' => 'đổi tên một thể loại thành :to',
+    'category_renamed_bare' => 'đổi tên một thể loại',
+    'category_archived' => 'lưu trữ thể loại :name',
+    'category_archived_bare' => 'lưu trữ một thể loại',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

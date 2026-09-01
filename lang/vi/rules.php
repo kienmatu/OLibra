@@ -345,6 +345,27 @@ return [
     'site_contact_saved_flash' => 'Đã lưu thông tin liên hệ của ban quản trị.',
     'system_defaults_saved_flash' => 'Đã lưu giá trị mặc định cho tủ sách mở mới.',
 
+    // — thể loại sách (Phase 3b-ii Task 3, spec D3) —
+    // The reference's own sentence, verbatim, and it does the work the
+    // refusal cannot do alone: it says what to do instead. `ON DELETE SET
+    // NULL` never fires here — this is a soft delete — so nothing in the
+    // schema stops a book keeping a label no screen will offer again, and
+    // this guard is the only thing that does.
+    'category_in_use' => 'Chỉ lưu trữ được khi không còn sách nào thuộc thể loại này. Hãy đổi thể loại cho những cuốn sách đó trước.',
+    // The slug is derived from the name and `categories.slug` is unique with
+    // no soft-delete partition, so an archived thể loại holds its handle
+    // forever — a collision an administrator cannot see on the screen. The
+    // sentence has to say that, or the refusal reads as a bug.
+    'duplicate_category' => 'Đã có thể loại dùng tên này (kể cả thể loại đã lưu trữ). Hãy chọn một tên khác.',
+    // Three writes, three sentences: a volunteer who pressed one control on
+    // a list of many rows needs to be told which act landed. The rename
+    // sentence repeats the one thing the screen warns about beforehand —
+    // the address does not move — because that is the fact somebody is most
+    // likely to have assumed otherwise.
+    'category_created_flash' => 'Đã thêm thể loại mới.',
+    'category_renamed_flash' => 'Đã đổi tên thể loại. Đường dẫn của thể loại giữ nguyên như cũ.',
+    'category_archived_flash' => 'Đã lưu trữ thể loại. Thể loại này không còn hiện ra khi thêm sách mới.',
+
     // — quản lý viên (Phase 3b-i Task 7) —
     // BR §16.4's confirmation, and the requirement is that it "states
     // plainly that history is retained" — so the sentence says what stays,

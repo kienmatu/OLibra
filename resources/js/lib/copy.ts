@@ -299,6 +299,48 @@ export const copy = {
     },
     // Task 7's screen (spec D5, D7) — OPS §3.4's GetManagersList and the
     // three grants of §4.5.
+    // Phase 3b-ii Task 3 (spec D3) — the book genres, one taxonomy shared
+    // by every tủ sách in the installation.
+    adminCategories: {
+        title: "Thể loại sách",
+        lead: "Danh sách thể loại dùng chung cho mọi tủ sách trong hệ thống.",
+        empty: "Chưa có thể loại nào. Hãy thêm thể loại đầu tiên để bắt đầu xếp sách.",
+        // The count beside each row is not decoration: it is the number
+        // that decides whether the archive control below will be accepted,
+        // so the screen can explain the refusal before producing it.
+        booksSuffix: "đầu sách",
+        slugPrefix: "Đường dẫn:",
+        // The add form. Below the list rather than above it, unlike the
+        // appoint form on Quản lý viên: a taxonomy is read far more often
+        // than it is extended, and this list is what an administrator came
+        // here to see.
+        addSection: "Thêm thể loại mới",
+        addName: "Tên thể loại",
+        addPlaceholder: "vd: Truyện tranh",
+        submitAdd: "Thêm thể loại",
+        // THE SENTENCE THIS SCREEN TURNS ON. A rename moves the display
+        // name and nothing else — the đường dẫn stays where it is, because
+        // moving it would silently repoint every cuốn sách already xếp
+        // under the old one. Said before the control, not after the press.
+        renameSection: "Đổi tên",
+        renameName: "Tên mới",
+        renameNote:
+            "Đổi tên chỉ đổi chữ hiển thị. Đường dẫn của thể loại giữ nguyên, nên sách đã xếp vào thể loại này không bị ảnh hưởng.",
+        submitRename: "Lưu tên",
+        cancel: "Huỷ",
+        // "Lưu trữ", not "Xoá": the row is kept and every cuốn sách that
+        // ever carried the thể loại keeps it. Only the picker stops
+        // offering it.
+        archive: "Lưu trữ thể loại",
+        archiveConfirm: "Xác nhận lưu trữ",
+        archiveWarning:
+            "Thể loại đã lưu trữ sẽ không hiện ra khi thêm sách mới, và không mở lại được. Nếu cần dùng lại, hãy tạo thể loại mới với tên khác.",
+        // Shown in place of the archive control when the count says the
+        // command would refuse. The rule is the server's; this only stops
+        // the screen offering a button whose one outcome is a refusal.
+        archiveBlocked:
+            "Còn sách thuộc thể loại này nên chưa lưu trữ được. Hãy đổi thể loại cho những cuốn sách đó trước.",
+    },
     adminManagers: {
         title: "Quản lý viên",
         lead: "Những người có quyền trên hệ thống và trên từng tủ sách.",

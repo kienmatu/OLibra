@@ -70,6 +70,11 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'audit_forbidden_field',
         'audit_nesting_too_deep',
         'busy_try_again',
+        // 3b-ii Task 3: archiving a thể loại that live books still carry
+        // (spec D3). The reference's own code, and the guard is the only
+        // thing protecting those books' labels — the soft delete never
+        // fires the schema's ON DELETE SET NULL.
+        'category_in_use',
         'comment_not_approved',
         'comment_not_pending',
         'comments_disabled',
@@ -82,6 +87,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'donation_not_pending',
         'donor_ambiguous',
         'donor_membership_invalid',
+        // 3b-ii Task 3: a name whose derived slug is already taken —
+        // including by an archived thể loại, because categories.slug is
+        // unique with no soft-delete partition.
+        'duplicate_category',
         'duplicate_isbn',
         'duplicate_request',
         'empty_body',

@@ -10,6 +10,7 @@ use App\Models\BookCopy;
 use App\Models\BookDonation;
 use App\Models\Bookshelf;
 use App\Models\BorrowRequest;
+use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Loan;
 use App\Models\Membership;
@@ -21,6 +22,7 @@ use App\Policies\BookDonationPolicy;
 use App\Policies\BookPolicy;
 use App\Policies\BookshelfPolicy;
 use App\Policies\BorrowRequestPolicy;
+use App\Policies\CategoryPolicy;
 use App\Policies\CommentPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
@@ -289,5 +291,12 @@ class AppServiceProvider extends ServiceProvider
         // and PolicyRegistrationTest reads this file's own source, so it
         // covers the pair either way.
         Gate::policy(SystemSetting::class, SystemSettingPolicy::class);
+        // Phase 3b-ii Task 3, spec D3. The book genres — global reference
+        // data every tủ sách shares, so this pair names no shelf either,
+        // and all three of its writers audit globally for that reason.
+        // Registered on the same terms as the lines above: discovery
+        // resolves the pair today, and PolicyRegistrationTest reads this
+        // file's own source so the pair is covered either way.
+        Gate::policy(Category::class, CategoryPolicy::class);
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
@@ -625,7 +626,34 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // carries none and why Task 1's configurator exists (spec D0, D5).
     // There is deliberately no route back: OPS §4.5 lists no demotion.
     Route::post('/managers/{user}/promote', [AdminManagerController::class, 'promote'])->name('managers.promote');
-    Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
+    // Phase 3b-ii Task 3, spec D3 — the book genres, and the placeholder
+    // this replaces held the name from Phase 0.
+    //
+    // NO {bookshelf} AND NO {shelf} ANYWHERE IN THIS BLOCK, and here that is
+    // not a fence being worked around but the table's own shape: categories
+    // carries no bookshelf_id at all. One taxonomy, shared by every tủ sách
+    // in the installation, which is also why all three writes below audit
+    // globally rather than naming a shelf.
+    //
+    // THE PATH IS ENGLISH. The reference's is /quan-tri/the-loai, and
+    // RouteOrderTest bans Vietnamese path segments — the name does not carry
+    // across, only the screen does.
+    //
+    // {category} BINDS BY ID, not by slug, and that is deliberate on a table
+    // whose slug is unique: the slug is an internal handle a book form posts
+    // (CreateCategory), and putting it in an administrator's URL would make
+    // it look like an address somebody could be asked to change. The one
+    // thing this area may never do is move it.
+    Route::get('/categories', [AdminCategoryController::class, 'index'])->name('categories');
+    Route::post('/categories', [AdminCategoryController::class, 'store'])->name('categories.store');
+    // PATCH, and the verb is honest: this submit carries the display name
+    // and the row keeps its slug, its sort order and every book on it.
+    Route::patch('/categories/{category}', [AdminCategoryController::class, 'update'])->name('categories.rename');
+    // POST and bodiless — the genre named in the URL is the whole request,
+    // the shape shelves.archive above uses. There is deliberately no route
+    // back: this slice has no un-archive command (spec D3), and a genre's
+    // slug stays taken, so the way back is a new name.
+    Route::post('/categories/{category}/archive', [AdminCategoryController::class, 'archive'])->name('categories.archive');
     // Phase 3b-ii Task 1, spec D1 — BR §16.4's system settings, and the
     // first caller `system_settings` has ever had. TWO WRITE ROUTES rather
     // than one, because the screen carries two forms: the administration's
