@@ -72,9 +72,11 @@ So the inbox shows the name the sender typed, and the account they were signed
 into as a separate fact, never one standing in for the other.
 
 **The shelf surface is guest-reachable too.** `routes/web.php:220` sits
-deliberately outside the `role:reader` group, pinned by
-`RouteOrderTest:101,117` (*"`feedback` is deliberately guest-reachable"*) and by
-`HandleInertiaRequests:83-86`. So `member_id` is not guaranteed even there.
+deliberately outside the `role:reader` group, recorded at
+`RouteOrderTest:101,117` — though note that is an **exemption, not a pin**:
+`$excludedSegments = ['manage', 'feedback']` *removes* the route from the
+role-gate assertion, so adding `role:reader` to it would leave the suite green.
+`HandleInertiaRequests:83-86` carries the same intent. So `member_id` is not guaranteed even there.
 
 `Feedback` is deliberately not `BelongsToBookshelf`, which is what lets the
 public path work at all: the contact page must touch no shelf-scoped model or
@@ -86,10 +88,10 @@ Two corrections to the first draft, both of which would have shipped a defect
 this port has already paid for once.
 
 **Hash `Phone::normalise()`, not the whitespace-stripped string.**
-`AppServiceProvider:127-133` records the Task 13 fix: *"`0912345678` /
+`AppServiceProvider:123-131` records the Task 13 fix: *"`0912345678` /
 `0912 345 678` / `0912.345.678` / `0912-345-678` / `+84912345678` — five
 spellings of the identical phone, every one accepted by `Phone::isValid()` —
-each got its own bucket."* Whitespace-stripping alone buys a spammer fifteen
+each got its own 20/day bucket."* Whitespace-stripping alone buys a spammer fifteen
 messages a day instead of three.
 
 **The limit is a domain rule, not route middleware.** The reference counts
@@ -103,6 +105,21 @@ with its census entry. So must `feedback_fields_required`. And the phone is
 validated with `assertPhone` — the reference's own QA round found
 `khong-phai-so` accepted and stored on the one form a shelf-less parish has.
 
+**Two deliberate divergences from the reference, both stated rather than
+smuggled:**
+
+1. **Hashing `Phone::normalise()` is a deviation, not a correction.** The
+   reference really does strip whitespace only. Normalising also folds `.`, `-`
+   and `+84`→`0`, so this port's key is stricter — and a test written against it
+   would fail against the reference. This port already made that choice once for
+   the register limiter and it is the right one; it is a divergence all the same.
+2. **The 24-hour count is genuinely global here.** The reference's count is
+   RLS-blind across shelves and documented as a known gap. This port has no RLS
+   and `Feedback` is not `BelongsToBookshelf`, so a plain
+   `where('guest_hash', …)` count spans every shelf — silently closing the
+   reference's gap. Note `feedback.guest_hash` carries **no index**, so the
+   plan should decide whether to add one.
+
 `DAILY_LIMIT = 3`. The hash is SHA-256 with no salt, and the reasoning is worth
 carrying verbatim because the flattering misreading is easy:
 
@@ -114,8 +131,9 @@ carrying verbatim because the flattering misreading is easy:
 
 ### D3 — The inbox is super-admin only, and it is a queue with a shape
 
-Ruled by the product owner on 2026-09-01. The reference gates every feedback
-read and write on `requireSuperAdmin`. BR §13.2 files "view feedback, resolve
+Ruled by the product owner on 2026-09-01. The reference gates every feedback **read**, and both handling writes, on
+`requireSuperAdmin` — `submitFeedback` itself has no floor at all, being *"the
+one command in the catalogue with no floor"*, which is what D1 is about. BR §13.2 files "view feedback, resolve
 feedback" under Community with no role restriction, and this port built
 `Bookshelf::feedback()` for shelf-scoped reads — so **that relation becomes
 unused**, kept rather than deleted because the archived-shelf export will want
@@ -123,9 +141,17 @@ it. Recorded in `known-gaps.md`, not left to be discovered.
 
 Behaviour the first draft omitted, all of it from the reference:
 
-- **List and detail on one route** via a query parameter, and marking read
-  happens in the **same transaction** as the read — the reference's docstring
-  explains that two loads otherwise disagree about what is unread.
+- **List, detail and the unread count resolve in ONE read.** The reference's
+  docstring is about that, not about marking: *"Resolved inside the same
+  callback, so the whole page is one read-only transaction and one instant. Two
+  calls would have been two transactions… a list and a detail pane disagreeing
+  about what is unread."*
+- **Opening a message does NOT mark it read.** Marking is an explicit
+  administrator act — a form button (*"Đánh dấu đã đọc"*) calling its own
+  command. An earlier draft of this spec had the read happen in the same
+  transaction as the open, which would have made that button meaningless and
+  written a `feedback.read` audit row every time anybody looked at anything.
+  D8's own table already said otherwise; the two contradicted each other.
 - **An unknown filter value means "no filter"**, never an empty list. The
   reference: *"an empty inbox that reads as 'no messages' is the shape of a bug
   this project has already shipped twice."*
@@ -149,7 +175,7 @@ so — *"Filtering by actor is the way through today — a manager belongs to on
 shelf — and the managers list links here with the actor already set."*
 
 BR:608's *"grouped by type"* is answered by the audit browser's **group chips**
-(the five `AUDIT_GROUPS`), not by the five phrases BR happens to list. The first
+(the reference's `AUDIT_GROUPS`, six there and five here), not by the five phrases BR happens to list. The first
 draft proposed mapping those five phrases onto actions, which is a task the
 reference deliberately declined — and the mapping does not partition a manager's
 log anyway: `request.*`, `announcement.*`, `comment.*`, `membership.suspended`
@@ -163,7 +189,14 @@ carrying the actor. That is the whole of BR:608.
 The reference's audit page has **two** filters — group chips and actor — plus
 pagination, and **no shelf filter and no date range**. It names the gap itself:
 *"Which shelf an entry belongs to is not shown, and that is a gap worth naming."*
-So BR:606's four filters are not a port; two of them are new.
+
+**But only ONE of BR:606's four filters is new here, not two.**
+`AuditLogQuery::run(?actorId, ?group, ?from, ?to, int $page)` (`:56`) already
+implements the date range, including the Asia/Ho_Chi_Minh civil-day boundary and
+the inclusive upper bound (`:76-84`), and `Manage\AuditLogController:46-47`
+already parses `?from=`/`?to=`. An earlier draft called the date range new work,
+which would have had a task re-deriving a timezone boundary this repo has
+already paid for. **The shelf filter is the only new one.**
 
 **Reuse versus a second query.** The reference runs the *same* `getAuditLog`
 under an admin scope, and argues the case: *"A second query would have been a
@@ -174,11 +207,21 @@ sentence rendering and ordering. The first draft asserted "do not widen it"
 without weighing that.
 
 **The decision: a new class in `app/Queries/Admin/`, composing rather than
-duplicating.** The sentence rendering and the collation guards move to a shared
-place both call, so there is one definition of an entry; only the scoping
-differs. Duplicating the joins is what the reference warns against, and reusing
-the shelf-scoped class outright would change what its `TenancyArchitectureTest`
-allow-list entry means.
+duplicating.**
+
+Be precise about what is shared, because an earlier draft was not. **Sentence
+rendering is already shared and is not in `AuditLogQuery` to move** — it calls
+the static `AuditSentences::groupOf/sentence/payloadRows` (`:161-165`). What
+would genuinely be duplicated is the **join and select block** (`:88-146`): two
+`leftJoin`s carrying the `CONVERT(… USING ascii) COLLATE ascii_bin` guards, the
+four-way `coalesce`, the page size and the `occurred_at desc, id desc` total
+order.
+
+The two classes differ in exactly **one private method** — `scoped()`
+(`:207-221`). So the honest options are *extract the builder* or *make the scope
+injectable*, and the plan picks one. Duplicating the joins is what the reference
+warns against; reusing the shelf-scoped class outright would change what its
+`TenancyArchitectureTest` allow-list entry means.
 
 **The all-shelves case needs no filter at all** — `AuditLog` carries no global
 scope, so global rows come for free, and the first draft's *"it must include rows
@@ -202,8 +245,11 @@ once: resolving one parish's message under another's scope wrote the sentence
 into the wrong parish's log.
 
 So: `forShelf($message->bookshelf_id)` when the message names a shelf, `global()`
-when it does not — and **a reader's *Góp ý* can be site-wide too**, so this is
-not merely "the public surface has no shelf". Mark-read and resolve run from
+when it does not — and the command's API accepts a null shelf from a
+scoped caller, which is what `auditScopeFor` refuses. Note the shipped reference
+produces that case **only** from `/lien-he`: the shelf form omits the field
+deliberately. An earlier draft claimed a reader's *Góp ý* can be site-wide,
+which is true of the API and not of any surface. Mark-read and resolve run from
 `/admin` with no tenant bound, so they configure explicitly or the recorder
 throws.
 
@@ -215,18 +261,30 @@ is fenced by `WideningArchitectureTest:122-126` to `app/Actions/Admin/` — but
 `SubmitFeedback` is a guest-open community write, not an administration action.
 
 **The decision: `SubmitFeedback` lives in `app/Actions/Community/`, and the
-audit configurator's fence grows that directory.**
+audit-configurator fence takes a ONE-FILE allow-list entry.**
 
-Three exits existed. Moving a guest-open community write into
-`app/Actions/Admin/` misfiles it by namespace to satisfy a test. Not auditing
-the public submission at all loses the record BR §14 wants. Widening the fence is
-the smallest honest grant, and it is a grant of exactly what is true: **a
-shelf-less write has to be able to say so.**
+An earlier draft proposed widening the fence to the whole
+`app/Actions/Community/` directory and called that "the smallest honest grant".
+It is not, and the file itself shows why: `offendersFor($pattern, $allowed)`
+takes a **path-suffix allow-list**, and the audit-configurator block passes `[]`
+(`WideningArchitectureTest:125`). The `systemWide` block right above it already
+allow-lists three individual files by name. So the narrow exit is one entry —
+`app/Actions/Community/SubmitFeedback.php` — granting the capability to exactly
+the file that needs it.
 
-Note the two fences are separate `it()` blocks over different patterns.
-`systemWide()` stays confined to the two admin directories — that one is not
-touched. Only the audit configurator's fence grows, and only by this one
-directory.
+Directory-widening would have opened `global()` **and** `forShelf()` to every
+present and future file in `app/Actions/Community/`, which already holds
+`CreateAnnouncement`, the pin/unpin pair and the comment and donation actions —
+precisely the shelf-scoped commands the fence exists to stop opting out of
+tenancy.
+
+**And the grant is smaller still than that, because only the public surface
+needs it.** `AuditRecorder::record()` throws only when **no tenant is bound**
+(`:91-107`), so the shelf's *Góp ý* — which runs under a bound tenant — audits
+normally with no configurator at all. In the reference the shelf form never
+submits site-wide: it omits `bookshelfId` on purpose and the page docstring says
+*"The shelf is not named in the form."* Only `/lien-he` passes null. So the
+fence is touched for **one call site on one route**.
 
 Mark-read and resolve stay in `app/Actions/Admin/` — they are administration.
 
@@ -295,8 +353,8 @@ Per project practice, **every test is watched failing before it is accepted**.
   a code**. New codes here: `rate_limited`, `feedback_fields_required`.
 - **`FreeTextEncodingGuardTest`** — `guest_name`, `guest_contact`, `subject`,
   `body`.
-- **`RouteOrderTest`** — `:101,117` pin the shelf feedback route as guest-
-  reachable; super-admin on `admin/`; tenant on `{shelf}`; **no Vietnamese path
+- **`RouteOrderTest`** — `:101,117` *exempt* the shelf feedback route from the
+  role-gate assertion rather than pinning it; super-admin on `admin/`; tenant on `{shelf}`; **no Vietnamese path
   segments** (the reference's are `/gop-y`, `/nhat-ky`, `/lien-he`).
 - **`NotificationsAreReaderFacingTest`** — if anything here notifies, four places
   change in one commit.
