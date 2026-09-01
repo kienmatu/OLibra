@@ -131,6 +131,16 @@ final class AuditSentences
         // writes them; the census holds both sets equal at every task
         // boundary, so they are not listed here ahead of their commands.
         'feedback.submitted' => 'community',
+        // Phase 3c-ii Task 4, the same cong-dong family and the two the
+        // note above promised. They are administration ACTS — only a super
+        // administrator may write one — but the group is what a volunteer
+        // filters the log by, and the reference files all three feedback
+        // actions under `cong-dong` because what the row is ABOUT is a
+        // parishioner's message. There is deliberately no fourth:
+        // feedback.archived stays unported (spec D8), which is why this
+        // phase's count is 66 and not 67.
+        'feedback.read' => 'community',
+        'feedback.resolved' => 'community',
         // Phase 3b-i's fifth group, administration — the cross-shelf acts
         // of the /admin area, which are the reference's own he-thong family
         // (audit-actions.ts:592-612 files every bookshelf.* entry there).
@@ -512,6 +522,20 @@ final class AuditSentences
             // keeps the number and its hash out of it deliberately), so
             // there is nothing here for a fallback to replace.
             'feedback.submitted' => self::line('feedback_submitted'),
+            // Task 4's pair, and like the arm above they interpolate
+            // nothing. The payload is {status: …} either side, which the
+            // expansion renders as raw values — putting it in the sentence
+            // too would make the line say "đánh dấu một góp ý là đã đọc
+            // (new → read)", a state machine read out loud to somebody who
+            // wanted to know who touched the message.
+            //
+            // These two DO have an actor on every row: unlike
+            // feedback.submitted, which a guest may write, only a signed-in
+            // super administrator can reach either command. The frame still
+            // renders the null-actor case, because a fact bag with no actor
+            // is what a LEFT join produces for a deleted account.
+            'feedback.read' => self::line('feedback_read'),
+            'feedback.resolved' => self::line('feedback_resolved'),
             // The reference's own arm (audit-actions.ts:592-598): the name
             // out of $after, with a bare twin when there is none. NOT
             // self::which() — that helper's fallback line reads 'một cuốn

@@ -170,6 +170,15 @@ return [
     // (a guest may send one), so the frame reads "Hệ thống đã nhận một góp
     // ý", and who sent it is on the message itself rather than in the log.
     'feedback_submitted' => 'nhận một góp ý',
+    // Phase 3c-ii Task 4's two handling moves, the reference's phrases
+    // verbatim (audit-actions.ts, `đánh dấu một góp ý là đã đọc` and
+    // `xử lý một góp ý`). Both take facts — the payload carries the status
+    // either side — and interpolate none of them: what a volunteer reads in
+    // the log is that somebody handled a message, and the message itself is
+    // where its contents live. The <details> expansion beside the sentence
+    // is where before/after actually shows.
+    'feedback_read' => 'đánh dấu một góp ý là đã đọc',
+    'feedback_resolved' => 'xử lý xong một góp ý',
 
     // — quản trị hệ thống —
     // Phase 3b-i's administration group. Note the key shape: this file

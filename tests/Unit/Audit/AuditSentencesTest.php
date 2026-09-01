@@ -408,6 +408,46 @@ it('feedback.submitted names no sender, and reads as the system when a guest sen
     )))->toBe('Têrêsa Bạn Đọc Nhỏ đã nhận một góp ý');
 });
 
+it('the two feedback handling actions name the administrator and never the message', function () {
+    // Phase 3c-ii Task 4, and its own block for the reason every community
+    // block above states: the sweep below compares each action's sentence
+    // against the UNDESCRIBED-ACTION fallback, and line() on a deleted key
+    // evaluates to '' rather than to that fallback, so an action with no
+    // case here has a lang line the sweep cannot pin.
+    //
+    // THESE TWO ALWAYS HAVE AN ACTOR, unlike feedback.submitted above: only
+    // a signed-in super administrator can reach either command. So the
+    // named-actor case is the one that matters, and it is asserted first.
+    expect(AuditSentences::sentence('feedback.read', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['status' => 'new'],
+        after: ['status' => 'read'],
+    )))->toBe('Maria Quản Trị đã đánh dấu một góp ý là đã đọc')
+        ->and(AuditSentences::sentence('feedback.resolved', audFacts(
+            actor: 'Maria Quản Trị',
+            before: ['status' => 'read'],
+            after: ['status' => 'resolved'],
+        )))->toBe('Maria Quản Trị đã xử lý xong một góp ý');
+
+    // THE SHAPE: neither phrase interpolates the payload, so the status
+    // pair never reaches the sentence. An arm that grew a :status would
+    // read the state machine out loud to somebody who wanted to know who
+    // touched the message — the values are in the row's own expansion.
+    // Asserted by rendering the SAME action from a different before-state
+    // and demanding the identical sentence.
+    expect(AuditSentences::sentence('feedback.resolved', audFacts(
+        actor: 'Maria Quản Trị',
+        before: ['status' => 'new'],
+        after: ['status' => 'resolved'],
+    )))->toBe('Maria Quản Trị đã xử lý xong một góp ý');
+
+    // And they are not each other's sentence — a copy-paste that pointed
+    // both arms at one lang line would pass every expectation above except
+    // this one.
+    expect(AuditSentences::sentence('feedback.read', audFacts(actor: 'Maria Quản Trị')))
+        ->not->toBe(AuditSentences::sentence('feedback.resolved', audFacts(actor: 'Maria Quản Trị')));
+});
+
 it('every action in the map renders a real sentence, never the undescribed-action fallback', function () {
     // FIX ROUND, item 1. Until this block, NOTHING iterated ACTIONS
     // asserting each key renders something. AuditActionCensusTest looks
@@ -458,7 +498,15 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
     ));
     expect($groups)->toEqualCanonicalizing(AuditSentences::GROUPS)
         ->and($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(64);
+        // 66 after phase 3c-ii: Task 1's feedback.submitted and Task 4's
+        // feedback.read and feedback.resolved, all three in `community`.
+        // It is 66 and not 67 BECAUSE feedback.archived stays unported
+        // (spec D8) — OPERATIONS.md lists ArchiveFeedback provisionally
+        // with an open question about an inert button, and BR:610 asks only
+        // for read and resolved. That entry is annotated rather than
+        // silently ignored, so this number is a decision somebody can find
+        // the reasoning for rather than a count that happened.
+        ->and(AuditSentences::ACTIONS)->toHaveCount(66);
 });
 
 it('copy.qr_printed names the count, an int cast to string, never str()\'s trimmed-string shape', function () {

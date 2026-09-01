@@ -145,6 +145,38 @@ it('renders the taxonomy section\'s own field bag on the shelf editor', function
         ->and($source)->toContain('taxonomyForm.errors');
 });
 
+it('renders the shared refusal bag on the /admin/feedback inbox', function () {
+    // Phase 3c-ii Task 4, added here in the same task that builds the page —
+    // THE LIST IN THIS FILE IS HAND-WRITTEN and does not grow on its own, and
+    // this is the exact defect that bit 3b-ii: a screen with two writes,
+    // rendering neither its refusals nor its flashes, ships silently.
+    //
+    // WHAT IS DIFFERENT ABOUT THIS ENTRY, said plainly rather than left for
+    // somebody to discover: MarkFeedbackRead and ResolveFeedback raise NO
+    // RuleViolated at all today. The reference's `auditScopeFor` refusal
+    // (`not_permitted` when the caller's shelf disagrees with the message's)
+    // is structurally unreachable here — every route that reaches these two
+    // commands is in the `/admin` group, which binds no tenant — so this
+    // task minted no codes and the RuleViolatedCodesHaveSentencesTest census
+    // is untouched by it.
+    //
+    // The bag is asserted anyway, and the reason is this file's own subject.
+    // bootstrap/app.php's render hook is page-wide: the FIRST refusal either
+    // command ever grows lands in `errors.rule` whether or not anybody
+    // remembers to come back here, and on a page that never read the prop it
+    // would land in silence. A guard written only for the refusals that exist
+    // today is a guard that expires.
+    //
+    // Read under a local name (`errors: pageErrors`), the shape
+    // /admin/settings and /admin/categories both use, so BOTH halves are
+    // asserted: that the page takes `errors` off the page props at all, and
+    // that it renders `.rule` from it.
+    $source = adminScreenSource('feedback.tsx');
+
+    expect($source)->toContain('errors: pageErrors')
+        ->and($source)->toContain('pageErrors.rule');
+});
+
 it('renders the success flash on every admin screen a redirect carries one to', function () {
     // ManagerController flashes on all three grants and redirects to
     // /admin/managers. ShelfController flashes on all six of its writes:
@@ -160,5 +192,12 @@ it('renders the success flash on every admin screen a redirect carries one to', 
         // rename and archive — and all three redirect back to the list,
         // where each has changed a row a volunteer would otherwise have to
         // hunt for.
-        ->and(adminScreenSource('categories/index.tsx'))->toContain('flash.success');
+        ->and(adminScreenSource('categories/index.tsx'))->toContain('flash.success')
+        // FeedbackController flashes on both of its writes and redirects
+        // back to the same message, so one screen carries both sentences —
+        // and it is the screen that needs it most: the list reorders under
+        // a status move (unread first), so without the sentence the only
+        // evidence a press did anything is a row having quietly changed
+        // place.
+        ->and(adminScreenSource('feedback.tsx'))->toContain('flash.success');
 });

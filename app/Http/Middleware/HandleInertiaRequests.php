@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Notification;
 use App\Models\User;
+use App\Queries\Admin\FeedbackInboxQuery;
 use App\Queries\Admin\ManagerProfileChangeQueueQuery;
 use App\Queries\DonationQueueQuery;
 use App\Queries\ProfileChangeQueueQuery;
@@ -183,6 +184,34 @@ class HandleInertiaRequests extends Middleware
             // the non-Inertia requests that never read the prop.
             'pendingManagerProfileChanges' => fn (): ?int => ($user !== null && $user->is_super_admin)
                 ? app(ManagerProfileChangeQueueQuery::class)->countPending()
+                : null,
+            // BR §16.1's unread-feedback badge, for the admin shell's Góp ý
+            // item — Phase 3c-ii Task 4.
+            //
+            // BUILT ON pendingManagerProfileChanges ABOVE, NOT ON
+            // pendingDonations, and the difference is the whole reason this
+            // comment is here. The three shelf badges carry a `$shelf !==
+            // null` clause because their queries read through
+            // BookshelfScope, which fails closed on an unbound tenant.
+            // `/admin/feedback` is super-admin-only, the `/admin` group
+            // binds NO tenant, and Feedback is deliberately not
+            // BelongsToBookshelf — so copying the donations shape here
+            // would ship a badge that is null on every page of the area it
+            // belongs to, and a test written against a shelf page would
+            // pass while it happened.
+            //
+            // No role gate either, for the same reason: the audience is the
+            // global super administrator, which is a flag on the row rather
+            // than a membership role, and Gate::allows('act-as-manager')
+            // would ask about a shelf there is none of.
+            //
+            // THE NUMBER IS FeedbackInboxQuery::countUnread(), the same
+            // object the screen's own list and its "n tin mới" line come
+            // out of, so badge and inbox share ONE predicate rather than
+            // agreeing by coincidence — the drift commit 8e81c82 already
+            // had to fix once.
+            'unreadFeedback' => fn (): ?int => ($user !== null && $user->is_super_admin)
+                ? app(FeedbackInboxQuery::class)->countUnread()
                 : null,
             // For the plain <form method="post"> downloads (an Inertia
             // router.post cannot receive a file): the token VerifyCsrfToken

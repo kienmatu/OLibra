@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
 use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
 use App\Http\Controllers\Admin\ProfileChangeController as AdminProfileChangeController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
@@ -886,7 +887,38 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     Route::post('/settings/contact', [AdminSettingsController::class, 'updateContact'])->name('settings.contact');
     Route::post('/settings/defaults', [AdminSettingsController::class, 'updateDefaults'])->name('settings.defaults');
     Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
-    Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
+    // Phase 3c-ii Task 4, spec D3, D6, D8 and D9 — BR §16.1's Góp ý inbox,
+    // and the read half of a table that has been writable since Phase 2b's
+    // schema with no screen anywhere able to open it.
+    //
+    // SUPER-ADMIN ONLY, from this group's own middleware, ruled by the
+    // product owner on 2026-09-01 and matching the reference (which gates
+    // every feedback read and both handling writes on requireSuperAdmin).
+    // BR §13.2 can be read as granting a shelf's own manager a shelf-level
+    // inbox; it is not built, and App\Models\Bookshelf::feedback() is the
+    // relation that would have served it — kept, unused, recorded in
+    // docs/known-gaps.md rather than deleted.
+    //
+    // NO {bookshelf} AND NO {shelf}: the inbox is one list spanning every
+    // parish PLUS the site-wide messages a shelf-scoped read cannot express
+    // — feedback.bookshelf_id is the schema's one nullable tenant column.
+    //
+    // {feedback} IS TAKEN AS A STRING rather than bound to a model. Unlike
+    // the profile-change routes below, binding would actually WORK here
+    // (Feedback carries no BelongsToBookshelf, so no BookshelfScope fails
+    // closed on it) — the id goes through App\Queries\Admin\
+    // FeedbackInboxQuery::find() anyway so that one class owns how an
+    // unbound `/admin` caller resolves a message, and the missing-row
+    // answer is the same 404 either way.
+    //
+    // TWO WRITES AND NO THIRD. feedback.archived is deliberately not ported
+    // (spec D8): OPERATIONS.md lists ArchiveFeedback provisionally with an
+    // open question about an inert button, BR:610 asks only for read and
+    // resolved, and the reference's own screen records the product owner
+    // removing the fourth control.
+    Route::get('/feedback', [AdminFeedbackController::class, 'index'])->name('feedback');
+    Route::post('/feedback/{feedback}/read', [AdminFeedbackController::class, 'markRead'])->name('feedback.read');
+    Route::post('/feedback/{feedback}/resolve', [AdminFeedbackController::class, 'resolve'])->name('feedback.resolve');
     // Phase 3c-i Task 5, spec D9 and D10 — BR §16.4's "Change queue for
     // managers and shelf admins": the other half of the partition above,
     // "every pending profile-change proposal whose subject is a manager or

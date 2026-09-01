@@ -516,4 +516,15 @@ return [
     // without the second clause the sender sees an empty form and a thank
     // you and has nothing telling them where the message went.
     'feedback_submitted_flash' => 'Đã gửi rồi, cảm ơn bạn nhé. Các cô chú giữ tủ sách sẽ đọc góp ý này.',
+    // Task 4's two, on the same pattern and here for the same reason: the
+    // SERVER decides when a status actually moved. Both name what the
+    // message is now rather than what the administrator pressed, because
+    // the list reorders under them (unread first) and the sentence is the
+    // only thing saying which of the two buttons took effect.
+    //
+    // NOT refusal codes either — neither of these two commands raises a
+    // RuleViolated at all, which is why this task mints none and the
+    // RuleViolatedCodesHaveSentencesTest census is untouched by it.
+    'feedback_read_flash' => 'Đã đánh dấu góp ý này là đã đọc.',
+    'feedback_resolved_flash' => 'Đã đánh dấu góp ý này là đã xử lý xong.',
 ];

@@ -218,6 +218,13 @@ export const copy = {
         // differently.
         profileChanges: "Đổi thông tin",
         profileChangesWithCount: "Đổi thông tin ({count})",
+        // BR §16.1's inbox nav item, phase 3c-ii Task 4. The SAME word the
+        // reader's own form is called — a super administrator who has also
+        // sent a góp ý should not have to learn that this installation
+        // calls the message and the mailbox two different things. The
+        // count is unread only, on profileChangesWithCount's shape.
+        feedback: "Góp ý",
+        feedbackWithCount: "Góp ý ({count})",
         settings: "Cài đặt",
     },
     adminDashboard: {
@@ -747,6 +754,63 @@ export const copy = {
     // BR §16.4's cross-shelf queue. Its own words, not the shelf screen's:
     // the reader of this page is not standing in the parish the proposal
     // came from, which is the whole reason it exists.
+    /**
+     * BR §16.1's Góp ý inbox, phase 3c-ii Task 4. Its OWN namespace — this
+     * file's header bans reaching into another's keys, and the reader's
+     * `copy.feedback` above belongs to the form a parishioner fills in.
+     * They share the two words in the nav item and nothing else: one asks a
+     * child to write a message, the other asks an administrator to handle
+     * a queue.
+     *
+     * TWO FALLBACK STRINGS THAT ARE NOT DECORATION. `guestSender` and
+     * `noSubject` stand in for an empty name and an empty subject, and
+     * without them a row renders as a blank line a volunteer cannot click
+     * on with any idea of what it holds. SubmitFeedback requires the name
+     * non-blank on every write, so `guestSender` covers a historical row
+     * rather than an ordinary submission; the subject is genuinely optional
+     * on both forms, so `noSubject` is met every day.
+     */
+    adminFeedback: {
+        title: "Góp ý",
+        // The unread line above the chips. Two sentences rather than one
+        // template with a 0 in it: "0 tin mới" is a number a reader has to
+        // parse before they know there is nothing to do.
+        unreadNone: "Không có tin mới",
+        unreadSome: "{count} tin mới",
+        filterAll: "Tất cả",
+        filterNew: "Mới",
+        filterRead: "Đã đọc",
+        filterResolved: "Đã xử lý",
+        empty: "Chưa có góp ý nào.",
+        // The right-hand pane before anything is chosen, which on a
+        // non-empty inbox a volunteer never sees (the server opens the top
+        // of the list for them) and on an empty one is the whole screen.
+        choose: "Chọn một tin để đọc.",
+        unreadBadge: "Tin mới",
+        guestSender: "Khách (không đăng nhập)",
+        noSubject: "(không có chủ đề)",
+        // NULL SHELF READS AS THIS, never as a blank — a site-wide message
+        // with nothing beside it looks like a message whose parish nobody
+        // recorded.
+        siteWide: "Toàn hệ thống",
+        // The typed name and the signed-in account are SEPARATE FACTS and
+        // this line is the second of them. The reference's recorded
+        // incident is what it exists for: a reader who typed "Chị Hạnh" was
+        // displayed as their account's own label and the administrator rang
+        // the wrong person. The fix made the typed name win everywhere;
+        // this line keeps the account visible rather than hidden by it.
+        sentWhileSignedIn: "Gửi khi đang đăng nhập bằng {name}.",
+        // Said on the screen because it is true of the whole application:
+        // nothing here sends email, so the number above is the only way
+        // anybody answers.
+        replyNote: "Hệ thống không gửi email. Trả lời bằng cách gọi vào số điện thoại ở trên.",
+        handledBy: "{name} đã xử lý lúc {at}.",
+        // Falls back to the institution when the handler's account is gone
+        // — a message handled by somebody since removed still was handled.
+        handledByUnknown: "Ban quản trị",
+        markRead: "Đánh dấu đã đọc",
+        markResolved: "Đánh dấu đã xử lý",
+    },
     adminProfileChanges: {
         title: "Đề nghị đổi thông tin của người quản lý",
         lead: "Đề nghị của người quản lý và quản trị tủ sách, ở mọi tủ sách — vì không ai trong tủ sách của họ được duyệt.",
