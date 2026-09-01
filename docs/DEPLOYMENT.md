@@ -1,6 +1,10 @@
 # OLibra — Deployment
 
-**Status:** Current as of 2026-08-14.
+**Status:** STALE — describes the Next.js deployment (VPS, Docker, Caddy),
+which is not what ships. The Laravel app targets shared cPanel hosting; its
+pipeline exists (`.github/workflows/deploy-laravel.yml`, `.cpanel.yml`,
+`deploy/post-deploy.sh`) and has never been run against the real host. This
+document will be rewritten from the first real deploy, not before it.
 **Scope:** Standing this system up on a VPS and keeping it running. The reasoning behind the design is in [`superpowers/specs/2026-08-14-vps-deployment-design.md`](superpowers/specs/2026-08-14-vps-deployment-design.md); this document is the operator's half — what to type, in what order, and what to do when it does not work.
 
 Everything here assumes one VPS running Ubuntu 22.04 or 24.04 with 2 GB of RAM.

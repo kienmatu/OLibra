@@ -1198,7 +1198,7 @@ Deliberately out of scope, per this document's own charter:
 - **Transport** — REST, GraphQL, RPC, server actions, or anything else. An operation's name and contract must survive any of these unchanged.
 - **Auth mechanism** — how a caller proves they are a given `userId` with a given `membershipId`'s role at a given shelf. Session cookie, JWT, magic link (there is no email in v1, per §4) — unspecified.
 - **Session storage** — where "who is calling" lives between requests.
-- **Framework** — Next.js is the current UI's framework (visible from the route tree), but nothing here depends on it, and the backend need not share it.
+- **Framework** — the UI ships on **Laravel 13 + Inertia v3 + React** (this line said "Next.js is the current UI's framework" until phase 4; the port makes the point better than the original did). Nothing in this document depends on the framework, which is exactly why the catalogue survived the change unaltered.
 - **ORM / persistence layer** — this document specifies *what the datastore must guarantee* (§6's concurrency constraint, INV-1 through INV-13 generally) but not which database, which query builder, or which migration tool delivers those guarantees.
 
 **Any candidate stack must be able to satisfy, without exception:**

@@ -82,11 +82,24 @@ mysql -e "<trigger DDL above>" olibra 2>&1
 
 ## The docroot decision
 
-Row 6 (`symlink()` allowed?) is unanswered. Until the survey returns, Task 21 assumes
-the **`index.php` shim docroot** — the more conservative option that works whether or
-not `symlink()` turns out to be permitted — rather than the `public_html` → `public/`
-symlink. If the survey later confirms `symlink()` works, Task 21 should switch to the
-symlink approach, since it is the design's preferred mechanism.
+**Row 6 was ANSWERED on 2026-09-01** — `function_exists("symlink")` is `true` and
+`symlink` is not in `disable_functions` — so the paragraph that used to stand here,
+saying row 6 was unanswered and the shim was assumed until the survey returned, was
+left stale by that answer and is replaced.
+
+What the answer changes and what it does not: option 2 (the `public_html` → `public/`
+symlink) is now **available**, and is preferred over option 3. Option 1 (the Document
+Root override) is still the first thing to try, because it needs no symlink at all and
+whether cPanel's Domains UI permits a Document Root outside `public_html` on this
+account is still unconfirmed. The shipped default remains the shim, since it works
+under all three outcomes; switching to the symlink is a one-command change on the host
+and is the right move once someone is standing at that host.
+
+The reason this matters beyond tidiness: **under the shim, `public/storage` is not
+served.** `deploy/post-deploy.sh` copies only `public/build` and `public/.htaccess`
+into `public_html`, so a storage symlink sits where the web server never looks, and
+avatars fall back to `AVATAR_DISK_ROOT`/`AVATAR_DISK_URL` pointed inside the served
+docroot (`config/filesystems.php`). Options 1 and 2 do not have that problem.
 
 ## The hashing decision
 

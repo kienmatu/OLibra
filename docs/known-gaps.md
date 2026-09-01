@@ -5596,3 +5596,74 @@ would fail against `old_next`.
   other on its own, and the fix somebody would reach for — making an
   unrecognised actor mean "no rows" — trades this narrow hole for the general
   one the browser is built to avoid.
+
+## Phase 4 — the cutover
+
+### `docs/DEPLOYMENT.md` is knowingly wrong, and now says so in its first line
+
+- **The document was NOT rewritten in Phase 4. It got one new `Status:` line and
+  nothing else** (spec `docs/superpowers/specs/2026-09-01-laravel-phase-4-cutover-design.md`,
+  D5). Its body still describes the Next.js deployment — one Ubuntu VPS, Docker
+  Compose, Caddy in front, a `storage.<domain>` DNS record — which is not what
+  ships. The Laravel app targets shared cPanel hosting.
+
+  **The reason it was deferred rather than rewritten** is that the only material
+  available to rewrite it from is the *shape* of the pipeline files, and
+  `.github/workflows/deploy-laravel.yml:4` says of itself: *"Nothing in this file
+  has ever run against the real host"*. A runbook written from unrun YAML reads
+  as tested. The wrong document that announces it is wrong costs an operator one
+  line of reading; a confident runbook whose steps have never executed costs an
+  operator the deploy. So the pipeline (`.github/workflows/deploy-laravel.yml`,
+  `.cpanel.yml`, `deploy/post-deploy.sh`) stays as it is, and the document is
+  rewritten *from* the first real deploy, not ahead of it.
+
+  **The cost, stated plainly:** Phase 4 closes without its deployment half, and
+  the one document an operator reaches for on cutover day is the one that is
+  knowingly stale. The only mitigation is the header.
+
+- **Two things the first real deploy must check that no test in this repository
+  can.** Both are recorded here because they are exactly the kind of assumption
+  that reads as settled and is not.
+
+  **1. That the avatar disk's configured path is actually served by the chosen
+  docroot.** `docs/HOSTING.md` row 6 came back on 2026-09-01: `symlink()` is
+  present and `disable_functions` is
+  `system,passthru,shell_exec,escapeshellcmd,dl,show_source,posix_*`, which does
+  not list it — so `artisan storage:link` can create the link. **That is not the
+  same as the link being reachable, and under the shim docroot it is not.**
+  `deploy/post-deploy.sh:128-134` copies only `public/build` and
+  `public/.htaccess` into `$PUBLIC_HTML_PATH`, so a `public/storage` symlink
+  sits in a directory the web server never enters. The fallback that closes this
+  is `config/filesystems.php:100-101`, whose `avatars` disk reads
+  `AVATAR_DISK_ROOT` / `AVATAR_DISK_URL` — pointed, under the shim, at a path
+  *inside* the served docroot (`.env.example:221-225`). Under the Document-Root
+  override and the `public_html` symlink options the defaults are already right.
+  **What only a deploy can tell us is which docroot the host ended up on and
+  whether an uploaded avatar comes back over HTTP from that path.** Nothing in
+  the suite reaches a web server.
+
+  **2. That `imagick` being absent while `gd` is present matches what the app
+  actually calls. It does — verified against the code, not assumed.** The only
+  image-processing path in the application is the member avatar:
+  `app/Http/Controllers/Reader/ProfileController.php:176` takes the sole
+  `UploadedFile` in the codebase, and it reaches
+  `App\Support\Members\AvatarImage::process()` through
+  `AvatarStorage.php:159`. Every call that class makes is a gd call —
+  `getimagesizefromstring`, `imagecreatefromstring`, `imagerotate`, `imageflip`,
+  `imagecreatetruecolor`, `imagecopyresampled`, `imagewebp` / `imagejpeg` — plus
+  `exif_read_data`, guarded by `function_exists`. There is no imagick branch to
+  lose. Book and shelf covers are not uploads at all: `cover_url` is a nullable
+  `text` column in both
+  `database/migrations/2026_08_26_000005_create_books_table.php:29` and
+  `..._000001_create_bookshelves_table.php:19`. QR labels deliberately avoid
+  both extensions — `app/Support/Qr/LabelSheet.php:293` draws the symbol as PDF
+  rectangles precisely to keep `ext-gd` and `ext-imagick` out of the
+  requirements — and `composer.json` requires no `ext-*` at all.
+
+  **What is still open inside that second claim is narrower than the claim, and
+  it is real:** whether the host's `gd` was compiled with **WebP encode**
+  support. `docs/HOSTING.md` row 3 records it as the one capability the survey
+  did not answer. `AvatarImage::encode()` (`:265`) asks `gd_info()['WebP
+  Support']` at runtime and writes JPEG when the answer is no, so the failure
+  mode is a larger file rather than a broken upload — but which branch the real
+  host takes is not knowable until something runs there.
