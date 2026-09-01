@@ -586,3 +586,38 @@ it('a notification cannot outlive a rolled-back decision', function () {
     expect(Notification::query()->withoutGlobalScopes()->count())->toBe(0)
         ->and(decRow($request->id)->status)->toBe(ProfileChangeStatus::Pending);
 });
+
+/**
+ * The COMMON path, which lost its sequence pin when the one above switched to
+ * an approve WITH a placement. An approve that names no unit never reaches
+ * `applyPlacement`, so a change making the membership lock conditional on
+ * `$units !== []` would reintroduce the inversion for the majority of
+ * approvals and leave every other test green.
+ */
+it('locks the same three rows in the same order approving WITHOUT a placement', function () {
+    $shelf = Bookshelf::factory()->create(['slug' => 'dong-thap-no-units']);
+    $person = User::factory()->create([
+        'saint_name' => 'Maria', 'full_name' => 'Nguyễn Thị Lan',
+        'phone' => '0911111111', 'phone_missing_reason' => null,
+    ]);
+    Membership::factory()->for($shelf)->create([
+        'user_id' => $person->id, 'role' => 'reader', 'status' => 'active',
+    ]);
+    [$manager, $managerMembership] = decShelfManager($shelf);
+
+    decActAs($shelf, $manager, $managerMembership);
+    $approving = decRow(decPending($shelf, $person, ['phone' => '0922222222'])->id);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    decApprove($manager, $approving);
+    $locking = lockingReads(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect(array_map(
+        fn (array $e) => preg_replace('/^select \* from (`\w+`).*$/s', '$1', $e['query']),
+        $locking,
+    ))->toBe(['`memberships`', '`users`', '`profile_change_requests`']);
+
+    expect($locking[1]['bindings'])->toBe([$person->id]);
+});

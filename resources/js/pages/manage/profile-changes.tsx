@@ -109,18 +109,32 @@ const LABELS = copy.myProfile.fieldLabels as Record<string, string>;
  * back carrying validation errors, so the card that posted is still mounted
  * and still holds this flag when the errors arrive.
  */
-function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string }) {
+function ChangeCard({
+    card,
+    shelfSlug,
+    errorCardId,
+    claimError,
+}: {
+    card: QueueCard;
+    shelfSlug: string;
+    errorCardId: string | null;
+    claimError: (id: string | null) => void;
+}) {
     const c = copy.manageProfileChanges;
     const { errors, taxonomy, units } = usePage<PageProps>().props;
 
     const [reason, setReason] = useState("");
-    const [rejected, setRejected] = useState(false);
+    // Inertia's errors are PER PAGE, not per card, so a card must claim the
+    // right to show `errors.reason` and release it when any other card posts.
+    // The first version of this fix kept the flag local, which left two
+    // consecutive blank-reason rejections on DIFFERENT cards both showing red.
+    const rejected = errorCardId === card.requestId;
     const [l1, setL1] = useState(card.parishUnitL1Id ?? "");
     const [l2, setL2] = useState(card.parishUnitL2Id ?? "");
     const [touched, setTouched] = useState(false);
 
     const approve = () => {
-        setRejected(false);
+        claimError(null);
 
         return router.post(
             route("shelves.manage.profile-changes.approve", {
@@ -133,7 +147,7 @@ function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string })
     };
 
     const reject = () => {
-        setRejected(true);
+        claimError(card.requestId);
 
         return router.post(
             route("shelves.manage.profile-changes.reject", {
@@ -250,6 +264,8 @@ function ChangeCard({ card, shelfSlug }: { card: QueueCard; shelfSlug: string })
 }
 
 export default function ManageProfileChanges() {
+    // Which card owns the page-wide `errors.reason`. See ChangeCard.
+    const [errorCardId, setErrorCardId] = useState<string | null>(null);
     const { shelf, queue, errors, flash } = usePage<PageProps>().props;
     if (!shelf) return null;
 
@@ -284,7 +300,13 @@ export default function ManageProfileChanges() {
             ) : (
                 <div className="space-y-4">
                     {queue.map((card) => (
-                        <ChangeCard key={card.requestId} card={card} shelfSlug={shelf.slug} />
+                        <ChangeCard
+                            errorCardId={errorCardId}
+                            claimError={setErrorCardId}
+                            key={card.requestId}
+                            card={card}
+                            shelfSlug={shelf.slug}
+                        />
                     ))}
                 </div>
             )}

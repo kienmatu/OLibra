@@ -94,14 +94,26 @@ const LABELS = copy.myProfile.fieldLabels as Record<string, string>;
  * back carrying validation errors, so the card that posted is still mounted
  * and still holds this flag when the errors arrive.
  */
-function ChangeCard({ card }: { card: QueueCard }) {
+function ChangeCard({
+    card,
+    errorCardId,
+    claimError,
+}: {
+    card: QueueCard;
+    errorCardId: string | null;
+    claimError: (id: string | null) => void;
+}) {
     const c = copy.adminProfileChanges;
     const { errors } = usePage<PageProps>().props;
     const [reason, setReason] = useState("");
-    const [rejected, setRejected] = useState(false);
+    // Inertia's errors are PER PAGE, not per card, so a card must claim the
+    // right to show `errors.reason` and release it when any other card posts.
+    // The first version of this fix kept the flag local, which left two
+    // consecutive blank-reason rejections on DIFFERENT cards both showing red.
+    const rejected = errorCardId === card.requestId;
 
     const post = (action: "approve" | "reject") => {
-        setRejected(action === "reject");
+        claimError(action === "reject" ? card.requestId : null);
 
         return router.post(
             route(`admin.profile-changes.${action}`, { profileChange: card.requestId }),
@@ -206,6 +218,8 @@ function ChangeCard({ card }: { card: QueueCard }) {
 }
 
 export default function AdminProfileChanges() {
+    // Which card owns the page-wide `errors.reason`. See ChangeCard.
+    const [errorCardId, setErrorCardId] = useState<string | null>(null);
     const { queue, errors, flash } = usePage<PageProps>().props;
     const c = copy.adminProfileChanges;
 
@@ -235,7 +249,12 @@ export default function AdminProfileChanges() {
             ) : (
                 <div className="space-y-4">
                     {queue.map((card) => (
-                        <ChangeCard key={card.requestId} card={card} />
+                        <ChangeCard
+                            errorCardId={errorCardId}
+                            claimError={setErrorCardId}
+                            key={card.requestId}
+                            card={card}
+                        />
                     ))}
                 </div>
             )}

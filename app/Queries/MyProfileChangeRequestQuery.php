@@ -132,9 +132,13 @@ final class MyProfileChangeRequestQuery
             // The key never travels — see this class's header.
             'proposedValues' => Arr::except($proposed, ['avatar_object']),
             'previousValues' => Arr::except($previous, ['avatar_object']),
-            // The flag is about the REQUEST and stays true at every status:
-            // "they did propose a photograph" is still the truth about a
-            // rejected row, and the page uses it to say so in words.
+            // The flag is about the REQUEST, so it stays true at every
+            // status — but note the page reads it ONLY behind a pending
+            // guard, so on a decided request it is dead data and the reader
+            // is told nothing about the photograph they proposed. That is
+            // deliberate (the decided card carries no images because the
+            // objects are gone), and an earlier version of this comment
+            // claimed the page "says so in words". It does not.
             'avatarProposed' => array_key_exists('avatar_object', $proposed),
             // The addresses are about the OBJECTS, and after a decision one
             // of the two is deleted — see this class's header.

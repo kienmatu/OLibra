@@ -389,11 +389,16 @@ it('D11 — the units render through THIS shelf\'s labels, never the words Tổ 
 
     expect($source)->toContain('taxonomy.level1Label')
         ->and(str_contains($source, 'Giáo họ'))->toBeFalse('the page hard-codes Giáo họ')
-        // NO TRAILING SPACE. It used to read 'Tổ ', which does not match a
+        // Matched as a QUOTED literal, not a bare substring. 'Tổ ' with a
+        // trailing space missed the very case it names; a bare 'Tổ' catches
+        // Tổng and Tổ chức too and fails with a misleading message. What is
+        // forbidden is the label appearing as a hard-coded string. It used
+        // to read 'Tổ ', which does not match a
         // bare `"Tổ"` string literal — the exact shape a page hard-coding
         // the default level-2 label would most likely use, and the one this
         // assertion names. The word on its own is what must be absent.
-        ->and(str_contains($source, 'Tổ'))->toBeFalse('the page hard-codes Tổ');
+        ->and(str_contains($source, '"Tổ"') || str_contains($source, "'Tổ'"))
+        ->toBeFalse('the page hard-codes the level-1 label as a literal');
 });
 
 it('a shelf whose units are all retired renders no unit row, and still names the reader\'s own', function () {
