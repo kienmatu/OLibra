@@ -138,7 +138,14 @@ Spec D2. No new audit actions.
 Renders `contact_name`, `contact_phone`, `contact_hours` from the single row,
 **omitting any that is blank** — never a placeholder, never an invented default.
 When no contact is configured at all, the page says plainly that the visitor
-should approach their parish directly.
+should approach their parish directly. **The sentence is given here rather than
+invented**, because this is the app's only public front door and the reference
+has none to port (its else-branch is the form this phase defers):
+
+> Hiện chưa có thông tin liên hệ chung. Xin liên hệ trực tiếp với giáo xứ của
+> bạn.
+
+It goes in `resources/js/lib/copy.ts` with the rest of the page's copy.
 
 **No feedback form.** It is deferred to 3c to land with the inbox that reads it;
 there is no feedback write path in this application today and `/admin/feedback`
@@ -356,6 +363,12 @@ style). Record:
   unit lists under the admin Bookshelves screen. We match it on authority
   (super admin only) and diverge on location, because `ParishUnit` is
   shelf-scoped and `/admin` binds no tenant.
+- **Five of this phase's ten audit rows land where no screen can read them.**
+  `system_settings.updated`, `site_contact.updated` and the three `category.*`
+  are global rows; `AuditLogQuery:220` filters by `bookshelf_id`, so global rows
+  are excluded, and `/admin/audit` is `underConstruction` (3c's). Defensible — an
+  audit row is a record, not a promise — but it sits oddly beside D2's reasoning
+  for deferring the contact form, so it is written down rather than left implicit.
 - **The archived-shelf resolver filter and export remain deferred**, per 3b-i,
   with export still unscheduled and still a precondition.
 
