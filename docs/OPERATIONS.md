@@ -584,7 +584,9 @@ The reader withdraws their own proposal before a decision is made (§7.4's diagr
   - `not_permitted` — a `manager`/`admin`-subject change cancelled by anyone but the subject themselves or a `super_admin` (added 2026-08-13, routing rule above)
   - `not_pending` — "Yêu cầu này đã được xử lý."
 
-> **Open question — notification gap.** §15's list of reader-facing notifications does not mention a profile-change decision at all (it covers registration and borrowing outcomes only). This document does not invent one: `ApproveProfileChange` and `RejectProfileChange` write no row into the notification system described in §7 below, so a reader only learns the outcome by revisiting `GetMyProfileChangeRequest` (or, on rejection, by whatever surfaces the reason on the profile page). Whether that silence is intentional or a gap in §15 is for the product owner to say.
+> **~~Open question — notification gap.~~ RETRACTED 2026-09-01 (Laravel migration, phase 3c-i).** The premise was false when written and is false now: §15 of the requirements **does** name both notifications — `BUSINESS-REQUIREMENTS.md:490`, *"profile change approved, profile change rejected (carrying the manager's reason)"* — and `:492` gives the reason. Phase 3c-i built both, and §7's table above now carries their rows. The original text is kept below because this project has watched a deleted false sentence return three commits later; it is wrong, not merely superseded.
+>
+> ~~**Open question — notification gap.** §15's list of reader-facing notifications does not mention a profile-change decision at all (it covers registration and borrowing outcomes only). This document does not invent one: `ApproveProfileChange` and `RejectProfileChange` write no row into the notification system described in §7 below, so a reader only learns the outcome by revisiting `GetMyProfileChangeRequest` (or, on rejection, by whatever surfaces the reason on the profile page). Whether that silence is intentional or a gap in §15 is for the product owner to say.~~
 
 #### `ChangeOwnPassword`
 
