@@ -71,6 +71,35 @@ it('renders every refusal the /admin/managers controls can produce', function ()
         ->and($source)->toContain('form.errors.role');
 });
 
+it('renders the two refusals and both field bags /admin/settings can produce', function () {
+    // Phase 3b-ii Task 1. THE LIST IN THIS FILE IS HAND-WRITTEN and does not
+    // grow on its own — a new admin page rendering neither its refusals nor
+    // its flashes ships silently, which is the exact defect this file's
+    // docblock was written about. So the page is added here in the same task
+    // that builds it.
+    //
+    // One RuleViolated reaches this screen: phone_invalid, from
+    // UpdateSiteContact's Phone::assert() on the number /contact publishes.
+    // It arrives under `rule` rather than as a field error, which is why the
+    // page must read the shared bag as well as the two form bags.
+    //
+    // The shared bag is read under a local name here (`errors: pageErrors`,
+    // the shelf editor's own shape) rather than as the literal `errors.rule`
+    // /admin/managers uses, so BOTH halves are asserted: that the page takes
+    // `errors` off the page props at all, and that it renders `.rule` from
+    // it. Either alone passes on a page that destructures the prop and never
+    // shows it, or that shows a `.rule` belonging to some other bag.
+    $source = adminScreenSource('settings/index.tsx');
+
+    expect($source)->toContain('errors: pageErrors')
+        ->and($source)->toContain('pageErrors.rule')
+        // The two forms' own bags, each scoped to its own form. A page that
+        // read only the shared bag would swallow every bounds refusal on the
+        // defaults form and every length refusal on the contact form.
+        ->and($source)->toContain('contactForm.errors')
+        ->and($source)->toContain('defaultsForm.errors');
+});
+
 it('renders the success flash on every admin screen a redirect carries one to', function () {
     // ManagerController flashes on all three grants and redirects to
     // /admin/managers. ShelfController flashes on all six of its writes:
@@ -78,5 +107,8 @@ it('renders the success flash on every admin screen a redirect carries one to', 
     // land on the editor.
     expect(adminScreenSource('managers/index.tsx'))->toContain('flash.success')
         ->and(adminScreenSource('shelves/index.tsx'))->toContain('flash.success')
-        ->and(adminScreenSource('shelves/edit.tsx'))->toContain('flash.success');
+        ->and(adminScreenSource('shelves/edit.tsx'))->toContain('flash.success')
+        // SettingsController flashes on both of its writes and redirects
+        // back to /admin/settings, so the one screen carries both sentences.
+        ->and(adminScreenSource('settings/index.tsx'))->toContain('flash.success');
 });

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
+use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\ShelfController as AdminShelfController;
 use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
@@ -614,7 +615,25 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // There is deliberately no route back: OPS §4.5 lists no demotion.
     Route::post('/managers/{user}/promote', [AdminManagerController::class, 'promote'])->name('managers.promote');
     Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
-    Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
+    // Phase 3b-ii Task 1, spec D1 — BR §16.4's system settings, and the
+    // first caller `system_settings` has ever had. TWO WRITE ROUTES rather
+    // than one, because the screen carries two forms: the administration's
+    // own contact block (what the public reads on /contact) and the six
+    // defaults a newly created shelf starts with. A shared route would mean
+    // a number out of range in the second blocked a correction to the first
+    // — 3b-i's D2 rule, applied to a page whose top half is public.
+    //
+    // POST for both, not PATCH. Each submit carries its whole block and the
+    // row is a singleton created by the migration, so there is no partial
+    // update to express and no resource to address: the URL names which
+    // block is being written, which is the only distinction these two
+    // requests carry.
+    //
+    // NO {bookshelf} AND NO {shelf}: the installation's own row belongs to
+    // no parish, which is also why both writers audit globally.
+    Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings');
+    Route::post('/settings/contact', [AdminSettingsController::class, 'updateContact'])->name('settings.contact');
+    Route::post('/settings/defaults', [AdminSettingsController::class, 'updateDefaults'])->name('settings.defaults');
     Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
     Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
     Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');

@@ -191,6 +191,14 @@ return [
     // 'hệ thống', not 'tủ sách' — the whole point of this row is that it
     // belongs to no shelf.
     'user_promoted_super_admin' => 'giao quyền quản trị hệ thống cho :subject',
+    // Phase 3b-ii Task 1's pair, both the reference's phrases verbatim
+    // (audit-actions.ts:631-638). Neither takes a substitution: the subject
+    // of both is the installation itself, so there is no name to fill in and
+    // no bare twin to fall back to. 'mặc định' in the first is what keeps it
+    // honest — the act changes what a tủ sách opened later starts with, and
+    // nothing about any tủ sách already open.
+    'system_settings_updated' => 'đổi cài đặt mặc định của hệ thống',
+    'site_contact_updated' => 'đổi thông tin liên hệ của ban quản trị',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

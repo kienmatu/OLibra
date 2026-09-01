@@ -143,6 +143,23 @@ final class AuditSentences
         // AuditRecorder has a configurator at all (spec D0) — and why the
         // shelf-scoped audit screen never shows it.
         'user.promoted_super_admin' => 'administration',
+        // Phase 3b-ii Task 1's pair, spec D1 and D8 — the same he-thong
+        // family the reference files them under (audit-actions.ts:631-638).
+        // TWO ACTIONS AND NOT ONE, unlike bookshelf.updated above, and the
+        // difference is not the form split: these two forms write different
+        // FACTS about different readers. `site_contact.updated` changes what
+        // a stranger with no membership anywhere reads on /contact;
+        // `system_settings.updated` changes what a shelf opened next month
+        // will start with, and neither existing shelf nor existing reader is
+        // touched. A volunteer reading the log needs to tell those apart,
+        // and the reference names them separately for the same reason.
+        //
+        // BOTH ROWS BELONG TO NO SHELF, like user.promoted_super_admin
+        // above: their subject is the installation. So both are written
+        // through AuditRecorder's cross-shelf arm, and neither can appear on
+        // a shelf's own audit screen.
+        'system_settings.updated' => 'administration',
+        'site_contact.updated' => 'administration',
     ];
 
     /**
@@ -426,6 +443,17 @@ final class AuditSentences
             'membership.role_assigned' => strtr(self::line('membership_role_assigned'), [':subject' => self::who($subject)]),
             'membership.role_revoked' => strtr(self::line('membership_role_revoked'), [':subject' => self::who($subject)]),
             'user.promoted_super_admin' => strtr(self::line('user_promoted_super_admin'), [':subject' => self::who($subject)]),
+            // Task 1's pair. NEITHER ARM READS ITS PAYLOAD, and neither
+            // needs a _bare twin: what changed is the installation, which
+            // has one name and no alternative, so there is nothing here for
+            // a missing key to make unspeakable. The numbers that moved are
+            // on the payload row one tap away — INV-8's own placement — and
+            // the contact row deliberately carries no phone at all (see
+            // UpdateSiteContact: BR §14 records what changed rather than
+            // duplicating it, and the phone is the one field here somebody
+            // could be identified by).
+            'system_settings.updated' => self::line('system_settings_updated'),
+            'site_contact.updated' => self::line('site_contact_updated'),
             default => self::line('unknown'),
         };
     }

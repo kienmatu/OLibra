@@ -204,6 +204,67 @@ export const copy = {
         // before the press rather than after it.
         archiveNote: "Tủ sách ngưng hoạt động vẫn giữ nguyên toàn bộ dữ liệu và có thể mở lại.",
     },
+    // Phase 3b-ii Task 1's screen (spec D1) — BR §16.4's system settings.
+    adminSettings: {
+        title: "Cài đặt hệ thống",
+        lead: "Thông tin liên hệ của ban quản trị và các giá trị mặc định của hệ thống.",
+        // The contact block is FIRST on the page, and this sentence is why:
+        // it is the only setting in the application a member of the public
+        // can see (BR §16.4). Everything below it is internal.
+        contactSection: "Liên hệ ban quản trị",
+        contactLead:
+            "Thông tin này hiện công khai ở trang Liên hệ, cho những giáo xứ muốn mở tủ sách mới.",
+        contactFields: {
+            name: "Tên người phụ trách",
+            phone: "Số điện thoại",
+            hours: "Giờ liên hệ",
+        },
+        contactPhoneHint: "Số này hiện công khai và bấm gọi được.",
+        contactOptional: "Không bắt buộc",
+        // Clearing all three is a real state — an installation between
+        // administrators — and the public page says what to do instead
+        // rather than showing a blank label, so the form must not demand a
+        // value it cannot honestly require.
+        contactBlankNote:
+            "Để trống ô nào thì trang Liên hệ bỏ hẳn dòng đó, không hiển thị chỗ trống.",
+        submitContact: "Lưu thông tin liên hệ",
+        defaultsSection: "Mặc định cho tủ sách mới",
+        // THE MOST IMPORTANT SENTENCE ON THIS PAGE, and the reference's
+        // file header says exactly that. Saving these numbers changes no tủ
+        // sách that already exists — each keeps its own policy — so a
+        // heading reading "Mặc định" without this line is read as "the
+        // settings", and an administrator lowering the loan period here
+        // would expect every parish to follow tomorrow.
+        defaultsLead:
+            "Chỉ áp dụng cho tủ sách mở mới. Các tủ sách đang hoạt động giữ nguyên quy định của mình.",
+        defaultsFields: {
+            loanDays: "Số ngày cho mượn",
+            maxConcurrentLoans: "Số sách mượn cùng lúc",
+            maxRenewals: "Số lần gia hạn",
+            renewalDays: "Số ngày mỗi lần gia hạn",
+            holdDays: "Số ngày giữ chỗ",
+            dueSoonDays: "Báo trước hạn trả (ngày)",
+        },
+        // The same two zeroes the shelf editor explains, and the same
+        // reason: a bare min=0 on an input says nothing about what 0 means.
+        defaultsZeroAllowed:
+            "Điền 0 ở “Số lần gia hạn” nghĩa là không cho gia hạn; điền 0 ở “Báo trước hạn trả” nghĩa là chỉ nhắc đúng ngày đến hạn.",
+        submitDefaults: "Lưu giá trị mặc định",
+        // Read-only, and rendered as text rather than as a select with one
+        // option — a control that cannot be operated dressed as one that
+        // can. The timezone value comes from the server (App\Support\Clock),
+        // never typed here; the language is not a stored value at all.
+        environmentSection: "Ngôn ngữ và múi giờ",
+        environmentLanguageLabel: "Ngôn ngữ",
+        environmentLanguageValue: "Tiếng Việt",
+        environmentTimezoneLabel: "Múi giờ",
+        environmentNote: "Hệ thống hiện chỉ hỗ trợ tiếng Việt và múi giờ Việt Nam.",
+        // Provenance: the two columns both forms write by hand. Shown
+        // because "when was this last changed" is the first question asked
+        // of a settings screen whose values nobody remembers choosing.
+        changedAtLabel: "Lần sửa gần nhất",
+        changedAtNever: "Chưa có ai sửa.",
+    },
     // Task 7's screen (spec D5, D7) — OPS §3.4's GetManagersList and the
     // three grants of §4.5.
     adminManagers: {

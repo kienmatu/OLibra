@@ -335,6 +335,16 @@ return [
     'bookshelf_archived_flash' => 'Đã ngưng hoạt động tủ sách. Toàn bộ dữ liệu vẫn được giữ lại và có thể mở lại bất cứ lúc nào.',
     'bookshelf_unarchived_flash' => 'Đã mở lại tủ sách.',
 
+    // — cài đặt hệ thống (Phase 3b-ii Task 1) —
+    // Two forms on one screen, two sentences, for the reason the shelf
+    // editor's three flashes carry above: a page whose forms submit
+    // independently cannot say which one saved if both flash the same
+    // words. The defaults sentence repeats the screen's own most important
+    // qualification — mới — because a volunteer who has just saved a number
+    // is exactly the person about to assume every tủ sách now follows it.
+    'site_contact_saved_flash' => 'Đã lưu thông tin liên hệ của ban quản trị.',
+    'system_defaults_saved_flash' => 'Đã lưu giá trị mặc định cho tủ sách mở mới.',
+
     // — quản lý viên (Phase 3b-i Task 7) —
     // BR §16.4's confirmation, and the requirement is that it "states
     // plainly that history is retained" — so the sentence says what stays,
