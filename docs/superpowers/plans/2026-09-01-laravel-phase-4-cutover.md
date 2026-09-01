@@ -11,7 +11,8 @@
 You are working in a repository that currently holds **two applications**: the
 Laravel app that ships (`app/`, `resources/js/`, `routes/`, `database/`) and the
 Next.js original at `old_next/`, which has been a read-only behavioural
-reference and is being retired. Phase 4 changes **no application behaviour**.
+reference and is being retired. Git tracks **521** of its files (5.4 MB); the
+231 MB you see on disk is untracked build output. Phase 4 changes **no application behaviour**.
 The suite is 1966 tests before this phase and must be 1966 after it; a different
 number means a task did something it was not asked to.
 

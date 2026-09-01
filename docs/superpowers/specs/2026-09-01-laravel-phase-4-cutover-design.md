@@ -18,7 +18,9 @@ Today the repository holds **both applications at once**:
 
 - The shipped Laravel app — `app/` (75 Actions, 48 Queries, 19 Models),
   `resources/js/`, `routes/web.php`, 30 migrations, 1966 tests.
-- The Next.js original at **`old_next/`** — 2620 files, 231 MB — which has been
+- The Next.js original at **`old_next/`** — **521 files and 5.4 MB tracked in
+  git**, sitting in a working directory of 2620 files and 231 MB once its build
+  output and installed packages are counted — which has been
   the *read-only behavioural reference* for every phase. When a port had to
   decide what a screen does, the answer came from reading that tree.
 
@@ -70,11 +72,16 @@ tree to `.artifacts/`.**
 exception for its README), so the tree survives locally as a working reference
 without being a thing the repository carries, ships, or asks CI to ignore.
 
+Note the two figures, because it is easy to quote the wrong one: **git carries
+521 files and 5.4 MB**; the 231 MB and 2620 files are the *working directory*,
+which is mostly `.next/` build output and installed packages that were never
+tracked. The deletion removes 521 files from the repository, not 2620.
+
 Concretely, in the product owner's own checkout at
 `/Users/kiendinh/Documents/Hilibra`:
 
 ```
-before:  Hilibra/old_next/src/app/lien-he/page.tsx     tracked, 231 MB in git
+before:  Hilibra/old_next/src/app/lien-he/page.tsx     tracked (1 of 521 files)
 after:   Hilibra/.artifacts/old_next/src/app/lien-he/page.tsx   on disk, untracked
 ```
 
