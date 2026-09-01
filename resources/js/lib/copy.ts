@@ -36,6 +36,32 @@ export const copy = {
         searchButton: "Tìm",
         noResults: "Không tìm thấy tủ sách nào phù hợp.",
     },
+    // Phase 3b-ii Task 2's screen (spec D2) — the public `/contact`, and the
+    // only page in the application a parish with no bookshelf at all can
+    // reach and act on. Everything here is read from `system_settings`'
+    // three contact columns, which /admin/settings (Task 1) edits.
+    contact: {
+        title: "Liên hệ ban quản trị",
+        // The reference's own subtitle, and the reason the page exists: the
+        // portal's empty state sends a parish here to ask for a tủ sách.
+        lead: "Muốn mở một tủ sách cho giáo xứ mình, hoặc cần giúp đỡ về hệ thống?",
+        // THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, given by the
+        // plan rather than invented here. The reference has none to port —
+        // its else-branch is the feedback form 3b-ii defers to 3c, to land
+        // with the inbox that reads it — so this is the app's only public
+        // front door talking to somebody it cannot help directly, and the
+        // wording was decided once, in the plan, rather than improvised.
+        //
+        // It is NOT a placeholder for the three details: a blank field is
+        // omitted outright (never an invented name or number), and this
+        // line appears only when there is no name and no phone at all.
+        noContact:
+            "Hiện chưa có thông tin liên hệ chung. Xin liên hệ trực tiếp với giáo xứ của bạn.",
+        // Shown only beside a real number. The application sends no email at
+        // all, so a visitor who reads "liên hệ" and looks for an address
+        // would otherwise wait for a reply that never comes.
+        callNote: "Hệ thống không gửi email. Gọi vào số trên là nhanh nhất.",
+    },
     shelf: {
         catalogue: "Danh mục",
         search: "Tìm kiếm",

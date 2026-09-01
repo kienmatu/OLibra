@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\ShelfController as AdminShelfController;
+use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
@@ -42,7 +43,17 @@ Route::get('/', [ShellController::class, 'home'])->name('home');
 Route::get('/register', [RegistrationController::class, 'create'])->name('register');
 Route::post('/register', [RegistrationController::class, 'store'])
     ->middleware('throttle:register')->name('register.store');
-Route::get('/contact', [ShellController::class, 'underConstruction'])->name('contact');
+// Phase 3b-ii Task 2 (spec D2). Deliberately outside every group on this
+// file: no `auth`, no `role:`, and above all no `tenant`. The visitor this
+// page is for is a parish with no bookshelf at all, so binding a tenant is
+// not merely unnecessary, there is nothing to bind. ContactController's
+// docblock carries what that costs the controller.
+//
+// There is NO POST here and must not be one until 3c: BR §16.1's feedback
+// form lands with the inbox that reads it, and adding a write path to a
+// route with no throttle and no reader is how a page that helps a stranger
+// becomes a page that silently swallows their message.
+Route::get('/contact', [ContactController::class, 'show'])->name('contact');
 Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index');
 
 // ── One shelf ─────────────────────────────────────────────────────────────
@@ -162,7 +173,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // segment and two cannot collide.
         Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');
         Route::get('/announcements/{slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
-        // BR §16.2's Tặng sách, the offer form. Task 18 turned the
+        // BR §16.1's Tặng sách, the offer form. Task 18 turned the
         // placeholder GET into a real page and kept the route NAME, which
         // is the continuity the POST below already depended on.
         Route::get('/donate', [DonationController::class, 'create'])->name('donate');
@@ -234,7 +245,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // reader OF THIS SHELF binds fine and is refused one layer down,
         // by MarkNotificationRead's user_id key, as a silent no-op.
         Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
-        // The other half of BR §16.2's Tặng sách: what happened to each
+        // The other half of BR §16.1's Tặng sách: what happened to each
         // offer. Same controller as the form in the reader group above,
         // and the route NAME is the placeholder's, kept.
         Route::get('/donations', [DonationController::class, 'mine'])->name('donations');
