@@ -27,6 +27,12 @@ export const copy = {
     shelves: {
         title: "Các tủ sách",
         empty: "Chưa có tủ sách nào.",
+        // The portal's empty state is the one place a parish with no shelf
+        // yet is standing, and /contact exists for exactly that person —
+        // BR §16.1 calls it their only route to a human. Without this link
+        // the page is reachable only by typing the URL.
+        missingShelf: "Giáo xứ của bạn chưa có tủ sách?",
+        missingShelfLink: "Liên hệ ban quản trị",
         // BR §16.1: the search box is this page's only job, for a parent
         // typing a parish name without diacritics — "hoa binh" for "Giáo
         // xứ Hòa Bình". Folded against name, location and address
@@ -35,6 +41,32 @@ export const copy = {
         searchPlaceholder: "Tìm theo tên, khu vực hoặc địa chỉ",
         searchButton: "Tìm",
         noResults: "Không tìm thấy tủ sách nào phù hợp.",
+    },
+    // Phase 3b-ii Task 2's screen (spec D2) — the public `/contact`, and the
+    // only page in the application a parish with no bookshelf at all can
+    // reach and act on. Everything here is read from `system_settings`'
+    // three contact columns, which /admin/settings (Task 1) edits.
+    contact: {
+        title: "Liên hệ ban quản trị",
+        // The reference's own subtitle, and the reason the page exists: the
+        // portal's empty state sends a parish here to ask for a tủ sách.
+        lead: "Muốn mở một tủ sách cho giáo xứ mình, hoặc cần giúp đỡ về hệ thống?",
+        // THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, given by the
+        // plan rather than invented here. The reference has none to port —
+        // its else-branch is the feedback form 3b-ii defers to 3c, to land
+        // with the inbox that reads it — so this is the app's only public
+        // front door talking to somebody it cannot help directly, and the
+        // wording was decided once, in the plan, rather than improvised.
+        //
+        // It is NOT a placeholder for the three details: a blank field is
+        // omitted outright (never an invented name or number), and this
+        // line appears only when there is no name and no phone at all.
+        noContact:
+            "Hiện chưa có thông tin liên hệ chung. Xin liên hệ trực tiếp với giáo xứ của bạn.",
+        // Shown only beside a real number. The application sends no email at
+        // all, so a visitor who reads "liên hệ" and looks for an address
+        // would otherwise wait for a reply that never comes.
+        callNote: "Hệ thống không gửi email. Gọi vào số trên là nhanh nhất.",
     },
     shelf: {
         catalogue: "Danh mục",
@@ -93,6 +125,13 @@ export const copy = {
         // still a place to go, but it is not news.
         donationsWithCount: "Tặng sách ({count})",
         settings: "Cài đặt",
+        // The NAV word for shelves/{shelf}/manage/units, matching the
+        // reference's own sidebar label — the screen re-heads it in
+        // manageUnits.title. "Cơ cấu giáo xứ" and not "Đơn vị": the nav
+        // names the subject a volunteer is looking for, and a parish's
+        // own word for the units themselves is its to choose
+        // (ParishTaxonomy's two labels), so the nav cannot borrow it.
+        units: "Cơ cấu giáo xứ",
         audit: "Nhật ký",
     },
     admin: {
@@ -193,6 +232,30 @@ export const copy = {
         // survive the second parish.
         contactRoleHint: "Ví dụ: Người giữ chìa khoá, Quản lý tủ sách.",
         contactOptional: "Không bắt buộc",
+        // Phase 3b-ii Task 4's section, spec D5 — BR §5.6's cách chia đơn
+        // vị. The SHAPE only: mấy cấp, gọi là gì, cấp nhỏ có nằm trong cấp
+        // lớn không. Danh sách đơn vị được sửa ở màn hình riêng của tủ
+        // sách, và sản phẩm KHÔNG kèm sẵn danh sách nào (BR §5.6): danh
+        // sách đúng cho giáo xứ này thì sai cho giáo xứ khác.
+        taxonomySection: "Cách chia đơn vị",
+        taxonomyLead:
+            "Dùng khi bạn đọc đăng ký: mỗi người chọn đơn vị mình thuộc về. Ở đây chỉ đặt cách chia; danh sách đơn vị cụ thể được quản lý ở trang riêng của tủ sách.",
+        submitTaxonomy: "Lưu cách chia",
+        taxonomyFields: {
+            levels: "Số cấp",
+            levelsOne: "Một cấp",
+            levelsTwo: "Hai cấp",
+            level1Label: "Tên gọi cấp 1",
+            level2Label: "Tên gọi cấp 2",
+            nested: "Cấp 2 nằm trong cấp 1",
+        },
+        // Hai từ duy nhất BR §5.6 ghi nhận là có giáo xứ đang dùng, nêu làm
+        // ví dụ chứ không phải danh sách chọn sẵn.
+        taxonomyLabelHint: "Ví dụ: Tổ, Giáo họ.",
+        // Giá trị cấp 2 vẫn được giữ khi tủ sách chuyển về một cấp, để tủ
+        // sách quay lại hai cấp thì tìm lại đúng lựa chọn cũ (OPS §4.5).
+        taxonomyLevelTwoKept:
+            "Tủ sách một cấp vẫn giữ nguyên phần cấp 2 ở đây, để khi quay lại hai cấp thì không phải đặt lại từ đầu.",
         // Task 6's two row controls (spec D4). "Ngưng hoạt động" rather
         // than "Lưu trữ", the audit sentence's word, so the log and the
         // button a volunteer pressed say the same thing.
@@ -204,8 +267,111 @@ export const copy = {
         // before the press rather than after it.
         archiveNote: "Tủ sách ngưng hoạt động vẫn giữ nguyên toàn bộ dữ liệu và có thể mở lại.",
     },
+    // Phase 3b-ii Task 1's screen (spec D1) — BR §16.4's system settings.
+    adminSettings: {
+        title: "Cài đặt hệ thống",
+        lead: "Thông tin liên hệ của ban quản trị và các giá trị mặc định của hệ thống.",
+        // The contact block is FIRST on the page, and this sentence is why:
+        // it is the only setting in the application a member of the public
+        // can see (BR §16.4). Everything below it is internal.
+        contactSection: "Liên hệ ban quản trị",
+        contactLead:
+            "Thông tin này hiện công khai ở trang Liên hệ, cho những giáo xứ muốn mở tủ sách mới.",
+        contactFields: {
+            name: "Tên người phụ trách",
+            phone: "Số điện thoại",
+            hours: "Giờ liên hệ",
+        },
+        contactPhoneHint: "Số này hiện công khai và bấm gọi được.",
+        contactOptional: "Không bắt buộc",
+        // Clearing all three is a real state — an installation between
+        // administrators — and the public page says what to do instead
+        // rather than showing a blank label, so the form must not demand a
+        // value it cannot honestly require.
+        contactBlankNote:
+            "Để trống ô nào thì trang Liên hệ bỏ hẳn dòng đó, không hiển thị chỗ trống.",
+        submitContact: "Lưu thông tin liên hệ",
+        defaultsSection: "Mặc định cho tủ sách mới",
+        // THE MOST IMPORTANT SENTENCE ON THIS PAGE, and the reference's
+        // file header says exactly that. Saving these numbers changes no tủ
+        // sách that already exists — each keeps its own policy — so a
+        // heading reading "Mặc định" without this line is read as "the
+        // settings", and an administrator lowering the loan period here
+        // would expect every parish to follow tomorrow.
+        defaultsLead:
+            "Chỉ áp dụng cho tủ sách mở mới. Các tủ sách đang hoạt động giữ nguyên quy định của mình.",
+        defaultsFields: {
+            loanDays: "Số ngày cho mượn",
+            maxConcurrentLoans: "Số sách mượn cùng lúc",
+            maxRenewals: "Số lần gia hạn",
+            renewalDays: "Số ngày mỗi lần gia hạn",
+            holdDays: "Số ngày giữ chỗ",
+            dueSoonDays: "Báo trước hạn trả (ngày)",
+        },
+        // The same two zeroes the shelf editor explains, and the same
+        // reason: a bare min=0 on an input says nothing about what 0 means.
+        defaultsZeroAllowed:
+            "Điền 0 ở “Số lần gia hạn” nghĩa là không cho gia hạn; điền 0 ở “Báo trước hạn trả” nghĩa là chỉ nhắc đúng ngày đến hạn.",
+        submitDefaults: "Lưu giá trị mặc định",
+        // Read-only, and rendered as text rather than as a select with one
+        // option — a control that cannot be operated dressed as one that
+        // can. The timezone value comes from the server (App\Support\Clock),
+        // never typed here; the language is not a stored value at all.
+        environmentSection: "Ngôn ngữ và múi giờ",
+        environmentLanguageLabel: "Ngôn ngữ",
+        environmentLanguageValue: "Tiếng Việt",
+        environmentTimezoneLabel: "Múi giờ",
+        environmentNote: "Hệ thống hiện chỉ hỗ trợ tiếng Việt và múi giờ Việt Nam.",
+        // Provenance: the two columns both forms write by hand. Shown
+        // because "when was this last changed" is the first question asked
+        // of a settings screen whose values nobody remembers choosing.
+        changedAtLabel: "Lần sửa gần nhất",
+        changedAtNever: "Chưa có ai sửa.",
+    },
     // Task 7's screen (spec D5, D7) — OPS §3.4's GetManagersList and the
     // three grants of §4.5.
+    // Phase 3b-ii Task 3 (spec D3) — the book genres, one taxonomy shared
+    // by every tủ sách in the installation.
+    adminCategories: {
+        title: "Thể loại sách",
+        lead: "Danh sách thể loại dùng chung cho mọi tủ sách trong hệ thống.",
+        empty: "Chưa có thể loại nào. Hãy thêm thể loại đầu tiên để bắt đầu xếp sách.",
+        // The count beside each row is not decoration: it is the number
+        // that decides whether the archive control below will be accepted,
+        // so the screen can explain the refusal before producing it.
+        booksSuffix: "đầu sách",
+        slugPrefix: "Đường dẫn:",
+        // The add form. Below the list rather than above it, unlike the
+        // appoint form on Quản lý viên: a taxonomy is read far more often
+        // than it is extended, and this list is what an administrator came
+        // here to see.
+        addSection: "Thêm thể loại mới",
+        addName: "Tên thể loại",
+        addPlaceholder: "vd: Truyện tranh",
+        submitAdd: "Thêm thể loại",
+        // THE SENTENCE THIS SCREEN TURNS ON. A rename moves the display
+        // name and nothing else — the đường dẫn stays where it is, because
+        // moving it would silently repoint every cuốn sách already xếp
+        // under the old one. Said before the control, not after the press.
+        renameSection: "Đổi tên",
+        renameName: "Tên mới",
+        renameNote:
+            "Đổi tên chỉ đổi chữ hiển thị. Đường dẫn của thể loại giữ nguyên, nên sách đã xếp vào thể loại này không bị ảnh hưởng.",
+        submitRename: "Lưu tên",
+        cancel: "Huỷ",
+        // "Lưu trữ", not "Xoá": the row is kept and every cuốn sách that
+        // ever carried the thể loại keeps it. Only the picker stops
+        // offering it.
+        archive: "Lưu trữ thể loại",
+        archiveConfirm: "Xác nhận lưu trữ",
+        archiveWarning:
+            "Thể loại đã lưu trữ sẽ không hiện ra khi thêm sách mới, và không mở lại được. Nếu cần dùng lại, hãy tạo thể loại mới với tên khác.",
+        // Shown in place of the archive control when the count says the
+        // command would refuse. The rule is the server's; this only stops
+        // the screen offering a button whose one outcome is a refusal.
+        archiveBlocked:
+            "Còn sách thuộc thể loại này nên chưa lưu trữ được. Hãy đổi thể loại cho những cuốn sách đó trước.",
+    },
     adminManagers: {
         title: "Quản lý viên",
         lead: "Những người có quyền trên hệ thống và trên từng tủ sách.",
@@ -1081,6 +1247,130 @@ export const copy = {
     // namespace, no reach into `copy.manage` — the nav word below is a
     // deliberately different string from `manage.settings` etc., so
     // renaming one screen's nav label never touches another's.
+    manageUnits: {
+        title: "Cơ cấu giáo xứ",
+        // {shelf} rather than a bare "tủ sách": this screen is reached from
+        // one shelf's own manager area and the units belong to that parish.
+        lead: "Cách chia bạn đọc theo đơn vị, và danh sách đơn vị của {shelf}.",
+        shapeHeading: "Cách gọi các đơn vị",
+        // The shape is READ-ONLY here for everyone, super administrators
+        // included: it lives in the shelf's settings and is edited on the
+        // admin shelf editor (spec D5, Task 4). The sentence says where,
+        // so a super administrator who came here to change it is not left
+        // hunting.
+        shapeNote: "Cách chia đơn vị được đặt ở trang Quản trị hệ thống › Tủ sách.",
+        levelsLabel: "Số bậc",
+        levelsOne: "Một bậc",
+        levelsTwo: "Hai bậc",
+        nestedLabel: "Bậc 2 thuộc về một đơn vị bậc 1 cụ thể",
+        yes: "Có",
+        no: "Không",
+        level1LabelLabel: "Tên gọi bậc 1",
+        level2LabelLabel: "Tên gọi bậc 2",
+        listHeading: "Danh sách đơn vị",
+        // The reference's own sentence, drawn under every section a
+        // manager can read and not change.
+        superAdminOnly: "Chỉ quản trị viên mới đổi được các mục này.",
+        emptyLevel1: "Chưa có đơn vị {label} nào.",
+        emptyLevel2: "Chưa có đơn vị {label} nào.",
+        needLevel1First: "Cần có ít nhất một đơn vị {parent} trước khi thêm đơn vị {child}.",
+        add: "Thêm đơn vị",
+        addName: "Tên {label} mới",
+        submitAdd: "Thêm",
+        rename: "Đổi tên",
+        renameName: "Tên mới",
+        submitRename: "Lưu tên",
+        cancel: "Huỷ",
+        delete: "Xoá đơn vị này",
+        // Said BEFORE the press, not after it — the cascade is the fact
+        // somebody who meant to remove one row is most likely to have
+        // assumed otherwise, and a flash arrives too late to change a mind.
+        deleteWarningCascades:
+            "Các đơn vị bậc 2 bên trong đơn vị này cũng sẽ bị xoá theo. Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.",
+        deleteWarning:
+            "Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.",
+        deleteConfirm: "Xác nhận xoá",
+        // aria-labels, because the two controls are icons: a screen reader
+        // reading "Lên" twice on a list of eight rows says nothing about
+        // which row moves.
+        moveUp: "Đưa {name} lên",
+        moveDown: "Đưa {name} xuống",
+    },
+    // Phase 3b-ii Task 6's screen (spec D4) — the shelf's own settings, as
+    // text. Its own namespace rather than a reach into `adminShelves`: that
+    // one labels the INPUTS of an editor and may gain a placeholder or a
+    // "Bắt buộc" tomorrow, and a manager's read-only summary must not
+    // inherit words written for a control it does not render. The two files
+    // agreeing on the six numbers is `LendingSettings`' job, not a shared
+    // string's.
+    manageSettings: {
+        title: "Cài đặt",
+        lead: "Cài đặt của {shelf}.",
+        profileSection: "Thông tin tủ sách",
+        nameLabel: "Tên tủ sách",
+        // "Địa điểm" over `location` and "Địa chỉ" over `address`, and the
+        // pair is not interchangeable: the reference shipped `location`'s
+        // value ("Nhà xứ Thánh Tâm", a landmark) under a label promising a
+        // street address, while the street address an administrator had
+        // actually typed rendered on no screen at all.
+        locationLabel: "Địa điểm",
+        addressLabel: "Địa chỉ",
+        // Every one of these is nullable and a blank line reads as a
+        // rendering bug, so an unset value says so in words.
+        blank: "Chưa có",
+        contactsSection: "Đầu mối liên hệ",
+        contactsEmpty: "Chưa có đầu mối liên hệ nào.",
+        // The fallback label for a contact whose vai trò is blank — free
+        // text, so a parish that named none still gets a row heading.
+        contactFallbackRole: "Người liên hệ",
+        policySection: "Quy định cho mượn",
+        policyFields: {
+            loanDays: "Số ngày cho mượn",
+            maxConcurrentLoans: "Số sách mượn cùng lúc",
+            maxRenewals: "Số lần gia hạn",
+            renewalDays: "Số ngày mỗi lần gia hạn",
+            holdDays: "Số ngày giữ chỗ",
+            dueSoonDays: "Báo sắp đến hạn trước",
+        },
+        // A number on its own is not a policy — "3" reads as three of
+        // something. Each hint is the sentence the reference puts under the
+        // label, so a manager can check the shelf behaves as they expect
+        // without opening the requirements.
+        policyHints: {
+            loanDays: "Số ngày bạn đọc được giữ sách trong một lượt mượn.",
+            maxConcurrentLoans: "Số cuốn tối đa một bạn đọc được giữ cùng lúc.",
+            maxRenewals: "Số lần bạn đọc được xin gia hạn cho một lượt mượn.",
+            renewalDays: "Số ngày được cộng thêm mỗi lần gia hạn.",
+            holdDays: "Số ngày tủ sách giữ sách cho bạn đọc đã đăng ký chờ mượn.",
+            dueSoonDays: "Số ngày trước hạn trả mà hệ thống nhắc bạn đọc.",
+        },
+        days: "{count} ngày",
+        books: "{count} cuốn",
+        times: "{count} lần",
+        commentsSection: "Bình luận",
+        commentsEnabledLabel: "Cho phép bình luận",
+        commentsRequireApprovalLabel: "Bình luận cần duyệt",
+        taxonomySection: "Cách gọi các đơn vị",
+        levelsLabel: "Số bậc",
+        levelsOne: "Một bậc",
+        levelsTwo: "Hai bậc",
+        nestedLabel: "Bậc 2 thuộc về một đơn vị bậc 1 cụ thể",
+        level1LabelLabel: "Tên gọi bậc 1",
+        level2LabelLabel: "Tên gọi bậc 2",
+        yes: "Có",
+        no: "Không",
+        // THE SENTENCE THE WHOLE SCREEN RESTS ON, the reference's own, drawn
+        // under every section. Nothing on this page is a control, because
+        // the commands behind these values all authorize as a super
+        // administrator and would answer a manager with a 404 rather than a
+        // refusal — a control here could only mislead the person pressing
+        // it.
+        superAdminOnly: "Chỉ quản trị viên mới đổi được các mục này.",
+        // Where the units themselves are, since this screen shows only the
+        // shape. That screen a manager CAN reach, and it is in their own
+        // nav — said by name so it is not a hunt.
+        unitsNote: "Danh sách đơn vị nằm ở trang Cơ cấu giáo xứ.",
+    },
     manageLabels: {
         // The NAV word, re-headed on the screen itself below.
         navItem: "Nhãn QR",

@@ -320,6 +320,13 @@ return [
     // of three buttons reads which save landed.
     'bookshelf_policy_saved_flash' => 'Đã lưu chính sách mượn sách.',
     'bookshelf_contacts_saved_flash' => 'Đã lưu đầu mối liên hệ.',
+    // Phase 3b-ii Task 4's, the fourth section on the same screen and the
+    // fourth sentence for the same reason: four forms, four buttons, four
+    // confirmations that do not read alike. It names what it saved — the
+    // CÁCH CHIA, not the đơn vị — because the units are edited elsewhere
+    // and a volunteer who read "Đã lưu đơn vị" here would look for a list
+    // this screen deliberately does not have.
+    'bookshelf_taxonomy_saved_flash' => 'Đã lưu cách chia đơn vị của tủ sách.',
     // Spec D3. Position 1 is required by the INTERFACE and not by the
     // column: a shelf onboarded before the contacts table existed may hold
     // none and is flagged incomplete rather than assigned an invented
@@ -334,6 +341,37 @@ return [
     // on its own can read as removal.
     'bookshelf_archived_flash' => 'Đã ngưng hoạt động tủ sách. Toàn bộ dữ liệu vẫn được giữ lại và có thể mở lại bất cứ lúc nào.',
     'bookshelf_unarchived_flash' => 'Đã mở lại tủ sách.',
+
+    // — cài đặt hệ thống (Phase 3b-ii Task 1) —
+    // Two forms on one screen, two sentences, for the reason the shelf
+    // editor's three flashes carry above: a page whose forms submit
+    // independently cannot say which one saved if both flash the same
+    // words. The defaults sentence repeats the screen's own most important
+    // qualification — mới — because a volunteer who has just saved a number
+    // is exactly the person about to assume every tủ sách now follows it.
+    'site_contact_saved_flash' => 'Đã lưu thông tin liên hệ của ban quản trị.',
+    'system_defaults_saved_flash' => 'Đã lưu giá trị mặc định cho tủ sách mở mới.',
+
+    // — thể loại sách (Phase 3b-ii Task 3, spec D3) —
+    // The reference's own sentence, verbatim, and it does the work the
+    // refusal cannot do alone: it says what to do instead. `ON DELETE SET
+    // NULL` never fires here — this is a soft delete — so nothing in the
+    // schema stops a book keeping a label no screen will offer again, and
+    // this guard is the only thing that does.
+    'category_in_use' => 'Chỉ lưu trữ được khi không còn sách nào thuộc thể loại này. Hãy đổi thể loại cho những cuốn sách đó trước.',
+    // The slug is derived from the name and `categories.slug` is unique with
+    // no soft-delete partition, so an archived thể loại holds its handle
+    // forever — a collision an administrator cannot see on the screen. The
+    // sentence has to say that, or the refusal reads as a bug.
+    'duplicate_category' => 'Đã có thể loại dùng tên này (kể cả thể loại đã lưu trữ). Hãy chọn một tên khác.',
+    // Three writes, three sentences: a volunteer who pressed one control on
+    // a list of many rows needs to be told which act landed. The rename
+    // sentence repeats the one thing the screen warns about beforehand —
+    // the address does not move — because that is the fact somebody is most
+    // likely to have assumed otherwise.
+    'category_created_flash' => 'Đã thêm thể loại mới.',
+    'category_renamed_flash' => 'Đã đổi tên thể loại. Đường dẫn của thể loại giữ nguyên như cũ.',
+    'category_archived_flash' => 'Đã lưu trữ thể loại. Thể loại này không còn hiện ra khi thêm sách mới.',
 
     // — quản lý viên (Phase 3b-i Task 7) —
     // BR §16.4's confirmation, and the requirement is that it "states
@@ -365,4 +403,22 @@ return [
     // it becomes true and there is no screen anywhere that would say it
     // later (spec D5 — OPS §4.5 lists no demotion command).
     'user_promoted_super_admin_flash' => 'Đã giao quyền quản trị hệ thống. Hiện chưa có cách thu hồi quyền này.',
+
+    // — đơn vị giáo xứ (Phase 3b-ii Task 5, spec D5) —
+    // Four writes, four sentences, on the thể loại screen's rule: a
+    // volunteer who pressed one control on a tree of many rows needs to be
+    // told which act landed, not merely that something did.
+    //
+    // The delete sentence carries two facts the press does not show. The
+    // cascade — the level-2 đơn vị inside a level-1 one go with it — is the
+    // thing somebody who meant to remove one row is most likely to have
+    // assumed otherwise, and the screen warns about it beforehand as well
+    // (the reference's own arrangement). And the retirement is SOFT: a bạn
+    // đọc already recorded in the đơn vị keeps it, the đơn vị simply stops
+    // being offered. Without that second half the sentence would read as
+    // data loss.
+    'parish_unit_created_flash' => 'Đã thêm đơn vị mới.',
+    'parish_unit_renamed_flash' => 'Đã đổi tên đơn vị. Bạn đọc đang ở đơn vị này vẫn giữ nguyên.',
+    'parish_unit_deleted_flash' => 'Đã xoá đơn vị, cùng các đơn vị bậc 2 bên trong nó. Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.',
+    'parish_unit_reordered_flash' => 'Đã đổi thứ tự các đơn vị.',
 ];

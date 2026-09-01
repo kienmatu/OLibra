@@ -10,9 +10,11 @@ use App\Models\BookCopy;
 use App\Models\BookDonation;
 use App\Models\Bookshelf;
 use App\Models\BorrowRequest;
+use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Loan;
 use App\Models\Membership;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Policies\AnnouncementPolicy;
 use App\Policies\BookCopyPolicy;
@@ -20,9 +22,11 @@ use App\Policies\BookDonationPolicy;
 use App\Policies\BookPolicy;
 use App\Policies\BookshelfPolicy;
 use App\Policies\BorrowRequestPolicy;
+use App\Policies\CategoryPolicy;
 use App\Policies\CommentPolicy;
 use App\Policies\LoanPolicy;
 use App\Policies\MembershipPolicy;
+use App\Policies\SystemSettingPolicy;
 use App\Policies\UserPolicy;
 use App\Support\DeadlockDetector;
 use App\Support\HashedDatabaseSessionHandler;
@@ -277,5 +281,22 @@ class AppServiceProvider extends ServiceProvider
         // BookshelfPolicy (this act names no shelf). Same 404-shaped
         // refusal as the line above it.
         Gate::policy(User::class, UserPolicy::class);
+        // Phase 3b-ii Task 1, spec D1. The installation's own single row —
+        // the administration's contact block and the defaults a new shelf
+        // starts with. Its one ability names no shelf, which is also why
+        // both of its writers audit globally. Same 404-shaped refusal as
+        // the two lines above, and registered on the same terms:
+        // convention discovery (App\Models\SystemSetting ->
+        // App\Policies\SystemSettingPolicy) resolves this pair today too,
+        // and PolicyRegistrationTest reads this file's own source, so it
+        // covers the pair either way.
+        Gate::policy(SystemSetting::class, SystemSettingPolicy::class);
+        // Phase 3b-ii Task 3, spec D3. The book genres — global reference
+        // data every tủ sách shares, so this pair names no shelf either,
+        // and all three of its writers audit globally for that reason.
+        // Registered on the same terms as the lines above: discovery
+        // resolves the pair today, and PolicyRegistrationTest reads this
+        // file's own source so the pair is covered either way.
+        Gate::policy(Category::class, CategoryPolicy::class);
     }
 }

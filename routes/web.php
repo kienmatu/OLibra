@@ -1,8 +1,11 @@
 <?php
 
+use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\ManagerController as AdminManagerController;
+use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\ShelfController as AdminShelfController;
+use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Manage\AnnouncementController as ManageAnnouncementController;
 use App\Http\Controllers\Manage\AuditLogController;
 use App\Http\Controllers\Manage\BookController;
@@ -21,7 +24,9 @@ use App\Http\Controllers\Manage\ReaderController;
 use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
+use App\Http\Controllers\Manage\SettingsController as ManageSettingsController;
 use App\Http\Controllers\Manage\StatisticsController;
+use App\Http\Controllers\Manage\UnitController;
 use App\Http\Controllers\Reader\AnnouncementController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
@@ -41,7 +46,17 @@ Route::get('/', [ShellController::class, 'home'])->name('home');
 Route::get('/register', [RegistrationController::class, 'create'])->name('register');
 Route::post('/register', [RegistrationController::class, 'store'])
     ->middleware('throttle:register')->name('register.store');
-Route::get('/contact', [ShellController::class, 'underConstruction'])->name('contact');
+// Phase 3b-ii Task 2 (spec D2). Deliberately outside every group on this
+// file: no `auth`, no `role:`, and above all no `tenant`. The visitor this
+// page is for is a parish with no bookshelf at all, so binding a tenant is
+// not merely unnecessary, there is nothing to bind. ContactController's
+// docblock carries what that costs the controller.
+//
+// There is NO POST here and must not be one until 3c: BR §16.1's feedback
+// form lands with the inbox that reads it, and adding a write path to a
+// route with no throttle and no reader is how a page that helps a stranger
+// becomes a page that silently swallows their message.
+Route::get('/contact', [ContactController::class, 'show'])->name('contact');
 Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index');
 
 // ── One shelf ─────────────────────────────────────────────────────────────
@@ -161,7 +176,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // segment and two cannot collide.
         Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');
         Route::get('/announcements/{slug}', [AnnouncementController::class, 'show'])->name('announcements.show');
-        // BR §16.2's Tặng sách, the offer form. Task 18 turned the
+        // BR §16.1's Tặng sách, the offer form. Task 18 turned the
         // placeholder GET into a real page and kept the route NAME, which
         // is the continuity the POST below already depended on.
         Route::get('/donate', [DonationController::class, 'create'])->name('donate');
@@ -233,7 +248,7 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // reader OF THIS SHELF binds fine and is refused one layer down,
         // by MarkNotificationRead's user_id key, as a silent no-op.
         Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
-        // The other half of BR §16.2's Tặng sách: what happened to each
+        // The other half of BR §16.1's Tặng sách: what happened to each
         // offer. Same controller as the form in the reader group above,
         // and the route NAME is the placeholder's, kept.
         Route::get('/donations', [DonationController::class, 'mine'])->name('donations');
@@ -495,7 +510,59 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/donations/{donation}/receive', [ManageDonationController::class, 'receive'])->name('donations.receive');
         Route::post('/donations/{donation}/decline', [ManageDonationController::class, 'decline'])->name('donations.decline');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
-        Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
+        // Phase 3b-ii Task 5, spec D5 and D6 — BR §5.6's parish units, the
+        // rows a reader picks from at registration. The placeholder these
+        // five replace held the name `units` from Phase 0;
+        // ShellController::underConstruction's docblock records that the
+        // route NAMES were final from that day, which is why only `units`
+        // is inherited and the four write names are new.
+        //
+        // THIS GROUP BINDS A TENANT, AND THAT IS THE WHOLE REASON THE
+        // SCREEN IS HERE. ParishUnit uses BelongsToBookshelf and
+        // BookshelfScope fails closed, so every read and write below
+        // resolves through the ordinary scoped path. On the /admin shelf
+        // editor — which binds no tenant by design — the same CRUD would
+        // force TenantContext::systemWide() on all of it, the capability
+        // WideningArchitectureTest fences so that it stays rare. Spec D5
+        // reversed twice before landing here; the shape of the taxonomy
+        // stays on the admin editor (line 595 above), the units do not.
+        //
+        // `role:manager` on this group is the READ gate, not the write one.
+        // All four writes are super-admin-only (ParishUnitPolicy, the
+        // reference's requireSuperAdmin), refused in the Form Request and
+        // again in the command, and the screen renders a manager the same
+        // values as read-only text. A super admin reaches this
+        // `role:manager` route because AppServiceProvider's Gate::before
+        // grants every act-as-* ability to one.
+        //
+        // ORDER: reorder BEFORE {parishUnit}, this file's static-before-
+        // bound house habit (spec §6). HABITUAL rather than load-bearing
+        // here — `units/reorder` is POST and one segment past `units`,
+        // while the bound POST is `units/{parishUnit}/delete` at two, so no
+        // request can match both however they are declared — and kept
+        // anyway against the day a one-segment-past sibling is added.
+        //
+        // POST for the delete, not DELETE: bodiless, the unit named in the
+        // URL being the whole request, which is the shape every other state
+        // transition in this file uses (readers.suspend,
+        // announcements.pin) and the only verb set this file declares.
+        //
+        // {parishUnit} resolves two independent ways, the {comment} and
+        // {donation} pairs' two layers: through Bookshelf::parishUnits()
+        // under the scopeBindings() on the OUTER shelves/{shelf} group, and
+        // through BookshelfScope on ParishUnit (App\Models\Concerns\
+        // BelongsToBookshelf) on every query Eloquent runs for the binding.
+        // SoftDeletes is a third: a retired unit does not resolve at all,
+        // so a second "Xoá" on a row a stale screen still shows answers 404
+        // rather than deleting nothing and reporting success — the case the
+        // reference refuses by hand. ManagerUnitsScreenTest's cross-shelf
+        // dataset is the measurement, over both bound routes, with shelf
+        // B's unit id under shelf A's URL.
+        Route::get('/units', [UnitController::class, 'index'])->name('units');
+        Route::post('/units', [UnitController::class, 'store'])->name('units.store');
+        Route::post('/units/reorder', [UnitController::class, 'reorder'])->name('units.reorder');
+        Route::patch('/units/{parishUnit}', [UnitController::class, 'rename'])->name('units.rename');
+        Route::post('/units/{parishUnit}/delete', [UnitController::class, 'destroy'])->name('units.delete');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
         // BR §16.3's Statistics paragraph, opened: "Period selector (week,
         // month, year, since the shelf began), showing loans, distinct
@@ -505,7 +572,20 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         // held the name from Phase 0; ShellController::underConstruction's
         // docblock records that the route NAMES were final from that day.
         Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics');
-        Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
+        // Phase 3b-ii Task 6, spec D4 — the shelf's own settings, READ-ONLY
+        // and deliberately one route. A manager edits nothing here: the
+        // lending policy, the contacts and the taxonomy shape all belong to
+        // the super administrator's shelf editor under /admin, and
+        // UpdateBookshelfPolicy authorizes internally as one — a manager
+        // reaching it gets a 404 rather than a refusal, so a control on this
+        // screen could only ever mislead. BR §16.3's fourteen manager
+        // screens do not include Settings; §16.4 puts the policy on the
+        // admin Bookshelves screen. CatalogueArchitectureTest's
+        // "deliberately no delete-book route" is the precedent for saying so
+        // in a test rather than only in a comment, and
+        // ManagerSettingsScreenTest holds both halves: no write verb under
+        // this path, and a component source that reaches for no form.
+        Route::get('/settings', [ManageSettingsController::class, 'index'])->name('settings');
         Route::get('/qr-labels', [LabelController::class, 'index'])->name('qr-labels');
         // POST, matching this repo's export convention (ExportController's
         // docblock, and tests/Feature/Oversight/ExportHttpTest.php's POST to
@@ -569,6 +649,17 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // contact — which is what PUT means.
     Route::patch('/shelves/{bookshelf}/policy', [AdminShelfController::class, 'updatePolicy'])->name('shelves.policy');
     Route::put('/shelves/{bookshelf}/contacts', [AdminShelfController::class, 'updateContacts'])->name('shelves.contacts');
+    // Phase 3b-ii Task 4's fourth section, spec D5 — BR §5.6's parish
+    // taxonomy. PATCH like the policy and for the same reason: the submit
+    // carries four keys that are merged into a settings bag shared with keys
+    // it never showed, so it modifies part of the shelf rather than
+    // replacing it.
+    //
+    // THE SHAPE ONLY. The units a reader picks from at registration are
+    // edited on shelves/{shelf}/manage/units, which binds a tenant —
+    // ParishUnit is shelf-scoped and this group is not, so unit CRUD here
+    // would force a widening on every read and write of it.
+    Route::patch('/shelves/{bookshelf}/taxonomy', [AdminShelfController::class, 'updateTaxonomy'])->name('shelves.taxonomy');
     // Task 6's lifecycle pair, spec D4. POST and bodiless — the shelf named
     // in the URL is the whole request, the shape every other state
     // transition in this file uses (readers.suspend, announcements.pin).
@@ -613,8 +704,53 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // carries none and why Task 1's configurator exists (spec D0, D5).
     // There is deliberately no route back: OPS §4.5 lists no demotion.
     Route::post('/managers/{user}/promote', [AdminManagerController::class, 'promote'])->name('managers.promote');
-    Route::get('/categories', [ShellController::class, 'underConstruction'])->name('categories');
-    Route::get('/settings', [ShellController::class, 'underConstruction'])->name('settings');
+    // Phase 3b-ii Task 3, spec D3 — the book genres, and the placeholder
+    // this replaces held the name from Phase 0.
+    //
+    // NO {bookshelf} AND NO {shelf} ANYWHERE IN THIS BLOCK, and here that is
+    // not a fence being worked around but the table's own shape: categories
+    // carries no bookshelf_id at all. One taxonomy, shared by every tủ sách
+    // in the installation, which is also why all three writes below audit
+    // globally rather than naming a shelf.
+    //
+    // THE PATH IS ENGLISH. The reference's is /quan-tri/the-loai, and
+    // RouteOrderTest bans Vietnamese path segments — the name does not carry
+    // across, only the screen does.
+    //
+    // {category} BINDS BY ID, not by slug, and that is deliberate on a table
+    // whose slug is unique: the slug is an internal handle a book form posts
+    // (CreateCategory), and putting it in an administrator's URL would make
+    // it look like an address somebody could be asked to change. The one
+    // thing this area may never do is move it.
+    Route::get('/categories', [AdminCategoryController::class, 'index'])->name('categories');
+    Route::post('/categories', [AdminCategoryController::class, 'store'])->name('categories.store');
+    // PATCH, and the verb is honest: this submit carries the display name
+    // and the row keeps its slug, its sort order and every book on it.
+    Route::patch('/categories/{category}', [AdminCategoryController::class, 'update'])->name('categories.rename');
+    // POST and bodiless — the genre named in the URL is the whole request,
+    // the shape shelves.archive above uses. There is deliberately no route
+    // back: this slice has no un-archive command (spec D3), and a genre's
+    // slug stays taken, so the way back is a new name.
+    Route::post('/categories/{category}/archive', [AdminCategoryController::class, 'archive'])->name('categories.archive');
+    // Phase 3b-ii Task 1, spec D1 — BR §16.4's system settings, and the
+    // first caller `system_settings` has ever had. TWO WRITE ROUTES rather
+    // than one, because the screen carries two forms: the administration's
+    // own contact block (what the public reads on /contact) and the six
+    // defaults a newly created shelf starts with. A shared route would mean
+    // a number out of range in the second blocked a correction to the first
+    // — 3b-i's D2 rule, applied to a page whose top half is public.
+    //
+    // POST for both, not PATCH. Each submit carries its whole block and the
+    // row is a singleton created by the migration, so there is no partial
+    // update to express and no resource to address: the URL names which
+    // block is being written, which is the only distinction these two
+    // requests carry.
+    //
+    // NO {bookshelf} AND NO {shelf}: the installation's own row belongs to
+    // no parish, which is also why both writers audit globally.
+    Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings');
+    Route::post('/settings/contact', [AdminSettingsController::class, 'updateContact'])->name('settings.contact');
+    Route::post('/settings/defaults', [AdminSettingsController::class, 'updateDefaults'])->name('settings.defaults');
     Route::get('/audit', [ShellController::class, 'underConstruction'])->name('audit');
     Route::get('/feedback', [ShellController::class, 'underConstruction'])->name('feedback');
     Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');

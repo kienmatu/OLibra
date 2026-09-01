@@ -47,12 +47,14 @@ export default function ShelvesIndex({ q, shelves }: Props) {
             </form>
 
             {shelves.length === 0 ? (
-                <p className="mt-4 text-muted-foreground">
-                    {/* Branches on the SUBMITTED query, not on live
+                <>
+                    <p className="mt-4 text-muted-foreground">
+                        {/* Branches on the SUBMITTED query, not on live
                         keystrokes: typing into the box must not relabel a
                         list that is still showing the previous result. */}
-                    {q ? copy.shelves.noResults : copy.shelves.empty}
-                </p>
+                        {q ? copy.shelves.noResults : copy.shelves.empty}
+                    </p>
+                </>
             ) : (
                 <ul className="mt-4 space-y-2">
                     {shelves.map((shelf) => (
@@ -73,6 +75,18 @@ export default function ShelvesIndex({ q, shelves }: Props) {
                     ))}
                 </ul>
             )}
+            {/* ALWAYS rendered, not only on an empty portal. /contact exists for
+                a parish that has no shelf yet — and from the second shelf
+                onward that person sees OTHER parishes' shelves, so an
+                empty-state-only link is one they can never reach. This page is
+                where they are standing; measured in the 3b-ii whole-branch
+                review, which caught the empty-state version being unreachable. */}
+            <p className="mt-6 text-sm text-muted-foreground">
+                {copy.shelves.missingShelf}{" "}
+                <Link className="underline" href={route("contact")}>
+                    {copy.shelves.missingShelfLink}
+                </Link>
+            </p>
         </AppLayout>
     );
 }

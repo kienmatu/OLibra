@@ -8,17 +8,20 @@ use App\Actions\Admin\UnarchiveBookshelf;
 use App\Actions\Admin\UpdateBookshelfContacts;
 use App\Actions\Admin\UpdateBookshelfPolicy;
 use App\Actions\Admin\UpdateBookshelfProfile;
+use App\Actions\Admin\UpdateParishTaxonomy;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreBookshelfRequest;
 use App\Http\Requests\Admin\UpdateBookshelfContactsRequest;
 use App\Http\Requests\Admin\UpdateBookshelfPolicyRequest;
 use App\Http\Requests\Admin\UpdateBookshelfProfileRequest;
+use App\Http\Requests\Admin\UpdateParishTaxonomyRequest;
 use App\Models\Bookshelf;
 use App\Models\User;
 use App\Queries\Admin\AdminOverviewQuery;
 use App\Queries\Admin\ShelfContactsQuery;
 use App\Support\Circulation\LendingSettings;
 use App\Support\Community\CommentSettings;
+use App\Support\Members\ParishTaxonomy;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -123,6 +126,11 @@ class ShelfController extends Controller
         // application behaves as 14.
         $lending = LendingSettings::fromShelf($bookshelf);
         $comments = CommentSettings::fromShelf($bookshelf);
+        // Same reasoning one layer over: `parish_taxonomy` is absent from a
+        // shelf that has never been configured, and this class applies the
+        // per-field fallbacks registration and the unit screens already
+        // behave as — one level, "Tổ", not nested (spec D5).
+        $taxonomy = ParishTaxonomy::fromSettings(((array) $bookshelf->settings)['parish_taxonomy'] ?? null);
 
         return Inertia::render('admin/shelves/edit', [
             // The eight settings spec D2 fixes the form at, under their
@@ -141,6 +149,17 @@ class ShelfController extends Controller
             // Always three entries, `null` for an empty slot — the form has
             // three fixed blocks and positions do not shift.
             'contacts' => $contacts->run($bookshelf),
+            // BR §5.6's shape, under its storage keys — snake_case because
+            // the form posts them back unchanged into
+            // `settings->parish_taxonomy`. The UNITS are not here and no
+            // list of them ships: they are edited on the shelf's own
+            // manage/units screen, which binds a tenant (spec D5).
+            'taxonomy' => [
+                'levels' => $taxonomy->levels,
+                'nested' => $taxonomy->nested,
+                'level1_label' => $taxonomy->level1Label,
+                'level2_label' => $taxonomy->level2Label,
+            ],
             'shelf' => [
                 'id' => $bookshelf->id,
                 // Rendered read-only by the form, and read-only for a
@@ -259,6 +278,40 @@ class ShelfController extends Controller
         return redirect()
             ->route('admin.shelves.edit', ['bookshelf' => $bookshelf->slug])
             ->with('success', __('rules.bookshelf_contacts_saved_flash'));
+    }
+
+    /**
+     * The parish-taxonomy section's own submit (spec D5) — BR §5.6's
+     * *Phân chia giáo xứ*. The SHAPE of the subdivision: how many levels,
+     * what each is called, whether the smaller nests inside the bigger.
+     *
+     * THE UNITS THEMSELVES ARE NOT EDITED HERE and no list of them ships
+     * with the product. They live on the shelf's own manage/units screen,
+     * which binds a tenant; ParishUnit is shelf-scoped and this group is
+     * not.
+     */
+    public function updateTaxonomy(
+        UpdateParishTaxonomyRequest $request,
+        Bookshelf $bookshelf,
+        UpdateParishTaxonomy $updateTaxonomy,
+    ): RedirectResponse {
+        /** @var User $user */
+        $user = $request->user();
+        $validated = $request->validated();
+
+        // Four keys, read out one at a time — the other three submits'
+        // reasoning, and here it also guarantees the shape the command's
+        // merge writes into a bag it shares with eleven other keys.
+        $updateTaxonomy->execute($user, $bookshelf, [
+            'levels' => $validated['levels'],
+            'nested' => $validated['nested'],
+            'level1_label' => $validated['level1_label'],
+            'level2_label' => $validated['level2_label'],
+        ]);
+
+        return redirect()
+            ->route('admin.shelves.edit', ['bookshelf' => $bookshelf->slug])
+            ->with('success', __('rules.bookshelf_taxonomy_saved_flash'));
     }
 
     /**

@@ -143,6 +143,83 @@ final class AuditSentences
         // AuditRecorder has a configurator at all (spec D0) — and why the
         // shelf-scoped audit screen never shows it.
         'user.promoted_super_admin' => 'administration',
+        // Phase 3b-ii Task 1's pair, spec D1 and D8 — the same he-thong
+        // family the reference files them under (audit-actions.ts:631-638).
+        // TWO ACTIONS AND NOT ONE, unlike bookshelf.updated above, and the
+        // difference is not the form split: these two forms write different
+        // FACTS about different readers. `site_contact.updated` changes what
+        // a stranger with no membership anywhere reads on /contact;
+        // `system_settings.updated` changes what a shelf opened next month
+        // will start with, and neither existing shelf nor existing reader is
+        // touched. A volunteer reading the log needs to tell those apart,
+        // and the reference names them separately for the same reason.
+        //
+        // BOTH ROWS BELONG TO NO SHELF, like user.promoted_super_admin
+        // above: their subject is the installation. So both are written
+        // through AuditRecorder's cross-shelf arm, and neither can appear on
+        // a shelf's own audit screen.
+        'system_settings.updated' => 'administration',
+        'site_contact.updated' => 'administration',
+        // Phase 3b-ii Task 3's three, spec D3 and D8 — the book genres.
+        // 'administration' and not 'books', and the distinction is the one
+        // the membership pair above already turns on: the group answers
+        // "which screen is this act from", not "which table did it touch".
+        // These three are made from the cross-shelf admin area by somebody
+        // who holds the whole installation, not from a tủ sách's own
+        // catalogue screens.
+        //
+        // ALL THREE ROWS BELONG TO NO SHELF, like the installation's own
+        // pair above: categories carries no bookshelf_id, so there is no
+        // shelf whose log this act could sit on. The reference records all
+        // three globally for the same reason.
+        //
+        // THERE IS NO category.unarchived, because there is no command —
+        // spec D3 ports the reference's omission as an omission, and an
+        // action with no writer is instantly red in the census either way.
+        'category.created' => 'administration',
+        'category.renamed' => 'administration',
+        'category.archived' => 'administration',
+        // Phase 3b-ii Task 4's one, spec D5 and D8 — BR §5.6's parish
+        // taxonomy, the SHAPE of how a parish subdivides its people.
+        //
+        // 'administration' for the reason the three above are: the group
+        // answers "which screen is this act from", and this one is made on
+        // the cross-shelf admin shelf editor by somebody who holds the
+        // whole installation, not by the tủ sách's own manager.
+        //
+        // UNLIKE THE FOUR ABOVE, THIS ROW BELONGS TO A SHELF. The taxonomy
+        // is one parish's own arrangement and lives in that shelf's
+        // settings, so UpdateParishTaxonomy writes it through
+        // AuditRecorder's forShelf() arm and it appears on that shelf's own
+        // log rather than nowhere.
+        'parish_taxonomy.updated' => 'administration',
+        // Phase 3b-ii Task 5's four, spec D5, D6 and D8 — the đơn vị
+        // themselves, as opposed to the shape above.
+        //
+        // 'administration' LIKE THE SHAPE, EVEN THOUGH THE SCREEN IS THE
+        // MANAGER'S. This is the one place in the map where the group's
+        // usual reading ("which screen is this act from") and its real
+        // question part company, so it is worth saying which one wins.
+        // `manage/units` lives in the manager area because ParishUnit is
+        // shelf-scoped and that group binds a tenant (spec D5) — but every
+        // one of these four acts is super-admin-only, and a manager reading
+        // that screen can only look. The group answers "who could have done
+        // this", and the answer is the same person who changed the shape.
+        // Filing them under 'readers' because the units describe readers
+        // would put four acts a manager cannot perform in the group a
+        // manager's own work lives in.
+        //
+        // ALL FOUR ROWS BELONG TO A SHELF, like parish_taxonomy.updated and
+        // unlike the five installation-wide actions above: a parish's đơn vị
+        // are its own. They are written through the recorder's ORDINARY
+        // arm — no forShelf(), no global() — because this route group binds
+        // a tenant and the bound context is exactly the shelf they belong
+        // to. That is the same fact that keeps the four commands out of
+        // app/Actions/Admin/ and out of the widening fence altogether.
+        'parish_unit.created' => 'administration',
+        'parish_unit.renamed' => 'administration',
+        'parish_unit.deleted' => 'administration',
+        'parish_unit.reordered' => 'administration',
     ];
 
     /**
@@ -426,8 +503,173 @@ final class AuditSentences
             'membership.role_assigned' => strtr(self::line('membership_role_assigned'), [':subject' => self::who($subject)]),
             'membership.role_revoked' => strtr(self::line('membership_role_revoked'), [':subject' => self::who($subject)]),
             'user.promoted_super_admin' => strtr(self::line('user_promoted_super_admin'), [':subject' => self::who($subject)]),
+            // Task 1's pair. NEITHER ARM READS ITS PAYLOAD, and neither
+            // needs a _bare twin: what changed is the installation, which
+            // has one name and no alternative, so there is nothing here for
+            // a missing key to make unspeakable. The numbers that moved are
+            // on the payload row one tap away — INV-8's own placement — and
+            // the contact row deliberately carries no phone at all (see
+            // UpdateSiteContact: BR §14 records what changed rather than
+            // duplicating it, and the phone is the one field here somebody
+            // could be identified by).
+            'system_settings.updated' => self::line('system_settings_updated'),
+            'site_contact.updated' => self::line('site_contact_updated'),
+            // Task 3's three, each the reference's own arm (audit-actions.ts:
+            // 644-665). UNLIKE THE PAIR ABOVE, EVERY ONE OF THESE READS ITS
+            // PAYLOAD AND EVERY ONE CARRIES A BARE TWIN — what changed here
+            // is one genre out of many, so a sentence that could not name it
+            // would leave a volunteer with no way to tell which.
+            //
+            // AFTER for the create, BEFORE for the archive, and both for the
+            // rename — each reading the side where the name is a fact. The
+            // archive's `after` deliberately carries only the instant, so
+            // reading it would render every archive row bare.
+            'category.created' => ($name = self::str($after, 'name')) !== null
+                ? strtr(self::line('category_created'), [':name' => $name])
+                : self::line('category_created_bare'),
+            'category.renamed' => self::categoryRenamed($before, $after),
+            'category.archived' => ($name = self::str($before, 'name')) !== null
+                ? strtr(self::line('category_archived'), [':name' => $name])
+                : self::line('category_archived_bare'),
+            // Task 4's one, the reference's phrase verbatim
+            // (audit-actions.ts:580-583). NO SUBSTITUTION AND NO BARE TWIN,
+            // like the installation's pair above and unlike the three
+            // genres: the subject is the shelf, the row already carries its
+            // bookshelf_id, and every screen that will render this sentence
+            // is reading one shelf's log with the shelf's name in its own
+            // heading. The four values that moved are on the payload row one
+            // tap away — INV-8's placement.
+            'parish_taxonomy.updated' => self::line('parish_taxonomy_updated'),
+            // Task 5's four, each the reference's own arm
+            // (audit-actions.ts:549-579). Three of them read the payload and
+            // carry a bare twin, on the three genres' rule: what changed is
+            // one đơn vị out of many, so a sentence that could not name it
+            // would leave a volunteer with no way to tell which.
+            //
+            // CREATED reads `after`, RENAMED both sides, DELETED `before` —
+            // each the side where the name is a fact. The delete's `after`
+            // does carry the name too, and is deliberately not the side read
+            // here: `before` is the row as it stood, which is what a
+            // retirement is about.
+            'parish_unit.created' => ($name = self::str($after, 'name')) !== null
+                ? strtr(self::line('parish_unit_created'), [':name' => $name])
+                : self::line('parish_unit_created_bare'),
+            'parish_unit.renamed' => self::parishUnitRenamed($before, $after),
+            // The cascade tail is what a reader of ONE row needs in order to
+            // know the row was not clicked — `cascaded` rides on the payload
+            // rather than becoming a second action name (DeleteParishUnit,
+            // spec D6), so this arm is where it becomes a sentence. Read as
+            // an identity against true, not a truthiness test: the payload is
+            // data, and a stray 'false' string must not read as a cascade.
+            'parish_unit.deleted' => self::parishUnitDeleted($before, $after),
+            // NO SUBSTITUTION AND NO BARE TWIN, like parish_taxonomy.updated
+            // above and unlike the three beside it. One press writes one row
+            // PER UNIT THAT MOVED (ReorderParishUnits), so a sentence naming
+            // a unit would repeat the same act two or three times under
+            // different names while the two numbers that actually moved sit
+            // on the payload row one tap away — INV-8's placement, and the
+            // reference's own phrase.
+            'parish_unit.reordered' => self::line('parish_unit_reordered'),
             default => self::line('unknown'),
         };
+    }
+
+    /**
+     * `category.renamed`'s three cases, the reference's own ladder
+     * (audit-actions.ts:651-659): both names, the new one alone, neither.
+     *
+     * A METHOD RATHER THAN A NESTED TERNARY IN THE MATCH ARM, because two
+     * independent nullable reads is where a chained ternary stops being
+     * readable — and this is the one arm in the map whose sentence changes
+     * SHAPE rather than only its substitution.
+     *
+     * `RenameCategory` always writes both names, so the two fallbacks are
+     * unreachable from this codebase today. They are here for the reason the
+     * `bookshelf.updated` arm keeps its own: a payload is data, and a
+     * sentence that assumed its shape would render an unsubstituted `:from`
+     * to a volunteer the day one did not.
+     *
+     * @param  ?array<string, mixed>  $before
+     * @param  ?array<string, mixed>  $after
+     */
+    private static function categoryRenamed(?array $before, ?array $after): string
+    {
+        $from = self::str($before, 'name');
+        $to = self::str($after, 'name');
+
+        if ($from !== null && $to !== null) {
+            return strtr(self::line('category_renamed'), [':from' => $from, ':to' => $to]);
+        }
+
+        if ($to !== null) {
+            return strtr(self::line('category_renamed_to'), [':to' => $to]);
+        }
+
+        return self::line('category_renamed_bare');
+    }
+
+    /**
+     * `parish_unit.renamed`'s three cases, the reference's own ladder
+     * (audit-actions.ts:558-563) and `categoryRenamed`'s shape above: both
+     * names, the new one alone, neither. A method rather than a nested
+     * ternary for that arm's reason — two independent nullable reads is
+     * where a chained ternary stops being readable.
+     *
+     * `RenameParishUnit` always writes both names, so the two fallbacks are
+     * unreachable from this codebase today. They are here because a payload
+     * is data: a sentence that assumed its shape would render an
+     * unsubstituted `:from` to a volunteer the day one did not.
+     *
+     * @param  ?array<string, mixed>  $before
+     * @param  ?array<string, mixed>  $after
+     */
+    private static function parishUnitRenamed(?array $before, ?array $after): string
+    {
+        $from = self::str($before, 'name');
+        $to = self::str($after, 'name');
+
+        if ($from !== null && $to !== null) {
+            return strtr(self::line('parish_unit_renamed'), [':from' => $from, ':to' => $to]);
+        }
+
+        if ($to !== null) {
+            return strtr(self::line('parish_unit_renamed_to'), [':to' => $to]);
+        }
+
+        return self::line('parish_unit_renamed_bare');
+    }
+
+    /**
+     * `parish_unit.deleted`'s four cases — the reference's two-by-two
+     * (audit-actions.ts:565-574): the name is there or it is not, and the
+     * row went with a parent or was itself the click.
+     *
+     * FOUR LINES RATHER THAN A LINE PLUS A GLUED-ON TAIL. The reference
+     * concatenates a suffix onto its phrase; done here that would mean
+     * assembling a Vietnamese sentence out of two `lang/vi` fragments, which
+     * is the shape this file avoids everywhere else — a translator editing
+     * one half cannot see the other, and `:name` would sit next to a
+     * fragment that has to agree with it grammatically.
+     *
+     * `=== true`, not a truthiness test: `cascaded` arrives off a stored
+     * JSON payload, and the string 'false' is truthy in PHP.
+     *
+     * @param  ?array<string, mixed>  $before
+     * @param  ?array<string, mixed>  $after
+     */
+    private static function parishUnitDeleted(?array $before, ?array $after): string
+    {
+        $cascaded = ($after['cascaded'] ?? null) === true;
+        $name = self::str($before, 'name');
+
+        if ($name === null) {
+            return self::line($cascaded ? 'parish_unit_deleted_cascaded_bare' : 'parish_unit_deleted_bare');
+        }
+
+        return strtr(
+            self::line($cascaded ? 'parish_unit_deleted_cascaded' : 'parish_unit_deleted'),
+            [':name' => $name],
+        );
     }
 
     /**

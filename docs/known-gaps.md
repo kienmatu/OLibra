@@ -2216,7 +2216,7 @@ text turned out wrong is called out rather than repeated.
   | `GetStatistics` | **Phase 2** — confirmed still absent from `app/Queries`; `/manage/statistics` route still resolves to `ShellController::underConstruction` |
   | ~~`GetBorrowRequestQueue`, `GetDonationQueue`, `GetCommentsList`, `GetAnnouncementsList` (manager)~~ | **STRUCK at the Phase 2b wrap-up — the row has nothing left in it.** All four are answered, and the row's "no matching class under `app/Queries`" was already false for the first one before this branch was cut: `GetBorrowRequestQueue` → `BorrowRequestQueueQuery` (2a); `GetCommentsList` → `CommentModerationQuery` (2b Task 6); `GetAnnouncementsList` → `AnnouncementsQuery` (2b Task 12); `GetDonationQueue` → `DonationQueueQuery` (2b Task 17). Each named class was opened at the wrap-up |
   | `GetPendingProfileChanges` | **Phase 3** — the propose/approve queue does not exist; `UpdateReaderProfile`'s direct correction (1b) is the only reader-profile write path today |
-  | `GetShelfSettings` (manager, read-only) | **Phase 3** — `/manage/settings` route still `under-construction` |
+  | ~~`GetShelfSettings` (manager, read-only)~~ | **STRUCK at Phase 3b-ii Task 6** — `/manage/settings` is a real screen (`app/Http/Controllers/Manage/SettingsController.php`), read-only per spec D4: the eight lending/comment values through `LendingSettings` and `CommentSettings`, the shelf's contacts through the ordinary scoped relation, the taxonomy shape through `ParishTaxonomy`. No query class of its own — three settings reads off the bound row are not a query — and deliberately **no write route under the path at all**, asserted in `tests/Feature/Members/ManagerSettingsScreenTest.php` |
   | `ListTitlesForLabels`, `ListCopiesForLabels`, `ExportLabelSheetPDF`, `ResolveCopyById` | **Phase 2** — QR labels, per 1c's own census |
   | All of OPS §3.4 (`GetAdminOverview` … `DownloadSystemBackup`, 11 rows) | **Phase 3** — no `admin/`-prefixed manage query exists yet; `AuditLogQuery` deliberately excludes the null-`bookshelf_id` rows this cross-shelf browser will need |
   | ~~Notification commands, `GetMyNotifications`, the reminder sweep~~ | **STRUCK at the Phase 2b wrap-up — stale, and not named by the plan's own list of stale cells; found by the count-word sweep.** All three shipped in 2a and the 2a wrap-up table above already says so: `MyNotificationsQuery` under `app/Queries`, one `MarkNotificationRead` Action behind two routes, and `reminders:sweep` scheduled 07:00 `Asia/Ho_Chi_Minh` from `routes/console.php` (line re-read at this wrap-up) |
@@ -3600,9 +3600,16 @@ and is already censused by `RuleViolatedCodesHaveSentencesTest`.
   occurrence is a comment or `docs/BUSINESS-REQUIREMENTS.md`'s settings table
   itself. **The key `/manage/settings` must write is `comments_enabled`**, and
   the same is true of `comments_require_approval`, which both documents
-  already spell alike. That screen is not built by this phase — its route
-  still resolves to `ShellController::underConstruction` — so this is the note
-  its author needs, and closing the lag is a one-cell edit to BR §5.5.
+  already spell alike. **AMENDED at Phase 3b-ii Task 6: `/manage/settings` is
+  built, and it WRITES NOTHING.** Spec D4 made it read-only — the eight values,
+  the contacts and the taxonomy shape as text — so the writer this note was
+  addressed to never came into being on the manager side. The only writer of
+  either key is `App\Actions\Admin\UpdateBookshelfPolicy`, on the admin shelf
+  editor, and it already spells both keys the implementation's way. The new
+  screen READS them through `CommentSettings::fromShelf` for the same reason.
+  So the divergence is unchanged and still unclosed, and closing the lag is
+  still a one-cell edit to BR §5.5 — there is simply no longer a future author
+  waiting on this note.
 
 - **Announcement bodies are plain text, and the reference's `bodyText`
   parameter is dropped (divergence 5).** The reference accepts an optional
@@ -4743,3 +4750,193 @@ have now cost documentation twice in this phase alone.
   `AuditActionCensusTest` both do, or anchor `[^;]*` on a statement terminator)
   would still close all four. Narrowing a shipped tenancy guard remains a ruling
   for the whole-branch review rather than a documentation task's to make.
+
+## Phase 3b-ii — settings, taxonomy and the public contact page
+
+The installation gets its own settings row and a public face: `/admin/settings`
+writes the administration's contact block and the defaults a new shelf starts
+with, `/contact` publishes that block to a parish with no bookshelf at all,
+`/admin/categories` edits the book genres, the admin shelf editor gains the
+parish taxonomy's *shape*, and `manage/units` gains the units themselves.
+`/manage/settings` becomes a real, read-only screen. Branch
+`feat/phase-3b-ii-settings-and-taxonomy`. Ten audit actions land, 48 → 58. Most
+of what follows is a half of BR §16 this phase deliberately did not build, or a
+place where the port's own arrangement diverges from the requirements' text.
+
+- **The public contact form is deferred to 3c, to land with the inbox that
+  reads it (spec D2).** `docs/BUSINESS-REQUIREMENTS.md:504` asks for the three
+  details *"plus a short form"*, and this phase ships only the details. The
+  reason is that the form has no reader: there is **no feedback write path in
+  this application at all** — no action, no controller, no POST route, and the
+  only registered rate limiter is `register`
+  (`app/Providers/AppServiceProvider.php:132`). `App\Models\Feedback` exists as
+  a model and a table and nothing writes to it. Its two inboxes are both
+  explicitly 3c's placeholders — `/admin/feedback` (`routes/web.php:755`) and
+  the shelf's own feedback page (`:217`), each still
+  `ShellController::underConstruction`. A form whose messages land in a table no
+  screen can read is worse than no form, because it promises a reply that cannot
+  come; `routes/web.php:55-58` says so at the one place a POST would be added.
+
+  **The reference does not "always render" the form either**, and getting that
+  wrong is what the spec's second draft did. `old_next/src/app/lien-he/page.tsx:62`
+  computes `hasContact = Boolean(contact.name || contact.phone)` and `:83` is a
+  **ternary** — the contact card *or* the form, never both — so over there the
+  form is the empty state for an unconfigured installation, not a companion to
+  the card. Note the gate is `name || phone`: contact hours alone do not count.
+  What this port ships instead of the form, when nothing is configured, is a
+  sentence telling the visitor to approach their parish directly.
+
+- **Backup controls are not built, and that is a decision rather than an
+  oversight (spec D1).** `docs/BUSINESS-REQUIREMENTS.md:598` lists backup among
+  the System settings page's contents, and OPS goes further: `GetSystemSettings`
+  is specified to return a **last backup time** and `DownloadSystemBackup` to
+  retrieve the artifact (`docs/OPERATIONS.md:122-123`). Neither is built here.
+  The reference's own settings page renders none of it, and a backup control is
+  an operations feature — it needs somewhere for the artifact to live, a
+  retention rule and a story about who may download a copy of every parish's
+  register — not a settings field. Recorded here because §16.4 names it, so the
+  absence would otherwise read as a task somebody forgot.
+
+- **Unit CRUD lives on `manage/units`, not on the admin Bookshelves screen
+  (spec D5).** `docs/BUSINESS-REQUIREMENTS.md:600` puts the taxonomy editor
+  *and* "the unit lists themselves" under `/admin`'s shelf editor. This port
+  splits them: the *shape* stays on the admin editor (Task 4), and the four unit
+  writes are `shelves/{shelf}/manage/units` (`routes/web.php:561-565`).
+
+  **We match the requirements on authority and diverge on location.** Authority
+  is unchanged — all four writes are super-admin-only
+  (`app/Policies/ParishUnitPolicy.php:86-88`, denying as a 404), and a manager
+  reading the screen gets the same values as read-only text, gated by a single
+  `canEdit` prop (`app/Http/Controllers/Manage/UnitController.php:94`). Location
+  moves because `ParishUnit` carries `BelongsToBookshelf`
+  (`app/Models/ParishUnit.php:16`) and `BookshelfScope` fails closed, while
+  `/admin` binds no tenant by design: the same CRUD on the admin editor would
+  force `TenantContext::systemWide()` on every read and every write, which is
+  the capability `WideningArchitectureTest` exists to keep rare. The reasoning
+  is at `routes/web.php:514-528`, where somebody looking for the units would
+  land. The cost is that BR §16.4's sentence is now wrong about where two of
+  its clauses live, and a reader following it finds only half of what it names.
+
+- **Five of this phase's ten audit rows land where no screen can read them.**
+  `system_settings.updated` and `site_contact.updated`
+  (`app/Support/Audit/AuditSentences.php:161-162`) and the three `category.*`
+  (`:179-181`) all belong to the installation rather than to any parish, so they
+  are written through `AuditRecorder`'s cross-shelf arm with a null shelf
+  column. `AuditLogQuery` excludes null rows by construction — its one
+  hand-written filter is an equality on `bookshelf_id`
+  (`app/Queries/AuditLogQuery.php:220`), and its own comment says the global
+  rows are the cross-shelf browser's — and that browser is not built:
+  `/admin/audit` is still `ShellController::underConstruction`
+  (`routes/web.php:754`). The other five (`parish_taxonomy.updated` and the four
+  `parish_unit.*`) belong to a shelf and do appear on its log.
+
+  **Defensible, and written down anyway because of the entry above.** An audit
+  row is a record, not a promise: it is written for whoever reads the log next,
+  and the log gaining a reader in 3c makes today's rows retroactively useful,
+  where a contact form gaining an inbox in 3c does nothing for a message
+  silently swallowed today. The two cases genuinely differ. But they differ by a
+  distinction thin enough that stating it is cheaper than re-deriving it, and
+  the alternative — deferring the audit calls until the screen exists — would
+  leave the first months of the installation's own history unrecorded.
+
+- **The four `parish_unit.*` actions are grouped `administration` though the
+  screen is the manager's** (`app/Support/Audit/AuditSentences.php:219-222`).
+  This is the one place in the map where the group's usual reading — "which
+  screen is this act from" — and its real question — "who could have done this"
+  — part company, and the second wins. Task 5 argued it in the map itself
+  (`:196-218`): `manage/units` sits in the manager area only because
+  `ParishUnit` is shelf-scoped and that route group binds a tenant, while every
+  one of the four acts is super-admin-only. Filing them under `readers` because
+  the units describe readers would put four acts a manager cannot perform into
+  the group a manager's own work lives in. Carried here because a divergence
+  argued only in the file that makes it is invisible to whoever adds the sixth
+  group.
+
+- **The archived-shelf resolver filter and export remain deferred, unchanged
+  from 3b-i.** `app/Http/Middleware/ResolveTenant.php:35-37` still resolves
+  `{shelf}` by slug with no `status` condition, so an archived shelf still
+  serves its routes. Export is still unbuilt and still **unscheduled** — 3b-ii
+  did not give it a home either — and it is still a precondition on the filter,
+  for the reason the 3b-i section argues at length: closing the resolver without
+  an export path makes archiving the way to put a parish's own register beyond
+  reach of its readers, its managers and the administrator who archived it, with
+  the data all still there. Two things this phase adds sharpen it. The five
+  global rows above are the beginning of a case for an admin-side audit view,
+  which 3b-i already named as a second reason the filter is not self-contained;
+  and `manage/units` adds four more writes behind the tenant resolver, so the
+  filter's blast radius is larger than when it was deferred.
+
+### Two guard traps this phase measured, both of which produced a green test over a real defect
+
+- **Pest's `toContain` is variadic and takes no message argument, so
+  `->not->toContain($needle, $message)` passes unconditionally** — the message
+  becomes a second needle, and the negation is satisfied by that sentence being
+  absent whatever the first needle does. Task 6 measured it: written that way,
+  the guard asserting `/manage/settings` has no write control stayed green with
+  a `useForm` and a `<form>` block both present in the screen. The correct shape
+  is `expect(str_contains($source, $needle))->toBeFalse($message)`, one needle
+  per call (`tests/Feature/Members/ManagerSettingsScreenTest.php:237-248`).
+
+  **This is the second phase to ship it.** `known-gaps.md:260-285` records the
+  first, in the positive form, where the effect was the opposite — a check that
+  failed on every route rather than passing on all of them — which is why it was
+  caught in minutes there and not here. The negated form is the dangerous one.
+  It is now written into `AGENTS.md:170-190` rather than left in this file,
+  because a trap recorded only in a phase's gap list is found by whoever is
+  already reading about that phase.
+
+- **A source-read guard whose needle also appears somewhere unrelated in the
+  file is green forever.** Task 5 measured this on the units screen: the first
+  version of the flat-list grouping assertion looked for
+  `level2ByParent.get(unit.parentId)`, and the loop **three hundred lines above**
+  that *builds* that map contains the same call — so the needle was satisfied
+  with the branch under test rewritten to the wrong expression, and it stayed
+  green under exactly the mutation it was written for
+  (`tests/Feature/Members/ManagerUnitsScreenTest.php:370-377`). The fix was to
+  name the prop as well as the expression, tying the value to the control that
+  posts it. The general rule — pick a needle that exists only where the thing
+  under test lives, and prove it by mutation — sits beside the `toContain` entry
+  in `AGENTS.md`.
+
+### One requirements-side divergence this phase touched but did not close
+
+- **BR §5.5 still names `allow_comments` where the code uses
+  `comments_enabled`** (`docs/BUSINESS-REQUIREMENTS.md:231`). This is a lag in
+  the requirements text, not in the code: every implementation of the setting —
+  the migration, the model, the admin policy form and now two read paths —
+  spells it `comments_enabled`, and `comments_require_approval` is spelled alike
+  in both documents. Task 6 amended the two places in this file that promised a
+  future `/manage/settings` writer for the key (`known-gaps.md:3592-3612`) and
+  `CommentSettings`' own docblock, because spec D4 made that screen read-only,
+  so the author those notes were addressed to never came into being. The BR
+  wording itself is untouched, deliberately: closing the lag is a one-cell edit
+  to §5.5, and it is the product owner's document.
+
+### Changing a shelf's taxonomy shape hides its level-2 units, silently
+
+Found by the 3b-ii whole-branch review, in the seam between Task 4 (the shape,
+on the admin shelf editor) and Task 5 (the units, on `manage/units`). Task 4's
+brief owned the shape, Task 5's owned the units, and the transition between them
+was owned by nobody.
+
+`UpdateParishTaxonomy` never touches a unit row — correct, and its docblock says
+so. But `manage/units` is the only screen that manages units, and it renders
+level 2 conditionally:
+
+- `resources/js/pages/manage/units.tsx:398` — `showLevel2 = taxonomy.levels === 2`.
+  Drop a shelf from two levels to one and every existing level-2 row leaves the
+  screen: no rename, no reorder, no delete control.
+- `:490` — the nested branch renders only `level2ByParent.get(unit.id)`. Turn
+  `nested` on for a shelf whose level-2 units are flat (`parent_id` null) and
+  those rows key under `null` and render nowhere either.
+
+**The rows stay live in the database, and no reader sees them** —
+`ParishUnits::hasVisibleLevel2()` gates on `levels`/`nested`, so registration
+does not offer them. It is fully recoverable by switching the shape back, which
+is why it is recorded rather than fixed here: the fix is a decision (warn on the
+shape form? refuse the change while units exist? cascade a soft delete?) and
+none of those is in this phase's spec.
+
+What is wrong today is only that **nothing says so on either screen**. A
+super administrator who narrows a shelf's taxonomy has no way to learn that four
+đơn vị just became unreachable.

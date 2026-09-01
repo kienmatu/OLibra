@@ -145,6 +145,65 @@ just enough to make the pattern recognisable. When a helper's shape only
 makes sense in one file, prefer a closure or a private method on a
 `Tests\Support\` class over a bare top-level function.
 
+## Before you claim a change is done, run every gate CI runs
+
+CI (`.github/workflows`, "Laravel CI") runs **six** checks. Running four of them
+locally and pushing is how this repo gets red PRs:
+
+```bash
+docker exec laravel-app-1 vendor/bin/pint --test          # 1. format
+docker exec laravel-app-1 vendor/bin/phpstan analyse --no-progress  # 2. Larastan level 8
+npm run laravel:lint                                      # 3. Biome  <- easy to forget
+npm run laravel:typecheck                                 # 4. TypeScript
+npm run laravel:build                                     # 5. Vite
+docker exec laravel-app-1 php artisan test                # 6. Pest
+```
+
+**Never run `pint` or `php` on the host** — the host PHP is 7.4 and aborts with a
+dyld error before running anything, so a host-side "pint failed" is a toolchain
+artefact, not a code failure. Run them inside `laravel-app-1`.
+
+**`npm run build` is not the app's build.** The repo root's `build` script maps
+to `cd old_next && next build`, which builds the read-only Next.js reference.
+The Laravel build is `npm run laravel:build`.
+
+### Pest's `toContain` takes no message argument
+
+`expect($x)->not->toContain($needle, "my message")` **passes unconditionally**.
+`toContain` is variadic over needles, so the message becomes a second needle and
+the negation is satisfied by that string being absent — which it always is.
+
+This has now shipped a green test over a real defect **twice**, in two different
+phases. Both times it was a source-read guard, and both times the thing it
+protected was genuinely broken while it stayed green.
+
+```php
+// wrong — always passes
+expect($source)->not->toContain($needle, "message");
+// right
+expect(str_contains($source, $needle))->toBeFalse("message");
+```
+
+The same shape catches source-read guards generally: a needle that also appears
+somewhere unrelated in the file makes the test green forever. Pick a needle that
+exists only where the thing you are testing lives, and **prove it by mutation** —
+delete the thing, watch red, restore.
+
+### "Pre-existing" means pre-existing on `main`
+
+Phase 3b-i shipped a PHPStan error to CI twice because two separate agents
+reported it as pre-existing and out of scope. Both had compared against an
+earlier commit **on their own branch**, where the offending file already
+existed — but the file did not exist on `main` at all. Their own branch had
+introduced it.
+
+Before dismissing a failure as pre-existing, check it against the merge base,
+not against a commit you made:
+
+```bash
+git stash && git checkout $(git merge-base HEAD origin/main) -- . && <gate>
+```
+
 ## Current scope
 
 **Laravel (`app/`): Phase 0 is done** — schema, enums, identity/session, tenancy
