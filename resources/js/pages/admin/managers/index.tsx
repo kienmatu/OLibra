@@ -1,5 +1,5 @@
-import { Head, useForm, usePage } from "@inertiajs/react";
-import { KeyRound, ShieldCheck, UserCog } from "lucide-react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
+import { KeyRound, ScrollText, ShieldCheck, UserCog } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { route } from "ziggy-js";
 import InputError from "@/components/input-error";
@@ -326,6 +326,49 @@ function PromoteControl({ manager }: { manager: ManagerRow }) {
     );
 }
 
+/**
+ * BR:608's "per-manager activity: everything one manager has done, grouped
+ * by type" — the WHOLE of it (spec D4).
+ *
+ * It is a link, not a screen. `/admin/audit` already answers the question:
+ * its actor filter narrows the system-wide log to one person, and its group
+ * chips are the "grouped by type" half. The reference ships exactly this —
+ * its managers list links to its own log with the actor in the query string
+ * — and deliberately declined to map BR's five example phrases onto audit
+ * actions, because they do not partition a manager's log: requests,
+ * announcements, comments, suspensions and the profile-change family all
+ * sit in it and belong to none of the five.
+ *
+ * The actor is the USER id, not the membership id: the log records who
+ * acted, not which grant they acted under, so a super administrator who
+ * also runs a parish gets the same log from either of their two rows.
+ *
+ * A MANAGER WHO HAS NEVER ACTED GETS NO LINK, and that is not decoration.
+ * `/admin/audit` validates `?actor=` against the people its log actually
+ * records, and an unrecognised value there means "no filter" rather than "a
+ * filter matching nothing" — so a link for somebody with no rows would open
+ * the whole system's log under the words "this person's activity", which is
+ * the one wrong answer available. `lastActiveAt` is read from the same
+ * table by the same rule (ManagersListQuery::lastActiveByActor), so it is
+ * exactly the predicate "the log names this actor": the link is here when
+ * the filter will resolve and gone when it will not. The row already says
+ * so in words a line above.
+ */
+function ActivityLink({ manager }: { manager: ManagerRow }) {
+    if (manager.lastActiveAt === null) {
+        return null;
+    }
+
+    return (
+        <Button asChild variant="outline" className="h-11">
+            <Link href={route("admin.audit", { actor: manager.userId })}>
+                <Icon iconNode={ScrollText} className="size-4" />
+                {copy.adminManagers.activity}
+            </Link>
+        </Button>
+    );
+}
+
 function ManagerCard({ manager }: { manager: ManagerRow }) {
     const superAdmin = manager.role === "super_admin";
     // A membership that is not active is a grant its holder cannot use.
@@ -369,6 +412,7 @@ function ManagerCard({ manager }: { manager: ManagerRow }) {
                             {STATUS_LABEL[manager.status ?? ""] ?? manager.status}
                         </Badge>
                     )}
+                    <ActivityLink manager={manager} />
                     <RevokeControl manager={manager} />
                     <PromoteControl manager={manager} />
                 </div>

@@ -495,6 +495,12 @@ export const copy = {
         wholeSystem: "Toàn hệ thống",
         lastActive: "Hoạt động gần nhất",
         neverActive: "Chưa làm việc gì trên hệ thống",
+        // BR:608's per-manager activity, which is a LINK and not a screen
+        // (spec D4): the row carries the person into the system-wide log
+        // with the actor already chosen, and that log's group chips are
+        // what "theo loại việc" means. Worded as the log a volunteer is
+        // being taken to, not as a report that does not exist.
+        activity: "Xem nhật ký của người này",
         // The revoke control. The confirmation SENTENCE is not here: it
         // names the person and the shelf, so it is assembled server-side
         // per row and arrives as a prop (BR §16.4, and see
