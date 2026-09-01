@@ -46,21 +46,23 @@ final class ShelfContactsQuery
 
         $byPosition = $rows->keyBy('position');
 
-        return collect([1, 2, 3])
-            ->map(function (int $position) use ($byPosition): ?array {
-                $contact = $byPosition->get($position);
+        // Built with a foreach and $rows[] rather than collect()->map(),
+        // because the declared return type is a list and PHPStan cannot prove
+        // that of Collection::all() — its stub types it array<int, …> whatever
+        // the keys really are, values() included. Appending states it.
+        $positions = [];
 
-                if ($contact === null) {
-                    return null;
-                }
+        foreach ([1, 2, 3] as $position) {
+            $contact = $byPosition->get($position);
 
-                return [
-                    'position' => $position,
-                    'name' => $contact->name,
-                    'phone' => $contact->phone,
-                    'roleLabel' => $contact->role_label,
-                ];
-            })
-            ->all();
+            $positions[] = $contact === null ? null : [
+                'position' => $position,
+                'name' => $contact->name,
+                'phone' => $contact->phone,
+                'roleLabel' => $contact->role_label,
+            ];
+        }
+
+        return $positions;
     }
 }
