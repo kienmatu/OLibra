@@ -1,6 +1,6 @@
 # Phase 4 — Cutover
 
-**Status:** Draft, 2026-09-01.
+**Status:** Implemented, 2026-09-01, on `feat/phase-4-cutover`.
 **Supersedes for this phase:** §11 of
 [`2026-08-26-laravel-mariadb-inertia-migration-design.md`](2026-08-26-laravel-mariadb-inertia-migration-design.md),
 which defined Phase 4 in one sentence.

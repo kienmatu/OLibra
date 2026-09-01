@@ -1,6 +1,6 @@
 # Phase 4 — Cutover: implementation plan
 
-**Status:** In progress.
+**Status:** Complete, 2026-09-01. All five tasks landed; six gates green.
 **Spec:** [`2026-09-01-laravel-phase-4-cutover-design.md`](../specs/2026-09-01-laravel-phase-4-cutover-design.md)
 **Branch:** `feat/phase-4-cutover`, cut from `main` at `5b9e7e6`.
 
