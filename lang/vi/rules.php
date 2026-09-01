@@ -320,6 +320,13 @@ return [
     // of three buttons reads which save landed.
     'bookshelf_policy_saved_flash' => 'Đã lưu chính sách mượn sách.',
     'bookshelf_contacts_saved_flash' => 'Đã lưu đầu mối liên hệ.',
+    // Phase 3b-ii Task 4's, the fourth section on the same screen and the
+    // fourth sentence for the same reason: four forms, four buttons, four
+    // confirmations that do not read alike. It names what it saved — the
+    // CÁCH CHIA, not the đơn vị — because the units are edited elsewhere
+    // and a volunteer who read "Đã lưu đơn vị" here would look for a list
+    // this screen deliberately does not have.
+    'bookshelf_taxonomy_saved_flash' => 'Đã lưu cách chia đơn vị của tủ sách.',
     // Spec D3. Position 1 is required by the INTERFACE and not by the
     // column: a shelf onboarded before the contacts table existed may hold
     // none and is flagged incomplete rather than assigned an invented

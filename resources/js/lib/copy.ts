@@ -225,6 +225,30 @@ export const copy = {
         // survive the second parish.
         contactRoleHint: "Ví dụ: Người giữ chìa khoá, Quản lý tủ sách.",
         contactOptional: "Không bắt buộc",
+        // Phase 3b-ii Task 4's section, spec D5 — BR §5.6's cách chia đơn
+        // vị. The SHAPE only: mấy cấp, gọi là gì, cấp nhỏ có nằm trong cấp
+        // lớn không. Danh sách đơn vị được sửa ở màn hình riêng của tủ
+        // sách, và sản phẩm KHÔNG kèm sẵn danh sách nào (BR §5.6): danh
+        // sách đúng cho giáo xứ này thì sai cho giáo xứ khác.
+        taxonomySection: "Cách chia đơn vị",
+        taxonomyLead:
+            "Dùng khi bạn đọc đăng ký: mỗi người chọn đơn vị mình thuộc về. Ở đây chỉ đặt cách chia; danh sách đơn vị cụ thể được quản lý ở trang riêng của tủ sách.",
+        submitTaxonomy: "Lưu cách chia",
+        taxonomyFields: {
+            levels: "Số cấp",
+            levelsOne: "Một cấp",
+            levelsTwo: "Hai cấp",
+            level1Label: "Tên gọi cấp 1",
+            level2Label: "Tên gọi cấp 2",
+            nested: "Cấp 2 nằm trong cấp 1",
+        },
+        // Hai từ duy nhất BR §5.6 ghi nhận là có giáo xứ đang dùng, nêu làm
+        // ví dụ chứ không phải danh sách chọn sẵn.
+        taxonomyLabelHint: "Ví dụ: Tổ, Giáo họ.",
+        // Giá trị cấp 2 vẫn được giữ khi tủ sách chuyển về một cấp, để tủ
+        // sách quay lại hai cấp thì tìm lại đúng lựa chọn cũ (OPS §4.5).
+        taxonomyLevelTwoKept:
+            "Tủ sách một cấp vẫn giữ nguyên phần cấp 2 ở đây, để khi quay lại hai cấp thì không phải đặt lại từ đầu.",
         // Task 6's two row controls (spec D4). "Ngưng hoạt động" rather
         // than "Lưu trữ", the audit sentence's word, so the log and the
         // button a volunteer pressed say the same thing.

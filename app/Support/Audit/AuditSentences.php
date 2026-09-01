@@ -179,6 +179,20 @@ final class AuditSentences
         'category.created' => 'administration',
         'category.renamed' => 'administration',
         'category.archived' => 'administration',
+        // Phase 3b-ii Task 4's one, spec D5 and D8 — BR §5.6's parish
+        // taxonomy, the SHAPE of how a parish subdivides its people.
+        //
+        // 'administration' for the reason the three above are: the group
+        // answers "which screen is this act from", and this one is made on
+        // the cross-shelf admin shelf editor by somebody who holds the
+        // whole installation, not by the tủ sách's own manager.
+        //
+        // UNLIKE THE FOUR ABOVE, THIS ROW BELONGS TO A SHELF. The taxonomy
+        // is one parish's own arrangement and lives in that shelf's
+        // settings, so UpdateParishTaxonomy writes it through
+        // AuditRecorder's forShelf() arm and it appears on that shelf's own
+        // log rather than nowhere.
+        'parish_taxonomy.updated' => 'administration',
     ];
 
     /**
@@ -490,6 +504,15 @@ final class AuditSentences
             'category.archived' => ($name = self::str($before, 'name')) !== null
                 ? strtr(self::line('category_archived'), [':name' => $name])
                 : self::line('category_archived_bare'),
+            // Task 4's one, the reference's phrase verbatim
+            // (audit-actions.ts:580-583). NO SUBSTITUTION AND NO BARE TWIN,
+            // like the installation's pair above and unlike the three
+            // genres: the subject is the shelf, the row already carries its
+            // bookshelf_id, and every screen that will render this sentence
+            // is reading one shelf's log with the shelf's name in its own
+            // heading. The four values that moved are on the payload row one
+            // tap away — INV-8's placement.
+            'parish_taxonomy.updated' => self::line('parish_taxonomy_updated'),
             default => self::line('unknown'),
         };
     }

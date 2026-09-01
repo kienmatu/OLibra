@@ -14,9 +14,15 @@ import type { SharedData } from "@/types";
  * the lending policy and the up-to-three contacts.** 3b-ii adds the parish
  * taxonomy (spec D8) to this same page.
  *
+ * **3b-ii Task 4 added the parish taxonomy as a fourth section** (spec D5):
+ * the SHAPE of how the parish subdivides its people — how many levels, what
+ * each is called, whether the smaller nests inside the bigger. **Its units
+ * are not here**, and no built-in list of them ships (BR §5.6); they are
+ * edited on the shelf's own `manage/units`, which binds a tenant.
+ *
  * **Each section is its own form, its own submit and its own refusal** (spec
- * D2), and this file's shape is the reason that stays true: there are three
- * `useForm` bags below and three routes, and no state is shared between
+ * D2), and this file's shape is the reason that stays true: there are four
+ * `useForm` bags below and four routes, and no state is shared between
  * them. A single save covering every section is the thing the spec forbids —
  * the reference records at length why one `?saved=1` on a page with several
  * independently-submittable forms cannot say which form saved, and D8's
@@ -85,11 +91,31 @@ interface ShelfContact {
     roleLabel: string | null;
 }
 
+/**
+ * BR §5.6's parish taxonomy — the SHAPE of how this parish subdivides its
+ * people, under its storage keys. Snake case for the policy's reason: these
+ * names go on the wire and land in `settings.parish_taxonomy` unchanged, and
+ * they are App\Support\Members\ParishTaxonomy's own spelling rather than the
+ * requirements'.
+ *
+ * The UNITS are not here and no list of them ships with the product
+ * (BR §5.6): they are edited on the shelf's own `manage/units` screen, which
+ * binds a tenant. This section decides how many levels there are and what
+ * they are called; that one decides which tổ exist.
+ */
+interface ShelfTaxonomy {
+    levels: 1 | 2;
+    nested: boolean;
+    level1_label: string;
+    level2_label: string;
+}
+
 interface PageProps extends SharedData {
     shelf: ShelfProfile;
     policy: ShelfPolicy;
     /** Always three entries, `null` for a position the shelf has no row at. */
     contacts: (ShelfContact | null)[];
+    taxonomy: ShelfTaxonomy;
 }
 
 interface ProfileForm {
@@ -187,7 +213,14 @@ const CONTACT_BLOCKS = [
 }[];
 
 export default function AdminShelfEdit() {
-    const { shelf, policy, contacts, errors: pageErrors, flash } = usePage<PageProps>().props;
+    const {
+        shelf,
+        policy,
+        contacts,
+        taxonomy,
+        errors: pageErrors,
+        flash,
+    } = usePage<PageProps>().props;
 
     // The slug is deliberately absent from this bag. Inertia submits what
     // the bag holds, so leaving it out is what makes the read-only input
@@ -247,6 +280,27 @@ export default function AdminShelfEdit() {
         contactsForm.put(route("admin.shelves.contacts", { bookshelf: shelf.slug }));
     };
 
+    // The fourth bag and the fourth route (spec D5). Nothing here reads the
+    // other three: a refused label leaves a half-typed loan period alone,
+    // which is what "its own refusal" means on a screen with four forms.
+    //
+    // `levels` is a number and not a string, unlike the policy's six. There
+    // is no "the volunteer cleared the box" state to represent — it is a
+    // two-option select whose value is always one of them — so the string
+    // that keeps "empty" distinct there would only be a coercion waiting to
+    // happen here.
+    const taxonomyForm = useForm<ShelfTaxonomy>({
+        levels: taxonomy.levels,
+        nested: taxonomy.nested,
+        level1_label: taxonomy.level1_label,
+        level2_label: taxonomy.level2_label,
+    });
+
+    const submitTaxonomy = (event: FormEvent) => {
+        event.preventDefault();
+        taxonomyForm.patch(route("admin.shelves.taxonomy", { bookshelf: shelf.slug }));
+    };
+
     return (
         <AdminLayout>
             <Head title={copy.adminShelves.editTitle} />
@@ -255,11 +309,14 @@ export default function AdminShelfEdit() {
 
             {/* THE THREE FORMS ON THIS PAGE CONFIRM SEPARATELY, and the
                 sentence is what separates them: ShelfController flashes
-                bookshelf_profile_saved_flash, bookshelf_policy_saved_flash
-                or bookshelf_contacts_saved_flash, each naming its own
+                bookshelf_profile_saved_flash, bookshelf_policy_saved_flash,
+                bookshelf_contacts_saved_flash or (3b-ii)
+                bookshelf_taxonomy_saved_flash, each naming its own
                 section, which is the requirement that controller's docblock
-                argues for. One banner in one place is still three
-                confirmations because no two of them read alike.
+                argues for. One banner in one place is still four
+                confirmations because no two of them read alike — a fourth
+                section without a fourth key would save and say what a
+                policy save says.
 
                 It is at the top rather than inside each section because a
                 submit here is a plain visit: none of the three passes
@@ -501,6 +558,101 @@ export default function AdminShelfEdit() {
 
                     <Button type="submit" className="h-14" disabled={contactsForm.processing}>
                         {copy.adminShelves.submitContacts}
+                    </Button>
+                </form>
+            </section>
+
+            {/* The fourth section (spec D5): BR §5.6's cách chia đơn vị,
+                the SHAPE of the parish's subdivision and nothing else.
+
+                NO UNIT LIST IS RENDERED HERE, and its absence is the
+                requirement rather than an omission: BR §5.6 refuses to ship
+                a built-in list because one right for the parish it was
+                copied from is wrong for every other, and the units this
+                shape describes are edited on the shelf's own manage/units
+                screen, which binds a tenant. Tổ and Giáo họ appear below as
+                hint text, which is the narrow carve-out that section makes.
+
+                The level-2 fields stay on screen when the shelf is on one
+                level. They are what is stored, so hiding them would hide
+                the values the form is about to post back — and OPS §4.5's
+                invariant is that a shelf which drops to one level and later
+                returns to two finds its previous choice intact. */}
+            <section className="mt-10 max-w-xl">
+                <h3 className="mb-1 text-lg font-semibold">{copy.adminShelves.taxonomySection}</h3>
+                <p className="mb-3 text-sm text-muted-foreground">
+                    {copy.adminShelves.taxonomyLead}
+                </p>
+
+                <form onSubmit={submitTaxonomy} className="space-y-4">
+                    <div>
+                        <Label htmlFor="levels">{copy.adminShelves.taxonomyFields.levels}</Label>
+                        <select
+                            id="levels"
+                            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                            value={String(taxonomyForm.data.levels)}
+                            onChange={(event) =>
+                                taxonomyForm.setData("levels", event.target.value === "2" ? 2 : 1)
+                            }
+                        >
+                            <option value="1">{copy.adminShelves.taxonomyFields.levelsOne}</option>
+                            <option value="2">{copy.adminShelves.taxonomyFields.levelsTwo}</option>
+                        </select>
+                        <InputError message={taxonomyForm.errors.levels} />
+                    </div>
+
+                    <div>
+                        <Label htmlFor="level1_label">
+                            {copy.adminShelves.taxonomyFields.level1Label}
+                        </Label>
+                        <Input
+                            id="level1_label"
+                            value={taxonomyForm.data.level1_label}
+                            onChange={(event) =>
+                                taxonomyForm.setData("level1_label", event.target.value)
+                            }
+                        />
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {copy.adminShelves.taxonomyLabelHint}
+                        </p>
+                        <InputError message={taxonomyForm.errors.level1_label} />
+                    </div>
+
+                    <div>
+                        <Label htmlFor="level2_label">
+                            {copy.adminShelves.taxonomyFields.level2Label}
+                        </Label>
+                        <Input
+                            id="level2_label"
+                            value={taxonomyForm.data.level2_label}
+                            onChange={(event) =>
+                                taxonomyForm.setData("level2_label", event.target.value)
+                            }
+                        />
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {copy.adminShelves.taxonomyLevelTwoKept}
+                        </p>
+                        <InputError message={taxonomyForm.errors.level2_label} />
+                    </div>
+
+                    {/* Posted true or false every time, the policy toggles'
+                        reasoning: an unticked checkbox sends nothing of its
+                        own accord, and "the volunteer unticked it" must not
+                        arrive as "leave it as it was". */}
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={taxonomyForm.data.nested}
+                            onChange={(event) =>
+                                taxonomyForm.setData("nested", event.target.checked)
+                            }
+                        />
+                        {copy.adminShelves.taxonomyFields.nested}
+                    </label>
+                    <InputError message={taxonomyForm.errors.nested} />
+
+                    <Button type="submit" className="h-14" disabled={taxonomyForm.processing}>
+                        {copy.adminShelves.submitTaxonomy}
                     </Button>
                 </form>
             </section>

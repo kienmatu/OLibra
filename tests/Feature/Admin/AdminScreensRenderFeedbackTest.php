@@ -132,6 +132,23 @@ it('renders the two refusals and both field bags /admin/categories can produce',
         ->and($source)->toContain('renameForm.errors');
 });
 
+it('renders the taxonomy section\'s own field bag on the shelf editor', function () {
+    // Phase 3b-ii Task 4, added here in the same task that builds the
+    // section — THE LIST IN THIS FILE IS HAND-WRITTEN and does not grow on
+    // its own.
+    //
+    // The fourth form on this screen has its own bag, and that is the point
+    // of asserting it separately: a page that read only the shared `errors`
+    // prop would swallow every length and encoding refusal on the two label
+    // fields, and the three bags already asserted elsewhere prove nothing
+    // about a fourth that does not exist yet.
+    $source = adminScreenSource('shelves/edit.tsx');
+
+    expect($source)->toContain('errors: pageErrors')
+        ->and($source)->toContain('pageErrors.rule')
+        ->and($source)->toContain('taxonomyForm.errors');
+});
+
 it('renders the success flash on every admin screen a redirect carries one to', function () {
     // ManagerController flashes on all three grants and redirects to
     // /admin/managers. ShelfController flashes on all six of its writes:

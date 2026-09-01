@@ -582,6 +582,17 @@ Route::prefix('admin')->name('admin.')->middleware('super-admin')->group(functio
     // contact — which is what PUT means.
     Route::patch('/shelves/{bookshelf}/policy', [AdminShelfController::class, 'updatePolicy'])->name('shelves.policy');
     Route::put('/shelves/{bookshelf}/contacts', [AdminShelfController::class, 'updateContacts'])->name('shelves.contacts');
+    // Phase 3b-ii Task 4's fourth section, spec D5 — BR §5.6's parish
+    // taxonomy. PATCH like the policy and for the same reason: the submit
+    // carries four keys that are merged into a settings bag shared with keys
+    // it never showed, so it modifies part of the shelf rather than
+    // replacing it.
+    //
+    // THE SHAPE ONLY. The units a reader picks from at registration are
+    // edited on shelves/{shelf}/manage/units, which binds a tenant —
+    // ParishUnit is shelf-scoped and this group is not, so unit CRUD here
+    // would force a widening on every read and write of it.
+    Route::patch('/shelves/{bookshelf}/taxonomy', [AdminShelfController::class, 'updateTaxonomy'])->name('shelves.taxonomy');
     // Task 6's lifecycle pair, spec D4. POST and bodiless — the shelf named
     // in the URL is the whole request, the shape every other state
     // transition in this file uses (readers.suspend, announcements.pin).

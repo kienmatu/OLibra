@@ -213,6 +213,12 @@ return [
     'category_renamed_bare' => 'đổi tên một thể loại',
     'category_archived' => 'lưu trữ thể loại :name',
     'category_archived_bare' => 'lưu trữ một thể loại',
+    // Phase 3b-ii Task 4's one, the reference's phrase verbatim
+    // (audit-actions.ts:582). "Cách chia đơn vị" and not "đơn vị": what
+    // changed is how the tủ sách divides its người, not which tổ exist —
+    // the đơn vị themselves have their own four actions on their own
+    // screen.
+    'parish_taxonomy_updated' => 'đổi cách chia đơn vị của tủ sách',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.
