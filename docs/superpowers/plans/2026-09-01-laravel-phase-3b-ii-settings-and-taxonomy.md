@@ -1,0 +1,288 @@
+# Implementation plan: Phase 3b-ii — settings, taxonomy and the public contact page
+
+Spec: `docs/superpowers/specs/2026-09-01-laravel-phase-3b-ii-settings-and-taxonomy-design.md`
+Branch: `feat/phase-3b-ii-settings-and-taxonomy`, cut from `main` at `5cf8b9c`
+
+## Context for whoever picks this up
+
+OLibra is a Vietnamese parish lending-library system being ported from Next.js to
+Laravel + Inertia + React. `old_next/` is a **read-only** behavioural reference —
+never write to it. 3b-i made an installation operable (bookshelves, managers);
+this phase makes it **configurable**: system settings, the public contact page,
+book genres, the parish taxonomy and its units, and a manager's read-only view of
+their own shelf.
+
+**Read the spec before starting.** Two of its decisions reversed during review
+and both look wrong until you read why:
+
+- **`manage/settings` is read-only.** A manager edits nothing there.
+  `UpdateBookshelfPolicy` authorizes internally as super admin, the reference's
+  screen renders every value as plain text, and BR's fourteen manager screens do
+  not include Settings.
+- **`manage/units` has a real editor, gated on `is_super_admin`.** Not the admin
+  area. `ParishUnit` is shelf-scoped and `/admin` binds no tenant, so putting it
+  there would force `systemWide()` on every read and write.
+
+If you find yourself rendering a control a manager cannot use, stop — the
+reference's own docstring records shipping exactly that and correcting it before
+merge, and this repo has now produced the same defect three times.
+
+### The environment, and the six gates
+
+`AGENTS.md` has the full list; the short version:
+
+- Tests `docker exec laravel-app-1 php artisan test`
+- **Never run `pint` or `php` on the host** — host PHP is 7.4 and aborts.
+- The six gates CI runs: `pint --test`, `phpstan analyse`, `laravel:lint`
+  (Biome — the one people forget), `laravel:typecheck`, `laravel:build`, Pest.
+  **Run all six before claiming done.** 3b-i shipped red twice by running four.
+- `npm run build` builds the read-only `old_next`. The app's build is
+  `npm run laravel:build`.
+
+### The five pins this phase will hit
+
+Spec §6 has the detail. In short: the widening fences (`systemWide()` and the
+audit configurator), the audit census in both directions, the free-text encoding
+sweep over every Form Request, `RouteOrderTest` (super-admin/role/tenant
+middleware, and **no Vietnamese path segments**), and the timezone-literal
+census. Two of them read raw file contents with **no comment stripping**, so do
+not spell `->global(` or a where-shaped call inside a comment.
+
+### House rule: mandatory falsification
+
+Every test is **watched failing before it is accepted** — mutate what it
+protects, see red, restore, confirm `git status --porcelain` is clean.
+**Restore by targeted edit, never `git checkout -- <file>`**: your work is
+uncommitted and a checkout discards the task.
+
+### Audit actions land with their writers
+
+Ten new actions across this phase. Each lands in the **same task** as the code
+that writes it, with its `phrase()` arm, its `lang/vi/audit.php` line, its group
+(`administration`, which 3b-i created), and the partition count in
+`tests/Unit/Audit/AuditSentencesTest.php:435` bumped by that task's share.
+The census asserts set-equality **both ways**, so registering an action whose
+writer does not exist yet turns the suite red until it does.
+
+Count starts at **48** and ends at **58**.
+
+---
+
+## Task 1 — `/admin/settings`
+
+Spec D1, D7, D8. Adds `system_settings.updated` and `site_contact.updated`
+(48 → 50).
+
+`system_settings` is single-row; `SystemSetting::sole()` and the model already
+exist with **zero callers** — this is its first.
+
+1. **Two forms, two submits, two refusals.** Contact first on the page (BR:598:
+   it is the only setting the public can see). A typo in a default must not block
+   fixing the administration's phone number.
+2. **Contact form** — `contact_name`, `contact_phone`, `contact_hours`. Validate
+   the phone with `App\Support\Phone` when non-empty: this is the number
+   `/contact` publishes, so a bad value is a *public* dead link.
+3. **Defaults form** — the six `default_*` columns, bounds from spec D7:
+   loan 1–365, concurrent 1–50, renewals **0**–10, renewal days 1–365, hold
+   1–30, due-soon **0**–30. The two zero-minimums are load-bearing ("no renewals
+   allowed" is a real policy); validate as a safe integer before the range check.
+4. **Both writers set `changed_by` and `changed_at` explicitly** — the model has
+   `$timestamps = false`, so nothing fills them and the provenance columns would
+   stay null forever.
+5. **Locale and timezone render as a fixed read-only block**, not a `<select>`
+   with one option. There is no column for either; the timezone string comes from
+   `App\Support\Clock::ZONE` — **never a fresh `Asia/Ho_Chi_Minh` literal**,
+   which `LabelsArchitectureTest:23` censuses.
+6. Commands live in `app/Actions/Admin/` — required, because they audit and the
+   audit configurator is fenced there.
+
+**Tests:** the two forms refuse independently; both writers set
+`changed_by`/`changed_at`; a phone that fails `Phone` is refused; a default
+below its minimum is refused and `max_renewals: 0` is accepted.
+
+**Falsify:** set `max_renewals`' minimum to 1 and watch the zero case go red.
+
+---
+
+## Task 2 — The public `/contact`
+
+Spec D2. No new audit actions.
+
+Renders `contact_name`, `contact_phone`, `contact_hours` from the single row,
+**omitting any that is blank** — never a placeholder, never an invented default.
+When no contact is configured at all, the page says plainly that the visitor
+should approach their parish directly.
+
+**No feedback form.** It is deferred to 3c to land with the inbox that reads it;
+there is no feedback write path in this application today and `/admin/feedback`
+is 3c's. Do not build one.
+
+**The page is public** — no membership, no shelf, no tenant. It must touch **no
+shelf-scoped model**, or `BookshelfScope` throws for exactly the visitor it
+serves.
+
+**Test:** it renders for a caller with no membership and no shelf; a blank detail
+omits its line; a wholly unconfigured page still tells the visitor what to do;
+changing the details changes the page end to end.
+
+**Falsify:** touch a shelf-scoped model in the controller and watch the
+no-membership test throw.
+
+---
+
+## Task 3 — `/admin/categories`
+
+Spec D3, D8. Adds `category.created`, `.renamed`, `.archived` (50 → 53).
+
+`Category` is **not** shelf-scoped and `categories` has no `bookshelf_id`, so
+nothing here needs `systemWide()`. The commands still live in
+`app/Actions/Admin/` because they audit **globally** (`->global()`), which is
+fenced there.
+
+- **Rename does not move the slug.** Moving it silently repoints already-catalogued
+  books — the same shape as 3b-i's D1 for a shelf's slug.
+- **Archive is refused while books still carry the genre**, with the reference's
+  sentence: *"Chỉ lưu trữ được khi không còn sách nào thuộc thể loại này."*
+  The refusal code is `category_in_use`. It needs a Vietnamese sentence in
+  `lang/vi/rules.php` **and** an entry in `RuleViolatedCodesHaveSentencesTest`'s
+  hand-written list — the catalogue slice has no census that would catch a
+  missing one, so this fails silently rather than red.
+
+**Tests:** archiving with books is refused; archiving an empty genre succeeds and
+it leaves the picker; a rename leaves the slug untouched.
+
+**Falsify:** drop the in-use check and watch the refusal test go red.
+
+---
+
+## Task 4 — The taxonomy *shape*, on the admin shelf editor
+
+Spec D5, D8. Adds `parish_taxonomy.updated` (53 → 54).
+
+A fourth section on `resources/js/pages/admin/shelves/edit.tsx`, beside profile,
+policy and contacts. 3b-i's per-section rule is what makes this an addition
+rather than a restructure — **it is its own form with its own submit and its own
+refusal.**
+
+**The keys are `ParishTaxonomy`'s, not prose.**
+`app/Support/Members/ParishTaxonomy.php` fixes them: under `parish_taxonomy`, the
+keys are `levels`, `nested`, `level1_label`, `level2_label` (snake_case in
+`settings`, camelCase in PHP), with `default()` = `(1, false, 'Tổ', 'Tổ')`. Read
+that class rather than trusting this list — a key taken from the requirements
+instead of the code is this project's signature failure.
+
+**Merge into `settings`, never assign over it.** The bag also holds the eight
+policy keys and the two public-display settings; 3b-i carries a test proving a
+wholesale write drops them.
+
+Hint text may name `Tổ` and `Giáo họ` as examples (BR:249). **No built-in unit
+list ships** (BR:247).
+
+**Test:** saving the shape leaves the eight policy keys and the two
+public-display settings intact — 3b-i's data-loss test applied to the new writer.
+
+**Falsify:** assign instead of merging and watch it go red.
+
+---
+
+## Task 5 — `manage/units`: unit CRUD, gated
+
+Spec D5, D6, D8. Adds `parish_unit.created`, `.renamed`, `.deleted`, `.reordered`
+(54 → 58).
+
+The largest task in the phase. On `shelves/{shelf}/manage/units`, which **binds a
+tenant** — so `ParishUnit` resolves through the ordinary scoped path and nothing
+here needs `systemWide()`. That is most of why the spec puts it here.
+
+**Render the editing tree only when the viewer is a super administrator**;
+everyone else gets the same values as read-only text. `canEdit` in the reference
+is exactly this. A manager must not see a control the server refuses.
+
+- **Delete cascades to level-2 children and writes one audit row per deleted
+  row**, children marked `cascaded: true` in the `after` payload. A single row
+  saying "deleted a unit" would hide that four sub-units went with it.
+- **Reorder has two rules.** Level-2 siblings group by their real `parent_id`,
+  never the flat display list — a shelf with `nested` off otherwise refuses every
+  click. And the posted list must be the **entire** sibling group: a partial list
+  is `validation_failed`, because `[C, A]` over three units ties the ranks and
+  silently restores name ordering.
+
+**Tests:** a super admin sees the editor and a manager sees text, both
+directions; deleting a parent writes one row per deleted row; reordering groups
+by real `parent_id` on a shelf with `nested` off; a partial sibling list is
+refused.
+
+**Falsify:** group by the display list and watch the `nested`-off test go red.
+
+---
+
+## Task 6 — `manage/settings`: read-only
+
+Spec D4.
+
+A summary for the shelf's manager: the eight policy values, the shelf's contacts,
+its taxonomy shape — **all as text**, with a line saying who can change them
+(the reference's is *"Chỉ quản trị viên mới đổi được các mục này."*).
+
+**No form, no submit, no Action.** `UpdateBookshelfPolicy` authorizes internally
+as super admin and would 404 a manager; do not reach for it, and do not add a
+manager-side writer.
+
+**Test:** the screen renders no form — asserted as the absence of a control
+rather than the presence of text.
+
+---
+
+## Task 7 — A new shelf copies the system defaults
+
+Spec D9. Edits a 3b-i file deliberately.
+
+`CreateBookshelf` currently writes `settings => []`, arguing that
+`system_settings` exists but nothing reads it. **Task 1 makes that obsolete**:
+once an administrator sets `default_loan_days` to 21, a shelf created afterwards
+that silently uses 14 is wrong.
+
+Copy the six `default_*` values into the new shelf's `settings` at creation, and
+rewrite the docblock to say why the earlier reasoning no longer holds. Defaults
+apply to **new shelves only**; existing shelves keep their own.
+
+**Measured:** no 3b-i test asserts a new shelf's settings are empty — the one
+creation test asserts profile fields and the audit row and never touches
+`settings`. So nothing should break; if something does, read it before changing
+it.
+
+**Test:** a shelf created after a default changes carries the new value; one
+created before is untouched.
+
+---
+
+## Task 8 — Record what this phase leaves open
+
+`docs/known-gaps.md`, a `## Phase 3b-ii` section after the last `##` heading,
+following the file's convention (read `## Phase 3b-i` for tone and citation
+style). Record:
+
+- **The public contact form is deferred to 3c**, to land with the inbox that
+  reads it. BR:504 lists it; there is no feedback write path in the app and
+  `/admin/feedback` is 3c's, so a form shipped now would promise a reply that
+  cannot come.
+- **Backup controls are not built** (BR:598 lists them; OPS specifies a
+  last-backup time and a download command). An operations feature, not a settings
+  field, and the reference's own settings page renders none of it.
+- **Unit CRUD lives on `manage/units`, not the admin screen** — BR:600 puts the
+  unit lists under the admin Bookshelves screen. We match it on authority
+  (super admin only) and diverge on location, because `ParishUnit` is
+  shelf-scoped and `/admin` binds no tenant.
+- **The archived-shelf resolver filter and export remain deferred**, per 3b-i,
+  with export still unscheduled and still a precondition.
+
+---
+
+## Definition of done
+
+- **All six CI gates green**, run in the container where they belong.
+- Every test watched failing and restored; `git status --porcelain` clean.
+- Audit count at 58, census green in both directions.
+- Screenshots of `/admin/settings`, `/contact`, `/admin/categories` and
+  `manage/units` in both modes.
+- No task left the suite red across a boundary.
