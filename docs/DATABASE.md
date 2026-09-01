@@ -1,10 +1,24 @@
 # OLibra — Database Design
 
-**Status:** Proposed. Derived from [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md), which is the authority. Where this document and that one disagree, that one wins.
+**Status:** Current as of 2026-09-01. Describes the schema that ships. Derived from [BUSINESS-REQUIREMENTS.md](BUSINESS-REQUIREMENTS.md), which remains the authority on what the business needs; where this document and that one disagree about a *rule*, that one wins.
 
-**Engine:** PostgreSQL 16 or later. The engine is the likely choice but not yet formally settled; the *hosting* and the *application stack* are both open. Deployment is expected to be Docker.
+**Engine:** MariaDB 10.11, shipped. The schema below is what `database/migrations/` creates; where this document and a migration disagree, **the migration wins**. Verified against `10.11.19-MariaDB-ubu2204` (`SELECT VERSION()`).
 
-Everything below is standard PostgreSQL and assumes no managed-provider feature. Where a decision would differ between a self-hosted container and a managed service, that is called out rather than assumed.
+**Access layer:** Laravel 13 + Eloquent. There is no ORM-agnostic data layer: the tenant boundary, the soft-delete filter and the invariant translations all live in Eloquent models, scopes and Actions under `app/`.
+
+## How to read this document, and how it was checked
+
+Every count and every identifier below was produced by a query against a fully migrated database in this session, not recalled. The two databases on `laravel-mariadb-1` are `olibra` (development) and `olibra_testing` (the suite's); the figures here come from `olibra_testing`, which has all **30** migrations applied — `olibra` was one behind at the time of writing, missing only `2026_09_01_000001_add_feedback_rate_limit_index`.
+
+The shape of the check, for anyone repeating it:
+
+```bash
+docker exec laravel-mariadb-1 mysql -uroot -psecret olibra_testing -N -e \
+  "SELECT COUNT(*) FROM information_schema.COLUMNS
+   WHERE TABLE_SCHEMA='olibra_testing' AND EXTRA LIKE '%GENERATED%';"
+```
+
+**This document is history-bearing in one respect and it should be read that way.** The system was originally built on Next.js + PostgreSQL 16 with Drizzle, and was ported to Laravel + MariaDB across phases 0–3 of 2026-08/09. Several structures below exist in the shape they do *because* of what PostgreSQL could express and MariaDB cannot — partial indexes above all. Those Postgres constructs are named where naming them explains the port; nothing described as current is PostgreSQL.
 
 ---
 
@@ -18,6 +32,7 @@ erDiagram
     BOOKSHELVES  ||--o{ BOOKS         : scopes
     BOOKSHELVES  ||--o{ ANNOUNCEMENTS : scopes
     BOOKSHELVES  ||--o{ PARISH_UNITS  : scopes
+    BOOKSHELVES  ||--o{ BOOKSHELF_CONTACTS : "is contacted through"
     PARISH_UNITS ||--o{ PARISH_UNITS  : "nests under"
     PARISH_UNITS ||--o{ MEMBERSHIPS   : "level-1 unit of"
     PARISH_UNITS ||--o{ MEMBERSHIPS   : "level-2 unit of"
@@ -42,150 +57,172 @@ erDiagram
     BOOKSHELVES  ||--o{ BOOK_DONATIONS : scopes
 
     BOOKSHELVES {
-        uuid id PK
-        text slug UK "immutable after creation"
-        jsonb settings "the thirteen per-shelf rules"
+        varchar id PK "36, ascii_bin — a uuid as text"
+        varchar slug "utf8mb4_bin"
+        varchar slug_active "GENERATED, backs bookshelves_slug_unique"
+        longtext settings "JSON — the per-shelf rules"
     }
     USERS {
-        uuid id PK
-        text username UK "unique, case-insensitive"
-        text full_name
-        bool is_super_admin "the only global role"
+        varchar id PK "36, ascii_bin"
+        varchar username "utf8mb4_bin, nullable"
+        varchar username_active "GENERATED, backs users_username_key"
+        varchar full_name
+        tinyint is_super_admin "the only global role"
     }
     SESSIONS {
-        text token_hash PK "sha256 of the token; the raw token is never stored"
-        uuid user_id FK
-        timestamptz expires_at
+        varchar id PK "sha256 of the cookie's id; the raw id is never stored"
+        varchar user_id FK "nullable — a guest has a session too"
+        int last_activity
     }
     MEMBERSHIPS {
-        uuid id PK
-        uuid bookshelf_id FK
-        uuid user_id FK
-        enum role "reader, manager, admin"
-        enum status "pending, active, suspended, left, rejected"
-        uuid parish_unit_l1_id FK "nullable, always"
-        uuid parish_unit_l2_id FK "nullable, always"
+        varchar id PK
+        varchar bookshelf_id FK
+        varchar user_id FK
+        varchar role "reader, manager, admin — CHECK, not an enum type"
+        varchar status "pending, active, suspended, left, rejected"
+        varchar parish_unit_l1_id FK "nullable, always"
+        varchar parish_unit_l2_id FK "nullable, always"
+        binary member_key "GENERATED, backs memberships_one_per_shelf"
     }
     PARISH_UNITS {
-        uuid id PK
-        uuid bookshelf_id FK
-        smallint level "1 or 2"
-        uuid parent_id FK "self-ref; null unless nested level 2"
-        text name "admin-named, no shipped vocabulary"
+        varchar id PK
+        varchar bookshelf_id FK
+        tinyint level "1 or 2"
+        varchar parent_id FK "self-ref; null unless nested level 2"
+        varchar name "admin-named, no shipped vocabulary"
         int sort_order "explicit, never parsed from name"
     }
     BOOKS {
-        uuid id PK
+        varchar id PK
         text title
-        text title_folded "diacritics stripped, for search"
-        bool is_published "hides drafts"
+        text title_folded "GENERATED — diacritics folded, for search"
+        tinyint is_published "hides drafts"
     }
     BOOK_COPIES {
-        uuid id PK
-        text code UK "DT-0142, unique per shelf"
-        enum state "available, held, on_loan, lost, retired"
-        enum condition "the six grades"
-        uuid acquired_from_membership_id FK "donor with an account; nullable"
+        varchar id PK
+        varchar code "DT-0142, unique per shelf via code_key"
+        varchar state "available, held, on_loan, lost, retired"
+        varchar condition "the six grades"
+        varchar acquired_from_membership_id FK "donor with an account; nullable"
     }
     LOANS {
-        uuid id PK
-        uuid copy_id FK
-        uuid book_id FK "denormalised, survives retirement"
+        varchar id PK
+        varchar copy_id FK
+        varchar book_id FK "denormalised, survives retirement"
         date due_on "a date, never an instant"
-        enum status "active, returned, lost, voided"
+        varchar status "active, returned, lost, voided"
+        varchar active_copy_id "GENERATED, backs loans_one_active_per_copy"
         int renewals_used
     }
     BORROW_REQUESTS {
-        uuid id PK
-        uuid book_id FK "a title, not a copy"
-        timestamptz requested_at "the queue ordering key"
-        enum status "pending, approved, rejected, fulfilled, expired, cancelled"
-        timestamptz hold_expires_at
+        varchar id PK
+        varchar book_id FK "a title, not a copy"
+        datetime requested_at "the queue ordering key"
+        varchar status "pending, approved, rejected, fulfilled, expired, cancelled"
+        varchar live_request_key "GENERATED, one live place per reader per title"
+        datetime hold_expires_at
     }
     CONDITION_ASSESSMENTS {
-        uuid id PK
-        enum condition
-        text photo_url "never deleted, §11"
+        varchar id PK
+        varchar condition
+        text photo_url "never deleted"
     }
     AUDIT_LOG {
-        bigint id PK
-        text action "loan.lent, membership.approved…"
-        jsonb before
-        jsonb after
+        bigint id PK "auto_increment — the one non-uuid key"
+        varchar action "loan.lent, membership.approved…"
+        longtext before "JSON"
+        longtext after "JSON"
     }
     PROFILE_CHANGE_REQUESTS {
-        uuid id PK
-        uuid user_id FK "whose profile"
-        uuid bookshelf_id FK "whose manager decides"
-        jsonb proposed_values "the change on offer"
-        jsonb previous_values "what it was when proposed"
-        enum status "pending, approved, rejected, cancelled"
+        varchar id PK
+        varchar user_id FK "whose profile"
+        varchar bookshelf_id FK "whose manager decides"
+        longtext proposed_values "JSON — the change on offer"
+        longtext previous_values "JSON — what it was when proposed"
+        varchar pending_user_id "GENERATED, at most one pending per person"
     }
     BOOK_DONATIONS {
-        uuid id PK
-        uuid donor_membership_id FK
-        enum status "pending, received, declined"
+        varchar id PK
+        varchar donor_membership_id FK
+        varchar status "pending, received, declined"
         text description
     }
 ```
 
 Six things in that diagram are decisions rather than description, and each is
-explained where its table is defined:
+explained where its table is defined. None of the six changed in the port:
 
 - **`LOANS` points at both a copy and a book.** Deliberate denormalisation
-  (§4.5): statistics must survive the copy being retired.
+  (§5.5): statistics must survive the copy being retired.
 - **`BORROW_REQUESTS` points at a book, and only optionally at a copy.** A
-  request is for a title; a copy is assigned on approval (§4.6).
+  request is for a title; a copy is assigned on approval (§5.6).
 - **`CONDITION_ASSESSMENTS` hangs off both a copy and a loan**, the loan being
-  optional, because a manager may assess a copy at any time (§4.7).
+  optional, because a manager may assess a copy at any time (§5.7).
 - **`MEMBERSHIPS` carries the parish fields, not `USERS`.** Identity is global;
-  the parish relationship is local (§4.1).
-- **`PARISH_UNITS` references itself, rather than there being a separate
-  table per level.** One self-referencing row shape serves a flat shelf, a
-  two-level nested one, and a two-level flat one alike — nesting is data
-  (whether `parent_id` is set), not a schema difference (§4.1).
+  the parish relationship is local (§5.1).
+- **`PARISH_UNITS` references itself**, rather than there being a table per
+  level. One self-referencing row shape serves a flat shelf, a two-level nested
+  one, and a two-level flat one alike — nesting is data (whether `parent_id` is
+  set), not a schema difference (§5.1).
 - **`PROFILE_CHANGE_REQUESTS` carries the proposed values *and* the values as
   they stood when proposed.** A manager reviewing a week-old request needs to
-  see what it would actually change, not what it was expected to change
-  (§4.11).
+  see what it would actually change, not what it was expected to change (§5.11).
 
 ### Where each guarantee lives
 
 The same picture, drawn by who enforces what. This is the distinction §1 says
-is the whole point of the document.
+is the whole point of the document — **and it is the diagram the port changed
+most**, because two of the guarantees that used to be structural are not any
+more.
 
 ```mermaid
 flowchart TB
     subgraph DB["Database — cannot be violated"]
-        I1["INV-1 · one active loan per copy<br/>partial unique index"]
+        I1["INV-1 · one active loan per copy<br/>generated column + UNIQUE"]
         I2["INV-2 · never held and on loan<br/>single state column"]
-        I9["INV-9 · comments public only when approved<br/>partial index"]
-        I10["INV-10 · every query scoped to a shelf<br/>row level security"]
-        I11["INV-11 · loans never deleted<br/>no column, trigger + revoked grant"]
-        I12["INV-12 · audit never altered<br/>trigger + revoked grant"]
-        I13a["INV-13a · at most one pending<br/>profile request per person<br/>partial unique index"]
-        I14["INV-14 · credentials paired,<br/>or absent entirely<br/>check constraint"]
+        I11["INV-11 · loans never deleted<br/>no deleted_at, BEFORE DELETE trigger"]
+        I12["INV-12 · audit never altered<br/>BEFORE UPDATE / DELETE triggers"]
+        I13a["INV-13a · at most one pending<br/>profile request per person<br/>generated column + UNIQUE"]
+        I14["INV-14 · credentials paired,<br/>or absent entirely<br/>CHECK constraint"]
     end
-    subgraph APP["Application, inside a transaction — needs a named test"]
+    subgraph FK["Database — structural, but only for a reference"]
+        I10a["INV-10a · a child row cannot point<br/>at another shelf's parent<br/>fifteen composite foreign keys"]
+    end
+    subgraph APP["Application — needs a named test"]
+        I10b["INV-10b · every query scoped to a shelf<br/>BookshelfScope, fail-closed"]
+        I9["INV-9 · comments public only when approved<br/>BookCommentsQuery's access path"]
         I3["INV-3 · only an available copy is lent"]
         I4["INV-4 · membership must be active"]
         I5["INV-5 · at most N concurrent loans"]
         I6["INV-6 · renewal blocked if anyone is queued"]
         I7["INV-7 · lost or retired cannot circulate"]
         I8["INV-8 · every transition writes an audit row"]
-        I13b["INV-13b · details never change silently —<br/>an approved profile request, or a<br/>manager's audited direct correction"]
+        I13b["INV-13b · details never change silently"]
     end
-    DB -.->|"holds regardless of<br/>which stack is chosen"| APP
+    FK -.->|"catches what the scope misses,<br/>and vice versa"| APP
 ```
 
-Eight boxes on the left, seven on the right — fourteen rules, with INV-13 appearing on both sides. It is split deliberately: a database
-constraint can guarantee there is *at most one pending request*, but nothing
-short of application code can guarantee that a value on `users` was written by
-one of the two sanctioned paths — an approved request, or a manager's audited
-direct correction (§7, §4.11) — rather than by a third one somebody added. That
-is a property of the code that writes it, not of any one row. The seven on the right are the ones that will break
-first, which is why §6 of the requirements asks for a named test per rule and
-why the concurrency test described in SDD.md §9 matters more than it looks.
+**Two rules moved leftward-to-rightward in the port, and pretending otherwise
+would be the most expensive sentence in this document.**
+
+- **INV-9** was a partial index (`where status = 'approved' and deleted_at is
+  null`) whose very existence as an access path made the rule hard to bypass.
+  MariaDB has no partial index, so `comments_public` is now a plain
+  `(book_id, created_at)` index and the `status = 'approved'` filter is an
+  ordinary `WHERE` clause in `App\Queries\BookCommentsQuery`. The rule holds
+  because one query owns the read and every caller goes through it — that is
+  discipline with a test behind it, not a constraint.
+- **INV-10** was PostgreSQL Row Level Security, which held for any connection
+  including a `psql` prompt. It is now `App\Models\Scopes\BookshelfScope`, a
+  global Eloquent scope. It holds for Eloquent and for nothing else. What
+  survives structurally is the *reference* half — the fifteen composite foreign
+  keys of §4.2 — which no application bug can bypass.
+
+§1's original claim was "seven of the fourteen are wholly structural". Counted
+against the schema that ships, **six** are wholly structural (INV-1, INV-2,
+INV-11, INV-12, INV-14, and INV-13's first half), plus INV-10's reference half.
+The rest need application discipline and the named test §6 of the requirements
+asks for.
 
 ---
 
@@ -193,9 +230,9 @@ why the concurrency test described in SDD.md §9 matters more than it looks.
 
 It defines the tables, the constraints, and — more importantly — **which guarantees live in the database rather than in application code**.
 
-That distinction is the whole point. §6 of the requirements lists fourteen business rules and says of the first one that it "must be guaranteed by the datastore, not by application checks, because two managers can lend the same copy in the same second". A rule enforced only in application code is a rule that holds until someone writes a second code path, or until two requests interleave. A rule enforced by a constraint holds always, including from a psql prompt at two in the morning.
+That distinction is the whole point. §6 of the requirements lists fourteen business rules and says of the first one that it "must be guaranteed by the datastore, not by application checks, because two managers can lend the same copy in the same second". A rule enforced only in application code is a rule that holds until someone writes a second code path, or until two requests interleave. A rule enforced by a constraint holds always, including from a `mysql` prompt at two in the morning.
 
-So each of the fourteen rules below is marked with where it is enforced. Seven of them are wholly structural and one more is half structural. The rest cannot be, and this document says plainly which and why, rather than implying the database will catch everything.
+So each of the fourteen rules is marked in §7 with where it is enforced, honestly, including the two the port demoted.
 
 ---
 
@@ -203,388 +240,324 @@ So each of the fourteen rules below is marked with where it is enforced. Seven o
 
 | Concern | Decision |
 |---|---|
-| Primary keys | `uuid` generated with `gen_random_uuid()` (pgcrypto, built in since PG13) |
-| Timestamps | `timestamptz`, always. Never `timestamp` — a naive timestamp is a bug waiting for a deployment region change |
-| Dates | `date` where the domain means a day, not an instant. See §4.5 |
+| Primary keys | `varchar(36) CHARACTER SET ascii COLLATE ascii_bin`, holding a UUID as text, generated by the application (`Str::uuid7()`). MariaDB has no `gen_random_uuid()` default and no native `uuid` type in 10.11's Laravel mapping; `ascii_bin` is what makes comparison byte equality — see §4.3 |
+| The one exception | `audit_log.id` is `bigint unsigned auto_increment`, and `system_settings.id` is `tinyint unsigned` pinned to 1 |
+| Timestamps | `datetime(6)`, storing UTC. **Not `timestamp`** — MariaDB's `TIMESTAMP` is a 2038-bounded epoch type with implicit timezone conversion, which is the naive-timestamp bug the original document warned about, wearing a different hat. Microsecond precision so two rows written in the same transaction order deterministically |
+| Dates | `date` where the domain means a day, not an instant. See §5.5 |
 | Money | None. There are no fines and no payments (§19, deliberately not planned) |
-| Text | `text` throughout. `varchar(n)` buys nothing in Postgres and invites arbitrary limits |
-| Enums | Postgres `enum` types, not check constraints or lookup tables. See §2.1 |
+| Text | `varchar(n)` for bounded identifiers and names, `text` for prose. Unlike Postgres, MariaDB indexes a `varchar` directly and needs a prefix length for a `text` — that difference, not taste, is why the type varies |
+| Enums | **Neither a MariaDB `ENUM` nor a lookup table: a `varchar(20) ascii_bin` column plus a `CHECK`.** See §2.1 |
+| JSON | `json()`, which MariaDB stores as `longtext utf8mb4_bin` with an automatic `json_valid()` `CHECK`. Seven of the schema's 31 check constraints are these, added by the engine rather than by a migration |
 | Naming | `snake_case`, tables plural, foreign keys `<singular>_id` |
-| Every table | `created_at timestamptz not null default now()`, and `updated_at` where the row is mutable, kept current by a `set_updated_at()` `before update` trigger rather than trusted to application code |
-| Soft delete | `deleted_at timestamptz` on the tables §11 permits, and only those |
+| Every table | `created_at datetime(6) DEFAULT current_timestamp(6)`, and `updated_at ... ON UPDATE current_timestamp(6)` where the row is mutable — the engine's own clause, replacing the `set_updated_at()` trigger the Postgres schema needed |
+| Soft delete | `deleted_at datetime(6)` on the tables §11 of the requirements permits, and only those |
 
-### 2.1 Why enums rather than lookup tables
+### 2.1 Why a `CHECK` rather than a `ENUM` type
 
-The state machines in §7 are closed sets defined by the product, not data the users administer. A `book_copy_state` will never gain a value because a parish wants one. An enum makes an invalid state unrepresentable and costs one migration to extend, which is the right trade for a set that changes once a year at most.
+The state machines in §7 are closed sets defined by the product, not data users administer. A copy's state will never gain a value because a parish wants one.
 
-The cost is that dropping a value requires a type rewrite. That is acceptable because states are only ever added.
+Postgres expressed that with a real `enum` type. MariaDB's `ENUM` looks like the equivalent and is not: it is ordinal-backed, so the *order* of the value list is part of the column's meaning, `ORDER BY state` sorts by declaration position rather than alphabetically, and inserting an unknown value under a non-strict `sql_mode` yields the empty string rather than an error. A `varchar(20) ascii_bin` with an explicit `CHECK (status IN (...))` has none of those surprises, refuses the unknown value under every `sql_mode`, and costs one migration to extend — the same trade the enum type was chosen for.
+
+The application-side half of the closed set is `app/Enums/` — twelve PHP backed enums (`CopyState`, `LoanStatus`, `MembershipRole`, …), cast on the model, so an invalid state is unrepresentable in PHP before it ever reaches the `CHECK`.
 
 ### 2.2 Timezone
 
-§4 fixes the application timezone at `Asia/Ho_Chi_Minh` regardless of where the system runs. Store instants as `timestamptz`; derive calendar days by converting explicitly:
+Storage is UTC: `APP_TIMEZONE=UTC`, and every `datetime(6)` holds a UTC instant. The parish's civil timezone is `Asia/Ho_Chi_Minh` and is named **once**, as `App\Support\Clock::ZONE`, which is where every civil-day boundary is taken — "today" for `acquired_on` and `due_on` is the parish's day, not the server's: at 01:30 in Hồ Chí Minh the server's UTC date is still yesterday.
 
-```sql
-(loan.due_on < (olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date)
-```
+`bookshelves.timezone` exists as a column and is deliberately not read yet. There is one parish today; a network of shelves is what would make the column mean anything.
 
-Never rely on the session `TimeZone` setting for correctness — a background job, a migration console and a web request may each carry a different one.
-
-`olibra_now()` rather than `now()` is deliberate and is what the shipped views actually call: it is `now()` on any connection that has not been given a clock, and the injected instant on one that has. See §6 for why it exists and why it is `STABLE`.
+**The injectable SQL clock is gone, and that is the intended trade.** The Postgres schema carried an `olibra_now()` function reading a per-transaction setting, so a test could move the database's clock. Laravel has no equivalent and needs none: `Clock` goes through `CarbonImmutable::now()`, which honours `Carbon::setTestNow()`, so a test moves *the application's* clock and every derived value moves with it. What was lost is the ability to move the clock a `DEFAULT current_timestamp(6)` reads — which is exactly why §6's rule stands: **a timestamp the domain means is written explicitly from the `Clock`, never left to a column default.** The defaults remain as a backstop for rows written outside the application (a migration, a seeder, a hand-applied fix).
 
 ---
 
 ## 3. Tenancy
 
-`bookshelf` is the tenant. §6 INV-10 calls tenant isolation "the highest-consequence property in the system" and requires it to be **structural — impossible to forget — not a matter of anyone remembering to filter**.
+`bookshelf` is the tenant. §6 INV-10 of the requirements calls tenant isolation "the highest-consequence property in the system" and requires it to be **structural — impossible to forget — not a matter of anyone remembering to filter**.
 
-Two ways to honour that:
+The schema honours that in two layers, and only the second one is genuinely structural.
 
-### Option A — Row Level Security (recommended)
+### 3.1 The routine layer — `BookshelfScope`, and it fails closed
 
-Every tenant-scoped table gets:
+Fifteen columns in this schema are named `bookshelf_id`. Every Eloquent model over a table carrying one uses `App\Models\Concerns\BelongsToBookshelf`, which adds `App\Models\Scopes\BookshelfScope` as a global scope and stamps `bookshelf_id` on create from the bound `TenantContext`.
 
-```sql
-alter table books enable row level security;
-alter table books force row level security;
+**The scope throws rather than returning everything when no shelf is bound.** That inversion is the single most important line in the file:
 
-create policy books_tenant on books
-  using (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid)
-  with check (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid);
-```
+> Under RLS, forgetting the tenant returned nothing; a no-op scope would return everything.
 
-The application sets `olibra.bookshelf_id` once per transaction. A query that forgets its `where` clause returns nothing rather than another parish's readers.
+A route group that ships without the `tenant` middleware, or a queued job that touches a scoped model without opting in, now raises a `RuntimeException` naming the model. Deliberately system-wide reads say so by name — `TenantContext::actSystemWide()` — which is a capability the Postgres design had no counterpart for, since its `TenantContext` could only ever narrow to a named shelf.
 
-**One trap worth naming, because it bites quietly and only on a connection that has been used before** — the same treatment §5 gives `unaccent`'s two traps. `current_setting(name, true)` returns `null` the first time a session touches a GUC nobody has set. But once any transaction on that connection has called `set_config('olibra.bookshelf_id', ..., true)` — the `true` meaning `LOCAL`, scoped to that one transaction — the setting does not go back to being unset when the transaction ends; it reverts to an **empty string**, not `null`. A bare `::uuid` cast against an empty string does not return zero rows, it raises `invalid input syntax for type uuid: ""` — failing loudly instead of failing closed. That is not a corner case: it is every pooled connection, and every connection reused across more than one transaction, which in production is effectively all of them. `nullif(current_setting(...), '')` turns the empty string back into `null` before the cast, so a transaction that never set a shelf sees zero rows — "returns nothing rather than another parish's readers", the promise made two paragraphs up — instead of erroring out.
+The trait also validates an *explicitly named* `bookshelf_id` on create and on update against the bound shelf, so `Book::create(['bookshelf_id' => $someOtherShelf->id, …])` from a manager of a different shelf throws instead of writing.
 
-**Why this is the recommendation:** it survives a change of application stack, an ORM upgrade, a raw SQL patch, and a new developer. It is the only option that makes the guarantee structural in the sense §6 demands.
+**What this layer does not cover, stated because a scope reads as though it covers everything.** Eloquent model events do not fire for query-builder writes, so `Announcement::query()->update(['bookshelf_id' => $other->id])` under a bound shelf still moves the row — the global scope constrains the query's `WHERE`, not the values in its `SET` — and `Model::insert()` bypasses the creating hook entirely. Nothing in the codebase currently writes through either bypass; the gap is recorded in `docs/known-gaps.md` rather than only here.
 
-**What it costs:** every connection must set the variable, which means connection poolers in transaction mode need care; `force row level security` also applies to the table owner, so migrations and admin tooling need a separate role that bypasses policies (`bypassrls`). Cross-shelf super-admin queries (§13) run as that role, deliberately and explicitly.
+### 3.2 The two models exempt from the trait, and why
 
-### Option B — a mandatory scoping layer in application code
+`tests/Feature/Architecture/TenancyArchitectureTest.php` fails the build if a model whose table carries `bookshelf_id` lacks the trait. It carries exactly two exemptions, each for a recorded reason: **`App\Models\Feedback` and `App\Models\AuditLog`.**
 
-A single data-access module that refuses to build a query without a bookshelf. Cheaper to set up, and workable — but it is exactly the "matter of developer discipline" §6 rules out, and it protects nothing reached by any other path.
+Both are exempt for the same structural fact: **theirs are the only two nullable `bookshelf_id` columns in the schema.** Of the fifteen, thirteen are `NOT NULL`; `feedback.bookshelf_id` and `audit_log.bookshelf_id` are `NULL`-able, and a global scope comparing `bookshelf_id = ?` would make every null row invisible — which is right for one of them and wrong for the other.
 
-**Recommendation: Option A, with Option B's scoping layer on top of it.** Belt and braces, and the belt is the one that holds.
+- **`feedback.bookshelf_id` is null for a message sent through the contact page with no shelf selected** — genuinely site-wide, addressed to whoever administers the installation rather than to any one parish. A shelf's manager should still see it, so hiding it behind an equality predicate would be wrong.
+- **`audit_log.bookshelf_id` is null for a system-wide action** — one belonging to no shelf. BR §13.2 makes cross-shelf audit visibility a super-admin permission, so those rows must *not* fall into an ordinary shelf's view.
 
-### Global tables
+Both are therefore scoped **by hand**, and the same test carries a second guard: an allow-list of the **four** files permitted to write a `bookshelf_id` predicate anywhere outside `BookshelfScope`. Everything else in the codebase is grepped, and a stray hand-written filter fails the build.
 
-`users`, `categories` and `sessions` are not shelf-scoped and carry no policy at all. Categories are shared reference data every shelf draws from (§4.3), so scoping them would defeat the point; `sessions` is identity data in the same sense `users` is — see §4.1's "Sessions" for why a person's session is not scoped to any one shelf.
+| File | Why it may filter by hand |
+|---|---|
+| `app/Models/Scopes/BookshelfScope.php` | It *is* the scope |
+| `app/Http/Middleware/ResolveTenant.php` | The population step — it resolves the shelf the scope then reads |
+| `app/Queries/AuditLogQuery.php` | `AuditLog` is exempt from the trait, so no scope narrows it and the manager's one-shelf log must write the `WHERE` itself |
+| `app/Queries/Admin/AuditBrowserQuery.php` | The cross-shelf browser answers three questions, and two of them must name the column: one parish, and *the installation's own rows* — which are precisely the rows recording no parish, so there is no relation to constrain instead |
+| `app/Console/Commands/SweepReminders.php` | The reminder sweep is the one non-seeder caller of `actSystemWide()`, so the scope adds nothing; its "has this reader already been told" probe must draw the shelf boundary itself, or a reader with the same title due the same day on two shelves is told once |
 
-**`feedback` and `audit_log` are not global tables, even though each has a nullable `bookshelf_id`.** Both carry the same `<table>_tenant` policy shape as every other table in this section (§4.8, §4.10) — a row with a non-null `bookshelf_id` is exactly as much tenant data as a row in `books`. What differs between them is only what the *null* case means, and each table's policy treats it differently, on purpose:
+*(Five rows, four allow-list entries plus the scope itself — `BookshelfScope.php` is on the list because the grep is indiscriminate, not because it is an exemption.)*
 
-- `audit_log`'s null means a system-wide action (BR §13.2 makes cross-shelf audit visibility a super_admin permission), so a null row is invisible to `olibra_app` under plain equality — `null = x` is never true — and reaching it at all requires `olibra_admin`'s deliberate `bypassrls`.
-- `feedback`'s null means a message sent through the contact page with no shelf selected — genuinely site-wide, not restricted — so its policy explicitly lets the null case through (`bookshelf_id = ... or bookshelf_id is null`) rather than hiding it the way `audit_log` does.
+**An allow-list entry is whole-file, not per-clause, and that cost is written down rather than glossed.** `AuditBrowserQuery.php` and `SweepReminders.php` each hold exactly one hand-written filter today; a *second* one a later edit adds is now silent, correct or mis-scoped alike, where before it would have failed the build. What stands behind them instead is proof by identity on two-shelf-plus-global fixtures — `tests/Feature/Oversight/AuditLogQueryTest.php` and `tests/Feature/Admin/AdminAuditBrowserTest.php` — rather than proof by convention.
 
-An earlier draft of this sentence read "`users`, `categories` and site-wide `feedback` are not shelf-scoped and carry no policy", which was read — reasonably, and wrongly — as covering the whole `feedback` table rather than just its null rows. 0010_rls.sql's table-name loop skipped `feedback` entirely on that reading, which meant every row with a real `bookshelf_id` (guest names, phone numbers, a shelf's own message queue) had no policy at all. See CRITICAL 1 in `.superpowers/sdd/2026-08-07-s1-schema-rls/fix-report.md` for how that was demonstrated and closed (`20260808_01_feedback_rls.sql`).
+The shared `App\Queries\Concerns\ReadsAuditLog` trait carries everything the two audit readers have in common **except** the starting builder, and it names no tenant column at all — which is the property that keeps it off the allow-list. Adding a shelf predicate there would quietly move the exemption into shared code.
 
-### Foreign keys stay inside one tenant
+An earlier draft of this section's Postgres ancestor said "`users`, `categories` and site-wide `feedback` are not shelf-scoped", which was read — reasonably, and wrongly — as covering the whole `feedback` table rather than just its null rows, and left every row with a real `bookshelf_id` (guest names, phone numbers, a shelf's own message queue) unprotected. The sentence is written the long way above for that reason.
 
-RLS answers "who can see this row", not "does this row point at something on the same shelf". A plain `parish_unit_l1_id uuid references parish_units(id)` only checks that the id exists *somewhere* — nothing stops a row on shelf A from pointing at a row on shelf B. Demonstrated live: as `olibra_app` scoped to Đồng Tháp, inserting a membership whose `parish_unit_l1_id` names a Cần Thơ unit succeeded. Reading it back, from the same session, shows a parish line that resolves to null: RLS hides the Cần Thơ row from a Đồng Tháp session, but the foreign key value is not null, so the owning shelf can neither read nor repair it.
+### 3.3 Global tables
 
-The fix is structural, the same way tenant isolation itself is: every shelf-scoped parent table carries `unique (bookshelf_id, id)` alongside its primary key, and every foreign key between two shelf-scoped tables is a composite `(bookshelf_id, x_id) references parent (bookshelf_id, id)` rather than a plain `x_id references parent(id)`. A row can then only reference a parent on its own shelf — the foreign key enforces what RLS could only ever hide. This applies to every reference between two shelf-scoped tables (`parish_units.parent_id`, `memberships.parish_unit_l1_id`/`l2_id`, `book_copies.book_id`, `loans.copy_id`/`book_id`/`request_id`, `borrow_requests.book_id`/`copy_id`/`fulfilled_loan_id`, `condition_assessments.copy_id`/`loan_id`, `comments.book_id`, `book_donations.donor_membership_id`, and `book_copies.acquired_from_membership_id`) — not to references at a global table (`users`, `categories`), which have no second shelf-scoped column to pair with. See `20260808_04_composite_tenant_fks.sql` and CRITICAL 6 in the S1 fix report for the full list and the live reproduction above.
+`users`, `categories`, `sessions` and `system_settings` carry no `bookshelf_id` at all and are not shelf-scoped. Identity is global; a person's session belongs to that person, not to a shelf, and the *membership* lookup — not the session — decides what any given shelf lets them see (`App\Http\Middleware\ResolveTenant`). Categories are shared reference data every shelf draws from (§5.3). `system_settings` belongs to the installation (§5.12).
 
-Nullable referencing columns keep working unchanged: Postgres's default `MATCH SIMPLE` means a composite foreign key is satisfied whenever *any* of its columns is null, so "no parent unit yet" or "no donor account" still needs nothing extra — `bookshelf_id` itself is never null on any of these tables, so the only column that can carry the null is the original one.
+### 3.4 What went away with Postgres, and what is not coming back
 
-### The application role is not wired to a login role yet
+Row Level Security, the `olibra_app` / `olibra_admin` / `olibra_public` roles, `set local role`, `bypassrls`, and the column-level grants that kept a public portal query away from a shelf's contact details — none of these have a MariaDB equivalent that is worth building. MariaDB's privilege system is per-user and per-column but has no row-level predicate at all, and the deployment target is shared cPanel hosting where the application gets one database user and no `CREATE ROLE`.
 
-`set local role olibra_app` (this section, and every test in `tests/invariants/`) works today only because the connection making it is a Postgres superuser — a superuser can always `set role` to anything, and a superuser also bypasses RLS unconditionally regardless of which role it then sets. There is no `pg_auth_members` row granting `olibra_app` or `olibra_admin` to any login role, because there is no application connection yet to wire it to.
+The consequences are honest ones and belong here rather than in a footnote:
 
-This is not a gap to close now — S3 (identity and session) is where a real login role first exists — but it is a real trap waiting there: `set local role olibra_app` against a properly least-privileged, non-superuser connection pool role will either fail outright (if that role was never `GRANT`ed membership in `olibra_app`) or, if someone notices under deadline pressure and simply drops the `set local role` line to make the error go away, silently run every request as a role that bypasses no policies and enforces nothing — while this entire test suite stays green, because every test in it already runs as a superuser and would not notice the difference. S3's plan (`docs/superpowers/plans/2026-08-07-s3-identity-session.md`) names this explicitly in its task list so it has an owner rather than being rediscovered mid-implementation.
-
-**Update (S2 domain-kernel): the application-code half of this is closed now, not deferred.** `src/domain/kernel/unit-of-work.ts`'s `runCommand` and `runQuery` (and a third function, `runGlobalCommand` — below) issue `set local role olibra_app` themselves, inside the same transaction as `set_config('olibra.bookshelf_id', ...)`, so the switch this section describes now happens on every command and every scoped query the kernel runs, not only in the ad hoc `sql.begin` blocks `tests/invariants/` wrote by hand to exercise RLS directly. This was found, not assumed: `runCommand` originally set the tenant GUC but never switched role, so under the same superuser connection this section describes, a command whose insert named the wrong shelf outright — a copy-pasted id, a mixed-up `ctx` — committed anyway, silently. `tests/domain/kernel/command-scope.test.ts`'s "an ordinary command cannot write a row belonging to another shelf" failed against the unfixed `runCommand` before the switch was added (the write resolved instead of rejecting); see the S2 domain-kernel task report for that run.
-
-The one case `olibra_app` cannot serve is a command whose audit entry has no owning shelf: `audit_log`'s policy makes a null `bookshelf_id` unreachable to `olibra_app` in either direction (two paragraphs above), so a command that needs one must escalate, deliberately and by name — `runGlobalCommand`, which runs the same way but as `olibra_admin`, and only ever reaches for the bypass when an `AuditEntry` explicitly sets `global: true`. Every command in the catalogue today is shelf-scoped; `runGlobalCommand` is the exception, reserved for genuinely system-wide facts, not a general-purpose admin door.
-
-**What is *not* closed by this:** the connection every one of these functions runs on is still `olibra`, the same `bypassrls` superuser this section opened by naming. `set local role olibra_app` still works today only because a superuser can switch into any role at will — that half of this section's warning stands exactly as written above. Wiring a genuine non-superuser connection-pool role, actually `GRANT`ed membership in `olibra_app` (and, for the admin path, `olibra_admin`), remains S3's job; the S3 plan bullet has been narrowed to that, since the application-code switch it used to ask for already exists.
-
-**Update (S3 fix wave, CRITICAL 2): this is closed now, verified live.** `20260808_13_pool_role.sql` creates `olibra_pool` — `login`, granted membership in both `olibra_app` and `olibra_admin` `with inherit false`, and deliberately left `nosuperuser`/`nobypassrls` (Postgres defaults for a freshly created role that this migration never touches). `compose.yaml`'s `app` service and `.env.example`'s `DATABASE_URL` now authenticate as `olibra_pool`, not `olibra` — the connection every request in this project runs on is, for the first time, one RLS actually applies to regardless of which role it then `set local role`s to.
-
-The `with inherit false` on both grants is a second, independent fix, not a restatement of the first: without it, a role merely granted membership in `olibra_app`/`olibra_admin` carries their table privileges automatically the moment it connects — which is exactly the "quietly depend on a GRANT's INHERIT flag nobody re-checks" risk this section warned about two paragraphs up. `with inherit false` (PostgreSQL 16+) means membership alone grants nothing; `set local role` has to name the target explicitly, on every call, the way `guards.ts`, `session.ts` and `unit-of-work.ts` already write it. `olibra_admin` membership is not a mistake or an oversight here — it is exactly what lets the deliberate, explicitly-named cross-shelf paths (`runGlobalCommand`, `seed()`, `landingShelfFor`) keep `set local role`-ing into it from the *real* connection, not only from a test's superuser one; `with inherit false` is what keeps that membership from being anything more than "may ask to become `olibra_admin`, must still ask."
-
-The password is not a literal in the migration: `migrate()` (`src/db/migrate.ts`) substitutes `__ENV_OLIBRA_POOL_PASSWORD__` from `process.env.OLIBRA_POOL_PASSWORD` before running the file's SQL — see `.env.example` for the variable and `renderMigration`'s own doc comment for why a migration needs this at all (DDL has no parameter binding).
-
-Migrations themselves still run as the `olibra` superuser — they always will, since creating a role or enabling `force row level security` needs privileges `olibra_pool` must never have. `MIGRATION_DATABASE_URL` (`.env.example`, `compose.yaml`) is the new variable for that; `DATABASE_URL` is exclusively what the running application connects as, from here on. `src/db/migrate-cli.ts` and `src/db/seed-cli.ts` read `MIGRATION_DATABASE_URL` explicitly rather than falling back to `DATABASE_URL`'s default, so pointing them at the wrong role fails loudly (`process.env.MIGRATION_DATABASE_URL is not set`) instead of quietly running as `olibra_pool` and hitting a wall of `permission denied` on the first `create role`.
-
-Verified the way the acceptance bullet above asks: `tests/auth/pool-role.test.ts` runs `signIn`, `resolveSession`, `contextFor` (on both a member's own shelf and another shelf), `revokeAllSessions` and `signOut` through a second connection authenticated as `olibra_pool` — not the suite's ordinary superuser `sql` handle — asserting `rolsuper = false` and `rolbypassrls = false` for that connection's own `current_user` inside the test itself, not merely trusting the migration wrote what it says it did.
-
-One more consequence of the same fact worth stating here: `olibra_app` holds no `insert` grant on `bookshelves` at all. Shelf onboarding — creating a new bookshelf — must run as `olibra_admin`, deliberately; there is no "self-serve create a shelf" path for an ordinary session, for the same reason `bookshelves` needed its own bespoke policy above rather than joining the tenant-table loop: a session with no shelf set yet has nothing to scope an `insert` to.
-
-**Update (U2 fix wave, IMPORTANT 1): a third role, `olibra_public`, and it is the first one defined by what it cannot reach.** `runPublicQuery` (`src/domain/kernel/unit-of-work.ts`) serves the one read in this system that names no shelf — the portal directory, OPS §3.1's `GetPortalDirectory`/`SearchBookshelves`, both **Global** and both callable by `guest`. It ran as `olibra_app` with the tenant GUC set to the empty-string sentinel, on the argument that every `<table>_tenant` policy compares `bookshelf_id` against that GUC and therefore matches nothing.
-
-Measured rather than assumed: swept through the application's real pool, inside that exact transaction, thirteen tables did fail closed and **five did not**. `users` and `sessions` carry no policy at all — this section's own §3 note names `users`, `categories` and site-wide `feedback` as deliberately policy-less, and `20260808_11_sessions.sql` says the same for `sessions` — so an anonymous public read returned every account row (`username`, `full_name`, a child's `date_of_birth`, `phone`, `email`, `is_super_admin`, the argon2 `password_hash`) and every live session (`token_hash`, `user_id`, `ip_address`, `user_agent`). `categories` and `schema_migrations` likewise. `feedback_tenant`'s `using` clause admits `bookshelf_id is null`, which is every site-wide row, deliberately (`20260808_01_feedback_rls.sql` explains why) and correctly — for a *scoped* caller.
-
-Each of those decisions was right while every caller was tenant-scoped. `runPublicQuery` is the first caller that is not, so it inherited a premise that had stopped holding. Nothing leaked, because `listPublicShelves` only touches `bookshelves`; what existed was the licence the next public read would be written against, and OPS §3.1's `GetSiteContact` is already specified as guest-callable and Global — written to join `users` for the administrator's name, it would have handed a stranger the whole table.
-
-So the boundary moved from policies to privileges. `20260809_01_public_role.sql` creates `olibra_public`: no `login` (nothing connects as it; it is only ever reached through `set local role` from an `olibra_pool` connection), not a superuser, not `bypassrls`, and **not a member of `olibra_app`** — membership there would hand back exactly what this role exists to withhold. It holds `usage` on the schema and a *column-level* `select` on five columns of `bookshelves` (`slug`, `name`, `location`, plus the `status` and `deleted_at` that `listPublicShelves` names in its own `where` clause), and nothing else anywhere. A policy has to be written per table and so fails open for the table nobody thought about; a grant is absent by default and so fails closed for every table a later migration adds.
-
-The column grants are the second half, and they close something §4.2 flags as unprotectable at the row level: `bookshelves_public_read` admits the whole row, so until now the column surface was entirely the query's job, guarded by a regex over source text (`tests/db/bookshelves-public-columns.test.ts`). As `olibra_public`, `select keeper_phone from bookshelves` and `select b.* from bookshelves b` both raise `42501` regardless of what any regex matched. (`keeper_phone` itself was dropped from `bookshelves` on 2026-08-12, above — the example is left as the live reproduction actually run, and the same 42501 now applies to the whole of `bookshelf_contacts`, which holds what `keeper_phone` used to.) `tests/db/public-role-privileges.test.ts` is the evidence, and it discovers its subjects from `pg_class` and `information_schema.columns` rather than from a list — the test it replaces sampled three tables, which is precisely how a check comes to agree with a false premise.
-
-**Correction:** an earlier draft of this sentence — and the S3 plan bullet built on it (`docs/superpowers/plans/2026-08-07-s3-identity-session.md`, Task 4) — stated this as already true. It was not. `0010_rls.sql`'s own `grant select, insert, update on all tables in schema public to olibra_app` runs against *every* table that exists at that point in the migration, `bookshelves` included — the bespoke `bookshelves_tenant` policy right above it only scopes *which rows* an `insert`/`update` may touch, not *whether* `olibra_app` may `insert` at all. Verified live: `has_table_privilege('olibra_app', 'bookshelves', 'INSERT')` returned `true`, and an `olibra_app` session scoped to an id of its own choosing successfully inserted a bookshelf row carrying that id — `bookshelves_tenant`'s `with check (id = ...)` only requires the new row's id to match the session GUC, which the caller controls completely before the row exists. `20260808_08_revoke_bookshelves_insert_from_app.sql` closes the gap with an explicit `revoke insert on bookshelves from olibra_app`, so the sentence above is now enforced rather than aspirational. `update` is deliberately left granted: a shelf legitimately edits its own row (name, `settings`, and — at the time this was written — opening hours, since dropped, above) as `olibra_app`, scoped by the same `with check` every other tenant table's self-service write already relies on — only the act of creating a new row is reserved for `olibra_admin`.
+- **A `mysql` prompt sees everything.** The Postgres design could say a rule held "including from a `psql` prompt at two in the morning". For tenant isolation, that is no longer true. For INV-1, INV-11, INV-12, INV-13a and INV-14 it still is, because those are constraints and triggers rather than policies.
+- **What replaced the column-level grant is a query's own discipline.** BR §16.1 withholds book counts and reader counts from the public portal; nothing in the database now stops a public code path from selecting them. A reviewer who sees `select *` against `bookshelves` from a public path should treat it as a defect, not a style question.
 
 ---
 
-## 4. Schema
+## 4. The three mechanisms the port turns on
 
-### 4.1 Identity and membership
+Three techniques appear over and over below. They are explained once, here, rather than at every table that uses one.
 
-§5.3 draws a distinction that is easy to get wrong and expensive to unpick later: **facts true of a person everywhere** live on the person; **facts about that person's relationship to one parish** live on the membership. If a family moves and joins another bookshelf, their identity is reused and only the parish details are entered again.
+### 4.1 Generated columns, because MariaDB has no partial index
 
-```sql
-create table users (
-  id              uuid primary key default gen_random_uuid(),
-  username        text,                    -- optional; see the note below
-  password_hash   text,
-  saint_name      text not null,           -- tên thánh; not null since 2026-08-12, see below
-  full_name       text not null,
-  date_of_birth   date,
-  father_name     text not null,
-  mother_name     text not null,
-  phone           text,
-  phone_missing_reason text,               -- set when phone is genuinely absent; cleared once phone is filled in — see below
-  email           text,                    -- optional; §4 assumption 2, no outbound email in v1
-  display_name    text,
-  locale          text not null default 'vi',
-  avatar_object   text,                    -- object storage key; every URL is derived from it — see below
-  is_super_admin  boolean not null default false,
-  created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now(),
-  deleted_at      timestamptz
-);
+PostgreSQL can write `create unique index … where deleted_at is null`. MariaDB cannot: a unique index covers every row of the table, always. That single missing feature is what most of this schema's unusual shape is for.
 
-create unique index users_username_key on users (lower(username))
-  where deleted_at is null and username is not null;
-
-alter table users add constraint users_credentials_paired
-  check ((username is null) = (password_hash is null));
-```
-
-Username is unique case-insensitively among live rows, ignoring the ones that have none. A deleted user does not hold their name hostage.
-
-**Credentials are optional, and `users_credentials_paired` is INV-14.** Most
-readers are children who will never use the site themselves: a manager registers
-them, lends to them and receives their returns, and §1.3 is explicit that a
-reader never has to sign in to borrow. Requiring a username and password for
-every one of them would mean a volunteer inventing credentials at the shelf that
-nobody will ever type. So a person may exist purely as a record, and the check
-constraint makes the half-configured state — a username with no password, or the
-reverse — impossible to store rather than merely discouraged.
-
-Postgres treats `null` as distinct in a unique index, so any number of people
-may have no username at all without colliding. The `username is not null` clause
-is belt and braces, and it keeps the index small.
-
-**A manager sets and changes these credentials** (§2, §13.2). There is no email
-and so no self-service reset; a child who forgets asks the volunteer. That hands
-a manager the power to sign in as any reader, which is inherent in a trust model
-that already assumes the manager knows the family — and the mitigation is
-visibility, not restriction. See §4.10 on what the audit log may and may not
-record about it.
-
-`email` is nullable on purpose. §4 assumption 2 states there is no outbound email in v1 and manager-issued password reset is the only recovery path; collecting the address anyway means email reset can be switched on later without touching existing accounts.
-
-`father_name` and `mother_name` are `not null`. §5.3 is explicit that both are required, and the reason is practical rather than bureaucratic: they are how a manager tells apart two children who share a name.
-
-**Added 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §8; `20260812_01_contacts_profile_and_hours.sql`). **`saint_name set not null`, with no backfill step** — the product owner's explicit, one-time instruction, recorded in full at the top of the design document, because the development database is dropped and reseeded and this decision cannot be taken again once a parish has real data in the table. `REQUIRED_PROFILE_FIELDS` (`src/domain/members/profile-fields.ts`) gains `saint_name` so the domain refuses with a named error rather than the driver raising `23502`.
-
-**`phone` stays nullable; `phone_missing_reason` is new.** The column cannot honestly be `not null` — some readers are children with no phone of their own, and a placeholder number is a tap that dials a stranger — so `phone` does **not** join `REQUIRED_PROFILE_FIELDS`; its requirement lives in the interface, not the schema. Submitting a form with an empty phone raises a danger-styled confirmation requiring a typed reason, stored in `phone_missing_reason` and cleared automatically the moment a phone is filled in. **Enforced in the domain**, not in any one action: `register()` and `assertPhoneOrReason` (`src/domain/members/profile-fields.ts`), called from `updateReaderProfile`, `proposeProfileChange` and `approveProfileChange`, so the rule cannot be satisfied by one write path and skipped by another.
-
-§16.1 asks for the photograph at registration rather than later — it lists it among the fields collected on the registration form itself, under *Bản thân*, because a volunteer meeting forty children on a Sunday recognises a face faster than a name. **The shipped system does not do this yet, and the column is empty at registration.** Neither registration form renders a photograph field and nothing supplies `RegistrationInput.avatarObject`; the only uploader in the codebase is `proposeAvatar` (`src/lib/avatar.ts`), which needs a membership that does not exist until the form succeeds, so the field would be a file input with nowhere to send bytes. Every photograph in the system therefore arrives through `ProposeAvatarChange` on the profile screen. That gap is also what makes the no-backfill decision below safe: no row was ever written with a URL and no key.
-
-**`avatar_object` is a storage key, and it is the only fact a row keeps about a photograph.** The column was `avatar_url text` — a full public address — until `20260813_02_avatar_object_only.sql` dropped it in favour of the key `20260809_02_avatar_object.sql` had added beside it a few days earlier. Two reasons, both of which the earlier migration states and neither of which it could act on while a URL column remained:
-
-- **A URL cannot be deleted.** `ObjectStore.delete` takes a key, so a row holding only an address did not know what to remove. A family asking the parish to take their child's photograph down had no answer, and `src/storage/s3.ts` argues at length that a child's face is the most identifying thing this system stores. Master plan §7.14's **B6 · Avatar retention** owned closing that.
-- **A stored URL bakes `S3_PUBLIC_URL` into every row.** SDD §6.8 claims that changing provider "is a change of environment variables … and nothing else"; a stored absolute URL made that false — moving to R2, or putting a CDN in front, would have stranded every avatar already written.
-
-Every address a browser fetches is now derived from the key at read time, by `avatarUrl()` in `src/lib/avatar-url.ts`. Deriving it is the **surface's** job and never a query's: `url()` lives in `src/storage/`, which `tests/architecture/boundaries.test.ts` forbids `src/domain/` from importing, so queries hand back keys and screens turn them into addresses. No backfill was written for the drop, and none was needed: the development database is reset (the same standing instruction the 2026-08-12 spec records), and no caller ever supplied `RegistrationInput`'s old `avatarUrl`, so no row held a URL without a key.
-
-**How a parish subdivides its people is per-shelf configuration, not a fixed shape.** BR §5.6 covers the reasoning: a shelf may use one level or two, name each level whatever its own parish calls it, and — with two levels — either nest the smaller inside the bigger or not. One self-referencing table serves all of that; nesting is a fact about the data (whether `parent_id` is set), not a different schema for a different shelf.
+The replacement is a **`STORED GENERATED` column whose expression yields `NULL` exactly when the Postgres predicate was false**, plus an ordinary unique index over it. MariaDB, like Postgres, treats `NULL`s as distinct in a unique index, so every row the predicate excluded stops colliding with everything else:
 
 ```sql
-create table parish_units (
-  id            uuid primary key default gen_random_uuid(),
-  bookshelf_id  uuid not null references bookshelves(id) on delete restrict,
-  level         smallint not null check (level in (1, 2)),
-  parent_id     uuid references parish_units(id),
-  name          text not null,
-  sort_order    int  not null default 0,
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now(),
-  deleted_at    timestamptz,
-
-  constraint parish_units_l1_has_no_parent
-    check (level = 2 or parent_id is null),
-  unique (bookshelf_id, id)
-);
-
--- A UNIQUE *constraint* cannot carry a predicate — only an index can — so
--- uniqueness-scoped-to-live-rows has to be a partial unique index, not a
--- table constraint. See the soft-delete note below for why the predicate
--- matters.
-create unique index parish_units_name_unique_in_scope
-  on parish_units (bookshelf_id, level, parent_id, name)
-  nulls not distinct
-  where deleted_at is null;
-
--- parent_id references parish_units(bookshelf_id, id), not a bare
--- parish_units(id): see "Foreign keys stay inside one tenant" below.
-alter table parish_units
-  add constraint parish_units_parent_id_fkey
-    foreign key (bookshelf_id, parent_id) references parish_units (bookshelf_id, id);
+ALTER TABLE bookshelves ADD COLUMN slug_active VARCHAR(255)
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
+    GENERATED ALWAYS AS (IF(deleted_at IS NULL, slug, NULL)) STORED;
+ALTER TABLE bookshelves ADD CONSTRAINT bookshelves_slug_unique UNIQUE (slug_active);
 ```
 
-A level-1 unit never has a parent — that is what makes it level 1 — and `parish_units_l1_has_no_parent` is what makes that structural rather than a convention a command has to remember. **Nesting off** means every level-2 unit carries a null `parent_id`, same as a level-1 unit; **nesting on** means it carries the id of its level-1 parent. A shelf switching between the two is switching data, not running a migration.
-
-`parish_units_name_unique_in_scope` scopes uniqueness to `(bookshelf_id, level, parent_id, name)` rather than just `(bookshelf_id, name)`, deliberately: BR §5.6's own worked example has "Tổ 1" appearing once under *Giáo họ Thánh Tâm* and again, a different unit, under *Giáo họ Mân Côi* — two different `parent_id` values, so two different rows are correct, not a collision.
-
-It is `nulls not distinct`, not plain `unique`, and that clause is load-bearing rather than decorative. Plain PostgreSQL uniqueness treats every `null` as distinct from every other `null`, so it never actually fires for the case most units are in: every level-1 unit has `parent_id is null` by definition, and so does every level-2 unit on a shelf with nesting off. Without it, an admin typing "Tổ 1" twice on a one-level shelf would insert two rows without a peep — two identically-named units that split readers between them, which is the exact "cannot be grouped" failure BR §5.6 exists to prevent. `nulls not distinct` (PostgreSQL 15 and later; this system targets 16) makes the index compare nulls as equal to each other, so two level-1 rows named "Tổ 1" on the same shelf collide correctly, same as two nested level-2 rows sharing a real `parent_id` already did.
-
-**One consequence worth stating, because it was shipped once as a bug and is worth naming so it does not happen again.** A version of this index without `where deleted_at is null` does not exclude soft-deleted rows, so soft-deleting *Tổ 1* on a flat shelf blocks creating a live *Tổ 1* there afterwards. That is the wrong trade: the reason units are soft-deleted rather than removed is that a membership still points at one (§11), which is a statement about history, not a reservation of the name. The predicate above is what keeps a name in circulation once the unit carrying it is retired — see `20260808_03_soft_delete_aware_uniqueness.sql`, which converted the constraint this branch originally shipped without the predicate.
-
-**No hard delete of a unit a member references** (BR §5.6, and the general policy in §11): `deleted_at` takes a unit out of the pickers built from it while leaving every membership that already points at it exactly as it was. `sort_order` is explicit and never inferred by parsing a unit's name — "Tổ 10" sorting before "Tổ 2" because of the digits is exactly the carelessness an explicit column exists to prevent.
+Where the Postgres index was over more than one column, the generated column collapses them into a single `BINARY(32)` SHA-256 key, because a unique constraint over several generated columns would not go null as a unit:
 
 ```sql
-create type membership_role   as enum ('reader', 'manager', 'admin');
-create type membership_status as enum ('pending', 'active', 'suspended', 'left', 'rejected');
-
-create table memberships (
-  id                uuid primary key default gen_random_uuid(),
-  bookshelf_id      uuid not null references bookshelves(id) on delete restrict,
-  user_id           uuid not null references users(id)       on delete restrict,
-  role              membership_role   not null default 'reader',
-  status            membership_status not null default 'pending',
-
-  -- parish facts: true of this person *here*, not everywhere. References, not
-  -- free text (BR §5.3, §5.6) — both nullable, always, not merely until the
-  -- shelf finishes configuring its units.
-  parish_unit_l1_id uuid references parish_units(id),
-  parish_unit_l2_id uuid references parish_units(id),
-
-  approved_by       uuid references users(id),
-  approved_at       timestamptz,
-  rejection_reason  text,
-  suspension_reason text,
-  manager_notes     text,                  -- private to managers
-
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now(),
-  deleted_at        timestamptz,
-
-  constraint memberships_rejected_has_reason
-    check (status <> 'rejected' or rejection_reason is not null)
-);
-
--- Not a table-level UNIQUE constraint: same soft-delete trap named for
--- parish_units_name_unique_in_scope and bookshelves_slug_unique above, and
--- the worst of the four the S1 re-review found still shaped that way. A
--- plain unique constraint here does not just reserve a name — it locks out
--- a *person*: without `where deleted_at is null`, a soft-deleted membership
--- permanently blocks that same person from ever rejoining that bookshelf.
--- A family that leaves the parish and later comes back could not be
--- re-registered, and nothing in the interface would explain why. See
--- 20260808_09_soft_delete_aware_uniqueness_round_2.sql.
-create unique index memberships_one_per_shelf
-  on memberships (bookshelf_id, user_id)
-  where deleted_at is null;
+ALTER TABLE books ADD COLUMN slug_key BINARY(32)
+    GENERATED ALWAYS AS (
+        IF(deleted_at IS NULL,
+           UNHEX(SHA2(CONCAT_WS(0x1f, bookshelf_id, CHAR_LENGTH(slug), slug), 256)),
+           NULL)
+    ) STORED;
 ```
 
-**Dropped 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §13; `20260812_01_contacts_profile_and_hours.sql`): this table used to carry `leaderboard_opt_in boolean not null default true`, gating who could appear in *Bạn đọc chăm nhất* on the manager's statistics page. The column is gone; the leaderboard now counts every borrower with no acknowledgement step. §4.11, below, records what this took with it.
+Three details in that expression are load-bearing:
 
-`memberships_one_per_shelf` enforces §4 assumption 8: **a person has at most one role per bookshelf.** Roles are hierarchical (`admin` ⊃ `manager` ⊃ `reader`), so one row with the highest role is sufficient and two rows would be ambiguous.
+- **`CHAR_LENGTH(slug)` prefixes the one variable-length operand** so a literal `0x1f` byte inside a slug cannot be mistaken for the separator and collide with a different pair of values.
+- **`SHA2` hashes bytes, so collation never enters into it.** `Tổ 1` and `To 1` hash apart regardless of the source column's collation — which matters, because most name columns are `utf8mb4_unicode_ci` and that collation is accent-insensitive on this build.
+- **`IFNULL(parent_id, '')`, in `parish_units`, recovers Postgres's `NULLS NOT DISTINCT`.** Every level-1 unit has a null parent; without the `IFNULL`, a null parent behaves as a wildcard and duplicate level-1 names slip through.
 
-The membership row *is* the registration record (§5.1). There is no separate application table; a pending membership is a pending application, and rejecting it sets `status = 'rejected'` with a reason retained for audit (§2).
+**The live schema has 18 generated columns; 11 of them back a unique index.**
 
-`on delete restrict` rather than `cascade` everywhere a person is referenced: §11 says a person with any audit trail can never be removed, and the database should refuse rather than quietly comply. No explicit `on delete` is given for `parish_unit_l1_id` / `parish_unit_l2_id` either, for the same reason `book_copies.acquired_from_membership_id` needs none (§4.4): a `parish_units` row is never hard-deleted (above), so the restrict-like default never actually has to fire.
+The eleven, and what each forbids:
 
-**`parish_unit_l1_id` and `parish_unit_l2_id` replace the earlier free-text `parish_group` (tổ) and `parish_community` (giáo họ) columns.** There is nothing to migrate: no shelf has run yet, and the columns they replace held only fixture strings (BR §5.3). Both stay nullable permanently, not just until a manager gets around to filling them in — a shelf with no units configured yet must still accept registrations, and a family that genuinely does not belong to a group should show as unassigned rather than carry a guess (BR §5.6).
+| Constraint | Generated column | Forbids |
+|---|---|---|
+| `users_username_key` | `users.username_active` = `IF(deleted_at IS NULL AND username IS NOT NULL, LOWER(username), NULL)` | Two live accounts with the same username, case-insensitively. A soft-deleted user does not hold their name hostage, and the many readers with no username at all never collide |
+| `bookshelves_slug_unique` | `bookshelves.slug_active` | Two live shelves on one slug. A soft-deleted shelf frees its slug — §11 retains it as history, not as a name reservation |
+| `parish_units_name_unique_in_scope` | `parish_units.name_scope_key` over `(bookshelf_id, level, parent_id, name)` | Two live units with the same name in the same scope. BR §5.6's own example has "Tổ 1" under two different *giáo họ*, which is two legitimate rows — hence `parent_id` in the key |
+| `memberships_one_per_shelf` | `memberships.member_key` over `(bookshelf_id, user_id)` | A person holding two roles on one shelf (§4 assumption 8). The soft-delete predicate is what lets a family who left and came back be re-registered |
+| `books_bookshelf_id_slug_key` | `books.slug_key` over `(bookshelf_id, slug)` | Two live books sharing a slug on one shelf |
+| `book_copies_code_unique` | `book_copies.code_key` over `(bookshelf_id, code)` | Two live copies carrying the same physical label. A copy catalogued in error and soft-deleted frees its code for a replacement sticker |
+| `loans_one_active_per_copy` | `loans.active_copy_id` = `IF(status = 'active', copy_id, NULL)` | **INV-1.** A copy lent twice at once. Returned, lost and voided loans go null and stop colliding |
+| `borrow_requests_one_live_per_title_member` | `borrow_requests.live_request_key` = `IF(deleted_at IS NULL AND status IN ('pending','approved'), CONCAT(book_id, ':', member_id), NULL)` | One reader holding two live places in one title's queue. Every terminal status and a soft delete free the slot |
+| `announcements_bookshelf_id_slug_key` | `announcements.slug_key` over `(bookshelf_id, slug)` | Two live announcements sharing a slug on one shelf |
+| `bookshelf_contacts_position` | `bookshelf_contacts.position_key` over `(bookshelf_id, position)` | Two live contacts in the same slot. A retired contact must not block the position it used to hold |
+| `profile_change_requests_one_pending` | `profile_change_requests.pending_user_id` = `IF(status = 'pending', user_id, NULL)` | **INV-13's first half.** A second pending request while one is open. The predicate is the positive case, so *approved*, *rejected* and *cancelled* all free the slot |
 
-**When a shelf's taxonomy is nested, `parish_unit_l2_id` must belong to `parish_unit_l1_id`.** This is not expressed as a constraint here — see §7's note on why, and where it is actually enforced.
+The other seven generated columns are search and identity-matching helpers, not constraints: `books.title_folded`, `books.author_folded`, `bookshelves.name_folded`, `bookshelves.location_folded`, `bookshelves.address_folded`, `users.full_name_folded` (all §6's fold) and `users.full_name_ci` (§5.1).
 
-**Sessions.** A signed-in reader is a row in this table, not a signed cookie — SDD.md §11 leaves the choice open, and the identity-session slice closes it here:
+**What a caller sees when one of these fires** is errno 1062, a duplicate-key error naming the constraint. `App\Support\UniqueViolation::translate()` matches **by constraint name** — so an unrelated collision is never dressed up as the wrong refusal — and rethrows it as a `RuleViolated` with the code the caller names: `loans_one_active_per_copy` → `copy_not_available` in `LendCopy`, `memberships_one_per_shelf` → `already_registered_here` and `users_username_key` → `username_taken` in `Registration`, and so on. BR §2 asks that one of two racing managers "must fail cleanly and see a plain message, never a silently corrupted record"; the constraint is the structural half and this is the sentence half.
+
+### 4.2 The fifteen composite tenant foreign keys
+
+`BookshelfScope` answers "which rows may this request see". It does not answer "does this row point at something on the same shelf". A plain `parish_unit_l1_id VARCHAR(36) REFERENCES parish_units(id)` only checks that the id exists *somewhere* — nothing stops a row on shelf A from pointing at a row on shelf B, and a scoped read then shows a parish line that resolves to nothing, unreadable and unrepairable by the shelf that owns the row.
+
+`2026_08_26_000019_add_composite_tenant_fks.php` closes that structurally. Six shelf-scoped parent tables gain `UNIQUE (bookshelf_id, id)` alongside their primary key — trivially unique, since `id` alone is the key, but a composite foreign key needs a composite index to point at:
+
+`parish_units`, `books`, `book_copies`, `memberships`, `loans`, `borrow_requests`, each as `<table>_bookshelf_id_id_key`.
+
+Then **fifteen** foreign keys — counted in the live schema as the FK constraints spanning two columns — pair the child's own `bookshelf_id` with its reference:
+
+| Constraint | On | References | On delete |
+|---|---|---|---|
+| `parish_units_parent_fk` | `parish_units (bookshelf_id, parent_id)` | `parish_units` | RESTRICT |
+| `memberships_parish_unit_l1_fk` | `memberships (bookshelf_id, parish_unit_l1_id)` | `parish_units` | RESTRICT |
+| `memberships_parish_unit_l2_fk` | `memberships (bookshelf_id, parish_unit_l2_id)` | `parish_units` | RESTRICT |
+| `book_copies_book_fk` | `book_copies (bookshelf_id, book_id)` | `books` | CASCADE |
+| `book_copies_acquired_from_membership_fk` | `book_copies (bookshelf_id, acquired_from_membership_id)` | `memberships` | RESTRICT |
+| `loans_copy_fk` | `loans (bookshelf_id, copy_id)` | `book_copies` | RESTRICT |
+| `loans_book_fk` | `loans (bookshelf_id, book_id)` | `books` | RESTRICT |
+| `loans_request_fk` | `loans (bookshelf_id, request_id)` | `borrow_requests` | RESTRICT |
+| `borrow_requests_book_fk` | `borrow_requests (bookshelf_id, book_id)` | `books` | CASCADE |
+| `borrow_requests_copy_fk` | `borrow_requests (bookshelf_id, copy_id)` | `book_copies` | RESTRICT |
+| `borrow_requests_fulfilled_loan_fk` | `borrow_requests (bookshelf_id, fulfilled_loan_id)` | `loans` | RESTRICT |
+| `condition_assessments_copy_fk` | `condition_assessments (bookshelf_id, copy_id)` | `book_copies` | RESTRICT |
+| `condition_assessments_loan_fk` | `condition_assessments (bookshelf_id, loan_id)` | `loans` | RESTRICT |
+| `comments_book_fk` | `comments (bookshelf_id, book_id)` | `books` | CASCADE |
+| `book_donations_donor_membership_fk` | `book_donations (bookshelf_id, donor_membership_id)` | `memberships` | RESTRICT |
+
+**What the shape buys: a child row cannot point at a parent belonging to a different shelf.** That is the guarantee `BookshelfScope` alone cannot make, and — since §3.4 gave up Row Level Security — it is the only part of INV-10 that still holds regardless of which code, or which `mysql` session, does the writing. A bug in the scope, a query-builder update that bypasses the model events, a hand-typed `INSERT`: all of them still hit this.
+
+Nullable referencing columns keep working unchanged. MariaDB's default `MATCH SIMPLE` semantics satisfy a composite foreign key whenever *any* of its columns is null, so "no parent unit yet", "no donor account", "not yet fulfilled" need nothing extra — and since `bookshelf_id` is `NOT NULL` on all fifteen of these tables, the only column that can carry the null is the reference itself.
+
+Three of the fifteen are CASCADE and all three point at `books`, for one reason: §5.2 of the requirements says a copy, a comment and a queued request have no meaning without their title. Everything else is RESTRICT, because §11 says a person or a copy with history is never removed and the database should refuse rather than quietly comply.
+
+There are **55** foreign key constraints in the schema in total; these fifteen are the composite ones. The other forty are ordinary single-column references — to `users`, to `categories`, to `bookshelves` — where there is no second shelf-scoped column to pair with.
+
+### 4.3 Collation: `ascii_bin`, and the `COLLATE` guards in the audit joins
+
+The tables are `utf8mb4_unicode_ci` by default, which is right for prose: it is case-insensitive and, on this build, accent-insensitive too, so a name sorts and compares the way a person expects.
+
+It is exactly wrong for an identifier. `ascii_bin` appears **93 times** across `database/migrations/` (`grep -o "ascii_bin" database/migrations/*.php | wc -l`), on three kinds of column:
+
+- **Every id and every foreign key.** A UUID is 36 bytes of hex and hyphen; comparison must be byte equality, and joining two columns of different collations is an error rather than a slow path — see below.
+- **Every state column.** `role`, `status`, `state`, `condition`, `return_condition` are `varchar(20) ascii_bin`: the value `'active'` is a token, not a word, and `'ACTIVE'` is not it.
+- **`sessions.id`.** The session id is a token; under a case-insensitive collation an uppercased copy of one token would collide with another. Verified on 10.11.19 before the choice was made.
+
+Two more collations are used deliberately:
+
+- **`utf8mb4_bin` on `users.username`, on every `slug`, on `book_copies.code`, and on every folded column.** These are user-visible strings that must nonetheless compare byte-exactly: `đăng` and `dang` are different usernames. Case-insensitivity, where it is wanted, comes from the generated `LOWER()` key — never from a `_ci` collation, which would *also*, wrongly, make the comparison accent-insensitive.
+- **`utf8mb4_bin` on the folded columns**, so the engine adds no folding of its own on top of what the fold expression already did.
+
+**The `COLLATE` guards in the audit joins, and the failure they exist for.** `App\Queries\Concerns\ReadsAuditLog` resolves an audit row's subject through four `leftJoin`s. Two of them join a `users.id` — `ascii_bin` — against a UUID pulled out of the row's JSON payload:
+
+```php
+->leftJoin('users as payload_user', function ($join) {
+    $join->on('payload_user.id', '=', DB::raw(
+        "CONVERT(JSON_UNQUOTE(JSON_EXTRACT(audit_log.after, '$.borrower_id')) USING ascii) COLLATE ascii_bin"
+    ));
+})
+```
+
+`JSON_UNQUOTE` yields `utf8mb4`. Comparing that to an `ascii_bin` column raises **errno 1267, "Illegal mix of collations"** — a 500, at query time, on a page that renders fine until an audit row of the wrong shape appears. This repository has paid for that six times. `CONVERT(… USING ascii)` degrades any non-ASCII byte to `?`, which matches nothing — so a mangled payload yields no subject rather than an error — and the explicit `COLLATE ascii_bin` pins the comparison to the column's own collation. The second guard is on the same join against `$.userId`, which `request.*` and `membership.registered` entries write.
+
+The lesson generalises past the audit log: **any comparison between a stored identifier and a value extracted from JSON needs both halves of that guard.** The `CONVERT` alone still leaves two ASCII strings under different collations.
+
+---
+
+## 5. Schema
+
+Column types below are the live ones. Every constraint and index named in this section was checked against `SHOW CREATE TABLE` and `information_schema` in the session that wrote it.
+
+### 5.1 Identity and membership
+
+§5.3 of the requirements draws a distinction that is easy to get wrong and expensive to unpick later: **facts true of a person everywhere** live on the person; **facts about that person's relationship to one parish** live on the membership. If a family moves and joins another bookshelf, their identity is reused and only the parish details are entered again.
+
+`users` — `id`, `username`, `password_hash`, `saint_name`, `full_name`, `date_of_birth`, `father_name`, `mother_name`, `phone`, `phone_missing_reason`, `email`, `display_name`, `locale`, `avatar_object`, `is_super_admin`, timestamps, `deleted_at`, plus three generated columns.
 
 ```sql
-create table sessions (
-  -- The token is stored hashed. A leaked database backup should not be a
-  -- stack of usable sessions, for the same reason password_hash above is
-  -- not plaintext.
-  token_hash   text        primary key,
-  user_id      uuid        not null references users (id) on delete cascade,
-  created_at   timestamptz not null default now(),
-  expires_at   timestamptz not null,
-  -- BR §5.4's context fields for AuditLog ("address, device, screen"),
-  -- borrowed for the same purpose here: "who signed in from where" is
-  -- answerable without a second store.
-  user_agent   text,
-  ip_address   inet
-);
-
-create index sessions_by_user on sessions (user_id);
-create index sessions_expiry  on sessions (expires_at);
-
-grant select, insert, delete on sessions to olibra_app;
-grant all on sessions to olibra_admin;
+ALTER TABLE users ADD CONSTRAINT users_credentials_paired
+    CHECK ((username IS NULL) = (password_hash IS NULL));
 ```
 
-The token itself is hashed with SHA-256, not Argon2id: a session token is 256 bits of randomness generated by the server, not a human-chosen secret, so there is nothing weak to brute-force the way a password's limited entropy invites — and unlike a password hash, this one is computed on every request that carries a cookie, where Argon2id's deliberate slowness would be a cost paid for no benefit.
+**Credentials are optional, and `users_credentials_paired` is INV-14.** Most readers are children who will never use the site themselves: a manager registers them, lends to them and receives their returns, and §1.3 is explicit that a reader never has to sign in to borrow. Requiring a username and password for every one of them would mean a volunteer inventing credentials at the shelf that nobody will ever type. So a person may exist purely as a record, and the check constraint makes the half-configured state — a username with no password, or the reverse — impossible to store rather than merely discouraged.
 
-**No RLS policy, deliberately — the same treatment §3's "Global tables" gives `users` and `categories`.** A session belongs to a *person*, and identity is global while the *parish relationship* is what is shelf-scoped (this section, above): a reader signs in once and that one session is what every bookshelf's request checks, with the *membership* lookup — not the session — deciding what any given shelf lets them see (`contextFor`, `src/auth/guards.ts`, enforcing OPERATIONS.md §2's "a valid `reader` session for shelf A grants nothing on shelf B"). Scoping the `sessions` row itself by `bookshelf_id` would be scoping the wrong table for that rule; it already lives one join away, on `memberships`.
+Uniqueness of the username is `users_username_key` over `username_active` (§4.1): unique case-insensitively among live rows, ignoring the ones that have none.
 
-**Database-backed, not a signed stateless cookie — the reason is BR §2's manager-sets-credentials power.** A manager may set or change any reader's password, and the design leans on that power being *visible* rather than restricted (BR §2, §14: every use writes an audit entry naming the manager, the reader and the time). Visibility is not enough by itself, though: a manager who has just reset a compromised child's password must also be able to end whatever session the *old* password is still authenticating, immediately, not merely prevent a new one. A signed stateless cookie carries no server-side state to revoke — once issued, nothing short of its own expiry can invalidate it. A row that a `delete` can remove is the only shape that satisfies both halves of that requirement at once (`revokeAllSessions`, `src/auth/session.ts`), and the cost is one indexed lookup per request against a table that will hold, for a system of this size, a few hundred rows — nothing worth avoiding it for.
+**A manager sets and changes these credentials** (§2, §13.2). There is no outbound email and so no self-service reset; a child who forgets asks the volunteer. That hands a manager the power to sign in as any reader, which is inherent in a trust model that already assumes the manager knows the family — and the mitigation is visibility, not restriction. See §5.10 on what the audit log may and may not record about it.
 
-`sessions_expiry` exists for housekeeping only, not correctness (§8, the same "computed on read, never written by a job" rule §6 gives loan overdue status): `resolveSession` compares `expires_at` against the clock at read time, so an unswept expired row is already unusable the moment it lapses — the index only makes a periodic sweep of dead rows cheap to run, it is not what makes an expired session stop working.
+`email` is nullable on purpose: there is no outbound email in v1 and manager-issued reset is the only recovery path, but collecting the address anyway means email reset can be switched on later without touching existing accounts.
 
-### 4.2 The shelf
+`father_name` and `mother_name` are `NOT NULL`. §5.3 is explicit that both are required, and the reason is practical rather than bureaucratic: they are how a manager tells apart two children who share a name.
+
+`saint_name` is `NOT NULL` — the product owner's explicit, one-time decision, taken while the development database was still being dropped and reseeded and no parish had real data.
+
+**`phone` stays nullable; `phone_missing_reason` exists because of it.** The column cannot honestly be `NOT NULL` — some readers are children with no phone of their own, and a placeholder number is a tap that dials a stranger. Submitting a form with an empty phone raises a confirmation requiring a typed reason, stored here and cleared the moment a phone is filled in. The requirement lives in the domain, not the schema, so it cannot be satisfied by one write path and skipped by another.
+
+**`avatar_object` is a storage key, and it is the only fact a row keeps about a photograph.** It was once a full public URL. Two reasons for the key:
+
+- **A URL cannot be deleted.** The object store's delete takes a key, so a row holding only an address did not know what to remove — and a family asking the parish to take their child's photograph down had no answer.
+- **A stored URL bakes the public base address into every row**, so moving provider or putting a CDN in front would strand every avatar already written.
+
+Every address a browser fetches is derived from the key at read time, by the surface, never by a query.
+
+**`full_name_ci` is a generated column, and it is not the same thing as `full_name_folded`.** Registration's no-username identity match ("is this the same child?") compared `LOWER(full_name)` under `full_name`'s own `utf8mb4_unicode_ci` collation — which is **accent-insensitive** on this build (`SELECT LOWER('Nguyễn Thị Lan') = LOWER('Nguyen Thi Lan')` returns 1). Two children whose names differed only by a diacritic, sharing a date of birth and the family's phone, folded onto the *same* `users` row, and the second child's registration then hit a false "already registered here".
+
+`full_name_folded` is **not** the fix: it deliberately strips accents, for fuzzy dedup surfacing (BR §5.3's similar-name warning). Using it here would keep the same bug, one column over. `full_name_ci` is `LOWER(full_name)` under an explicit `utf8mb4_bin` collation — case-insensitive because of the `LOWER()`, accent-*sensitive* because of the `_bin` — and `users_full_name_ci_dob_phone_index` over `(full_name_ci, date_of_birth, phone)` turns what was a full scan of `users` on every guest registration into an index lookup.
+
+**Parish units.** How a parish subdivides its people is per-shelf configuration, not a fixed shape (BR §5.6): a shelf may use one level or two, name each level whatever its parish calls it, and — with two levels — either nest the smaller inside the bigger or not. One self-referencing table serves all of that.
 
 ```sql
-create type bookshelf_status as enum ('active', 'archived');
-
-create table bookshelves (
-  id            uuid primary key default gen_random_uuid(),
-  slug          text not null,
-  name          text not null,
-  description   text,
-  location      text,                      -- physical location, shown publicly
-  address       text,
-  cover_url     text,
-  timezone      text not null default 'Asia/Ho_Chi_Minh',
-  locale        text not null default 'vi',
-  status        bookshelf_status not null default 'active',
-  settings      jsonb not null default '{}'::jsonb,
-  established_on date,
-  created_by    uuid references users(id),
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now(),
-  deleted_at    timestamptz
-);
-
--- Not a plain `unique` on slug: the same soft-delete trap
--- parish_units_name_unique_in_scope names above (§4.1) — a plain unique
--- constraint blocks ever reusing a slug once the bookshelf that held it is
--- soft-deleted, which is the wrong trade for data §11 retains as history
--- rather than reserves as a name.
-create unique index bookshelves_slug_unique
-  on bookshelves (slug)
-  where deleted_at is null;
+ALTER TABLE parish_units ADD CONSTRAINT parish_units_level_check CHECK (level IN (1, 2));
+ALTER TABLE parish_units ADD CONSTRAINT parish_units_l1_has_no_parent
+    CHECK (level = 2 OR parent_id IS NULL);
 ```
 
-**Changed 2026-08-12** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §1 and §3; `20260812_01_contacts_profile_and_hours.sql`): this table used to also carry `keeper_name`, `keeper_phone` and `opening_hours`. All three are dropped. A shelf's contact is now up to three rows on `bookshelf_contacts`, below, rather than two nullable columns here — see that table for the migration path and why the mandatory-first-contact rule lives in the domain rather than in a constraint. `opening_hours` was not moved anywhere; BR:179 no longer lists it as a shelf field.
+A level-1 unit never has a parent — that is what makes it level 1 — and `parish_units_l1_has_no_parent` makes that structural rather than a convention a command has to remember. **Nesting off** means every level-2 unit carries a null `parent_id`, same as a level-1 unit; **nesting on** means it carries the id of its level-1 parent. A shelf switching between the two is switching data, not running a migration.
 
-**`slug` is immutable after creation** (§16.4) because it appears in links people have already shared. Enforce with a trigger, not trusting the UI — and the trigger must actually be attached, not merely defined:
+`parish_units_name_unique_in_scope` (§4.1) scopes uniqueness to `(bookshelf_id, level, parent_id, name)` rather than just `(bookshelf_id, name)`, deliberately: BR §5.6's own worked example has "Tổ 1" appearing once under *Giáo họ Thánh Tâm* and again, a different unit, under *Giáo họ Mân Côi* — two different parents, so two correct rows, not a collision. The soft-delete half keeps a name in circulation once the unit carrying it is retired: units are soft-deleted rather than removed because a membership still points at one, which is a statement about history, not a reservation of the name.
+
+`sort_order` is explicit and never inferred by parsing a unit's name — "Tổ 10" sorting before "Tổ 2" because of the digits is exactly the carelessness an explicit column exists to prevent.
+
+`parish_units_parent_fk` is the self-referencing composite foreign key of §4.2: a unit cannot nest under another shelf's unit.
+
+**Memberships.**
 
 ```sql
-create or replace function forbid_slug_change() returns trigger as $$
-begin
-  if new.slug is distinct from old.slug then
-    raise exception 'bookshelf slug is immutable once created';
-  end if;
-  return new;
-end $$ language plpgsql;
-
-create trigger bookshelves_no_slug_change
-  before update on bookshelves
-  for each row execute function forbid_slug_change();
+ALTER TABLE memberships ADD CONSTRAINT memberships_role_check
+    CHECK (role IN ('reader', 'manager', 'admin'));
+ALTER TABLE memberships ADD CONSTRAINT memberships_status_check
+    CHECK (status IN ('pending', 'active', 'suspended', 'left', 'rejected'));
+ALTER TABLE memberships ADD CONSTRAINT memberships_rejected_has_reason
+    CHECK (status <> 'rejected' OR rejection_reason IS NOT NULL);
 ```
 
-**`settings` is `jsonb`, not thirteen columns.** §5.5 lists thirteen per-shelf settings and says "adding a setting must never be a disruptive change". Thirteen columns would mean a migration and a deploy for each new one. The trade-off is no type checking at the database level, so the application validates the shape and supplies defaults for missing keys — the defaults table in §5.5 is the source of truth, and a shelf row need only store what it overrides.
+`memberships_one_per_shelf` enforces §4 assumption 8: **a person has at most one role per bookshelf.** Roles are hierarchical (`admin` ⊃ `manager` ⊃ `reader`), so one row with the highest role is sufficient and two rows would be ambiguous. Its soft-delete predicate is the most consequential of the eleven: a plain unique here would not just reserve a name, it would lock out a *person* — a family that leaves the parish and later comes back could not be re-registered, and nothing in the interface would explain why.
+
+The membership row *is* the registration record (§5.1). There is no separate application table; a pending membership is a pending application, and rejecting it sets `status = 'rejected'` with a reason retained for audit.
+
+`memberships_user_id_bookshelf_id_index` over `(user_id, bookshelf_id)` exists because the uniqueness guarantee lives on the opaque `member_key`, which leaves "is this user a member of this shelf" — asked by `ResolveTenant` on every request — with nothing but two single-column foreign key indexes. This is the composite index for that lookup.
+
+`parish_unit_l1_id` and `parish_unit_l2_id` are both nullable **permanently**, not just until a manager gets around to filling them in: a shelf with no units configured yet must still accept registrations, and a family that genuinely does not belong to a group should show as unassigned rather than carry a guess.
+
+**When a shelf's taxonomy is nested, `parish_unit_l2_id` must belong to `parish_unit_l1_id`.** That is not expressed as a constraint — see §7's note on why, and where it is actually enforced.
+
+**Sessions.** A signed-in reader is a row in `sessions`, Laravel's own table shape, driven by `App\Support\HashedDatabaseSessionHandler`: the table is keyed on `sha256(session id)`, never the raw id. A database dump — or a dump plus `.env`, which on shared cPanel hosting live in the same home directory — must not be a stack of usable sessions; the raw id exists only in the browser's cookie.
+
+`user_id` is nullable, because a visitor with no account has a session too.
+
+**Database-backed, not a signed stateless cookie — the reason is BR §2's manager-sets-credentials power.** A manager who has just reset a compromised child's password must be able to end whatever session the *old* password is still authenticating, immediately, not merely prevent a new one. A signed stateless cookie carries no server-side state to revoke. A row a `DELETE` can remove is the only shape that satisfies both halves at once, and the cost is one indexed lookup per request against a table that will hold, for a system of this size, a few hundred rows.
+
+### 5.2 The shelf
+
+`bookshelves` — `id`, `slug`, `name`, `description`, `location`, `address`, `cover_url`, `timezone`, `locale`, `status`, `settings`, `established_on`, `created_by`, timestamps, `deleted_at`, plus `slug_active` and the three folded columns.
+
+```sql
+ALTER TABLE bookshelves ADD CONSTRAINT bookshelves_status_check
+    CHECK (status IN ('active', 'archived'));
+```
+
+**`slug` is immutable after creation**, because it appears in links people have already shared and on printed QR labels. Enforced by a trigger, not by trusting the interface:
+
+```sql
+CREATE TRIGGER bookshelves_slug_immutable BEFORE UPDATE ON bookshelves FOR EACH ROW
+    IF NEW.slug <> OLD.slug THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'bookshelves.slug is immutable after creation';
+    END IF;
+```
+
+**`settings` is JSON, not thirteen columns.** §5.5 of the requirements lists thirteen per-shelf settings and says "adding a setting must never be a disruptive change". Thirteen columns would mean a migration and a deploy for each. The trade-off is no type checking at the database level, so the application validates the shape and supplies defaults for missing keys; a shelf row need only store what it overrides. MariaDB stores this as `longtext utf8mb4_bin` with an automatic `json_valid()` check.
 
 **`parish_taxonomy` is the one setting shaped as an object rather than a scalar**, because level count, each level's label, and nesting are one configuration decision, not three independent ones (BR §5.6):
 
@@ -597,984 +570,472 @@ create trigger bookshelves_no_slug_change
 }
 ```
 
-Defaults for a shelf that has never touched this setting: one level, labelled `Tổ`, not nested. `nested` is meaningful only when `levels` is `2` and is simply ignored otherwise, rather than rejected or cleared — a shelf that drops to one level and later returns to two finds its previous label and nesting choice untouched, because nothing wrote over it while it did not apply.
+Defaults for a shelf that has never touched this setting: one level, labelled `Tổ`, not nested. `nested` is meaningful only when `levels` is `2` and is simply ignored otherwise, rather than rejected or cleared — a shelf that drops to one level and later returns to two finds its previous label and nesting choice untouched.
 
-**A second `select` policy, for the one read that has to happen before any shelf is known.** `bookshelves_tenant` (§3) scopes every ordinary read of this table to `id = <the session's already-set shelf GUC>` — but resolving a URL's shelf slug to that id (`contextFor`, `src/auth/guards.ts`, the first thing every request does) cannot set that GUC first, because the id is exactly what the lookup is trying to discover. Asking `bookshelves_tenant` to cover that read is circular, and a stranger with no session at all still needs it to work: OPERATIONS.md §2 lists the sign-in and registration forms, and the portal directory, among the pages a person with no account can reach at all.
-
-```sql
-create policy bookshelves_public_read on bookshelves
-  for select
-  using (status = 'active' and deleted_at is null);
-```
-
-**A second, additive policy, not a replacement.** PostgreSQL ORs together every permissive policy that covers the same command, so this one only ever *widens* what `select` can see — it plays no part in an `insert` or `update`, which stays governed exclusively by `bookshelves_tenant`'s `with check`, unchanged. Restricted to active, undeleted rows: an archived or soft-deleted shelf has no business being discoverable by slug. This is also a product requirement in its own right, not only a fix for how RLS composes: §1.2 specifies the Portal surface as a "searchable directory of bookshelves — name and address only. Public, because someone who has no account yet must be able to find their parish's shelf in order to register for it."
-
-**What this policy stops protecting, and what has to protect it instead.** Row Level Security is row-level: once a policy admits a `bookshelves` row, every column on it is readable through that same query, not only `name` and `location`. §16.1 withholds book counts and reader counts from the portal precisely because "a person with no membership has no business knowing them" — and now that a stranger can read the row at all, that restriction is entirely the query's job, not the policy's. OPERATIONS.md §3.1 already forbids the shortcut this invites: a query built for the portal selects only the two public columns; it must not join the rest in and trim it client-side, which would put it on the wire regardless of what the page then chooses to render. A reviewer who sees `select *` against `bookshelves` from a public code path should treat it as a defect, not a style question.
-
-**Added 2026-08-12 — `bookshelf_contacts`** (`docs/superpowers/specs/2026-08-12-po-feedback-design.md`, §1; `20260812_01_contacts_profile_and_hours.sql`). A shelf's contact used to be two nullable columns on `bookshelves` itself, `keeper_name` and `keeper_phone` (now dropped, above). A parish that runs its shelf with three volunteers had no way to say so, and the one name it could record was labelled *Người giữ chìa khoá* whether or not that was what the person did.
+**`bookshelf_contacts`** — a shelf's contact used to be two nullable columns on `bookshelves` itself, `keeper_name` and `keeper_phone`. A parish that runs its shelf with three volunteers had no way to say so, and the one name it could record was labelled *Người giữ chìa khoá* whether or not that was what the person did.
 
 ```sql
-create table bookshelf_contacts (
-  id            uuid primary key default gen_random_uuid(),
-  bookshelf_id  uuid not null references bookshelves(id) on delete restrict,
-  position      smallint not null check (position between 1 and 3),
-  name          text not null,
-  phone         text,
-  role_label    text,
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now(),
-  deleted_at    timestamptz
-);
-
--- Soft-delete-aware, the same shape as bookshelves_slug_unique above: a
--- retired contact must not block the position it used to hold.
-create unique index bookshelf_contacts_position
-  on bookshelf_contacts (bookshelf_id, position)
-  where deleted_at is null;
-
-create index bookshelf_contacts_by_shelf
-  on bookshelf_contacts (bookshelf_id)
-  where deleted_at is null;
-
-alter table bookshelf_contacts enable row level security;
-alter table bookshelf_contacts force row level security;
-
-create policy bookshelf_contacts_tenant on bookshelf_contacts
-  using (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid)
-  with check (bookshelf_id = nullif(current_setting('olibra.bookshelf_id', true), '')::uuid);
-
-grant select, insert, update on bookshelf_contacts to olibra_app;
-grant all on bookshelf_contacts to olibra_admin;
+ALTER TABLE bookshelf_contacts ADD CONSTRAINT bookshelf_contacts_position_check
+    CHECK (position BETWEEN 1 AND 3);
 ```
 
-`position` carries the ordering rather than a free `sort_order`: the product decision is one mandatory contact and two optional ones, and a column constrained to 1–3 says that in the schema. **Position 1's mandatoriness is a domain rule, not a database constraint** — `contact_position_1_required`, enforced where a shelf's contacts are written, not by a `not null` or a `check` here — because a shelf onboarded before this table existed may have no contacts at all, and inventing a volunteer for it is worse than an incomplete row. The migration backfilled position 1 from every shelf's old `keeper_name`/`keeper_phone` and dropped both columns in the same file; a shelf with no keeper at the time gets no row, and is flagged incomplete on `/quan-tri/tu-sach`. `role_label` is free text — a parish names its own volunteers' jobs; an enum here would be a guess this project has no basis for.
+`position` carries the ordering rather than a free `sort_order`: the product decision is one mandatory contact and two optional ones, and a column constrained to 1–3 says that in the schema. **Position 1's mandatoriness is a domain rule, not a database constraint** — enforced where a shelf's contacts are written — because a shelf onboarded before this table existed may have no contacts at all, and inventing a volunteer for it is worse than an incomplete row. `role_label` is free text: a parish names its own volunteers' jobs, and an enum here would be a guess this project has no basis for.
 
-**No grant to `olibra_public`, deliberately, and this is the load-bearing line.** Ordinary tenant reads are `bookshelf_contacts_tenant`, exactly the shape §3 gives every other shelf-scoped table — reads are scoped to members of the shelf, as `readShelfIdentity` already gated `keeper_name`/`keeper_phone` behind `requireReader`. But unlike `bookshelves`, which needed the column-level grant described just above because the *whole row* is admitted to `olibra_public` by `bookshelves_public_read`, this table receives **no grant to `olibra_public` at all** — not even a column-level one. `select phone from bookshelf_contacts` as `olibra_public` raises `42501` before any policy is even consulted. BR §16.1 — "a person with no membership has no business knowing them" — is the same rule §4.2's public-role note draws for `bookshelves`; here it is enforced as a table-level privilege rather than a column list, because nothing about a shelf's contacts belongs on the front door at all.
+`bookshelf_contacts_position` (§4.1) is soft-delete-aware so a retired contact does not block the slot it used to hold. `bookshelf_contacts_by_shelf` on `bookshelf_id` is the plain covering index for the list read; the Postgres original was partial on `deleted_at is null` and that predicate is now an ordinary `WHERE` clause.
 
-**Corrected, post-review fix wave, item 4.** This passage used to name `tests/architecture/the-front-door-shows-no-keeper-contact.test.ts` and `tests/db/bookshelves-public-columns.test.ts` as the two checks that "must keep passing unchanged … if either needs editing to keep passing, the leak is real." Neither claim survives a look at what those two files actually do. `bookshelves-public-columns.test.ts` walks source for a `select` whose `from` clause matches `\bfrom\s+bookshelves\b` (`selectsWildcardFromBookshelves`, that file's own function) and checks the column list against `WITHHELD_COLUMNS` — a name that lists no contact column, on a regex that never matches `from bookshelf_contacts` in the first place. A portal query selecting `name, phone from bookshelf_contacts` would pass this test green, because the test is structurally incapable of seeing a second table. And `the-front-door-shows-no-keeper-contact.test.ts` — despite its name — *was* edited on this branch, to follow the contact strip §1 moved onto the shelf home; a guard that changed with the very feature it is supposed to gate is not the guard holding the boundary.
+### 5.3 Categories
 
-**The check that actually covers this table is `tests/db/public-role-privileges.test.ts`.** It does not name tables at all — it discovers every relation in `pg_class` and asserts `olibra_public`'s privileges against whatever it finds, so a table this document forgot to mention is exactly as covered as one it names. That is why the boundary genuinely holds: not because two files were told to watch `bookshelf_contacts`, but because one file watches everything in the catalog, this table included, without having to be told it exists.
+**Categories are global reference data, not tenant data**, and that is a decision rather than something the requirements settled.
 
-### 4.3 Categories
+`categories.slug` carries a **plain** unique index — `categories_slug_unique`, the one unique constraint in the schema not backed by a generated column. §11 lists categories among the soft-deletable things, so the soft-delete-aware trade would in principle apply, but nothing in this codebase soft-deletes a category in practice and converting a constraint nothing exercises would add a migration with no test that could fail red first. `CategorySeeder` compensates on its own side: it checks `Category::withTrashed()->where('slug', …)` before inserting, because a `firstOrCreate()` would look only among live rows and then collide with a soft-deleted one.
 
-**Categories are global reference data, not tenant data.** That is a decision
-rather than something the requirements settled — see the reasoning below.
+The seeder ships **six** categories — *Truyện thiếu nhi*, *Giáo lý*, *Kỹ năng sống*, *Sách tham khảo*, *Lịch sử*, *Khác* — one list every shelf draws from.
+
+**Why global rather than one set per shelf.** The requirements do not say; §5.1 does not list Category among the entities at all. So the reasoning is ours:
+
+- **§11 lists "categories" among the soft-deletable things.** Something that can be soft-deleted is a row, not an enum value compiled into the application. That is textual evidence, not an inference about what would be tidy.
+- **A table rather than an enum means adding one needs no deploy.** Whoever administers this is not necessarily a developer.
+- **Shared rather than per-shelf keeps cross-shelf statistics addable.** If every shelf carries its own *Lịch sử* row, aggregating across shelves degrades into matching strings.
+
+**What it costs, and the answer.** A shelf cannot invent a category of its own. In exchange the catalogue filter offers only the categories that actually have books on *that* shelf, so an unused one is invisible rather than clutter. If a shelf ever genuinely needs a private one, the migration is additive: a nullable `bookshelf_id` where null means shared.
+
+`sort_order` exists so the list reads sensibly rather than alphabetically — *Khác* belongs at the bottom wherever the alphabet would put it.
+
+### 5.4 Books and copies
+
+`books` — `id`, `bookshelf_id`, `category_id`, `title`, `slug`, `author`, `publisher`, `published_year`, `isbn`, `page_count`, `description`, `cover_url`, `language`, `is_published`, `added_by`, timestamps, `deleted_at`, plus `title_folded`, `author_folded` and `slug_key`.
+
+**`title` is `text` under `utf8mb4_unicode_ci`, deliberately not a binary type.** The fold expression runs `LOWER()` over it, and `LOWER()` is a no-op on a true binary column — the folded twin would silently stop lowercasing.
+
+`books_public` is `(bookshelf_id, title(191))`. The Postgres index was partial on `is_published and deleted_at is null`; the predicate drops and the access path stays. `title` is `text`, so the index needs a prefix length — 191 characters, the convention every prefixed index in this schema follows.
+
+`book_copies`:
 
 ```sql
-create table categories (
-  id         uuid primary key default gen_random_uuid(),
-  name       text not null,
-  slug       text not null unique,
-  sort_order integer not null default 0,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  deleted_at timestamptz
-);
+ALTER TABLE book_copies ADD CONSTRAINT book_copies_state_check
+    CHECK (state IN ('available', 'held', 'on_loan', 'lost', 'retired'));
+ALTER TABLE book_copies ADD CONSTRAINT book_copies_condition_check
+    CHECK (`condition` IN ('perfect', 'slightly_worn', 'worn', 'torn', 'missing_pages', 'written_on'));
+ALTER TABLE book_copies ADD CONSTRAINT book_copies_retired_has_reason
+    CHECK (state <> 'retired' OR retired_reason IS NOT NULL);
 ```
 
-**`categories.slug` deliberately keeps a plain `unique` constraint, not the soft-delete-aware partial index `parish_units_name_unique_in_scope`, `bookshelves_slug_unique` and (as of the S1 re-review) `memberships_one_per_shelf`, `books_bookshelf_id_slug_key`, `book_copies_code_unique` and `announcements_bookshelf_id_slug_key` all use.** §11 lists "categories" among the soft-deletable things, so the trade would in principle apply the same way — but nothing in this codebase soft-deletes a category in practice: `src/lib/fixtures.ts` carries no soft-deleted category, and there is no admin flow yet that removes one. Converting a constraint nothing exercises would add a migration with no test that could fail red first. If a category ever is soft-deleted, the same one-line `create unique index ... where deleted_at is null` conversion applies, and it should happen then, with a test that reproduces the lockout the way `memberships_one_per_shelf`'s did.
+`book_copies_book_fk` is CASCADE — one of the three in the schema — and it is deliberate: §5.2 says a copy has no meaning without its title, and §11 says only a book's copies follow it when the book goes. A book with loan history cannot be deleted anyway, because `loans_book_fk` restricts it.
 
-Seeded with one list every shelf draws from:
-
-```sql
-insert into categories (slug, name, sort_order) values
-  ('van-hoc-thieu-nhi',    'Văn học thiếu nhi',    10),
-  ('van-hoc-viet-nam',     'Văn học Việt Nam',     20),
-  ('van-hoc-nuoc-ngoai',   'Văn học nước ngoài',   30),
-  ('truyen-tranh',         'Truyện tranh',         40),
-  ('tho',                  'Thơ',                  50),
-  ('lich-su',              'Lịch sử',              60),
-  ('dia-ly',               'Địa lý',               70),
-  ('khoa-hoc-thuong-thuc', 'Khoa học thường thức', 80),
-  ('ky-nang-song',         'Kỹ năng sống',         90),
-  ('sach-dao',             'Sách đạo',            100),
-  ('tu-dien-tra-cuu',      'Từ điển, tra cứu',    110),
-  ('khac',                 'Khác',                999);
-```
-
-**Why global rather than one set per shelf.** The requirements do not say. §5.1
-does not list Category among the entities at all; it appears only as a field on
-Book (§5.4), as a catalogue filter (§16.1), and in the deletion policy (§11). So
-this is ours to decide, and the reasoning is:
-
-- **§11 lists "categories" among the soft-deletable things.** Something that can
-  be soft-deleted is a row, not an enum value compiled into the application.
-  That is textual evidence in the requirements, not an inference about what
-  would be tidy.
-- **A table rather than an enum means adding one needs no deploy.** Whoever
-  administers this is not necessarily a developer, and *Sách đạo* is a category
-  a parish shelf wants on its first day.
-- **Shared rather than per-shelf keeps cross-shelf statistics addable**
-  (Phase 3, §1.4). If every shelf carries its own *Văn học thiếu nhi* row,
-  aggregating across shelves degrades into matching strings.
-
-**What it costs, and the answer.** A shelf cannot invent a category of its own.
-In exchange the catalogue filter offers only the categories that actually have
-books on *that* shelf, so an unused one is invisible rather than clutter:
-
-```sql
-select distinct c.*
-from categories c
-join books b on b.category_id = c.id
-where b.bookshelf_id = $1
-  and b.is_published
-  and b.deleted_at is null
-  and c.deleted_at is null
-order by c.sort_order;
-```
-
-If a shelf ever genuinely needs a private category, the migration is additive: a
-nullable `bookshelf_id` where `null` means shared. Nothing above changes.
-
-`sort_order` exists so the list reads sensibly rather than alphabetically —
-*Khác* belongs at the bottom wherever the alphabet would put it.
-
-### 4.4 Books and copies
-
-```sql
-create table books (
-  id             uuid primary key default gen_random_uuid(),
-  bookshelf_id   uuid not null references bookshelves(id) on delete restrict,
-  category_id    uuid references categories(id) on delete set null,
-  title          text not null,
-  title_folded   text not null,             -- see §5, search
-  slug           text not null,
-  author         text,
-  author_folded  text not null default '',
-  publisher      text,
-  published_year integer,
-  isbn           text,
-  page_count     integer,
-  description    text,
-  cover_url      text,
-  language       text not null default 'vi',
-  is_published   boolean not null default true,   -- hides drafts from the public
-  added_by       uuid references users(id),
-  created_at     timestamptz not null default now(),
-  updated_at     timestamptz not null default now(),
-  deleted_at     timestamptz
-);
-
--- Soft-delete-aware partial index, not a table constraint — the same shape
--- as parish_units_name_unique_in_scope and bookshelves_slug_unique (§4.1,
--- §4.2). Without `where deleted_at is null`, soft-deleting a book would
--- permanently reserve its slug on that shelf even though §11's whole reason
--- for soft-deleting rather than removing is that history (loans, comments)
--- may still point at the row. See 20260808_09_soft_delete_aware_
--- uniqueness_round_2.sql.
-create unique index books_bookshelf_id_slug_key
-  on books (bookshelf_id, slug)
-  where deleted_at is null;
-```
-
-```sql
-create type copy_state     as enum ('available', 'held', 'on_loan', 'lost', 'retired');
-create type copy_condition as enum
-  ('perfect', 'slightly_worn', 'worn', 'torn', 'missing_pages', 'written_on');
-
-create table book_copies (
-  id              uuid primary key default gen_random_uuid(),
-  bookshelf_id    uuid not null references bookshelves(id) on delete restrict,
-  book_id         uuid not null references books(id)       on delete cascade,
-  code            text not null,             -- 'DT-0142', intended to become a QR label
-  state           copy_state not null default 'available',
-  condition       copy_condition not null default 'perfect',
-  condition_note  text,
-  acquired_on     date,
-  acquired_from   text,
-  acquired_from_membership_id uuid references memberships(id),  -- donor with an account; nullable, see below
-  retired_at      timestamptz,
-  retired_reason  text,
-  lost_reported_at timestamptz,
-  -- QR label printing. The count is not redundant with the timestamp: the
-  -- "Chưa in nhãn" filter has to tell a copy that has never been labelled from
-  -- one whose sticker fell off and was reprinted, and a boolean conflates them.
-  -- See 20260813_01_copy_qr_print.sql.
-  qr_printed_at   timestamptz,                -- last label print; null = never
-  qr_print_count  integer not null default 0, -- a reprint is not a first print
-  created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now(),
-  deleted_at      timestamptz,
-
-  constraint book_copies_retired_has_reason
-    check (state <> 'retired' or retired_reason is not null)
-);
-
--- Same shape and same reason as books_bookshelf_id_slug_key above: a
--- soft-deleted (e.g. permanently lost, catalogued in error) copy must not
--- hold its code hostage — a new copy carrying the same physical label
--- needs to be insertable. See 20260808_09_soft_delete_aware_uniqueness_
--- round_2.sql.
-create unique index book_copies_code_unique
-  on book_copies (bookshelf_id, code)
-  where deleted_at is null;
-```
-
-`on delete cascade` from `books` is the one cascade in the schema, and it is deliberate: §5.2 says a copy has no meaning without its title, and §11 says only a book's copies follow it when the book goes. A book with loan history cannot be deleted anyway — the loan's foreign key restricts it.
-
-**`acquired_from_membership_id` sits beside `acquired_from`, not in place of it.** A donor with no account — a family that hands a bag of books to a volunteer after mass and never registers — must still be recordable, so the free-text name stays exactly as it was. Where the donor *is* a member, chosen from a search rather than typed, the new column makes that a real foreign key instead of a name that happens to match: a manager reading a copy's history years later sees an actual person's record, not a string that could have drifted out of sync with a since-changed name. This is the same member-or-outsider *shape* `feedback` already uses for `member_id` alongside `guest_name`/`guest_contact` (§4.8) — nullable, and for the same reason: the alternative was either forcing every donor to register before a manager could log a gift, or losing the link the one time it happens to be available. The *target* differs, though: `feedback.member_id` points at `users(id)`, a global sender, while this column points at `memberships(id)` — this shelf's relationship to the donor. See the note in §4.8 for why the two new donor columns this refinement adds deliberately point at `memberships`, not `users`. No explicit `on delete` clause is needed, unlike `category_id`'s `set null` above: a membership is never hard-deleted (§11), so the column's restrict-like default never actually has to fire.
+**`acquired_from_membership_id` sits beside `acquired_from`, not in place of it.** A donor with no account — a family that hands a bag of books to a volunteer after mass and never registers — must still be recordable, so the free-text name stays exactly as it was. Where the donor *is* a member, chosen from a search rather than typed, the column makes that a real foreign key instead of a name that happens to match: a manager reading a copy's history years later sees an actual person's record, not a string that could have drifted out of sync with a since-changed name. It points at `memberships`, not `users` — see §5.8's note on why the two donor columns differ from every other person-column in this schema.
 
 **The copy has one `state` column, and that is what keeps INV-2 out of *this* table.** A copy's own row cannot say both `held` and `on_loan`, because the column cannot hold two values. Modelling this as two booleans would make that contradiction representable, and something would eventually represent it.
 
-That is a claim about one column, and it is narrower than INV-2. A hold does not live only in `book_copies.state` — it also lives in a `borrow_requests` row with `status = 'approved'` and a `hold_expires_at` still in the future, which is what `copies_borrowable` (§6) actually filters on. Nothing in the schema stops that row from naming a copy whose state is `on_loan`, so "held and on loan at the same time" *is* representable across the two tables, and the guarantee against it is the commands': `lendCopy` moves the request to `fulfilled` in the same transaction that lends a held copy to its holder, and `receiveReturn` writes the hold in the same transaction that closes the loan. See §7's INV-2 row.
+That is a claim about one column, and it is narrower than INV-2. A hold also lives in a `borrow_requests` row with `status = 'approved'` and a `hold_expires_at` still in the future. Nothing in the schema stops that row from naming a copy whose state is `on_loan`, so "held and on loan at the same time" *is* representable across the two tables, and the guarantee against it is the Actions': `LendCopy` moves the request to `fulfilled` in the same transaction that lends a held copy to its holder, and the return path writes the hold in the same transaction that closes the loan.
 
-`condition` is a flat single choice, not a grade plus damage flags. §9 records that the rigorous model was considered and rejected for v1: a single row of large buttons is dramatically easier for a child to use, and the optional photograph captures what the list cannot. Moving to multi-select later is purely additive — a new table, no change here.
+`condition` is a flat single choice, not a grade plus damage flags. §9 records that the rigorous model was considered and rejected for v1: a single row of large buttons is dramatically easier for a child to use, and the optional photograph captures what the list cannot. Moving to multi-select later is purely additive.
 
-Note that `lost` is a **state**, not a condition (§2, §9). Losing a book removes it from circulation; a torn book keeps circulating. They belong on different axes and conflating them makes "is this borrowable" unanswerable.
+Note that `lost` is a **state**, not a condition. Losing a book removes it from circulation; a torn book keeps circulating. They belong on different axes, and conflating them makes "is this borrowable" unanswerable.
 
-### 4.5 Loans
+`qr_printed_at` and `qr_print_count` both exist and are not redundant with each other: the *Chưa in nhãn* filter has to tell a copy that has never been labelled from one whose sticker fell off and was reprinted, and a boolean conflates them.
+
+`copies_by_book` on `book_id` and `copies_by_state` on `(bookshelf_id, state)` are the plain forms of what were partial indexes.
+
+### 5.5 Loans
 
 ```sql
-create type loan_status as enum ('active', 'returned', 'lost', 'voided');
-
-create table loans (
-  id                uuid primary key default gen_random_uuid(),
-  bookshelf_id      uuid not null references bookshelves(id) on delete restrict,
-  copy_id           uuid not null references book_copies(id) on delete restrict,
-  book_id           uuid not null references books(id)       on delete restrict,
-  borrower_id       uuid not null references users(id)       on delete restrict,
-  request_id        uuid references borrow_requests(id),
-
-  lent_by           uuid not null references users(id),
-  lent_at           timestamptz not null default now(),
-  due_on            date not null,
-
-  status            loan_status not null default 'active',
-
-  returned_at       timestamptz,
-  received_by       uuid references users(id),
-  return_condition  copy_condition,
-  return_note       text,
-  return_photo_url  text,
-
-  renewals_used     integer not null default 0,
-
-  lost_reported_at  timestamptz,
-  lost_reported_by  uuid references users(id),
-
-  voided_at         timestamptz,
-  voided_by         uuid references users(id),
-  void_reason       text,
-
-  notes             text,
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now(),
-
-  constraint loans_voided_has_reason
-    check (status <> 'voided' or void_reason is not null),
-  constraint loans_returned_has_condition
-    check (status <> 'returned' or return_condition is not null)
-);
+ALTER TABLE loans ADD CONSTRAINT loans_status_check
+    CHECK (status IN ('active', 'returned', 'lost', 'voided'));
+ALTER TABLE loans ADD CONSTRAINT loans_return_condition_check
+    CHECK (return_condition IS NULL OR return_condition IN
+        ('perfect', 'slightly_worn', 'worn', 'torn', 'missing_pages', 'written_on'));
+ALTER TABLE loans ADD CONSTRAINT loans_voided_has_reason
+    CHECK (status <> 'voided' OR void_reason IS NOT NULL);
+ALTER TABLE loans ADD CONSTRAINT loans_returned_has_condition
+    CHECK (status <> 'returned' OR return_condition IS NOT NULL);
 ```
 
 **`due_on` is a `date`.** §5.4 is emphatic about this and it is worth repeating: a book is due at the end of a day, not at 14:23 on that day. A timestamp would make a book overdue mid-afternoon, which is confusing for a child and simply wrong for a shelf that only opens after Sunday mass.
 
-**`book_id` is stored on the loan even though it is reachable through `copy_id`.** This is deliberate denormalisation, mandated by §5.4: statistics must survive the copy being retired or deleted. Without it, "most borrowed titles" breaks the first time a copy is withdrawn.
+**`book_id` is stored on the loan even though it is reachable through `copy_id`.** Deliberate denormalisation, mandated by §5.4: statistics must survive the copy being retired or deleted. Without it, "most borrowed titles" breaks the first time a copy is withdrawn.
 
-**There is no `deleted_at`.** §11 forbids it: a loan is never deleted, and a mistake is recorded as `voided` with a reason. Voiding returns the copy to `available` (§7.1) but leaves the record.
-
-**There is no `is_overdue` column, and there must never be one.** §8 makes this a load-bearing rule: overdue status is computed on read from `due_on` and the current clock. Any status a background job must *write* is stale, and therefore wrong, for as long as the job takes to run again. See §6 below for the read-time view.
-
-### 4.6 Requests and holds
+**There is no `deleted_at`, and there is a trigger.** §11 forbids deletion: a loan is voided, with a reason, never removed.
 
 ```sql
-create type request_status as enum
-  ('pending', 'approved', 'rejected', 'fulfilled', 'expired', 'cancelled');
-
-create table borrow_requests (
-  id               uuid primary key default gen_random_uuid(),
-  bookshelf_id     uuid not null references bookshelves(id) on delete restrict,
-  book_id          uuid not null references books(id)       on delete cascade,
-  copy_id          uuid references book_copies(id),          -- assigned on approval
-
-  member_id        uuid not null references users(id),
-
-  status           request_status not null default 'pending',
-  requested_at     timestamptz not null default now(),       -- the queue ordering key
-
-  decided_by       uuid references users(id),
-  decided_at       timestamptz,
-  decision_note    text,
-  hold_expires_at  timestamptz,
-
-  fulfilled_loan_id uuid references loans(id),
-  cancelled_at     timestamptz,
-
-  created_at       timestamptz not null default now(),
-  updated_at       timestamptz not null default now(),
-  deleted_at       timestamptz
-);
+CREATE TRIGGER loans_no_delete BEFORE DELETE ON loans FOR EACH ROW
+    SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT = 'rows in loans cannot be deleted; void the loan instead';
 ```
 
-The request targets a **title**, not a copy (§5.4). A copy is assigned only on approval. **The queue is simply the set of pending requests for a title ordered by `requested_at`** — there is no separate reservation table, and §7.2 says so explicitly.
+**There is no `is_overdue` column, and there must never be one.** §8 makes this load-bearing: overdue status is computed on read from `due_on` and the current clock. Any status a background job must *write* is stale, and therefore wrong, for as long as the job takes to run again. See §7.
 
-`member_id` is `not null`. §2 records that guest borrow requests were removed: a bookshelf is now visible only to its members, so there is no anonymous caller to serve — someone who wants to borrow registers first. Earlier drafts of this table carried `guest_name`, `guest_phone`, `guest_note` and `guest_hash` alongside a check constraint requiring one or the other; all of that machinery — the rate limiting, the honeypot, the manager step that converted a lead into an account — is gone with the requester it existed to serve. `feedback` keeps its guest fields (§4.8): unlike borrowing, writing in through the contact page is still open to someone with no account.
+`loans_one_active_per_copy` is INV-1 (§4.1, §7.1). `loans_active_by_shelf` on `(bookshelf_id, due_on)` and `loans_by_borrower` on `(borrower_id, lent_at)` are the two manager screens' access paths, with their Postgres predicates dropped.
 
-### 4.7 Condition assessments
+### 5.6 Requests and holds
 
 ```sql
-create table condition_assessments (
-  id           uuid primary key default gen_random_uuid(),
-  bookshelf_id uuid not null references bookshelves(id) on delete restrict,
-  copy_id      uuid not null references book_copies(id) on delete restrict,
-  loan_id      uuid references loans(id),                  -- null if assessed outside a return
-  assessed_by  uuid not null references users(id),
-  condition    copy_condition not null,
-  note         text,
-  photo_url    text,
-  assessed_at  timestamptz not null default now()
-);
+ALTER TABLE borrow_requests ADD CONSTRAINT borrow_requests_status_check
+    CHECK (status IN ('pending', 'approved', 'rejected', 'fulfilled', 'expired', 'cancelled'));
 ```
 
-A separate table rather than columns on the loan, because §5.4 notes a manager may assess a copy at any time, not only at return. No `deleted_at`: §11 lists condition assessments among the things never deleted, since each is a historical fact about an object.
+The request targets a **title**, not a copy. A copy is assigned only on approval. **The queue is simply the set of pending requests for a title ordered by `requested_at`** — there is no separate reservation table.
 
-### 4.8 Community
+`member_id` is `NOT NULL`. Guest borrow requests were removed: a bookshelf is visible only to its members, so there is no anonymous caller to serve — someone who wants to borrow registers first. Earlier drafts carried `guest_name`, `guest_phone`, `guest_note` and `guest_hash`; all of that machinery went with the requester it existed for. `feedback` keeps its guest fields (§5.8): unlike borrowing, writing in through the contact page is still open to someone with no account.
+
+**`borrow_requests_one_live_per_title_member` is a constraint standing in for a lock, and the substitution was made to break a deadlock.** "One live place in this title's queue per reader" was going to be a `SELECT … FOR UPDATE` on the book row. That closes a real AB-BA cycle against `UpdateBook`, which takes an exclusive lock on the `bookshelves` row and then writes the book, while every insert here wants a shared lock on that same `bookshelves` row through its RESTRICT foreign keys. Making the rule a unique constraint removes the need to take the lock at all.
+
+`requests_queue` on `(book_id, requested_at)` and `requests_holds` on `hold_expires_at` are the queue and the hold sweep, both formerly partial.
+
+### 5.7 Condition assessments
 
 ```sql
-create type comment_status as enum ('pending', 'approved', 'rejected', 'hidden');
-
-create table comments (
-  id            uuid primary key default gen_random_uuid(),
-  bookshelf_id  uuid not null references bookshelves(id) on delete restrict,
-  book_id       uuid not null references books(id)       on delete cascade,
-  author_id     uuid not null references users(id)       on delete restrict,
-  body          text not null,                -- plain text; rendered escaped
-  status        comment_status not null default 'pending',
-  moderated_by  uuid references users(id),
-  moderated_at  timestamptz,
-  moderation_note text,
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now(),
-  deleted_at    timestamptz
-);
-
-create index comments_public on comments (book_id, created_at desc)
-  where status = 'approved' and deleted_at is null;
+ALTER TABLE condition_assessments ADD CONSTRAINT condition_assessments_condition_check
+    CHECK (`condition` IN ('perfect', 'slightly_worn', 'worn', 'torn', 'missing_pages', 'written_on'));
 ```
 
-`author_id` is `not null`: §5.4 says no guest comments. The body is plain text and rendered escaped — no rich text, no HTML, which removes an entire class of injection problem from a system whose authors are children.
+A separate table rather than columns on the loan, because §5.4 notes a manager may assess a copy at any time, not only at return — hence `loan_id` is nullable while `copy_id` is not. No `deleted_at`: §11 lists condition assessments among the things never deleted, since each is a historical fact about an object.
 
-The partial index matches the only query the public ever runs, and encodes INV-9 in the access path: a comment is publicly visible only when approved.
+### 5.8 Community
+
+**Comments.**
 
 ```sql
-create table announcements (
-  id            uuid primary key default gen_random_uuid(),
-  bookshelf_id  uuid not null references bookshelves(id) on delete restrict,
-  title         text not null,
-  slug          text not null,
-  body          text not null,               -- rich
-  body_text     text not null,               -- plain derivation, for excerpts and search
-  is_pinned     boolean not null default false,
-  published_at  timestamptz,                 -- null means draft
-  expires_at    timestamptz,
-  author_id     uuid references users(id),
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now(),
-  deleted_at    timestamptz
-);
-
--- Same shape and same reason as books_bookshelf_id_slug_key (§4.4): a
--- soft-deleted announcement must not permanently reserve its slug on that
--- shelf. See 20260808_09_soft_delete_aware_uniqueness_round_2.sql.
-create unique index announcements_bookshelf_id_slug_key
-  on announcements (bookshelf_id, slug)
-  where deleted_at is null;
-
-create type feedback_status as enum ('new', 'read', 'resolved');
-
-create table feedback (
-  id            uuid primary key default gen_random_uuid(),
-  bookshelf_id  uuid references bookshelves(id),   -- null for site-wide
-  member_id     uuid references users(id),
-  guest_name    text,
-  guest_contact text,
-  guest_hash    text,                              -- rate limiting
-  subject       text not null,
-  body          text not null,
-  status        feedback_status not null default 'new',
-  handled_by    uuid references users(id),
-  handled_at    timestamptz,
-  created_at    timestamptz not null default now()
-);
+ALTER TABLE comments ADD CONSTRAINT comments_status_check
+    CHECK (status IN ('pending', 'approved', 'rejected', 'hidden'));
 ```
 
-`feedback` has no `deleted_at` — §11 lists it among the never-deleted.
+`author_id` is `NOT NULL`: no guest comments. The body is plain text and rendered escaped — no rich text, no HTML, which removes an entire class of injection problem from a system whose authors are children.
 
-**`feedback` carries RLS like every other shelf-scoped table, with its null `bookshelf_id` treated as visible rather than hidden** — see §3's "Global tables" for the full reasoning and why an earlier draft of this document was read as saying otherwise. BR §13 makes "view feedback / resolve feedback" a per-shelf manager permission; a shelf's guest messages (names, phone numbers) are tenant data the moment `bookshelf_id` is set.
+**INV-9 lives in `App\Queries\BookCommentsQuery`, not in the index.** The Postgres schema's `comments_public` was partial on `status = 'approved' and deleted_at is null`, so the access path itself encoded the rule. MariaDB's `comments_public` is the plain `(book_id, created_at)` index and the filter is an ordinary `WHERE`. One query owns the public read; `App\Actions\Community\ApproveComment` and the moderation controller both say in their own comments that they must *not* re-implement the gate, because a rule spelled out in two places is a rule that will be spelled differently in one of them.
 
-**The write side needed a narrower rule than the read side.** `feedback_tenant`'s `using`/`with check` let a null `bookshelf_id` through symmetrically — correct for reading, but on the write side it meant any shelf session could also run either of these, both reproduced live before this was closed:
+**Announcements.** `announcements_bookshelf_id_slug_key` is the soft-delete-aware slug uniqueness (§4.1). `body` and `body_text` sit side by side: the rich body, and a plain derivation for excerpts and search.
+
+**Feedback.**
 
 ```sql
-update feedback set bookshelf_id = '<own shelf>' where bookshelf_id is null;  -- re-assign a site-wide row onto this shelf
-update feedback set bookshelf_id = null           where bookshelf_id = '<own shelf>';  -- push this shelf's own row to site-wide
+ALTER TABLE feedback ADD CONSTRAINT feedback_status_check
+    CHECK (status IN ('new', 'read', 'resolved'));
 ```
 
-The first pulls a site-wide message onto one shelf, removing it from every other shelf's view — one-way and unlogged, nothing records that it happened or undoes it. The second does the opposite: it exposes a guest's name and phone number, previously visible only to the shelf they wrote to, to every shelf in the system. Reassignment to a *third* shelf's id was never possible — the existing `with check` already required the new `bookshelf_id` to be the session's own shelf or null — only the null ↔ shelf transitions were open.
+`feedback` has no `deleted_at` and no `updated_at` — §11 lists it among the never-deleted.
 
-**The call made: a site-wide message is addressed to whoever administers the site, not to any one shelf, so a shelf reading it — and resolving it — stays allowed, but changing who it is addressed to does not.** Reading a site-wide row is already the design (above); marking it read or resolved is kept too, since feedback made visible to every shelf is already a shared inbox in every sense but this one, and BR §13's "resolve feedback" permission naturally extends to whatever a manager can see. What is not a triage action is deciding a message belongs to a *different* audience than the one it was written to — that is a routing decision, and a single shelf making it unilaterally, invisibly, and irreversibly is the actual bug.
+**`bookshelf_id` is nullable here, one of only two such columns in the schema** (§3.2), and null means a message sent through the front door with no shelf chosen. A shelf's own message queue — guest names, phone numbers — is tenant data the moment `bookshelf_id` is set; a site-wide message is addressed to whoever administers the installation.
 
-So `bookshelf_id` is now immutable after a `feedback` row is created, for every role — the same shape `forbid_slug_change()` already gives `bookshelves.slug` (§4.2) — rather than a narrower RLS `with check`, because a trigger fires regardless of role: `olibra_admin`'s `bypassrls` skips row-level security policies but never triggers, so the guarantee holds even on the deliberate cross-shelf admin path. Every other column — `status`, `handled_by`, `handled_at` — is untouched and stays freely updatable under the existing policy. See `20260808_10_feedback_bookshelf_immutable.sql`.
-
-**BookDonation records a reader's offer to give books to the shelf, and a manager's decision on it — it is not the provenance of any physical object.** Two very different moments meet here: a family handing a bag of books to a volunteer after mass has its provenance recorded, once catalogued, directly on the copies via `book_copies.acquired_from` / `acquired_from_membership_id` (§4.4); a reader deciding at home to give books away has nothing catalogued yet, and this table is where that offer lives until a manager turns it into copies on the shelf.
+**`bookshelf_id` is immutable after the row is created, for every writer:**
 
 ```sql
-create type donation_status as enum ('pending', 'received', 'declined');
-
-create table book_donations (
-  id                   uuid primary key default gen_random_uuid(),
-  bookshelf_id         uuid not null references bookshelves(id) on delete restrict,
-  donor_membership_id  uuid not null references memberships(id) on delete restrict,
-
-  description     text not null,             -- free text; a child does not know an ISBN
-  photo_url       text,
-  estimated_count integer,
-
-  status          donation_status not null default 'pending',
-
-  decided_by      uuid references users(id),
-  decided_at      timestamptz,
-  decision_note   text,
-
-  created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now(),
-
-  constraint book_donations_declined_has_reason
-    check (status <> 'declined' or decision_note is not null)
-);
-
-create index book_donations_queue on book_donations (bookshelf_id, created_at)
-  where status = 'pending';
+CREATE TRIGGER feedback_bookshelf_immutable BEFORE UPDATE ON feedback FOR EACH ROW
+    IF NOT (NEW.bookshelf_id <=> OLD.bookshelf_id) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'feedback.bookshelf_id is immutable after creation';
+    END IF;
 ```
 
-`donor_membership_id` is `not null`: offering a donation requires signing in, so there is no `guest_name`/`guest_contact` pair the way `feedback` carries for an anonymous sender. It points at `memberships(id)`, not `users(id)` — the same target as `book_copies.acquired_from_membership_id` (§4.4), and named to match: both record a person's relationship to *this* shelf, not a global identity. See the note below for why that is a deliberate departure from the person-columns already in this schema.
+The two writes this forbids were both reproduced live before it was added: claiming a site-wide message for one shelf, which removes it from every other shelf's view; and pushing a shelf's own message out to site-wide, which exposes a guest's name and phone number to every shelf in the system. Both are one-way and neither leaves a record. **Marking a message read or resolved stays freely allowed** — that is triage, and a shelf that can see a message can act on it. Deciding a message belongs to a *different* audience than the one it was written to is a routing decision, and a single shelf making it unilaterally and irreversibly is the actual bug. `<=>` is the null-safe comparison, which this column needs and the `bookshelves.slug` trigger does not.
 
-**Both of this refinement's new person-columns point at `memberships(id)`, and that is a deliberate difference from the columns already in this schema.** `feedback.member_id`, `comments.author_id`, `borrow_requests.member_id` and `audit_log.actor_id` all reference `users(id)`, because what each of them needs is a global identity — a comment's author, an audit event's actor, a feedback sender are the same fact regardless of which shelf is asking. `book_copies.acquired_from_membership_id` and `book_donations.donor_membership_id` record something narrower: a person's relationship to *this specific* shelf, which is exactly the fact `memberships` exists to hold (§5.3 of the requirements). So they point there instead. This does not touch any of the older columns — they keep referencing `users(id)`, unchanged.
+`feedback_rate_limit` on `(guest_hash, created_at)` serves the rate limit's count, which runs on **every** submission before anything is written. This is the one table whose rows are written by unauthenticated callers, so it is the one whose volume an outsider chooses; without the index, that count was a full scan of every message ever sent to the whole installation. The equality leads and the range on `created_at` rides the same index, and the count reads no other column, so it is covering.
 
-`book_donations_declined_has_reason` mirrors `memberships_rejected_has_reason` (§4.1) and `profile_change_requests_rejected_has_reason` (§4.11): a decline without a reason leaves the donor with no idea why.
+**Book donations record a reader's offer to give books to the shelf, and a manager's decision on it — not the provenance of any physical object.** Two very different moments meet here. A family handing a bag of books to a volunteer after mass has its provenance recorded, once catalogued, directly on the copies via `book_copies.acquired_from` / `acquired_from_membership_id` (§5.4). A reader deciding at home to give books away has nothing catalogued yet, and this table is where that offer lives until a manager turns it into copies on the shelf. Merging the two would force a create-book call to either invent a donation row for a purchased book with no offer behind it, or leave the column nullable and no better off.
 
-`book_donations_queue` is the manager's donation queue, ordered oldest-first, like every other pending list in this schema (`requests_queue`, §8).
+```sql
+ALTER TABLE book_donations ADD CONSTRAINT book_donations_status_check
+    CHECK (status IN ('pending', 'received', 'declined'));
+ALTER TABLE book_donations ADD CONSTRAINT book_donations_declined_has_reason
+    CHECK (status <> 'declined' OR decision_note IS NOT NULL);
+```
 
-There is no `deleted_at`. Like `profile_change_requests` (§4.11), a decided donation is a historical record of what was offered and what a manager did about it rather than a row a mistake needs undoing. §11 predates this table and does not mention it either way, so — consistent with how §11 leans throughout — it is treated as retained rather than soft-deletable until that is settled explicitly.
+`donor_membership_id` is `NOT NULL`: offering a donation requires signing in, so there is no guest pair the way `feedback` carries one.
 
-Row Level Security applies exactly as it does to every other table in this section (§3): a donation is tenant data from the moment it is offered.
+**Both donor columns point at `memberships(id)`, and that is a deliberate difference from every other person-column in this schema.** `feedback.member_id`, `comments.author_id`, `borrow_requests.member_id` and `audit_log.actor_id` all reference `users(id)`, because what each needs is a global identity — a comment's author, an audit event's actor, a feedback sender are the same fact regardless of which shelf is asking. `book_copies.acquired_from_membership_id` and `book_donations.donor_membership_id` record something narrower: a person's relationship to *this specific* shelf, which is exactly the fact `memberships` exists to hold.
 
-**QA remediation Task 20 re-checked this table's boundary against `book_copies.acquired_from*` explicitly, rather than assuming the paragraph above still held.** The QA sweep found `book_donations` empty in the seeded database and the add-book donor fields writing only to `book_copies`, with no screen rendering either — a defect in what was *visible*, not in what these two tables mean. Reading both sections again start to finish confirmed the split above is still the right one: an offer and a catalogued copy's provenance are genuinely two different moments, frequently about different physical books (a bag of ten offered here may become three catalogued copies there, once a manager has separated what is worth keeping), and merging them would force a `CreateBook`/`AddCopies` call to either invent a donation row for a purchased book with no offer behind it, or leave the column nullable and no better off. So the fix was on the *read* side only: `getBookDetailManager` (`src/domain/catalogue/queries/get-book-detail-manager.ts`) now resolves `acquired_from_membership_id` to the donor's name, and `/quan-ly/sach/<slug>` renders it in a "Người tặng" column — the row `book_copies` had been carrying, unread, since B1. `book_donations` itself is untouched; its own queue at `/quan-ly/tang-sach` was already the one screen that reads it.
+`book_donations_declined_has_reason` mirrors `memberships_rejected_has_reason` (§5.1) and `profile_change_requests_rejected_has_reason` (§5.11): a decline without a reason leaves the donor with no idea why. `book_donations_queue` on `(bookshelf_id, created_at)` is the manager's queue, oldest first, like every other pending list here.
 
-### 4.9 Notifications
+There is no `deleted_at`. A decided donation is a historical record of what was offered and what a manager did about it, rather than a row a mistake needs undoing.
+
+### 5.9 Notifications
 
 §15 specifies in-app notifications to readers, surfaced as a bell with an unread count, and explicitly **nothing pushed to managers** — they work from dashboard badge counts, which avoids notification fatigue for volunteers and removes any dependency on timely background work.
 
-```sql
-create table notifications (
-  id           uuid primary key default gen_random_uuid(),
-  bookshelf_id uuid not null references bookshelves(id) on delete restrict,
-  user_id      uuid not null references users(id)       on delete restrict,
-  kind         text not null,                 -- 'loan_due_soon', 'request_approved', …
-  payload      jsonb not null default '{}'::jsonb,
-  read_at      timestamptz,
-  created_at   timestamptz not null default now()
-);
+The message text is **not** stored. `kind` plus `payload` is rendered through the translation layer at read time, so no user-facing string is baked into history and a wording fix does not require rewriting it.
 
-create index notifications_unread on notifications (user_id, created_at desc)
-  where read_at is null;
-```
+**Two indexes, deliberately, and neither replaces the other.**
 
-The message text is **not** stored. `kind` plus `payload` is rendered through the translation layer at read time, so §18's rule that no user-facing string is ever hard-coded still holds, and a wording fix does not require rewriting history.
+- `notifications_unread` on `(user_id, created_at)` is what the *list* rides to get its ordering without a filesort.
+- `notifications_unread_by_user` on `(user_id, read_at)` is what the *count* rides. The shared bell-count prop runs `count(*) where user_id = ? and read_at is null and bookshelf_id = ?` on every Inertia page render, and measured over 400 rows across two shelves that planned as a full table scan — both existing indexes listed as candidates and both rejected, because `read_at` appeared in neither. `BookshelfScope` adds an ordinary `WHERE` clause, not a scan boundary, so the shelf filter applied *after* every physical row had already been read: on a multi-tenant install, every shelf's readers paying for every other shelf's notification volume, on every page render.
 
-### 4.10 Audit log
+The column order is `(user_id, read_at)` rather than `(bookshelf_id, user_id, read_at)` on purpose: one user's unread rows is a tighter bound than one shelf's rows, and a notification is addressed to a person.
 
-```sql
-create table audit_log (
-  id           bigint generated always as identity primary key,
-  bookshelf_id uuid references bookshelves(id),   -- null for global actions
-  actor_id     uuid references users(id),         -- null for system actions
-  action       text not null,                     -- 'loan.lent', 'membership.approved', …
-  entity_type  text not null,
-  entity_id    uuid,
-  before       jsonb,
-  after        jsonb,
-  context      jsonb not null default '{}'::jsonb, -- address, device, screen
-  occurred_at  timestamptz not null default now()
-);
+### 5.10 Audit log
 
-create index audit_log_actor  on audit_log (actor_id, occurred_at desc);
-create index audit_log_shelf  on audit_log (bookshelf_id, occurred_at desc);
-create index audit_log_entity on audit_log (entity_type, entity_id, occurred_at desc);
-```
+`audit_log` is `bigint unsigned auto_increment` rather than a UUID — the one non-UUID key in the schema. It is the highest-volume table, it is only ever appended and read in time order, and a monotonic key keeps the index dense.
 
-`audit_log_actor` exists because §14 names "what has manager A been doing" a headline requirement that must be fast. It is also how a super administrator answers the question §2 raises about credentials — who has been setting whose password — across every bookshelf.
+`bookshelf_id` and `actor_id` are both nullable: a cross-shelf act belongs to no shelf, and a system action has no actor.
 
-**Never write a password, a hash or a session token into `before` or `after`.**
-§14 states this for automatic change capture, and it matters most precisely here,
-where the automatic capture would otherwise do exactly the wrong thing: a
-manager setting a reader's password is an `update` to `users.password_hash`, and
-a generic change-capture trigger would faithfully record the old and new hash.
+`audit_log_actor` on `(actor_id, occurred_at)` exists because §14 names "what has manager A been doing" a headline requirement that must be fast. It is also how a super administrator answers the question §2 raises about credentials — who has been setting whose password — across every bookshelf. `audit_log_shelf` and `audit_log_entity` serve the shelf log and the per-entity history.
 
-Credential changes are therefore recorded as an **explicit domain event**, not a
-field diff — `credentials.set` naming the manager, the reader and the time, with
-`before` and `after` left null. If change capture is implemented as a trigger,
-`users.password_hash` and `users.username` must be on its exclusion list, and
-that exclusion needs a test, because the failure is silent and permanent.
+**Never write a password, a hash or a session token into `before` or `after`.** §14 states this for automatic change capture, and it matters most precisely here, where automatic capture would do exactly the wrong thing: a manager setting a reader's password is an update to `users.password_hash`, and a generic change-capture would faithfully record the old and new hash. Credential changes are therefore recorded as an **explicit domain event** naming the manager, the reader and the time, with `before` and `after` left null.
 
-`bigint identity` rather than uuid: this is the highest-volume table, it is only ever appended and read in time order, and a monotonic key keeps the index dense.
-
-**Append-only is enforced by a trigger, not by permission alone — `revoke` is defence in depth for the application role, not the guarantee itself.** INV-12 says audit records are never changed or removed, and unlike a `GRANT`, that has to hold for every role, not only the one the application connects as:
+**Append-only is enforced by triggers, and by nothing else:**
 
 ```sql
-revoke update, delete on audit_log from olibra_app, olibra_admin;
+CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rows in audit_log cannot be updated';
+CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rows in audit_log cannot be deleted';
 ```
 
-`olibra_app` can `insert` and `select` on `audit_log`, nothing else — an application query that attempts `update` or `delete` fails at the permission check before it ever reaches a row. But `GRANT`/`REVOKE` privileges do not apply to a table's owner or to a superuser; both bypass them entirely, by design, no matter what has been revoked from anyone else — and the migrations in this project, along with any admin tooling that connects the same way, run as exactly such a role. So the actual guarantee is `forbid_row_mutation()`, a `before update` / `before delete` trigger (§7.3) that raises for every role attempting the write, ownership and superuser status included; the revoke above is what stops a careless application-level `update` or `delete` from ever reaching a row to begin with, which is real value — just not the whole of INV-12. Worth stating because it reads the opposite way on a skim: the revoke above also strips `olibra_admin`, the role built to bypass Row Level Security, so even that role cannot mutate an audit row. INV-11 and INV-12 are the two rules in this schema with no admin exception (§7.3).
+The Postgres design paired triggers with a `REVOKE` on the application role, and argued at length that the revoke was defence in depth rather than the guarantee, because a table owner and a superuser bypass privileges entirely. That argument survives the port intact and the conclusion is now the whole story: **on shared hosting the application connects as the only database user there is, so there is no second role to revoke from.** The triggers are the guarantee. A `BEFORE` trigger fires for every connection that reaches the row, including the one running migrations.
 
-§14 also requires that audit records are written **in the same transaction** as the change they describe, so an audit record and its subject can never diverge, and that auditing is never deferred to a background job — an audit trail that can be lost to a failed job is not an audit trail.
+INV-11 and INV-12 are the two rules in this schema with no administrative exception of any kind.
 
-### 4.11 Profile change requests
+§14 also requires that audit records are written **in the same transaction** as the change they describe, so a record and its subject can never diverge, and that auditing is never deferred to a background job — an audit trail that can be lost to a failed job is not an audit trail. `App\Support\AuditRecorder` is the single writer.
 
-§2 and §7.4 of the requirements: **changing your own details is a request, not an edit.** A reader proposes a change to their own profile; it takes effect only when a manager approves it, and until then the existing values stand — including the phone number, so a manager never loses the means of contacting a family mid-change.
+Reading the log is `App\Queries\Concerns\ReadsAuditLog`, whose `COLLATE` guards are §4.3.
+
+### 5.11 Profile change requests
+
+**Changing your own details is a request, not an edit.** A reader proposes a change to their own profile; it takes effect only when a manager approves it, and until then the existing values stand — including the phone number, so a manager never loses the means of contacting a family mid-change.
 
 ```sql
-create type profile_change_status as enum ('pending', 'approved', 'rejected', 'cancelled');
-
-create table profile_change_requests (
-  id                uuid primary key default gen_random_uuid(),
-  user_id           uuid not null references users(id)       on delete restrict,
-  bookshelf_id      uuid not null references bookshelves(id) on delete restrict,  -- whose manager decides
-
-  proposed_values   jsonb not null,          -- the fields being changed, and their proposed values
-  previous_values   jsonb not null,          -- the same fields, as they stood when this was proposed
-
-  status            profile_change_status not null default 'pending',
-  requested_at      timestamptz not null default now(),
-
-  decided_by        uuid references users(id),
-  decided_at        timestamptz,
-  rejection_reason  text,
-
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now(),
-
-  constraint profile_change_requests_rejected_has_reason
-    check (status <> 'rejected' or rejection_reason is not null)
-);
-
-create unique index profile_change_requests_one_pending
-  on profile_change_requests (user_id)
-  where status = 'pending';
+ALTER TABLE profile_change_requests ADD CONSTRAINT profile_change_requests_status_check
+    CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled'));
+ALTER TABLE profile_change_requests ADD CONSTRAINT profile_change_requests_rejected_has_reason
+    CHECK (status <> 'rejected' OR rejection_reason IS NOT NULL);
 ```
 
-**Every field requires approval — there is no split between "verified" and "self-service" columns.** That was the product owner's explicit decision, not a technical default: the whole reason this table exists is that a manager personally knows each family, and letting a reader silently rewrite even one field would undo the trust that makes the record reliable (§2). **Password is the only thing a reader changes directly** — the profile page's leaderboard-visibility toggle this paragraph used to name beside it is gone (§13; §4.1's memberships note, above), and with it the `UpdateOwnProfile` command that wrote nothing else, so this is no longer a pair — and §16.2 explains why even the one survivor bypasses this table: it is not a fact about the person that a manager ever verified, so it writes straight to `users` and never passes through here.
+**Every field requires approval — there is no split between "verified" and "self-service" columns.** That was the product owner's explicit decision, not a technical default: the whole reason this table exists is that a manager personally knows each family, and letting a reader silently rewrite even one field would undo the trust that makes the record reliable. **Password is the only thing a reader changes directly**, and it bypasses this table because it is not a fact about the person that a manager ever verified.
 
-**`proposed_values` and `previous_values` are `jsonb`, not a pair of nullable columns per field on `users`.** The alternative — `proposed_full_name`, `previous_full_name`, `proposed_phone`, `previous_phone`, and so on for every column a reader may propose changing — was considered and rejected, for the same reason §4.2 gives for `bookshelves.settings`: a new field on `users` would otherwise mean two new columns here plus a migration, for a table whose only job is to shadow another table's shape. The trade-off is real and worth naming rather than hiding:
+**`proposed_values` and `previous_values` are JSON, not a pair of nullable columns per field on `users`.** The alternative — `proposed_full_name`, `previous_full_name`, `proposed_phone`, `previous_phone`, and so on — was considered and rejected, for the same reason `bookshelves.settings` is a bag:
 
-- **What is lost.** No type checking at the database level — a proposed `date_of_birth` could be stored as a string and nothing would object until the application read it back. And "what did this request actually change" becomes a query over JSON keys rather than `where proposed_full_name is not null`, which is harder to index and harder to write ad hoc.
-- **What is gained.** Adding a proposable field is additive on the application side only — no migration here, and no risk of this table's column list drifting out of step with `users` the way two parallel sets of typed columns inevitably would. Because **every** field on the person can be proposed, the columned alternative is not a handful of extra columns but a near-duplicate of the whole of `users`, kept in step by hand, twice.
+- **What is lost.** No type checking at the database level, and "what did this request actually change" becomes a query over JSON keys rather than a null check on a typed column.
+- **What is gained.** Adding a proposable field is additive on the application side only. Because **every** field on the person can be proposed, the columned alternative is not a handful of extra columns but a near-duplicate of the whole of `users`, kept in step by hand, twice.
 
-A column-per-field design would have suited a small, fixed set of proposable fields. It does not suit "every field", which is what was decided here, so `jsonb` is the closer fit to the actual rule rather than merely the cheaper option.
+A column-per-field design would have suited a small, fixed set of proposable fields. It does not suit "every field", which is what was decided.
 
-**`proposed_values` carries the photograph as `avatar_object` — an ordinary profile field, copied to `users.avatar_object` on approval like any other.** It used to be a companion rather than a field: the bag held `avatar_url` (which approval copied) *beside* `avatar_object` (the storage key, which approval threw away), and keeping those two in step took four separate mechanisms, one of which recovered a settled photograph's key by matching an old request's proposed URL. `20260813_02_avatar_object_only.sql` dropped `users.avatar_url` and all four went with it. The key is written by `ProposeAvatarChange` rather than `ProposeProfileChange`, because it is the one proposable field that is a **file** and its size and content-type policy therefore belongs to the surface that received the bytes — `PROPOSABLE_FIELDS` (`src/domain/members/profile-proposals.ts`) excludes it for that reason and no other.
+**The photograph rides in `proposed_values` as `avatar_object`** — an ordinary profile field, copied to `users.avatar_object` on approval like any other. It is written by the avatar action rather than the general proposal action, because it is the one proposable field that is a **file** and its size and content-type policy belongs to the surface that received the bytes.
 
-It is spelled `avatar_object` rather than the more obvious `avatar_key` because `src/domain/kernel/audit.ts`'s forbidden-field list matches `key` as a whole token, and `ProposeAvatarChange` audits this payload — so the obvious name would throw `audit_forbidden_field` at the first audit write.
+`profile_change_requests_one_pending` is INV-13's database half. It cannot enforce the other half — that a value on `users` is never written silently — because that is a property of which code paths may write to `users`, not of any single row here.
 
-`profile_change_requests_one_pending` is INV-13's database half: a partial unique index makes "at most one pending request per person" structural, in the same spirit as `loans_one_active_per_copy` (§7.1). It cannot enforce the other half of INV-13 — that a value on `users` is never written silently — because that is a property of which code paths are allowed to write to `users`, not of any single row here. §7 marks that half as application discipline for exactly this reason.
+**The second half sanctions two write paths, not one, and the count is the part that matters.** BR §6's INV-13 was restated after the product owner decided that a manager corrects a reader's details directly, with a full audit record and no approval step. An approved request and a manager's direct correction are both legitimate, and both write an audit entry naming the actor, the time, and the before and after values — which is what INV-13's second half was always protecting. It was never the approval step as such: a manager who wanted to change a child's phone number quietly could already do it by setting that child's credentials and proposing as them, and the audit trail would have named the *reader*. The direct edit is the more truthful record.
 
-**The second half now sanctions two write paths, not one, and the count is the part that matters.** BR §6's INV-13 was restated (2026-08-09) after the product owner decided that a manager corrects a reader's details directly, with a full audit record and no approval step; BR §2 carries the argument. An approved `ProfileChangeRequest` and a manager's direct correction are both legitimate, and both write an audit entry naming the actor, the time, and the before and after values — which is what INV-13's second half was always protecting. It was never the approval step as such: a manager who wanted to change a child's phone number quietly could already do it by setting that child's credentials (§4.1) and proposing as them, and the audit trail would have named the *reader*. The direct edit is the more truthful record.
+Nothing structural changes with that restatement — no column, index or constraint moves. What changes is the discipline's shape: "exactly one code path writes `users`" was never true even before it (a password change writes `password_hash`), so the application-side check must **enumerate** the permitted writers with a reason each rather than count them.
 
-That restatement was BR §6's to make, not this document's — the note in §7 above on the nested parish-unit rule says why, and the same reasoning applies in reverse here: a numbered invariant is BR §6's to change, and this document follows it rather than reinterpreting it. What changes structurally is nothing: no column, index or constraint here moves. What changes is the discipline's shape — "exactly one code path writes `users`" was never true even before the restatement (a password change writes `password_hash`), so the application-side check must **enumerate** the permitted writers with a reason each rather than count them.
+There is no `deleted_at`. A decided or cancelled request is a historical record of what was asked and what a manager did about it.
 
-`profile_change_requests_rejected_has_reason` mirrors `memberships_rejected_has_reason` (§4.1): a rejection without a reason leaves the reader with no idea what to fix.
+### 5.12 System settings
 
-There is no `deleted_at`. A decided or cancelled request is a historical record of what was asked and what a manager did about it, closer in kind to `condition_assessments` (§4.7) than to a row a mistake needs undoing. §11 predates this table and does not mention it either way; until that is settled explicitly, treating it as retained rather than soft-deletable is the safer default given how much of §11 is built around never losing the trail behind a decision.
+One row, holding the facts that belong to the **installation** rather than to any shelf: the administration's own contact block (what `/lien-he` shows a stranger) and the lending policy a newly created shelf starts with.
 
-### 4.12 System settings
+There was nowhere else to put these. Every other setting in this schema lives in `bookshelves.settings`, which is per-shelf by construction.
 
-B4. One row, holding the facts that belong to the **installation** rather than to any shelf: the administration's own contact block (BR §16.1's *Liên hệ ban quản trị*, what `/lien-he` shows a stranger) and the lending policy a newly created shelf starts with.
+**One row, enforced by the key and a check.** Postgres expressed this as `id boolean primary key default true check (id)`. MariaDB has no boolean-primary-key idiom, so it is `tinyint unsigned` defaulting to 1 with `system_settings_single_row CHECK (id = 1)`: a second row under `id = 1` is a clean duplicate-key error, and a row under any other id is refused by the check. A key/value table was the alternative and turns every read into a pivot while moving the column types into the application. The row is inserted by the migration, so every read is a plain `SELECT` — and there is exactly one row in the shipped schema.
 
-There was nowhere to put these. Every other setting in this schema lives in `bookshelves.settings`, which is per-shelf by construction, and `/lien-he` rendered its contact block from a fixture module until this table existed.
+**The defaults are for creation, not a fallback at read time.** Creating a bookshelf copies all six of `default_loan_days` (14), `default_max_concurrent_loans` (3), `default_hold_days` (3), `default_max_renewals` (1), `default_renewal_days` (7) and `default_due_soon_days` (3) into the new shelf's own `settings` bag. A shelf that referenced this row instead would change its lending policy for every parish at once, the day an administrator edited a number, weeks after anybody made a decision about it — and nobody would be told.
 
-**One row, enforced by the primary key.** `id boolean primary key default true check (id)` admits exactly one value, so a second row raises `23505` rather than becoming a duplicate half the queries would miss. A key/value table was the alternative and turns every read into a pivot while moving the column types into the application. The row is inserted by the migration, so every read is a plain `select`.
-
-**The defaults are for creation, not a fallback at read time.** `CreateBookshelf` copies all six of `default_loan_days`, `default_max_concurrent_loans`, `default_max_renewals`, `default_renewal_days`, `default_hold_days` and `default_due_soon_days` into the new shelf's own `settings` bag; §4.2's per-shelf `coalesce(..., 14)` reads stay exactly where they are. A shelf that referenced this row instead would change its lending policy for every parish at once, the day an administrator edited a number, weeks after anybody made a decision about it — and nobody would be told.
-
-**The three added later (`default_max_renewals`, `default_renewal_days`, `default_due_soon_days`) are QA remediation Task 23's fix, not part of B4's original three.** `20260811_01_system_settings_lending_defaults.sql` added them once `/quan-tri/cai-dat` was found offering only half of a new shelf's per-shelf policy — the missing three had no column to save into, so `CreateBookshelf` fell back to the same literal numbers `renewalSettingsFor` and `get-shelf-settings.ts` already use at read time for a shelf with no override, and an administrator changing "the defaults" on that screen was silently changing only three of the six numbers a new shelf actually starts with.
-
-**`changed_by` / `changed_at`, deliberately not `updated_by` / `updated_at`.** Every other `updated_at` in this schema is written by the `set_updated_at()` trigger from SQL `now()`, the *database* host's clock (§6), and `tests/db/updated-at-trigger.test.ts` asserts set-equality between the columns carrying that name and the triggers attached — precisely so a table cannot quietly opt out. This timestamp is one the domain means: the screen states when an administrator last changed these settings, and a test with a `fixedClock` must be able to move it. Keeping the conventional name would have required either the trigger (which would overwrite the injected value) or an exception in a guard that deliberately has none.
-
-**No RLS policy, and access decided by grants instead.** The table belongs to no shelf, so a `<table>_tenant` policy keyed on `olibra.bookshelf_id` has nothing to compare — the same treatment `sessions` gets (§3). Grants are the stronger control here anyway: absent is the default for a grant, open is the default for a table with no policy. `olibra_app` holds `select` and nothing else; `olibra_admin` holds everything; `olibra_public` holds a **column-level** `select` on the three contact fields alone, because OPS §3.1 lists `GetSiteContact` as guest-callable and Global.
+**`changed_by` / `changed_at`, deliberately not `updated_by` / `updated_at`.** Every other `updated_at` in this schema is written by MariaDB's own `ON UPDATE current_timestamp(6)` clause, from the database host's clock. This timestamp is one the domain means: the screen states when an administrator last changed these settings, and a test with a frozen clock must be able to move it. Keeping the conventional name would have required either the engine clause — which would overwrite the injected value — or an exception in a rule that deliberately has none.
 
 ---
 
-## 5. Search
+## 6. Search
 
-§12: a child typing `tim kiem kho bau` on a phone without diacritics must find *Tìm Kiếm Kho Báu*. Diacritic-insensitive, case-insensitive substring matching over title and author. At a few hundred books per shelf, nothing more elaborate is warranted — no full-text search, no trigram index, no external engine.
+§12 of the requirements: a child typing `tim kiem kho bau` on a phone without diacritics must find *Tìm Kiếm Kho Báu*. Diacritic-insensitive, case-insensitive substring matching over title and author. At a few hundred books per shelf, nothing more elaborate is warranted — no full-text search, no external engine.
 
 The requirement that matters most is the last sentence of §12: **whatever normalisation is applied when storing a title must be the identical normalisation applied to the search term, so the two can never drift.**
 
-The UI already implements this in `src/lib/search.ts`: strip combining marks, map `đ` to `d`, lowercase, fold punctuation to spaces. The database must fold identically.
+### 6.1 One table, two renderings
 
-```sql
-create extension if not exists unaccent;
+`App\Support\Fold::fold()` is the PHP half: `mb_strtolower` → `strtr(MAP)` → non-`[a-z0-9]` runs to one space → trim. `App\Support\FoldExpression::sql()` renders the **same** pipeline as SQL: `LOWER` → one `REPLACE` per map entry → `REGEXP_REPLACE` → `TRIM`. One table, two renderings, and `tests/Feature/FoldParityTest.php` proves they agree over every map entry, a U+00C0–U+024F sweep, and the real corpus.
 
-create or replace function olibra_fold(value text)
-returns text
-language sql
-immutable
-parallel safe
-as $$
-  select trim(regexp_replace(
-    lower(translate(unaccent(value), 'đĐ', 'dD')),
-    '[^a-z0-9]+', ' ', 'g'
-  ))
-$$;
-```
+The SQL rendering is what the six folded generated columns hold. The migrations freeze the rendered expression as DDL at migrate time rather than calling a function at query time.
 
-Then a generated column and an index over it:
+Three decisions in `Fold` are load-bearing and must not be quietly reverted:
 
-```sql
-alter table books
-  add column title_folded text
-    generated always as (olibra_fold(title)) stored;
-```
+1. **No Unicode normalisation step.** MariaDB cannot NFD-decompose, so a decomposition step in PHP would make the two halves different functions for every accented letter outside the map — *Kästner* folding to `kastner` in PHP and `k stner` in the database, a permanently unfindable author. Anything not in the map (CJK, marks, symbols) degrades to a space on **both** halves identically, which keeps store-equals-search even where the fold is lossy.
+2. **`đ` needs its own map entry and must not be removed.** It is a distinct Vietnamese letter, not a `d` carrying a diacritic. This is the single most likely cause of "why does searching *dat rung* not find *Đất Rừng Phương Nam*".
+3. **`ẞ` (U+1E9E, capital sharp S) needs its own entry too, and finding out why cost a shipped bug.** PHP's `mb_strtolower('ẞ')` is `'ß'`, which then reaches the map's `ß => ss`. MariaDB's `LOWER('ẞ')` on this build returns `'ẞ'` **unchanged** — so the SQL side never produced a `ß` to replace and fell through to the space bucket instead. `ẞigmund Groß` folded to `ssigmund gross` in PHP and `igmund gross` in the database: the leading letter of the name silently vanished from the search column, permanently hiding that row. `2026_08_28_000002_fix_fold_expression_capital_sharp_s.php` added the entry and rebuilt all three columns then existing.
 
-**Two traps worth naming, because both bite quietly:**
+That migration also establishes the general hazard: **only a `LOWER()` disagreement on a character that is *also* a map key can turn into a real mismatch.** A full-BMP sweep found roughly 480 other case mappings MariaDB's `LOWER()` is missing, none of them map targets, so both halves fall through identically. The hazard is live only when the map itself changes — and when it does, every generated column built from it must be rebuilt in the same migration. `ALTER TABLE … MODIFY COLUMN` on a `STORED` generated column forces a full rebuild that recomputes the expression for every existing row; no separate `UPDATE` pass is needed.
 
-1. **`unaccent` is not marked `IMMUTABLE`** in a default installation — it is `STABLE`, because it depends on a dictionary that could in principle change. A `STABLE` function cannot be used in a generated column or a functional index. The wrapper above declares `IMMUTABLE`, which is a promise the author is making; it holds as long as nobody edits the unaccent rules file. If that promise is uncomfortable, the alternative is a plain column maintained by a trigger, which is uglier but makes no claim it cannot keep.
+### 6.2 What the fold is actually for, and what it is not
 
-2. **`unaccent` does not reliably fold `đ` to `d`.** Vietnamese `đ` is a distinct letter, not a `d` with a diacritic, and depending on the rules file version it may pass through untouched. The explicit `translate()` above handles it and must not be removed. This is the single most likely cause of "why does searching *dat rung* not find *Đất Rừng Phương Nam*".
+**The bare claim "a naive `LIKE` finds nothing" is false on this schema, and was measured false rather than argued.** `bookshelves.name` / `location` / `address` and `books.title` / `author` are `utf8mb4_unicode_ci`, and that collation is **itself accent-insensitive for vowel diacritics**: `SELECT 'Giáo xứ Hòa Bình' LIKE '%hoa binh%' COLLATE utf8mb4_unicode_ci` returns `1` with no folded column involved at all.
 
-**Verification step for whoever implements this:** the folding must be tested against the application's implementation with the same inputs, and the two kept in sync by a test, not by hope. Suggested cases: `Dế Mèn Phiêu Lưu Ký`, `Đất Rừng Phương Nam`, `Totto-chan Bên Cửa Sổ` (the hyphen), `Kính Vạn Hoa tập 4` (the digit).
+What the collation does **not** fold is `đ`/`Đ`: `SELECT 'Đồng Tháp' LIKE '%dong thap%' COLLATE utf8mb4_unicode_ci` returns `0`. **That** is why the folded columns exist — for `đ`, and for whatever else the map expands (`ß`, `æ`, `œ`, `ĳ`, …) that a general-purpose Unicode collation does not cover. Not for Vietnamese accents in general.
+
+The columns are `text`, not `varchar(255)`: the map expands `ß→ss`, `æ→ae`, `œ→oe`, `ĳ→ij`, so a fold can exceed its source's length and a `varchar(255)` fold of a 255-character name raises errno 1406 on insert. None is `NOT NULL`, because MariaDB's generated-column grammar accepts only `STORED`/`VIRTUAL`/`UNIQUE`/`COMMENT` after the expression and `STORED NOT NULL` is a syntax error — nothing is lost, since the expression never yields null for a `NOT NULL` source or a `COALESCE`d nullable one.
+
+The three prefixed indexes — `users_full_name_folded_index`, `bookshelves_name_folded_index`, `bookshelves_location_folded_index`, `bookshelves_address_folded_index` — are all `(column(191))`. The two Postgres trigram indexes on `books.title_folded` / `author_folded` have **no MariaDB equivalent and were deliberately not replaced**: `LIKE '%needle%'` cannot use a b-tree anyway, and a sequential scan at a few hundred books per shelf is honestly fine.
 
 ---
 
-## 6. Derived state
+## 7. Derived state, and where each business rule is enforced
 
-§8 is a load-bearing rule and the most likely thing to be quietly violated under delivery pressure: **overdue status, hold expiry and availability are computed on read, from stored data and the current clock. They are never written by a scheduled job.**
+§8 of the requirements is load-bearing and the most likely thing to be quietly violated under delivery pressure: **overdue status, hold expiry and availability are computed on read, from stored data and the current clock. They are never written by a scheduled job.**
 
 The reasoning is worth restating because it is not obvious: any status a background job must *write* is stale, and therefore wrong, for as long as the job takes to run again. A reader would see a book as available that was lent twenty minutes ago; a manager's overdue list would omit books that became overdue at midnight. Computing on read keeps the system correct even if background work is broken entirely.
 
-Express these as views, so no caller can forget the rule:
+**The two Postgres views that expressed this — `loans_current` and `copies_borrowable` — are gone, and were not replaced. The schema has zero views.** What replaced them is `app/Queries/`: `OverdueLoansQuery`, `ManagerDashboardQuery`, `MyDashboardQuery`, `BookDetailQuery` and their siblings each compute the derived value in the read, against `App\Support\Clock`. The trade is deliberate and worth naming: a view could not be forgotten by a caller, whereas a query can be written that omits the rule. What is gained is that the clock is now genuinely movable in a test — `Carbon::setTestNow()` moves every one of these at once — where the Postgres design needed a bespoke SQL function and a per-transaction setting to achieve the same thing, and the two clocks it created (application host and database host) had to be kept from drifting apart.
 
-```sql
-create view loans_current
-  with (security_invoker = true)
-as
-select
-  l.*,
-  (l.status = 'active'
-   and l.due_on < (olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date) as is_overdue,
-  (l.due_on - (olibra_now() at time zone 'Asia/Ho_Chi_Minh')::date)     as days_remaining
-from loans l;
+**What background work is still for:** image processing, reminders, and tidying up expired holds as housekeeping rather than as correctness. If the tidy-up never runs, availability is still right, because the hold expiry is compared against the clock on every read rather than trusted from a column somebody was meant to update.
 
-create view copies_borrowable
-  with (security_invoker = true)
-as
-select c.*
-from book_copies c
-where c.state = 'available'
-  and c.deleted_at is null
-  and not exists (
-    select 1 from borrow_requests r
-    where r.copy_id = c.id
-      and r.status = 'approved'
-      and r.hold_expires_at > olibra_now()
-      and r.deleted_at is null
-  );
-
-grant select on loans_current, copies_borrowable to olibra_app, olibra_admin;
-```
-
-### `olibra_now()` — the clock, injectable in SQL
-
-**Both views called SQL `now()` until `20260808_14_olibra_now.sql`, and that made the whole of "computed against the current clock" untestable.** `src/domain/kernel/clock.ts` exists so that time is an injected dependency, and says so in its own opening comment: every rule computed against the clock "is only testable if the clock can be moved". It could be moved in TypeScript and not in the database. A test holding a `fixedClock` could not make `is_overdue` true and could not make a hold expire without waiting real wall-clock time — so `tests/db/derived-state.test.ts` moves `due_on` and `hold_expires_at` instead of the clock, and B2's plan recorded the limitation as its Known gap #14, explicitly handing it to C1/C2 as unresolved. C2's acceptance criterion ("the test advances an injected `Clock` rather than sleeping") was not achievable against views built that way.
-
-The fix is the tenant mechanism, in the same shape, because it is already proven here. `0010_rls.sql`'s policies read `nullif(current_setting('olibra.bookshelf_id', true), '')` and `unit-of-work.ts` sets that GUC transaction-locally at the top of every command and every scoped query. `olibra.now` is set on the next line and read back the same way:
-
-```sql
--- 20260808_15_olibra_now_strict.sql; 20260808_14 was the same thing in
--- `language sql`, with no validation and no `raise`.
-create or replace function olibra_now()
-returns timestamptz
-language plpgsql
-stable          -- never immutable; see below
-parallel safe
-as $fn$
-declare
-  raw text := nullif(current_setting('olibra.now', true), '');
-begin
-  if raw is null then
-    return now();
-  end if;
-  if raw !~ '^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$' then
-    raise exception using errcode = '22007', message = '...';   -- see below
-  end if;
-  return raw::timestamptz;
-end;
-$fn$;
-```
-
-**The pattern is a guard, not decoration: the original cast whatever string was in the GUC and guessed.** Measured against it, by setting `olibra.now` directly:
-
-- **`'2026-08-08 10:00:00'` — no offset — was accepted and resolved through the session `TimeZone`.** The same string is three different instants under `UTC`, `Asia/Ho_Chi_Minh` and `America/Los_Angeles`; all three verified. That is exactly what §2.2 says must never be relied on, and the only thing preventing it was one `.toISOString()` call in TypeScript that nothing in SQL required.
-- **`'now'` and `'epoch'` were accepted**, resolving silently to real time and to 1970 — a frozen clock that is not frozen.
-- **`'infinity'` was accepted**, and then `copies_borrowable` hid every copy in the database (nothing is `> infinity`) while `loans_current` stopped being queryable at all: `due_on - 'infinity'::date` raises `cannot subtract infinite dates`. A GUC value that makes a view *raise* is worse than one that makes it wrong.
-
-So the contract is: an explicit offset and a finite value, or an error. The pattern enforces both at once — a string matching it has a four-digit year and a real offset, so it cannot be `infinity`, `epoch`, `now` or a bare local time — which is why there is no separate `isfinite()` check to read as a guarantee somebody may weaken the pattern against. Unset and the empty string are *not* errors and must never become ones; both still fall back to `now()`, for the two reasons in the numbered list below. `tests/db/sql-clock.test.ts` pins the rejected set, the accepted set (`toISOString()`'s exact output first, since it is the only writer today), and that a rejected value produces `22007` from the *function* rather than an arithmetic error from one view and silence from the other.
-
-**`language plpgsql` is not only about being able to `raise`, and it is faster.** A SQL function this small is inlined into the calling query, and the expanded `coalesce(nullif(current_setting(...))..., now())` is not something the planner will use as an index bound: `where t > olibra_now()` planned as a **Seq Scan**. The plpgsql function stays opaque and `STABLE`, which is the shape the planner treats as a run-time constant — the same query planned as a parallel **Index Only Scan** with `Index Cond: (t > olibra_now())`, 11 ms against 15 ms over 200k rows on this cluster.
-
-`runQuery`, `runCommand` and `runGlobalCommand` all set it from `ctx.clock`, which every `TenantContext` has already carried since S2 — no signature changed to make this work. **This does not change what these two views are for in production, but it does change whose clock they read:** `ctx.clock` is `systemClock` on every real request, so the value written is `new Date()` in the *application* process, not `now()` in the database. Those are two clocks, and they agree only to the extent the two hosts' clocks agree — see "Two clocks in one transaction", below, which is the part of this change that has a production consequence. What is *not* given up is one-consistent-now-per-transaction, which is the first thing a reader worries about: Postgres's `now()` is *transaction start* time, not statement time, and this is likewise one value captured once, before the command body runs, and read by every statement in the transaction.
-
-**Three details, each wrong in an obvious-looking alternative, and each with a test that goes red without it** (`tests/db/sql-clock.test.ts`, all falsified by hand — see the task report):
-
-1. **`current_setting(name, true)`** — the `true` is `missing_ok`. Without it a session that never set `olibra.now` raises `unrecognized configuration parameter` instead of returning null, which breaks every `psql` session, every migration, and `seed()`. Falsified: dropping it turns "falls back to `now()` on a connection the kernel never touched" red with exactly that error.
-
-2. **`nullif(..., '')` on top of that is not redundant with `missing_ok`.** §3 spells out this trap for `olibra.bookshelf_id` and it is identical here: once *any* transaction on a connection has `set_config`'d a GUC locally, it does not revert to unset when that transaction ends — it reverts to the **empty string**. `''::timestamptz` does not return null, it raises `invalid input syntax for type timestamp with time zone: ""`. On a pooled connection that is every second and subsequent transaction, not a corner case. Falsified: dropping the `nullif` turns the transaction-locality test red with exactly that error.
-
-3. **`STABLE`, and it must not be `IMMUTABLE`.** Both built-ins underneath are `STABLE`/`PARALLEL SAFE` on this cluster (`select provolatile, proparallel from pg_proc`, PostgreSQL 16.10), so `STABLE` is the strongest correct marking. `IMMUTABLE` is a lie the planner acts on, and this was verified rather than reasoned about — marking it immutable and running `explain (verbose, costs off) select * from copies_borrowable` shows the call already folded to a literal in the plan:
-
-   ```
-   Index Cond: (r.hold_expires_at > '2026-08-08 16:12:28.22945+00'::timestamp with time zone)
-   ```
-
-   A clock frozen at plan time, ignoring the GUC entirely — the exact failure this function exists to prevent, reintroduced silently. Five tests go red under it.
-
-   **Contrast `olibra_fold` in §5, which genuinely is `IMMUTABLE` and has to be:** it feeds a generated column, and Postgres refuses a `STABLE` function there. The two functions look alike; their volatility markings are opposite, for reasons that belong to each.
-
-`at time zone 'Asia/Ho_Chi_Minh'` stays exactly where it was on both derived columns. §2.2's rule is unchanged — injecting the clock does not make the conversion unnecessary, it makes it *testable*, which is what the boundary pair in `tests/db/sql-clock.test.ts` now pins: a loan due `2026-08-08` is not overdue at `2026-08-08T16:00:00Z` (23:00 +07, still the due date) and is overdue at `2026-08-08T17:30:00Z` (00:30 +07 the next day). Both instants are `2026-08-08` in UTC, so a view comparing against `olibra_now()::date` reads them as the same day and the second assertion flips.
-
-That pair is read **under three pinned session timezones** — `UTC`, `America/Los_Angeles` and `Asia/Ho_Chi_Minh` — and required to give the same answer in all three, which is what makes it a guard rather than an accident of configuration. `olibra_now()::date`, the broken form, resolves through the *session's* `TimeZone`, so whether it gives the wrong answer depends on what that happens to be; it is UTC today only because that is Docker's default and `compose.yaml` pins nothing on the `db` or `db-test` services. Verified rather than reasoned: recreating `db-test` with `TZ=Asia/Ho_Chi_Minh` (tmpfs, so a fresh `initdb` picks it up) and applying a `loans_current` without the conversion made the single-zone version of that test **pass** against the broken view. The three-zone version fails against it under either server default, and the whole suite is green under both.
-
-**`security_invoker = true` is load-bearing here, not boilerplate, and dropping it reopens INV-10 through the back door.** PostgreSQL's default is the opposite of what §3's row-level-security policies assume: without this clause a view evaluates row security as the view's *owner*, not as the role running the query — the same mechanism a `SECURITY DEFINER` function uses. Migrations in this project run as a `bypassrls` superuser (§3), so a view created the ordinary way carries that superuser's bypass with it: `olibra_app`, scoped to one shelf, queries the view and gets every shelf's rows back, because the policy is being evaluated as the owner, not as `olibra_app`. This was verified directly rather than assumed — the same view created without `security_invoker` and queried by a shelf-scoped `olibra_app` connection returned rows from every shelf; adding the clause cut that to exactly the querying shelf's rows. `security_invoker = true` makes each view apply the *invoking* role's policies instead of the owner's, which is what lets `olibra_app` see only its own shelf through these views (INV-10) while `olibra_admin` still bypasses deliberately, via `bypassrls`, as designed (§3). Skip the clause and these two convenience views become the one place in the schema where the tenant boundary silently does not hold.
-
-This was, for one branch, verified only by hand and never by a test: `tests/db/derived-state.test.ts` queried both views as the migrating superuser, so it asserted the arithmetic and nothing about tenancy, and `tests/invariants/inv-10-tenant-isolation.test.ts` never touched the views at all — `alter view loans_current reset (security_invoker)` left the entire suite green while `olibra_app` scoped to one shelf saw every shelf's loans. Two tests in `tests/db/derived-state.test.ts` now query each view as `olibra_app` with two shelves seeded and assert only one shelf's rows come back; see CRITICAL 2 in the S1 fix report for the before/after run that proves they catch the regression.
-
-`copies_borrowable` is the direct expression of §8's "a copy is borrowable when it is available and no unexpired hold references it". The `r.deleted_at is null` line matches the treatment `book_copies` already gets one line above it: a soft-deleted `borrow_requests` row must not go on blocking a copy just because nobody remembered to also filter deleted holds — that row is otherwise invisible everywhere else `deleted_at` is filtered, so a copy stuck behind one had no explanation visible anywhere in the UI. Fixed in `20260808_05_copies_borrowable_deleted_at.sql`.
-
-**What background work is still for:** image processing, cache warming, backups, and tidying up expired holds as housekeeping rather than as correctness. If the tidy-up never runs, `copies_borrowable` is still right, because the hold expiry is compared against the clock (`olibra_now()`, above) on every read rather than trusted from a column somebody was meant to update. `tests/db/sql-clock.test.ts` asserts exactly that sentence: one hold, written once, read at two instants either side of its expiry, with `hold_expires_at`, `status` and `deleted_at` all unchanged afterwards — `hold_expires_at` above all, since that is the column the claim turns on and the one an implementation that quietly pushed the expiry around would have moved. The `xmin` assertion alongside them is confirmatory narration rather than a regression guard, and the test says so: every read there runs inside `runQuery`'s `set transaction read only`, so no write could have committed and bumped it regardless of how the views were built.
-
-### Two clocks in one transaction
-
-**A kernel transaction now runs under two different clocks at once, and which one a timestamp gets depends on how it was written.** This is a real consequence of `olibra_now()`, it is not written down anywhere else, and it is the thing to know before adding a timestamp column or a command that writes one.
-
-Inside a single `runCommand` transaction:
-
-| Reads / writes | Clock | Examples |
-|---|---|---|
-| `olibra_now()` — so `loans_current.is_overdue`, `loans_current.days_remaining`, `copies_borrowable`'s hold-expiry check | **the application host's**, via `ctx.clock` and the `olibra.now` GUC | every overdue badge, every availability count |
-| A value the domain passes in from `ctx.clock` | **the application host's** | `audit_log.occurred_at` and `condition_assessments.assessed_at` as actually written (by `runAs` and `AssessCondition`), plus `approved_at`, `lost_reported_at`, `retired_at`, `deleted_at` |
-| A column `default now()`, or a trigger calling `now()` | **the database host's** | `loans.lent_at` and `borrow_requests.requested_at` — no command writes either yet, so today the default is the only source — plus the *defaults* on `audit_log.occurred_at` and `condition_assessments.assessed_at`, every `created_at`, and `set_updated_at()` in `20260808_06_updated_at_triggers.sql` |
-
-Both are observable in the same transaction: with a `fixedClock` at `2020-01-02T03:04:05Z`, `select now(), olibra_now()` returns real database time in the first column and the injected instant in the second.
-
-**What this couples.** The application host is now authoritative for overdue status and hold expiry. The database host is still authoritative for when rows say they were created. **App and database clocks must therefore not drift**, and today they do not: `compose.yaml` runs `app` and `db` in the same Docker stack on one host, so they share the machine's clock. That colocation is now load-bearing rather than incidental — splitting the application onto a different host than the database makes NTP on both a correctness requirement, not hygiene.
-
-**The failure this would cause is reasoned, not reproduced.** Suppose the application host runs 90 seconds ahead of the database host, or — the likelier version, since OPS §6 contemplates two managers on two app-server processes — two application instances disagree with each other. Then, in the same second: the same loan is overdue when read through one instance and not through the other; a hold expires early on one instance and is still blocking on the other; and `hold_expires_at`, which was written from a `ctx.clock` on whichever instance approved the request, is compared against a *different* instance's clock on every subsequent read. None of these produces an error. They produce two correct-looking answers to the same question.
-
-### The rule: a timestamp the domain means comes from `ctx.clock`
-
-**If a timestamp is a fact the domain is asserting — when a loan was lent, when a request was made, when an assessment happened — write it explicitly from `ctx.clock`. Do not let a column default supply it.**
-
-Column defaults stay exactly where they are, as a backstop for rows written outside the domain: a migration, `seed()`, a `psql` session, a fix applied by hand. That is what a default is good at and it should keep doing it. What it must not be is the *only* source of a timestamp that a domain command was responsible for, because then that one row is stamped by a clock no test can move and no other column in the same transaction agrees with.
-
-Two reasons, in order of how soon they bite:
-
-1. **Testability, immediately.** A `fixedClock` moves `olibra_now()` and every value the command passes in. It does not move a column default. A test that sets the clock to 2026 and inserts a loan gets a `lent_at` of whatever real time it is — so any assertion relating `lent_at` to `due_on`, or to `occurred_at` on the same transaction's audit row, is asserting against two clocks and quietly cannot be written.
-2. **Consistency, under drift.** In one transaction, `occurred_at` comes from the application host and `lent_at` from the database host. Under the skew above they are minutes apart on rows written by the same statement pair.
-
-**This branch changes no command and no column default** — doing so is C1's and B3's work and would turn a change about `olibra_now()` into a change about every table. The rule is recorded here so that the next command written honours it rather than inheriting the current mixture by copying it. C1's plan already writes `lent_at` from `${ctx.clock.now()}` in its `insert into loans`; that line is now load-bearing rather than stylistic, and the note appended to `docs/superpowers/plans/2026-08-07-c1-lending-core.md` says so.
-
----
-
-## 7. Where each business rule is enforced
-
-This is the table to read before writing any application code.
+### The table to read before writing any application code
 
 | # | Rule | Enforced by | How |
 |---|---|---|---|
-| **INV-1** | A copy has at most one active loan | **Database** | Partial unique index, §7.1 |
-| **INV-2** | A copy cannot be both held and on loan | **Database**, for the copy's own row; **application, in a transaction**, for the hold | The single `state` enum column makes `held`-and-`on_loan` unrepresentable *in `book_copies`*. A hold is also a live `approved` `borrow_requests` row, which no constraint stops from naming an `on_loan` copy — the commands that create and close holds keep the two in step within one transaction. See §4.4 |
+| **INV-1** | A copy has at most one active loan | **Database** | `loans_one_active_per_copy` over the generated `active_copy_id`, §7.1 |
+| **INV-2** | A copy cannot be both held and on loan | **Database**, for the copy's own row; **application, in a transaction**, for the hold | The single `state` column makes `held`-and-`on_loan` unrepresentable *in `book_copies`*. A hold is also a live `approved` `borrow_requests` row, which no constraint stops from naming an `on_loan` copy — the Actions that create and close holds keep the two in step within one transaction. See §5.4 |
 | **INV-3** | Only an available copy can be lent, or a held copy collected by its holder | Application, in a transaction | Requires reading the hold's owner; not expressible as a constraint |
 | **INV-4** | A reader whose membership is not active cannot start a new loan | Application | Cross-table condition |
 | **INV-5** | At most `max_concurrent_loans` active loans per reader per shelf | Application, in a transaction | Requires an aggregate; see §7.2 |
 | **INV-6** | Renewal only if renewals remain **and** no request is queued for that title | Application | Cross-table condition |
-| **INV-7** | A lost or retired copy cannot be lent or held | Application + partial index | The index in §7.1 also excludes these states |
-| **INV-8** | Every state transition writes an audit record | Application, same transaction | See §4.10 |
-| **INV-9** | A comment is publicly visible only when approved | **Database** (access path) | Partial index, §4.8 |
-| **INV-10** | Every query scoped to one bookshelf | **Database** | Row Level Security, §3 |
-| **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; a `before delete` trigger raises for every role, §7.3 |
-| **INV-12** | Audit records never change or disappear | **Database** | A `before update` / `before delete` trigger raises for every role, §7.3 |
-| **INV-14** | Either both username and password, or neither | **Database** | `users_credentials_paired` check, §4.1 |
-| **INV-13** | At most one pending profile change request per person; a person's details never change silently — every change is an approved request or a manager's audited direct correction | **Database** (the first half) + **Application** (the second) | Partial unique index for "at most one pending", §4.11; the second half is which code paths are allowed to write `users`, and how many there are, which no constraint can express. Two are sanctioned, not one — see §4.11 |
+| **INV-7** | A lost or retired copy cannot be lent or held | Application | The generated `active_copy_id` also excludes these, but the refusal itself is the Action's |
+| **INV-8** | Every state transition writes an audit record | Application, same transaction | `AuditRecorder`, §5.10 |
+| **INV-9** | A comment is publicly visible only when approved | **Application (access path)** | `BookCommentsQuery`. **This was a partial index under Postgres and is not structural any more** — §5.8 |
+| **INV-10** | Every query scoped to one bookshelf | **Application** for the query; **database** for the reference | `BookshelfScope`, fail-closed (§3.1), plus the fifteen composite foreign keys (§4.2). **Row Level Security is gone** — §3.4 |
+| **INV-11** | A loan is never deleted | **Database** | No `deleted_at` column exists; `loans_no_delete` raises for every connection, §5.5 |
+| **INV-12** | Audit records never change or disappear | **Database** | `audit_log_no_update` / `audit_log_no_delete`, §5.10 |
+| **INV-13** | At most one pending profile change request per person; a person's details never change silently — every change is an approved request or a manager's audited direct correction | **Database** (the first half) + **Application** (the second) | `profile_change_requests_one_pending`, §5.11; the second half is which code paths may write `users`, which no constraint can express. Two are sanctioned, not one |
+| **INV-14** | Either both username and password, or neither | **Database** | `users_credentials_paired`, §5.1 |
 
-Seven of the fourteen are wholly structural, INV-13 is split across the line, and six need application discipline **inside a transaction**. Each of the fourteen needs the named test §6 requires — including the structural ones, because a constraint that was never exercised is a constraint nobody has checked is there.
+Six of the fourteen are wholly structural, INV-10 and INV-13 are each split across the line, and the rest need application discipline **inside a transaction**. Each of the fourteen needs the named test §6 of the requirements asks for — including the structural ones, because a constraint that was never exercised is a constraint nobody has checked is there. `tests/Feature/DbGuarantees/DbGuaranteesTest.php` is where the structural ones are exercised against the real engine, by provoking the error rather than by reading the catalogue.
 
-**BookDonation earns no fifteenth row here.** Nothing in BR §6 names a business rule for it, and this document does not invent one to match the new table: its `pending → received | declined` lifecycle (BR §7.7) is application-level bookkeeping in the same way `comments`' and `announcements`' moderation states already are, with `book_donations_declined_has_reason` (§4.8) doing the one piece of structural work it actually needs — the same way `memberships_rejected_has_reason` backs a rule that never made it into the numbered list either. If a future refinement adds a genuine invariant — at-most-one-pending-donation-per-member, say, echoing INV-13's shape — it earns its row then, not now.
+**Book donations earn no fifteenth row here.** Nothing in BR §6 names a business rule for them, and this document does not invent one to match the table: the `pending → received | declined` lifecycle is application-level bookkeeping in the same way comment and announcement moderation already is, with `book_donations_declined_has_reason` doing the one piece of structural work it needs.
 
-**The nested parish-unit rule earns no row here either, and for a reason worth stating plainly rather than leaving implicit.** §4.1 above already says it: when a shelf's taxonomy is nested, a membership's `parish_unit_l2_id` must reference a unit whose `parent_id` equals its `parish_unit_l1_id`. This cannot be a plain check constraint, for the same structural reason INV-13's second half cannot be one: it needs a lookup into another row of `parish_units`, and whether it applies at all depends on `bookshelves.settings.parish_taxonomy.nested` (§4.2), which lives on a third table entirely. It is the same category as INV-5's loan limit (§7.2) — enforced by application code inside the transaction that writes the membership, with its own named test, not by a constraint the database can be asked to hold regardless of who is writing. It is not given an INV number here: BR §6 owns that numbered list, and adding a fifteenth entry to a set BR §6 itself calls "the specification of correctness" is a product decision for that document to make, not one this document should make on its behalf. Recording the enforcement honestly is what matters — a rule described as structural but implemented in application code is worse than one correctly labelled, because the label is what a future reader trusts.
+**The nested parish-unit rule earns no row either, and for a reason worth stating plainly rather than leaving implicit.** §5.1 says it: when a shelf's taxonomy is nested, a membership's `parish_unit_l2_id` must reference a unit whose `parent_id` equals its `parish_unit_l1_id`. That cannot be a check constraint, for the same structural reason INV-13's second half cannot: it needs a lookup into another row of `parish_units`, and whether it applies at all depends on `bookshelves.settings.parish_taxonomy.nested`, which lives on a third table. It is enforced by application code inside the transaction that writes the membership, with its own named test. It is not given an INV number here: BR §6 owns that numbered list, and adding to a set BR §6 itself calls "the specification of correctness" is a product decision for that document. Recording the enforcement honestly is what matters — a rule described as structural but implemented in application code is worse than one correctly labelled, because the label is what a future reader trusts.
 
 ### 7.1 INV-1, the one that must be a constraint
 
 §6 says this must be guaranteed by the datastore because two managers can lend the same copy in the same second, at the same physical shelf, from two phones — and §2 lists exactly that scenario as a real risk.
 
 ```sql
-create unique index loans_one_active_per_copy
-  on loans (copy_id)
-  where status = 'active';
+ALTER TABLE loans ADD COLUMN active_copy_id VARCHAR(36)
+    CHARACTER SET ascii COLLATE ascii_bin
+    GENERATED ALWAYS AS (IF(status = 'active', copy_id, NULL)) STORED;
+ALTER TABLE loans ADD CONSTRAINT loans_one_active_per_copy UNIQUE (active_copy_id);
 ```
 
-A partial unique index is the whole mechanism. The second transaction to commit fails with a unique violation, which the application translates into a plain Vietnamese message — §2 requires that one of them "must fail cleanly and see a plain message, never a silently corrupted record".
+The `ascii_bin` matches `copy_id` exactly; a differing collation on either side would compare, and index, wrongly.
 
-An application-level `select … then insert` cannot achieve this at any isolation level below `serializable`, and even then it converts the problem into a serialisation failure that must be retried. The index is simpler and always correct.
+The second transaction to commit fails with errno 1062, which `LendCopy` translates by constraint name into the `copy_not_available` refusal and a plain Vietnamese sentence — §2 requires that one of them "must fail cleanly and see a plain message, never a silently corrupted record".
+
+An application-level select-then-insert cannot achieve this at any isolation level below serialisable, and even then it converts the problem into a serialisation failure that must be retried. The constraint is simpler and always correct.
 
 ### 7.2 INV-5, and why it is not a constraint
 
-The limit is per reader per shelf, configurable per shelf, and requires counting rows. Postgres has no multi-row check constraint.
+The limit is per reader per shelf, configurable per shelf, and requires counting rows. MariaDB, like Postgres, has no multi-row check constraint.
 
 Three options, in descending order of preference:
 
-1. **Application check inside the same transaction as the insert, at `repeatable read` or above.** Simple, testable, and the failure window is narrow — the same reader would have to be lent two books simultaneously by two managers, which is far less likely than two managers touching the same *copy*.
-2. **A `before insert` trigger** that counts and raises. Moves the rule into the database, at the cost of hiding it from application developers and making it hard to test.
+1. **Application check inside the same transaction as the insert.** Simple, testable, and the failure window is narrow — the same reader would have to be lent two books simultaneously by two managers, which is far less likely than two managers touching the same *copy*.
+2. **A `BEFORE INSERT` trigger** that counts and raises. Moves the rule into the database, at the cost of hiding it from application developers and making it hard to test.
 3. **A counter column on `memberships` with a check constraint**, maintained by trigger. Denormalisation, drift risk, and it contradicts §8's spirit.
 
-**Recommendation: option 1**, with the named test §6 requires and an honest note that a determined race could exceed the limit by one. That is a much cheaper failure than a corrupted loan record, and a manager can void the extra loan.
+**Option 1 is what ships**, with the named test §6 requires and an honest note that a determined race could exceed the limit by one. That is a much cheaper failure than a corrupted loan record, and a manager can void the extra loan.
 
-### 7.3 INV-11 and INV-12, and why `revoke` alone is not the guarantee
+### 7.3 Locking, deadlocks and retries
 
-Crediting `revoke delete on loans` and `revoke update, delete on audit_log` as *the* mechanism for INV-11 and INV-12 would be true for `olibra_app` and false for anyone else. A table's owner and a Postgres superuser bypass `GRANT`/`REVOKE` checks entirely, regardless of what has been revoked from any other role — and that is exactly the role every migration in this project, and any admin tooling that connects the same way, runs as. A `revoke` that only the application role ever has to obey is not nothing, but it is not INV-11 or INV-12 either.
+Two facts about MariaDB that the Postgres design did not have to carry:
 
-The actual guarantee is a trigger, which has no equivalent of `bypassrls`:
-
-```sql
-create function forbid_row_mutation() returns trigger as $$
-begin
-  raise exception 'rows in % cannot be %d directly', tg_table_name, lower(tg_op)
-    using errcode = '42501';
-end;
-$$ language plpgsql;
-
-create trigger loans_no_delete
-  before delete on loans
-  for each row execute function forbid_row_mutation();
-
-create trigger audit_log_no_update
-  before update on audit_log
-  for each row execute function forbid_row_mutation();
-
-create trigger audit_log_no_delete
-  before delete on audit_log
-  for each row execute function forbid_row_mutation();
-```
-
-A `before` trigger fires for every role that reaches the row, ownership and superuser status included. That is what makes it the guarantee rather than the `revoke` statements described here and in §4.10: those still matter as defence in depth, turning a bug in `olibra_app`'s own code into a permission error before the query ever reaches a row, but they were never going to stop a hurried `delete` typed by hand against a role that owns the table.
-
-**The revoke strips `olibra_admin` too, and that is deliberate, not an oversight to loosen.** `olibra_admin` is the role built to bypass Row Level Security for legitimate cross-shelf work (§3); it is not built to bypass INV-11 or INV-12, which — unlike tenant isolation — carry no admin exception anywhere in §6 of the requirements. So the same `revoke` applies to it as to `olibra_app`, and the trigger backs both regardless: even the role that can see every shelf cannot delete a loan or mutate an audit row.
+- **RESTRICT foreign keys take shared locks on the parent row.** Every insert into a shelf-scoped table therefore takes a shared lock on that shelf's `bookshelves` row. An Action that takes an exclusive lock on the same row and then writes a child is an AB-BA cycle waiting for a concurrent insert. `borrow_requests_one_live_per_title_member` exists partly because it removed the need for one such lock (§5.6).
+- **A deadlock is a normal outcome, not an error to log and forget.** `App\Support\DeadlockDetector` and `App\Support\ConcurrencyRetry` are where that is handled: the loser of a deadlock retries rather than surfacing errno 1213 to a volunteer.
 
 ---
 
 ## 8. Indexes
 
-Beyond the primary keys, unique constraints and partial indexes already shown:
+Beyond the primary keys, the eleven generated-column uniques (§4.1), the six `(bookshelf_id, id)` parent keys and the fifteen composite foreign keys (§4.2), the schema carries these named access paths:
 
-```sql
--- the manager's most frequent screens
-create index loans_active_by_shelf on loans (bookshelf_id, due_on)
-  where status = 'active';
-create index loans_by_borrower     on loans (borrower_id, lent_at desc);
-create index copies_by_book        on book_copies (book_id) where deleted_at is null;
-create index copies_by_state       on book_copies (bookshelf_id, state)
-  where deleted_at is null;
+| Index | On | For |
+|---|---|---|
+| `books_public` | `books (bookshelf_id, title(191))` | The public catalogue listing |
+| `copies_by_book` | `book_copies (book_id)` | A title's copies |
+| `copies_by_state` | `book_copies (bookshelf_id, state)` | The manager's state filters |
+| `loans_active_by_shelf` | `loans (bookshelf_id, due_on)` | The overdue and due-soon screens |
+| `loans_by_borrower` | `loans (borrower_id, lent_at)` | A reader's loan history |
+| `requests_queue` | `borrow_requests (book_id, requested_at)` | The queue, in order |
+| `requests_holds` | `borrow_requests (hold_expires_at)` | The expired-hold sweep |
+| `comments_public` | `comments (book_id, created_at)` | A book's comment list (INV-9's filter is a `WHERE`) |
+| `book_donations_queue` | `book_donations (bookshelf_id, created_at)` | The donation queue, oldest first |
+| `notifications_unread` | `notifications (user_id, created_at)` | The bell's list, without a filesort |
+| `notifications_unread_by_user` | `notifications (user_id, read_at)` | The bell's count — §5.9 |
+| `audit_log_actor` | `audit_log (actor_id, occurred_at)` | "What has manager A been doing" |
+| `audit_log_shelf` | `audit_log (bookshelf_id, occurred_at)` | One shelf's log |
+| `audit_log_entity` | `audit_log (entity_type, entity_id, occurred_at)` | One row's history |
+| `feedback_rate_limit` | `feedback (guest_hash, created_at)` | The contact form's rate limit — §5.8 |
+| `memberships_user_id_bookshelf_id_index` | `memberships (user_id, bookshelf_id)` | `ResolveTenant`, on every request |
+| `users_full_name_ci_dob_phone_index` | `users (full_name_ci, date_of_birth, phone)` | Registration's identity match — §5.1 |
+| `users_full_name_folded_index` | `users (full_name_folded(191))` | The reader roster's fuzzy search |
+| `bookshelves_name_folded_index` | `bookshelves (name_folded(191))` | The portal search |
+| `bookshelves_location_folded_index` | `bookshelves (location_folded(191))` | The portal search |
+| `bookshelves_address_folded_index` | `bookshelves (address_folded(191))` | The portal search |
 
--- the queue, ordered by request time (§7.2)
-create index requests_queue on borrow_requests (book_id, requested_at)
-  where status = 'pending';
-create index requests_holds on borrow_requests (hold_expires_at)
-  where status = 'approved';
+**Every index that was partial under Postgres is plain here**, with the predicate moved into the query's `WHERE` clause: `books_public`, `copies_by_book`, `copies_by_state`, `loans_active_by_shelf`, `requests_queue`, `requests_holds`, `comments_public`, `book_donations_queue`, `notifications_unread`, and `bookshelf_contacts_by_shelf` (§5.2, not listed above). The indexes are correspondingly larger and cover soft-deleted rows; at this data volume that is not worth working around, and the alternative — a generated column per predicate — is reserved for the cases where the predicate carries a *guarantee* rather than a performance hint.
 
--- search (§5)
-create index books_title_folded  on books using gin (title_folded gin_trgm_ops);
-create index books_author_folded on books using gin (author_folded gin_trgm_ops);
-
--- the public catalogue
-create index books_public on books (bookshelf_id, title)
-  where is_published and deleted_at is null;
-```
-
-The two `gin_trgm_ops` indexes need `pg_trgm` and support the `%` and `LIKE '%…%'` patterns that substring search requires. At a few hundred books per shelf a sequential scan would honestly be fine; the indexes are cheap insurance for the shelf that grows to a few thousand.
-
-Every index above is partial where the query is partial. An index that includes soft-deleted rows makes the planner's job harder and the index larger for no benefit.
+Laravel also creates a single-column index behind every `foreign()` it declares; those carry the framework's `<table>_<column>_foreign` names and are not listed above.
 
 ---
 
 ## 9. Migrations and seed
 
-**Migrations are forward-only and each is reversible in principle but never rolled back in production.** The actual safety net is testing every migration against a restored copy of production data before it runs for real — trivial with Docker, since a throwaway container seeded from a dump costs nothing:
-
-```bash
-docker run --rm -e POSTGRES_PASSWORD=x -v "$PWD/dump.sql:/dump.sql" postgres:16
-```
-
-If a managed provider is chosen later and it offers database branching, that is a faster route to the same check, not a different one.
+**Migrations are Laravel's, forward-only, and applied with `php artisan migrate` inside the app container.** There are 30 files in `database/migrations/`, and 30 rows in `migrations` on a fully migrated database. Filenames follow Laravel's own `YYYY_MM_DD_NNNNNN_verb_description.php` convention, which sorts unambiguously and gives two migrations written on the same day a defined order.
 
 Rules:
 
-- One migration per change, named `YYYYMMDD_NN_verb_description.sql` — a date, a two-digit same-day sequence number, and a verb: `20260808_01_feedback_rls.sql`, `20260808_02_bookshelf_slug_immutable.sql`. `NN` exists because `migrate()` (`src/db/migrate.ts`) applies migrations in filename order, and a bare date alone cannot order two migrations written on the same day relative to each other.
+- **Never run `php` or `artisan` on the host** — the host PHP aborts before running anything. Everything goes through `docker exec laravel-app-1`.
+- One migration per change.
 - Never edit a migration that has run anywhere but a local machine.
 - Data migrations are separate from schema migrations, so a slow backfill does not hold a table lock.
-- Adding a column: always nullable or with a default, never `not null` without a default on a populated table.
+- Adding a column: always nullable or with a default, never `NOT NULL` without a default on a populated table.
 - Renaming a column is two deploys: add, backfill, switch reads, drop. There is no shortcut that does not break the running application.
 
-**Seed data** should create one bookshelf matching the design fixtures — Tủ sách Đồng Tháp, the books and readers already used in `src/lib/fixtures.ts` — so the UI can be pointed at a real database with no visible change. That equivalence is worth preserving deliberately: it makes the transition from fixtures to database a configuration change rather than a rewrite.
+**MariaDB does not roll back DDL, and one migration in this repository already has to work around it.** `2026_08_29_000001_add_borrow_requests_live_request_key.php` runs two statements: add the generated column, then add the unique constraint. On a table already holding two live rows for one `(book_id, member_id)` pair, the column lands and the constraint raises 1062 — leaving a migration that can never be retried, because the retry's first statement is then 1060, "duplicate column name". Both were reproduced live on a clone of the shipped table. The migration therefore catches the failure, drops the column by hand so the table is left exactly as it was found, and rethrows — the operator still has to go and resolve the duplicate rows the 1062 is telling them about.
 
-**Every seeded reader's password is `SEED_DEV_PASSWORD` (`src/db/seed.ts`), currently `olibra-dev`.** "No visible change" includes signing in — a placeholder that fails every login is exactly the visible difference this promise rules out. The seed hashes it for real with Argon2id (`hashPassword`), not a string that merely looks like a hash: an earlier version wrote a malformed placeholder, which was not only unusable but a timing oracle — `@node-rs/argon2` rejects a malformed hash at parse time (sub-millisecond) while a genuine one takes Argon2id's deliberate ~13ms, so the response time alone told an unauthenticated caller which usernames existed in a seeded database, independent of `signIn`'s constant-time handling of a *missing* account. This password is for a seeded development or test database only; it has no meaning once a real manager sets a real reader's credentials (BR §2).
+**Any migration adding a generated column plus a unique constraint needs the same treatment.** A migration adding a single non-unique index does not: one statement either lands or does not, and it cannot fail on existing data.
 
-**On migration naming: this section has mandated a timestamp since before any migration shipped, and `src/db/migrations/0001_…` through `0012_…` did not follow it.** Bare sequence numbers are the risk this rule already exists to avoid: two branches — S1's own review found this true of the very next slices, S2 and S3, both landing migrations in the same week — each add a `0013_…`, and neither git nor the migration runner catches the collision, since two differently-named files with the same numeric prefix do not conflict as files; they just make "which one actually ran first" depend on which branch happened to merge first, silently, with no error. A timestamp-based name makes that question unambiguous by construction, which is exactly why it was the rule from the start.
+**Seed data.** `DatabaseSeeder` runs `CategorySeeder` (the six shared categories, §5.3) and `DemoShelfSeeder`, which creates one bookshelf matching the design fixtures — Tủ sách Đồng Tháp — so the interface can be pointed at a real database with no visible change. Factories under `database/factories/` cover the seven entities the suite builds most.
 
-The fix here is not to renumber `0001`–`0012`: every one of them has already run against this project's databases, and DATABASE.md §9's "never edit a migration that has run" reasonably extends to renaming — the filename is the row's identity in `schema_migrations`, and changing it would make `migrate()` try to re-apply an already-applied migration under its new name. So the two schemes now coexist deliberately: `0001`–`0012` stay exactly as they are, a frozen legacy block from before this rule was enforced, and every migration from `20260808_01_feedback_rls.sql` onward follows the timestamp rule this section always specified. Filename sort order — what `migrate()` actually relies on — still holds across the boundary without any extra work: every timestamp-named file starts with `2`, which sorts after every `0`-prefixed legacy file.
-
-**A second hazard, distinct from the cross-branch collision above, and the reason there is now a test guarding the naming convention rather than only this prose.** `migrate()` sorts every filename and then drops the ones already recorded in `schema_migrations` — it orders the *pending* set, not the whole directory. A stray `0013_x.sql` sorts, alphabetically, between `0012_…` and `20260808_01_…`. On a fresh database every file is pending, so it runs interleaved, right after `0012`. On a database that already has `0001`–`0012` and every `20260808_*` migration applied, `0013_x.sql` is the *only* pending file, so it runs last — after every `20260808_*` migration, not before them. Same file, two different positions in the actual sequence of DDL that ran, depending only on how old the database happened to be when the file was added. With twelve `00NN_` files already sitting in the directory, adding a thirteenth is the natural instinct, and only this paragraph was stopping it before now — `tests/db/migrate.test.ts` asserts every filename is either one of the frozen `0001`–`0012` files or matches the `YYYYMMDD_NN_` shape, so a new `00NN_` file fails the suite instead of shipping.
+Seeded readers get a real Argon2id hash, not a placeholder that merely looks like one: a malformed hash is not only unusable but a timing oracle, since a hasher rejects a malformed hash at parse time in microseconds while a genuine one takes Argon2id's deliberate milliseconds — so the response time alone would tell an unauthenticated caller which usernames exist in a seeded database. Seed credentials are for a development or test database only; they have no meaning once a real manager sets a real reader's credentials.
 
 ---
 
 ## 10. Export and backup
 
-§2 names data export as insurance and puts CSV export of books, readers and loans in Phase 1: "volunteers plus modest infrastructure is a meaningful data-loss risk".
-
-This is a read-only concern and needs no schema. Three queries, each scoped to one shelf, each streamed rather than buffered. The manager settings screen already carries the three buttons.
+§2 names data export as insurance: "volunteers plus modest infrastructure is a meaningful data-loss risk". CSV export of books, readers and loans is a read-only concern and needs no schema — three queries, each scoped to one shelf, each streamed rather than buffered. `app/Support/Exports/` is where they live, and the manager settings screen carries the buttons.
 
 **Backups depend on where this ends up running, and the choice must be made deliberately rather than discovered after an incident.**
 
 | Hosting | Mechanism | What it needs |
 |---|---|---|
-| Self-hosted Docker | Continuous archiving with `pgBackRest` or `WAL-G` to object storage, plus a nightly `pg_dump` as a belt-and-braces logical copy | A named volume for `PGDATA` that is not inside the container, an archive target off the host, and a restore rehearsed at least once |
-| Managed service | The provider's point-in-time restore | Confirming the retention window is longer than the time it takes anyone to notice a problem |
+| Shared cPanel (the stated target) | The host's own scheduled backup, plus a `mysqldump --single-transaction` to a location off the account | Confirming the host's retention window is longer than the time it takes anyone to notice a problem, and that a restore has been rehearsed at least once |
+| Self-hosted Docker | Binary logs archived off the host for point-in-time recovery, plus a nightly `mysqldump` as a logical copy | A data directory that `docker compose down -v` cannot take with it — `docker-compose.laravel.yml` uses a named volume, `mariadbdata`, which it can — an archive target off the host, and a rehearsed restore |
 
-A `docker compose` setup with the data directory in an anonymous volume is a data-loss incident waiting for its first `docker compose down -v`. Name the volume, and put the archive somewhere the host cannot take with it.
+`--single-transaction` is not optional on InnoDB: without it a dump of a live database is not a consistent snapshot.
 
 Worth stating explicitly what backups do not cover either way: an application bug that deletes rows within the retention window is recoverable; one that quietly writes wrong values for a month is not. The audit log is the mitigation, which is another reason INV-12 matters.
 
+**The deployment side of this is not written yet, deliberately.** See `docs/DEPLOYMENT.md`'s status header and `docs/known-gaps.md`.
+
 ---
 
-## 11. Running it in Docker
+## 11. Running it locally
 
-`compose.yaml` at the repository root is the running version of this section; what follows is why it is written the way it is.
-
-Three extensions are used: `pgcrypto` (for `gen_random_uuid`), `unaccent` and `pg_trgm` (both for search, §5). All three ship in `postgresql-contrib`, which the official `postgres` image already includes — so `create extension` works out of the box and no custom image is needed.
+`docker-compose.laravel.yml` at the repository root is the running version of this section. The `mariadb` service runs the `mariadb:10.11` image as container `laravel-mariadb-1`, and holds two databases: `olibra`, created by the image from `MARIADB_DATABASE`, and `olibra_testing`, created by `docker/mariadb/init/01-testing.sql` on first boot as `CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`.
 
 Three things that are easy to get wrong and painful later:
 
-- **Locale.** Initialise the cluster with a UTF-8 locale — `POSTGRES_INITDB_ARGS="--locale=C.UTF-8 --encoding=UTF8"`. Text sorting for Vietnamese is not something to leave to whatever the base image happened to pick, and changing it afterwards means a dump and reload.
-- **Version pinning.** Pin the minor tag (`postgres:16.10`, not `postgres:16`). A silent major upgrade on `docker compose pull` will refuse to start against an existing data directory, which is the good outcome; the bad one is discovering that at deploy time.
-- **Where the data directory lives.** It is bind-mounted to `./data/postgres` on the host rather than kept in a named volume, because `docker compose down -v` removes named volumes and a parish's entire history is not something to leave one flag away from deletion. Backing up that directory backs up the database.
+- **Character set and collation.** The server must be `utf8mb4`; the tables are `utf8mb4_unicode_ci` by default, with the deliberate exceptions of §4.3. A database created under `latin1` or under `utf8` (MySQL's three-byte impostor) will silently mangle Vietnamese, and changing it afterwards means a dump and reload. The init script names both explicitly for `olibra_testing` rather than inheriting whatever the image defaults to, and a database created by hand should do the same.
+- **Version pinning.** The compose file pins `mariadb:10.11`, the major-minor tag, not a patch. Everything measured in this document was measured on `10.11.19-MariaDB-ubu2204`; several of the claims in §4.1 and §6.1 are explicitly build-specific (`LOWER('ẞ')`, the accent-insensitivity of `utf8mb4_unicode_ci`, the implicit prefix length on an unlengthed `TEXT` index), so a patch bump is a reason to re-run the measurements, not a no-op.
+- **The data directory is a named Docker volume, `mariadbdata`.** That means `docker compose down -v` removes it. For a development database that is the intended, cheap outcome — the database is dropped and reseeded routinely, and several decisions in this schema (notably `saint_name NOT NULL` with no backfill) were taken *because* that was true. It is emphatically not a shape to carry to a host holding a parish's real history; see §10.
+- **`sql_mode`.** The `CHECK` constraints of §2.1 hold under every mode, which is why they were chosen over `ENUM` — but a non-strict mode still changes how truncation and invalid dates behave. Do not rely on the container's default matching a host's.
+
+**The test database is separate and `phpunit.xml` pins it.** The compose file also deliberately gives the `app` service **no `env_file`**: Laravel reads `.env` from the mounted volume, and injecting the same values as real container environment variables would make them impossible for `phpunit.xml` to override — the exact interaction that once ran another project's suite against its development database. The rules protecting the development database from a test run live in `docs/known-gaps.md`; read them before changing anything about how the suite connects.
+
+---
 
 ## 12. What this document does not decide
 
-- **The application stack.** It is settled — Next.js, in Docker (SDD.md §3.4, §8) — but nothing in this document depends on that, and the properties it relies on are stack-agnostic: multiple statements in one transaction, a session variable set per transaction (for RLS), and a unique-violation error surfaced distinguishably so INV-1 can be translated into a friendly message. Those are requirements on whatever data layer is chosen, not on the framework.
-- **Whether Postgres is final.** Settled as far as this project is concerned. Recorded here anyway because the answer matters if it is ever revisited: the schema is ordinary SQL and would port, but four things would need replacing — the partial unique index that enforces INV-1 (§7.1), Row Level Security (§3), `jsonb` settings (§4.2), and the folding function (§5). Those four are where the design leans on Postgres specifically, and INV-1 is the one with no comfortable substitute.
-- **The ORM, or whether to use one.** If one is used it must not fight RLS, and it must not silently issue `update` on `audit_log`.
-- **Connection pooling.** Relevant to RLS: a pooler in *transaction* mode is compatible with `set local`, a pooler in *session* mode is not. Choose before writing the data layer, not after.
+- **Per-shelf timezones.** `bookshelves.timezone` exists and is not read. One parish today; a network of shelves is what would make the column mean anything.
 - **Whether `settings` should later become columns.** If the shape stabilises, promoting hot keys to columns is a straightforward migration.
+- **Retention.** Nothing in the requirements says how long audit records are kept. Append-only plus unbounded growth is fine for years at this volume, but the question should be answered before it becomes urgent.
+- **Whether MariaDB is final.** It is what ships. Recorded here anyway because the answer matters if it is ever revisited: the schema is ordinary SQL and would port back, and moving to a database *with* partial indexes would let eleven generated columns and eleven constraints collapse into eleven partial unique indexes — a simplification, not a rewrite.
 
 ## 13. Open questions
 
-1. **Full name display.** §4 assumption 6 makes public name display a per-shelf setting so it can be tightened later. The schema supports it; whether the default should be `full_name` deserves revisiting *if* the manager-facing leaderboard at `/quan-ly/thong-ke` (BUSINESS-REQUIREMENTS.md §16.2, 2026-08-12) is ever made reader-facing (§20). (Corrected, post-review fix wave, item 5: this used to say "once … are on a public leaderboard" — the leaderboard is not public and staying manager-facing is the point of §16.2's own reasoning.)
-2. **Retention.** Nothing in the requirements says how long audit records are kept. Append-only plus unbounded growth is fine for years at this volume, but the question should be answered before it becomes urgent.
-3. **`guest_hash` salt rotation.** Rate limiting by hashed identifier is specified; how the salt is managed is not. Rotating it resets everyone's limit, which may be acceptable.
+1. **Full name display.** §4 assumption 6 makes public name display a per-shelf setting so it can be tightened later. The schema supports it; whether the default should be `full_name` deserves revisiting if the manager-facing leaderboard is ever made reader-facing.
+2. **`guest_hash` salt rotation.** Rate limiting by hashed identifier is specified; how the salt is managed is not. Rotating it resets everyone's limit, which may be acceptable.
+3. **`categories.slug`'s plain unique.** §5.3 records why it was left alone. If a category is ever genuinely soft-deleted, the one-line conversion to a generated-column unique applies, and it should happen then, with a test that reproduces the lockout first.

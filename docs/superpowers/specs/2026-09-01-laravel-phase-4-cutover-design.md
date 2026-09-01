@@ -207,8 +207,19 @@ reader will otherwise get it wrong:
 - **collation** — `ascii_bin` on the columns that hold identifiers, and the
   `COLLATE` guards in the audit joins that exist because a `?`-mangled non-ASCII
   byte matches nothing;
-- **`feedback.bookshelf_id` is the schema's one nullable tenant column**, and
-  what that nullability means.
+- **The nullable tenant columns.** This spec first said `feedback.bookshelf_id`
+  was "the schema's ONE nullable tenant column". **It is not — there are two.**
+  Of the fifteen `bookshelf_id` columns, `feedback` and `audit_log` are both
+  nullable, and `TenancyArchitectureTest::tenancyExemptModels()` has always
+  returned exactly those two. The document says what each null MEANS — a
+  site-wide message versus a system-wide action, one visible to a shelf and one
+  deliberately not — rather than counting them wrong.
+
+  This is the third "the one X" absolute this project has had to retract, after
+  `AuditLogQuery:14`'s "THE one hand-written `bookshelf_id` filter" earlier the
+  same day. The pattern is worth naming: an absolute is a claim about
+  everything, and it is only ever verified against the one case in front of
+  you.
 
 Engine-neutral reasoning already in the document — why a table exists, what a
 column means to the business — is preserved.

@@ -180,7 +180,11 @@ old document. Read them all before writing.
   the guarantee `BookshelfScope` alone cannot make.
 - **Collation.** `ascii_bin` appears 93 times in the migrations. Explain what it
   is on, why, and the `COLLATE` guards in the audit joins.
-- **`feedback.bookshelf_id` is the schema's one nullable tenant column.**
+- **The nullable tenant columns — and this plan got the count wrong.** It said
+  `feedback.bookshelf_id` was "the schema's one nullable tenant column". There
+  are **two**: `feedback` and `audit_log`, which is exactly what
+  `TenancyArchitectureTest::tenancyExemptModels()` returns. Say what each null
+  means, not how many there are.
 - **Preserve** the per-table reasoning that is about the business rather than
   the engine.
 
