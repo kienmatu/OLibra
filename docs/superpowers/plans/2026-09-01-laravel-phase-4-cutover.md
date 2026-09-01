@@ -45,7 +45,8 @@ a failure and want to call it someone else's, check it out on `main` first.
 2. `git rm -r --cached old_next` then remove the working copy, so the tree
    leaves git in one commit.
 3. Add to `AGENTS.md`, in its own short section: the reference was deleted in
-   this commit, the commit is tagged **`v0.1.0-next-reference`**, and any
+   this commit, the commit **before** it is tagged **`v0.1.0-next-reference`**
+   (tagging the deletion commit itself resolves to nothing), and any
    `old_next/…` citation in this repository resolves with
    `git show v0.1.0-next-reference:<path>`. State that the existing `v0.1.0`
    tag does **not** serve, because it holds the same files under `src/`.

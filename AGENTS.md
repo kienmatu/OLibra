@@ -10,43 +10,46 @@ tests that passed while guarding nothing. Keep it current: when you defer
 something or leave something unverified, add it there rather than only in a
 commit message.
 
-## Two applications in this repo
+## One application, and the reference that is no longer here
 
-**`app/` is Laravel 13 + Inertia + MariaDB — the live implementation.** This is
-where Phase 1 onward's screens, business logic and fixes go. It follows
-ordinary Laravel convention: `php artisan make:model` writes to `app/`,
-`composer.json`'s `App\` namespace maps there, and every Laravel doc assumes it.
+**`app/` is Laravel 13 + Inertia + MariaDB — the implementation, and now the
+only one in this repository.** It follows ordinary Laravel convention:
+`php artisan make:model` writes to `app/`, `composer.json`'s `App\` namespace
+maps there, and every Laravel doc assumes it.
 
-**`old_next/` is the original Next.js 16 + PostgreSQL implementation — reference
-only.** It is the spec Phases 1–3 diff their new work against (54 route pages,
-116 domain files, ~180 test files encoding the business rules), and it is also
-preserved untouched at the `v0.1.0` git tag. It still installs, typechecks,
-lints, builds and passes its full test suite from inside `old_next/` — see
-`old_next/AGENTS.md` for how — but **it is not maintained going forward.** Do
-not add features or fix bugs there; note anything wrong in `docs/known-gaps.md`
-instead.
+### `old_next/` was deleted in phase 4 — how to read a citation that names it
 
-Both apps share a few things at the repo root rather than duplicating them:
-`package.json`/`bun.lock`/`node_modules` (one JS toolchain — Laravel's own
-`resources/js` frontend depends on the same React/TypeScript/Tailwind
-versions), `.env`/`.env.example` (one file documents both stacks' variables),
-`.gitignore`, `.editorconfig`, `docs/`, and `public/index.php`+`.htaccess`
-(Laravel's front controller — `old_next/public/` holds Next's own static
-assets, e.g. book cover art). Everything else — source, config, tests,
-deployment — belongs to exactly one of the two and lives under it.
+The original Next.js 16 + PostgreSQL implementation lived at `old_next/` and was
+the read-only behavioural reference every phase diffed its work against. Phase 3
+closed the last screen it had, so phase 4 deleted it. **521 tracked files left
+the repository; nothing about the running application changed.**
 
-This split exists because Laravel's `app/` directory used to collide head-on
-with the one directory Next.js's router checks first, also named `app/` — see
-`docs/known-gaps.md` for the incident. Moving Next.js out from under the
-shared root, rather than renaming Laravel's directory a second time, is the
-actual fix.
+Roughly 116 files under `app/`, `resources/` and `tests/` still carry comments
+citing it — `ContactController.php` explains a copy decision by pointing at
+`old_next/src/app/lien-he/page.tsx:83`, and there are many more. Those citations
+were deliberately NOT rewritten: restating from memory, in bulk, what a
+reference said is this project's most repeated failure. They stay verbatim, and
+they stay checkable, because the commit immediately BEFORE the deletion is
+tagged (that is where the files still exist — a tag on the deletion commit
+itself would resolve to nothing, which is how this was caught):
+
+```bash
+git show v0.1.0-next-reference:old_next/src/app/lien-he/page.tsx | sed -n '83p'
+```
+
+**The plain `v0.1.0` tag does not serve for this.** It predates the move into
+`old_next/` and holds the same files under `src/`, so every cited path is wrong
+there by exactly one prefix. Use `v0.1.0-next-reference`.
+
+If you need to browse rather than spot-check, `git worktree add /tmp/oldnext
+v0.1.0-next-reference` gives you the whole tree to read. Do not commit anything
+to it, and do not restore it into this repository.
 
 ## Non-negotiable design rules
 
 These come from `docs/BUSINESS-REQUIREMENTS.md` §17 and `docs/DESIGN.md`, and
-apply to whichever surface is currently building the UI — `old_next/` as
-reference, `resources/js` (Laravel/Inertia) as Phase 1 onward rebuilds each
-screen. They are not stylistic preferences — breaking one is a defect.
+apply to `resources/js` (Laravel/Inertia), which is now the only surface
+building the UI. They are not stylistic preferences — breaking one is a defect.
 
 1. **Sans everywhere; serif only for book titles.** Lexend is the interface
    font for absolutely everything. Literata appears solely on the title of a
@@ -57,8 +60,13 @@ screen. They are not stylistic preferences — breaking one is a defect.
 2. **Status is never colour alone.** Every state carries an icon, a Vietnamese
    word and a colour together. Compose this from `ui/badge.tsx` (the colour
    and label) plus `ui/icon.tsx` (the icon) — there is no dedicated status
-   component. The six copy states are defined once in
-   `old_next/src/lib/status.ts` (reference).
+   component. The stored states are the FIVE cases of
+   `app/Enums/CopyState.php` (available, held, on_loan, lost, retired), and
+   their Vietnamese labels live in `resources/js/lib/copy.ts:568` under
+   `state:`. *Quá hạn* is the sixth thing a badge can say and is NOT one of
+   them — it is derived from the loan's due date, which is why the enum has
+   five cases and the row below names six. The reference's own version was
+   `old_next/src/lib/status.ts`.
 3. **One primary action per screen.** Solid terracotta appears once. If two
    things on a screen are terracotta, one of them is wrong.
 4. **Touch targets ≥ 44px; primary buttons 56px.** Nothing closer than 8px.
@@ -78,9 +86,10 @@ screen. They are not stylistic preferences — breaking one is a defect.
 
 Pages were once built in parallel by separate agents told not to touch shared
 files, and every one of them grew its own status pill. Six near-identical
-copies later, the lesson is written down: **look in `old_next/src/components/ui`
-(reference) first, and if the Laravel/Inertia equivalent under
-`resources/js/components` is missing, add it there rather than inline.**
+copies later, the lesson is written down: **look in `resources/js/components`
+first, and if what you need is missing, add it there rather than inline.** (The
+reference's own component library was `old_next/src/components/ui`; if a comment
+sends you there, see the tag recipe above.)
 
 The table below describes what exists in `resources/js/components` today —
 not an aspiration. When you add a component, update this table; a test
@@ -209,9 +218,7 @@ git stash && git checkout $(git merge-base HEAD origin/main) -- . && <gate>
 **Laravel (`app/`): Phase 0 is done** — schema, enums, identity/session, tenancy
 and authorization are wired against MariaDB (see
 `docs/superpowers/plans/2026-08-26-laravel-migration-phase-0-foundation.md`).
-Phase 1 onward builds out the ~54 screens' worth of Actions, Policies and
-Controllers, using `old_next/` as the behavioural spec to diff against.
-
-**`old_next/` is frozen** at whatever it reached before the migration started:
-a full UI over a real PostgreSQL database with real authentication. It is not
-being extended — see "Two applications in this repo" above.
+Phases 1–3 built out the ~54 screens' worth of Actions, Policies and
+Controllers, diffing each against the Next.js reference. **Phase 3 closed the
+last placeholder route on 2026-09-01**, and phase 4 retired the reference — see
+the tag recipe at the top of this file if a comment cites it.

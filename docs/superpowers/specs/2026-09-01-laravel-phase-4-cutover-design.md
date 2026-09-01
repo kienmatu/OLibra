@@ -86,8 +86,9 @@ after:   Hilibra/.artifacts/old_next/src/app/lien-he/page.tsx   on disk, untrack
 ```
 
 **A decision taken on the product owner's behalf, and cheap to reverse:** the
-deletion commit is also **tagged `v0.1.0-next-reference`**, and `AGENTS.md`
-gains one line saying so. Without the tag, a citation like
+commit immediately **before** the deletion is **tagged `v0.1.0-next-reference`**
+— on the deletion commit itself the files are already gone and the recipe below
+resolves to nothing — and `AGENTS.md` gains a section saying so. Without the tag, a citation like
 `old_next/src/app/lien-he/page.tsx:83` is resolvable only by someone who first
 finds the deletion commit; with it, the recipe is one command:
 
