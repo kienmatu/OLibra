@@ -411,8 +411,29 @@ Three of the pipeline's jobs are requirements, not optimisations:
 
 Limits: 5 MiB; jpeg, png, webp, avif. **HEIC stays out of the `accept` list** so
 iOS Safari transcodes to JPEG; adding it ships a broken iPhone path. Its refusal
-is `heic_not_supported`. **No PHP image library is chosen yet — picking one is
-part of this task**, and it must be available on the shared cPanel host.
+is `heic_not_supported`.
+
+**The host survey is answered** (2026-09-01, `HOSTING.md` rows 3 and 6):
+
+- `gd` is present, **`imagick` is ABSENT** → Intervention Image on the **`gd`
+  driver**. Do not write an imagick-preferred path; there is nothing to prefer.
+- **`exif` is present on the host** — which is what makes the EXIF-rotate and the
+  GPS test possible at all. But `docker/php/Dockerfile:3` and **both** CI
+  workflows (`laravel.yml:34`, `deploy-laravel.yml:30`) install `gd` without
+  `exif`. **Add `exif` to all three in this task**, or the code works in
+  production and fails in CI.
+- **`symlink()` is allowed** and `disable_functions` does not list it, so
+  `artisan storage:link` genuinely works. **But confirm the shim docroot serves
+  it** before relying on it: `HOSTING.md:233-234` records that the shim leaves
+  `public/` and `public_html/` as separate directories, so a symlink under
+  `public/` is only reachable if the shim reaches it. If it does not, use a
+  `FILESYSTEM_DISK` path inside the served docroot — row 6's own fallback.
+
+**One capability is still unconfirmed: whether the host's `gd` was compiled with
+WebP encode support.** `gd_info()['WebP Support']` answers it. **Check it at
+runtime and fall back to JPEG** rather than assuming — a gd built without WebP
+would otherwise fail only in production, which is precisely the shape this survey
+exists to prevent.
 
 **Image deletion is ordered AFTER the commit, and which image dies depends on the
 decision**: approve discards the **superseded** image; reject and cancel discard
@@ -424,11 +445,22 @@ A guest may never *name* a storage key (`RegistrationController.php:94`); the
 same rule binds here.
 
 **Tests:** an avatar proposal stores the image; rejecting deletes the proposed
-one and approving the superseded one, after commit; oversize and wrong-format
-uploads are refused by their own codes; a stripped image carries no GPS.
+one and approving the superseded one; oversize and wrong-format uploads are
+refused by their own codes; **a forced rollback leaves the image intact and the
+row absent** (the test the ordering exists for — a successful reject passes under
+either ordering, so it cannot be the one that pins it); and a stripped image
+carries no GPS.
+
+**The GPS test cannot be written the obvious way.** There are no image fixtures
+in the repo, and `exif_read_data()` returns `false` both when metadata is absent
+**and** when it cannot parse the format — so `expect($exif)->toBeFalse()` passes
+on an unstripped file too, and passes on any WebP output regardless. To be
+red-capable it must: build a GPS-bearing JPEG in the test, **assert the GPS is
+present in that input**, run the pipeline, then assert its absence in the output.
+Without the present-then-absent pair it is a guard that cannot fail.
 
 **Falsify:** delete inside the transaction, force a rollback, and watch the
-orphan-reference test go red.
+forced-rollback test go red.
 
 ---
 
