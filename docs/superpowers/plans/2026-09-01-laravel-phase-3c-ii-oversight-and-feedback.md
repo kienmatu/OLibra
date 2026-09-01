@@ -62,6 +62,10 @@ Spec §6 lists seven. The ones that bite:
   `->global(`, `->forShelf(` or `->systemWide(` inside a comment.
 - **`TenancyArchitectureTest`**'s allow-list is whole-file and its pattern
   matches `whereNull('bookshelf_id')` too.
+- **`FreeTextEncodingGuardTest`** instantiates **every** `FormRequest` under
+  `app/Http/Requests` and demands `encoding:UTF-8` on any field not provably
+  non-text. Tasks 1–3 add `guest_name`, `guest_contact`, `subject` and `body`.
+  Self-detecting, but it will be red on day one without it.
 
 ### Audit actions land with their writers
 
@@ -100,15 +104,30 @@ administration one.
    `AppServiceProvider:123-131` records the Task 13 defect this avoids — five
    spellings of one number each getting their own bucket. Note this is a
    *deliberate divergence* from the reference, which strips whitespace only.
-4. **Validate the phone with `assertPhone`.** The reference's QA round found
+4. **Validate the phone with `Phone::assert()`** (`app/Support/Members/Phone.php:33`),
+   throwing `RuleViolated('phone_invalid')` — a code that already has its
+   sentence and census entry, so it mints nothing. **`assertPhone` is the
+   *reference's* name and does not exist here**; the only occurrence of that
+   string in `app/` is a comment. The reference's QA round found
    `khong-phai-so` accepted and stored on the one form a shelf-less parish has.
-5. **New refusal codes:** `rate_limited` and `feedback_fields_required`. Neither
-   exists in `lang/vi/rules.php` today, so both need a sentence **and** a
+5. **New refusal codes.** `rate_limited` is a `RuleViolated` — a literal throw,
+   with its `lang/vi/rules.php` sentence and its
    `RuleViolatedCodesHaveSentencesTest` entry in this commit.
+
+   **`feedback_fields_required` needs a decision, and the census makes it
+   binary.** That test's list is set-equal against codes found by a regex over
+   literal `new RuleViolated('…')` in `app/`. The reference raises this one as a
+   `ValidationFailed`, not a `RuleViolated`. So either express it as a literal
+   `RuleViolated` throw **and** list it, or express it as Form Request rules —
+   which is idiomatic here and is what `FreeTextEncodingGuardTest` wants — **and
+   do not list it.** Adding the entry without a literal throw turns the census
+   red.
 6. **The fence takes ONE file, not a directory.**
    `WideningArchitectureTest:125` passes `offendersFor($pattern, [])` — an empty
-   **path-suffix allow-list**, and the `systemWide` block above it already names
-   three individual files. Add exactly
+   **path-suffix allow-list**. (The three individually-named files are in the
+   `actSystemWide` block two blocks up, not in the `systemWide` block directly
+   above — an earlier draft of this plan said otherwise. The idiom is the same
+   either way.) Add exactly
    `app/Actions/Community/SubmitFeedback.php`.
    **Do not widen it to the directory**: `app/Actions/Community/` already holds
    `CreateAnnouncement`, the pin/unpin pair and the comment and donation
@@ -123,7 +142,8 @@ on every submission.
 
 **Tests:** a signed-in reader's submission writes both the typed name and
 `member_id`; five spellings of one phone are one sender; the fourth message in a
-rolling 24 hours is refused with a Vietnamese sentence, not a 429; an invalid
+rolling 24 hours is refused, **asserting the rendered `rules.rate_limited`
+sentence reaches the error bag** — a non-429 status is satisfied by any redirect; an invalid
 phone is refused.
 
 **Falsify:** hash the raw phone and watch the five-spellings test go red.
@@ -151,6 +171,8 @@ not named in the form"*); the shelf comes from the route.
 guest's carries the shelf and no `member_id`; neither can name a shelf in the
 body of the request.
 
+**Falsify:** let the request body set the shelf and watch the third test go red.
+
 ---
 
 ## Task 3 — The public contact form
@@ -172,6 +194,28 @@ the only call site that needs Task 1's `global()`.
 unconfigured case. The reference renders the card **or** the form, never both —
 `hasContact = name || phone`. Follow that: the form is for the gap it exists to
 close.
+
+**This task breaks a SHIPPED anti-pin, deliberately, and must retract it rather
+than delete it.** `tests/Feature/Shell/ContactPageTest.php:196-221` asserts *"has
+no write route at all — the feedback form is 3c's, with its inbox"*, in two
+halves (a route census and a comment-stripped source read) — and **both go red
+here.** That test is 3b-ii pinning its own deferral, and this is the phase it was
+waiting for. Retract it with its reason recorded, the way this project retracts
+rather than deletes; do not quietly remove it.
+
+**Three more shipped statements assert the same fact and must go in the same
+commit:**
+- `app/Http/Controllers/ContactController.php:44-51` — the "NO FEEDBACK FORM"
+  docblock.
+- `routes/web.php:55-58` — *"There is NO POST here and must not be one until
+  3c."*
+- `docs/known-gaps.md:4778-4799` — 3b-ii's deferral entry, which this phase
+  closes. Task 7 records what is left open; **this one is closed**, and a
+  deferral entry left standing after its phase arrives reads as a live gap.
+
+**Decide `copy.contact.noContact`.** `resources/js/lib/copy.ts:56-65` ships that
+sentence *as the substitute for the form*, and its comment says so. The reference
+renders a lead sentence **and** the form. Say which survives.
 
 **Tests:** a caller with no membership and no shelf submits successfully and the
 row has a null `bookshelf_id`; the page touches no shelf-scoped model.
@@ -202,9 +246,18 @@ Shape, all of it from the reference:
 - **`guest_contact` in the detail only, never the list**; `guest_hash` in
   neither.
 - **Unread first, then newest.**
-- **An unread badge** in the admin shell, **sharing the inbox's own predicate** —
-  the `pendingDonations` shape (`HandleInertiaRequests:132`). 3a had to fix
-  predicate drift once; do not write a second predicate.
+- **An unread badge** in the admin shell, **sharing the inbox's own predicate**.
+  3a had to fix predicate drift once; do not write a second predicate.
+
+  **Copy `pendingManagerProfileChanges` (`HandleInertiaRequests:184`), NOT
+  `pendingDonations` (`:134`).** The donations badge is
+  `$user !== null && $shelf !== null && Gate::allows('act-as-manager')`, and that
+  `$shelf !== null` clause is load-bearing because its query reads through
+  `BookshelfScope`. `/admin/feedback` is super-admin-only, binds **no tenant**,
+  and `Feedback` is not `BelongsToBookshelf` — so copying the donations shape
+  ships a badge that is null on every `/admin` page, and a test written against a
+  shelf page would pass. 3c-i's admin badge is
+  `$user !== null && $user->is_super_admin`, with no shelf clause.
 - **A null shelf renders "Toàn hệ thống"**, not blank.
 - **The typed name and the signed-in account are separate facts** — never one
   standing in for the other.
@@ -223,8 +276,19 @@ Nothing is deleted or edited.
 BR:610 asks only for read and resolved. Annotate that OPS entry rather than
 silently ignoring it — the count is 66 **because** it stays out.
 
-**Tests:** an unknown filter shows everything; `guest_contact` is absent from the
-list payload and present in the detail; opening does not change status; marking
+**Add an entry to `tests/Feature/Admin/AdminScreensRenderFeedbackTest.php`.**
+Its list is hand-written and says so in capitals — *"THE LIST IN THIS FILE IS
+HAND-WRITTEN and does not grow on its own — a new admin page rendering neither
+its refusals nor its flashes ships silently."* Every 3b-ii task that added an
+admin screen added its entry. This task adds a screen with two writes, each
+producing refusals and a flash. **This is the exact defect that bit 3b-ii**, and
+it does not self-detect.
+
+**Tests:** an unknown filter shows everything; **`guest_contact` is absent from
+the LIST ROWS and present in the detail** — note list and detail arrive in one
+Inertia response, so an assertion phrased as "the response does not contain it"
+is guaranteed wrong; scope to the `messages[]` prop, on a fixture where the
+selected message's contact differs from every list row's, or it cannot fail; opening does not change status; marking
 read then resolved moves the status and stamps the handler; the badge equals the
 inbox's own count on a non-empty fixture; a message's audit row carries the
 message's shelf.
@@ -255,6 +319,13 @@ live 500"*), the four-way `coalesce`, the page size and the
 method, `scoped()` (`:207-221`). **Extract the builder, or make the scope
 injectable — pick one and say why.**
 
+**`actors()` (`:180-204`) goes through `scoped()` too**, and
+`Manage\AuditLogController:40-41` uses it both to build the actor `<select>`
+**and to validate `?actor=`**. BR:606's actor filter and Task 6's link both need
+a cross-shelf version. Extract only `run()`'s builder and the admin browser gets
+no actor options *and* validates the param against a shelf-scoped list — so
+Task 6's link would silently narrow to nothing.
+
 **The all-shelves case needs NO filter.** `AuditLog` carries no global scope, so
 global rows come back for free. **The shelf filter is the one that needs a
 literal `bookshelf_id` predicate**, and `whereHas('bookshelf', …)` cannot express
@@ -265,6 +336,12 @@ allow-list entry, deliberately** — the way `AuditLogQuery` already does.
 Carry from the reference: pagination (25 a page, already in `AuditLogQuery`), the
 `<details>` before/after diff (BR §14's own placement for raw values), and a
 neutral rendering for an action with no sentence.
+
+**Test the collation guard, not only the filters.** The listed tests all
+exercise scoping; none touches the join the plan itself calls this repo's
+*"six-times-paid live 500"*. Include one row whose subject name resolves only
+through a JSON payload (`after.borrower_id`) and assert it still renders after
+the extraction.
 
 **Tests:** global rows appear when no shelf is named and vanish when one is — the
 six actions invisible until now; each of BR:606's four filters narrows and they
@@ -297,7 +374,13 @@ to none of them. *"Grouped by type"* is answered by the browser's existing group
 chips.
 
 **Test:** the managers list links to the audit browser with the actor set, and
-following it shows only that actor's rows.
+following it shows only that actor's rows. **Read the source through
+`adminScreenSource()`** (comment-stripped) — a bare grep for `/admin/audit?actor=`
+passes on prose, which is the shape that has produced vacuous guards in three
+phases running.
+
+**Falsify:** drop the link and watch both halves go red — the source read and the
+follow-through.
 
 ---
 
@@ -331,5 +414,10 @@ file's convention. Record:
 - Screenshots of `/admin/feedback`, `/admin/audit` and the reader's *Góp ý*, in
   both modes.
 - No task left the suite red across a boundary.
-- **No placeholder routes remain** — `grep -c underConstruction routes/web.php`
-  is 0 for real routes.
+- **No placeholder ROUTES remain.** `grep -c underConstruction routes/web.php`
+  is **5** today — three real routes (`:220`, `:828`, `:829`) and two prose
+  mentions (`:590`, `:646`) — and will be **2** after this phase, not 0. Check
+  the routes, not the count.
+- **`ShellController::underConstruction` and `resources/js/pages/under-construction.tsx`
+  become dead code** once the last three placeholders go. Task 7 records the
+  decision either way.
