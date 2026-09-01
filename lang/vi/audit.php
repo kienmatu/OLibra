@@ -219,6 +219,45 @@ return [
     // the đơn vị themselves have their own four actions on their own
     // screen.
     'parish_taxonomy_updated' => 'đổi cách chia đơn vị của tủ sách',
+    // Phase 3b-ii Task 5's nine lines for four actions, the reference's
+    // phrases (audit-actions.ts:549-579) with one deliberate divergence
+    // named below. Three of the four have a _bare twin, on the thể loại
+    // rule: the subject is one đơn vị out of many, so a row that could not
+    // name it would leave a volunteer unable to tell which.
+    //
+    // 'đơn vị' rather than 'tổ' or 'giáo họ' in every one of them. A parish
+    // names its own levels (ParishTaxonomy's level1_label/level2_label,
+    // BR §5.6), so the log cannot borrow either word without being wrong on
+    // whichever shelf calls them something else — and BR §247 is explicit
+    // that a built-in vocabulary would be right for the parish it was
+    // copied from and wrong for every other.
+    'parish_unit_created' => 'thêm đơn vị :name',
+    'parish_unit_created_bare' => 'thêm một đơn vị',
+    'parish_unit_renamed' => 'đổi tên đơn vị :from thành :to',
+    'parish_unit_renamed_to' => 'đổi tên một đơn vị thành :to',
+    'parish_unit_renamed_bare' => 'đổi tên một đơn vị',
+    // THE DIVERGENCE: four lines where the reference glues a suffix onto
+    // two. Its phrase() appends ' theo đơn vị cấp trên' to whichever half
+    // it built; assembling a Vietnamese sentence out of two lang fragments
+    // is the shape this file avoids everywhere else, because a translator
+    // editing one half cannot see the other. The four sentences are the
+    // reference's own words, written out whole.
+    //
+    // 'xoá', matching the screen's own word — and unlike the thể loại
+    // lines, which say 'lưu trữ' for the same soft delete. The two differ
+    // because the screens differ: an archived thể loại is still on every
+    // book that carries it and the screen says so, while a retired đơn vị
+    // stops being offered at all. What survives — a bạn đọc's recorded
+    // đơn vị — is on the flash sentence at the moment of the press
+    // (rules.parish_unit_deleted_flash), where somebody can still act on it.
+    'parish_unit_deleted' => 'xoá đơn vị :name',
+    'parish_unit_deleted_bare' => 'xoá một đơn vị',
+    'parish_unit_deleted_cascaded' => 'xoá đơn vị :name theo đơn vị cấp trên',
+    'parish_unit_deleted_cascaded_bare' => 'xoá một đơn vị theo đơn vị cấp trên',
+    // No substitution and no bare twin: one press writes one row per unit
+    // that MOVED, so a sentence naming a unit would repeat the same act
+    // under two or three different names.
+    'parish_unit_reordered' => 'đổi thứ tự các đơn vị',
 
     // BR §9's six words — copy.ts book.condition, duplicated by necessity
     // (see the file docblock) and pinned by parity test.

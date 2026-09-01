@@ -25,6 +25,7 @@ use App\Http\Controllers\Manage\ReaderLifecycleController;
 use App\Http\Controllers\Manage\RegistrationQueueController;
 use App\Http\Controllers\Manage\ReturnController;
 use App\Http\Controllers\Manage\StatisticsController;
+use App\Http\Controllers\Manage\UnitController;
 use App\Http\Controllers\Reader\AnnouncementController;
 use App\Http\Controllers\Reader\BookController as ReaderBookController;
 use App\Http\Controllers\Reader\BorrowRequestController as ReaderBorrowRequestController;
@@ -508,7 +509,59 @@ Route::prefix('shelves/{shelf}')->name('shelves.')->middleware('tenant')->scopeB
         Route::post('/donations/{donation}/receive', [ManageDonationController::class, 'receive'])->name('donations.receive');
         Route::post('/donations/{donation}/decline', [ManageDonationController::class, 'decline'])->name('donations.decline');
         Route::get('/profile-changes', [ShellController::class, 'underConstruction'])->name('profile-changes');
-        Route::get('/units', [ShellController::class, 'underConstruction'])->name('units');
+        // Phase 3b-ii Task 5, spec D5 and D6 — BR §5.6's parish units, the
+        // rows a reader picks from at registration. The placeholder these
+        // five replace held the name `units` from Phase 0;
+        // ShellController::underConstruction's docblock records that the
+        // route NAMES were final from that day, which is why only `units`
+        // is inherited and the four write names are new.
+        //
+        // THIS GROUP BINDS A TENANT, AND THAT IS THE WHOLE REASON THE
+        // SCREEN IS HERE. ParishUnit uses BelongsToBookshelf and
+        // BookshelfScope fails closed, so every read and write below
+        // resolves through the ordinary scoped path. On the /admin shelf
+        // editor — which binds no tenant by design — the same CRUD would
+        // force TenantContext::systemWide() on all of it, the capability
+        // WideningArchitectureTest fences so that it stays rare. Spec D5
+        // reversed twice before landing here; the shape of the taxonomy
+        // stays on the admin editor (line 595 above), the units do not.
+        //
+        // `role:manager` on this group is the READ gate, not the write one.
+        // All four writes are super-admin-only (ParishUnitPolicy, the
+        // reference's requireSuperAdmin), refused in the Form Request and
+        // again in the command, and the screen renders a manager the same
+        // values as read-only text. A super admin reaches this
+        // `role:manager` route because AppServiceProvider's Gate::before
+        // grants every act-as-* ability to one.
+        //
+        // ORDER: reorder BEFORE {parishUnit}, this file's static-before-
+        // bound house habit (spec §6). HABITUAL rather than load-bearing
+        // here — `units/reorder` is POST and one segment past `units`,
+        // while the bound POST is `units/{parishUnit}/delete` at two, so no
+        // request can match both however they are declared — and kept
+        // anyway against the day a one-segment-past sibling is added.
+        //
+        // POST for the delete, not DELETE: bodiless, the unit named in the
+        // URL being the whole request, which is the shape every other state
+        // transition in this file uses (readers.suspend,
+        // announcements.pin) and the only verb set this file declares.
+        //
+        // {parishUnit} resolves two independent ways, the {comment} and
+        // {donation} pairs' two layers: through Bookshelf::parishUnits()
+        // under the scopeBindings() on the OUTER shelves/{shelf} group, and
+        // through BookshelfScope on ParishUnit (App\Models\Concerns\
+        // BelongsToBookshelf) on every query Eloquent runs for the binding.
+        // SoftDeletes is a third: a retired unit does not resolve at all,
+        // so a second "Xoá" on a row a stale screen still shows answers 404
+        // rather than deleting nothing and reporting success — the case the
+        // reference refuses by hand. ManagerUnitsScreenTest's cross-shelf
+        // dataset is the measurement, over both bound routes, with shelf
+        // B's unit id under shelf A's URL.
+        Route::get('/units', [UnitController::class, 'index'])->name('units');
+        Route::post('/units', [UnitController::class, 'store'])->name('units.store');
+        Route::post('/units/reorder', [UnitController::class, 'reorder'])->name('units.reorder');
+        Route::patch('/units/{parishUnit}', [UnitController::class, 'rename'])->name('units.rename');
+        Route::post('/units/{parishUnit}/delete', [UnitController::class, 'destroy'])->name('units.delete');
         Route::get('/audit', [AuditLogController::class, 'index'])->name('audit');
         // BR §16.3's Statistics paragraph, opened: "Period selector (week,
         // month, year, since the shelf began), showing loans, distinct

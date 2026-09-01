@@ -42,19 +42,15 @@
  */
 function adminScreenSource(string $page): string
 {
-    $path = __DIR__.'/../../../resources/js/pages/admin/'.$page;
-
-    expect(file_exists($path))->toBeTrue("missing admin screen: {$page}");
-
-    $source = (string) file_get_contents($path);
-
-    // Block comments (JSX's `{/* … */}` included) and line comments. Crude
-    // by design: it over-strips a `//` inside a string literal, which costs
-    // nothing here because every prop this file looks for is code.
-    $stripped = preg_replace('#/\*.*?\*/#s', '', $source);
-    $stripped = preg_replace('#//[^\n]*#', '', (string) $stripped);
-
-    return (string) $stripped;
+    // The stripping itself moved to tests/Pest.php's screenSource() in
+    // Phase 3b-ii Task 5, unchanged, so that a MANAGER screen could read
+    // component source the same way — ManagerUnitsScreenTest's canEdit
+    // check needs exactly this and could not have it while the path prefix
+    // was baked in here. Copying the four lines into a second file would
+    // have left two comment-strippers to drift apart; this name stays as
+    // the /admin area's own shorthand, and every line of the docblock above
+    // still describes what happens.
+    return screenSource('admin/'.$page);
 }
 
 it('renders every refusal the /admin/managers controls can produce', function () {

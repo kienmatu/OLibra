@@ -98,6 +98,21 @@ export default function ManageLayout({ children }: PropsWithChildren) {
             href: route("shelves.manage.qr-labels", { shelf: shelf.slug }),
         },
         {
+            // Phase 3b-ii Task 5 — the parish units, now a real screen
+            // rather than ShellController::underConstruction. Placed
+            // immediately before *Cài đặt*, which is where the reference's
+            // own sidebar puts it (manager-shell.tsx:210-211).
+            //
+            // A NAV ITEM FOR A SCREEN MOST OF ITS READERS CANNOT EDIT, and
+            // that is deliberate: every write on it is super-admin-only,
+            // but the tree itself is a manager's own parish and the
+            // registration form they send readers to is built out of it.
+            // Hiding the link from a manager would mean a manager could
+            // not see which đơn vị their readers are being offered.
+            name: copy.manage.units,
+            href: route("shelves.manage.units", { shelf: shelf.slug }),
+        },
+        {
             name: copy.manage.settings,
             href: route("shelves.manage.settings", { shelf: shelf.slug }),
         },

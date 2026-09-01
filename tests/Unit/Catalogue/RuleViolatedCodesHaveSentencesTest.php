@@ -113,6 +113,17 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'not_own_request',
         'not_permitted',
         'not_suspended_cannot_reactivate',
+        // 3b-ii Task 5: ReorderParishUnits, for an id in the posted sibling
+        // group that resolves to no live unit of this shelf (spec D5). Both
+        // sentences already existed in lang/vi/rules.php — ParishUnits::
+        // validateSelection() has RETURNED these two codes as data since
+        // Phase 1b — but nothing in app/ had ever THROWN either as a
+        // literal, so neither appeared in this census until now. The level
+        // decides which: every id that resolved shares one level, so that
+        // level is the best guess at the missing one's, and level 1's
+        // sentence is the fallback when nothing resolved at all.
+        'parish_unit_l1_not_found',
+        'parish_unit_l2_not_found',
         'password_too_short',
         'passwords_dont_match',
         'phone_invalid',

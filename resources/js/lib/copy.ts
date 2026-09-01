@@ -125,6 +125,13 @@ export const copy = {
         // still a place to go, but it is not news.
         donationsWithCount: "Tặng sách ({count})",
         settings: "Cài đặt",
+        // The NAV word for shelves/{shelf}/manage/units, matching the
+        // reference's own sidebar label — the screen re-heads it in
+        // manageUnits.title. "Cơ cấu giáo xứ" and not "Đơn vị": the nav
+        // names the subject a volunteer is looking for, and a parish's
+        // own word for the units themselves is its to choose
+        // (ParishTaxonomy's two labels), so the nav cannot borrow it.
+        units: "Cơ cấu giáo xứ",
         audit: "Nhật ký",
     },
     admin: {
@@ -1240,6 +1247,55 @@ export const copy = {
     // namespace, no reach into `copy.manage` — the nav word below is a
     // deliberately different string from `manage.settings` etc., so
     // renaming one screen's nav label never touches another's.
+    manageUnits: {
+        title: "Cơ cấu giáo xứ",
+        // {shelf} rather than a bare "tủ sách": this screen is reached from
+        // one shelf's own manager area and the units belong to that parish.
+        lead: "Cách chia bạn đọc theo đơn vị, và danh sách đơn vị của {shelf}.",
+        shapeHeading: "Cách gọi các đơn vị",
+        // The shape is READ-ONLY here for everyone, super administrators
+        // included: it lives in the shelf's settings and is edited on the
+        // admin shelf editor (spec D5, Task 4). The sentence says where,
+        // so a super administrator who came here to change it is not left
+        // hunting.
+        shapeNote: "Cách chia đơn vị được đặt ở trang Quản trị hệ thống › Tủ sách.",
+        levelsLabel: "Số bậc",
+        levelsOne: "Một bậc",
+        levelsTwo: "Hai bậc",
+        nestedLabel: "Bậc 2 thuộc về một đơn vị bậc 1 cụ thể",
+        yes: "Có",
+        no: "Không",
+        level1LabelLabel: "Tên gọi bậc 1",
+        level2LabelLabel: "Tên gọi bậc 2",
+        listHeading: "Danh sách đơn vị",
+        // The reference's own sentence, drawn under every section a
+        // manager can read and not change.
+        superAdminOnly: "Chỉ quản trị viên mới đổi được các mục này.",
+        emptyLevel1: "Chưa có đơn vị {label} nào.",
+        emptyLevel2: "Chưa có đơn vị {label} nào.",
+        needLevel1First: "Cần có ít nhất một đơn vị {parent} trước khi thêm đơn vị {child}.",
+        add: "Thêm đơn vị",
+        addName: "Tên {label} mới",
+        submitAdd: "Thêm",
+        rename: "Đổi tên",
+        renameName: "Tên mới",
+        submitRename: "Lưu tên",
+        cancel: "Huỷ",
+        delete: "Xoá đơn vị này",
+        // Said BEFORE the press, not after it — the cascade is the fact
+        // somebody who meant to remove one row is most likely to have
+        // assumed otherwise, and a flash arrives too late to change a mind.
+        deleteWarningCascades:
+            "Các đơn vị bậc 2 bên trong đơn vị này cũng sẽ bị xoá theo. Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.",
+        deleteWarning:
+            "Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.",
+        deleteConfirm: "Xác nhận xoá",
+        // aria-labels, because the two controls are icons: a screen reader
+        // reading "Lên" twice on a list of eight rows says nothing about
+        // which row moves.
+        moveUp: "Đưa {name} lên",
+        moveDown: "Đưa {name} xuống",
+    },
     manageLabels: {
         // The NAV word, re-headed on the screen itself below.
         navItem: "Nhãn QR",

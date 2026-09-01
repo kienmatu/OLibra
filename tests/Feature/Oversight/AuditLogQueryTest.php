@@ -246,10 +246,23 @@ it('a hostile after.borrower_id resolves to no subject, and renders', function (
 });
 
 it('an action this build has no sentence for renders the fallback, raw name only in the row data', function () {
+    // THE FIXTURE ACTION MOVED IN PHASE 3b-ii TASK 5, and the reason is
+    // this test working exactly as intended. It used 'parish_unit.created',
+    // which was unregistered when this was written and IS registered now
+    // that manage/units ships — so the fallback stopped being the answer and
+    // this test went red on the real sentence, which is the correct
+    // behaviour of a guard against an unregistered action.
+    //
+    // 'parish_unit.merged' replaces it: there is no such command anywhere,
+    // in this codebase or in the reference (OPS §4.5 lists four unit acts —
+    // create, rename, delete, reorder — and merging two đơn vị is not among
+    // them). It is also deliberately SHAPED like a real action, dotted and
+    // snake_cased, so the fallback is proved against something the parser
+    // accepts rather than against a malformed string.
     $f = alogFix();
     AuditLog::query()->create([
         'bookshelf_id' => $f['shelf']->id, 'actor_id' => $f['maria']->id,
-        'action' => 'parish_unit.created', 'entity_type' => 'parish_unit', 'entity_id' => null,
+        'action' => 'parish_unit.merged', 'entity_type' => 'parish_unit', 'entity_id' => null,
         'before' => null, 'after' => ['name' => 'Tổ 1'], 'context' => [],
         'occurred_at' => '2026-08-14 08:00:00',
     ]);
@@ -257,8 +270,8 @@ it('an action this build has no sentence for renders the fallback, raw name only
     $row = app(AuditLogQuery::class)->run()['rows'][0];
 
     expect($row['sentence'])->toBe('Maria Quản Lý Nhật Ký đã thực hiện một thao tác hệ thống chưa được mô tả')
-        ->and($row['sentence'])->not->toContain('parish_unit.created')
-        ->and($row['action'])->toBe('parish_unit.created')   // the expansion's copy
+        ->and($row['sentence'])->not->toContain('parish_unit.merged')
+        ->and($row['action'])->toBe('parish_unit.merged')   // the expansion's copy
         ->and($row['group'])->toBeNull();
 });
 

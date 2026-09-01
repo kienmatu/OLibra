@@ -245,4 +245,37 @@ class Bookshelf extends Model
     {
         return $this->hasMany(BookDonation::class);
     }
+
+    /**
+     * BR §5.6's parish units — what scopeBindings() resolves the
+     * {parishUnit} route parameter on `manage/units` through (Phase
+     * 3b-ii Task 5, spec D5).
+     *
+     * The two-layer shape comments() and donations() document, arriving
+     * on a table that already had the second layer and lacked the first:
+     * ParishUnit carries BelongsToBookshelf, so BookshelfScope alone
+     * would already turn another shelf's unit id into a 404 — but under
+     * ->scopeBindings() on the outer shelves/{shelf} group Laravel
+     * GUESSES this relation by name, and without it the four routes
+     * naming {parishUnit} would raise RelationNotFoundException rather
+     * than resolve at all. So this relation is load-bearing for routing
+     * first and a second tenancy defence second.
+     *
+     * The foreign key is guessed rather than spelled, matching every
+     * relation above: parish_units.bookshelf_id is what Laravel's
+     * convention derives from this class.
+     *
+     * SOFT-DELETED UNITS DO NOT RESOLVE THROUGH IT, because ParishUnit
+     * uses SoftDeletes and its global scope applies to the binding query
+     * like any other — which is what makes a second "Xoá" on a row a
+     * screen has gone stale about answer 404 rather than delete nothing
+     * and report success. The reference refuses the same case by hand
+     * (delete-parish-unit.ts's already-deleted branch).
+     *
+     * @return HasMany<ParishUnit, $this>
+     */
+    public function parishUnits(): HasMany
+    {
+        return $this->hasMany(ParishUnit::class);
+    }
 }

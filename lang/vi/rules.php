@@ -403,4 +403,22 @@ return [
     // it becomes true and there is no screen anywhere that would say it
     // later (spec D5 — OPS §4.5 lists no demotion command).
     'user_promoted_super_admin_flash' => 'Đã giao quyền quản trị hệ thống. Hiện chưa có cách thu hồi quyền này.',
+
+    // — đơn vị giáo xứ (Phase 3b-ii Task 5, spec D5) —
+    // Four writes, four sentences, on the thể loại screen's rule: a
+    // volunteer who pressed one control on a tree of many rows needs to be
+    // told which act landed, not merely that something did.
+    //
+    // The delete sentence carries two facts the press does not show. The
+    // cascade — the level-2 đơn vị inside a level-1 one go with it — is the
+    // thing somebody who meant to remove one row is most likely to have
+    // assumed otherwise, and the screen warns about it beforehand as well
+    // (the reference's own arrangement). And the retirement is SOFT: a bạn
+    // đọc already recorded in the đơn vị keeps it, the đơn vị simply stops
+    // being offered. Without that second half the sentence would read as
+    // data loss.
+    'parish_unit_created_flash' => 'Đã thêm đơn vị mới.',
+    'parish_unit_renamed_flash' => 'Đã đổi tên đơn vị. Bạn đọc đang ở đơn vị này vẫn giữ nguyên.',
+    'parish_unit_deleted_flash' => 'Đã xoá đơn vị, cùng các đơn vị bậc 2 bên trong nó. Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.',
+    'parish_unit_reordered_flash' => 'Đã đổi thứ tự các đơn vị.',
 ];
