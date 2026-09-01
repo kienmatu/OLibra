@@ -5,10 +5,22 @@ namespace App\Http\Requests\Community;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * The shelf Góp ý submit, for OPS §4.4's SubmitFeedback.
+ * The Góp ý submit, for OPS §4.4's SubmitFeedback.
  *
- * THE ROUTE IS `shelves.feedback.store`, and it is the one write in this
- * directory that authorises EVERYBODY. Every sibling here opens with
+ * TWO ROUTES, ONE RULESET, since phase 3c-ii Task 3: `shelves.feedback.store`
+ * and the public `contact.feedback`. Not shared out of thrift — the two
+ * bodies are the same body. A góp ý is a typed name, a telephone number, an
+ * optional subject and a message, whichever address it was sent from, and
+ * the ONE thing that differs between the two surfaces is the shelf the
+ * message lands on, which is exactly the thing no ruleset here may decide:
+ * the shelf form takes it from the URI and the contact form has none at all
+ * (App\Http\Controllers\ContactController::store passes `siteWide: true`).
+ * A second class with these same four rules would be a second place for the
+ * `encoding:UTF-8` guard and the two lengths to drift, and the drift would
+ * show up as a 500 on whichever of the two forms was forgotten.
+ *
+ * IT IS THE ONE WRITE IN THIS DIRECTORY THAT AUTHORISES EVERYBODY. Every
+ * sibling here opens with
  * `abort_unless(Gate::allows('act-as-…'), 404)`; this class has no such
  * line and its absence is the rule, not an omission. routes/web.php:220's
  * GET sits deliberately outside the shelf's `role:reader` group because
@@ -30,7 +42,10 @@ use Illuminate\Foundation\Http\FormRequest;
  * corresponding hazard is the opposite direction and worse: a body that
  * COULD name a shelf would let any visitor file a message into any
  * parish's inbox from any address. rules() below is the whole of what a
- * request body can say, and no key in it names a shelf.
+ * request body can say, and no key in it names a shelf. On the contact
+ * route there is not even a URI segment to take one from, and the absence
+ * is the message's meaning: it belongs to the installation, not to a
+ * parish.
  *
  * The phone's SHAPE is not judged here. Phone::assert() inside
  * SubmitFeedback is the single judge of that (spec D2), so a direct

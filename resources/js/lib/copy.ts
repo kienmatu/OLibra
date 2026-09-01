@@ -44,29 +44,82 @@ export const copy = {
     },
     // Phase 3b-ii Task 2's screen (spec D2) — the public `/contact`, and the
     // only page in the application a parish with no bookshelf at all can
-    // reach and act on. Everything here is read from `system_settings`'
-    // three contact columns, which /admin/settings (Task 1) edits.
+    // reach and act on. The card above the fold is read from
+    // `system_settings`' three contact columns, which /admin/settings edits;
+    // the keys below `noContact` are phase 3c-ii Task 3's form, which is
+    // what the page shows INSTEAD of that card when there is nothing in
+    // those columns to show.
     contact: {
         title: "Liên hệ ban quản trị",
         // The reference's own subtitle, and the reason the page exists: the
         // portal's empty state sends a parish here to ask for a tủ sách.
         lead: "Muốn mở một tủ sách cho giáo xứ mình, hoặc cần giúp đỡ về hệ thống?",
-        // THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, given by the
-        // plan rather than invented here. The reference has none to port —
-        // its else-branch is the feedback form 3b-ii defers to 3c, to land
-        // with the inbox that reads it — so this is the app's only public
-        // front door talking to somebody it cannot help directly, and the
-        // wording was decided once, in the plan, rather than improvised.
+        // Shown only beside a real number. The application sends no email at
+        // all, so a visitor who reads "liên hệ" and looks for an address
+        // would otherwise wait for a reply that never comes.
+        callNote: "Hệ thống không gửi email. Gọi vào số trên là nhanh nhất.",
+        // THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, and since
+        // phase 3c-ii Task 3 it INTRODUCES THE FORM below it rather than
+        // standing in for it. What it said until this commit is retracted
+        // in place, the way this project retracts:
+        //
+        //   > "Hiện chưa có thông tin liên hệ chung. Xin liên hệ trực tiếp
+        //   > với giáo xứ của bạn."
+        //
+        //   > THE SENTENCE FOR A WHOLLY UNCONFIGURED INSTALLATION, given
+        //   > by the plan rather than invented here. The reference has none
+        //   > to port — its else-branch is the feedback form 3b-ii defers
+        //   > to 3c, to land with the inbox that reads it — so this is the
+        //   > app's only public front door talking to somebody it cannot
+        //   > help directly, and the wording was decided once, in the plan,
+        //   > rather than improvised.
+        //
+        // Its own comment named itself the substitute for the form, so the
+        // form arriving is what retires it. It became FALSE as well as
+        // redundant: "xin liên hệ trực tiếp với giáo xứ của bạn" sends the
+        // sender away from the one channel that now reaches the
+        // administrator, and the visitor this page exists for is a parish
+        // whose own giáo xứ is precisely who is asking.
+        //
+        // The replacement is the reference's own else-branch lead
+        // (`old_next/src/app/lien-he/page.tsx:104`), which says three
+        // things in one breath: why there is no number to ring, that the
+        // message is read, and that the reply comes by telephone — which is
+        // what makes asking for the number below reasonable.
         //
         // It is NOT a placeholder for the three details: a blank field is
         // omitted outright (never an invented name or number), and this
         // line appears only when there is no name and no phone at all.
         noContact:
-            "Hiện chưa có thông tin liên hệ chung. Xin liên hệ trực tiếp với giáo xứ của bạn.",
-        // Shown only beside a real number. The application sends no email at
-        // all, so a visitor who reads "liên hệ" and looks for an address
-        // would otherwise wait for a reply that never comes.
-        callNote: "Hệ thống không gửi email. Gọi vào số trên là nhanh nhất.",
+            "Ban quản trị chưa điền số điện thoại liên hệ trực tiếp. Gửi lời nhắn dưới đây, ban quản trị sẽ đọc được trong hộp góp ý và liên lạc lại theo số điện thoại bạn để lại.",
+        // The form's own labels, phase 3c-ii Task 3. NOT copy.feedback's —
+        // this file's header bans merging namespaces on coincidental
+        // wording, and the wording is not even coincidental here: the shelf
+        // form is read by children and their parents and says "bạn" and
+        // "các cô chú giữ tủ sách", while this page is a parish
+        // representative writing to the people who run the installation.
+        // The reference draws the same distinction in the same place —
+        // "Tên của anh/chị" here against "Tên của bạn" there.
+        nameLabel: "Tên của anh/chị",
+        phoneLabel: "Số điện thoại",
+        // WHY A NUMBER IS COMPULSORY, said beside the label: this branch
+        // renders precisely when the installation has published no number
+        // of its own, so the sender's is the only way an answer can come
+        // back. The application sends no email at all.
+        phoneNote: "Ban quản trị sẽ gọi lại theo số này.",
+        subjectLabel: "Chủ đề",
+        // The reference's own example, and it names the errand that brings
+        // most people to this page.
+        subjectPlaceholder: "vd: Mở tủ sách mới",
+        subjectOptional: "Không bắt buộc",
+        bodyLabel: "Nội dung",
+        // The word, never an asterisk — AGENTS.md rule 6.
+        required: "Bắt buộc",
+        // {count} is filled from the dailyLimit prop, so the promise and
+        // App\Actions\Community\SubmitFeedback::DAILY_LIMIT cannot drift.
+        // The reference hard-codes the 3 in its own markup.
+        limitNote: "Mỗi số điện thoại gửi tối đa {count} góp ý mỗi ngày, để tránh tin rác.",
+        submit: "Gửi liên hệ",
     },
     shelf: {
         catalogue: "Danh mục",

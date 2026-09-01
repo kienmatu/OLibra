@@ -4775,28 +4775,63 @@ parish taxonomy's *shape*, and `manage/units` gains the units themselves.
 of what follows is a half of BR §16 this phase deliberately did not build, or a
 place where the port's own arrangement diverges from the requirements' text.
 
-- **The public contact form is deferred to 3c, to land with the inbox that
-  reads it (spec D2).** `docs/BUSINESS-REQUIREMENTS.md:504` asks for the three
-  details *"plus a short form"*, and this phase ships only the details. The
-  reason is that the form has no reader: there is **no feedback write path in
-  this application at all** — no action, no controller, no POST route, and the
-  only registered rate limiter is `register`
-  (`app/Providers/AppServiceProvider.php:132`). `App\Models\Feedback` exists as
-  a model and a table and nothing writes to it. Its two inboxes are both
-  explicitly 3c's placeholders — `/admin/feedback` (`routes/web.php:755`) and
-  the shelf's own feedback page (`:217`), each still
-  `ShellController::underConstruction`. A form whose messages land in a table no
-  screen can read is worse than no form, because it promises a reply that cannot
-  come; `routes/web.php:55-58` says so at the one place a POST would be added.
+- **~~The public contact form is deferred to 3c, to land with the inbox that
+  reads it (spec D2).~~ CLOSED 2026-09-01, phase 3c-ii Task 3.** The form is
+  built, on the `/contact` page this entry is about: `POST /contact`
+  (`contact.feedback`) reaches `App\Http\Controllers\ContactController::store`,
+  which calls `App\Actions\Community\SubmitFeedback` with `siteWide: true` —
+  so the row's `bookshelf_id` is null and the message belongs to the
+  installation rather than to any parish. Both conditions this entry named as
+  the reason for deferring are met by the same phase: the write path exists
+  (Task 1) and `/admin/feedback` reads it (Task 4). The three shipped
+  statements that asserted the absence — `routes/web.php`'s "There is NO POST
+  here", `ContactController`'s "NO FEEDBACK FORM" docblock and
+  `tests/Feature/Shell/ContactPageTest.php`'s "has no write route at all" —
+  are retracted in place in the same commit, each carrying its original text.
+  `copy.contact.noContact` is retracted with them: its own comment named it
+  the substitute for the form, and *"xin liên hệ trực tiếp với giáo xứ của
+  bạn"* had become false advice, since the visitor being addressed IS the
+  parish. It is replaced by the reference's own lead sentence above the form
+  (`old_next/src/app/lien-he/page.tsx:104`).
 
-  **The reference does not "always render" the form either**, and getting that
-  wrong is what the spec's second draft did. `old_next/src/app/lien-he/page.tsx:62`
-  computes `hasContact = Boolean(contact.name || contact.phone)` and `:83` is a
-  **ternary** — the contact card *or* the form, never both — so over there the
-  form is the empty state for an unconfigured installation, not a companion to
-  the card. Note the gate is `name || phone`: contact hours alone do not count.
-  What this port ships instead of the form, when nothing is configured, is a
-  sentence telling the visitor to approach their parish directly.
+  **The reference's shape is followed, not widened**, which is the one part of
+  the original entry that still governs and is therefore repeated rather than
+  struck: `hasContact = Boolean(contact.name || contact.phone)` and the
+  ternary at `:83` mean the contact card **or** the form, never both, and
+  contact hours alone do not count. An installation with a published name or
+  number still shows only the card.
+
+  **What is NOT bought, said plainly:** the route takes no `throttle:`
+  middleware. The limit is spec D2's domain rule — three per phone number
+  over a rolling 24 hours, inside the command — so a sender churning valid
+  Vietnamese numbers is bounded by `Phone::assert()` and by nothing per-IP.
+  That is the same footing `shelves.feedback.store` already ships on, and it
+  is recorded here rather than left for someone to discover.
+
+  Kept struck rather than deleted, for this file's usual reason: a note that
+  vanishes without saying it was answered comes back. Original text below.
+
+  > ~~`docs/BUSINESS-REQUIREMENTS.md:504` asks for the three
+  > details *"plus a short form"*, and this phase ships only the details. The
+  > reason is that the form has no reader: there is **no feedback write path in
+  > this application at all** — no action, no controller, no POST route, and the
+  > only registered rate limiter is `register`
+  > (`app/Providers/AppServiceProvider.php:132`). `App\Models\Feedback` exists as
+  > a model and a table and nothing writes to it. Its two inboxes are both
+  > explicitly 3c's placeholders — `/admin/feedback` (`routes/web.php:755`) and
+  > the shelf's own feedback page (`:217`), each still
+  > `ShellController::underConstruction`. A form whose messages land in a table no
+  > screen can read is worse than no form, because it promises a reply that cannot
+  > come; `routes/web.php:55-58` says so at the one place a POST would be added.~~
+  >
+  > ~~**The reference does not "always render" the form either**, and getting that
+  > wrong is what the spec's second draft did. `old_next/src/app/lien-he/page.tsx:62`
+  > computes `hasContact = Boolean(contact.name || contact.phone)` and `:83` is a
+  > **ternary** — the contact card *or* the form, never both — so over there the
+  > form is the empty state for an unconfigured installation, not a companion to
+  > the card. Note the gate is `name || phone`: contact hours alone do not count.
+  > What this port ships instead of the form, when nothing is configured, is a
+  > sentence telling the visitor to approach their parish directly.~~
 
 - **Backup controls are not built, and that is a decision rather than an
   oversight (spec D1).** `docs/BUSINESS-REQUIREMENTS.md:598` lists backup among

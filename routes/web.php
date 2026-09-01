@@ -50,17 +50,42 @@ Route::get('/', [ShellController::class, 'home'])->name('home');
 Route::get('/register', [RegistrationController::class, 'create'])->name('register');
 Route::post('/register', [RegistrationController::class, 'store'])
     ->middleware('throttle:register')->name('register.store');
-// Phase 3b-ii Task 2 (spec D2). Deliberately outside every group on this
-// file: no `auth`, no `role:`, and above all no `tenant`. The visitor this
-// page is for is a parish with no bookshelf at all, so binding a tenant is
-// not merely unnecessary, there is nothing to bind. ContactController's
+// Phase 3b-ii Task 2 (spec D2), and phase 3c-ii Task 3's POST beside it.
+// BOTH VERBS sit deliberately outside every group on this file: no `auth`,
+// no `role:`, and above all no `tenant`. The visitor these two lines are
+// for is a parish with no bookshelf at all, so binding a tenant is not
+// merely unnecessary, there is nothing to bind. ContactController's
 // docblock carries what that costs the controller.
 //
-// There is NO POST here and must not be one until 3c: BR §16.1's feedback
-// form lands with the inbox that reads it, and adding a write path to a
-// route with no throttle and no reader is how a page that helps a stranger
-// becomes a page that silently swallows their message.
+// RETRACTED, phase 3c-ii Task 3, by the phase this line was waiting for.
+// What stood here was:
+//
+//   > There is NO POST here and must not be one until 3c: BR §16.1's
+//   > feedback form lands with the inbox that reads it, and adding a write
+//   > path to a route with no throttle and no reader is how a page that
+//   > helps a stranger becomes a page that silently swallows their message.
+//
+// It is retracted rather than deleted because it was right, and because the
+// POST below is only defensible once its two conditions are met. They are:
+// `/admin/feedback` is this phase's Task 4, so the message has a reader;
+// and the limit is spec D2's domain rule inside
+// App\Actions\Community\SubmitFeedback — three messages per phone number
+// over a ROLLING 24 hours, counted off the injected clock — chosen there
+// over route middleware deliberately, because a `throttle:` refusal is a
+// bare 429 where this one is a Vietnamese sentence the sender can read.
+//
+// NO `throttle:` MIDDLEWARE, then, and that is stated rather than left to
+// be noticed: this route is no weaker than `shelves.feedback.store`, the
+// guest-reachable shelf form the previous task shipped under exactly the
+// same domain rule and no route limiter either. What is NOT bought by
+// either is a per-IP ceiling — the key is the phone number, so a sender
+// churning valid numbers is bounded by Phone::assert() and nothing else.
+//
+// The POST is the one call site in the whole application that tells
+// SubmitFeedback its message belongs to NO shelf, which is the only reason
+// that command takes a $siteWide flag at all.
 Route::get('/contact', [ContactController::class, 'show'])->name('contact');
+Route::post('/contact', [ContactController::class, 'store'])->name('contact.feedback');
 Route::get('/shelves', [ShellController::class, 'shelves'])->name('shelves.index');
 
 // ── One shelf ─────────────────────────────────────────────────────────────
