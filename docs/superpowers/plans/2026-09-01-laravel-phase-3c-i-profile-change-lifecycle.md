@@ -185,6 +185,13 @@ would let a reader point their avatar at **any storage key**.
 that column through its own path and never revisits this request class, so the
 guard has to be here.
 
+**And the read side needs its own guard, which Task 1 found.** `avatar_object`
+being one of the nine means a proposal may name it, and a generic
+`{label}: {value}` row would print a **storage key** on the reader's own page.
+Task 1 renders a bare label for that field instead. Any screen this task or a
+later one adds that lists proposed fields must do the same until Task 8 replaces
+the label with the two photographs.
+
 **Saint name is mandatory** (BR:87); `ProfileFields::normalisePatch` already
 raises `required_fields_missing` for a blank one (`:59-61`). **The phone/reason
 pair** already exists inline at `UpdateReaderProfile.php:88-94` — auto-clear at
