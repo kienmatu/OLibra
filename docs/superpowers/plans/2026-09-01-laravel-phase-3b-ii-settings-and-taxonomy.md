@@ -286,6 +286,13 @@ saying `// canEdit switches the tree` satisfies a naive grep; deleting a parent 
 by real `parent_id` on a shelf with `nested` off; a partial sibling list is
 refused.
 
+**Two test-shape traps measured by earlier tasks.** `AuditSentences::phrase()` is
+**private**; assert through the public `sentence($action, $facts)` against the
+`:actor đã :phrase` frame. And 3b-i's data-loss test reads the raw settings bag,
+which for a whole-column write fails as an undefined-key `ErrorException` — a
+crash, not a statement about behaviour. Read through `LendingSettings` /
+`CommentSettings` instead, so the red says what actually broke.
+
 **`$model->fresh()` does NOT return null for a soft-deleted row** — Task 3
 measured this. An assertion written that way passes vacuously. Read back through
 `ParishUnit::query()->find($id)` instead, which respects the soft-delete scope.
