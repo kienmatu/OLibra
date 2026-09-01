@@ -214,17 +214,19 @@ The first draft stated two facts in one paragraph without noticing they collide:
 is fenced by `WideningArchitectureTest:122-126` to `app/Actions/Admin/` — but
 `SubmitFeedback` is a guest-open community write, not an administration action.
 
-**The decision: `SubmitFeedback` lives in `app/Actions/Community/` and does not
-audit the submission itself.** `feedback.submitted` is written by the surface
-controllers is *not* the answer either — the census bans a computed action name
-and the fence is about the file.
+**The decision: `SubmitFeedback` lives in `app/Actions/Community/`, and the
+audit configurator's fence grows that directory.**
 
-Instead the fence grows a second sanctioned directory, `app/Actions/Community/`,
-**for the audit configurator only** — not for `systemWide()`, which stays
-confined to the two admin directories. The two fences are separate `it()` blocks
-over different patterns and can диverge deliberately; widening the narrower one
-is a smaller grant than moving a guest-open write into the admin namespace, and
-it is the honest description of what is true: a shelf-less write needs to say so.
+Three exits existed. Moving a guest-open community write into
+`app/Actions/Admin/` misfiles it by namespace to satisfy a test. Not auditing
+the public submission at all loses the record BR §14 wants. Widening the fence is
+the smallest honest grant, and it is a grant of exactly what is true: **a
+shelf-less write has to be able to say so.**
+
+Note the two fences are separate `it()` blocks over different patterns.
+`systemWide()` stays confined to the two admin directories — that one is not
+touched. Only the audit configurator's fence grows, and only by this one
+directory.
 
 Mark-read and resolve stay in `app/Actions/Admin/` — they are administration.
 
