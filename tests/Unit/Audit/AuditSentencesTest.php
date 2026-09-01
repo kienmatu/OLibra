@@ -382,6 +382,32 @@ it('donation.declined carries the reason, and drops the clause when there is non
         ->toBe('Maria Quản Lý Kho đã từ chối một đề nghị tặng sách');
 });
 
+it('feedback.submitted names no sender, and reads as the system when a guest sent it', function () {
+    // Phase 3c-ii Task 1, and its own block for the reason every community
+    // block above states: the sweep below compares each action's sentence
+    // against the UNDESCRIBED-ACTION fallback, and line() on a deleted key
+    // evaluates to '' rather than to that fallback, so an action with no
+    // case here has a lang line the sweep cannot pin.
+    //
+    // THE NULL-ACTOR EXPECTATION IS THE POINT OF THIS ACTION, not scenery.
+    // SubmitFeedback is the one write in the catalogue with no floor at
+    // all: a guest with no account sends most of these, so the audit row's
+    // actor_id is null and the frame has to supply "Hệ thống". Who actually
+    // sent it is on the message row (the typed name and contact), which is
+    // deliberately kept out of the payload.
+    expect(AuditSentences::sentence('feedback.submitted', audFacts(
+        after: ['site_wide' => true],
+    )))->toBe('Hệ thống đã nhận một góp ý');
+
+    // The arm's SHAPE: the phrase interpolates nothing, so a signed-in
+    // sender's row renders the identical phrase, and the payload flag never
+    // reaches the sentence. An arm that grew a :name would redden here.
+    expect(AuditSentences::sentence('feedback.submitted', audFacts(
+        actor: 'Têrêsa Bạn Đọc Nhỏ',
+        after: ['site_wide' => false],
+    )))->toBe('Têrêsa Bạn Đọc Nhỏ đã nhận một góp ý');
+});
+
 it('every action in the map renders a real sentence, never the undescribed-action fallback', function () {
     // FIX ROUND, item 1. Until this block, NOTHING iterated ACTIONS
     // asserting each key renders something. AuditActionCensusTest looks
@@ -432,7 +458,7 @@ it('actionsInGroup partitions the whole map with nothing left over', function ()
     ));
     expect($groups)->toEqualCanonicalizing(AuditSentences::GROUPS)
         ->and($all)->toEqualCanonicalizing(array_keys(AuditSentences::ACTIONS))
-        ->and(AuditSentences::ACTIONS)->toHaveCount(63);
+        ->and(AuditSentences::ACTIONS)->toHaveCount(64);
 });
 
 it('copy.qr_printed names the count, an int cast to string, never str()\'s trimmed-string shape', function () {

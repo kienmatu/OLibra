@@ -164,6 +164,12 @@ return [
     // 'because' line above supplies its own leading space.
     'donation_received' => 'nhận một đề nghị tặng sách',
     'donation_declined' => 'từ chối một đề nghị tặng sách:because',
+    // Phase 3c-ii Task 1's góp ý, the reference's phrase verbatim
+    // (audit-actions.ts:336-341, whose phrase is `() => "nhận một góp ý"`).
+    // It takes no facts there and takes none here: the actor is usually null
+    // (a guest may send one), so the frame reads "Hệ thống đã nhận một góp
+    // ý", and who sent it is on the message itself rather than in the log.
+    'feedback_submitted' => 'nhận một góp ý',
 
     // — quản trị hệ thống —
     // Phase 3b-i's administration group. Note the key shape: this file

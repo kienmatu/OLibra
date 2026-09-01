@@ -487,4 +487,21 @@ return [
     'parish_unit_renamed_flash' => 'Đã đổi tên đơn vị. Bạn đọc đang ở đơn vị này vẫn giữ nguyên.',
     'parish_unit_deleted_flash' => 'Đã xoá đơn vị, cùng các đơn vị bậc 2 bên trong nó. Bạn đọc đã ghi ở đây vẫn giữ lại lịch sử, chỉ không còn chọn được đơn vị này nữa.',
     'parish_unit_reordered_flash' => 'Đã đổi thứ tự các đơn vị.',
+
+    // — góp ý (Phase 3c-ii Task 1, spec D1 and D2) —
+    // Both refused by SubmitFeedback, and both written for a caller who may
+    // be a guest with no account: they name what to do next, not what the
+    // system checked.
+    //
+    // The fields sentence lists the three fields by name rather than saying
+    // "các trường bắt buộc", because this is the only form in the system a
+    // person reaches with no session, no account and nothing on screen to
+    // compare against — and the subject line is genuinely optional, so a
+    // generic sentence would have them hunting for a fourth missing box.
+    'feedback_fields_required' => 'Vui lòng ghi tên, số điện thoại và nội dung góp ý.',
+    // Says the number, the window and that the message was NOT kept. A
+    // sender who is refused with no count has no way to know whether to
+    // wait a minute or a day, and one who is not told the message was
+    // dropped will assume it arrived.
+    'rate_limited' => 'Mỗi số điện thoại chỉ gửi được 3 góp ý trong 24 giờ. Góp ý này chưa được gửi, xin gửi lại sau.',
 ];

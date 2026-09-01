@@ -122,7 +122,19 @@ it('the widening wrapper is confined to app/Queries/Admin and app/Actions/Admin'
 it('the audit configurator is confined to app/Actions/Admin', function () {
     $pattern = '/->\s*(global|forShelf)\s*\(/';
 
-    $offenders = collect(offendersFor($pattern, []))
+    // ONE FILE, NOT THE DIRECTORY (Phase 3c-ii, spec D7). SubmitFeedback is
+    // a community write open to guests, so it cannot live in
+    // app/Actions/Admin/ — but the public contact page has no shelf and no
+    // tenant, and a site-wide message's audit row has to say so. The grant
+    // is one file because app/Actions/Community/ also holds
+    // CreateAnnouncement, the pin/unpin pair and the comment and donation
+    // commands: allow-listing the directory would open the configurator to
+    // exactly the shelf-scoped writes this fence exists to hold inside
+    // tenancy. The shelf's own Góp ý route needs no entry at all — it runs
+    // under a bound tenant, so the recorder never throws for it.
+    $allowed = ['app/Actions/Community/SubmitFeedback.php'];
+
+    $offenders = collect(offendersFor($pattern, $allowed))
         ->reject(fn (string $path) => str_starts_with($path, 'app/Actions/Admin/'))
         ->values()
         ->all();
