@@ -45,4 +45,18 @@ return [
     // aside (NotificationSentences::date's docblock) — so this one is
     // too.
     'comment_approved' => 'Bình luận của bạn đã được duyệt và hiện đã hiển thị.',
+
+    // 3c-i's pair (BR:490), and the two lines in this file with NO
+    // reference to transcribe from: BR §15 names them, kinds.ts does not
+    // implement them, so the Vietnamese is this port's own. It is written
+    // to the same shapes as the rest of the file — the approval is the
+    // MembershipApproved shape (fixed sentence, empty payload), the
+    // rejection the MembershipRejected shape (:because, absent reason →
+    // absent clause).
+    //
+    // "thông tin cá nhân", not "hồ sơ": the reader-facing screens call
+    // this the person's details, and a bell line is the wrong place to
+    // introduce a second word for the same thing.
+    'profile_change_approved' => 'Thông tin cá nhân của bạn đã được cập nhật.',
+    'profile_change_rejected' => 'Yêu cầu cập nhật thông tin của bạn chưa được duyệt:because.',
 ];

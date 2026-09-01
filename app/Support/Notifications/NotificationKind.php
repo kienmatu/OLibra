@@ -20,7 +20,15 @@ namespace App\Support\Notifications;
  * Grown per task (plan divergence 7). The pair Task 17 adds is written
  * by the reminder sweep rather than by a command — OPS §7's argued
  * exception, still reader-facing. The profile-change pair BR §15 names
- * has no reference implementation and is Phase 3's to decide.
+ * had no reference implementation and was Phase 3's to decide; phase
+ * 3c-i's Task 6 decided it, and the two cases below are that decision.
+ *
+ * BR:490 names both and BR:492 gives the reason: "without them a reader
+ * would have to keep revisiting the page to find out whether their new
+ * phone number took effect." The rejection carries the manager's reason,
+ * which is why its payload has a `reason` key and the approval's payload
+ * has none — the approval says only that the details moved, because the
+ * reader's own profile page already shows what they now are.
  */
 enum NotificationKind: string
 {
@@ -31,4 +39,6 @@ enum NotificationKind: string
     case LoanDueSoon = 'loan_due_soon';
     case LoanOverdue = 'loan_overdue';
     case CommentApproved = 'comment_approved';
+    case ProfileChangeApproved = 'profile_change_approved';
+    case ProfileChangeRejected = 'profile_change_rejected';
 }

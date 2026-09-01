@@ -7,9 +7,11 @@ use App\Exceptions\RuleViolated;
 use App\Models\AuditLog;
 use App\Models\Bookshelf;
 use App\Models\Membership;
+use App\Models\Notification;
 use App\Models\ParishUnit;
 use App\Models\ProfileChangeRequest;
 use App\Models\User;
+use App\Support\Notifications\NotificationSentences;
 use App\Support\TenantContext;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -436,3 +438,100 @@ function decShelfManager(Bookshelf $shelf): array
 
     return [$manager, $membership];
 }
+
+/**
+ * Task 6 — BR §15's profile-change pair (spec D8).
+ *
+ * BR:492 gives the reason these two exist at all: "without them a reader
+ * would have to keep revisiting the page to find out whether their new
+ * phone number took effect." So what is asserted below is that the reader
+ * — never the deciding manager — ends up holding the sentence, and that
+ * the rejection's sentence still carries the manager's reason once
+ * NotificationSentences has rendered it. Asserting the stored payload
+ * alone would pass on a reason that never reaches a sentence.
+ */
+it('approving tells the SUBJECT, and tells the deciding manager nothing', function () {
+    [$shelf, $person] = decShelfWith('dong-thap');
+    [$manager, $managerMembership] = decShelfManager($shelf);
+
+    decActAs($shelf, $manager, $managerMembership);
+    $request = decPending($shelf, $person, ['phone' => '0922222222'], ['phone' => '0911111111']);
+
+    decApprove($manager, decRow($request->id));
+
+    $note = Notification::query()->withoutGlobalScopes()->sole();
+
+    expect($note->user_id)->toBe($person->id)
+        ->and($note->kind)->toBe('profile_change_approved')
+        // The shelf comes off the request row, on both paths.
+        ->and($note->bookshelf_id)->toBe($shelf->id)
+        // BR §15: managers get none, by design.
+        ->and(Notification::query()->withoutGlobalScopes()->where('user_id', $manager->id)->count())->toBe(0)
+        ->and(NotificationSentences::sentence($note->kind, $note->payload))
+        ->toBe('Thông tin cá nhân của bạn đã được cập nhật.');
+});
+
+it('rejecting tells the subject, CARRYING the manager\'s reason into the sentence', function () {
+    [$shelf, $person] = decShelfWith('dong-thap');
+    [$manager, $managerMembership] = decShelfManager($shelf);
+
+    decActAs($shelf, $manager, $managerMembership);
+    $request = decPending($shelf, $person, ['phone' => '0922222222']);
+
+    decReject($manager, decRow($request->id), '  Số này là của hàng xóm.  ');
+
+    $note = Notification::query()->withoutGlobalScopes()->sole();
+
+    expect($note->user_id)->toBe($person->id)
+        ->and($note->kind)->toBe('profile_change_rejected')
+        // THE SENTENCE FIRST, and the payload key read with ?? null — both
+        // deliberate. A failed expect() aborts the whole method, so
+        // whichever assertion comes first is the one a falsification run
+        // gets to show; and a bare $note->payload['reason'] on a payload
+        // that lost its reason raises ErrorException before any
+        // expectation runs at all, which reddens on the wrong thing. What
+        // BR:490 requires is that the reason reaches the READER, so that
+        // is what fails first when it does not.
+        ->and(NotificationSentences::sentence($note->kind, $note->payload))
+        ->toBe('Yêu cầu cập nhật thông tin của bạn chưa được duyệt vì Số này là của hàng xóm..')
+        // Trimmed, and the same string the column and the audit row hold.
+        ->and($note->payload['reason'] ?? null)->toBe('Số này là của hàng xóm.');
+});
+
+it('writes the notification from the UNBOUND /admin path too, onto the request\'s own shelf', function () {
+    // The half the manager's path cannot exercise: Notification carries
+    // BelongsToBookshelf, and the cross-shelf queue binds no tenant, so
+    // without the shelf being named the create-hook throws. A manager
+    // SUBJECT is what routes the decision to a super administrator, which
+    // is exactly the case that arrives unbound.
+    [$shelf, $person] = decShelfWith('dong-thap', 'manager');
+
+    $request = decPending($shelf, $person, ['phone' => '0922222222']);
+    $admin = decActAsSuperAdmin();
+
+    decReject($admin, decRow($request->id), 'Số này chưa đúng.');
+
+    $note = Notification::query()->withoutGlobalScopes()->sole();
+
+    expect($note->user_id)->toBe($person->id)
+        ->and($note->kind)->toBe('profile_change_rejected')
+        ->and($note->bookshelf_id)->toBe($shelf->id);
+});
+
+it('a notification cannot outlive a rolled-back decision', function () {
+    // The phase's headline guarantee, from the behavioural side rather
+    // than the token walk's. applyPlacement raises its refusal AFTER the
+    // status write and BEFORE the notify, so a refused approval is the
+    // shape that proves the whole closure rolls back together.
+    [$shelf, $person] = decShelfWith('dong-thap');
+    [$manager, $managerMembership] = decShelfManager($shelf);
+
+    decActAs($shelf, $manager, $managerMembership);
+    $request = decPending($shelf, $person, ['phone' => '0922222222']);
+
+    expect(fn () => decApprove($manager, decRow($request->id), ['parish_unit_l1_id' => 'khong-co-that']))
+        ->toThrow(RuleViolated::class);
+
+    expect(Notification::query()->withoutGlobalScopes()->count())->toBe(0)
+        ->and(decRow($request->id)->status)->toBe(ProfileChangeStatus::Pending);
+});

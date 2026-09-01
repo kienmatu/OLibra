@@ -72,6 +72,29 @@ it('comment_approved renders its fixed sentence from an empty payload', function
         ->toBe('Bình luận của bạn đã được duyệt và hiện đã hiển thị.');
 });
 
+it('profile_change_approved renders its fixed sentence from an empty payload', function () {
+    // 3c-i's first kind, and the MembershipApproved shape: the values are
+    // on the reader's own profile page, so the bell says only that they
+    // moved. A stray payload key changes nothing — there is no strtr.
+    expect(NotificationSentences::sentence('profile_change_approved', []))
+        ->toBe('Thông tin cá nhân của bạn đã được cập nhật.')
+        ->and(NotificationSentences::sentence('profile_change_approved', ['phone' => '0922222222']))
+        ->toBe('Thông tin cá nhân của bạn đã được cập nhật.');
+});
+
+it('profile_change_rejected carries the manager\'s reason, and degrades when there is none', function () {
+    // BR:490 names this one "carrying the manager's reason", so the reason
+    // is the point of the sentence. RejectProfileChange refuses a blank
+    // one before any write, so the degraded halves below describe a row
+    // written by hand or by an older build — never one this system wrote.
+    expect(NotificationSentences::sentence('profile_change_rejected', ['reason' => 'số này là của hàng xóm']))
+        ->toBe('Yêu cầu cập nhật thông tin của bạn chưa được duyệt vì số này là của hàng xóm.')
+        ->and(NotificationSentences::sentence('profile_change_rejected', []))
+        ->toBe('Yêu cầu cập nhật thông tin của bạn chưa được duyệt.')
+        ->and(NotificationSentences::sentence('profile_change_rejected', ['reason' => '  ']))
+        ->toBe('Yêu cầu cập nhật thông tin của bạn chưa được duyệt.');
+});
+
 it('an unknown stored kind renders the neutral line, never the raw token', function () {
     // Rows written by an older or newer build survive a deploy; a kind
     // this build does not know is a real state, not a programming error

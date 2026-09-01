@@ -17,6 +17,8 @@ use App\Support\ConcurrencyRetry;
 use App\Support\Members\ParishTaxonomy;
 use App\Support\Members\ParishUnits;
 use App\Support\Members\ProfileFields;
+use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 
@@ -95,6 +97,7 @@ final class ApproveProfileChange
         private AuditRecorder $audit,
         private Clock $clock,
         private TenantContext $context,
+        private Notifier $notifier,
     ) {}
 
     /**
@@ -158,6 +161,26 @@ final class ApproveProfileChange
                 $person->id,
                 array_merge($diff['before'], $placement['before']),
                 array_merge($diff['after'], $placement['after']),
+            );
+
+            // BR:490's first half, INSIDE the transaction — the phase's
+            // headline guarantee, and NotificationsAreReaderFacingTest's
+            // token walk is what holds it here.
+            //
+            // No payload: the sentence is fixed and the reader's own page
+            // carries the values (NotificationKind's note). And the shelf
+            // is named for the same reason the audit row above names it —
+            // the `/admin` queue reaches this command with no tenant
+            // bound, so the create-hook has none to stamp.
+            //
+            // Unconditional, even when $diff['changed'] is empty: what the
+            // reader is being told is that their request was decided, and
+            // "approved but nothing moved" is still the answer to the
+            // question BR:492 says they would otherwise revisit the page
+            // to ask.
+            $this->notifier->forShelf($pending->bookshelf_id)->notify(
+                $person->id,
+                NotificationKind::ProfileChangeApproved,
             );
         }, ConcurrencyRetry::ATTEMPTS);
     }

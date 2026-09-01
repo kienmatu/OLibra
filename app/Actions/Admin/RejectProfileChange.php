@@ -12,6 +12,8 @@ use App\Models\User;
 use App\Support\AuditRecorder;
 use App\Support\Clock;
 use App\Support\ConcurrencyRetry;
+use App\Support\Notifications\NotificationKind;
+use App\Support\Notifications\Notifier;
 use App\Support\TenantContext;
 use Illuminate\Support\Facades\DB;
 
@@ -30,7 +32,7 @@ use Illuminate\Support\Facades\DB;
  * second time here. OPS §4.3 says the same thing about its own two
  * entries: "governed by the identical routing rule … and is not restated".
  *
- * ── The reason exists at three layers, and each layer is load-bearing ────
+ * ── The reason exists at four layers, and each layer is load-bearing ─────
  *
  * 1. A BLANK REASON IS `reject_reason_required`, refused before any
  *    database round trip. Whitespace counts as blank — a space bar is not
@@ -49,6 +51,15 @@ use Illuminate\Support\Facades\DB;
  *    did this manager give at the time", and only the permanent row can
  *    answer it.
  *
+ * 4. IT IS CARRIED TO THE READER, in the notification (BR:490, which
+ *    names this pair as "profile change rejected (carrying the manager's
+ *    reason)"). Layer 2 puts the reason where the reader's page reads it;
+ *    this is what stops them having to go and look. It is a COPY of the
+ *    same trimmed string rather than a reference to the column for the
+ *    same reason layer 3 is: the column is overwritable and the
+ *    notification row, like the audit row, is the record of what was said
+ *    at the time.
+ *
  * ITS AUDIT ROW IS AGAINST THE `profile_change_request`, not the user —
  * spec D3's entity-type rule, and the asymmetry with Approve is the point:
  * nothing about the person changed, so a row filed against the person would
@@ -62,6 +73,7 @@ final class RejectProfileChange
         private AuditRecorder $audit,
         private Clock $clock,
         private TenantContext $context,
+        private Notifier $notifier,
     ) {}
 
     public function execute(User $actor, ProfileChangeRequest $request, string $reason): void
@@ -94,6 +106,21 @@ final class RejectProfileChange
                 $pending->id,
                 ['status' => ProfileChangeStatus::Pending->value],
                 ['status' => ProfileChangeStatus::Rejected->value, 'reason' => $reason],
+            );
+
+            // Layer 4, INSIDE the transaction — a reader told their change
+            // was refused by a transaction that then rolled back would be
+            // told about a refusal that never happened.
+            //
+            // The reason is unconditional: the guard at the top of
+            // execute() has already refused a blank one, so by here
+            // $reason is the same non-empty trimmed string the column and
+            // the audit row hold. RejectMembership's own notify says the
+            // same thing about the same shape.
+            $this->notifier->forShelf($pending->bookshelf_id)->notify(
+                $pending->user_id,
+                NotificationKind::ProfileChangeRejected,
+                ['reason' => $reason],
             );
         }, ConcurrencyRetry::ATTEMPTS);
     }

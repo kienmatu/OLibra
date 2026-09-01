@@ -57,6 +57,19 @@ final class NotificationSentences
             // No strtr — the MembershipApproved shape, because the
             // payload is empty (divergence 10).
             NotificationKind::CommentApproved => self::line('comment_approved'),
+            // BR:490's pair. Approved is the MembershipApproved shape —
+            // no payload, because the reader's own profile page is where
+            // the new values are, and repeating them in a bell line would
+            // freeze a copy of them beside the record they came from.
+            NotificationKind::ProfileChangeApproved => self::line('profile_change_approved'),
+            // Rejected carries the manager's reason, which BR:490 names in
+            // the requirement itself. It degrades through because() like
+            // every other reason-bearing line: a row written without one
+            // still reads as a sentence rather than as " vì ".
+            NotificationKind::ProfileChangeRejected => strtr(
+                self::line('profile_change_rejected'),
+                [':because' => self::because(self::str($payload, 'reason'))],
+            ),
         };
     }
 

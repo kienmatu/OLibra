@@ -3309,8 +3309,20 @@ named in it, not by reading it off the plan.
   admin's, because `Gate::before` returns true for any `act-as-*` when
   `is_super_admin`, which lets a null membership through.
 
-- **Two notification kinds BR §15 names are still deliberately absent,
-  and they have an owner.** This entry used to describe THREE, and the
+- **~~Two notification kinds BR §15 names are still deliberately absent,
+  and they have an owner~~ — CLOSED by Phase 3c-i Task 6.** The pair
+  shipped the way the entry below says the rule requires: two
+  `NotificationKind` cases (`profile_change_approved`,
+  `profile_change_rejected`), their two Vietnamese sentences, their
+  writers (`ApproveProfileChange` and `RejectProfileChange`), OPS §7's
+  two new table rows and the census's two new entries, all in one commit.
+  The rejection carries the manager's reason, which is the half BR:490
+  states explicitly. There was no reference to port, so the Vietnamese is
+  this port's own, written to the two shapes already in the file — the
+  `membership_approved` fixed sentence and the `membership_rejected`
+  `:because` clause. The original entry follows.
+
+  This entry used to describe THREE, and the
   count it carried was of entries rather than of kinds — the wording is
   corrected here in both directions. `comment_approved` has since
   ARRIVED: 2b's Task 3 landed the kind, its sentence, its writer
