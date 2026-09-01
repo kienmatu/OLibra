@@ -286,6 +286,10 @@ saying `// canEdit switches the tree` satisfies a naive grep; deleting a parent 
 by real `parent_id` on a shelf with `nested` off; a partial sibling list is
 refused.
 
+**`$model->fresh()` does NOT return null for a soft-deleted row** — Task 3
+measured this. An assertion written that way passes vacuously. Read back through
+`ParishUnit::query()->find($id)` instead, which respects the soft-delete scope.
+
 **Falsify:** group by the display list and watch the `nested`-off test go red.
 
 ---
