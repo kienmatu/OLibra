@@ -28,6 +28,34 @@ because the obvious reading was wrong:
 - **`previous_values` is captured at PROPOSAL time.** The column is NOT NULL, so
   a row cannot be inserted otherwise. D3.
 
+### The six Action classes this phase adds
+
+`MembersArchitectureTest:157-160`'s comment fixes this phase's contribution at
+six, so name them rather than inventing them:
+
+| class | task |
+|---|---|
+| `app/Actions/Admin/ProposeProfileChange.php` | 2 |
+| `app/Actions/Admin/ApproveProfileChange.php` | 3 |
+| `app/Actions/Admin/RejectProfileChange.php` | 3 |
+| `app/Actions/Admin/CancelProfileChange.php` | 4 |
+| `app/Actions/Admin/ChangeOwnPassword.php` | 7 |
+| `app/Actions/Admin/ProposeAvatarChange.php` | 8 |
+
+They live in `app/Actions/Admin/` because spec D10 forces it — not because they
+are administrative.
+
+### Locking: `lockForUpdate()` on the subject's **users** row, first
+
+The spec writes `FOR NO KEY UPDATE`, which is **Postgres**. This port is MariaDB
+10.11; the idiom is `->lockForUpdate()`.
+
+And "match `UpdateReaderProfile`'s lock position" means *match the discipline*,
+not the target: that test
+(`tests/Feature/Members/UpdateReaderProfileTest.php:181-192`) asserts its first
+query is on `memberships`. **These commands lock the subject's `users` row
+first**, before any read of `profile_change_requests`.
+
 ### The rule this phase exists to get right
 
 Who may decide is derived from the **subject's** role, not the viewer's, and it
@@ -62,6 +90,12 @@ Spec §6 lists ten. The two that will bite hardest:
   set-equality, so every new refusal code needs its `lang/vi/rules.php` sentence
   **and** its list entry in the same commit.
 
+**The refusal census is blind to a ternary.**
+`RuleViolatedCodesHaveSentencesTest:55` matches
+`/new RuleViolated\(\s*['"]([a-z0-9_-]+)['"]\s*[,)]/` — a first argument that is
+an expression is invisible, so `new RuleViolated($tooBig ? 'a' : 'b')` registers
+neither code. Write two literal throws. 3b-ii hit this exact shape.
+
 Two fences read raw file contents with **no comment stripping** — do not spell
 `->forShelf(`, `->global(`, a where-shaped call, or `new RuleViolated('code')`
 inside a comment. 3b-ii turned a docblock example into a censused code that way.
@@ -95,7 +129,10 @@ Spec D7, D11. No audit actions.
    profile page… That self-view ability is Phase 3's."* Add the ability it
    describes, gated `requireSelfOrManager`-style. `PolicyRegistrationTest`
    requires every policy to resolve to a model.
-2. **`GetMyProfile`** (`OPERATIONS.md:67` — note `:69` is `GetMyNotifications`).
+2. **`GetMyProfile`** (`OPERATIONS.md:67`) and **`GetMyProfileChangeRequest`**
+   (`:68`) — two named OPS operations. Note `MembershipPolicy`'s own docblock
+   cites `:69` for the first; **that citation is stale** (`:69` is
+   `GetMyNotifications`). Trust these numbers, not the docblock's.
 3. **The page** at `routes/web.php:236`, replacing `underConstruction`.
 
 **Two rendering contracts, both required:**
@@ -139,6 +176,14 @@ with memberships at two shelves**. Its refusal is `change_already_pending`.
 
 **Proposing is not reader-only** — any manager or above may propose on another's
 behalf (`requireSelfOrManager`).
+
+**Pin `avatar_object` OUT of this task's FormRequest.** It is already one of
+`ProfileFields`' nine (`ProfileFields.php:25`), normalised as a plain trimmed
+string with no validation — so piping the request body through `normalisePatch`
+would let a reader point their avatar at **any storage key**.
+`RegistrationController.php:94` records the same rule for guests. Task 8 sets
+that column through its own path and never revisits this request class, so the
+guard has to be here.
 
 **Saint name is mandatory** (BR:87); `ProfileFields::normalisePatch` already
 raises `required_fields_missing` for a blank one (`:59-61`). **The phone/reason
@@ -240,7 +285,14 @@ predicates to the shelf's own queues"*). `HandleInertiaRequests.php:132`'s
 `DonationQueueQuery::countPending()` with the list it links to.
 
 `manage-layout.tsx:25-36` records the missing nav entry and hands it here by
-name; the admin shell needs the cross-shelf equivalent.
+name; the admin shell needs the cross-shelf equivalent, and new
+`resources/js/lib/copy.ts` keys in the `copy.manage.donationsWithCount` shape
+(`manage-layout.tsx:55-57`).
+
+**The cross-shelf count widens, so it is a query object in `app/Queries/Admin/`**
+— resolved inside the closure. `WideningArchitectureTest:76-98`'s comment is
+explicit that *"a controller still never calls `systemWide()` itself"*, and a
+middleware is no more sanctioned than a controller.
 
 **Where the Actions live is forced** (spec D10): `ProfileChangeRequest` uses
 `BelongsToBookshelf` so `BookshelfScope` throws for the unbound admin caller, and
@@ -252,7 +304,8 @@ manager's path too.
 
 **Tests:** the shelf queue holds only reader subjects and the cross-shelf queue
 only manager/admin subjects, asserted from both sides so a request cannot appear
-in both or neither; each badge equals its own queue's length.
+in both or neither; each badge equals its own queue's length — **on a non-empty
+fixture for both queues**, since `0 == 0` passes on an empty one.
 
 **Falsify:** drop the role predicate from the shelf queue and watch a
 manager-subject request appear in it.
@@ -272,8 +325,20 @@ whether their new phone number took effect."*
 pair BR §15 names has no reference implementation and is Phase 3's to decide."*
 
 So: two `NotificationKind` cases, two `NotificationSentences` entries (**its match
-is exhaustive — Larastan errors on a missing arm**), the `notify()` calls in
-Approve and Reject, and `NotificationsAreReaderFacingTest` coverage. **The
+is exhaustive — Larastan errors on a missing arm**), and the `notify()` calls in
+Approve and Reject.
+
+**`NotificationsAreReaderFacingTest` is a census, not a coverage test**, and this
+is the pin that will stop the task. It asserts `$writers` equals a hand-written
+`OPS_SECTION_7` const (`:113`) and that the const's keys canonically equal every
+enum case (`:117-120`). That const (`:48-70`) is a **hand transcription of
+`docs/OPERATIONS.md` §7's table** (`:1137-1146`), which has no profile-change
+rows, and its docblock claims "SEVEN of §7's eight table rows".
+
+So this task edits **four** places in one commit: `OPERATIONS.md` §7's table, the
+`OPS_SECTION_7` const, the docblock's re-derived count, and the enum. Its own
+docblock says so: *"each task that adds a kind adds its writer AND its row here
+in the same commit."* **The
 rejection notification carries the manager's reason.**
 
 **Tests:** approving notifies the subject; rejecting notifies them with the
@@ -307,6 +372,12 @@ credential column.
 **Tests:** the current password is required; sessions are revoked; the volunteer
 path still audits `credentials.set`.
 
+**The session test is easy to write vacuously.** `phpunit.xml:72` forces
+`SESSION_DRIVER=array` (`force="true"`), so nothing writes session rows during
+tests and any `assertGuest()`-shaped assertion is meaningless. The `sessions`
+table does exist (`0001_01_01_000000_create_users_table.php:63-75`, indexed on
+`user_id`) — **seed it and assert on the rows directly.**
+
 **Falsify:** skip the current-password check and watch it go red.
 
 ---
@@ -316,6 +387,10 @@ path still audits `credentials.set`.
 Spec D6. Adds no new audit action — it shares `profile_change.proposed`.
 
 **Sequenced last deliberately**, so the lifecycle is green before storage lands.
+**It reopens three earlier tasks**: the deletion ordering below lives in Tasks 3
+and 4's Actions, and the avatar grafts onto Task 2's merge (which is what D1's
+coupling warning is about). Task 1's page is likewise reopened here, and by
+Tasks 2 and 7 — it ships a view, not a finished screen.
 Ruled into this phase by the product owner over a recommendation to defer.
 
 The port has **no upload path at all**: `config/filesystems.php` is stock, there
