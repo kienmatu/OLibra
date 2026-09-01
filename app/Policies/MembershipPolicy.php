@@ -193,4 +193,34 @@ class MembershipPolicy
     {
         return $this->viewSelf($user, $membership);
     }
+
+    /**
+     * Phase 3c-i Task 3, spec D2: the THIRD and last of the reader-side
+     * member verbs this class's docblock named as deferred — deciding a
+     * proposed change, approve and reject alike.
+     *
+     * AND IT IS A FLOOR, NOT THE RULE. OPS §4.3 says so of its own Caller
+     * line: "`manager` — a floor, not the whole rule". What actually
+     * decides is derived from the SUBJECT's current role and from whether
+     * the actor is one of the two parties, both of which need the subject's
+     * row read inside the deciding command's own transaction. So the whole
+     * of spec D2 lives in
+     * App\Actions\Admin\Concerns\DecidesProfileChanges, exactly where the
+     * §9 subject-role refinement lives for correct(), and this method is
+     * only the "may this person decide anything at all" gate.
+     *
+     * NOT requireSelfOrManager, unlike propose() and viewSelf() above. The
+     * self half would be precisely wrong here: nobody decides their own
+     * proposal at any rank, so admitting a reader to their own row would
+     * hand the Action the one caller it exists to refuse.
+     *
+     * A super administrator passes without a membership on the shelf at
+     * all — Gate::before short-circuits every `act-as-*` ability for the
+     * global flag — which is what lets the unbound `/admin` cross-shelf
+     * queue reach this at all.
+     */
+    public function decide(User $user, Membership $membership): bool
+    {
+        return Gate::forUser($user)->allows('act-as-manager');
+    }
 }

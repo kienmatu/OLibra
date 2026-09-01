@@ -51,6 +51,16 @@ return [
     // The reference's own sentence, which is honest about both.
     'change_already_pending' => 'Bạn đang có một yêu cầu thay đổi chờ duyệt.',
     'profile_change_proposed_flash' => 'Đã gửi đề nghị. Thông tin hiện tại vẫn được dùng cho đến khi quản lý duyệt.',
+    // Phase 3c-i Task 3, spec D3. The re-read under the lock: between the
+    // moment a manager opened the card and the moment they tapped, a
+    // colleague may have decided it or the reader may have withdrawn it.
+    // A distinct code rather than a not-found, because the row is still
+    // there and "already dealt with" is what the volunteer needs told.
+    // OPS §4.3 spells it `not_pending`; the port qualifies the name,
+    // because `request_not_pending` (a borrow request) already exists and
+    // two unqualified 'not_pending' codes would be one sentence for two
+    // different things.
+    'profile_change_not_pending' => 'Yêu cầu đổi thông tin này đã được xử lý.',
     'parish_unit_l1_not_found' => 'Đơn vị bậc 1 đã chọn không tồn tại.',
     'parish_unit_l2_not_found' => 'Đơn vị bậc 2 đã chọn không tồn tại.',
     'parish_unit_l2_not_in_l1' => 'Đơn vị bậc 2 đã chọn không thuộc đơn vị bậc 1 đã chọn.',

@@ -72,6 +72,16 @@ final class AuditSentences
         // administrative: this is a reader on their own profile page, and
         // the group answers "which screen is this act from".
         'profile_change.proposed' => 'readers',
+        // Phase 3c-i Task 3, spec D2 and D3 — the decision pair, and the
+        // same 'readers' answer for the same reason: the group names which
+        // screen an act is from, and both queues that reach these are
+        // reader-record screens. That the cross-shelf one hangs off /admin
+        // does not make the act administrative; 'administration' is the
+        // group for acts ON a shelf or ON a manager, not for acts about a
+        // reader that an administrator happens to be the one permitted to
+        // take.
+        'profile_change.approved' => 'readers',
+        'profile_change.rejected' => 'readers',
         // Phase 2b files every community action under its own group, the
         // reference's cong-dong (audit-actions.ts's comment.* family).
         // Folding comments into books would leave next task's shelf news
@@ -372,6 +382,18 @@ final class AuditSentences
             // substitution, and the payload (the proposed values beside
             // their snapshot) is what a volunteer opens the row for.
             'profile_change.proposed' => self::line('profile_change_proposed'),
+            // NAMES THE SUBJECT, unlike proposed just above, and it can:
+            // this row's entity IS the user (spec D3's entity-type rule),
+            // so the subject join has a key to work from. Which fields
+            // moved is in the payload rows one tap away.
+            'profile_change.approved' => strtr(self::line('profile_change_approved'), [':subject' => self::who($subject)]),
+            // NO subject, and the reason through the existing :because
+            // helper. The entity here is the REQUEST, so there is no user
+            // id to join a name from — the same situation
+            // profile_change.proposed is in. RejectProfileChange always
+            // writes a reason (it is refused blank), so this clause is
+            // never empty in practice; the helper does not assume it.
+            'profile_change.rejected' => strtr(self::line('profile_change_rejected'), [':because' => self::because(self::str($after, 'reason'))]),
             // No strtr at all — the copy_lost_reported shape. The
             // reference's phrase names neither the title nor the author,
             // and that stays deliberate: the payload holds book_id and no

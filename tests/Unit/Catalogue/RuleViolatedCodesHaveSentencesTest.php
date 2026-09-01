@@ -132,6 +132,10 @@ it('every literal RuleViolated code thrown from app/ has a Vietnamese sentence',
         'password_too_short',
         'passwords_dont_match',
         'phone_invalid',
+        // 3c-i Task 3: the re-read under the decide lock (spec D3). Not a
+        // not-found — the row is there, it has simply already been decided
+        // or withdrawn since the manager opened the card.
+        'profile_change_not_pending',
         'reason_required',
         'registration_not_pending',
         'reject_reason_required',

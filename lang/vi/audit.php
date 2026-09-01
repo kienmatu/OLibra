@@ -65,6 +65,14 @@ return [
     // else. Which fields were proposed is in the payload rows one tap
     // away, which is where INV-8 puts them.
     'profile_change_proposed' => 'gửi yêu cầu đổi thông tin',
+    // Phase 3c-i Task 3. This one DOES name the subject: the audit row's
+    // entity is the person whose details just moved, which is the whole
+    // difference between approving a change and proposing one.
+    'profile_change_approved' => 'duyệt yêu cầu đổi thông tin của :subject',
+    // No subject — the row's entity is the request, whose subject join has
+    // no user id to work from — and the reason through the shared :because
+    // clause, the membership_rejected / comment_rejected shape.
+    'profile_change_rejected' => 'từ chối yêu cầu đổi thông tin:because',
 
     // — cộng đồng —
     // The reference's phrase verbatim (audit-actions.ts's comment.created).
