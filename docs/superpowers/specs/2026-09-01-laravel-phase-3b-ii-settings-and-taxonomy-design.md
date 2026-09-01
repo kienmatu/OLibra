@@ -82,26 +82,56 @@ them, and the reference renders them as fixed text (`cai-dat/page.tsx:243-257`,
 `<select>` with one option. Porting it as a control would be a control that
 looks enabled and does nothing.
 
+**The contact phone is validated, because it is published.** The reference calls
+`assertPhone` on a non-empty value (`system-settings.ts:50`) and gives the
+reason on the line above: this is `/lien-he`'s public number, so a bad value is a
+*public* dead link rather than a private inconvenience. `App\Support\Phone`
+already exists here.
+
+**Backup is listed by §16.4 and deliberately not built.** `BUSINESS-REQUIREMENTS.md:598`
+names it, and OPS specifies a last-backup time and a `DownloadSystemBackup`
+command — but the reference's own settings page renders none of it, and a backup
+control is an operations feature rather than a settings field. Omitted on
+purpose, recorded in `known-gaps.md`, and said here rather than left as a silent
+gap the way the first draft left locale and timezone.
+
 `App\Models\SystemSetting` already exists, documents `sole()`, and has **zero
 callers** — this phase is its first.
 
-### D2 — The public contact page reads the row **and carries a form**
+### D2 — The public contact page shows the details; the form waits for its inbox
 
-`BUSINESS-REQUIREMENTS.md:504`: *"The administration's name, phone and contact
-hours, **plus a short form**."* The first draft of this spec dropped the form and
-said a blank detail should omit its line — which would ship a blank page to
-exactly the visitor the page exists for.
+`BUSINESS-REQUIREMENTS.md:504` reads *"The administration's name, phone and
+contact hours, **plus a short form**."* The first draft dropped the form; the
+second claimed the reference "always renders" it. **Both were wrong**, and the
+second was wrong about the reference itself: `lien-he/page.tsx:62` computes
+`hasContact = Boolean(contact.name || contact.phone)` and `:83` is a **ternary**
+— the contact card *or* the form, never both. Its docstring says why:
 
-So `/contact` renders the three stored details, omitting any that is blank
-(never a placeholder, never an invented default), **and always renders the
-feedback form**: name, phone, subject, body, posting site-wide feedback with a
-null `bookshelf_id`. The reference rate-limits it per phone per day
-(`lien-he/page.tsx`), and we keep a limit; `Feedback` already exists from Phase
-2b and is already rate-limited by hashed identifier.
+> An administrator who *has* filled in the contact block still sees the ordinary
+> card below — the form is only for the gap it exists to close.
 
-**It is public** — no membership, no shelf, no tenant. It must therefore touch
+Note the gate is `name || phone`; `contact_hours` alone does not count.
+
+**This phase ships the details and defers the form**, because the form has no
+reader. There is **no feedback write path in this application at all** — no
+action, no controller, no POST route, and the only registered rate limiter is
+`register` (`AppServiceProvider.php:128`; the "3 per phone per day" figure at
+`:96` is a comment describing a writer that does not exist). Building one here
+would also need its inbox, and `/admin/feedback` (`routes/web.php:619`) and the
+shelf feedback page (`:202`) are both explicitly 3c's.
+
+A form whose messages land in a table no screen can read is worse than no form:
+it promises a reply that cannot come. So `/contact` renders the three stored
+details, omitting any that is blank — never a placeholder, never an invented
+default — and when no contact is configured at all it says plainly that the
+visitor should approach their parish directly. **The form lands in 3c, with the
+inbox that reads it**, and this is recorded as a deliberate deferral rather than
+an oversight.
+
+**The page is public** — no membership, no shelf, no tenant — so it must touch
 **no shelf-scoped model**, or `BookshelfScope` throws for precisely the visitor
-this page serves. That is §5 test 1.
+it serves. `Feedback` is deliberately not `BelongsToBookshelf`, which is what
+will make 3c's form safe here too.
 
 ### D3 — Categories are system-wide, but their writes still belong in `app/Actions/Admin/`
 
@@ -113,8 +143,13 @@ Two halves, and the first draft got the second backwards.
 
 **False as first written:** "these writes need neither `systemWide()` nor
 `app/Actions/Admin/`." The reference audits all three category commands
-**globally** (`audit-actions.ts:644,651,660`), and `AuditRecorder`'s `global()`
-is fenced by `WideningArchitectureTest:118-127` to `app/Actions/Admin/`. So the
+**globally** — and the evidence is in the writers (`create-category.ts:109`,
+`rename-category.ts:47`, `archive-category.ts:63`), not in the `ACTIONS`
+entries, which carry only `group` and `phrase`. (The reference's own comment at
+`audit-actions.ts:640` claiming every entry there sets `global: true` is stale;
+this spec's first draft inherited that false statement instead of reading the
+writers.) And `AuditRecorder`'s `global()`
+is fenced by `WideningArchitectureTest:122-131` to `app/Actions/Admin/`. So the
 commands must live there. Same for D1's two settings commands.
 
 Three commands, matching the reference: create, rename, archive.
@@ -124,13 +159,19 @@ Three commands, matching the reference: create, rename, archive.
   only — the same shape as 3b-i's D1 for a shelf's slug.
 - **Archiving is refused while books still carry the genre**, with the
   reference's own sentence: *"Chỉ lưu trữ được khi không còn sách nào thuộc thể
-  loại này."* The first draft's test asserted the opposite — that archiving
+  loại này."* The refusal code is `category_in_use`
+  (`archive-category.ts:52`) and needs a Vietnamese sentence in
+  `lang/vi/rules.php` plus an entry in `RuleViolatedCodesHaveSentencesTest`'s
+  hand-written list — the members slice has a census that would catch a missing
+  one, the catalogue slice does not, so this fails silently rather than red. The first draft's test asserted the opposite — that archiving
   succeeds and books keep the reference — which would have tested that the
   refusal does not exist.
-- **No BR mandate.** `DATABASE.md:658-730` says outright that a categories screen
-  *"is a decision rather than something the requirements settled"* and that §5.1
-  does not list Category among the entities. We port the reference's screen and
-  say so, rather than citing §16.4 for it.
+- **No BR mandate.** §16.4 (`BUSINESS-REQUIREMENTS.md:596-612`) lists eight
+  administration pages and a categories screen is not among them. We port the
+  reference's screen and say so, rather than citing §16.4 for it. (`DATABASE.md:660`
+  is often quoted here — but its "a decision rather than something the
+  requirements settled" is about categories being *global reference data rather
+  than tenant data*, not about whether a screen should exist.)
 
 ### D4 — `manage/settings` is **read-only**. The manager edits nothing here.
 
@@ -155,59 +196,64 @@ independent sources falsify that:
 
 So `manage/settings` is a summary: the eight policy values, the shelf's
 contacts, its taxonomy shape — all as text, with the sentence saying who can
-change them. That makes the first draft's "anti-drift" test and its
+change them. (`manage/units` is different: D5 gives it a real editor, gated.) That makes the first draft's "anti-drift" test and its
 "both directions" authorization test moot; both are dropped.
 
-### D5 — Unit CRUD lands on the **admin** shelf editor, beside the taxonomy shape
+### D5 — Unit CRUD lives on `manage/units`, gated by `canEdit`; the shape lives on the admin editor
 
-**Reversed after review**, for the same reason and with a sharper precedent.
+**Reversed twice.** The first draft let the *manager* edit units — invented, and
+falsified by all five reference commands calling `requireSuperAdmin`. The second
+moved the whole editor onto the admin shelf editor. That was also wrong, in two
+ways the review measured:
 
-The first draft split the work: the super administrator configures the *shape*
-(levels, labels, nesting) from the admin editor, and the manager fills in the
-*units* from `manage/units`. That split is invented. All five parish-unit
-commands call `requireSuperAdmin` in the reference; `BUSINESS-REQUIREMENTS.md:600`
-(§16.4) puts *"level count, each level's label, nesting, **and the unit lists
-themselves**"* on the admin Bookshelves screen; and 3b-i's own D8 described the
-deferred editor as *"a sub-editor with level count, labels, a nesting flag **and
-unit-list CRUD**."*
+1. **It is not where the reference puts it.** The reference's unit CRUD screen is
+   `quan-ly/co-cau/page.tsx` — the *manager* route, `manage/units`'s own
+   analogue. It renders `const canEdit = viewer.role === "super_admin"` (`:342`)
+   and switches between an interactive tree and read-only text.
+2. **The docstring quoted as its "precedent" argues the opposite.** That block
+   (`:45-49`) is arguing for the `canEdit` switch *on that screen*; the next
+   paragraph (`:50-56`) says so outright. The spec cited a source against itself.
 
-The reference's own screen carries the precedent, in a docstring worth quoting
-because this spec reproduced the exact mistake it records:
+And the placement carried a cost the spec never named. **`ParishUnit` uses
+`BelongsToBookshelf`** (`app/Models/ParishUnit.php:16`) and `BookshelfScope`
+fails closed, while `/admin` binds no tenant — so unit CRUD on the admin editor
+would make **every `ParishUnit` read and write** require `systemWide()`, the
+capability fenced by test precisely so it stays rare. `manage/*` binds a tenant,
+so the reference's placement needs none of it.
 
-> Rendering the write forms to them anyway would be exactly the defect this
-> branch's own QA sweep spent itself cataloguing on other screens: a control that
-> looks enabled and does nothing. **This first shipped that way — reviewed and
-> corrected before merge.**
+**So:** unit CRUD lives on `shelves/{shelf}/manage/units`, rendering the editing
+tree when the viewer is a super administrator and the same values as read-only
+text otherwise. `BUSINESS-REQUIREMENTS.md:600` lists the unit lists under the
+admin Bookshelves screen; we diverge on **location** while matching it on
+**authority**, and the divergence is recorded rather than left to be discovered.
 
-So: the admin shelf editor gains a fourth section carrying both the shape and
-the units. `manage/units` becomes a **read-only** view of the shelf's units for
-its manager.
+The **shape** — level count, labels, nesting — stays on the admin shelf editor as
+3b-i's D8 promised, since it is a property of the shelf stored in its `settings`.
 
 **The shape's keys are `ParishTaxonomy`'s, not prose.**
-`app/Support/Members/ParishTaxonomy.php` already fixes the storage: under
-`parish_taxonomy`, the keys are **`levels`, `nested`, `level1_label`,
-`level2_label`** (snake_case in `settings`, camelCase in PHP), and
-`app/Queries/ParishContextQuery.php:63` already reads them. Naming these here
-rather than describing them is the direct lesson of 3b-i, where a settings key
-taken from the requirements instead of the code (`allow_comments` for the real
-`comments_enabled`) would have saved successfully and changed nothing.
+`app/Support/Members/ParishTaxonomy.php` fixes them: under `parish_taxonomy`, the
+keys are **`levels`, `nested`, `level1_label`, `level2_label`** (snake_case in
+`settings`, camelCase in PHP), with `default()` = `(1, false, 'Tổ', 'Tổ')`.
+Naming them here rather than describing them is the direct lesson of 3b-i, where
+a key taken from the requirements instead of the code (`allow_comments` for the
+real `comments_enabled`) would have saved successfully and changed nothing.
 
 **`parish_taxonomy` must be merged into `settings`, not assigned over it** — the
 bag also holds the eight policy keys and the two public-display settings, and
-3b-i's `UpdateBookshelfPolicy` carries a test proving a wholesale write drops
-them.
+3b-i carries a test proving a wholesale write drops them.
 
-**Reordering is part of CRUD.** `reorder-parish-units.ts` exists and the
-reference ships JS-free reorder controls. One subtlety must come across:
-level-2 siblings group by their **real `parent_id`**, never by the flat display
-list — a shelf that turned `nested` off otherwise refuses every click.
+**Reordering has two rules, not one.** Level-2 siblings group by their real
+`parent_id`, never the flat display list — a shelf that turned `nested` off
+otherwise refuses every click. And the posted list must be the **entire** sibling
+group: a partial list is `validation_failed`, because `[C, A]` over three units
+yields the tie `C=1, A=2, B=2` and silently restores name ordering
+(`reorder-parish-units.ts:118-145`).
 
-**No built-in unit list ships.** `BUSINESS-REQUIREMENTS.md:247` is explicit that
-a list of units baked into the product would be right for whichever parish it
-was copied from and wrong for every other. The narrower carve-out at `:249` is
-that the two *label words* may appear as hint text: `Tổ` and `Giáo họ` are the
-only two the requirements have seen a parish use, and `Tổ` is the level-1
-default — which matches `ParishTaxonomy::default()` already.
+**No built-in unit list ships.** `BUSINESS-REQUIREMENTS.md:247` is explicit that a
+list baked into the product would be right for whichever parish it was copied
+from and wrong for every other. The narrower carve-out at `:249` is that the two
+*label words* may appear as hint text: `Tổ` and `Giáo họ` are the only two the
+requirements have seen a parish use.
 
 ### D6 — Deleting a unit writes one audit row per row deleted
 
@@ -307,7 +353,42 @@ guess.
 
 Per project practice, **every test is watched failing before it is accepted**.
 
-## 6. Risks
+## 6. Architecture pins this phase will hit
+
+3b-i hit four of these the hard way; naming them costs a paragraph and saves a
+red CI run.
+
+1. **`WideningArchitectureTest`** — two fences. `systemWide()` is confined to
+   `app/Queries/Admin/` and `app/Actions/Admin/`; the `AuditRecorder`
+   configurator (`->global(` / `->forShelf(`) to `app/Actions/Admin/` alone
+   (`:122-131`). D3's settings and category commands live there for the second
+   reason. D5's placement means unit CRUD needs **neither**, which is most of
+   why that placement is right.
+2. **`AuditActionCensusTest`** — set-equality in both directions between actions
+   recorded in code and sentences declared, and it bans computed action names.
+   With ten new actions, a half-registered one is instantly red. Plus
+   `AuditSentencesTest:435`'s count, 48 → 58.
+3. **`FreeTextEncodingGuardTest:323`** sweeps every Form Request: each free-text
+   field needs `encoding:UTF-8` or a documented exemption, and `:354` catches
+   stale exemptions. This phase adds many — `contact_name`, `contact_hours`,
+   category `name`, unit `name`, `level1_label`, `level2_label`.
+4. **`RouteOrderTest`** — super-admin middleware on every `admin/`-prefixed route
+   (`:138`), a `role:` middleware on every `/manage` route (`:67`), tenant
+   middleware on every route naming `{shelf}` (`:23`), and **no Vietnamese path
+   segments** (`:153`). The reference's routes are `/quan-tri/the-loai`,
+   `/co-cau` and `/lien-he`; none of those names carries across.
+5. **`LabelsArchitectureTest:23`** is a census of `Asia/Ho_Chi_Minh` literals in
+   `app/`. D1's read-only timezone block has no column to read — `system_settings`
+   carries no `locale` or `timezone` — so the value comes from
+   `App\Support\Clock::ZONE`, never a fresh literal.
+
+**Comment-blindness applies to two of these.** `WideningArchitectureTest`'s
+`offendersFor` reads raw file contents with no comment stripping, and
+`TenancyArchitectureTest`'s `[^;]*` spans from a comment into the code below it
+because comments carry no semicolon. Name constraints in prose; do not spell
+where-shaped calls or `->global(` inside a comment.
+
+## 7. Risks
 
 - **The admin shelf editor gains a fourth section that is itself a sub-editor**
   with list CRUD and reordering — much the largest screen in the phase, landing
